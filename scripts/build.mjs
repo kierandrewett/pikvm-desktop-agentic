@@ -1,7 +1,9 @@
-// Dual esbuild: Node (Electron main + preloads) and browser (React sidebar).
+// Dual esbuild: Node (Electron main + preloads) and browser (React sidebar),
+// plus a Tailwind pass for the AI Elements sidebar styles.
 import { build } from "esbuild";
 import { rmSync, cpSync, mkdirSync } from "fs";
 import { resolve } from "path";
+import { execFileSync } from "child_process";
 
 const root = resolve(import.meta.dirname, "..");
 const dist = resolve(root, "dist");
@@ -40,9 +42,25 @@ await build({
     format: "iife",
     bundle: true,
     jsx: "automatic",
+    alias: { "@": resolve(root, "src/sidebar") },
     define: { "process.env.NODE_ENV": '"production"' },
+    loader: { ".ts": "tsx" },
     sourcemap: true,
     logLevel: "info",
 });
+
+// 4. Tailwind: compile the AI Elements / shadcn styles for the sidebar.
+execFileSync(
+    "npx",
+    [
+        "@tailwindcss/cli",
+        "-i",
+        resolve(root, "src/sidebar/styles.css"),
+        "-o",
+        resolve(dist, "views/sidebar.css"),
+        "--minify",
+    ],
+    { stdio: "inherit", cwd: root },
+);
 
 console.log("build complete");

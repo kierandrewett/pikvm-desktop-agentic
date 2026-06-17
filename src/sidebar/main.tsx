@@ -1,19 +1,40 @@
 /**
- * Agent sidebar (Vercel AI SDK + React) — VS Code-chat-style.
+ * Agent sidebar — built with the Vercel AI SDK + AI Elements components.
  *
- * Streams the agent transcript via `useChat`, renders markdown + code blocks,
- * collapsible tool calls, screenshots, three-way authorization cards, a model
- * picker, sessions (new/resume), presence banner, and slash autocomplete.
+ * Chat surface (conversation, reasoning, tool calls, suggestions, loader,
+ * markdown) uses AI Elements; computer-use specifics (screenshots with action
+ * markers, three-way authorization, sessions, settings, presence) are custom
+ * components styled with the same shadcn tokens.
  */
 
 import { createRoot } from "react-dom/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
+import { Streamdown } from "streamdown";
+import {
+    Activity,
+    ArrowUp,
+    Copy,
+    History,
+    Plus,
+    RotateCcw,
+    Settings2,
+    Sparkles,
+    Square,
+    Trash2,
+    X,
+} from "lucide-react";
+import { Conversation, ConversationContent, ConversationScrollButton } from "@/ai-elements/conversation";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/ai-elements/reasoning";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/ai-elements/tool";
+import { Suggestion } from "@/ai-elements/suggestion";
+import { Loader } from "@/ai-elements/loader";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { completions, type CommandSpec } from "../commands";
 import type { AuthRequest } from "../reviewer";
 import type { ServerState, MarkerData } from "../agent/protocol";
-import { Markdown } from "./markdown";
 
 const BASE = "http://127.0.0.1:25650";
 
@@ -31,63 +52,28 @@ const SUGGESTIONS = [
     "Check what operating system this is",
 ];
 
-/* --------------------------------- parts --------------------------------- */
+/* ------------------------------- custom parts ----------------------------- */
 
-function Screenshot({
-    src,
-    w,
-    h,
-    markers,
-    onOpen,
-}: {
-    src: string;
-    w: number;
-    h: number;
-    markers: MarkerData[];
-    onOpen: (s: string) => void;
-}) {
+function Screenshot({ src, w, h, markers, onOpen }: { src: string; w: number; h: number; markers: MarkerData[]; onOpen: (s: string) => void }) {
     return (
-        <div className="shot" onClick={() => onOpen(src)}>
-            <img src={src} alt="screen" />
+        <div className="relative cursor-zoom-in overflow-hidden rounded-lg border" onClick={() => onOpen(src)}>
+            <img src={src} alt="screen" className="block w-full" />
             {markers.map((mk, i) => (
                 <span
                     key={i}
-                    className={`marker ${mk.kind}`}
+                    className={cn(
+                        "pointer-events-none absolute -ml-2 -mt-2 size-4 rounded-full",
+                        mk.kind === "move"
+                            ? "size-2.5 -ml-[5px] -mt-[5px] border-2 border-primary bg-primary/25"
+                            : "border-2 border-destructive shadow-[0_0_0_2px_rgba(255,77,77,0.35)]",
+                    )}
                     style={{ left: `${(mk.x / (w || 1)) * 100}%`, top: `${(mk.y / (h || 1)) * 100}%` }}
                     title={`${mk.kind} (${mk.x}, ${mk.y})`}
                 />
             ))}
-            <span className="dim">
+            <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 text-[11px] text-white">
                 {w}×{h}
             </span>
-        </div>
-    );
-}
-
-const TOOL_ICON: Record<string, string> = {
-    screenshot: "📸",
-    move_mouse: "🖱",
-    click: "👆",
-    double_click: "👆",
-    type_text: "⌨️",
-    press_key: "⌨️",
-    hotkey: "⌨️",
-    scroll: "🖱",
-};
-
-function ToolCall({ name, state, input, summary }: { name: string; state?: string; input?: any; summary?: string }) {
-    const [open, setOpen] = useState(false);
-    const running = state && state !== "output-available" && state !== "output-error";
-    return (
-        <div className={`tool ${running ? "running" : ""}`}>
-            <div className="tool-row" onClick={() => setOpen((o) => !o)}>
-                <span className="tico">{TOOL_ICON[name] ?? "•"}</span>
-                <span className="tname">{name}</span>
-                {summary && <span className="tsum">{summary}</span>}
-                {running && <span className="tspin" />}
-                <span className="tchev">{open ? "▾" : "▸"}</span>
-            </div>
-            {open && input != null && <pre className="targs">{JSON.stringify(input, null, 2)}</pre>}
         </div>
     );
 }
@@ -97,136 +83,86 @@ function AuthCard({ req, onDecide }: { req: AuthRequest; onDecide: (v: any) => v
     const [text, setText] = useState("");
     const [remember, setRemember] = useState(false);
     return (
-        <div className={`auth ${req.risky ? "risky" : ""}`}>
-            <div className="ahdr">
+        <div className={cn("rounded-xl border p-3", req.risky ? "border-destructive/60" : "border-primary/60")}>
+            <div className="flex items-center justify-between font-semibold">
                 <span>{req.risky ? "⚠ Authorize action" : "Authorize action"}</span>
-                <code>{req.op.tool}</code>
+                <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{req.op.tool}</code>
             </div>
-            {req.reason && <div className="areason">{req.reason}</div>}
-            <pre className="aargs">{JSON.stringify(req.op.args)}</pre>
-            {!redirect ? (
-                <div className="arow">
-                    <button className="allow" onClick={() => onDecide({ decision: "allow", rememberKind: remember })}>
-                        Allow
-                    </button>
-                    <button className="deny" onClick={() => onDecide({ decision: "deny" })}>
-                        Deny
-                    </button>
-                    <button className="diff" onClick={() => setRedirect(true)}>
-                        Do something different
-                    </button>
-                </div>
-            ) : (
-                <div className="aredir">
+            {req.reason && <div className="mt-1.5 text-xs text-destructive">{req.reason}</div>}
+            <pre className="mt-1.5 max-h-20 overflow-auto whitespace-pre-wrap break-all rounded bg-muted px-2 py-1 text-[11px]">
+                {JSON.stringify(req.op.args)}
+            </pre>
+            {redirect ? (
+                <div className="mt-2">
                     <textarea
                         autoFocus
+                        className="mb-1.5 min-h-[54px] w-full resize-y rounded-md border bg-background p-2 text-sm"
                         placeholder="Tell the agent what to do instead…"
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                     />
-                    <div className="arow">
-                        <button className="allow" onClick={() => onDecide({ decision: "redirect", text })}>
+                    <div className="flex gap-1.5">
+                        <Button size="sm" className="flex-1" onClick={() => onDecide({ decision: "redirect", text })}>
                             Send redirect
-                        </button>
-                        <button className="diff" onClick={() => setRedirect(false)}>
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setRedirect(false)}>
                             Back
-                        </button>
+                        </Button>
                     </div>
                 </div>
+            ) : (
+                <div className="mt-2 flex gap-1.5">
+                    <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-500" onClick={() => onDecide({ decision: "allow", rememberKind: remember })}>
+                        Allow
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => onDecide({ decision: "deny" })}>
+                        Deny
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setRedirect(true)}>
+                        Something else
+                    </Button>
+                </div>
             )}
-            <label className="remember">
-                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Always allow
-                this kind
+            <label className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Always allow this kind
             </label>
         </div>
     );
 }
 
-/* ------------------------------- sessions -------------------------------- */
-
-function SessionMenu({
-    state,
-    onNew,
-    onResume,
-    onDelete,
-}: {
-    state: ServerState | null;
-    onNew: () => void;
-    onResume: (id: string) => void;
-    onDelete: (id: string) => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const sessions = state?.sessions ?? [];
-    return (
-        <div className="sessions">
-            <button className="iconbtn" title="New chat" onClick={onNew}>
-                ＋
-            </button>
-            <button className="iconbtn" title="History" onClick={() => setOpen((o) => !o)}>
-                🕘
-            </button>
-            {open && (
-                <div className="sesslist" onMouseLeave={() => setOpen(false)}>
-                    {sessions.length === 0 && <div className="sessempty">No saved sessions</div>}
-                    {sessions.map((s) => (
-                        <div key={s.id} className={`sessrow ${s.id === state?.sessionId ? "cur" : ""}`}>
-                            <span
-                                className="sesstitle"
-                                onClick={() => {
-                                    onResume(s.id);
-                                    setOpen(false);
-                                }}
-                            >
-                                {s.title}
-                            </span>
-                            <button
-                                className="sessdel"
-                                title="Delete"
-                                onClick={() => onDelete(s.id)}
-                            >
-                                ✕
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function Thinking({ text, done }: { text: string; done?: boolean }) {
-    const [open, setOpen] = useState(false);
-    return (
-        <div className={`thinking-block ${done ? "" : "live"}`}>
-            <div className="tb-row" onClick={() => setOpen((o) => !o)}>
-                <span className="tb-ico">🧠</span>
-                <span className="tb-label">{done ? "Thought" : "Thinking…"}</span>
-                <span className="tchev">{open ? "▾" : "▸"}</span>
-            </div>
-            {open && <div className="tb-body">{text}</div>}
-        </div>
-    );
-}
-
 function StatusPill({ state }: { state: ServerState | null }) {
-    if (!state) return <span className="pill connecting">connecting…</span>;
-    if (state.presence.paused) return <span className="pill paused">paused</span>;
-    if (state.acting) return <span className="pill working">working</span>;
-    return <span className="pill idle">idle</span>;
+    const label = !state ? "connecting" : state.presence.paused ? "paused" : state.acting ? "working" : "idle";
+    const cls =
+        label === "working"
+            ? "bg-primary/20 text-primary"
+            : label === "paused"
+              ? "bg-destructive/20 text-destructive"
+              : "bg-muted text-muted-foreground";
+    return <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", cls)}>{label}</span>;
 }
 
 function ContextMeter({ ctx }: { ctx: { tokens: number; max: number } | undefined }) {
     if (!ctx || !ctx.max) return null;
     const pct = Math.min(100, Math.round((ctx.tokens / ctx.max) * 100));
-    const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(0)}k` : `${n}`);
+    const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`);
     return (
-        <div className="ctxmeter" title={`${ctx.tokens} / ${ctx.max} context tokens`}>
-            <div className="ctxbar">
-                <div className="ctxfill" style={{ width: `${pct}%`, background: pct > 85 ? "var(--danger)" : "var(--accent)" }} />
+        <div className="flex items-center gap-1.5" title={`${ctx.tokens} / ${ctx.max} context tokens`}>
+            <div className="h-1.5 w-11 overflow-hidden rounded-full bg-muted">
+                <div className={cn("h-full transition-all", pct > 85 ? "bg-destructive" : "bg-primary")} style={{ width: `${pct}%` }} />
             </div>
-            <span className="ctxnum">
+            <span className="text-[10px] text-muted-foreground">
                 {k(ctx.tokens)}/{k(ctx.max)}
             </span>
+        </div>
+    );
+}
+
+function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+    return (
+        <div className="fixed inset-0 z-40 flex justify-end bg-black/40" onClick={onClose}>
+            <div className="flex w-72 flex-col border-l bg-card" onClick={(e) => e.stopPropagation()}>
+                {children}
+            </div>
         </div>
     );
 }
@@ -235,68 +171,62 @@ function ActivityPanel({ state, onClose }: { state: ServerState | null; onClose:
     const log = (state?.log ?? []).slice().reverse();
     const fmt = (t: number) => new Date(t).toLocaleTimeString();
     return (
-        <div className="activity" onClick={onClose}>
-            <div className="act-panel" onClick={(e) => e.stopPropagation()}>
-                <div className="act-head">
-                    <b>Activity</b>
-                    <button onClick={onClose}>✕</button>
-                </div>
-                <div className="act-list">
-                    {log.length === 0 && <div className="act-empty">No operations yet.</div>}
-                    {log.map((e) => (
-                        <div key={e.id} className={`act-row ${e.decision}`}>
-                            <span className="act-dec">{e.decision === "auto-allow" ? "✓" : e.decision === "deny" ? "✕" : e.decision === "redirect" ? "↦" : "✓"}</span>
-                            <span className="act-tool">{e.op.tool}</span>
-                            {e.risky && <span className="act-risk">risky</span>}
-                            <span className="act-time">{fmt(e.at)}</span>
-                        </div>
-                    ))}
-                </div>
+        <Modal onClose={onClose}>
+            <div className="flex items-center justify-between border-b p-3 font-semibold">
+                Activity
+                <button onClick={onClose} className="text-muted-foreground">
+                    <X className="size-4" />
+                </button>
             </div>
-        </div>
+            <div className="flex-1 overflow-auto">
+                {log.length === 0 && <div className="p-4 text-sm text-muted-foreground">No operations yet.</div>}
+                {log.map((e) => (
+                    <div key={e.id} className="flex items-center gap-2 border-b px-3 py-1.5 text-xs">
+                        <span className={cn("w-3.5 text-center", e.decision === "deny" ? "text-destructive" : e.decision === "redirect" ? "text-primary" : "text-emerald-500")}>
+                            {e.decision === "auto-allow" ? "✓" : e.decision === "deny" ? "✕" : e.decision === "redirect" ? "↦" : "✓"}
+                        </span>
+                        <span className="font-semibold">{e.op.tool}</span>
+                        {e.risky && <span className="rounded border border-destructive px-1 text-[10px] text-destructive">risky</span>}
+                        <span className="ml-auto text-[10px] text-muted-foreground">{fmt(e.at)}</span>
+                    </div>
+                ))}
+            </div>
+        </Modal>
     );
 }
 
-function SettingsPopover({
-    state,
-    onClose,
-    onPatch,
-}: {
-    state: ServerState | null;
-    onClose: () => void;
-    onPatch: (p: any) => void;
-}) {
+function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
+    const hv = s?.humanize ?? 1;
     return (
-        <div className="settings-pop" onClick={onClose}>
-            <div className="sp-panel" onClick={(e) => e.stopPropagation()}>
-                <div className="sp-head">
-                    <b>Settings</b>
-                    <button onClick={onClose}>✕</button>
-                </div>
-                <label className="sp-field">
-                    <span>Typing style</span>
+        <Modal onClose={onClose}>
+            <div className="flex items-center justify-between border-b p-3 font-semibold">
+                Settings
+                <button onClick={onClose} className="text-muted-foreground">
+                    <X className="size-4" />
+                </button>
+            </div>
+            <div className="space-y-4 p-3">
+                <label className="block">
+                    <span className="text-sm">Typing style</span>
                     <input
                         type="range"
                         min={0}
                         max={1}
                         step={0.1}
-                        defaultValue={s?.humanize ?? 1}
+                        defaultValue={hv}
+                        className="mt-1 w-full"
                         onChange={(e) => onPatch({ humanize: parseFloat(e.target.value) })}
                     />
-                    <small>{(s?.humanize ?? 1) === 0 ? "Precise (no typos)" : (s?.humanize ?? 1) >= 0.9 ? "Very human" : "Human"}</small>
+                    <small className="text-muted-foreground">{hv === 0 ? "Precise (no typos)" : hv >= 0.9 ? "Very human" : "Human"}</small>
                 </label>
-                <label className="sp-check">
-                    <input
-                        type="checkbox"
-                        checked={s?.pauseOnPresence ?? true}
-                        onChange={(e) => onPatch({ pauseOnPresence: e.target.checked })}
-                    />
-                    <span>Pause when target mic/audio is active</span>
+                <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={s?.pauseOnPresence ?? true} onChange={(e) => onPatch({ pauseOnPresence: e.target.checked })} />
+                    Pause when target mic/audio is active
                 </label>
-                <p className="sp-note">Model & review policy are in the header. Settings persist across restarts.</p>
+                <p className="text-[11px] text-muted-foreground">Model & review policy are in the header. Settings persist across restarts.</p>
             </div>
-        </div>
+        </Modal>
     );
 }
 
@@ -307,31 +237,10 @@ function App() {
     const [decided, setDecided] = useState<Set<string>>(new Set());
     const [input, setInput] = useState("");
     const [lightbox, setLightbox] = useState<string | null>(null);
-    const [showActivity, setShowActivity] = useState(false);
-    const [showSettings, setShowSettings] = useState(false);
+    const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history">("none");
     const transport = useRef(new DefaultChatTransport({ api: BASE + "/api/chat" }));
-    const { messages, sendMessage, status, stop, setMessages, regenerate, error } = useChat({
-        transport: transport.current,
-    });
-    const scroller = useRef<HTMLDivElement>(null);
+    const { messages, sendMessage, status, stop, setMessages, regenerate, error } = useChat({ transport: transport.current });
     const inputRef = useRef<HTMLTextAreaElement>(null);
-    const [atBottom, setAtBottom] = useState(true);
-
-    const onHandleDown = (e: React.MouseEvent) => {
-        e.preventDefault();
-        const onMove = (ev: MouseEvent) => (window as any).ui?.send?.("sidebar:resize", window.innerWidth - ev.movementX);
-        const onUp = () => {
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-    };
-
-    const copyText = (m: any) =>
-        navigator.clipboard?.writeText(
-            (m.parts ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n"),
-        );
 
     const refreshState = () =>
         fetch(BASE + "/api/state")
@@ -345,102 +254,78 @@ function App() {
         return () => clearInterval(id);
     }, []);
 
-    useEffect(() => {
-        if (atBottom) scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
-    }, [messages, atBottom]);
-
-    const onScroll = () => {
-        const el = scroller.current;
-        if (!el) return;
-        setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 60);
-    };
-
     const decide = (id: string, verdict: any) => {
         setDecided((s) => new Set(s).add(id));
         void post("/api/approve", { id, ...verdict });
     };
-
     const send = (text = input) => {
         const t = text.trim();
         if (!t) return;
         setInput("");
         void sendMessage({ text: t });
     };
+    const newChat = () => void post("/api/sessions/new").then(() => { setMessages([]); refreshState(); });
+    const resume = (id: string) =>
+        void post("/api/sessions/resume", { id }).then((r) => r.json()).then((d) => { setMessages(d.messages ?? []); refreshState(); setPanel("none"); });
+    const del = (id: string) => void post("/api/sessions/delete", { id }).then(refreshState);
 
-    const newChat = () => {
-        void post("/api/sessions/new").then(() => {
-            setMessages([]);
-            refreshState();
-        });
-    };
-
-    // Keyboard shortcuts.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const mod = e.metaKey || e.ctrlKey;
-            if (e.key === "Escape") {
-                stop();
-            } else if (mod && e.key.toLowerCase() === "k") {
-                e.preventDefault();
-                newChat();
-            } else if (mod && e.key.toLowerCase() === "l") {
-                e.preventDefault();
-                inputRef.current?.focus();
-            }
+            if (e.key === "Escape") stop();
+            else if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); newChat(); }
+            else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); inputRef.current?.focus(); }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, []);
-    const resume = (id: string) => {
-        void post("/api/sessions/resume", { id })
-            .then((r) => r.json())
-            .then((d) => {
-                setMessages(d.messages ?? []);
-                refreshState();
-            });
+
+    const onHandleDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const onMove = (ev: MouseEvent) => (window as any).ui?.send?.("sidebar:resize", window.innerWidth - ev.movementX);
+        const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
     };
-    const del = (id: string) => void post("/api/sessions/delete", { id }).then(refreshState);
+
+    const copyText = (m: any) =>
+        navigator.clipboard?.writeText((m.parts ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n"));
 
     const comps: CommandSpec[] = useMemo(() => completions(input), [input]);
     const busy = status === "streaming" || status === "submitted";
     const empty = messages.length === 0;
-    const lastAssistantId = useMemo(
-        () => [...messages].reverse().find((m: any) => m.role === "assistant")?.id,
-        [messages],
-    );
+    const lastAssistantId = useMemo(() => [...messages].reverse().find((m: any) => m.role === "assistant")?.id, [messages]);
     const markerMap = useMemo(() => {
         const map: Record<string, MarkerData[]> = {};
-        for (const m of messages as any[])
-            for (const p of m.parts ?? [])
-                if (p.type === "data-marker") (map[p.data.screenshotId] ??= []).push(p.data);
+        for (const m of messages as any[]) for (const p of m.parts ?? []) if (p.type === "data-marker") (map[p.data.screenshotId] ??= []).push(p.data);
         return map;
     }, [messages]);
 
     return (
-        <div className="app">
-            <div className="resize-handle" onMouseDown={onHandleDown} title="Drag to resize" />
-            <header className="hd">
-                <div className="row">
-                    <span className="title">
-                        ✦ Agent <StatusPill state={serverState} />
+        <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
+            <div className="absolute left-0 top-0 z-30 h-full w-1.5 cursor-ew-resize hover:bg-primary/40" onMouseDown={onHandleDown} title="Drag to resize" />
+
+            {/* header */}
+            <header className="border-b bg-card px-3 py-2">
+                <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 font-semibold">
+                        <Sparkles className="size-4 text-primary" /> Agent <StatusPill state={serverState} />
                     </span>
                     <ContextMeter ctx={serverState?.context} />
                 </div>
-                <div className="toolbar">
+                <div className="mt-2 flex items-center gap-1.5">
                     <select
-                        className="picker"
+                        className="min-w-0 rounded-md border bg-background px-1.5 py-1 text-xs"
                         title="Model"
                         value={serverState?.model ?? ""}
                         onChange={(e) => post("/api/model", { model: e.target.value }).then(refreshState)}
                     >
                         {(serverState?.models ?? []).map((m) => (
-                            <option key={m} value={m}>
-                                {m}
-                            </option>
+                            <option key={m} value={m}>{m}</option>
                         ))}
                     </select>
                     <select
-                        className="picker"
+                        className="min-w-0 rounded-md border bg-background px-1.5 py-1 text-xs"
                         title="Review policy"
                         value={serverState?.policy ?? "risky-only"}
                         onChange={(e) => post("/api/policy", { policy: e.target.value }).then(refreshState)}
@@ -449,192 +334,193 @@ function App() {
                         <option value="review-all">Review all</option>
                         <option value="autorun-trusted">Autorun</option>
                     </select>
-                    <span className="tspacer" />
-                    <button className="iconbtn" title="Activity log" onClick={() => setShowActivity(true)}>
-                        📋
-                    </button>
-                    <button className="iconbtn" title="Settings" onClick={() => setShowSettings(true)}>
-                        ⚙
-                    </button>
-                    <SessionMenu state={serverState} onNew={newChat} onResume={resume} onDelete={del} />
+                    <span className="flex-1" />
+                    <Button size="icon" variant="ghost" className="size-7" title="New chat" onClick={newChat}>
+                        <Plus className="size-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="size-7" title="History" onClick={() => setPanel("history")}>
+                        <History className="size-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="size-7" title="Activity" onClick={() => setPanel("activity")}>
+                        <Activity className="size-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="size-7" title="Settings" onClick={() => setPanel("settings")}>
+                        <Settings2 className="size-4" />
+                    </Button>
                 </div>
                 {serverState && !serverState.loggedIn && (
-                    <button className="signin" onClick={() => post("/api/login").then(refreshState)}>
+                    <Button className="mt-2 w-full" onClick={() => post("/api/login").then(refreshState)}>
                         Sign in with ChatGPT
-                    </button>
+                    </Button>
                 )}
                 {serverState?.presence?.paused && (
-                    <div className="banner paused">
+                    <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-destructive/15 px-2 py-1.5 text-xs">
                         <span>⏸ {serverState.presence.reason ?? "Paused"}</span>
-                        <button onClick={() => post("/api/presence", { mode: "resume" }).then(refreshState)}>
-                            Resume anyway
-                        </button>
+                        <Button size="sm" className="h-6" onClick={() => post("/api/presence", { mode: "resume" }).then(refreshState)}>
+                            Resume
+                        </Button>
                     </div>
                 )}
-                {serverState?.goal && <div className="banner goal">🎯 {serverState.goal}</div>}
+                {serverState?.goal && <div className="mt-2 rounded-md bg-primary/15 px-2 py-1.5 text-xs">🎯 {serverState.goal}</div>}
             </header>
 
-            <div className="log" ref={scroller} onScroll={onScroll}>
-                {empty && (
-                    <div className="welcome">
-                        <div className="wmark">✦</div>
-                        <h2>Drive the machine</h2>
-                        <p>Give the agent a task and watch it work on the KVM. Try:</p>
-                        <div className="chips">
-                            {SUGGESTIONS.map((s) => (
-                                <button key={s} className="chip" onClick={() => send(s)}>
-                                    {s}
-                                </button>
-                            ))}
+            {/* conversation */}
+            <Conversation className="flex-1">
+                <ConversationContent className="gap-4">
+                    {empty && (
+                        <div className="m-auto max-w-[300px] text-center text-muted-foreground">
+                            <Sparkles className="mx-auto size-8 text-primary" />
+                            <h2 className="mt-2 text-base font-semibold text-foreground">Drive the machine</h2>
+                            <p className="mt-1 text-sm">Give the agent a task and watch it work on the KVM. Try:</p>
+                            <div className="mt-3 flex flex-col gap-2">
+                                {SUGGESTIONS.map((s) => (
+                                    <Suggestion key={s} suggestion={s} onClick={send} className="w-full justify-start whitespace-normal text-left" />
+                                ))}
+                            </div>
+                            <p className="mt-3 text-[11px]">Type / for commands · gpt-5.5 on your ChatGPT subscription</p>
                         </div>
-                        <p className="hint">Type / for commands · gpt-5.5 on your ChatGPT subscription</p>
-                    </div>
-                )}
-                {messages.map((m: any) => (
-                    <div key={m.id} className={`msg ${m.role}`}>
-                        {m.role === "assistant" && <div className="avatar">✦</div>}
-                        <div className="bubble">
-                            {(m.parts ?? []).map((p: any, i: number) => {
-                                if (p.type === "text")
-                                    return p.text ? (
-                                        m.role === "user" ? (
-                                            <span key={i}>{p.text}</span>
-                                        ) : (
-                                            <Markdown key={i} text={p.text} />
-                                        )
-                                    ) : null;
-                                if (p.type === "data-thinking")
-                                    return <Thinking key={i} text={p.data.text} done={p.data.done} />;
-                                if (p.type === "data-screenshot")
-                                    return (
-                                        <Screenshot
-                                            key={i}
-                                            src={p.data.src}
-                                            w={p.data.width}
-                                            h={p.data.height}
-                                            markers={markerMap[p.data.toolCallId] ?? []}
-                                            onOpen={setLightbox}
-                                        />
-                                    );
-                                if (p.type === "data-status")
-                                    return (
-                                        <div key={i} className={`status ${p.data.kind}`}>
-                                            {p.data.text}
-                                        </div>
-                                    );
-                                if (p.type === "data-auth") {
-                                    const req: AuthRequest = p.data.request;
-                                    if (decided.has(req.id))
-                                        return (
-                                            <div key={i} className="status">
-                                                authorized
-                                            </div>
-                                        );
-                                    return <AuthCard key={i} req={req} onDecide={(v) => decide(req.id, v)} />;
-                                }
-                                if (p.type === "dynamic-tool" || (typeof p.type === "string" && p.type.startsWith("tool-"))) {
-                                    const name = p.toolName ?? p.type.replace("tool-", "");
-                                    const summary =
-                                        p.output && typeof p.output === "object" ? (p.output as any).summary : undefined;
-                                    return <ToolCall key={i} name={name} state={p.state} input={p.input} summary={summary} />;
-                                }
-                                return null;
-                            })}
-                            {m.role === "assistant" && !busy && (
-                                <div className="msg-actions">
-                                    <button onClick={() => copyText(m)} title="Copy">
-                                        ⧉
-                                    </button>
-                                    {m.id === lastAssistantId && (
-                                        <button onClick={() => regenerate()} title="Regenerate">
-                                            ↻
-                                        </button>
-                                    )}
+                    )}
+
+                    {messages.map((m: any) => (
+                        <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "")}>
+                            {m.role === "assistant" && (
+                                <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/20 text-primary">
+                                    <Sparkles className="size-3.5" />
                                 </div>
                             )}
-                        </div>
-                    </div>
-                ))}
-                {status === "submitted" && (
-                    <div className="msg assistant">
-                        <div className="avatar">✦</div>
-                        <div className="bubble">
-                            <div className="typing">
-                                <span></span>
-                                <span></span>
-                                <span></span>
+                            <div className={cn("flex min-w-0 flex-col gap-2", m.role === "user" ? "items-end" : "flex-1")}>
+                                {(m.parts ?? []).map((p: any, i: number) => {
+                                    if (p.type === "text") {
+                                        if (!p.text) return null;
+                                        return m.role === "user" ? (
+                                            <div key={i} className="max-w-full whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-primary px-3 py-1.5 text-primary-foreground">
+                                                {p.text}
+                                            </div>
+                                        ) : (
+                                            <Streamdown key={i} className="text-sm">{p.text}</Streamdown>
+                                        );
+                                    }
+                                    if (p.type === "data-thinking")
+                                        return (
+                                            <Reasoning key={i} isStreaming={!p.data.done} className="mb-0">
+                                                <ReasoningTrigger />
+                                                <ReasoningContent>{p.data.text}</ReasoningContent>
+                                            </Reasoning>
+                                        );
+                                    if (p.type === "data-screenshot")
+                                        return <Screenshot key={i} src={p.data.src} w={p.data.width} h={p.data.height} markers={markerMap[p.data.toolCallId] ?? []} onOpen={setLightbox} />;
+                                    if (p.type === "data-status")
+                                        return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
+                                    if (p.type === "data-auth") {
+                                        const req: AuthRequest = p.data.request;
+                                        if (decided.has(req.id)) return <div key={i} className="text-xs italic text-muted-foreground">authorized</div>;
+                                        return <AuthCard key={i} req={req} onDecide={(v) => decide(req.id, v)} />;
+                                    }
+                                    if (p.type === "dynamic-tool" || (typeof p.type === "string" && p.type.startsWith("tool-"))) {
+                                        const name = p.toolName ?? p.type.replace("tool-", "");
+                                        return (
+                                            <Tool key={i} className="mb-0">
+                                                <ToolHeader type={`tool-${name}` as any} state={p.state ?? "output-available"} />
+                                                <ToolContent>
+                                                    {p.input != null && <ToolInput input={p.input} />}
+                                                    {p.output != null && <ToolOutput output={p.output} errorText={p.errorText} />}
+                                                </ToolContent>
+                                            </Tool>
+                                        );
+                                    }
+                                    return null;
+                                })}
+                                {m.role === "assistant" && !busy && (
+                                    <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100">
+                                        <Button size="icon" variant="ghost" className="size-6" title="Copy" onClick={() => copyText(m)}>
+                                            <Copy className="size-3.5" />
+                                        </Button>
+                                        {m.id === lastAssistantId && (
+                                            <Button size="icon" variant="ghost" className="size-6" title="Regenerate" onClick={() => regenerate()}>
+                                                <RotateCcw className="size-3.5" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
-                    </div>
-                )}
-                {error && (
-                    <div className="errcard">
-                        <span>⚠ {error.message || "Something went wrong."}</span>
-                        <button onClick={() => regenerate()}>Retry</button>
-                    </div>
-                )}
-            </div>
+                    ))}
 
-            {!atBottom && (
-                <button
-                    className="scrolldown"
-                    onClick={() => {
-                        setAtBottom(true);
-                        scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
-                    }}
-                >
-                    ↓
-                </button>
-            )}
+                    {status === "submitted" && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <Loader /> Thinking…
+                        </div>
+                    )}
+                    {error && (
+                        <div className="flex items-center justify-between gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-xs">
+                            <span>⚠ {error.message || "Something went wrong."}</span>
+                            <Button size="sm" variant="destructive" className="h-6" onClick={() => regenerate()}>Retry</Button>
+                        </div>
+                    )}
+                </ConversationContent>
+                <ConversationScrollButton />
+            </Conversation>
 
+            {/* slash autocomplete */}
             {comps.length > 0 && (
-                <div className="autocomplete">
+                <div className="max-h-40 overflow-auto border-t bg-card">
                     {comps.map((c) => (
-                        <div key={c.name} className="ac" onClick={() => setInput(`/${c.name} `)}>
-                            <code>/{c.name}</code> <span className="acarg">{c.arg ?? ""}</span>
-                            <span className="acs">{c.summary}</span>
+                        <div key={c.name} className="cursor-pointer px-3 py-1.5 text-xs hover:bg-accent" onClick={() => setInput(`/${c.name} `)}>
+                            <code className="text-primary">/{c.name}</code> <span className="text-primary/70">{c.arg ?? ""}</span>{" "}
+                            <span className="text-muted-foreground">{c.summary}</span>
                         </div>
                     ))}
                 </div>
             )}
 
-            <div className="composer">
+            {/* composer */}
+            <div className="flex items-end gap-2 border-t bg-card p-2">
                 <textarea
                     ref={inputRef}
                     value={input}
                     placeholder="Give the agent a task…  (/ for commands)"
+                    className="max-h-32 min-h-[38px] flex-1 resize-none rounded-lg border bg-background p-2 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            send();
-                        }
+                        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                     }}
                 />
                 {busy ? (
-                    <button className="stop" onClick={() => stop()} title="Stop">
-                        ■
-                    </button>
+                    <Button size="icon" variant="destructive" className="rounded-full" onClick={() => stop()} title="Stop">
+                        <Square className="size-4" />
+                    </Button>
                 ) : (
-                    <button className="go" onClick={() => send()} title="Send">
-                        ↑
-                    </button>
+                    <Button size="icon" className="rounded-full" onClick={() => send()} title="Send">
+                        <ArrowUp className="size-4" />
+                    </Button>
                 )}
             </div>
 
-            {lightbox && (
-                <div className="lightbox" onClick={() => setLightbox(null)}>
-                    <img src={lightbox} alt="screen" />
-                </div>
+            {/* panels */}
+            {panel === "activity" && <ActivityPanel state={serverState} onClose={() => setPanel("none")} />}
+            {panel === "settings" && <SettingsPanel state={serverState} onClose={() => setPanel("none")} onPatch={(p) => post("/api/settings", p).then(refreshState)} />}
+            {panel === "history" && (
+                <Modal onClose={() => setPanel("none")}>
+                    <div className="flex items-center justify-between border-b p-3 font-semibold">
+                        History
+                        <button onClick={() => setPanel("none")} className="text-muted-foreground"><X className="size-4" /></button>
+                    </div>
+                    <div className="flex-1 overflow-auto">
+                        {(serverState?.sessions ?? []).length === 0 && <div className="p-4 text-sm text-muted-foreground">No saved sessions.</div>}
+                        {(serverState?.sessions ?? []).map((s) => (
+                            <div key={s.id} className={cn("flex items-center gap-2 border-b px-3 py-2 text-sm", s.id === serverState?.sessionId && "bg-primary/10")}>
+                                <span className="flex-1 cursor-pointer truncate" onClick={() => resume(s.id)}>{s.title}</span>
+                                <button className="text-muted-foreground hover:text-destructive" onClick={() => del(s.id)}><Trash2 className="size-3.5" /></button>
+                            </div>
+                        ))}
+                    </div>
+                </Modal>
             )}
 
-            {showActivity && <ActivityPanel state={serverState} onClose={() => setShowActivity(false)} />}
-            {showSettings && (
-                <SettingsPopover
-                    state={serverState}
-                    onClose={() => setShowSettings(false)}
-                    onPatch={(p) => post("/api/settings", p).then(refreshState)}
-                />
+            {lightbox && (
+                <div className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/85" onClick={() => setLightbox(null)}>
+                    <img src={lightbox} alt="screen" className="max-h-[96%] max-w-[96%] rounded-lg" />
+                </div>
             )}
         </div>
     );
