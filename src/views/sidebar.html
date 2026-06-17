@@ -29,6 +29,8 @@
             body {
                 margin: 0;
                 height: 100%;
+                width: 100%;
+                overflow: hidden;
                 background: var(--bg);
                 color: var(--text);
                 font: 13px/1.45 system-ui, -apple-system, sans-serif;
@@ -37,7 +39,22 @@
                 display: flex;
                 flex-direction: column;
                 height: 100vh;
+                width: 100%;
+                overflow: hidden;
                 position: relative;
+            }
+            .toolbar {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                margin-top: 7px;
+            }
+            .toolbar .tspacer {
+                flex: 1;
+            }
+            .toolbar .picker {
+                flex: 0 1 auto;
+                min-width: 0;
             }
             .hd {
                 padding: 8px 10px;

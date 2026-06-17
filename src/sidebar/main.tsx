@@ -424,38 +424,39 @@ function App() {
                     <span className="title">
                         ✦ Agent <StatusPill state={serverState} />
                     </span>
-                    <div className="hgrp">
-                        <ContextMeter ctx={serverState?.context} />
-                        <button className="iconbtn" title="Activity log" onClick={() => setShowActivity(true)}>
-                            📋
-                        </button>
-                        <button className="iconbtn" title="Settings" onClick={() => setShowSettings(true)}>
-                            ⚙
-                        </button>
-                        <select
-                            className="picker"
-                            title="Model"
-                            value={serverState?.model ?? ""}
-                            onChange={(e) => post("/api/model", { model: e.target.value }).then(refreshState)}
-                        >
-                            {(serverState?.models ?? []).map((m) => (
-                                <option key={m} value={m}>
-                                    {m}
-                                </option>
-                            ))}
-                        </select>
-                        <select
-                            className="picker"
-                            title="Review policy"
-                            value={serverState?.policy ?? "risky-only"}
-                            onChange={(e) => post("/api/policy", { policy: e.target.value }).then(refreshState)}
-                        >
-                            <option value="risky-only">Confirm risky</option>
-                            <option value="review-all">Review all</option>
-                            <option value="autorun-trusted">Autorun</option>
-                        </select>
-                        <SessionMenu state={serverState} onNew={newChat} onResume={resume} onDelete={del} />
-                    </div>
+                    <ContextMeter ctx={serverState?.context} />
+                </div>
+                <div className="toolbar">
+                    <select
+                        className="picker"
+                        title="Model"
+                        value={serverState?.model ?? ""}
+                        onChange={(e) => post("/api/model", { model: e.target.value }).then(refreshState)}
+                    >
+                        {(serverState?.models ?? []).map((m) => (
+                            <option key={m} value={m}>
+                                {m}
+                            </option>
+                        ))}
+                    </select>
+                    <select
+                        className="picker"
+                        title="Review policy"
+                        value={serverState?.policy ?? "risky-only"}
+                        onChange={(e) => post("/api/policy", { policy: e.target.value }).then(refreshState)}
+                    >
+                        <option value="risky-only">Confirm risky</option>
+                        <option value="review-all">Review all</option>
+                        <option value="autorun-trusted">Autorun</option>
+                    </select>
+                    <span className="tspacer" />
+                    <button className="iconbtn" title="Activity log" onClick={() => setShowActivity(true)}>
+                        📋
+                    </button>
+                    <button className="iconbtn" title="Settings" onClick={() => setShowSettings(true)}>
+                        ⚙
+                    </button>
+                    <SessionMenu state={serverState} onNew={newChat} onResume={resume} onDelete={del} />
                 </div>
                 {serverState && !serverState.loggedIn && (
                     <button className="signin" onClick={() => post("/api/login").then(refreshState)}>
