@@ -507,27 +507,28 @@ function App() {
             <div className="absolute left-0 top-0 z-30 h-full w-1.5 cursor-ew-resize hover:bg-primary/40" onMouseDown={onHandleDown} title="Drag to resize" />
 
             {/* header */}
-            <header className="flex h-11 shrink-0 items-center gap-2 border-b bg-card px-3">
-                <Sparkles className="size-4 text-primary" />
-                <span className="text-[13px] font-semibold tracking-tight">Agent</span>
+            <header className="flex h-14 shrink-0 items-center gap-2.5 border-b bg-card px-4">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                    <Sparkles className="size-4" />
+                </div>
+                <span className="text-[15px] font-semibold tracking-tight">Agent</span>
                 <StatusPill state={serverState} />
                 <span className="flex-1" />
-                <ContextMeter ctx={serverState?.context} />
-                <div className="ml-1 flex items-center">
-                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="New chat (⌘K)" onClick={newChat}>
-                        <Plus className="size-4" />
+                <div className="flex items-center gap-0.5">
+                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="New chat (⌘K)" onClick={newChat}>
+                        <Plus className="size-[18px]" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="History" onClick={() => setPanel("history")}>
-                        <History className="size-4" />
+                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="History" onClick={() => setPanel("history")}>
+                        <History className="size-[18px]" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Copy conversation" onClick={copyConversation}>
-                        <Copy className="size-4" />
+                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Copy conversation" onClick={copyConversation}>
+                        <Copy className="size-[18px]" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Activity" onClick={() => setPanel("activity")}>
-                        <Activity className="size-4" />
+                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Activity" onClick={() => setPanel("activity")}>
+                        <Activity className="size-[18px]" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Settings" onClick={() => setPanel("settings")}>
-                        <Settings2 className="size-4" />
+                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Settings" onClick={() => setPanel("settings")}>
+                        <Settings2 className="size-[18px]" />
                     </Button>
                 </div>
             </header>
@@ -559,40 +560,42 @@ function App() {
 
             {/* conversation */}
             <Conversation className="flex-1">
-                <ConversationContent className="gap-4">
+                <ConversationContent className="gap-6 px-4 py-5">
                     {empty && (
-                        <div className="flex flex-col gap-5 px-1 pt-1">
-                            <div className="pt-3 text-center">
-                                <div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                        <div className="flex flex-1 flex-col justify-center gap-7 py-4">
+                            <div className="text-center">
+                                <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
                                     <Sparkles className="size-6" />
                                 </div>
-                                <h2 className="mt-3 text-[15px] font-semibold text-foreground">Drive the machine</h2>
-                                <p className="mt-1 text-[13px] text-muted-foreground">Give the agent a task and watch it work on the KVM.</p>
+                                <h2 className="mt-4 text-lg font-semibold text-foreground">Drive the machine</h2>
+                                <p className="mt-1.5 text-sm text-muted-foreground">Give the agent a task and watch it work on the KVM.</p>
                             </div>
                             {(serverState?.sessions ?? []).length > 0 && (
                                 <div>
-                                    <div className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Recent</div>
-                                    {(serverState?.sessions ?? []).slice(0, 4).map((s) => (
-                                        <button
-                                            key={s.id}
-                                            onClick={() => resume(s.id)}
-                                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
-                                        >
-                                            <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                                            <span className="flex-1 truncate text-[13px]">{s.title}</span>
-                                            <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(s.updatedAt)}</span>
-                                        </button>
-                                    ))}
+                                    <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Recent</div>
+                                    <div className="flex flex-col gap-0.5">
+                                        {(serverState?.sessions ?? []).slice(0, 4).map((s) => (
+                                            <button
+                                                key={s.id}
+                                                onClick={() => resume(s.id)}
+                                                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-accent"
+                                            >
+                                                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                                                <span className="flex-1 truncate text-sm">{s.title}</span>
+                                                <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(s.updatedAt)}</span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
                             <div>
-                                <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Try</div>
+                                <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Try</div>
                                 <div className="flex flex-col gap-2">
                                     {SUGGESTIONS.map((s) => (
                                         <button
                                             key={s}
                                             onClick={() => send(s)}
-                                            className="rounded-xl border bg-card px-3 py-2.5 text-left text-[13px] transition-colors hover:border-primary/50 hover:bg-accent"
+                                            className="rounded-xl border bg-card px-3.5 py-3 text-left text-sm transition-colors hover:border-primary/50 hover:bg-accent"
                                         >
                                             {s}
                                         </button>
@@ -603,24 +606,24 @@ function App() {
                     )}
 
                     {messages.map((m: any) => (
-                        <div key={m.id} className={cn("group flex gap-2", m.role === "user" ? "justify-end" : "")}>
+                        <div key={m.id} className={cn("group flex gap-3", m.role === "user" ? "justify-end" : "")}>
                             {m.role === "assistant" && (
-                                <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/20 text-primary">
-                                    <Sparkles className="size-3.5" />
+                                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary">
+                                    <Sparkles className="size-4" />
                                 </div>
                             )}
-                            <div className={cn("flex min-w-0 flex-col gap-2", m.role === "user" ? "items-end" : "flex-1")}>
+                            <div className={cn("flex min-w-0 flex-col gap-2.5 leading-relaxed", m.role === "user" ? "max-w-[85%] items-end" : "flex-1")}>
                                 {(m.parts ?? []).map((p: any, i: number) => {
                                     if (p.type === "file" && typeof p.url === "string" && String(p.mediaType).startsWith("image/"))
-                                        return <img key={i} src={p.url} alt="attachment" className="max-h-48 rounded-lg border" />;
+                                        return <img key={i} src={p.url} alt="attachment" className="max-h-56 rounded-xl border" />;
                                     if (p.type === "text") {
                                         if (!p.text) return null;
                                         return m.role === "user" ? (
-                                            <div key={i} className="max-w-full whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-primary px-3 py-1.5 text-primary-foreground">
+                                            <div key={i} className="max-w-full whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[14px] text-primary-foreground">
                                                 {p.text}
                                             </div>
                                         ) : (
-                                            <Streamdown key={i} className="text-sm">{p.text}</Streamdown>
+                                            <Streamdown key={i} className="text-[14px] leading-relaxed">{p.text}</Streamdown>
                                         );
                                     }
                                     if (p.type === "data-thinking")
@@ -692,14 +695,14 @@ function App() {
 
             {/* composer */}
             <div
-                className="border-t bg-card p-2.5"
+                className="border-t bg-card px-3 pb-3 pt-2.5"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                     e.preventDefault();
                     addImageFiles(Array.from(e.dataTransfer.files));
                 }}
             >
-                <div className="rounded-2xl border bg-background p-2 transition-colors focus-within:border-ring/60">
+                <div className="rounded-2xl border bg-background p-2.5 transition-colors focus-within:border-ring/60">
                     {images.length > 0 && (
                         <div className="mb-1.5 flex flex-wrap gap-1.5">
                             {images.map((im, i) => (
@@ -776,12 +779,12 @@ function App() {
             </div>
 
             {/* footer status */}
-            <div className="flex h-6 shrink-0 items-center justify-between border-t bg-card px-3 text-[11px] text-muted-foreground">
+            <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-t bg-card px-4 text-[11px] text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                     <span className={cn("size-1.5 rounded-full", serverState?.loggedIn ? "bg-emerald-500" : "bg-muted-foreground")} />
                     {serverState?.loggedIn ? "ChatGPT connected" : "Not signed in"}
                 </span>
-                <span>{serverState?.model ?? ""}</span>
+                <ContextMeter ctx={serverState?.context} />
             </div>
 
             {/* panels */}

@@ -428,9 +428,32 @@ export class PiKvmControl {
         await this.click(button);
     }
 
-    /** Scroll. Positive dy scrolls up, negative down (PiKVM convention). */
+    /** Press a button, move to the target with an eased path, then release. */
+    async drag(
+        from: { x: number; y: number },
+        to: { x: number; y: number },
+        button: MouseButton = "left",
+        opts: { signal?: AbortSignal } = {},
+    ): Promise<void> {
+        await this.moveMouse(from.x, from.y, opts);
+        await sleep(80);
+        await this.mouseButton(button, true);
+        await sleep(120 + Math.random() * 80);
+        await this.moveMouse(to.x, to.y, opts);
+        await sleep(120 + Math.random() * 80);
+        await this.mouseButton(button, false);
+    }
+
+    /** Scroll. Positive dy scrolls up, negative down. Broken into a few ticks
+     *  for a natural trackpad-like gesture. */
     async scroll(dx: number, dy: number): Promise<void> {
-        await this.send("mouse_wheel", { delta: { x: dx, y: dy } });
+        const ticks = Math.max(1, Math.min(12, Math.round(Math.max(Math.abs(dx), Math.abs(dy)))));
+        const sx = dx / ticks;
+        const sy = dy / ticks;
+        for (let i = 0; i < ticks; i++) {
+            await this.send("mouse_wheel", { delta: { x: Math.round(sx) || (dx ? Math.sign(dx) : 0), y: Math.round(sy) || (dy ? Math.sign(dy) : 0) } });
+            await sleep(18 + Math.random() * 22);
+        }
     }
 
     dispose(): void {

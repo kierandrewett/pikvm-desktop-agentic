@@ -26,7 +26,7 @@ const DEFAULTS: AppSettings = {
     humanize: 1,
     pauseOnPresence: true,
     wpm: 95,
-    sidebarWidth: 380,
+    sidebarWidth: 440,
 };
 
 export class SettingsStore {

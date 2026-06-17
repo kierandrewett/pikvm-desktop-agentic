@@ -173,17 +173,35 @@ export function createTools(
     };
 
     const scrollSchema = Type.Object({
-        dx: Type.Optional(Type.Number({ description: "Horizontal scroll." })),
-        dy: Type.Optional(Type.Number({ description: "Vertical scroll: positive up, negative down." })),
+        dx: Type.Optional(Type.Number({ description: "Horizontal scroll amount." })),
+        dy: Type.Optional(Type.Number({ description: "Vertical scroll: positive = up, negative = down. Larger = a bigger gesture." })),
     });
     const scroll: AgentTool<typeof scrollSchema> = {
         name: "scroll",
         label: "Scroll",
-        description: "Scroll the mouse wheel.",
+        description: "Scroll like a trackpad gesture (broken into smooth ticks). Move the cursor over the area you want to scroll first.",
         parameters: scrollSchema,
         async execute(_id, p: Static<typeof scrollSchema>): Promise<AgentToolResult<null>> {
             await control.scroll(p.dx ?? 0, p.dy ?? 0);
             return { content: [text(`Scrolled (${p.dx ?? 0}, ${p.dy ?? 0}).`)], details: null };
+        },
+    };
+
+    const dragSchema = Type.Object({
+        fromX: Type.Number(),
+        fromY: Type.Number(),
+        toX: Type.Number(),
+        toY: Type.Number(),
+        button: ButtonSchema,
+    });
+    const drag: AgentTool<typeof dragSchema> = {
+        name: "drag",
+        label: "Drag",
+        description: "Drag-and-drop: press at (fromX, fromY), move to (toX, toY) with an eased path, then release. For moving files, sliders, selecting, reordering, etc.",
+        parameters: dragSchema,
+        async execute(_id, p: Static<typeof dragSchema>, signal): Promise<AgentToolResult<null>> {
+            await control.drag({ x: p.fromX, y: p.fromY }, { x: p.toX, y: p.toY }, (p.button as MouseButton) ?? "left", signal ? { signal } : {});
+            return { content: [text(`Dragged (${p.fromX},${p.fromY}) → (${p.toX},${p.toY}).`)], details: null };
         },
     };
 
@@ -202,7 +220,7 @@ export function createTools(
         },
     };
 
-    const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, typeText, pressKey, hotkey, scroll];
+    const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, drag, typeText, pressKey, hotkey, scroll];
 
     if (deps.background) {
         const bg = deps.background;
