@@ -132,6 +132,9 @@ export class AgentRunner {
             sessionId: "pikvm-agent",
             beforeToolCall: async (ctx, signal) => this.gate(ctx.toolCall.name, ctx.args, signal),
             prepareNextTurn: () => this.maybeCompact(),
+            // Keep only the most recent screenshots in context — old frames are
+            // stale and were the main token cost. The agent re-screenshots as needed.
+            transformContext: async (messages) => this.pruneOldImages(messages),
         });
 
         // Restore the resumed session's transcript so the agent keeps its context.
@@ -152,6 +155,33 @@ export class AgentRunner {
     /** Persist the sidebar's UI transcript (called by the renderer after turns). */
     saveUiMessages(messages: PiKvmUIMessage[]): void {
         this.sessions.saveUi(this.sessionId, messages);
+    }
+
+    /** Replace image data in all but the most recent few screenshots with a
+     *  placeholder, so the model isn't re-sent the entire screen history. */
+    private pruneOldImages(messages: AgentMessage[]): AgentMessage[] {
+        try {
+            const KEEP = 2;
+            let kept = 0;
+            const out = messages.slice();
+            for (let i = out.length - 1; i >= 0; i--) {
+                const m: any = out[i];
+                if (!Array.isArray(m?.content) || !m.content.some((c: any) => c?.type === "image")) continue;
+                if (kept < KEEP) {
+                    kept++;
+                    continue;
+                }
+                out[i] = {
+                    ...m,
+                    content: m.content.map((c: any) =>
+                        c?.type === "image" ? { type: "text", text: "[earlier screenshot omitted]" } : c,
+                    ),
+                };
+            }
+            return out;
+        } catch {
+            return messages;
+        }
     }
 
     /* --------------------------- auto-compaction ------------------------- */

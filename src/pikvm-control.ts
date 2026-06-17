@@ -24,6 +24,9 @@ export interface Region {
     height: number;
 }
 
+/** Cap the long edge of full-frame screenshots sent to the model (token saving). */
+const MAX_SCREENSHOT_DIM = 1400;
+
 export interface PiKvmCredentials {
     origin: string; // e.g. https://pikvm/  (may embed user:pass)
     username?: string;
@@ -153,20 +156,7 @@ export class PiKvmControl {
         if (this.captureScreen) {
             try {
                 const cap = await this.captureScreen();
-                if (cap && cap.width && cap.height) {
-                    this.dims = { width: cap.width, height: cap.height };
-                    if (region) {
-                        const cropped = this.crop(cap.data, region);
-                        if (cropped) return cropped;
-                    }
-                    return {
-                        data: cap.data,
-                        base64: cap.data.toString("base64"),
-                        mimeType: "image/jpeg",
-                        width: cap.width,
-                        height: cap.height,
-                    };
-                }
+                if (cap && cap.width && cap.height) return this.finalize(cap.data, cap.width, cap.height, region);
             } catch {
                 /* fall through to the snapshot endpoint */
             }
@@ -182,43 +172,62 @@ export class PiKvmControl {
         const data = Buffer.from(res.data as ArrayBuffer);
         const hw = Number(res.headers["x-ustreamer-width"]);
         const hh = Number(res.headers["x-ustreamer-height"]);
-        let width = hw;
-        let height = hh;
-        if (!width || !height) {
-            const parsed = jpegSize(data);
-            if (parsed) {
-                width = parsed.width;
-                height = parsed.height;
-            }
-        }
-        if (width && height) this.dims = { width, height };
-
-        // Optional crop — lets the agent zoom into a window/region of the frame.
-        if (region) {
-            const cropped = this.crop(data, region);
-            if (cropped) return cropped;
-        }
-
-        return {
-            data,
-            base64: data.toString("base64"),
-            mimeType: "image/jpeg",
-            width: this.dims.width,
-            height: this.dims.height,
-        };
+        const parsed = !hw || !hh ? jpegSize(data) : null;
+        const fw = hw || parsed?.width || this.dims.width;
+        const fh = hh || parsed?.height || this.dims.height;
+        return this.finalize(data, fw, fh, region);
     }
 
-    /** Crop a JPEG to a clamped region using Electron's nativeImage. */
-    private crop(jpeg: Buffer, region: Region): Screenshot | null {
+    /**
+     * Turn a full-resolution frame into the image the agent sees:
+     *  - region given → crop the FULL-res frame (so zoom keeps detail), scaling
+     *    the region from the agent's coordinate space up to full res;
+     *  - otherwise → downscale the full frame to keep per-turn tokens low while
+     *    preserving the whole view.
+     * `this.dims` (the agent's coordinate basis) only tracks full-frame sends.
+     */
+    private finalize(raw: Buffer, fw: number, fh: number, region?: Region): Screenshot {
+        if (region) {
+            const sx = fw / (this.dims.width || fw);
+            const sy = fh / (this.dims.height || fh);
+            const cropped = this.crop(raw, fw, fh, {
+                x: region.x * sx,
+                y: region.y * sy,
+                width: region.width * sx,
+                height: region.height * sy,
+            });
+            if (cropped) return cropped;
+        }
+        const d = this.downscale(raw, fw, fh);
+        this.dims = { width: d.width, height: d.height };
+        return { data: d.data, base64: d.data.toString("base64"), mimeType: "image/jpeg", width: d.width, height: d.height };
+    }
+
+    /** Downscale a JPEG so its long edge is at most MAX_SCREENSHOT_DIM. */
+    private downscale(jpeg: Buffer, w: number, h: number): { data: Buffer; width: number; height: number } {
+        const longEdge = Math.max(w, h);
+        if (longEdge <= MAX_SCREENSHOT_DIM) return { data: jpeg, width: w, height: h };
         try {
-            const fw = this.dims.width;
-            const fh = this.dims.height;
+            const scale = MAX_SCREENSHOT_DIM / longEdge;
+            const nw = Math.round(w * scale);
+            const nh = Math.round(h * scale);
+            const out = nativeImage.createFromBuffer(jpeg).resize({ width: nw, height: nh, quality: "good" }).toJPEG(78);
+            return { data: out, width: nw, height: nh };
+        } catch {
+            return { data: jpeg, width: w, height: h };
+        }
+    }
+
+    /** Crop a full-res JPEG to a clamped region (then cap its size). */
+    private crop(jpeg: Buffer, fw: number, fh: number, region: Region): Screenshot | null {
+        try {
             const x = Math.max(0, Math.min(Math.round(region.x), fw - 1));
             const y = Math.max(0, Math.min(Math.round(region.y), fh - 1));
             const w = Math.max(1, Math.min(Math.round(region.width), fw - x));
             const h = Math.max(1, Math.min(Math.round(region.height), fh - y));
-            const out = nativeImage.createFromBuffer(jpeg).crop({ x, y, width: w, height: h }).toJPEG(85);
-            return { data: out, base64: out.toString("base64"), mimeType: "image/jpeg", width: w, height: h };
+            const cropBuf = nativeImage.createFromBuffer(jpeg).crop({ x, y, width: w, height: h }).toJPEG(88);
+            const d = this.downscale(cropBuf, w, h);
+            return { data: d.data, base64: d.data.toString("base64"), mimeType: "image/jpeg", width: d.width, height: d.height };
         } catch {
             return null;
         }
