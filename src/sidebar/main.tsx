@@ -382,7 +382,7 @@ function App() {
                     )}
 
                     {messages.map((m: any) => (
-                        <div key={m.id} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "")}>
+                        <div key={m.id} className={cn("group flex gap-2", m.role === "user" ? "justify-end" : "")}>
                             {m.role === "assistant" && (
                                 <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/20 text-primary">
                                     <Sparkles className="size-3.5" />
