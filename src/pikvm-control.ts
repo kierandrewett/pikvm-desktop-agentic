@@ -95,6 +95,14 @@ export class PiKvmControl {
     private wpm = 0;
     /** Hook fired with text the agent types / keys it presses (for input tracking). */
     onAgentInput: ((info: { text?: string; key?: string }) => void) | undefined;
+    /**
+     * Capture the already-rendered live view (set by main → mainView.capturePage).
+     * Preferred over the PiKVM snapshot endpoint so the agent's screenshots put
+     * ZERO extra load on the Pi and never stall the live stream.
+     */
+    captureScreen: (() => Promise<{ data: Buffer; width: number; height: number } | null>) | undefined;
+    /** Native stream resolution (for OCR coordinate scaling). */
+    private nativeDims: { width: number; height: number } | undefined;
 
     constructor(creds: PiKvmCredentials) {
         const u = new URL(creds.origin);
@@ -135,7 +143,35 @@ export class PiKvmControl {
      * Screen
      * -------------------------------------------------------------- */
 
+    /** Update the native stream resolution (from kvm-stream-data) for OCR scaling. */
+    setNativeDims(width: number, height: number): void {
+        if (width && height) this.nativeDims = { width, height };
+    }
+
     async screenshot(region?: Region): Promise<Screenshot> {
+        // Preferred path: grab the already-rendered live frame — no Pi load.
+        if (this.captureScreen) {
+            try {
+                const cap = await this.captureScreen();
+                if (cap && cap.width && cap.height) {
+                    this.dims = { width: cap.width, height: cap.height };
+                    if (region) {
+                        const cropped = this.crop(cap.data, region);
+                        if (cropped) return cropped;
+                    }
+                    return {
+                        data: cap.data,
+                        base64: cap.data.toString("base64"),
+                        mimeType: "image/jpeg",
+                        width: cap.width,
+                        height: cap.height,
+                    };
+                }
+            } catch {
+                /* fall through to the snapshot endpoint */
+            }
+        }
+
         const res = await axios.get(`${this.httpBase()}/api/streamer/snapshot`, {
             responseType: "arraybuffer",
             headers: await this.headers(),
@@ -193,9 +229,15 @@ export class PiKvmControl {
         return { ...this.dims };
     }
 
-    /** Read on-screen text via PiKVM's built-in OCR (tesseract). Optional region. */
+    /** Read on-screen text via PiKVM's built-in OCR (tesseract). Optional region.
+     *  Region is given in screenshot (displayed) pixels and scaled to native. */
     async ocr(region?: Region, langs = "eng"): Promise<string> {
-        const r = region ?? { x: 0, y: 0, width: this.dims.width, height: this.dims.height };
+        const nat = this.nativeDims ?? this.dims;
+        const sx = nat.width / (this.dims.width || nat.width);
+        const sy = nat.height / (this.dims.height || nat.height);
+        const r = region
+            ? { x: region.x * sx, y: region.y * sy, width: region.width * sx, height: region.height * sy }
+            : { x: 0, y: 0, width: nat.width, height: nat.height };
         const res = await axios.get(`${this.httpBase()}/api/streamer/snapshot`, {
             responseType: "text",
             headers: await this.headers(),

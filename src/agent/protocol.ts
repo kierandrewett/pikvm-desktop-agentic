@@ -64,6 +64,7 @@ export interface ServerState {
     loggedIn: boolean;
     streaming: boolean;
     acting: boolean;
+    pausedForUser: boolean;
     model: string;
     models: string[];
     context: { tokens: number; max: number };

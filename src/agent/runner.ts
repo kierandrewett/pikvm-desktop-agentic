@@ -18,7 +18,7 @@ import {
     type AgentTool,
     type AgentLoopTurnUpdate,
 } from "@earendil-works/pi-agent-core";
-import { getModel, getModels, registerBuiltInApiProviders, type Model } from "@earendil-works/pi-ai";
+import { getModel, getModels, registerBuiltInApiProviders, type Model, type ImageContent } from "@earendil-works/pi-ai";
 import { resolve, dirname } from "path";
 import { PiKvmControl } from "../pikvm-control";
 import { OperationReviewer, type Operation } from "../reviewer";
@@ -36,7 +36,10 @@ import type { PiKvmUIMessage } from "./protocol";
 registerBuiltInApiProviders();
 
 const PROVIDER = "openai-codex";
-const DEFAULT_MODEL = "gpt-5.5";
+/** Fast model for the responsive main chat loop. */
+const DEFAULT_MODEL = "gpt-5.4-mini";
+/** Stronger model sub-agents use for hard thinking / deep work. */
+const SUBAGENT_MODEL = "gpt-5.5";
 
 function systemPrompt(goal?: string, memoryCount = 0): string {
     return [
@@ -48,6 +51,7 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "Use `ocr` to read on-screen text precisely (optionally a region) instead of guessing from the screenshot. Use `screenshot` with a region to zoom into a window.",
         "Use `recent_activity` to see what's already been typed (including by the user) before continuing a field.",
         "Work in small, verifiable steps. If something looks wrong, stop and re-observe rather than guessing.",
+        "LEAVE NO TRACE: when you finish, tidy up after yourself — close any windows, dialogs, terminals or apps you opened (e.g. winver/About, Run, command prompts, settings panes), discard scratch text you typed, and return the screen roughly to how you found it. Do not close windows the user already had open.",
         "Before any irreversible or destructive action (deleting data, rebooting, submitting a form with side effects, running privileged commands), pause and explain what you are about to do — the human may need to authorize it.",
         "",
         "You also have cognitive tools: `web_search`/`fetch_url` for the internet, `remember`/`recall` for long-term memory across sessions, `search_conversations` to look up past sessions, `list_skills`/`use_skill` for reusable playbooks, and `spawn_subagent` to delegate a focused side-task to a fresh sub-agent.",
@@ -81,10 +85,12 @@ export class AgentRunner {
     private readonly skills: SkillStore;
     private readonly background = new BackgroundTasks();
     private readonly toolsForSub: AgentTool<any>[];
+    private readonly subModel: Model<any>;
     private sessionId: string;
 
     constructor(private deps: RunnerDeps) {
         this.model = deps.auth.applyModel(getModel(PROVIDER as any, DEFAULT_MODEL as any));
+        this.subModel = deps.auth.applyModel(getModel(PROVIDER as any, SUBAGENT_MODEL as any));
         const dataDir = dirname(deps.sessionsDir);
         this.sessions = new SessionStore(deps.sessionsDir);
         this.memory = new MemoryStore(resolve(dataDir, "agent-memory.json"));
@@ -106,7 +112,8 @@ export class AgentRunner {
             initialState: {
                 systemPrompt: systemPrompt(undefined, this.memory.count()),
                 model: this.model,
-                thinkingLevel: "medium",
+                // Fast/responsive by default; delegate hard thinking to sub-agents.
+                thinkingLevel: "low",
                 tools: [...createTools(deps.control, toolDeps), ...extra],
             },
             getApiKey: async () => {
@@ -183,8 +190,9 @@ export class AgentRunner {
         const sub = new Agent({
             initialState: {
                 systemPrompt: SUBAGENT_PROMPT,
-                model: this.model,
-                thinkingLevel: "low",
+                // Sub-agents use the stronger model + deeper thinking for hard work.
+                model: this.subModel,
+                thinkingLevel: "high",
                 tools: this.toolsForSub,
             },
             getApiKey: async () => {
@@ -307,13 +315,39 @@ export class AgentRunner {
         return this.agent.state.isStreaming;
     }
 
-    /** Start (or queue, if running) a task. */
-    async run(task: string): Promise<void> {
+    /** Start (or queue, if running) a task, optionally with attached images. */
+    async run(task: string, images?: ImageContent[]): Promise<void> {
+        this.pausedForUser = false;
         if (this.agent.state.isStreaming) {
             this.agent.followUp({ role: "user", content: task, timestamp: Date.now() });
             return;
         }
-        await this.agent.prompt(task);
+        await this.agent.prompt(task, images && images.length ? images : undefined);
+    }
+
+    /* --------------------------- pause / handoff ------------------------- */
+
+    private pausedForUser = false;
+
+    /** Temporarily hand control back to the user (stops the current run). */
+    pauseForUser(): void {
+        this.pausedForUser = true;
+        this.agent.abort();
+    }
+
+    isPausedForUser(): boolean {
+        return this.pausedForUser;
+    }
+
+    /** Resume after a user pause — re-evaluate since the screen may have changed. */
+    resumeFromUser(): void {
+        if (!this.pausedForUser) return;
+        this.pausedForUser = false;
+        if (this.agent.state.messages.length) {
+            void this.agent.prompt(
+                "[Control resumed] You paused and the user took manual control of the screen. The state may have changed — take a fresh screenshot and re-evaluate before continuing the task.",
+            );
+        }
     }
 
     /** Inject a non-disruptive side note mid-run (/btw). */

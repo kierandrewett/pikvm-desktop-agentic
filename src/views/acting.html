@@ -90,6 +90,19 @@
             #stop:hover {
                 background: #ff6363;
             }
+            #pause {
+                background: #2b2b3a;
+                color: #e7e7ee;
+                border: 0;
+                border-radius: 9px;
+                padding: 10px 14px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+            }
+            #pause:hover {
+                background: #3a3a4c;
+            }
             #stop .sq {
                 width: 11px;
                 height: 11px;
@@ -179,6 +192,9 @@
                     <b>Agent is in control</b>
                     <span id="action">performing actions…</span>
                 </div>
+                <button id="pause" title="Pause — take control temporarily, then resume">
+                    ❚❚ Pause
+                </button>
                 <button id="stop" title="Stop the agent and take back control (Esc)">
                     <span class="sq"></span> Stop &amp; take control
                 </button>
@@ -187,6 +203,7 @@
         <script>
             const stop = () => window.ui?.send?.("agent:stop");
             document.getElementById("stop").onclick = stop;
+            document.getElementById("pause").onclick = () => window.ui?.send?.("agent:pause");
             window.addEventListener("keydown", (e) => {
                 if (e.key === "Escape") stop();
             });

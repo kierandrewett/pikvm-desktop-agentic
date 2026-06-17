@@ -23,6 +23,8 @@ import {
     Keyboard,
     MousePointerClick,
     Move,
+    Paperclip,
+    Pause,
     Plus,
     RotateCcw,
     Settings2,
@@ -370,6 +372,8 @@ function App() {
     const [lightbox, setLightbox] = useState<string | null>(null);
     const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history">("none");
     const [historyQuery, setHistoryQuery] = useState("");
+    const [images, setImages] = useState<{ url: string; mediaType: string }[]>([]);
+    const fileInput = useRef<HTMLInputElement>(null);
     const transport = useRef(new DefaultChatTransport({ api: BASE + "/api/chat" }));
     const { messages, sendMessage, status, stop, setMessages, regenerate, error } = useChat({ transport: transport.current });
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -390,11 +394,22 @@ function App() {
         setDecided((s) => new Set(s).add(id));
         void post("/api/approve", { id, ...verdict });
     };
+    const addImageFiles = (files: File[]) => {
+        for (const f of files) {
+            if (!f.type.startsWith("image/")) continue;
+            const r = new FileReader();
+            r.onload = () => setImages((prev) => [...prev, { url: String(r.result), mediaType: f.type || "image/png" }]);
+            r.readAsDataURL(f);
+        }
+    };
+
     const send = (text = input) => {
         const t = text.trim();
-        if (!t) return;
+        if (!t && images.length === 0) return;
+        const files = images.map((im) => ({ type: "file" as const, mediaType: im.mediaType, url: im.url }));
         setInput("");
-        void sendMessage({ text: t });
+        setImages([]);
+        void sendMessage({ text: t, ...(files.length ? { files } : {}) });
     };
     const newChat = () => void post("/api/sessions/new").then(() => { setMessages([]); refreshState(); });
     const resume = (id: string) =>
@@ -420,8 +435,11 @@ function App() {
         window.addEventListener("mouseup", onUp);
     };
 
-    const copyText = (m: any) =>
-        navigator.clipboard?.writeText((m.parts ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n"));
+    const copyText = (m: any) => {
+        const t = (m.parts ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n");
+        if ((window as any).ui?.copy) (window as any).ui.copy(t);
+        else void navigator.clipboard?.writeText(t);
+    };
 
     const comps: CommandSpec[] = useMemo(() => completions(input), [input]);
     const busy = status === "streaming" || status === "submitted";
@@ -472,6 +490,14 @@ function App() {
                     <span>⏸ {serverState.presence.reason ?? "Paused"}</span>
                     <Button size="sm" className="h-6" onClick={() => post("/api/presence", { mode: "resume" }).then(refreshState)}>
                         Resume
+                    </Button>
+                </div>
+            )}
+            {serverState?.pausedForUser && (
+                <div className="flex items-center justify-between gap-2 border-b bg-amber-500/15 px-3 py-1.5 text-xs text-amber-300">
+                    <span>⏸ Paused — you have control of the screen</span>
+                    <Button size="sm" className="h-6" onClick={() => post("/api/resume").then(refreshState)}>
+                        Resume agent
                     </Button>
                 </div>
             )}
@@ -531,6 +557,8 @@ function App() {
                             )}
                             <div className={cn("flex min-w-0 flex-col gap-2", m.role === "user" ? "items-end" : "flex-1")}>
                                 {(m.parts ?? []).map((p: any, i: number) => {
+                                    if (p.type === "file" && typeof p.url === "string" && String(p.mediaType).startsWith("image/"))
+                                        return <img key={i} src={p.url} alt="attachment" className="max-h-48 rounded-lg border" />;
                                     if (p.type === "text") {
                                         if (!p.text) return null;
                                         return m.role === "user" ? (
@@ -609,19 +637,65 @@ function App() {
             )}
 
             {/* composer */}
-            <div className="border-t bg-card p-2.5">
+            <div
+                className="border-t bg-card p-2.5"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    addImageFiles(Array.from(e.dataTransfer.files));
+                }}
+            >
                 <div className="rounded-2xl border bg-background p-2 transition-colors focus-within:border-ring/60">
+                    {images.length > 0 && (
+                        <div className="mb-1.5 flex flex-wrap gap-1.5">
+                            {images.map((im, i) => (
+                                <div key={i} className="relative">
+                                    <img src={im.url} alt="attachment" className="size-14 rounded-md border object-cover" />
+                                    <button
+                                        className="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-white"
+                                        onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+                                    >
+                                        <X className="size-2.5" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                     <textarea
                         ref={inputRef}
                         value={input}
-                        placeholder="Give the agent a task…  (/ for commands)"
+                        placeholder="Give the agent a task…  (/ for commands, paste an image)"
                         className="max-h-32 min-h-[34px] w-full resize-none bg-transparent px-1.5 py-1 text-sm outline-none placeholder:text-muted-foreground"
                         onChange={(e) => setInput(e.target.value)}
+                        onPaste={(e) => {
+                            const imgs = Array.from(e.clipboardData.items)
+                                .filter((it) => it.type.startsWith("image/"))
+                                .map((it) => it.getAsFile())
+                                .filter((f): f is File => !!f);
+                            if (imgs.length) {
+                                e.preventDefault();
+                                addImageFiles(imgs);
+                            }
+                        }}
                         onKeyDown={(e) => {
                             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                         }}
                     />
                     <div className="mt-1 flex items-center gap-1.5">
+                        <input
+                            ref={fileInput}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                                addImageFiles(Array.from(e.target.files ?? []));
+                                e.target.value = "";
+                            }}
+                        />
+                        <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Attach image" onClick={() => fileInput.current?.click()}>
+                            <Paperclip className="size-4" />
+                        </Button>
                         <PillSelect value={serverState?.model ?? ""} title="Model" onChange={(m) => post("/api/model", { model: m }).then(refreshState)}>
                             {(serverState?.models ?? []).map((m) => (
                                 <option key={m} value={m}>{m}</option>
@@ -638,7 +712,7 @@ function App() {
                                 <Square className="size-3.5" />
                             </Button>
                         ) : (
-                            <Button size="icon" className="size-8 rounded-full disabled:opacity-40" disabled={!input.trim()} onClick={() => send()} title="Send">
+                            <Button size="icon" className="size-8 rounded-full disabled:opacity-40" disabled={!input.trim() && images.length === 0} onClick={() => send()} title="Send">
                                 <ArrowUp className="size-4" />
                             </Button>
                         )}

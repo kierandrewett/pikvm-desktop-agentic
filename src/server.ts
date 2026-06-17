@@ -45,19 +45,34 @@ function json(res: ServerResponse, status: number, body: unknown) {
     res.end(data);
 }
 
-/** Extract the latest user text from a useChat message payload. */
-function lastUserText(messages: PiKvmUIMessage[] | undefined): string {
-    if (!Array.isArray(messages)) return "";
+export interface ImagePart {
+    type: "image";
+    data: string;
+    mimeType: string;
+}
+
+/** Extract the latest user text + attached images from a useChat payload. */
+function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string; images: ImagePart[] } {
+    if (!Array.isArray(messages)) return { text: "", images: [] };
     for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i]!;
         if (m.role !== "user") continue;
-        return (m.parts ?? [])
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text)
+        const parts = (m.parts ?? []) as any[];
+        const text = parts
+            .filter((p) => p.type === "text")
+            .map((p) => p.text)
             .join("")
             .trim();
+        const images: ImagePart[] = [];
+        for (const p of parts) {
+            if (p.type === "file" && typeof p.url === "string" && String(p.mediaType).startsWith("image/")) {
+                const mm = p.url.match(/^data:([^;]+);base64,(.+)$/);
+                if (mm) images.push({ type: "image", data: mm[2], mimeType: mm[1] });
+            }
+        }
+        return { text, images };
     }
-    return "";
+    return { text: "", images: [] };
 }
 
 export function startControlServer(deps: ServerDeps, port: number): ReturnType<typeof createServer> {
@@ -94,6 +109,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         loggedIn: auth.isLoggedIn(),
         streaming: runner.isStreaming(),
         acting: runner.isStreaming(),
+        pausedForUser: runner.isPausedForUser(),
         model: runner.getModelId(),
         models: runner.availableModels(),
         context: runner.contextInfo(),
@@ -112,7 +128,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
     });
 
     /** Run the agent (or a command) and stream UI messages back. */
-    function streamChat(res: ServerResponse, input: string): void {
+    function streamChat(res: ServerResponse, input: string, images: ImagePart[] = []): void {
         const stream = createUIMessageStream<PiKvmUIMessage>({
             execute: async ({ writer }) => {
                 activeWriter = writer;
@@ -124,7 +140,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                     if (cmd?.known) {
                         await handleCommand(cmd.name, cmd.arg, status);
                     } else {
-                        await runner.run(input);
+                        await runner.run(input, images);
                     }
                 } catch (err) {
                     status(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -239,9 +255,9 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 } catch {
                     return json(res, 400, { error: "Invalid JSON" });
                 }
-                const text = lastUserText(body.messages);
-                if (!text) return json(res, 400, { error: "No user message" });
-                streamChat(res, text);
+                const { text, images } = lastUserMessage(body.messages);
+                if (!text && images.length === 0) return json(res, 400, { error: "No user message" });
+                streamChat(res, text || "(see attached image)", images);
             });
             return;
         }
@@ -286,6 +302,15 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 return json(res, 200, state());
             });
             return;
+        }
+
+        if (path === "/api/pause" && req.method === "POST") {
+            runner.pauseForUser();
+            return json(res, 200, state());
+        }
+        if (path === "/api/resume" && req.method === "POST") {
+            runner.resumeFromUser();
+            return json(res, 200, state());
         }
 
         if (path === "/api/model" && req.method === "POST") {

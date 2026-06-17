@@ -122,7 +122,7 @@ export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
         name: "spawn_subagent",
         label: "Sub-agent",
         description:
-            "Delegate a focused sub-task to a fresh sub-agent (its own context) and get back its result. Use for research or self-contained side-quests.",
+            "Delegate a focused sub-task to a fresh sub-agent that uses a STRONGER model (gpt-5.5) with deep thinking — ideal for hard reasoning, research, or self-contained side-quests. Returns its result.",
         parameters: subSchema,
         async execute(_id, p: Static<typeof subSchema>, signal) {
             try {

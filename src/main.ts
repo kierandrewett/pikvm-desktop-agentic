@@ -9,6 +9,7 @@ import {
     nativeTheme,
     session,
     Notification,
+    clipboard,
     Rectangle,
 } from "electron";
 import { readFileSync, existsSync, writeFileSync } from "fs";
@@ -266,6 +267,20 @@ function createWindow() {
     // Start the agentic backend (control core + agent + MCP/chat server).
     const agentBackend = startAgentBackend(origin, settings, inputTracker);
 
+    // Agent screenshots come from the already-rendered live view (capturePage),
+    // NOT the PiKVM snapshot endpoint — so they put no load on the Pi and never
+    // stall the live stream the user is watching.
+    agentBackend.control.captureScreen = async () => {
+        try {
+            const img = await mainView.webContents.capturePage();
+            const sz = img.getSize();
+            if (!sz.width || !sz.height) return null;
+            return { data: img.toJPEG(80), width: sz.width, height: sz.height };
+        } catch {
+            return null;
+        }
+    };
+
     // Mirror the agent's "is acting" state onto the control overlay.
     agentBackend.runner.subscribe((event) => {
         if (event.type === "tool_execution_start") {
@@ -301,6 +316,12 @@ function createWindow() {
     ipcMain.on("agent:stop", () => {
         console.log("Emergency stop from overlay");
         agentBackend.runner.stop();
+        setAgentActing(false);
+    });
+
+    ipcMain.on("agent:pause", () => {
+        console.log("Pause — handing control to user");
+        agentBackend.runner.pauseForUser();
         setAgentActing(false);
     });
 
@@ -576,6 +597,8 @@ function createWindow() {
                 audio: !!data.isTransmittingAudio,
                 mic: !!data.isTransmittingMicrophone,
             });
+            // Native resolution for OCR coordinate scaling.
+            if (data.width && data.height) agentBackend.control.setNativeDims(data.width, data.height);
 
             mainView.webContents.send("kvm:media-transmission", {
                 isTransmittingAudio: data.isTransmittingAudio,
@@ -703,9 +726,15 @@ function createWindow() {
         }
     });
 
+    const allowedPermissions = new Set([
+        "media",
+        "clipboard-read",
+        "clipboard-sanitized-write",
+        "clipboard-write",
+    ]);
     session.defaultSession.setPermissionRequestHandler(
         (webContents, permission, callback) => {
-            if (permission === "media") {
+            if (allowedPermissions.has(permission)) {
                 callback(true);
             } else {
                 console.log(`Blocked permission request: ${permission}`);
@@ -713,6 +742,14 @@ function createWindow() {
             }
         }
     );
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+        allowedPermissions.has(permission)
+    );
+
+    // Reliable clipboard for the sidebar (navigator.clipboard can be flaky in views).
+    ipcMain.on("clipboard:write", (_, contentText: string) => {
+        if (typeof contentText === "string") clipboard.writeText(contentText);
+    });
 
     if (
         process.env.NODE_ENV === "development" ||
