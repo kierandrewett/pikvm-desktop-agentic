@@ -106,7 +106,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         })),
         settings: (() => {
             const s = settings.get();
-            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence };
+            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm };
         })(),
         log: reviewer.getLog().slice(-100),
     });
@@ -306,6 +306,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 const next = settings.patch(patch);
                 if (typeof patch.humanize === "number") control.setHumanize(next.humanize);
                 if (typeof patch.pauseOnPresence === "boolean") presence.setEnabled(next.pauseOnPresence);
+                if (typeof patch.wpm === "number") control.setWpm(next.wpm);
                 return json(res, 200, state());
             });
             return;

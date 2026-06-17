@@ -21,6 +21,7 @@ import { CodexAuth } from "./agent/auth";
 import { AgentRunner } from "./agent/runner";
 import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
+import { InputTracker } from "./input-tracker";
 
 const staticPath = resolve(__dirname, "static");
 
@@ -54,7 +55,7 @@ function humanAction(tool: string, args: any): string {
 }
 
 /** Start the agentic backend (control core, reviewer, presence, agent, servers). */
-function startAgentBackend(origin: string, settings: SettingsStore) {
+function startAgentBackend(origin: string, settings: SettingsStore, inputTracker: InputTracker) {
     const control = new PiKvmControl({
         origin,
         // Reuse the logged-in PiKVM web session so the agent's snapshot/HID
@@ -68,6 +69,11 @@ function startAgentBackend(origin: string, settings: SettingsStore) {
             }
         },
     });
+    // Feed the agent's own keystrokes into the unified input tracker.
+    control.onAgentInput = (info) => {
+        if (info.text) inputTracker.appendText("agent", info.text);
+        else if (info.key) inputTracker.applyKey("agent", info.key);
+    };
     const reviewer = new OperationReviewer();
     const presence = new PresenceMonitor();
     presence.start();
@@ -79,6 +85,7 @@ function startAgentBackend(origin: string, settings: SettingsStore) {
         presence,
         auth,
         sessionsDir: resolve(app.getPath("userData"), "agent-sessions"),
+        inputTracker,
     });
 
     // Apply persisted preferences.
@@ -86,6 +93,7 @@ function startAgentBackend(origin: string, settings: SettingsStore) {
     runner.setModel(s.model);
     reviewer.setPolicy(s.policy);
     control.setHumanize(s.humanize);
+    control.setWpm(s.wpm);
     presence.setEnabled(s.pauseOnPresence);
     if (s.goal) runner.setGoal(s.goal);
 
@@ -247,8 +255,16 @@ function createWindow() {
         layout();
     });
 
+    // Unified input tracker (agent + the user's own keystrokes on the KVM page).
+    const inputTracker = new InputTracker();
+    ipcMain.on("kvm:user-input", (_, data) => {
+        if (!data) return;
+        if (data.type === "key" && typeof data.key === "string") inputTracker.applyKey("user", data.key);
+        else if (data.type === "mouse") inputTracker.mouse("user", `button ${data.button ?? 0}`);
+    });
+
     // Start the agentic backend (control core + agent + MCP/chat server).
-    const agentBackend = startAgentBackend(origin, settings);
+    const agentBackend = startAgentBackend(origin, settings, inputTracker);
 
     // Mirror the agent's "is acting" state onto the control overlay.
     agentBackend.runner.subscribe((event) => {

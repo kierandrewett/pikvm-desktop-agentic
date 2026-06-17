@@ -26,8 +26,10 @@ import { PresenceMonitor } from "../presence";
 import { CodexAuth } from "./auth";
 import { createTools } from "./tools";
 import { createExtraTools } from "./extra-tools";
+import { BackgroundTasks } from "./background";
 import { MemoryStore } from "./memory";
 import { SkillStore } from "./skills";
+import type { InputTracker } from "../input-tracker";
 import { SessionStore, agentMessagesToUi, type SessionMeta } from "./sessions";
 import type { PiKvmUIMessage } from "./protocol";
 
@@ -42,7 +44,9 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "",
         "Loop: call `screenshot` to see the screen, decide ONE next action, perform it, then screenshot again to verify before continuing.",
         "Coordinates are in the pixels of the most recent screenshot. Re-screenshot after anything that changes the screen (scroll, navigation, window changes).",
-        "Type with `type_text` (it already feels human — do not add your own delays). Use `press_key`/`hotkey` for keys and shortcuts.",
+        "Type with `type_text` (it already feels human — do not add your own delays; set background:true for long text and use `wait_for_task`). Use `press_key`/`hotkey` for keys and shortcuts.",
+        "Use `ocr` to read on-screen text precisely (optionally a region) instead of guessing from the screenshot. Use `screenshot` with a region to zoom into a window.",
+        "Use `recent_activity` to see what's already been typed (including by the user) before continuing a field.",
         "Work in small, verifiable steps. If something looks wrong, stop and re-observe rather than guessing.",
         "Before any irreversible or destructive action (deleting data, rebooting, submitting a form with side effects, running privileged commands), pause and explain what you are about to do — the human may need to authorize it.",
         "",
@@ -63,6 +67,7 @@ export interface RunnerDeps {
     presence: PresenceMonitor;
     auth: CodexAuth;
     sessionsDir: string;
+    inputTracker?: InputTracker;
 }
 
 export class AgentRunner {
@@ -74,6 +79,7 @@ export class AgentRunner {
     private readonly sessions: SessionStore;
     private readonly memory: MemoryStore;
     private readonly skills: SkillStore;
+    private readonly background = new BackgroundTasks();
     private readonly toolsForSub: AgentTool<any>[];
     private sessionId: string;
 
@@ -85,6 +91,8 @@ export class AgentRunner {
         this.skills = new SkillStore(resolve(dataDir, "agent-skills"));
         this.sessionId = this.sessions.create();
 
+        const toolDeps = { background: this.background, ...(deps.inputTracker ? { tracker: deps.inputTracker } : {}) };
+
         // Tools a sub-agent gets: computer-use + cognitive, minus spawn (no recursion).
         const extra = createExtraTools({
             memory: this.memory,
@@ -92,14 +100,14 @@ export class AgentRunner {
             sessions: this.sessions,
             runSubagent: (task, signal) => this.runSubagent(task, signal),
         });
-        this.toolsForSub = [...createTools(deps.control), ...extra.filter((t) => t.name !== "spawn_subagent")];
+        this.toolsForSub = [...createTools(deps.control, toolDeps), ...extra.filter((t) => t.name !== "spawn_subagent")];
 
         this.agent = new Agent({
             initialState: {
                 systemPrompt: systemPrompt(undefined, this.memory.count()),
                 model: this.model,
                 thinkingLevel: "medium",
-                tools: [...createTools(deps.control), ...extra],
+                tools: [...createTools(deps.control, toolDeps), ...extra],
             },
             getApiKey: async () => {
                 try {

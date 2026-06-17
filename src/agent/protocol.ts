@@ -69,6 +69,6 @@ export interface ServerState {
     context: { tokens: number; max: number };
     sessionId: string;
     sessions: SessionSummary[];
-    settings: { humanize: number; pauseOnPresence: boolean };
+    settings: { humanize: number; pauseOnPresence: boolean; wpm: number };
     log: LogEntry[];
 }

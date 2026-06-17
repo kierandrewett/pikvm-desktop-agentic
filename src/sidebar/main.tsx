@@ -338,6 +338,19 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                     />
                     <small className="text-muted-foreground">{hv === 0 ? "Precise (no typos)" : hv >= 0.9 ? "Very human" : "Human"}</small>
                 </label>
+                <label className="block">
+                    <span className="text-sm">Typing speed</span>
+                    <input
+                        type="range"
+                        min={40}
+                        max={180}
+                        step={5}
+                        defaultValue={s?.wpm ?? 95}
+                        className="mt-1 w-full"
+                        onChange={(e) => onPatch({ wpm: parseInt(e.target.value, 10) })}
+                    />
+                    <small className="text-muted-foreground">~{s?.wpm ?? 95} WPM baseline (randomised per run)</small>
+                </label>
                 <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={s?.pauseOnPresence ?? true} onChange={(e) => onPatch({ pauseOnPresence: e.target.checked })} />
                     Pause when target mic/audio is active

@@ -91,6 +91,10 @@ export class PiKvmControl {
     private shiftHeld = false;
     /** Default typing humanity (0..1); used when typeText omits an intensity. */
     private humanize = 1;
+    /** Forced WPM (0 = use the random persona). */
+    private wpm = 0;
+    /** Hook fired with text the agent types / keys it presses (for input tracking). */
+    onAgentInput: ((info: { text?: string; key?: string }) => void) | undefined;
 
     constructor(creds: PiKvmCredentials) {
         const u = new URL(creds.origin);
@@ -189,6 +193,27 @@ export class PiKvmControl {
         return { ...this.dims };
     }
 
+    /** Read on-screen text via PiKVM's built-in OCR (tesseract). Optional region. */
+    async ocr(region?: Region, langs = "eng"): Promise<string> {
+        const r = region ?? { x: 0, y: 0, width: this.dims.width, height: this.dims.height };
+        const res = await axios.get(`${this.httpBase()}/api/streamer/snapshot`, {
+            responseType: "text",
+            headers: await this.headers(),
+            httpsAgent: this.agent,
+            timeout: 25_000,
+            params: {
+                allow_offline: 1,
+                ocr: 1,
+                ocr_langs: langs,
+                ocr_left: Math.round(r.x),
+                ocr_top: Math.round(r.y),
+                ocr_right: Math.round(r.x + r.width),
+                ocr_bottom: Math.round(r.y + r.height),
+            },
+        });
+        return String(res.data).trim();
+    }
+
     /* -------------------------------------------------------------- *
      * HID WebSocket
      * -------------------------------------------------------------- */
@@ -243,6 +268,7 @@ export class PiKvmControl {
         await this.key(code, true);
         await sleep(40);
         await this.key(code, false);
+        this.onAgentInput?.({ key: code });
     }
 
     /** Hold several keys down in order, then release in reverse (a chord). */
@@ -250,6 +276,7 @@ export class PiKvmControl {
         for (const c of codes) await this.key(c, true);
         await sleep(60);
         for (const c of [...codes].reverse()) await this.key(c, false);
+        this.onAgentInput?.({ key: codes.join("+") });
     }
 
     /** Set the default typing humanity (0 = no typos, 1 = full human). */
@@ -257,15 +284,29 @@ export class PiKvmControl {
         this.humanize = Math.max(0, Math.min(1, intensity));
     }
 
+    /** Set the baseline typing WPM the random persona centers on (0 = default). */
+    setWpm(wpm: number): void {
+        this.wpm = Math.max(0, Math.min(220, Math.round(wpm)));
+    }
+
     /** Type text with humanlike timing, typos and self-correction. */
-    async typeText(text: string, opts: TypingOptions & { signal?: AbortSignal; persona?: Persona } = {}): Promise<void> {
-        const { signal, ...typingOpts } = opts;
+    async typeText(
+        text: string,
+        opts: TypingOptions & {
+            signal?: AbortSignal;
+            persona?: Persona;
+            onProgress?: (done: number, total: number) => void;
+        } = {},
+    ): Promise<void> {
+        const { signal, onProgress, ...typingOpts } = opts;
         const strokes = planTyping(text, {
             intensity: this.humanize,
+            ...(this.wpm ? { wpm: this.wpm } : {}),
             ...typingOpts,
         });
         try {
-            for (const s of strokes) {
+            for (let i = 0; i < strokes.length; i++) {
+                const s = strokes[i]!;
                 if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
                 if (s.shift && !this.shiftHeld) {
                     await this.key("ShiftLeft", true);
@@ -278,7 +319,9 @@ export class PiKvmControl {
                 await sleep(s.downMs, signal);
                 await this.key(s.code, false);
                 await sleep(s.gapMs, signal);
+                onProgress?.(i + 1, strokes.length);
             }
+            this.onAgentInput?.({ text });
         } finally {
             if (this.shiftHeld) {
                 await this.key("ShiftLeft", false).catch(() => {});

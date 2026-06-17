@@ -14,6 +14,8 @@ export interface AppSettings {
     humanize: number;
     /** Whether the agent auto-pauses when the PiKVM mic/audio is active. */
     pauseOnPresence: boolean;
+    /** Baseline typing WPM the random persona centers on. */
+    wpm: number;
     sidebarWidth: number;
     goal?: string;
 }
@@ -23,6 +25,7 @@ const DEFAULTS: AppSettings = {
     policy: "risky-only",
     humanize: 1,
     pauseOnPresence: true,
+    wpm: 95,
     sidebarWidth: 380,
 };
 

@@ -72,6 +72,27 @@ contextBridge.exposeInMainWorld("kvm", {
             }
         });
 
+        // Track the user's own keystrokes/clicks (capture phase, before the page
+        // handles them) so the agent can see what's already been typed.
+        window.addEventListener(
+            "keydown",
+            (e) => {
+                try {
+                    ipcRenderer.send("kvm:user-input", { type: "key", key: (e as KeyboardEvent).key });
+                } catch {}
+            },
+            true
+        );
+        window.addEventListener(
+            "mousedown",
+            (e) => {
+                try {
+                    ipcRenderer.send("kvm:user-input", { type: "mouse", button: (e as MouseEvent).button });
+                } catch {}
+            },
+            true
+        );
+
         inject((_) => {
             (globalThis as any)._getStreamInfoEl = () => {
                 let streamInfoEl = document.querySelector(

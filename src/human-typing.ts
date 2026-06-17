@@ -50,6 +50,8 @@ export interface TypingOptions {
      * Timing/cadence always stays on.
      */
     intensity?: number;
+    /** Baseline words-per-minute the random persona centers on (randomness kept). */
+    wpm?: number;
     /** Explicit seed for reproducibility. */
     seed?: number;
 }
@@ -173,11 +175,16 @@ function keyFor(ch: string): KeyInfo | undefined {
  * Persona
  * ------------------------------------------------------------------ */
 
-export function createPersona(seed?: number): Persona {
+/** Default baseline WPM the random persona centers on. */
+export const DEFAULT_BASE_WPM = 95;
+
+export function createPersona(seed?: number, baseWpm = DEFAULT_BASE_WPM): Persona {
     const rng = makeRng(seed ?? ((Math.random() * 2 ** 31) | 0));
     const skill = randRange(rng, 0.35, 0.95);
     return {
-        wpm: Math.round(randRange(rng, 45, 95)),
+        // Randomised ±18% around the configured baseline, so each run differs
+        // but tracks the chosen speed.
+        wpm: Math.round(randRange(rng, baseWpm * 0.82, baseWpm * 1.18)),
         skill,
         // Better typists make fewer mistakes.
         errorRate: randRange(rng, 0.005, 0.035) * (1.2 - skill),
@@ -419,7 +426,8 @@ CHAR_TO_KEY.set("\t", { code: "Tab", shift: false, row: 1, col: -1, hand: "L" })
  * played in order, leave exactly `text` in the target buffer.
  */
 export function planTyping(text: string, opts: TypingOptions = {}): KeyStroke[] {
-    const persona = opts.persona ?? createPersona(opts.seed);
+    // `wpm` is a *baseline* the random persona centers on — randomness is kept.
+    const persona = opts.persona ?? createPersona(opts.seed, opts.wpm && opts.wpm > 0 ? opts.wpm : undefined);
     const seed = opts.seed ?? ((persona.wpm * 7919 + Math.floor(persona.skill * 1e6)) | 0);
     const rng = makeRng(seed);
     const planner = new Planner(rng, persona, {

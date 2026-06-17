@@ -10,10 +10,14 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { PiKvmControl, MouseButton } from "../pikvm-control";
+import type { BackgroundTasks } from "./background";
+import type { InputTracker } from "../input-tracker";
 
 function text(t: string) {
     return { type: "text" as const, text: t };
 }
+
+const RegionSchema = Type.Object({ x: Type.Number(), y: Type.Number(), width: Type.Number(), height: Type.Number() });
 
 const ButtonSchema = Type.Optional(
     Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")], {
@@ -21,7 +25,10 @@ const ButtonSchema = Type.Optional(
     }),
 );
 
-export function createTools(control: PiKvmControl): AgentTool<any>[] {
+export function createTools(
+    control: PiKvmControl,
+    deps: { background?: BackgroundTasks; tracker?: InputTracker } = {},
+): AgentTool<any>[] {
     const screenshotSchema = Type.Object({
         region: Type.Optional(
             Type.Object(
@@ -107,18 +114,30 @@ export function createTools(control: PiKvmControl): AgentTool<any>[] {
     const typeSchema = Type.Object({
         text: Type.String({ description: "Text to type. Newlines press Enter." }),
         code: Type.Optional(Type.Boolean({ description: "Treat as code (preserve indentation, code rhythm)." })),
+        background: Type.Optional(
+            Type.Boolean({ description: "Type in the background and return immediately with a task id (for long text)." }),
+        ),
     });
     const typeText: AgentTool<typeof typeSchema> = {
         name: "type_text",
         label: "Type",
         description:
-            "Type text into the focused field with humanlike timing and self-correcting typos. Final text always matches exactly.",
+            "Type text into the focused field with humanlike timing and self-correcting typos. Final text always matches exactly. Set background:true for long text, then use wait_for_task / list_tasks.",
         parameters: typeSchema,
         async execute(_id, p: Static<typeof typeSchema>, signal): Promise<AgentToolResult<null>> {
-            await control.typeText(p.text, {
-                ...(typeof p.code === "boolean" ? { code: p.code } : {}),
-                ...(signal ? { signal } : {}),
-            });
+            const codeOpt = typeof p.code === "boolean" ? { code: p.code } : {};
+            if (p.background && deps.background) {
+                const id = deps.background.start(`Type ${p.text.length} chars`, async (report) => {
+                    await control.typeText(p.text, {
+                        ...codeOpt,
+                        ...(signal ? { signal } : {}),
+                        onProgress: (d, t) => report(`${d}/${t} keystrokes`),
+                    });
+                    return `Typed ${p.text.length} characters.`;
+                });
+                return { content: [text(`Typing in background as ${id}. Use wait_for_task or list_tasks.`)], details: null };
+            }
+            await control.typeText(p.text, { ...codeOpt, ...(signal ? { signal } : {}) });
             return { content: [text(`Typed ${p.text.length} characters.`)], details: null };
         },
     };
@@ -168,5 +187,82 @@ export function createTools(control: PiKvmControl): AgentTool<any>[] {
         },
     };
 
-    return [screenshot, moveMouse, click, doubleClick, typeText, pressKey, hotkey, scroll];
+    const ocrSchema = Type.Object({
+        region: Type.Optional(RegionSchema),
+    });
+    const ocr: AgentTool<typeof ocrSchema> = {
+        name: "ocr",
+        label: "OCR",
+        description:
+            "Read on-screen text precisely using PiKVM's built-in OCR. Pass a region (frame pixels) to read a specific window/area — much more reliable than guessing from a screenshot.",
+        parameters: ocrSchema,
+        async execute(_id, p: Static<typeof ocrSchema>): Promise<AgentToolResult<null>> {
+            const out = await control.ocr(p.region);
+            return { content: [text(out || "(no text recognised)")], details: null };
+        },
+    };
+
+    const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, typeText, pressKey, hotkey, scroll];
+
+    if (deps.background) {
+        const bg = deps.background;
+        tools.push({
+            name: "list_tasks",
+            label: "List tasks",
+            description: "List background tasks and their progress.",
+            parameters: Type.Object({}),
+            async execute(): Promise<AgentToolResult<null>> {
+                const list = bg.list();
+                return {
+                    content: [
+                        text(
+                            list.length
+                                ? list.map((t) => `${t.id} [${t.status}] ${t.label} — ${t.progress || t.result || t.error || ""}`).join("\n")
+                                : "No background tasks.",
+                        ),
+                    ],
+                    details: null,
+                };
+            },
+        });
+        const waitSchema = Type.Object({ taskId: Type.String() });
+        tools.push({
+            name: "wait_for_task",
+            label: "Wait for task",
+            description: "Sleep until a background task completes, then return its result.",
+            parameters: waitSchema,
+            async execute(_id, p: any, signal): Promise<AgentToolResult<null>> {
+                try {
+                    const t = await bg.wait(p.taskId, signal);
+                    return { content: [text(`${t.id} ${t.status}: ${t.result ?? t.error ?? ""}`)], details: null };
+                } catch (e) {
+                    return { content: [text(`Wait failed: ${e instanceof Error ? e.message : String(e)}`)], details: null };
+                }
+            },
+        });
+    }
+
+    if (deps.tracker) {
+        const tracker = deps.tracker;
+        tools.push({
+            name: "recent_activity",
+            label: "Recent input",
+            description:
+                "See recently typed text and input activity — including what the USER typed themselves — so you can continue from what's already entered.",
+            parameters: Type.Object({}),
+            async execute(): Promise<AgentToolResult<null>> {
+                const typed = tracker.typedText();
+                const events = tracker
+                    .recentEvents(12)
+                    .map((e) => `${e.source}:${e.kind} ${e.detail}`)
+                    .join("\n");
+                return {
+                    content: [text(`Recently typed (user+agent):\n${typed || "(nothing)"}\n\nRecent events:\n${events || "(none)"}`)],
+                    details: null,
+                };
+            },
+        });
+    }
+
+    return tools;
 }
