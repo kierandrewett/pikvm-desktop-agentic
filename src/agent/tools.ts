@@ -12,6 +12,7 @@ import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { PiKvmControl, MouseButton } from "../pikvm-control";
 import type { BackgroundTasks } from "./background";
 import type { InputTracker } from "../input-tracker";
+import type { ScreenshotHistory } from "./screenshot-history";
 
 function text(t: string) {
     return { type: "text" as const, text: t };
@@ -27,7 +28,7 @@ const ButtonSchema = Type.Optional(
 
 export function createTools(
     control: PiKvmControl,
-    deps: { background?: BackgroundTasks; tracker?: InputTracker } = {},
+    deps: { background?: BackgroundTasks; tracker?: InputTracker; history?: ScreenshotHistory } = {},
 ): AgentTool<any>[] {
     const screenshotSchema = Type.Object({
         region: Type.Optional(
@@ -53,10 +54,12 @@ export function createTools(
         parameters: screenshotSchema,
         async execute(_id, p: Static<typeof screenshotSchema>): Promise<AgentToolResult<{ width: number; height: number }>> {
             const shot = await control.screenshot(p.region);
+            const sid = deps.history?.add({ base64: shot.base64, mimeType: shot.mimeType, width: shot.width, height: shot.height });
+            const label = p.region ? `Cropped region ${shot.width}x${shot.height} px.` : `Screen is ${shot.width}x${shot.height} px.`;
             return {
                 content: [
                     { type: "image", data: shot.base64, mimeType: shot.mimeType },
-                    text(p.region ? `Cropped region ${shot.width}x${shot.height} px.` : `Screen is ${shot.width}x${shot.height} px.`),
+                    text(sid ? `${label} (id: ${sid})` : label),
                 ],
                 details: { width: shot.width, height: shot.height },
             };
@@ -221,6 +224,29 @@ export function createTools(
     };
 
     const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, drag, typeText, pressKey, hotkey, scroll];
+
+    if (deps.history) {
+        const history = deps.history;
+        const viewSchema = Type.Object({ id: Type.String({ description: "The screenshot id, e.g. s7." }) });
+        tools.push({
+            name: "view_screenshot",
+            label: "View past screenshot",
+            description:
+                "Re-view an earlier screenshot by its id (e.g. s7) to recover state — useful when an older screenshot was omitted from context but you need to see it again.",
+            parameters: viewSchema,
+            async execute(_id, p: any): Promise<AgentToolResult<null>> {
+                const s = history.get(p.id);
+                if (!s) return { content: [text(`Screenshot ${p.id} is no longer available.`)], details: null };
+                return {
+                    content: [
+                        { type: "image", data: s.base64, mimeType: s.mimeType },
+                        text(`Earlier screenshot ${p.id} (${s.width}x${s.height}).`),
+                    ],
+                    details: null,
+                };
+            },
+        });
+    }
 
     if (deps.background) {
         const bg = deps.background;
