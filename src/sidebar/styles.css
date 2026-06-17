@@ -31,25 +31,25 @@
 }
 
 :root {
-    --radius: 0.65rem;
-    --background: #0f0f14;
-    --foreground: #e7e7ee;
-    --card: #16161d;
-    --card-foreground: #e7e7ee;
-    --popover: #16161d;
-    --popover-foreground: #e7e7ee;
-    --primary: #6c8cff;
+    --radius: 0.75rem;
+    --background: #0a0a0c;
+    --foreground: #ededf1;
+    --card: #121216;
+    --card-foreground: #ededf1;
+    --popover: #16161b;
+    --popover-foreground: #ededf1;
+    --primary: #5b8cff;
     --primary-foreground: #ffffff;
-    --secondary: #1f1f29;
-    --secondary-foreground: #e7e7ee;
-    --muted: #1a1a22;
-    --muted-foreground: #9a9aa8;
-    --accent: #20202a;
-    --accent-foreground: #e7e7ee;
-    --destructive: #ff4d4d;
-    --border: #26262f;
-    --input: #26262f;
-    --ring: #6c8cff;
+    --secondary: #1a1a20;
+    --secondary-foreground: #ededf1;
+    --muted: #141418;
+    --muted-foreground: #80808b;
+    --accent: #1c1c23;
+    --accent-foreground: #ededf1;
+    --destructive: #f25555;
+    --border: #222228;
+    --input: #222228;
+    --ring: #5b8cff;
 }
 
 [data-theme="light"] {
@@ -79,4 +79,22 @@ body {
     background: var(--background);
     color: var(--foreground);
     overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    font-family:
+        ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+/* Subtle, modern scrollbars. */
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background: #33333c;
+}
+*::-webkit-scrollbar-track {
+    background: transparent;
 }

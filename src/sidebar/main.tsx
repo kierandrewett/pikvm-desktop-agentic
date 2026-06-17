@@ -15,6 +15,7 @@ import { Streamdown } from "streamdown";
 import {
     Activity,
     ArrowUp,
+    ChevronDown,
     Copy,
     History,
     Plus,
@@ -28,7 +29,6 @@ import {
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/ai-elements/conversation";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/ai-elements/reasoning";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/ai-elements/tool";
-import { Suggestion } from "@/ai-elements/suggestion";
 import { Loader } from "@/ai-elements/loader";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -51,6 +51,42 @@ const SUGGESTIONS = [
     "Open a terminal",
     "Check what operating system this is",
 ];
+
+function timeAgo(ts: number): string {
+    const s = Math.max(1, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return `${s}s ago`;
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.round(h / 24)}d ago`;
+}
+
+function PillSelect({
+    value,
+    onChange,
+    title,
+    children,
+}: {
+    value: string;
+    onChange: (v: string) => void;
+    title: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <div className="relative">
+            <select
+                value={value}
+                title={title}
+                onChange={(e) => onChange(e.target.value)}
+                className="cursor-pointer appearance-none rounded-full border bg-secondary py-1 pl-2.5 pr-6 text-xs text-foreground outline-none transition-colors hover:bg-accent"
+            >
+                {children}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+        </div>
+    );
+}
 
 /* ------------------------------- custom parts ----------------------------- */
 
@@ -306,78 +342,87 @@ function App() {
             <div className="absolute left-0 top-0 z-30 h-full w-1.5 cursor-ew-resize hover:bg-primary/40" onMouseDown={onHandleDown} title="Drag to resize" />
 
             {/* header */}
-            <header className="border-b bg-card px-3 py-2">
-                <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 font-semibold">
-                        <Sparkles className="size-4 text-primary" /> Agent <StatusPill state={serverState} />
-                    </span>
-                    <ContextMeter ctx={serverState?.context} />
-                </div>
-                <div className="mt-2 flex items-center gap-1.5">
-                    <select
-                        className="min-w-0 rounded-md border bg-background px-1.5 py-1 text-xs"
-                        title="Model"
-                        value={serverState?.model ?? ""}
-                        onChange={(e) => post("/api/model", { model: e.target.value }).then(refreshState)}
-                    >
-                        {(serverState?.models ?? []).map((m) => (
-                            <option key={m} value={m}>{m}</option>
-                        ))}
-                    </select>
-                    <select
-                        className="min-w-0 rounded-md border bg-background px-1.5 py-1 text-xs"
-                        title="Review policy"
-                        value={serverState?.policy ?? "risky-only"}
-                        onChange={(e) => post("/api/policy", { policy: e.target.value }).then(refreshState)}
-                    >
-                        <option value="risky-only">Confirm risky</option>
-                        <option value="review-all">Review all</option>
-                        <option value="autorun-trusted">Autorun</option>
-                    </select>
-                    <span className="flex-1" />
-                    <Button size="icon" variant="ghost" className="size-7" title="New chat" onClick={newChat}>
+            <header className="flex h-11 shrink-0 items-center gap-2 border-b bg-card px-3">
+                <Sparkles className="size-4 text-primary" />
+                <span className="text-[13px] font-semibold tracking-tight">Agent</span>
+                <StatusPill state={serverState} />
+                <span className="flex-1" />
+                <ContextMeter ctx={serverState?.context} />
+                <div className="ml-1 flex items-center">
+                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="New chat (⌘K)" onClick={newChat}>
                         <Plus className="size-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="size-7" title="History" onClick={() => setPanel("history")}>
+                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="History" onClick={() => setPanel("history")}>
                         <History className="size-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="size-7" title="Activity" onClick={() => setPanel("activity")}>
+                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Activity" onClick={() => setPanel("activity")}>
                         <Activity className="size-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="size-7" title="Settings" onClick={() => setPanel("settings")}>
+                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Settings" onClick={() => setPanel("settings")}>
                         <Settings2 className="size-4" />
                     </Button>
                 </div>
-                {serverState && !serverState.loggedIn && (
-                    <Button className="mt-2 w-full" onClick={() => post("/api/login").then(refreshState)}>
+            </header>
+
+            {serverState && !serverState.loggedIn && (
+                <div className="border-b bg-card px-3 py-2">
+                    <Button className="w-full" onClick={() => post("/api/login").then(refreshState)}>
                         Sign in with ChatGPT
                     </Button>
-                )}
-                {serverState?.presence?.paused && (
-                    <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-destructive/15 px-2 py-1.5 text-xs">
-                        <span>⏸ {serverState.presence.reason ?? "Paused"}</span>
-                        <Button size="sm" className="h-6" onClick={() => post("/api/presence", { mode: "resume" }).then(refreshState)}>
-                            Resume
-                        </Button>
-                    </div>
-                )}
-                {serverState?.goal && <div className="mt-2 rounded-md bg-primary/15 px-2 py-1.5 text-xs">🎯 {serverState.goal}</div>}
-            </header>
+                </div>
+            )}
+            {serverState?.presence?.paused && (
+                <div className="flex items-center justify-between gap-2 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+                    <span>⏸ {serverState.presence.reason ?? "Paused"}</span>
+                    <Button size="sm" className="h-6" onClick={() => post("/api/presence", { mode: "resume" }).then(refreshState)}>
+                        Resume
+                    </Button>
+                </div>
+            )}
+            {serverState?.goal && <div className="border-b bg-primary/10 px-3 py-1.5 text-xs">🎯 {serverState.goal}</div>}
 
             {/* conversation */}
             <Conversation className="flex-1">
                 <ConversationContent className="gap-4">
                     {empty && (
-                        <div className="m-auto max-w-[300px] text-center text-muted-foreground">
-                            <Sparkles className="mx-auto size-8 text-primary" />
-                            <h2 className="mt-2 text-base font-semibold text-foreground">Drive the machine</h2>
-                            <p className="mt-1 text-sm">Give the agent a task and watch it work on the KVM. Try:</p>
-                            <div className="mt-3 flex flex-col gap-2">
-                                {SUGGESTIONS.map((s) => (
-                                    <Suggestion key={s} suggestion={s} onClick={send} className="w-full justify-start whitespace-normal text-left" />
-                                ))}
+                        <div className="flex flex-col gap-5 px-1 pt-1">
+                            <div className="pt-3 text-center">
+                                <div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                                    <Sparkles className="size-6" />
+                                </div>
+                                <h2 className="mt-3 text-[15px] font-semibold text-foreground">Drive the machine</h2>
+                                <p className="mt-1 text-[13px] text-muted-foreground">Give the agent a task and watch it work on the KVM.</p>
                             </div>
-                            <p className="mt-3 text-[11px]">Type / for commands · gpt-5.5 on your ChatGPT subscription</p>
+                            {(serverState?.sessions ?? []).length > 0 && (
+                                <div>
+                                    <div className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Recent</div>
+                                    {(serverState?.sessions ?? []).slice(0, 4).map((s) => (
+                                        <button
+                                            key={s.id}
+                                            onClick={() => resume(s.id)}
+                                            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
+                                        >
+                                            <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                                            <span className="flex-1 truncate text-[13px]">{s.title}</span>
+                                            <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(s.updatedAt)}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            <div>
+                                <div className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Try</div>
+                                <div className="flex flex-col gap-2">
+                                    {SUGGESTIONS.map((s) => (
+                                        <button
+                                            key={s}
+                                            onClick={() => send(s)}
+                                            className="rounded-xl border bg-card px-3 py-2.5 text-left text-[13px] transition-colors hover:border-primary/50 hover:bg-accent"
+                                        >
+                                            {s}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -474,26 +519,50 @@ function App() {
             )}
 
             {/* composer */}
-            <div className="flex items-end gap-2 border-t bg-card p-2">
-                <textarea
-                    ref={inputRef}
-                    value={input}
-                    placeholder="Give the agent a task…  (/ for commands)"
-                    className="max-h-32 min-h-[38px] flex-1 resize-none rounded-lg border bg-background p-2 text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-                    }}
-                />
-                {busy ? (
-                    <Button size="icon" variant="destructive" className="rounded-full" onClick={() => stop()} title="Stop">
-                        <Square className="size-4" />
-                    </Button>
-                ) : (
-                    <Button size="icon" className="rounded-full" onClick={() => send()} title="Send">
-                        <ArrowUp className="size-4" />
-                    </Button>
-                )}
+            <div className="border-t bg-card p-2.5">
+                <div className="rounded-2xl border bg-background p-2 transition-colors focus-within:border-ring/60">
+                    <textarea
+                        ref={inputRef}
+                        value={input}
+                        placeholder="Give the agent a task…  (/ for commands)"
+                        className="max-h-32 min-h-[34px] w-full resize-none bg-transparent px-1.5 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                        }}
+                    />
+                    <div className="mt-1 flex items-center gap-1.5">
+                        <PillSelect value={serverState?.model ?? ""} title="Model" onChange={(m) => post("/api/model", { model: m }).then(refreshState)}>
+                            {(serverState?.models ?? []).map((m) => (
+                                <option key={m} value={m}>{m}</option>
+                            ))}
+                        </PillSelect>
+                        <PillSelect value={serverState?.policy ?? "risky-only"} title="Review policy" onChange={(p) => post("/api/policy", { policy: p }).then(refreshState)}>
+                            <option value="risky-only">Confirm risky</option>
+                            <option value="review-all">Review all</option>
+                            <option value="autorun-trusted">Autorun</option>
+                        </PillSelect>
+                        <span className="flex-1" />
+                        {busy ? (
+                            <Button size="icon" variant="destructive" className="size-8 rounded-full" onClick={() => stop()} title="Stop">
+                                <Square className="size-3.5" />
+                            </Button>
+                        ) : (
+                            <Button size="icon" className="size-8 rounded-full disabled:opacity-40" disabled={!input.trim()} onClick={() => send()} title="Send">
+                                <ArrowUp className="size-4" />
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* footer status */}
+            <div className="flex h-6 shrink-0 items-center justify-between border-t bg-card px-3 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                    <span className={cn("size-1.5 rounded-full", serverState?.loggedIn ? "bg-emerald-500" : "bg-muted-foreground")} />
+                    {serverState?.loggedIn ? "ChatGPT connected" : "Not signed in"}
+                </span>
+                <span>{serverState?.model ?? ""}</span>
             </div>
 
             {/* panels */}

@@ -20,6 +20,8 @@ export interface PiKvmCredentials {
     origin: string; // e.g. https://pikvm/  (may embed user:pass)
     username?: string;
     password?: string;
+    /** Returns the PiKVM `auth_token` cookie value (from the logged-in session). */
+    getCookie?: () => Promise<string | undefined> | string | undefined;
 }
 
 export interface Screenshot {
@@ -71,6 +73,7 @@ export class PiKvmControl {
     private origin: URL;
     private user: string;
     private pass: string;
+    private getCookie: PiKvmCredentials["getCookie"];
     private agent: HttpsAgent;
     private ws: WebSocket | undefined;
     private wsReady: Promise<void> | undefined;
@@ -85,6 +88,7 @@ export class PiKvmControl {
         const u = new URL(creds.origin);
         this.user = creds.username ?? decodeURIComponent(u.username || "");
         this.pass = creds.password ?? decodeURIComponent(u.password || "");
+        this.getCookie = creds.getCookie;
         u.username = "";
         u.password = "";
         u.pathname = "/";
@@ -93,10 +97,16 @@ export class PiKvmControl {
         this.agent = new HttpsAgent({ rejectUnauthorized: false });
     }
 
-    private headers(): Record<string, string> {
+    private async headers(): Promise<Record<string, string>> {
         const h: Record<string, string> = {};
-        if (this.user) h["X-KVMD-User"] = this.user;
-        if (this.pass) h["X-KVMD-Passwd"] = this.pass;
+        if (this.user) {
+            h["X-KVMD-User"] = this.user;
+            h["X-KVMD-Passwd"] = this.pass;
+        }
+        // Reuse the logged-in browser session's PiKVM token when we don't have
+        // explicit credentials (the common case — the user logged in via the form).
+        const cookie = await this.getCookie?.();
+        if (cookie) h["Cookie"] = cookie.includes("=") ? cookie : `auth_token=${cookie}`;
         return h;
     }
 
@@ -116,7 +126,7 @@ export class PiKvmControl {
     async screenshot(): Promise<Screenshot> {
         const res = await axios.get(`${this.httpBase()}/api/streamer/snapshot`, {
             responseType: "arraybuffer",
-            headers: this.headers(),
+            headers: await this.headers(),
             httpsAgent: this.agent,
             timeout: 10_000,
             params: { allow_offline: 1 },
@@ -155,9 +165,10 @@ export class PiKvmControl {
     async connect(): Promise<void> {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
         if (this.wsReady) return this.wsReady;
+        const headers = await this.headers();
         this.wsReady = new Promise<void>((resolve, reject) => {
             const ws = new WebSocket(this.wsUrl(), {
-                headers: this.headers(),
+                headers,
                 rejectUnauthorized: false,
             });
             this.ws = ws;

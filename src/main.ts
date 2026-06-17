@@ -55,7 +55,19 @@ function humanAction(tool: string, args: any): string {
 
 /** Start the agentic backend (control core, reviewer, presence, agent, servers). */
 function startAgentBackend(origin: string, settings: SettingsStore) {
-    const control = new PiKvmControl({ origin });
+    const control = new PiKvmControl({
+        origin,
+        // Reuse the logged-in PiKVM web session so the agent's snapshot/HID
+        // requests are authorized even when credentials aren't in the URL.
+        getCookie: async () => {
+            try {
+                const cookies = await session.defaultSession.cookies.get({ name: "auth_token" });
+                return cookies[0]?.value;
+            } catch {
+                return undefined;
+            }
+        },
+    });
     const reviewer = new OperationReviewer();
     const presence = new PresenceMonitor();
     presence.start();
