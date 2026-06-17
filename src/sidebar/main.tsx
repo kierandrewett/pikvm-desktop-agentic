@@ -390,6 +390,23 @@ function App() {
         return () => clearInterval(id);
     }, []);
 
+    // Restore the current session's transcript (with screenshots) on load.
+    useEffect(() => {
+        fetch(BASE + "/api/sessions/current")
+            .then((r) => r.json())
+            .then((d) => {
+                if (Array.isArray(d.messages) && d.messages.length) setMessages(d.messages);
+            })
+            .catch(() => {});
+    }, []);
+
+    // Persist the transcript shortly after each change settles, so it survives restarts.
+    useEffect(() => {
+        if (status === "streaming" || status === "submitted" || messages.length === 0) return;
+        const t = setTimeout(() => void post("/api/sessions/ui", { messages }), 800);
+        return () => clearTimeout(t);
+    }, [messages, status]);
+
     const decide = (id: string, verdict: any) => {
         setDecided((s) => new Set(s).add(id));
         void post("/api/approve", { id, ...verdict });
@@ -440,6 +457,14 @@ function App() {
         if ((window as any).ui?.copy) (window as any).ui.copy(t);
         else void navigator.clipboard?.writeText(t);
     };
+
+    // Auto-grow the composer with its content (e.g. when pasting a big block).
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, 220) + "px";
+    }, [input]);
 
     const comps: CommandSpec[] = useMemo(() => completions(input), [input]);
     const busy = status === "streaming" || status === "submitted";
@@ -665,7 +690,8 @@ function App() {
                         ref={inputRef}
                         value={input}
                         placeholder="Give the agent a task…  (/ for commands, paste an image)"
-                        className="max-h-32 min-h-[34px] w-full resize-none bg-transparent px-1.5 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                        rows={1}
+                        className="min-h-[34px] w-full resize-none overflow-y-auto bg-transparent px-1.5 py-1 text-sm outline-none placeholder:text-muted-foreground"
                         onChange={(e) => setInput(e.target.value)}
                         onPaste={(e) => {
                             const imgs = Array.from(e.clipboardData.items)

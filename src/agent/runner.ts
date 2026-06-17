@@ -95,7 +95,9 @@ export class AgentRunner {
         this.sessions = new SessionStore(deps.sessionsDir);
         this.memory = new MemoryStore(resolve(dataDir, "agent-memory.json"));
         this.skills = new SkillStore(resolve(dataDir, "agent-skills"));
-        this.sessionId = this.sessions.create();
+        // Resume the most recent session on startup so context survives restarts.
+        const recent = this.sessions.list();
+        this.sessionId = recent.length ? recent[0]!.id : this.sessions.create();
 
         const toolDeps = { background: this.background, ...(deps.inputTracker ? { tracker: deps.inputTracker } : {}) };
 
@@ -128,10 +130,24 @@ export class AgentRunner {
             prepareNextTurn: () => this.maybeCompact(),
         });
 
+        // Restore the resumed session's transcript so the agent keeps its context.
+        const restored = this.sessions.load(this.sessionId);
+        if (restored.length) this.agent.state.messages = restored as any;
+
         // Auto-save the transcript whenever a run finishes.
         this.agent.subscribe((e) => {
             if (e.type === "agent_end") this.persist();
         });
+    }
+
+    /** The full UI transcript (with screenshots) for the current session. */
+    currentUiMessages(): PiKvmUIMessage[] {
+        return this.sessions.loadUi(this.sessionId);
+    }
+
+    /** Persist the sidebar's UI transcript (called by the renderer after turns). */
+    saveUiMessages(messages: PiKvmUIMessage[]): void {
+        this.sessions.saveUi(this.sessionId, messages);
     }
 
     /* --------------------------- auto-compaction ------------------------- */
@@ -252,7 +268,10 @@ export class AgentRunner {
         const messages = this.sessions.load(id);
         this.agent.state.messages = messages as any;
         this.sessionId = id;
-        return agentMessagesToUi(messages);
+        // Prefer the stored UI transcript (keeps screenshots); fall back to a
+        // reconstruction from the agent messages.
+        const ui = this.sessions.loadUi(id);
+        return ui.length ? ui : agentMessagesToUi(messages);
     }
 
     deleteSession(id: string): void {

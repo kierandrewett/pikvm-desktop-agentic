@@ -339,6 +339,23 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
 
         if (path === "/api/sessions" && req.method === "GET") return json(res, 200, { sessions: state().sessions });
 
+        // Current session's full UI transcript (with screenshots) — for restore on load.
+        if (path === "/api/sessions/current" && req.method === "GET")
+            return json(res, 200, { messages: runner.currentUiMessages() });
+
+        if (path === "/api/sessions/ui" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                try {
+                    const { messages } = JSON.parse(b || "{}");
+                    if (Array.isArray(messages)) runner.saveUiMessages(messages);
+                } catch {
+                    /* ignore */
+                }
+                return json(res, 200, { ok: true });
+            });
+            return;
+        }
+
         if (path === "/api/sessions/new" && req.method === "POST") {
             runner.newSession();
             return json(res, 200, { ...state(), messages: [] });

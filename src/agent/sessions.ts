@@ -86,6 +86,28 @@ export class SessionStore {
         return existsSync(this.path(id)) ? this.read(id).messages : [];
     }
 
+    /* ---- UI transcript (full, with screenshots) — for re-rendering on resume ---- */
+
+    private uiPath(id: string) {
+        return resolve(this.dir, `${id}.ui.json`);
+    }
+
+    saveUi(id: string, messages: PiKvmUIMessage[]): void {
+        try {
+            writeFileSync(this.uiPath(id), JSON.stringify(messages));
+        } catch {
+            /* best-effort */
+        }
+    }
+
+    loadUi(id: string): PiKvmUIMessage[] {
+        try {
+            return existsSync(this.uiPath(id)) ? JSON.parse(readFileSync(this.uiPath(id), "utf-8")) : [];
+        } catch {
+            return [];
+        }
+    }
+
     list(): SessionMeta[] {
         if (!existsSync(this.dir)) return [];
         return readdirSync(this.dir)
@@ -103,6 +125,7 @@ export class SessionStore {
 
     delete(id: string): void {
         if (existsSync(this.path(id))) unlinkSync(this.path(id));
+        if (existsSync(this.uiPath(id))) unlinkSync(this.uiPath(id));
     }
 
     /** Full-text search across saved conversations; returns matching snippets. */
