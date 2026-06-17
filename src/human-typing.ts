@@ -434,7 +434,41 @@ export function planTyping(text: string, opts: TypingOptions = {}): KeyStroke[] 
         code: opts.code ?? looksLikeCode(text),
         intensity: clamp01(opts.intensity ?? 1),
     });
-    return planner.plan(text).strokes;
+    return applyCapsLock(planner.plan(text).strokes, makeRng((seed ^ 0x9e3779b1) >>> 0), persona);
+}
+
+const isUpperLetter = (s: KeyStroke) => s.shift && /^Key[A-Z]$/.test(s.code);
+
+/**
+ * Like a human, use Caps Lock for runs of 3+ consecutive uppercase letters
+ * (acronyms / ALL-CAPS words) instead of holding Shift the whole time. Shorter
+ * runs and sentence-initial capitals keep using Shift.
+ */
+function applyCapsLock(strokes: KeyStroke[], rng: Rng, persona: Persona): KeyStroke[] {
+    const caps = (): KeyStroke => ({
+        code: "CapsLock",
+        shift: false,
+        downMs: Math.round(persona.dwell * randRange(rng, 0.7, 1.1)),
+        gapMs: Math.round(baseGapMs(persona.wpm) * randRange(rng, 0.5, 1.0)),
+    });
+    const out: KeyStroke[] = [];
+    let i = 0;
+    while (i < strokes.length) {
+        if (isUpperLetter(strokes[i]!)) {
+            let j = i;
+            while (j < strokes.length && isUpperLetter(strokes[j]!)) j++;
+            if (j - i >= 3 && rng() < 0.65) {
+                out.push(caps());
+                for (let k = i; k < j; k++) out.push({ ...strokes[k]!, shift: false });
+                out.push(caps());
+                i = j;
+                continue;
+            }
+        }
+        out.push(strokes[i]!);
+        i++;
+    }
+    return out;
 }
 
 function clamp01(n: number) {
