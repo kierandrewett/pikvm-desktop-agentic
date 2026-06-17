@@ -15,9 +15,14 @@ import { Streamdown } from "streamdown";
 import {
     Activity,
     ArrowUp,
+    Camera,
+    Check,
     ChevronDown,
     Copy,
     History,
+    Keyboard,
+    MousePointerClick,
+    Move,
     Plus,
     RotateCcw,
     Settings2,
@@ -28,7 +33,6 @@ import {
 } from "lucide-react";
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/ai-elements/conversation";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/ai-elements/reasoning";
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/ai-elements/tool";
 import { Loader } from "@/ai-elements/loader";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -110,6 +114,84 @@ function Screenshot({ src, w, h, markers, onOpen }: { src: string; w: number; h:
             <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 text-[11px] text-white">
                 {w}×{h}
             </span>
+        </div>
+    );
+}
+
+const TOOL_ICONS: Record<string, any> = {
+    screenshot: Camera,
+    move_mouse: Move,
+    click: MousePointerClick,
+    double_click: MousePointerClick,
+    type_text: Keyboard,
+    press_key: Keyboard,
+    hotkey: Keyboard,
+    scroll: Move,
+};
+
+function toolLabel(name: string, input: any): string {
+    const i = input ?? {};
+    switch (name) {
+        case "screenshot":
+            return "Took a screenshot";
+        case "move_mouse":
+            return `Moved to (${i.x}, ${i.y})`;
+        case "click":
+            return typeof i.x === "number" ? `Clicked (${i.x}, ${i.y})` : "Clicked";
+        case "double_click":
+            return typeof i.x === "number" ? `Double-clicked (${i.x}, ${i.y})` : "Double-clicked";
+        case "type_text":
+            return `Typed “${String(i.text ?? "").slice(0, 32)}${String(i.text ?? "").length > 32 ? "…" : ""}”`;
+        case "press_key":
+            return `Pressed ${i.key}`;
+        case "hotkey":
+            return `Pressed ${(i.codes ?? []).join("+")}`;
+        case "scroll":
+            return "Scrolled";
+        default:
+            return name;
+    }
+}
+
+function ToolCall({ name, state, input, output }: { name: string; state?: string; input?: any; output?: any }) {
+    const [open, setOpen] = useState(false);
+    const running = state && state !== "output-available" && state !== "output-error";
+    const isErr = state === "output-error" || (output && typeof output === "object" && output.isError);
+    const Icon = TOOL_ICONS[name] ?? Activity;
+    return (
+        <div className="overflow-hidden rounded-lg border bg-card/60">
+            <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-accent/50">
+                <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate text-foreground/90">{toolLabel(name, input)}</span>
+                <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                    {running ? (
+                        <Loader size={12} className="text-muted-foreground" />
+                    ) : isErr ? (
+                        <X className="size-3.5 text-destructive" />
+                    ) : (
+                        <Check className="size-3.5 text-emerald-500" />
+                    )}
+                    <ChevronDown className={cn("size-3 text-muted-foreground transition-transform", open && "rotate-180")} />
+                </span>
+            </button>
+            {open && (
+                <div className="space-y-2 border-t px-2.5 py-2 text-[11px]">
+                    {input != null && Object.keys(input).length > 0 && (
+                        <div>
+                            <div className="mb-1 text-muted-foreground">Input</div>
+                            <pre className="overflow-x-auto rounded-md bg-muted/60 p-2">{JSON.stringify(input, null, 2)}</pre>
+                        </div>
+                    )}
+                    {output != null && (
+                        <div>
+                            <div className="mb-1 text-muted-foreground">Result</div>
+                            <pre className={cn("overflow-x-auto rounded-md p-2", isErr ? "bg-destructive/10 text-destructive" : "bg-muted/60")}>
+                                {typeof output === "object" ? JSON.stringify(output, null, 2) : String(output)}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -447,7 +529,7 @@ function App() {
                                     }
                                     if (p.type === "data-thinking")
                                         return (
-                                            <Reasoning key={i} isStreaming={!p.data.done} className="mb-0">
+                                            <Reasoning key={i} isStreaming={!p.data.done} defaultOpen={false} className="mb-0">
                                                 <ReasoningTrigger />
                                                 <ReasoningContent>{p.data.text}</ReasoningContent>
                                             </Reasoning>
@@ -463,15 +545,9 @@ function App() {
                                     }
                                     if (p.type === "dynamic-tool" || (typeof p.type === "string" && p.type.startsWith("tool-"))) {
                                         const name = p.toolName ?? p.type.replace("tool-", "");
-                                        return (
-                                            <Tool key={i} className="mb-0">
-                                                <ToolHeader type={`tool-${name}` as any} state={p.state ?? "output-available"} />
-                                                <ToolContent>
-                                                    {p.input != null && <ToolInput input={p.input} />}
-                                                    {p.output != null && <ToolOutput output={p.output} errorText={p.errorText} />}
-                                                </ToolContent>
-                                            </Tool>
-                                        );
+                                        // The screenshot itself is shown as a thumbnail; skip the duplicate row.
+                                        if (name === "screenshot") return null;
+                                        return <ToolCall key={i} name={name} state={p.state} input={p.input} output={p.output} />;
                                     }
                                     return null;
                                 })}
