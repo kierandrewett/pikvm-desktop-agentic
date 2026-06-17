@@ -66,6 +66,10 @@
             ui.onState(async (state) => {
                 console.log("Window state:", state);
 
+                // Only expose the agent sidebar once we're on the KVM page and
+                // there's actually a screen to see/drive.
+                agent.style.display = state.onKVM ? "block" : "none";
+
                 max.style.display = state.canMaximize
                     ? state.isMaximized
                         ? "none"

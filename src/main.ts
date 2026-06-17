@@ -378,6 +378,13 @@ function createWindow() {
     });
 
     function sendWindowState() {
+        let onKVM = false;
+        try {
+            onKVM = new URL(wc.getURL()).pathname.startsWith("/kvm");
+        } catch {
+            /* not a real URL yet */
+        }
+
         const state = {
             isMaximized: win.isMaximized(),
             canMaximize: canMaximize,
@@ -385,6 +392,8 @@ function createWindow() {
             title: wc.getTitle(),
             isFocused: win.isVisible() && isFocused && isCursorInWinBounds(),
             theme: nativeTheme.shouldUseDarkColors ? "dark" : "light",
+            // The agent can only see/drive the screen on the KVM page.
+            onKVM,
         };
 
         overlayView.webContents.send("window:state", state);
@@ -421,6 +430,13 @@ function createWindow() {
             console.log("Normal mode");
 
             lastStreamData = null;
+
+            // Left the KVM screen — collapse the agent sidebar so it isn't
+            // stranded open without its (now-hidden) toggle button.
+            if (sidebarOpen) {
+                sidebarOpen = false;
+                controlOverlayView.setVisible(false);
+            }
 
             if (
                 url ===
