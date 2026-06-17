@@ -98,11 +98,11 @@ function PillSelect({
 
 /* ------------------------------- custom parts ----------------------------- */
 
-function Screenshot({ src, w, h, markers, onOpen }: { src: string; w: number; h: number; markers: MarkerData[]; onOpen: (s: string) => void }) {
+/** The image + its markers, sized to its natural dimensions (never stretched). */
+function ShotImage({ src, w, h, markers, onOpen }: { src: string; w: number; h: number; markers: MarkerData[]; onOpen: (s: string) => void }) {
     return (
-        <div className="relative inline-block max-w-full cursor-zoom-in self-start overflow-hidden rounded-lg border" onClick={() => onOpen(src)}>
-            {/* Keep the native aspect ratio — never stretch (esp. crops). */}
-            <img src={src} alt="screen" className="block max-h-[460px] max-w-full" />
+        <div className="relative inline-block cursor-zoom-in" onClick={() => onOpen(src)}>
+            <img src={src} alt="screen" className="block max-h-[440px] max-w-full rounded-md" />
             {markers.map((mk, i) => (
                 <span
                     key={i}
@@ -116,7 +116,7 @@ function Screenshot({ src, w, h, markers, onOpen }: { src: string; w: number; h:
                     title={`${mk.kind} (${mk.x}, ${mk.y})`}
                 />
             ))}
-            <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 text-[11px] text-white">
+            <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 text-[11px] text-white">
                 {w}×{h}
             </span>
         </div>
@@ -132,40 +132,45 @@ function ScreenshotCarousel({ shots, markerMap, onOpen }: { shots: any[]; marker
         prevLen.current = shots.length;
     }, [shots.length]);
 
-    if (shots.length === 1) {
-        const s = shots[0].data;
-        return <Screenshot src={s.src} w={s.width} h={s.height} markers={markerMap[s.toolCallId] ?? []} onOpen={onOpen} />;
-    }
     const cur = shots[Math.min(idx, shots.length - 1)].data;
+    const many = shots.length > 1;
+    const stop = (e: React.MouseEvent) => e.stopPropagation();
     return (
-        <div className="relative self-start">
-            <Screenshot src={cur.src} w={cur.width} h={cur.height} markers={markerMap[cur.toolCallId] ?? []} onOpen={onOpen} />
-            <button
-                className="absolute left-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75 disabled:opacity-0"
-                disabled={idx <= 0}
-                onClick={() => setIdx((i) => Math.max(0, i - 1))}
-            >
-                <ChevronLeft className="size-4" />
-            </button>
-            <button
-                className="absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75 disabled:opacity-0"
-                disabled={idx >= shots.length - 1}
-                onClick={() => setIdx((i) => Math.min(shots.length - 1, i + 1))}
-            >
-                <ChevronRight className="size-4" />
-            </button>
-            <div className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 px-2 py-1">
-                {shots.map((_, i) => (
+        // Consistent framed box; the image is centered inside (handles tiny crops).
+        <div className="relative flex min-h-[150px] w-full items-center justify-center overflow-hidden rounded-xl border bg-muted/20 p-3">
+            <ShotImage src={cur.src} w={cur.width} h={cur.height} markers={markerMap[cur.toolCallId] ?? []} onOpen={onOpen} />
+            {many && (
+                <>
                     <button
-                        key={i}
-                        onClick={() => setIdx(i)}
-                        className={cn("size-1.5 rounded-full transition-colors", i === idx ? "bg-white" : "bg-white/40")}
-                    />
-                ))}
-            </div>
-            <span className="absolute right-2 top-2 rounded bg-black/55 px-1.5 text-[11px] text-white">
-                {idx + 1}/{shots.length}
-            </span>
+                        className="absolute left-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 disabled:opacity-0"
+                        disabled={idx <= 0}
+                        onClick={(e) => { stop(e); setIdx((i) => Math.max(0, i - 1)); }}
+                    >
+                        <ChevronLeft className="size-4" />
+                    </button>
+                    <button
+                        className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 disabled:opacity-0"
+                        disabled={idx >= shots.length - 1}
+                        onClick={(e) => { stop(e); setIdx((i) => Math.min(shots.length - 1, i + 1)); }}
+                    >
+                        <ChevronRight className="size-4" />
+                    </button>
+                    <span className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] text-white">
+                        {idx + 1}/{shots.length}
+                    </span>
+                    {shots.length <= 14 && (
+                        <div className="absolute bottom-2 left-1/2 flex max-w-[80%] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-full bg-black/60 px-2 py-1">
+                            {shots.map((_, i) => (
+                                <button
+                                    key={i}
+                                    onClick={(e) => { stop(e); setIdx(i); }}
+                                    className={cn("size-1.5 rounded-full transition-colors", i === idx ? "bg-white" : "bg-white/40")}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </>
+            )}
         </div>
     );
 }
