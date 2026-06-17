@@ -114,7 +114,10 @@ contextBridge.exposeInMainWorld("kvm", {
                     "#pikvm-desktop-stream-info .window-size"
                 ) as HTMLDivElement;
 
-                sizeEl.textContent = `${b.width} x ${b.height}`;
+                const nativeDims = (globalThis as any)._nativeStreamDims;
+                sizeEl.textContent = nativeDims
+                    ? `${nativeDims.width} x ${nativeDims.height}`
+                    : `${b.width} x ${b.height}`;
                 streamInfoEl.setAttribute("data-visible", "true");
 
                 (globalThis as any)._streamInfoShowTimer = setTimeout(() => {
@@ -291,6 +294,48 @@ contextBridge.exposeInMainWorld("kvm", {
 
                         const width = parseInt(dims!.split("x")[0]!, 10);
                         const height = parseInt(dims!.split("x")[1]!, 10);
+
+                        let capStyle = document.getElementById(
+                            "pikvm-desktop-canvas-cap"
+                        ) as HTMLStyleElement | null;
+                        if (!capStyle) {
+                            capStyle = document.createElement("style");
+                            capStyle.id = "pikvm-desktop-canvas-cap";
+                            document.head.appendChild(capStyle);
+                        }
+                        capStyle.textContent = `
+                            #stream-box {
+                                display: flex !important;
+                                align-items: center !important;
+                                justify-content: center !important;
+                                overflow: hidden !important;
+                                pointer-events: none !important;
+                            }
+                            #stream-image,
+                            #stream-video,
+                            #stream-canvas {
+                                max-width: ${width}px !important;
+                                max-height: ${height}px !important;
+                                pointer-events: auto !important;
+                            }
+                        `;
+
+                        (globalThis as any)._nativeStreamDims = {
+                            width,
+                            height,
+                        };
+
+                        const streamInfoEl = (
+                            globalThis as any
+                        )._getStreamInfoEl?.();
+                        if (streamInfoEl) {
+                            const sizeEl = document.querySelector(
+                                "#pikvm-desktop-stream-info .window-size"
+                            ) as HTMLDivElement;
+                            if (sizeEl) {
+                                sizeEl.textContent = `${width} x ${height}`;
+                            }
+                        }
 
                         window.postMessage(
                             `kvm:stream-data::${JSON.stringify({

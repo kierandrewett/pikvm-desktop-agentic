@@ -8,13 +8,82 @@ import {
     dialog,
     nativeTheme,
     session,
+    Notification,
     Rectangle,
 } from "electron";
 import { readFileSync, existsSync, writeFileSync } from "fs";
 import { url } from "inspector/promises";
 import { resolve } from "path";
+import { PiKvmControl } from "./pikvm-control";
+import { OperationReviewer } from "./reviewer";
+import { PresenceMonitor } from "./presence";
+import { CodexAuth } from "./agent/auth";
+import { AgentRunner } from "./agent/runner";
+import { startControlServer } from "./server";
+import { SettingsStore } from "./settings";
 
 const staticPath = resolve(__dirname, "static");
+
+/** Port for the local control server (MCP + sidebar chat bridge). */
+const CONTROL_PORT = 25650;
+const SIDEBAR_MIN = 300;
+const SIDEBAR_MAX = 640;
+
+/** A readable phrase for the overlay describing the current agent action. */
+function humanAction(tool: string, args: any): string {
+    switch (tool) {
+        case "type_text":
+            return `typing "${String(args?.text ?? "").slice(0, 40)}"…`;
+        case "move_mouse":
+            return "moving the mouse…";
+        case "click":
+            return "clicking…";
+        case "double_click":
+            return "double-clicking…";
+        case "press_key":
+            return `pressing ${args?.key ?? "a key"}…`;
+        case "hotkey":
+            return `pressing ${(args?.codes ?? []).join("+")}…`;
+        case "scroll":
+            return "scrolling…";
+        case "screenshot":
+            return "looking at the screen…";
+        default:
+            return "performing actions…";
+    }
+}
+
+/** Start the agentic backend (control core, reviewer, presence, agent, servers). */
+function startAgentBackend(origin: string, settings: SettingsStore) {
+    const control = new PiKvmControl({ origin });
+    const reviewer = new OperationReviewer();
+    const presence = new PresenceMonitor();
+    presence.start();
+    const auth = new CodexAuth(resolve(app.getPath("userData"), "pi-credentials.json"));
+    auth.load();
+    const runner = new AgentRunner({
+        control,
+        reviewer,
+        presence,
+        auth,
+        sessionsDir: resolve(app.getPath("userData"), "agent-sessions"),
+    });
+
+    // Apply persisted preferences.
+    const s = settings.get();
+    runner.setModel(s.model);
+    reviewer.setPolicy(s.policy);
+    control.setHumanize(s.humanize);
+    presence.setEnabled(s.pauseOnPresence);
+    if (s.goal) runner.setGoal(s.goal);
+
+    startControlServer(
+        { control, reviewer, presence, auth, runner, settings, openExternal: (u) => void shell.openExternal(u) },
+        CONTROL_PORT,
+    );
+    console.log(`Agent backend listening on http://127.0.0.1:${CONTROL_PORT} (MCP at /mcp)`);
+    return { control, reviewer, presence, auth, runner };
+}
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
 function loadConfig() {
@@ -64,19 +133,62 @@ function createWindow() {
         },
     });
 
+    const sidebarView = new WebContentsView({
+        webPreferences: {
+            contextIsolation: true,
+            preload: resolve(__dirname, "preload-sidebar.js"),
+        },
+    });
+
+    // Transparent overlay over the KVM, shown while the agent is controlling the
+    // target — gives the user a big "stop & take control" button (Claude-style).
+    const controlOverlayView = new WebContentsView({
+        webPreferences: {
+            contextIsolation: true,
+            preload: resolve(__dirname, "preload-sidebar.js"),
+        },
+    });
+    controlOverlayView.setBackgroundColor("#00000000");
+    controlOverlayView.setVisible(false);
+
+    const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
+
     let canCloseByButton = false;
+    let sidebarOpen = false;
+    let sidebarWidth = settings.get().sidebarWidth;
+    let agentActing = false;
 
     win.contentView.addChildView(overlayView);
     win.contentView.addChildView(mainView);
+    // Control overlay above the KVM; sidebar last so it sits on top of all.
+    win.contentView.addChildView(controlOverlayView);
+    win.contentView.addChildView(sidebarView);
+
+    const setAgentActing = (acting: boolean) => {
+        if (acting === agentActing) return;
+        agentActing = acting;
+        controlOverlayView.setVisible(acting);
+        if (acting) layout();
+    };
 
     const layout = () => {
         const [w, h] = win.getContentSize();
         console.log(`Layout: ${w}x${h}`);
 
+        const sbW = sidebarOpen ? sidebarWidth : 0;
+
         mainView.setBounds({
             x: 0,
             y: TITLEBAR_HEIGHT,
-            width: w!,
+            width: w! - sbW,
+            height: h! - TITLEBAR_HEIGHT,
+        });
+
+        // Docked right; slides off the right edge when closed.
+        sidebarView.setBounds({
+            x: w! - sbW,
+            y: TITLEBAR_HEIGHT,
+            width: sidebarWidth,
             height: h! - TITLEBAR_HEIGHT,
         });
 
@@ -87,8 +199,70 @@ function createWindow() {
             height: h!,
         });
 
+        // Control overlay tracks the KVM area exactly.
+        controlOverlayView.setBounds({
+            x: 0,
+            y: TITLEBAR_HEIGHT,
+            width: w! - sbW,
+            height: h! - TITLEBAR_HEIGHT,
+        });
+
         mainView.webContents.send("window:resize", mainView.getBounds());
     };
+
+    sidebarView.webContents.loadFile(resolve(__dirname, "views", "sidebar.html"));
+    controlOverlayView.webContents.loadFile(resolve(__dirname, "views", "acting.html"));
+
+    ipcMain.on("sidebar:toggle", () => {
+        sidebarOpen = !sidebarOpen;
+        console.log("Sidebar toggle:", sidebarOpen);
+        // Grow the window to fit the sidebar beside the KVM, rather than
+        // shrinking the KVM view.
+        const [w, h] = win.getContentSize();
+        const delta = sidebarOpen ? sidebarWidth : -sidebarWidth;
+        win.setContentSize(Math.max(300, w! + delta), h!);
+        layout();
+    });
+
+    // Drag-to-resize the sidebar: the renderer sends the desired width.
+    ipcMain.on("sidebar:resize", (_, width: number) => {
+        const next = Math.round(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width)));
+        if (!sidebarOpen || next === sidebarWidth) return;
+        const [w, h] = win.getContentSize();
+        win.setContentSize(w! + (next - sidebarWidth), h!);
+        sidebarWidth = next;
+        settings.patch({ sidebarWidth: next });
+        layout();
+    });
+
+    // Start the agentic backend (control core + agent + MCP/chat server).
+    const agentBackend = startAgentBackend(origin, settings);
+
+    // Mirror the agent's "is acting" state onto the control overlay.
+    agentBackend.runner.subscribe((event) => {
+        if (event.type === "tool_execution_start") {
+            setAgentActing(true);
+            controlOverlayView.webContents.send("overlay:acting", {
+                action: humanAction(event.toolName, (event as any).args),
+            });
+        } else if (event.type === "agent_end") {
+            setAgentActing(false);
+            // Notify on completion if the user isn't looking at the window.
+            if (!win.isFocused() && Notification.isSupported()) {
+                new Notification({ title: "Agent finished", body: "The task is complete." }).show();
+            }
+        }
+    });
+
+    ipcMain.on("agent:stop", () => {
+        console.log("Emergency stop from overlay");
+        agentBackend.runner.stop();
+        setAgentActing(false);
+    });
+
+    ipcMain.on("open-external", (_, url: string) => {
+        if (typeof url === "string" && /^https?:\/\//.test(url)) void shell.openExternal(url);
+    });
 
     win.on("resize", layout);
     layout();
@@ -203,6 +377,7 @@ function createWindow() {
 
         overlayView.webContents.send("window:state", state);
         mainView.webContents.send("window:state", state);
+        sidebarView.webContents.send("window:state", state);
     }
 
     let canMaximize = win.isMaximizable();
@@ -232,6 +407,8 @@ function createWindow() {
             console.log("KVM mode set");
         } else {
             console.log("Normal mode");
+
+            lastStreamData = null;
 
             if (
                 url ===
@@ -324,11 +501,21 @@ function createWindow() {
                     `Resizing window to stream dimensions: ${data.width}x${data.height}`
                 );
 
-                win.setContentSize(data.width, data.height + TITLEBAR_HEIGHT);
+                win.setContentSize(
+                    data.width + (sidebarOpen ? sidebarWidth : 0),
+                    data.height + TITLEBAR_HEIGHT
+                );
                 setTimeout(() => {
                     layout();
                 }, 100);
             }
+
+            // Drive the presence / do-not-disturb gate off the PiKVM's own
+            // mic/audio transmission state.
+            agentBackend.presence.setMediaState({
+                audio: !!data.isTransmittingAudio,
+                mic: !!data.isTransmittingMicrophone,
+            });
 
             mainView.webContents.send("kvm:media-transmission", {
                 isTransmittingAudio: data.isTransmittingAudio,
