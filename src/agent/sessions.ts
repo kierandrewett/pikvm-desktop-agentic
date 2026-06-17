@@ -104,6 +104,29 @@ export class SessionStore {
     delete(id: string): void {
         if (existsSync(this.path(id))) unlinkSync(this.path(id));
     }
+
+    /** Full-text search across saved conversations; returns matching snippets. */
+    search(query: string, limit = 8): { id: string; title: string; snippet: string }[] {
+        const q = query.toLowerCase().trim();
+        if (!q) return [];
+        const out: { id: string; title: string; snippet: string }[] = [];
+        for (const meta of this.list()) {
+            const messages = this.load(meta.id);
+            for (const m of messages as any[]) {
+                const text =
+                    typeof m.content === "string"
+                        ? m.content
+                        : (m.content ?? []).map((c: any) => c?.text ?? "").join(" ");
+                const idx = text.toLowerCase().indexOf(q);
+                if (idx >= 0) {
+                    out.push({ id: meta.id, title: meta.title, snippet: text.slice(Math.max(0, idx - 40), idx + 80).trim() });
+                    break;
+                }
+            }
+            if (out.length >= limit) break;
+        }
+        return out;
+    }
 }
 
 /** Convert a persisted Pi transcript into UI messages for re-rendering on resume. */

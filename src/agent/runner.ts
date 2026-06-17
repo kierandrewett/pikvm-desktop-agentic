@@ -6,13 +6,28 @@
  * control surface the UI bridge and slash commands drive.
  */
 
-import { Agent, estimateContextTokens, type AgentEvent } from "@earendil-works/pi-agent-core";
+import {
+    Agent,
+    estimateContextTokens,
+    estimateTokens,
+    shouldCompact,
+    generateSummary,
+    DEFAULT_COMPACTION_SETTINGS,
+    type AgentEvent,
+    type AgentMessage,
+    type AgentTool,
+    type AgentLoopTurnUpdate,
+} from "@earendil-works/pi-agent-core";
 import { getModel, getModels, registerBuiltInApiProviders, type Model } from "@earendil-works/pi-ai";
+import { resolve, dirname } from "path";
 import { PiKvmControl } from "../pikvm-control";
 import { OperationReviewer, type Operation } from "../reviewer";
 import { PresenceMonitor } from "../presence";
 import { CodexAuth } from "./auth";
 import { createTools } from "./tools";
+import { createExtraTools } from "./extra-tools";
+import { MemoryStore } from "./memory";
+import { SkillStore } from "./skills";
 import { SessionStore, agentMessagesToUi, type SessionMeta } from "./sessions";
 import type { PiKvmUIMessage } from "./protocol";
 
@@ -21,7 +36,7 @@ registerBuiltInApiProviders();
 const PROVIDER = "openai-codex";
 const DEFAULT_MODEL = "gpt-5.5";
 
-function systemPrompt(goal?: string): string {
+function systemPrompt(goal?: string, memoryCount = 0): string {
     return [
         "You operate a real computer through a PiKVM, as if you were a careful human at the keyboard and mouse.",
         "",
@@ -30,11 +45,17 @@ function systemPrompt(goal?: string): string {
         "Type with `type_text` (it already feels human — do not add your own delays). Use `press_key`/`hotkey` for keys and shortcuts.",
         "Work in small, verifiable steps. If something looks wrong, stop and re-observe rather than guessing.",
         "Before any irreversible or destructive action (deleting data, rebooting, submitting a form with side effects, running privileged commands), pause and explain what you are about to do — the human may need to authorize it.",
+        "",
+        "You also have cognitive tools: `web_search`/`fetch_url` for the internet, `remember`/`recall` for long-term memory across sessions, `search_conversations` to look up past sessions, `list_skills`/`use_skill` for reusable playbooks, and `spawn_subagent` to delegate a focused side-task to a fresh sub-agent.",
+        memoryCount > 0 ? `You have ${memoryCount} saved memories — use \`recall\` when prior context might help.` : "",
         goal ? `\nStanding goal for this session:\n${goal}` : "",
     ]
         .filter(Boolean)
         .join("\n");
 }
+
+const SUBAGENT_PROMPT =
+    "You are a focused sub-agent. Complete the given task using your tools, then reply with a concise result for the parent agent. Be thorough but brief.";
 
 export interface RunnerDeps {
     control: PiKvmControl;
@@ -51,19 +72,34 @@ export class AgentRunner {
     private modelId = DEFAULT_MODEL;
     private loopController: { stop: () => void } | undefined;
     private readonly sessions: SessionStore;
+    private readonly memory: MemoryStore;
+    private readonly skills: SkillStore;
+    private readonly toolsForSub: AgentTool<any>[];
     private sessionId: string;
 
     constructor(private deps: RunnerDeps) {
         this.model = deps.auth.applyModel(getModel(PROVIDER as any, DEFAULT_MODEL as any));
+        const dataDir = dirname(deps.sessionsDir);
         this.sessions = new SessionStore(deps.sessionsDir);
+        this.memory = new MemoryStore(resolve(dataDir, "agent-memory.json"));
+        this.skills = new SkillStore(resolve(dataDir, "agent-skills"));
         this.sessionId = this.sessions.create();
+
+        // Tools a sub-agent gets: computer-use + cognitive, minus spawn (no recursion).
+        const extra = createExtraTools({
+            memory: this.memory,
+            skills: this.skills,
+            sessions: this.sessions,
+            runSubagent: (task, signal) => this.runSubagent(task, signal),
+        });
+        this.toolsForSub = [...createTools(deps.control), ...extra.filter((t) => t.name !== "spawn_subagent")];
 
         this.agent = new Agent({
             initialState: {
-                systemPrompt: systemPrompt(),
+                systemPrompt: systemPrompt(undefined, this.memory.count()),
                 model: this.model,
                 thinkingLevel: "medium",
-                tools: createTools(deps.control),
+                tools: [...createTools(deps.control), ...extra],
             },
             getApiKey: async () => {
                 try {
@@ -74,12 +110,100 @@ export class AgentRunner {
             },
             sessionId: "pikvm-agent",
             beforeToolCall: async (ctx, signal) => this.gate(ctx.toolCall.name, ctx.args, signal),
+            prepareNextTurn: () => this.maybeCompact(),
         });
 
         // Auto-save the transcript whenever a run finishes.
         this.agent.subscribe((e) => {
             if (e.type === "agent_end") this.persist();
         });
+    }
+
+    /* --------------------------- auto-compaction ------------------------- */
+
+    /** Summarise older context when it approaches the window limit. */
+    private async maybeCompact(): Promise<AgentLoopTurnUpdate | undefined> {
+        try {
+            const messages = this.agent.state.messages;
+            const { tokens } = estimateContextTokens(messages);
+            const max = (this.model as any)?.contextWindow ?? 256_000;
+            if (!shouldCompact(tokens, max, DEFAULT_COMPACTION_SETTINGS)) return undefined;
+
+            // Keep the most recent messages; summarise everything before them.
+            let acc = 0;
+            let cut = messages.length;
+            for (let i = messages.length - 1; i >= 0; i--) {
+                acc += estimateTokens(messages[i]!);
+                if (acc > DEFAULT_COMPACTION_SETTINGS.keepRecentTokens) {
+                    cut = i + 1;
+                    break;
+                }
+            }
+            const older = messages.slice(0, cut);
+            const keep = messages.slice(cut);
+            if (older.length < 3) return undefined;
+
+            const apiKey = await this.deps.auth.getToken();
+            const res: any = await generateSummary(
+                older as AgentMessage[],
+                this.model,
+                DEFAULT_COMPACTION_SETTINGS.reserveTokens,
+                apiKey,
+            );
+            const summary: string | null = res?.ok ? res.value : typeof res?.value === "string" ? res.value : null;
+            if (!summary) return undefined;
+
+            const summaryMsg: AgentMessage = {
+                role: "user",
+                content: `[Summary of earlier conversation]\n${summary}`,
+                timestamp: Date.now(),
+            } as AgentMessage;
+            const compacted = [summaryMsg, ...keep];
+            this.agent.state.messages = compacted;
+            return {
+                context: { systemPrompt: this.agent.state.systemPrompt, messages: compacted, tools: this.agent.state.tools },
+            };
+        } catch {
+            return undefined;
+        }
+    }
+
+    /* ------------------------------ subagents ---------------------------- */
+
+    /** Run a focused sub-agent to completion and return its final answer. */
+    private async runSubagent(task: string, signal?: AbortSignal): Promise<string> {
+        const sub = new Agent({
+            initialState: {
+                systemPrompt: SUBAGENT_PROMPT,
+                model: this.model,
+                thinkingLevel: "low",
+                tools: this.toolsForSub,
+            },
+            getApiKey: async () => {
+                try {
+                    return await this.deps.auth.getToken();
+                } catch {
+                    return undefined;
+                }
+            },
+            sessionId: `pikvm-subagent-${Date.now()}`,
+            beforeToolCall: async (ctx, sig) => this.gate(ctx.toolCall.name, ctx.args, sig),
+        });
+        const onAbort = () => sub.abort();
+        signal?.addEventListener("abort", onAbort, { once: true });
+        try {
+            await sub.prompt(task);
+        } finally {
+            signal?.removeEventListener("abort", onAbort);
+        }
+        const last: any = [...sub.state.messages].reverse().find((m: any) => m.role === "assistant");
+        const content = last?.content;
+        if (typeof content === "string") return content;
+        return (content ?? [])
+            .filter((c: any) => c?.type === "text")
+            .map((c: any) => c.text)
+            .join("\n")
+            .trim();
     }
 
     private persist(): void {
@@ -192,7 +316,7 @@ export class AgentRunner {
     /** Set/replace the persistent goal (/goal); pinned into the system prompt. */
     setGoal(goal: string | undefined): void {
         this.goal = goal?.trim() || undefined;
-        this.agent.state.systemPrompt = systemPrompt(this.goal);
+        this.agent.state.systemPrompt = systemPrompt(this.goal, this.memory.count());
     }
 
     getGoal(): string | undefined {

@@ -356,6 +356,7 @@ function App() {
     const [input, setInput] = useState("");
     const [lightbox, setLightbox] = useState<string | null>(null);
     const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history">("none");
+    const [historyQuery, setHistoryQuery] = useState("");
     const transport = useRef(new DefaultChatTransport({ api: BASE + "/api/chat" }));
     const { messages, sendMessage, status, stop, setMessages, regenerate, error } = useChat({ transport: transport.current });
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -650,14 +651,29 @@ function App() {
                         History
                         <button onClick={() => setPanel("none")} className="text-muted-foreground"><X className="size-4" /></button>
                     </div>
+                    <div className="border-b p-2">
+                        <input
+                            autoFocus
+                            value={historyQuery}
+                            onChange={(e) => setHistoryQuery(e.target.value)}
+                            placeholder="Search conversations…"
+                            className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring/60"
+                        />
+                    </div>
                     <div className="flex-1 overflow-auto">
-                        {(serverState?.sessions ?? []).length === 0 && <div className="p-4 text-sm text-muted-foreground">No saved sessions.</div>}
-                        {(serverState?.sessions ?? []).map((s) => (
-                            <div key={s.id} className={cn("flex items-center gap-2 border-b px-3 py-2 text-sm", s.id === serverState?.sessionId && "bg-primary/10")}>
-                                <span className="flex-1 cursor-pointer truncate" onClick={() => resume(s.id)}>{s.title}</span>
-                                <button className="text-muted-foreground hover:text-destructive" onClick={() => del(s.id)}><Trash2 className="size-3.5" /></button>
-                            </div>
-                        ))}
+                        {(() => {
+                            const q = historyQuery.trim().toLowerCase();
+                            const list = (serverState?.sessions ?? []).filter((s) => !q || s.title.toLowerCase().includes(q));
+                            if (list.length === 0)
+                                return <div className="p-4 text-sm text-muted-foreground">{q ? "No matches." : "No saved sessions."}</div>;
+                            return list.map((s) => (
+                                <div key={s.id} className={cn("flex items-center gap-2 border-b px-3 py-2 text-sm", s.id === serverState?.sessionId && "bg-primary/10")}>
+                                    <span className="flex-1 cursor-pointer truncate" onClick={() => resume(s.id)}>{s.title}</span>
+                                    <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(s.updatedAt)}</span>
+                                    <button className="text-muted-foreground hover:text-destructive" onClick={() => del(s.id)}><Trash2 className="size-3.5" /></button>
+                                </div>
+                            ));
+                        })()}
                     </div>
                 </Modal>
             )}
