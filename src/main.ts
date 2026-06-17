@@ -10,6 +10,7 @@ import {
     session,
     Notification,
     clipboard,
+    Menu,
     Rectangle,
 } from "electron";
 import { readFileSync, existsSync, writeFileSync } from "fs";
@@ -117,6 +118,30 @@ function loadConfig() {
 }
 function saveConfig(cfg: any) {
     writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+}
+
+/** Standard editing context menu (cut/copy/paste/select all) for a view. */
+function attachContextMenu(wc: Electron.WebContents, opts: { conversation?: boolean } = {}) {
+    wc.on("context-menu", (_e, params) => {
+        const f = params.editFlags;
+        const template: Electron.MenuItemConstructorOptions[] = [];
+        if (params.isEditable) {
+            template.push(
+                { role: "cut", enabled: f.canCut },
+                { role: "copy", enabled: f.canCopy },
+                { role: "paste", enabled: f.canPaste },
+                { type: "separator" },
+                { role: "selectAll" }
+            );
+        } else if (params.selectionText) {
+            template.push({ role: "copy" }, { role: "selectAll" });
+        }
+        if (opts.conversation) {
+            if (template.length) template.push({ type: "separator" });
+            template.push({ label: "Copy conversation", click: () => wc.send("copy-conversation") });
+        }
+        if (template.length) Menu.buildFromTemplate(template).popup();
+    });
 }
 
 function createWindow() {
@@ -233,6 +258,11 @@ function createWindow() {
 
     sidebarView.webContents.loadFile(resolve(__dirname, "views", "sidebar.html"));
     controlOverlayView.webContents.loadFile(resolve(__dirname, "views", "acting.html"));
+
+    // Right-click editing menus everywhere; the sidebar also offers "Copy conversation".
+    attachContextMenu(mainView.webContents);
+    attachContextMenu(overlayView.webContents);
+    attachContextMenu(sidebarView.webContents, { conversation: true });
 
     ipcMain.on("sidebar:toggle", () => {
         sidebarOpen = !sidebarOpen;

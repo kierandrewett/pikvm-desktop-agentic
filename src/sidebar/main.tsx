@@ -375,8 +375,34 @@ function App() {
     const [images, setImages] = useState<{ url: string; mediaType: string }[]>([]);
     const fileInput = useRef<HTMLInputElement>(null);
     const transport = useRef(new DefaultChatTransport({ api: BASE + "/api/chat" }));
+    const messagesRef = useRef<any[]>([]);
     const { messages, sendMessage, status, stop, setMessages, regenerate, error } = useChat({ transport: transport.current });
+    messagesRef.current = messages;
     const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    const conversationText = () =>
+        (messagesRef.current as any[])
+            .map((m) => {
+                const t = (m.parts ?? [])
+                    .filter((p: any) => p.type === "text")
+                    .map((p: any) => p.text)
+                    .join(" ")
+                    .trim();
+                return t ? `${m.role === "user" ? "You" : "Agent"}: ${t}` : "";
+            })
+            .filter(Boolean)
+            .join("\n\n");
+
+    const copyConversation = () => {
+        const t = conversationText();
+        if ((window as any).ui?.copy) (window as any).ui.copy(t);
+        else void navigator.clipboard?.writeText(t);
+    };
+
+    // "Copy conversation" from the right-click menu.
+    useEffect(() => {
+        (window as any).ui?.on?.("copy-conversation", copyConversation);
+    }, []);
 
     const refreshState = () =>
         fetch(BASE + "/api/state")
@@ -493,6 +519,9 @@ function App() {
                     </Button>
                     <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="History" onClick={() => setPanel("history")}>
                         <History className="size-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Copy conversation" onClick={copyConversation}>
+                        <Copy className="size-4" />
                     </Button>
                     <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Activity" onClick={() => setPanel("activity")}>
                         <Activity className="size-4" />

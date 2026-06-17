@@ -36,9 +36,9 @@ import type { PiKvmUIMessage } from "./protocol";
 registerBuiltInApiProviders();
 
 const PROVIDER = "openai-codex";
-/** Fast model for the responsive main chat loop. */
-const DEFAULT_MODEL = "gpt-5.4-mini";
-/** Stronger model sub-agents use for hard thinking / deep work. */
+/** Default model for the main chat loop — capable by default. */
+const DEFAULT_MODEL = "gpt-5.5";
+/** Model sub-agents use for hard thinking / deep work. */
 const SUBAGENT_MODEL = "gpt-5.5";
 
 function systemPrompt(goal?: string, memoryCount = 0): string {
@@ -48,7 +48,7 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "Loop: call `screenshot` to see the screen, decide ONE next action, perform it, then screenshot again to verify before continuing.",
         "Coordinates are in the pixels of the most recent screenshot. Re-screenshot after anything that changes the screen (scroll, navigation, window changes).",
         "Type with `type_text` (it already feels human — do not add your own delays; set background:true for long text and use `wait_for_task`). Use `press_key`/`hotkey` for keys and shortcuts.",
-        "Use `ocr` to read on-screen text precisely (optionally a region) instead of guessing from the screenshot. Use `screenshot` with a region to zoom into a window.",
+        "For dense or small text where accuracy matters (calendars, tables, lists, code, dialog text), DO NOT guess from the full screenshot — `ocr` the relevant region and/or take a cropped `screenshot` to zoom in, and re-check before stating any facts. If unsure, zoom further rather than guessing.",
         "Use `recent_activity` to see what's already been typed (including by the user) before continuing a field.",
         "Work in small, verifiable steps. If something looks wrong, stop and re-observe rather than guessing.",
         "LEAVE NO TRACE: when you finish, tidy up after yourself — close any windows, dialogs, terminals or apps you opened (e.g. winver/About, Run, command prompts, settings panes), discard scratch text you typed, and return the screen roughly to how you found it. Do not close windows the user already had open.",
@@ -114,8 +114,7 @@ export class AgentRunner {
             initialState: {
                 systemPrompt: systemPrompt(undefined, this.memory.count()),
                 model: this.model,
-                // Fast/responsive by default; delegate hard thinking to sub-agents.
-                thinkingLevel: "low",
+                thinkingLevel: "medium",
                 tools: [...createTools(deps.control, toolDeps), ...extra],
             },
             getApiKey: async () => {

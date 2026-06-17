@@ -21,7 +21,7 @@ export interface AppSettings {
 }
 
 const DEFAULTS: AppSettings = {
-    model: "gpt-5.4-mini",
+    model: "gpt-5.5",
     policy: "risky-only",
     humanize: 1,
     pauseOnPresence: true,
