@@ -12,9 +12,17 @@
  */
 
 import axios from "axios";
+import { nativeImage } from "electron";
 import { Agent as HttpsAgent } from "https";
 import WebSocket from "ws";
 import { planTyping, type Persona, type TypingOptions } from "./human-typing";
+
+export interface Region {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
 
 export interface PiKvmCredentials {
     origin: string; // e.g. https://pikvm/  (may embed user:pass)
@@ -123,7 +131,7 @@ export class PiKvmControl {
      * Screen
      * -------------------------------------------------------------- */
 
-    async screenshot(): Promise<Screenshot> {
+    async screenshot(region?: Region): Promise<Screenshot> {
         const res = await axios.get(`${this.httpBase()}/api/streamer/snapshot`, {
             responseType: "arraybuffer",
             headers: await this.headers(),
@@ -144,6 +152,13 @@ export class PiKvmControl {
             }
         }
         if (width && height) this.dims = { width, height };
+
+        // Optional crop — lets the agent zoom into a window/region of the frame.
+        if (region) {
+            const cropped = this.crop(data, region);
+            if (cropped) return cropped;
+        }
+
         return {
             data,
             base64: data.toString("base64"),
@@ -151,6 +166,22 @@ export class PiKvmControl {
             width: this.dims.width,
             height: this.dims.height,
         };
+    }
+
+    /** Crop a JPEG to a clamped region using Electron's nativeImage. */
+    private crop(jpeg: Buffer, region: Region): Screenshot | null {
+        try {
+            const fw = this.dims.width;
+            const fh = this.dims.height;
+            const x = Math.max(0, Math.min(Math.round(region.x), fw - 1));
+            const y = Math.max(0, Math.min(Math.round(region.y), fh - 1));
+            const w = Math.max(1, Math.min(Math.round(region.width), fw - x));
+            const h = Math.max(1, Math.min(Math.round(region.height), fh - y));
+            const out = nativeImage.createFromBuffer(jpeg).crop({ x, y, width: w, height: h }).toJPEG(85);
+            return { data: out, base64: out.toString("base64"), mimeType: "image/jpeg", width: w, height: h };
+        } catch {
+            return null;
+        }
     }
 
     /** Latest known frame dimensions (updated on every screenshot). */

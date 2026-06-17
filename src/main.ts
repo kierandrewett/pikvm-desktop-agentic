@@ -254,9 +254,25 @@ function createWindow() {
     agentBackend.runner.subscribe((event) => {
         if (event.type === "tool_execution_start") {
             setAgentActing(true);
+            const args = (event as any).args ?? {};
             controlOverlayView.webContents.send("overlay:acting", {
-                action: humanAction(event.toolName, (event as any).args),
+                action: humanAction(event.toolName, args),
             });
+            // Drive the on-screen AI cursor for pointer actions.
+            if (
+                (event.toolName === "move_mouse" || event.toolName === "click" || event.toolName === "double_click") &&
+                typeof args.x === "number" &&
+                typeof args.y === "number"
+            ) {
+                const dims = agentBackend.control.getDimensions();
+                controlOverlayView.webContents.send("overlay:cursor", {
+                    x: args.x,
+                    y: args.y,
+                    w: dims.width,
+                    h: dims.height,
+                    kind: event.toolName === "move_mouse" ? "move" : "click",
+                });
+            }
         } else if (event.type === "agent_end") {
             setAgentActing(false);
             // Notify on completion if the user isn't looking at the window.

@@ -104,9 +104,74 @@
                 padding: 1px 5px;
                 color: #cfcfe0;
             }
+            /* AI cursor */
+            #cursor {
+                position: fixed;
+                left: 50%;
+                top: 50%;
+                width: 26px;
+                height: 26px;
+                margin: -13px 0 0 -13px;
+                border-radius: 50%;
+                background: radial-gradient(
+                    circle,
+                    rgba(108, 140, 255, 0.95) 0%,
+                    rgba(108, 140, 255, 0.35) 55%,
+                    transparent 75%
+                );
+                box-shadow: 0 0 18px 6px rgba(108, 140, 255, 0.55);
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.25s ease;
+                z-index: 5;
+                will-change: left, top;
+            }
+            #cursor.show {
+                opacity: 1;
+            }
+            #cursor::after {
+                content: "";
+                position: absolute;
+                inset: -8px;
+                border: 2px solid rgba(108, 140, 255, 0.7);
+                border-radius: 50%;
+                animation: cursorpulse 1.5s ease-out infinite;
+            }
+            @keyframes cursorpulse {
+                0% {
+                    transform: scale(0.55);
+                    opacity: 0.85;
+                }
+                100% {
+                    transform: scale(2);
+                    opacity: 0;
+                }
+            }
+            .click-burst {
+                position: fixed;
+                width: 22px;
+                height: 22px;
+                margin: -11px 0 0 -11px;
+                border: 2.5px solid #6c8cff;
+                border-radius: 50%;
+                pointer-events: none;
+                z-index: 6;
+                animation: burst 0.55s ease-out forwards;
+            }
+            @keyframes burst {
+                0% {
+                    transform: scale(0.5);
+                    opacity: 1;
+                }
+                100% {
+                    transform: scale(3.2);
+                    opacity: 0;
+                }
+            }
         </style>
     </head>
     <body>
+        <div id="cursor"></div>
         <div id="scrim">
             <div id="bar">
                 <div id="dot"></div>
@@ -128,6 +193,39 @@
             window.ui?.on?.("overlay:acting", (info) => {
                 const a = document.getElementById("action");
                 if (a && info && info.action) a.textContent = info.action;
+            });
+
+            // Exaggerated AI cursor: lerp a glowing dot to the target, pulse on click.
+            const cursor = document.getElementById("cursor");
+            let cur = { x: innerWidth / 2, y: innerHeight / 2 };
+            let tgt = { x: cur.x, y: cur.y };
+            let raf = null;
+            function lerp() {
+                cur.x += (tgt.x - cur.x) * 0.16;
+                cur.y += (tgt.y - cur.y) * 0.16;
+                cursor.style.left = cur.x + "px";
+                cursor.style.top = cur.y + "px";
+                if (Math.abs(tgt.x - cur.x) > 0.4 || Math.abs(tgt.y - cur.y) > 0.4) {
+                    raf = requestAnimationFrame(lerp);
+                } else {
+                    raf = null;
+                }
+            }
+            window.ui?.on?.("overlay:cursor", (d) => {
+                if (!d || !d.w || !d.h) return;
+                const px = (d.x / d.w) * innerWidth;
+                const py = (d.y / d.h) * innerHeight;
+                tgt = { x: px, y: py };
+                cursor.classList.add("show");
+                if (!raf) raf = requestAnimationFrame(lerp);
+                if (d.kind === "click" || d.kind === "double_click") {
+                    const b = document.createElement("div");
+                    b.className = "click-burst";
+                    b.style.left = px + "px";
+                    b.style.top = py + "px";
+                    document.body.appendChild(b);
+                    setTimeout(() => b.remove(), 600);
+                }
             });
         </script>
     </body>

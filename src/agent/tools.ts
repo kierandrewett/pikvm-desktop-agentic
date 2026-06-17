@@ -22,19 +22,34 @@ const ButtonSchema = Type.Optional(
 );
 
 export function createTools(control: PiKvmControl): AgentTool<any>[] {
-    const screenshotSchema = Type.Object({});
+    const screenshotSchema = Type.Object({
+        region: Type.Optional(
+            Type.Object(
+                {
+                    x: Type.Number(),
+                    y: Type.Number(),
+                    width: Type.Number(),
+                    height: Type.Number(),
+                },
+                {
+                    description:
+                        "Optional crop (pixels of the full frame) to zoom into a window or region — e.g. to read small text. Take a full screenshot first to find the bounds.",
+                },
+            ),
+        ),
+    });
     const screenshot: AgentTool<typeof screenshotSchema> = {
         name: "screenshot",
         label: "Screenshot",
         description:
-            "Capture the current target screen. ALWAYS call this before acting and after actions to verify results. Coordinates for other tools are in the pixels of the returned image.",
+            "Capture the current target screen, optionally cropped to a region to zoom in. ALWAYS call this before acting and after actions to verify results. Coordinates for other tools are in the pixels of the FULL frame.",
         parameters: screenshotSchema,
-        async execute(): Promise<AgentToolResult<{ width: number; height: number }>> {
-            const shot = await control.screenshot();
+        async execute(_id, p: Static<typeof screenshotSchema>): Promise<AgentToolResult<{ width: number; height: number }>> {
+            const shot = await control.screenshot(p.region);
             return {
                 content: [
                     { type: "image", data: shot.base64, mimeType: shot.mimeType },
-                    text(`Screen is ${shot.width}x${shot.height} px.`),
+                    text(p.region ? `Cropped region ${shot.width}x${shot.height} px.` : `Screen is ${shot.width}x${shot.height} px.`),
                 ],
                 details: { width: shot.width, height: shot.height },
             };
