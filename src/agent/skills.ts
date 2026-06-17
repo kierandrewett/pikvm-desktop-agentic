@@ -22,6 +22,15 @@ const SEED: Record<string, string> = {
 3. Cross-check facts across sources; note disagreements.
 4. Summarise concisely and list the source URLs you used.
 5. \`remember\` any durable facts worth keeping for later.`,
+    "understand-ui": `# Understand the UI before acting
+> Figure out how an unfamiliar interface works before interacting — never assume.
+
+1. Never assume what an icon or button does from its appearance alone.
+2. Reveal tooltips: hover the control with \`move_mouse\` and wait; if nothing appears, hold Alt (\`press_key\` AltLeft) which surfaces tooltips/labels in many apps.
+3. Expand collapsed sidebars, overflow (…) menus and panels, and \`ocr\`/zoom to read the labels.
+4. If the app is unfamiliar, \`web_search\` how it works (e.g. "<app> how to <task>") and \`fetch_url\` the docs.
+5. Prefer reversible exploration (hover, open menus, read) over clicking unknown controls — clicks have side effects.
+6. If you are still genuinely unsure how something works after due diligence, ASK THE USER rather than guessing.`,
     "enter-bios": `# Enter BIOS / firmware setup
 > Reboot the target and enter its BIOS/UEFI setup screen.
 

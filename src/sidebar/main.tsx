@@ -18,6 +18,8 @@ import {
     Camera,
     Check,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     Copy,
     History,
     Keyboard,
@@ -98,8 +100,9 @@ function PillSelect({
 
 function Screenshot({ src, w, h, markers, onOpen }: { src: string; w: number; h: number; markers: MarkerData[]; onOpen: (s: string) => void }) {
     return (
-        <div className="relative cursor-zoom-in overflow-hidden rounded-lg border" onClick={() => onOpen(src)}>
-            <img src={src} alt="screen" className="block w-full" />
+        <div className="relative inline-block max-w-full cursor-zoom-in self-start overflow-hidden rounded-lg border" onClick={() => onOpen(src)}>
+            {/* Keep the native aspect ratio — never stretch (esp. crops). */}
+            <img src={src} alt="screen" className="block max-h-[460px] max-w-full" />
             {markers.map((mk, i) => (
                 <span
                     key={i}
@@ -113,8 +116,55 @@ function Screenshot({ src, w, h, markers, onOpen }: { src: string; w: number; h:
                     title={`${mk.kind} (${mk.x}, ${mk.y})`}
                 />
             ))}
-            <span className="absolute right-1.5 bottom-1.5 rounded bg-black/60 px-1.5 text-[11px] text-white">
+            <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 text-[11px] text-white">
                 {w}×{h}
+            </span>
+        </div>
+    );
+}
+
+function ScreenshotCarousel({ shots, markerMap, onOpen }: { shots: any[]; markerMap: Record<string, MarkerData[]>; onOpen: (s: string) => void }) {
+    const [idx, setIdx] = useState(shots.length - 1);
+    // Follow the newest as screenshots stream in (only if already at the end).
+    const prevLen = useRef(shots.length);
+    useEffect(() => {
+        if (idx >= prevLen.current - 1) setIdx(shots.length - 1);
+        prevLen.current = shots.length;
+    }, [shots.length]);
+
+    if (shots.length === 1) {
+        const s = shots[0].data;
+        return <Screenshot src={s.src} w={s.width} h={s.height} markers={markerMap[s.toolCallId] ?? []} onOpen={onOpen} />;
+    }
+    const cur = shots[Math.min(idx, shots.length - 1)].data;
+    return (
+        <div className="relative self-start">
+            <Screenshot src={cur.src} w={cur.width} h={cur.height} markers={markerMap[cur.toolCallId] ?? []} onOpen={onOpen} />
+            <button
+                className="absolute left-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75 disabled:opacity-0"
+                disabled={idx <= 0}
+                onClick={() => setIdx((i) => Math.max(0, i - 1))}
+            >
+                <ChevronLeft className="size-4" />
+            </button>
+            <button
+                className="absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75 disabled:opacity-0"
+                disabled={idx >= shots.length - 1}
+                onClick={() => setIdx((i) => Math.min(shots.length - 1, i + 1))}
+            >
+                <ChevronRight className="size-4" />
+            </button>
+            <div className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 px-2 py-1">
+                {shots.map((_, i) => (
+                    <button
+                        key={i}
+                        onClick={() => setIdx(i)}
+                        className={cn("size-1.5 rounded-full transition-colors", i === idx ? "bg-white" : "bg-white/40")}
+                    />
+                ))}
+            </div>
+            <span className="absolute right-2 top-2 rounded bg-black/55 px-1.5 text-[11px] text-white">
+                {idx + 1}/{shots.length}
             </span>
         </div>
     );
@@ -605,7 +655,11 @@ function App() {
                         </div>
                     )}
 
-                    {messages.map((m: any) => (
+                    {messages.map((m: any) => {
+                        const parts = m.parts ?? [];
+                        const shots = parts.filter((p: any) => p.type === "data-screenshot");
+                        const firstShot = parts.findIndex((p: any) => p.type === "data-screenshot");
+                        return (
                         <div key={m.id} className={cn("group flex gap-3", m.role === "user" ? "justify-end" : "")}>
                             {m.role === "assistant" && (
                                 <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary">
@@ -613,7 +667,7 @@ function App() {
                                 </div>
                             )}
                             <div className={cn("flex min-w-0 flex-col gap-2.5 leading-relaxed", m.role === "user" ? "max-w-[85%] items-end" : "flex-1")}>
-                                {(m.parts ?? []).map((p: any, i: number) => {
+                                {parts.map((p: any, i: number) => {
                                     if (p.type === "file" && typeof p.url === "string" && String(p.mediaType).startsWith("image/"))
                                         return <img key={i} src={p.url} alt="attachment" className="max-h-56 rounded-xl border" />;
                                     if (p.type === "text") {
@@ -634,7 +688,10 @@ function App() {
                                             </Reasoning>
                                         );
                                     if (p.type === "data-screenshot")
-                                        return <Screenshot key={i} src={p.data.src} w={p.data.width} h={p.data.height} markers={markerMap[p.data.toolCallId] ?? []} onOpen={setLightbox} />;
+                                        // Collapse a run of screenshots into one carousel (rendered at the first).
+                                        return i === firstShot ? (
+                                            <ScreenshotCarousel key="shots" shots={shots} markerMap={markerMap} onOpen={setLightbox} />
+                                        ) : null;
                                     if (p.type === "data-status")
                                         return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
                                     if (p.type === "data-auth") {
@@ -664,7 +721,8 @@ function App() {
                                 )}
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
 
                     {status === "submitted" && (
                         <div className="flex items-center gap-2 text-muted-foreground">
