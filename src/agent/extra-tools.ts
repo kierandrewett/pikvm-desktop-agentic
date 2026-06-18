@@ -9,6 +9,7 @@ import { webSearch, fetchUrl } from "./web";
 import type { MemoryStore } from "./memory";
 import type { SkillStore } from "./skills";
 import type { SessionStore } from "./sessions";
+import { parseTimeToToday, type Scheduler } from "./scheduler";
 
 const text = (t: string) => ({ type: "text" as const, text: t });
 const ok = (t: string): AgentToolResult<null> => ({ content: [text(t)], details: null });
@@ -18,6 +19,7 @@ export interface ExtraDeps {
     memory: MemoryStore;
     skills: SkillStore;
     sessions: SessionStore;
+    scheduler: Scheduler;
     /** Run a focused sub-agent to completion and return its final answer. */
     runSubagent: (task: string, signal?: AbortSignal) => Promise<string>;
 }
@@ -134,5 +136,78 @@ export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
         },
     };
 
-    return [web_search, fetch_url, remember, recall, search_conversations, list_skills, use_skill, spawn_subagent];
+    const scheduleSchema = Type.Object({
+        task: Type.String({ description: "The instruction for the agent to run when this fires (be specific and self-contained)." }),
+        label: Type.Optional(Type.String({ description: "Short label." })),
+        atTime: Type.Optional(Type.String({ description: 'One-shot time of day "HH:MM" (today, or tomorrow if already passed).' })),
+        everyMinutes: Type.Optional(Type.Number({ description: "Run repeatedly every N minutes." })),
+        afterTime: Type.Optional(Type.String({ description: 'Only run at/after this time of day "HH:MM" (e.g. "17:30").' })),
+        beforeTime: Type.Optional(Type.String({ description: 'Only run before this time of day "HH:MM".' })),
+    });
+    const schedule_task: AgentTool<typeof scheduleSchema> = {
+        name: "schedule_task",
+        label: "Schedule task",
+        description:
+            "Schedule yourself to run a task later: once (atTime), or repeatedly (everyMinutes), optionally only within a time-of-day window (afterTime/beforeTime). E.g. lock the PC if idle, every 5 min after 17:30.",
+        parameters: scheduleSchema,
+        async execute(_id, p: Static<typeof scheduleSchema>): Promise<AgentToolResult<null>> {
+            const ts = p.atTime ? parseTimeToToday(p.atTime) : undefined;
+            if (!ts && !p.everyMinutes) return ok("Specify a valid atTime (one-shot, HH:MM) or everyMinutes (recurring).");
+            const job = deps.scheduler.add({
+                task: p.task,
+                label: p.label ?? p.task.slice(0, 40),
+                ...(ts ? { atTimestamp: ts } : {}),
+                ...(p.everyMinutes ? { everyMinutes: p.everyMinutes } : {}),
+                ...(p.afterTime ? { afterTime: p.afterTime } : {}),
+                ...(p.beforeTime ? { beforeTime: p.beforeTime } : {}),
+            });
+            return ok(`Scheduled (${job.id}): ${job.label}.`);
+        },
+    };
+
+    const list_schedules: AgentTool<typeof emptySchema> = {
+        name: "list_schedules",
+        label: "List schedules",
+        description: "List scheduled tasks.",
+        parameters: emptySchema,
+        async execute(): Promise<AgentToolResult<null>> {
+            const jobs = deps.scheduler.list();
+            return ok(
+                jobs.length
+                    ? jobs
+                          .map((j) => {
+                              const when = j.everyMinutes ? `every ${j.everyMinutes}m` : j.atTimestamp ? new Date(j.atTimestamp).toLocaleString() : "?";
+                              const win = j.afterTime || j.beforeTime ? ` [${j.afterTime ?? ""}–${j.beforeTime ?? ""}]` : "";
+                              return `${j.id}: ${j.label} — ${when}${win}`;
+                          })
+                          .join("\n")
+                    : "No scheduled tasks.",
+            );
+        },
+    };
+
+    const cancelSchema = Type.Object({ id: Type.String() });
+    const cancel_schedule: AgentTool<typeof cancelSchema> = {
+        name: "cancel_schedule",
+        label: "Cancel schedule",
+        description: "Cancel a scheduled task by id.",
+        parameters: cancelSchema,
+        async execute(_id, p: Static<typeof cancelSchema>): Promise<AgentToolResult<null>> {
+            return ok(deps.scheduler.cancel(p.id) ? `Cancelled ${p.id}.` : `No schedule ${p.id}.`);
+        },
+    };
+
+    return [
+        web_search,
+        fetch_url,
+        remember,
+        recall,
+        search_conversations,
+        list_skills,
+        use_skill,
+        schedule_task,
+        list_schedules,
+        cancel_schedule,
+        spawn_subagent,
+    ];
 }

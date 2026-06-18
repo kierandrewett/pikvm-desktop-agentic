@@ -459,6 +459,24 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                     <input type="checkbox" checked={s?.pauseOnPresence ?? true} onChange={(e) => onPatch({ pauseOnPresence: e.target.checked })} />
                     Pause when target mic/audio is active
                 </label>
+                {(state?.schedules ?? []).length > 0 && (
+                    <div>
+                        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Scheduled tasks</div>
+                        <div className="flex flex-col gap-1">
+                            {(state?.schedules ?? []).map((j) => (
+                                <div key={j.id} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-1.5 text-xs">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate">{j.label}</div>
+                                        <div className="text-[10px] text-muted-foreground">{j.when}</div>
+                                    </div>
+                                    <button className="text-muted-foreground hover:text-destructive" onClick={() => post("/api/schedules/cancel", { id: j.id }).then(() => onPatch({}))}>
+                                        <X className="size-3.5" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <p className="text-[11px] text-muted-foreground">Model & review policy are in the header. Settings persist across restarts.</p>
             </div>
         </Modal>

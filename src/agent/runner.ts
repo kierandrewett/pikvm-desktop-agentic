@@ -28,6 +28,7 @@ import { createTools } from "./tools";
 import { createExtraTools } from "./extra-tools";
 import { BackgroundTasks } from "./background";
 import { ScreenshotHistory } from "./screenshot-history";
+import { Scheduler, type Job } from "./scheduler";
 import { MemoryStore } from "./memory";
 import { SkillStore } from "./skills";
 import type { InputTracker } from "../input-tracker";
@@ -64,6 +65,7 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "",
         "You also have cognitive tools: `web_search`/`fetch_url` for the internet, `remember`/`recall` for long-term memory across sessions, `search_conversations` to look up past sessions, `list_skills`/`use_skill` for reusable playbooks, and `spawn_subagent` to delegate a focused side-task to a fresh sub-agent.",
         "For questions about internal corporate processes/policies, use Neo (neo.capgemini.com) in the target's browser — see the `neo-corporate-help` skill.",
+        "You can schedule yourself with `schedule_task` (one-shot atTime, or recurring everyMinutes, with an optional afterTime/beforeTime window) and manage with `list_schedules`/`cancel_schedule`. For idle detection, see the `detect-inactivity` skill.",
         memoryCount > 0 ? `You have ${memoryCount} saved memories — use \`recall\` when prior context might help.` : "",
         goal ? `\nStanding goal for this session:\n${goal}` : "",
     ]
@@ -92,6 +94,7 @@ export class AgentRunner {
     private readonly sessions: SessionStore;
     private readonly memory: MemoryStore;
     private readonly skills: SkillStore;
+    private readonly scheduler: Scheduler;
     private readonly background = new BackgroundTasks();
     private readonly screenshots = new ScreenshotHistory();
     private readonly toolsForSub: AgentTool<any>[];
@@ -105,6 +108,8 @@ export class AgentRunner {
         this.sessions = new SessionStore(deps.sessionsDir);
         this.memory = new MemoryStore(resolve(dataDir, "agent-memory.json"));
         this.skills = new SkillStore(resolve(dataDir, "agent-skills"));
+        this.scheduler = new Scheduler(resolve(dataDir, "agent-schedules.json"), (task, label) => this.runScheduled(task, label));
+        this.scheduler.start();
         // Resume the most recent session on startup so context survives restarts.
         const recent = this.sessions.list();
         this.sessionId = recent.length ? recent[0]!.id : this.sessions.create();
@@ -120,6 +125,7 @@ export class AgentRunner {
             memory: this.memory,
             skills: this.skills,
             sessions: this.sessions,
+            scheduler: this.scheduler,
             runSubagent: (task, signal) => this.runSubagent(task, signal),
         });
         this.toolsForSub = [...createTools(deps.control, toolDeps), ...extra.filter((t) => t.name !== "spawn_subagent")];
@@ -154,6 +160,22 @@ export class AgentRunner {
         this.agent.subscribe((e) => {
             if (e.type === "agent_end") this.persist();
         });
+    }
+
+    /* ----------------------------- scheduler ---------------------------- */
+
+    /** Fired by the scheduler when a job is due. Skips if already busy. */
+    private runScheduled(task: string, label: string): void {
+        if (this.agent.state.isStreaming || this.pausedForUser) return;
+        void this.run(`[Scheduled task: ${label}] ${task}`);
+    }
+
+    listSchedules(): Job[] {
+        return this.scheduler.list();
+    }
+
+    cancelSchedule(id: string): boolean {
+        return this.scheduler.cancel(id);
     }
 
     /** The full UI transcript (with screenshots) for the current session. */

@@ -124,6 +124,15 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
             const s = settings.get();
             return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm };
         })(),
+        schedules: runner.listSchedules().map((j) => ({
+            id: j.id,
+            label: j.label,
+            when: j.everyMinutes
+                ? `every ${j.everyMinutes}m${j.afterTime || j.beforeTime ? ` (${j.afterTime ?? ""}–${j.beforeTime ?? ""})` : ""}`
+                : j.atTimestamp
+                  ? new Date(j.atTimestamp).toLocaleString()
+                  : "?",
+        })),
         log: reviewer.getLog().slice(-100),
     });
 
@@ -386,6 +395,19 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 const { id } = JSON.parse(b || "{}");
                 const messages = id ? runner.resumeSession(id) : [];
                 return json(res, 200, { ...state(), messages });
+            });
+            return;
+        }
+
+        if (path === "/api/schedules/cancel" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                try {
+                    const { id } = JSON.parse(b || "{}");
+                    if (id) runner.cancelSchedule(id);
+                } catch {
+                    /* ignore */
+                }
+                return json(res, 200, state());
             });
             return;
         }

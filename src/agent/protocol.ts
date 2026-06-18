@@ -72,5 +72,6 @@ export interface ServerState {
     sessionId: string;
     sessions: SessionSummary[];
     settings: { humanize: number; pauseOnPresence: boolean; wpm: number };
+    schedules: { id: string; label: string; when: string }[];
     log: LogEntry[];
 }

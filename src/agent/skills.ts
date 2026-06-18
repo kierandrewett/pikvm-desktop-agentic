@@ -22,6 +22,17 @@ const SEED: Record<string, string> = {
 3. Cross-check facts across sources; note disagreements.
 4. Summarise concisely and list the source URLs you used.
 5. \`remember\` any durable facts worth keeping for later.`,
+    "detect-inactivity": `# Detect inactivity (ignoring a mouse jiggler)
+> Decide whether the machine is idle without being fooled by a mouse jiggler.
+
+A "mouse jiggler" nudges the cursor a few pixels periodically to keep the PC awake — that is NOT real activity.
+1. \`screenshot\` now and note the meaningful state (focused app/window, visible text/content). You can \`remember\` a short note or compare against a recent frame with \`view_screenshot\`.
+2. After the idle window, \`screenshot\` again. Count as ACTIVE only if something MEANINGFUL changed — app/window focus, text, content, real UI updates — NOT merely the mouse cursor shifting a little in place.
+3. Also check \`recent_activity\`: if the user typed or clicked through the KVM recently, they are active.
+4. If nothing meaningful changed for the whole idle period, treat it as inactive.
+
+To LOCK the computer: Windows → Win+L (\`hotkey\` MetaLeft+KeyL); macOS → Ctrl+Cmd+Q (ControlLeft+MetaLeft+KeyQ); most Linux → Super+L (MetaLeft+KeyL) or Ctrl+Alt+L.
+Tip: schedule this check with \`schedule_task\` (e.g. everyMinutes 5, afterTime "17:30").`,
     "neo-corporate-help": `# Neo — internal corporate process help
 > Use Neo (neo.capgemini.com) to answer questions about internal corporate processes.
 
