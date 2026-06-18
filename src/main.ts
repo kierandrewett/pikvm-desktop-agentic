@@ -24,6 +24,7 @@ import { AgentRunner } from "./agent/runner";
 import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
+import { SecretsStore } from "./secrets";
 
 const staticPath = resolve(__dirname, "static");
 
@@ -81,6 +82,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     presence.start();
     const auth = new CodexAuth(resolve(app.getPath("userData"), "pi-credentials.json"));
     auth.load();
+    const secrets = new SecretsStore(resolve(app.getPath("userData"), "agent-secrets.json"));
     const runner = new AgentRunner({
         control,
         reviewer,
@@ -88,6 +90,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         auth,
         sessionsDir: resolve(app.getPath("userData"), "agent-sessions"),
         inputTracker,
+        secrets,
     });
 
     // Apply persisted preferences.
@@ -100,7 +103,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     if (s.goal) runner.setGoal(s.goal);
 
     startControlServer(
-        { control, reviewer, presence, auth, runner, settings, openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
     );
     console.log(`Agent backend listening on http://127.0.0.1:${CONTROL_PORT} (MCP at /mcp)`);

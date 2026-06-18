@@ -20,11 +20,13 @@ import { bridgeAgentEvents } from "./agent/ui-stream";
 import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, COMMANDS } from "./commands";
 import type { SettingsStore } from "./settings";
+import type { SecretsStore } from "./secrets";
 
 export interface ServerDeps extends McpDeps {
     runner: AgentRunner;
     auth: CodexAuth;
     settings: SettingsStore;
+    secrets: SecretsStore;
     openExternal: (url: string) => void;
 }
 
@@ -76,7 +78,7 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
 }
 
 export function startControlServer(deps: ServerDeps, port: number): ReturnType<typeof createServer> {
-    const { runner, reviewer, presence, auth, settings, control, openExternal } = deps;
+    const { runner, reviewer, presence, auth, settings, secrets, control, openExternal } = deps;
     const mcpHandler = createMcpHttpHandler(deps);
 
     // Active chat stream writer (present while a run streams) so reviewer prompts
@@ -121,6 +123,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         models: runner.availableModels(),
         context: runner.contextInfo(),
         uiVersion,
+        secrets: { names: secrets.names(), encrypted: secrets.encryptionAvailable() },
         sessionId: runner.currentSessionId(),
         sessions: runner.listSessions().map((s) => ({
             id: s.id,
@@ -369,6 +372,33 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 if (typeof patch.humanize === "number") control.setHumanize(next.humanize);
                 if (typeof patch.pauseOnPresence === "boolean") presence.setEnabled(next.pauseOnPresence);
                 if (typeof patch.wpm === "number") control.setWpm(next.wpm);
+                return json(res, 200, state());
+            });
+            return;
+        }
+
+        // Secrets vault: set/delete by name. Values are write-only — never read back
+        // to the client or the agent; the server only ever exposes the names.
+        if (path === "/api/secrets" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                try {
+                    const { name, value } = JSON.parse(b || "{}");
+                    if (typeof name === "string" && name.trim() && typeof value === "string") secrets.set(name, value);
+                } catch {
+                    /* ignore */
+                }
+                return json(res, 200, state());
+            });
+            return;
+        }
+        if (path === "/api/secrets/delete" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                try {
+                    const { name } = JSON.parse(b || "{}");
+                    if (typeof name === "string") secrets.delete(name);
+                } catch {
+                    /* ignore */
+                }
                 return json(res, 200, state());
             });
             return;

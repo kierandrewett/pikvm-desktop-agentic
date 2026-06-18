@@ -72,6 +72,8 @@ export interface ServerState {
     sessionId: string;
     /** Bumped when an autonomous/scheduled run updates the transcript. */
     uiVersion: number;
+    /** Named secrets the agent can type but never see. Values are never sent. */
+    secrets: { names: string[]; encrypted: boolean };
     sessions: SessionSummary[];
     settings: { humanize: number; pauseOnPresence: boolean; wpm: number };
     schedules: { id: string; label: string; when: string }[];

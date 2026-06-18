@@ -32,6 +32,7 @@ import { Scheduler, type Job } from "./scheduler";
 import { MemoryStore } from "./memory";
 import { SkillStore } from "./skills";
 import type { InputTracker } from "../input-tracker";
+import type { SecretsStore } from "../secrets";
 import { SessionStore, agentMessagesToUi, type SessionMeta } from "./sessions";
 import type { PiKvmUIMessage } from "./protocol";
 
@@ -58,6 +59,7 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "NEVER assume or approximate. Find absolute answers: exact dates, exact times (e.g. 13:15, not '~13:15'), exact names, numbers and statuses, read directly from the screen. If you need an exact value (e.g. when an event is), open/expand the item to read its real details rather than estimating from a calendar grid. If you genuinely cannot determine something precisely, say so explicitly — do not fabricate a plausible value.",
         "You can also `drag` (drag-and-drop, sliders, selections) and `scroll` (trackpad-like) — move the cursor over the right area before scrolling.",
         "Use `recent_activity` to see what's already been typed (including by the user) before continuing a field.",
+        "PASSWORDS & SECRETS: never ask the user to tell you a password and never type a credential you somehow know. If a login/password/PIN field needs filling, call `list_secrets` to see what the user has saved, focus the field, then `type_secret` with the matching name — the value is entered for you and you never see it. If no suitable secret exists, tell the user to add one in Settings → Secrets rather than guessing.",
         "Only your most recent screenshots stay visible; older ones appear as placeholders with an id (e.g. s4). If you need to recover an earlier state, call `view_screenshot` with that id to see it again.",
         "Work in small, verifiable steps. If something looks wrong, stop and re-observe rather than guessing.",
         "LEAVE NO TRACE: when you finish, tidy up after yourself — close any windows, dialogs, terminals or apps you opened (e.g. winver/About, Run, command prompts, settings panes), discard scratch text you typed, and return the screen roughly to how you found it. Do not close windows the user already had open.",
@@ -83,6 +85,7 @@ export interface RunnerDeps {
     auth: CodexAuth;
     sessionsDir: string;
     inputTracker?: InputTracker;
+    secrets?: SecretsStore;
 }
 
 export class AgentRunner {
@@ -118,6 +121,7 @@ export class AgentRunner {
             background: this.background,
             history: this.screenshots,
             ...(deps.inputTracker ? { tracker: deps.inputTracker } : {}),
+            ...(deps.secrets ? { secrets: deps.secrets } : {}),
         };
 
         // Tools a sub-agent gets: computer-use + cognitive, minus spawn (no recursion).

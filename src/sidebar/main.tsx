@@ -23,6 +23,7 @@ import {
     Copy,
     History,
     Keyboard,
+    Lock,
     MousePointerClick,
     Move,
     Paperclip,
@@ -420,6 +421,17 @@ function ActivityPanel({ state, onClose }: { state: ServerState | null; onClose:
 function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
     const hv = s?.humanize ?? 1;
+    const secretNames = state?.secrets?.names ?? [];
+    const [secName, setSecName] = useState("");
+    const [secVal, setSecVal] = useState("");
+    const addSecret = () => {
+        if (!secName.trim() || !secVal) return;
+        void post("/api/secrets", { name: secName.trim(), value: secVal }).then(() => {
+            setSecName("");
+            setSecVal("");
+            onPatch({}); // refresh state to pick up the new name
+        });
+    };
     return (
         <Modal onClose={onClose}>
             <div className="flex items-center justify-between border-b p-3 font-semibold">
@@ -477,6 +489,56 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         </div>
                     </div>
                 )}
+                <div>
+                    <div className="mb-1.5 flex items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Secrets</span>
+                        <Lock className="size-3 text-muted-foreground" />
+                    </div>
+                    <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+                        Saved values (passwords, PINs) the agent can <em>type</em> on your behalf but never sees. The agent enters them by
+                        name with <code className="text-primary">type_secret</code>.{" "}
+                        {state?.secrets?.encrypted ? "Encrypted with your OS keychain." : "⚠ Stored unencrypted (OS keychain unavailable)."}
+                    </p>
+                    {secretNames.length > 0 && (
+                        <div className="mb-2 flex flex-col gap-1">
+                            {secretNames.map((n) => (
+                                <div key={n} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-1.5 text-xs">
+                                    <Lock className="size-3 shrink-0 text-muted-foreground" />
+                                    <span className="min-w-0 flex-1 truncate">{n}</span>
+                                    <span className="font-mono text-muted-foreground">••••••</span>
+                                    <button
+                                        className="text-muted-foreground hover:text-destructive"
+                                        title="Delete secret"
+                                        onClick={() => post("/api/secrets/delete", { name: n }).then(() => onPatch({}))}
+                                    >
+                                        <X className="size-3.5" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <div className="flex items-center gap-1.5">
+                        <input
+                            value={secName}
+                            onChange={(e) => setSecName(e.target.value)}
+                            placeholder="Name (e.g. Windows password)"
+                            className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                        />
+                        <input
+                            type="password"
+                            value={secVal}
+                            onChange={(e) => setSecVal(e.target.value)}
+                            placeholder="Value"
+                            className="w-24 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") addSecret();
+                            }}
+                        />
+                        <Button size="sm" className="h-7 shrink-0" disabled={!secName.trim() || !secVal} onClick={addSecret}>
+                            Add
+                        </Button>
+                    </div>
+                </div>
                 <p className="text-[11px] text-muted-foreground">Model & review policy are in the header. Settings persist across restarts.</p>
             </div>
         </Modal>
@@ -635,14 +697,26 @@ function App() {
         else void navigator.clipboard?.writeText(t);
     };
 
-    // Auto-grow the composer with its content. useLayoutEffect runs before paint
-    // (incl. on mount) so the box is sized correctly immediately — no snap on first keystroke.
+    // Auto-grow the composer with its content. The min-h-[40px] class floors the
+    // collapsed height so the empty and single-line states are identical — combined
+    // with the layout effect (runs before paint) there's no snap on first keystroke.
     useLayoutEffect(() => {
         const el = inputRef.current;
         if (!el) return;
         el.style.height = "auto";
-        el.style.height = Math.min(el.scrollHeight, 220) + "px";
-    }, [input]);
+        el.style.height = Math.min(el.scrollHeight, 200) + "px";
+    }, [input, images.length]);
+    // Re-measure once after first paint in case the composer was laid out late
+    // (hidden panel / fonts settling), which would otherwise lock in a stale height.
+    useEffect(() => {
+        const r = requestAnimationFrame(() => {
+            const el = inputRef.current;
+            if (!el) return;
+            el.style.height = "auto";
+            el.style.height = Math.min(el.scrollHeight, 200) + "px";
+        });
+        return () => cancelAnimationFrame(r);
+    }, []);
 
     const comps: CommandSpec[] = useMemo(() => completions(input), [input]);
     const busy = status === "streaming" || status === "submitted";
@@ -905,8 +979,7 @@ function App() {
                         ref={inputRef}
                         value={input}
                         placeholder={busy ? "Steer the agent…" : "Give the agent a task…"}
-                        rows={1}
-                        className="block max-h-[200px] w-full resize-none bg-transparent px-3.5 pb-1 pt-2.5 text-sm leading-normal outline-none placeholder:text-muted-foreground"
+                        className="block max-h-[200px] min-h-[40px] w-full resize-none bg-transparent px-3.5 pb-1 pt-2.5 text-sm leading-normal outline-none placeholder:text-muted-foreground"
                         onChange={(e) => setInput(e.target.value)}
                         onPaste={(e) => {
                             const imgs = Array.from(e.clipboardData.items)

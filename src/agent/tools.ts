@@ -13,12 +13,15 @@ import type { PiKvmControl, MouseButton } from "../pikvm-control";
 import type { BackgroundTasks } from "./background";
 import type { InputTracker } from "../input-tracker";
 import type { ScreenshotHistory } from "./screenshot-history";
+import type { SecretsStore } from "../secrets";
 
 function text(t: string) {
     return { type: "text" as const, text: t };
 }
 
 const RegionSchema = Type.Object({ x: Type.Number(), y: Type.Number(), width: Type.Number(), height: Type.Number() });
+
+const emptySchema = Type.Object({});
 
 const ButtonSchema = Type.Optional(
     Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")], {
@@ -28,7 +31,12 @@ const ButtonSchema = Type.Optional(
 
 export function createTools(
     control: PiKvmControl,
-    deps: { background?: BackgroundTasks; tracker?: InputTracker; history?: ScreenshotHistory } = {},
+    deps: {
+        background?: BackgroundTasks;
+        tracker?: InputTracker;
+        history?: ScreenshotHistory;
+        secrets?: SecretsStore;
+    } = {},
 ): AgentTool<any>[] {
     const screenshotSchema = Type.Object({
         region: Type.Optional(
@@ -241,6 +249,48 @@ export function createTools(
     };
 
     const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, drag, typeText, pressKey, hotkey, scroll, requestApproval];
+
+    // Secrets: the agent can type saved credentials it is never allowed to see.
+    if (deps.secrets) {
+        const secrets = deps.secrets;
+        const listSecrets: AgentTool<typeof emptySchema> = {
+            name: "list_secrets",
+            label: "List secrets",
+            description:
+                "List the NAMES of secrets the user saved (e.g. passwords). You never see their values — use type_secret to enter one into the focused field.",
+            parameters: emptySchema,
+            async execute(): Promise<AgentToolResult<null>> {
+                const names = secrets.names();
+                if (!names.length) return { content: [text("No secrets are saved. The user can add them in Settings → Secrets.")], details: null };
+                return { content: [text(`Saved secrets (names only):\n${names.map((n) => `• ${n}`).join("\n")}`)], details: null };
+            },
+        };
+        const secretSchema = Type.Object({
+            name: Type.String({ description: "The exact name of a saved secret (see list_secrets)." }),
+        });
+        const typeSecret: AgentTool<typeof secretSchema> = {
+            name: "type_secret",
+            label: "Type secret",
+            description:
+                "Type a saved secret (e.g. a password) into the currently focused field WITHOUT seeing its value. Focus the field first. The value never enters your context or the activity log. Press Enter / click separately if needed.",
+            parameters: secretSchema,
+            async execute(_id, p: Static<typeof secretSchema>, signal): Promise<AgentToolResult<null>> {
+                const value = secrets.get(p.name);
+                if (value == null) {
+                    const names = secrets.names();
+                    return {
+                        content: [text(`No secret named "${p.name}". Available: ${names.length ? names.join(", ") : "(none)"}.`)],
+                        details: null,
+                    };
+                }
+                // intensity 0: type precisely (no self-correcting typos — the field is masked, a
+                // human can't see to fix mistakes). secret: keeps it out of the activity tracker.
+                await control.typeText(value, { intensity: 0, secret: true, ...(signal ? { signal } : {}) });
+                return { content: [text(`Typed the secret "${p.name}" (${value.length} chars, value hidden).`)], details: null };
+            },
+        };
+        tools.push(listSecrets, typeSecret);
+    }
 
     if (deps.history) {
         const history = deps.history;

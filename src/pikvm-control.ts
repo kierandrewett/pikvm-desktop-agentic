@@ -347,9 +347,11 @@ export class PiKvmControl {
             signal?: AbortSignal;
             persona?: Persona;
             onProgress?: (done: number, total: number) => void;
+            /** Secret values are typed but never echoed to the activity tracker / model. */
+            secret?: boolean;
         } = {},
     ): Promise<void> {
-        const { signal, onProgress, ...typingOpts } = opts;
+        const { signal, onProgress, secret, ...typingOpts } = opts;
         const strokes = planTyping(text, {
             intensity: this.humanize,
             ...(this.wpm ? { wpm: this.wpm } : {}),
@@ -372,7 +374,7 @@ export class PiKvmControl {
                 await sleep(s.gapMs, signal);
                 onProgress?.(i + 1, strokes.length);
             }
-            this.onAgentInput?.({ text });
+            if (!secret) this.onAgentInput?.({ text });
         } finally {
             if (this.shiftHeld) {
                 await this.key("ShiftLeft", false).catch(() => {});
