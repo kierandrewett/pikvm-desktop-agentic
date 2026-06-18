@@ -51,7 +51,7 @@ const SUBAGENT_MODEL = "gpt-5.5";
  * NEVER touch the mouse/keyboard or otherwise actuate the target machine. This is
  * enforced three ways: this allowlist, a beforeToolCall hard-block, and the prompt.
  */
-const READ_ONLY_MEETING_TOOLS = new Set(["screenshot", "read_transcript", "web_search", "fetch_url", "recall", "remember", "search_conversations", "notify_user"]);
+const READ_ONLY_MEETING_TOOLS = new Set(["screenshot", "read_transcript", "web_search", "fetch_url", "recall", "remember", "search_conversations", "recall_meetings", "notify_user"]);
 
 const MEETING_PROMPT = [
     "You are a live meeting copilot embedded on the user's screen during a real meeting happening RIGHT NOW.",
@@ -129,6 +129,8 @@ export interface RunnerDeps {
     notify?: (message: string, opts: { title?: string; priority?: "default" | "high" | "urgent" }) => Promise<{ sent: boolean; reason?: string }>;
     /** Read the rolling local meeting transcript, wired in main. */
     getTranscript?: () => string;
+    /** Recent meetings for the recall_meetings tool, wired in main. */
+    getMeetings?: () => { title: string; startTs: number; endTs: number; suggestions: { text: string }[]; transcript: string }[];
 }
 
 export class AgentRunner {
@@ -176,6 +178,7 @@ export class AgentRunner {
             runSubagent: (task, signal) => this.runSubagent(task, signal),
             ...(deps.notify ? { notifyUser: deps.notify } : {}),
             ...(deps.getTranscript ? { getTranscript: deps.getTranscript } : {}),
+            ...(deps.getMeetings ? { getMeetings: deps.getMeetings } : {}),
         });
         this.toolsForSub = [...createTools(deps.control, toolDeps), ...extra.filter((t) => t.name !== "spawn_subagent")];
 

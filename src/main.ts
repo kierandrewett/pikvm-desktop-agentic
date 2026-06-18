@@ -111,6 +111,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         secrets,
         notify: (message, opts) => ntfy.notify(message, opts),
         getTranscript: () => transcriber.getTranscript(),
+        getMeetings: () => meetingLog.recent(8),
     });
 
     // Ambient background monitor.

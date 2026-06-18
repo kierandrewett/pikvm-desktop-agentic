@@ -26,6 +26,8 @@ export interface ExtraDeps {
     notifyUser?: (message: string, opts: { title?: string; priority?: "default" | "high" | "urgent" }) => Promise<{ sent: boolean; reason?: string }>;
     /** Read the rolling local meeting transcript. */
     getTranscript?: () => string;
+    /** Recent meetings (most recent first) for the recall_meetings tool. */
+    getMeetings?: () => { title: string; startTs: number; endTs: number; suggestions: { text: string }[]; transcript: string }[];
 }
 
 export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
@@ -241,6 +243,33 @@ export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
             },
         };
         tools.push(notify_user);
+    }
+
+    if (deps.getMeetings) {
+        const getMeetings = deps.getMeetings;
+        const recallSchema = Type.Object({
+            limit: Type.Optional(Type.Number({ description: "How many recent meetings to look at (default 5)." })),
+            includeTranscript: Type.Optional(Type.Boolean({ description: "Include a transcript excerpt for each (default false)." })),
+        });
+        const recall_meetings: AgentTool<typeof recallSchema> = {
+            name: "recall_meetings",
+            label: "Recall meetings",
+            description:
+                "Look back at recent meetings — their titles, when they happened, and the copilot's notes/recap from each. Use to answer 'what did we discuss last time', recall prior context about a person/topic, or follow up on action items.",
+            parameters: recallSchema,
+            async execute(_id, p: Static<typeof recallSchema>): Promise<AgentToolResult<null>> {
+                const meetings = getMeetings().slice(0, Math.max(1, Math.min(p.limit ?? 5, 20)));
+                if (!meetings.length) return ok("No past meetings recorded yet.");
+                const fmt = (t: number) => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                const blocks = meetings.map((m) => {
+                    const notes = m.suggestions.map((s) => `  - ${s.text.replace(/\s+/g, " ")}`).join("\n") || "  (no notes)";
+                    const tr = p.includeTranscript && m.transcript.trim() ? `\n  Transcript excerpt: ${m.transcript.slice(-600).trim()}` : "";
+                    return `• ${m.title} — ${fmt(m.startTs)}\n${notes}${tr}`;
+                });
+                return ok(`Recent meetings (most recent first):\n\n${blocks.join("\n\n")}`);
+            },
+        };
+        tools.push(recall_meetings);
     }
 
     if (deps.getTranscript) {

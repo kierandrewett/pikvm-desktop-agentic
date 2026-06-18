@@ -81,4 +81,9 @@ export class MeetingLog {
     get(id: string): MeetingRecord | undefined {
         return this.records.find((r) => r.id === id);
     }
+
+    /** Most recent full records (for the agent's recall_meetings tool). */
+    recent(n: number): MeetingRecord[] {
+        return this.records.slice(0, Math.max(0, n));
+    }
 }
