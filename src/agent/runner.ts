@@ -348,11 +348,16 @@ export class AgentRunner {
     /* --------------------------- auto-compaction ------------------------- */
 
     /** Summarise older context when it approaches the window limit. */
-    private async maybeCompact(): Promise<AgentLoopTurnUpdate | undefined> {
+    private maybeCompact(): Promise<AgentLoopTurnUpdate | undefined> {
+        return this.compactContext(this.agent, this.model);
+    }
+
+    /** Tool-pairing-safe context compaction for any agent (main, meeting, …). */
+    private async compactContext(agent: Agent, model: Model<any>): Promise<AgentLoopTurnUpdate | undefined> {
         try {
-            const messages = this.agent.state.messages;
+            const messages = agent.state.messages;
             const { tokens } = estimateContextTokens(messages);
-            const max = (this.model as any)?.contextWindow ?? 256_000;
+            const max = (model as any)?.contextWindow ?? 256_000;
             if (!shouldCompact(tokens, max, DEFAULT_COMPACTION_SETTINGS)) return undefined;
 
             // Keep the most recent messages; summarise everything before them.
@@ -370,12 +375,7 @@ export class AgentRunner {
             if (older.length < 3) return undefined;
 
             const apiKey = await this.deps.auth.getToken();
-            const res: any = await generateSummary(
-                older as AgentMessage[],
-                this.model,
-                DEFAULT_COMPACTION_SETTINGS.reserveTokens,
-                apiKey,
-            );
+            const res: any = await generateSummary(older as AgentMessage[], model, DEFAULT_COMPACTION_SETTINGS.reserveTokens, apiKey);
             const summary: string | null = res?.ok ? res.value : typeof res?.value === "string" ? res.value : null;
             if (!summary) return undefined;
 
@@ -385,9 +385,9 @@ export class AgentRunner {
                 timestamp: Date.now(),
             } as AgentMessage;
             const compacted = [summaryMsg, ...keep];
-            this.agent.state.messages = compacted;
+            agent.state.messages = compacted;
             return {
-                context: { systemPrompt: this.agent.state.systemPrompt, messages: compacted, tools: this.agent.state.tools },
+                context: { systemPrompt: agent.state.systemPrompt, messages: compacted, tools: agent.state.tools },
             };
         } catch {
             return undefined;
@@ -518,7 +518,7 @@ export class AgentRunner {
         };
         // Read-only + cognitive tools only — never actuate the machine mid-meeting.
         const tools: AgentTool<any>[] = [...this.toolsForSub.filter((t) => READ_ONLY_MEETING_TOOLS.has(t.name)), suggest as AgentTool<any>];
-        const agent = new Agent({
+        const agent: Agent = new Agent({
             initialState: { systemPrompt: MEETING_PROMPT, model: this.subModel, thinkingLevel: "low", tools },
             getApiKey: async () => {
                 try {
@@ -528,6 +528,9 @@ export class AgentRunner {
                 }
             },
             sessionId: `pikvm-meeting-${Date.now()}`,
+            // Keep a long meeting from blowing the context window (it re-feeds the
+            // transcript tail every turn) — same tool-pairing-safe compaction as main.
+            prepareNextTurn: () => this.compactContext(agent, this.subModel),
             // Hard guarantee: block anything that isn't a read-only/cognitive tool,
             // even if the tool list ever changes. The copilot can never act on the KVM.
             beforeToolCall: async (ctx: any) => {
