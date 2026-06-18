@@ -554,12 +554,12 @@ function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (
             disabled={disabled}
             onClick={() => !disabled && onChange(!checked)}
             className={cn(
-                "relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors",
+                "box-border inline-flex h-[22px] w-[38px] shrink-0 cursor-pointer appearance-none items-center rounded-full border-0 p-0 transition-colors",
                 checked ? "bg-primary" : "bg-muted-foreground/30",
                 disabled && "cursor-not-allowed opacity-40",
             )}
         >
-            <span className={cn("absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-[19px]" : "translate-x-[3px]")} />
+            <span className={cn("pointer-events-none block size-4 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-[19px]" : "translate-x-[3px]")} />
         </button>
     );
 }
