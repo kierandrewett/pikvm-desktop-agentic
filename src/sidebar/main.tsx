@@ -123,6 +123,53 @@ function ShotImage({ src, w, h, markers, onOpen }: { src: string; w: number; h: 
     );
 }
 
+/** A screenshot (or a run of adjacent ones) that collapses once superseded —
+ *  only the most recent stays expanded, like the reasoning block. */
+function ScreenshotBlock({
+    shots,
+    markerMap,
+    isLatest,
+    onOpen,
+}: {
+    shots: any[];
+    markerMap: Record<string, MarkerData[]>;
+    isLatest: boolean;
+    onOpen: (s: string) => void;
+}) {
+    const [open, setOpen] = useState(isLatest);
+    useEffect(() => setOpen(isLatest), [isLatest]);
+    const last = shots[shots.length - 1].data;
+    const label = shots.length > 1 ? `${shots.length} screenshots` : `Screenshot ${last.width}×${last.height}`;
+
+    if (!open) {
+        return (
+            <button
+                onClick={() => setOpen(true)}
+                className="flex items-center gap-2 self-start rounded-lg border bg-card/60 py-1 pl-1 pr-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/50"
+            >
+                <img src={last.src} alt="" className="size-8 rounded object-cover" />
+                <Camera className="size-3.5" />
+                <span>{label}</span>
+                <ChevronRight className="size-3.5" />
+            </button>
+        );
+    }
+    return (
+        <div className="flex flex-col gap-1">
+            <button onClick={() => setOpen(false)} className="flex items-center gap-1.5 self-start text-[11px] text-muted-foreground hover:text-foreground">
+                <Camera className="size-3" /> {label} <ChevronDown className="size-3" />
+            </button>
+            {shots.length > 1 ? (
+                <ScreenshotCarousel shots={shots} markerMap={markerMap} onOpen={onOpen} />
+            ) : (
+                <div className="flex min-h-[150px] w-full items-center justify-center overflow-hidden rounded-xl border bg-muted/20 p-3">
+                    <ShotImage src={last.src} w={last.width} h={last.height} markers={markerMap[last.toolCallId] ?? []} onOpen={onOpen} />
+                </div>
+            )}
+        </div>
+    );
+}
+
 function ScreenshotCarousel({ shots, markerMap, onOpen }: { shots: any[]; markerMap: Record<string, MarkerData[]>; onOpen: (s: string) => void }) {
     const [idx, setIdx] = useState(shots.length - 1);
     // Follow the newest as screenshots stream in (only if already at the end).
@@ -569,6 +616,14 @@ function App() {
     const busy = status === "streaming" || status === "submitted";
     const empty = messages.length === 0;
     const lastAssistantId = useMemo(() => [...messages].reverse().find((m: any) => m.role === "assistant")?.id, [messages]);
+    const latestShotId = useMemo(() => {
+        for (let mi = (messages as any[]).length - 1; mi >= 0; mi--) {
+            const parts = (messages as any[])[mi].parts ?? [];
+            for (let pi = parts.length - 1; pi >= 0; pi--)
+                if (parts[pi].type === "data-screenshot") return parts[pi].data.toolCallId;
+        }
+        return undefined;
+    }, [messages]);
     const markerMap = useMemo(() => {
         const map: Record<string, MarkerData[]> = {};
         for (const m of messages as any[]) for (const p of m.parts ?? []) if (p.type === "data-marker") (map[p.data.screenshotId] ??= []).push(p.data);
@@ -680,8 +735,6 @@ function App() {
 
                     {messages.map((m: any) => {
                         const parts = m.parts ?? [];
-                        const shots = parts.filter((p: any) => p.type === "data-screenshot");
-                        const firstShot = parts.findIndex((p: any) => p.type === "data-screenshot");
                         return (
                         <div key={m.id} className={cn("group flex gap-3", m.role === "user" ? "justify-end" : "")}>
                             {m.role === "assistant" && (
@@ -714,11 +767,18 @@ function App() {
                                             </Reasoning>
                                         );
                                     }
-                                    if (p.type === "data-screenshot")
-                                        // Collapse a run of screenshots into one carousel (rendered at the first).
-                                        return i === firstShot ? (
-                                            <ScreenshotCarousel key="shots" shots={shots} markerMap={markerMap} onOpen={setLightbox} />
-                                        ) : null;
+                                    if (p.type === "data-screenshot") {
+                                        // Only group screenshots that are ADJACENT (no thinking/tool between).
+                                        if (i > 0 && parts[i - 1]?.type === "data-screenshot") return null; // mid-run
+                                        let j = i;
+                                        const run: any[] = [];
+                                        while (j < parts.length && parts[j].type === "data-screenshot") {
+                                            run.push(parts[j]);
+                                            j++;
+                                        }
+                                        const isLatest = run.some((s) => s.data.toolCallId === latestShotId);
+                                        return <ScreenshotBlock key={i} shots={run} markerMap={markerMap} isLatest={isLatest} onOpen={setLightbox} />;
+                                    }
                                     if (p.type === "data-status")
                                         return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
                                     if (p.type === "data-auth") {
