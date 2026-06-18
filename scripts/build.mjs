@@ -24,7 +24,9 @@ await build({
     platform: "node",
     format: "cjs",
     bundle: true,
-    external: ["electron"],
+    // nodejs-whisper spawns the whisper.cpp binary it locates via __dirname, so it
+    // can't be bundled — keep it external and resolve from node_modules at runtime.
+    external: ["electron", "nodejs-whisper"],
     sourcemap: true,
     logLevel: "info",
 });

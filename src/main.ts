@@ -27,6 +27,7 @@ import { InputTracker } from "./input-tracker";
 import { SecretsStore } from "./secrets";
 import { NtfyClient } from "./ambient/ntfy";
 import { AmbientMonitor } from "./ambient/monitor";
+import { Transcriber } from "./ambient/transcriber";
 
 const staticPath = resolve(__dirname, "static");
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -97,6 +98,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         config: () => settings.get().ambient.ntfy,
         getToken: () => secrets.get("ntfy_token"),
     });
+    const transcriber = new Transcriber();
     const runner = new AgentRunner({
         control,
         reviewer,
@@ -106,6 +108,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         inputTracker,
         secrets,
         notify: (message, opts) => ntfy.notify(message, opts),
+        getTranscript: () => transcriber.getTranscript(),
     });
 
     // Ambient background monitor.
@@ -130,11 +133,11 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     if (s.goal) runner.setGoal(s.goal);
 
     startControlServer(
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, transcriber, openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
     );
     console.log(`Agent backend listening on http://127.0.0.1:${CONTROL_PORT} (MCP at /mcp)`);
-    return { control, reviewer, presence, auth, runner, ambient, setOnKVM: (b: boolean) => { onKVM = b; } };
+    return { control, reviewer, presence, auth, runner, ambient, transcriber, settings, setOnKVM: (b: boolean) => { onKVM = b; } };
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -361,6 +364,25 @@ function createWindow() {
             return null;
         }
     };
+
+    // Meeting transcription: feed renderer audio blobs into the local whisper
+    // pipeline, and start/stop capture as the ambient monitor enters/leaves a meeting.
+    ipcMain.on("kvm:audio-chunk", (_, b64: string) => {
+        try {
+            agentBackend.transcriber.pushAudio(Buffer.from(b64, "base64"));
+        } catch {
+            /* ignore malformed chunk */
+        }
+    });
+    agentBackend.ambient.on("event", (e: { kind: string }) => {
+        if (e.kind === "meeting-start" && agentBackend.settings.get().ambient.transcribe) {
+            agentBackend.transcriber.start();
+            mainView.webContents.send("kvm:transcribe-start");
+        } else if (e.kind === "meeting-end") {
+            agentBackend.transcriber.stop();
+            mainView.webContents.send("kvm:transcribe-stop");
+        }
+    });
 
     // Mirror the agent's "is acting" state onto the control overlay.
     agentBackend.runner.subscribe((event) => {

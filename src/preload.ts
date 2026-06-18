@@ -69,8 +69,92 @@ contextBridge.exposeInMainWorld("kvm", {
                 data = JSON.parse(data);
 
                 ipcRenderer.send("kvm-stream-data", data);
+            } else if (typeof e.data === "string" && e.data.startsWith("kvm:audio-chunk::")) {
+                ipcRenderer.send("kvm:audio-chunk", e.data.slice("kvm:audio-chunk::".length));
             }
         });
+
+        // Meeting transcription: tap the live audio element and ship complete ~10s
+        // WebM blobs out to main (→ ffmpeg → local whisper). Toggled by the ambient
+        // monitor when a meeting starts/ends.
+        const captureAudio = (en?: boolean) => {
+            const KEY = "_pikvmStt";
+            const g = globalThis as any;
+            if (!en) {
+                const s = g[KEY];
+                if (s) {
+                    s.stop = true;
+                    try {
+                        if (s.rec && s.rec.state !== "inactive") s.rec.stop();
+                    } catch {}
+                    clearTimeout(s.timer);
+                    g[KEY] = null;
+                }
+                return;
+            }
+            if (g[KEY]) return;
+            const state: any = { stop: false, rec: null, timer: null };
+            g[KEY] = state;
+            const findStream = () => {
+                const els = Array.from(document.querySelectorAll("audio,video")) as any[];
+                for (const el of els) {
+                    try {
+                        if (el.srcObject?.getAudioTracks?.().length) return el.srcObject;
+                    } catch {}
+                }
+                for (const el of els) {
+                    try {
+                        if (typeof el.captureStream === "function") {
+                            const s = el.captureStream();
+                            if (s.getAudioTracks().length) return s;
+                        }
+                    } catch {}
+                }
+                return null;
+            };
+            const cycle = () => {
+                if (state.stop) return;
+                const stream = findStream();
+                if (!stream) {
+                    state.timer = setTimeout(cycle, 3000);
+                    return;
+                }
+                let chunks: any[] = [];
+                let rec: any;
+                try {
+                    rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+                } catch {
+                    state.timer = setTimeout(cycle, 5000);
+                    return;
+                }
+                state.rec = rec;
+                rec.ondataavailable = (ev: any) => {
+                    if (ev.data && ev.data.size) chunks.push(ev.data);
+                };
+                rec.onstop = () => {
+                    const blob = new Blob(chunks, { type: "audio/webm" });
+                    chunks = [];
+                    if (blob.size > 2000) {
+                        const fr = new FileReader();
+                        fr.onload = () => {
+                            const b64 = String(fr.result).split(",")[1];
+                            window.postMessage("kvm:audio-chunk::" + b64, "*");
+                        };
+                        fr.readAsDataURL(blob);
+                    }
+                    if (!state.stop) state.timer = setTimeout(cycle, 50);
+                };
+                rec.start();
+                setTimeout(() => {
+                    try {
+                        if (rec.state !== "inactive") rec.stop();
+                    } catch {}
+                }, 10000);
+            };
+            cycle();
+        };
+        ipcRenderer.on("kvm:transcribe-start", () => inject(captureAudio, true));
+        ipcRenderer.on("kvm:transcribe-stop", () => inject(captureAudio, false));
 
         // Track the user's own keystrokes/clicks (capture phase, before the page
         // handles them) so the agent can see what's already been typed.

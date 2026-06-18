@@ -35,6 +35,8 @@ export interface AmbientSettings {
     notify: boolean;
     /** Run the meeting assistant (brief + suggestions) when a meeting is detected. */
     meetingAssist: boolean;
+    /** Transcribe meeting audio locally (whisper.cpp) while a meeting is active. */
+    transcribe: boolean;
     ntfy: { baseUrl: string; topic: string; activeCheckUrl: string };
 }
 
@@ -45,6 +47,7 @@ const DEFAULT_AMBIENT: AmbientSettings = {
     smartModel: "gpt-5.5",
     notify: true,
     meetingAssist: true,
+    transcribe: false,
     ntfy: {
         baseUrl: "https://ntfy.drewett.dev",
         topic: "claude",

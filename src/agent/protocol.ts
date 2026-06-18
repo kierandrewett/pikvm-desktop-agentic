@@ -92,8 +92,10 @@ export interface ServerState {
         inMeeting: boolean;
         notify: boolean;
         meetingAssist: boolean;
+        transcribe: boolean;
         ntfyTopic: string;
         hasToken: boolean;
+        transcript: string;
         events: AmbientEvent[];
     };
     /** Named secrets the agent can type but never see. Values are never sent. */

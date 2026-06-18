@@ -88,6 +88,8 @@ export interface RunnerDeps {
     secrets?: SecretsStore;
     /** Push a notification to the user (ntfy), wired in main. */
     notify?: (message: string, opts: { title?: string; priority?: "default" | "high" | "urgent" }) => Promise<{ sent: boolean; reason?: string }>;
+    /** Read the rolling local meeting transcript, wired in main. */
+    getTranscript?: () => string;
 }
 
 export class AgentRunner {
@@ -134,6 +136,7 @@ export class AgentRunner {
             scheduler: this.scheduler,
             runSubagent: (task, signal) => this.runSubagent(task, signal),
             ...(deps.notify ? { notifyUser: deps.notify } : {}),
+            ...(deps.getTranscript ? { getTranscript: deps.getTranscript } : {}),
         });
         this.toolsForSub = [...createTools(deps.control, toolDeps), ...extra.filter((t) => t.name !== "spawn_subagent")];
 

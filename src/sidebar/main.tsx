@@ -461,6 +461,16 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
                     <button className="shrink-0 hover:text-foreground" onClick={() => post("/api/ambient/clear")}>Clear</button>
                 )}
             </div>
+            {amb?.inMeeting && amb?.transcribe && (
+                <div className="border-b bg-muted/20 px-3 py-2">
+                    <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                        <span className="size-1.5 animate-pulse rounded-full bg-red-500" /> Live transcript
+                    </div>
+                    <div className="max-h-28 overflow-auto whitespace-pre-wrap text-[12px] leading-snug">
+                        {amb.transcript?.trim() || <span className="text-muted-foreground">Listening…</span>}
+                    </div>
+                </div>
+            )}
             <div className="flex-1 overflow-auto">
                 {events.length === 0 && <div className="p-4 text-sm text-muted-foreground">Nothing notable yet.</div>}
                 {events.map((e) => (
@@ -616,6 +626,10 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                     <label className="mt-1.5 flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={amb?.meetingAssist ?? true} onChange={(e) => onPatch({ ambient: { meetingAssist: e.target.checked } })} disabled={!amb?.enabled} />
                         Meeting assistant (brief on join)
+                    </label>
+                    <label className="mt-1.5 flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={amb?.transcribe ?? false} onChange={(e) => onPatch({ ambient: { transcribe: e.target.checked } })} disabled={!amb?.enabled} />
+                        Transcribe meetings (local whisper)
                     </label>
                     <div className="mt-2 rounded-lg border bg-card/50 p-2">
                         <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">

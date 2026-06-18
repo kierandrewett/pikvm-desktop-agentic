@@ -24,6 +24,8 @@ export interface ExtraDeps {
     runSubagent: (task: string, signal?: AbortSignal) => Promise<string>;
     /** Push a notification to the user (ntfy). Returns whether it was sent. */
     notifyUser?: (message: string, opts: { title?: string; priority?: "default" | "high" | "urgent" }) => Promise<{ sent: boolean; reason?: string }>;
+    /** Read the rolling local meeting transcript. */
+    getTranscript?: () => string;
 }
 
 export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
@@ -239,6 +241,22 @@ export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
             },
         };
         tools.push(notify_user);
+    }
+
+    if (deps.getTranscript) {
+        const getTranscript = deps.getTranscript;
+        const read_transcript: AgentTool<typeof emptySchema> = {
+            name: "read_transcript",
+            label: "Read transcript",
+            description:
+                "Read the live transcript of the current meeting (transcribed locally from the target's audio). Use it to answer 'what did they just say', summarise, or draft a reply. Empty if no meeting/audio.",
+            parameters: emptySchema,
+            async execute(): Promise<AgentToolResult<null>> {
+                const t = getTranscript().trim();
+                return ok(t ? `Recent meeting transcript:\n\n${t}` : "No transcript yet (no meeting audio captured).");
+            },
+        };
+        tools.push(read_transcript);
     }
 
     return tools;

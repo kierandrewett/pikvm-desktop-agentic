@@ -23,6 +23,7 @@ import type { SettingsStore } from "./settings";
 import type { SecretsStore } from "./secrets";
 import type { AmbientMonitor } from "./ambient/monitor";
 import type { NtfyClient } from "./ambient/ntfy";
+import type { Transcriber } from "./ambient/transcriber";
 import type { AmbientEvent } from "./agent/protocol";
 
 export interface ServerDeps extends McpDeps {
@@ -32,6 +33,7 @@ export interface ServerDeps extends McpDeps {
     secrets: SecretsStore;
     ambient: AmbientMonitor;
     ntfy: NtfyClient;
+    transcriber: Transcriber;
     openExternal: (url: string) => void;
 }
 
@@ -83,7 +85,7 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
 }
 
 export function startControlServer(deps: ServerDeps, port: number): ReturnType<typeof createServer> {
-    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, control, openExternal } = deps;
+    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, transcriber, control, openExternal } = deps;
     const mcpHandler = createMcpHttpHandler(deps);
 
     // Ring buffer of ambient events surfaced to the sidebar feed.
@@ -143,8 +145,10 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 inMeeting: ambient.isInMeeting(),
                 notify: a.notify,
                 meetingAssist: a.meetingAssist,
+                transcribe: a.transcribe,
                 ntfyTopic: a.ntfy.topic,
                 hasToken: !!secrets.get("ntfy_token"),
+                transcript: transcriber.getTranscript(),
                 events: ambientEvents.slice(-30).reverse(),
             };
         })(),
