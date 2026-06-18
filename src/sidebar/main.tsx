@@ -425,7 +425,7 @@ function ContextMeter({ ctx }: { ctx: { tokens: number; max: number } | undefine
 function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
     return (
         <div className="fixed inset-0 z-40 flex justify-end bg-black/40" onClick={onClose}>
-            <div className={cn("flex flex-col border-l bg-card", wide ? "w-full" : "w-72")} onClick={(e) => e.stopPropagation()}>
+            <div className={cn("relative flex flex-col border-l bg-card", wide ? "w-full" : "w-72")} onClick={(e) => e.stopPropagation()}>
                 {children}
             </div>
         </div>
@@ -478,6 +478,14 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
         if (el) el.scrollTop = el.scrollHeight;
     }, [trace]);
     const fmtSec = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    // Past meetings log.
+    const [meetings, setMeetings] = useState<any[]>([]);
+    const [openMeeting, setOpenMeeting] = useState<any | null>(null);
+    const loadMeetings = () =>
+        fetch(BASE + "/api/meetings").then((r) => r.json()).then((d) => setMeetings(d.meetings ?? [])).catch(() => {});
+    useEffect(() => {
+        void loadMeetings();
+    }, [amb?.inMeeting]); // refresh when a meeting ends
     return (
         <Modal onClose={onClose} wide>
             <div className="flex items-center justify-between border-b p-3 font-semibold">
@@ -561,7 +569,62 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
                         {e.thumb && <img src={e.thumb} alt="" className="h-10 w-16 shrink-0 rounded border object-cover" />}
                     </div>
                 ))}
+                {meetings.length > 0 && (
+                    <div className="border-t">
+                        <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Past meetings</div>
+                        {meetings.map((m) => (
+                            <button
+                                key={m.id}
+                                className="flex w-full items-center gap-2 border-b px-3 py-2 text-left hover:bg-accent/40"
+                                onClick={() => fetch(BASE + "/api/meetings/get", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id }) }).then((r) => r.json()).then((d) => setOpenMeeting(d.meeting)).catch(() => {})}
+                            >
+                                <span className="text-base leading-none">📞</span>
+                                <div className="min-w-0 flex-1">
+                                    <div className="truncate text-[13px]">{m.title}</div>
+                                    <div className="text-[10px] text-muted-foreground">
+                                        {new Date(m.startTs).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · {m.suggestionCount} note{m.suggestionCount === 1 ? "" : "s"}
+                                        {m.hasTranscript ? " · transcript" : ""}
+                                    </div>
+                                </div>
+                                <ChevronRight className="size-3.5 text-muted-foreground" />
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
+            {openMeeting && (
+                <div className="absolute inset-0 z-10 flex flex-col bg-card" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 border-b p-3">
+                        <button onClick={() => setOpenMeeting(null)} className="text-muted-foreground hover:text-foreground">
+                            <ChevronLeft className="size-4" />
+                        </button>
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{openMeeting.title}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                            {new Date(openMeeting.startTs).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                    </div>
+                    <div className="flex-1 space-y-3 overflow-auto p-3">
+                        <div>
+                            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Copilot suggestions</div>
+                            {(openMeeting.suggestions ?? []).length === 0 ? (
+                                <div className="text-[12px] text-muted-foreground">None.</div>
+                            ) : (
+                                <div className="space-y-1.5">
+                                    {openMeeting.suggestions.map((s: any, i: number) => (
+                                        <div key={i} className="whitespace-pre-wrap rounded-lg border bg-muted/30 px-2.5 py-1.5 text-[12px] leading-snug">{s.text}</div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        {openMeeting.transcript?.trim() && (
+                            <div>
+                                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Transcript</div>
+                                <div className="whitespace-pre-wrap rounded-lg border bg-muted/20 p-2.5 text-[12px] leading-relaxed text-muted-foreground">{openMeeting.transcript}</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </Modal>
     );
 }

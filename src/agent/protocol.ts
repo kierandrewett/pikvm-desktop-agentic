@@ -63,6 +63,24 @@ export interface AmbientEvent {
     thumb?: string;
 }
 
+export interface MeetingSummary {
+    id: string;
+    startTs: number;
+    endTs: number;
+    title: string;
+    suggestionCount: number;
+    hasTranscript: boolean;
+}
+
+export interface MeetingRecord {
+    id: string;
+    startTs: number;
+    endTs: number;
+    title: string;
+    transcript: string;
+    suggestions: { ts: number; text: string }[];
+}
+
 export interface SessionSummary {
     id: string;
     title: string;

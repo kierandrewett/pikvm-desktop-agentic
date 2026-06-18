@@ -24,6 +24,7 @@ import type { SecretsStore } from "./secrets";
 import type { AmbientMonitor } from "./ambient/monitor";
 import type { NtfyClient } from "./ambient/ntfy";
 import type { Transcriber } from "./ambient/transcriber";
+import type { MeetingLog } from "./ambient/meeting-log";
 import type { AmbientEvent } from "./agent/protocol";
 
 export interface ServerDeps extends McpDeps {
@@ -34,6 +35,7 @@ export interface ServerDeps extends McpDeps {
     ambient: AmbientMonitor;
     ntfy: NtfyClient;
     transcriber: Transcriber;
+    meetingLog: MeetingLog;
     openExternal: (url: string) => void;
 }
 
@@ -85,7 +87,7 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
 }
 
 export function startControlServer(deps: ServerDeps, port: number): ReturnType<typeof createServer> {
-    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, transcriber, control, openExternal } = deps;
+    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, transcriber, meetingLog, control, openExternal } = deps;
     const mcpHandler = createMcpHttpHandler(deps);
 
     // Ring buffer of ambient events surfaced to the sidebar feed.
@@ -100,9 +102,40 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         ambientSuggestions.push(sug);
         if (ambientSuggestions.length > 12) ambientSuggestions = ambientSuggestions.slice(-12);
     });
-    // Clear stale suggestions when a meeting ends.
+
+    // Record meetings to the log (transcript + suggestions + recap) for later review.
+    let currentMeeting: { startTs: number; suggestions: { ts: number; text: string }[] } | null = null;
+    let meetingFinalize: NodeJS.Timeout | null = null;
+    const finalizeMeeting = (endTs: number, transcript: string) => {
+        if (!currentMeeting) return;
+        const cm = currentMeeting;
+        currentMeeting = null;
+        meetingLog.add({ startTs: cm.startTs, endTs, transcript, suggestions: cm.suggestions.slice(-40) });
+    };
+    ambient.on("suggestion", (sug: { ts: number; text: string }) => {
+        if (currentMeeting) currentMeeting.suggestions.push(sug);
+    });
     ambient.on("event", (e: AmbientEvent) => {
-        if (e.kind === "meeting-end") ambientSuggestions = [];
+        if (e.kind === "meeting-start") {
+            // Flush any not-yet-finalized prior meeting before starting a new one.
+            if (meetingFinalize) {
+                clearTimeout(meetingFinalize);
+                meetingFinalize = null;
+                finalizeMeeting(e.ts, transcriber.getTranscript());
+            }
+            currentMeeting = { startTs: e.ts, suggestions: [] };
+        } else if (e.kind === "meeting-end") {
+            ambientSuggestions = []; // clear the live display
+            if (currentMeeting) {
+                // Wait for the async end-of-meeting recap suggestion to land, then save.
+                const transcript = transcriber.getTranscript();
+                if (meetingFinalize) clearTimeout(meetingFinalize);
+                meetingFinalize = setTimeout(() => {
+                    meetingFinalize = null;
+                    finalizeMeeting(e.ts, transcript);
+                }, 35000);
+            }
+        }
     });
 
     // Active chat stream writer (present while a run streams) so reviewer prompts
@@ -451,6 +484,20 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         if (path === "/api/ambient/clear" && req.method === "POST") {
             ambientEvents.length = 0;
             return json(res, 200, state());
+        }
+        // Past meetings log.
+        if (path === "/api/meetings" && req.method === "GET") return json(res, 200, { meetings: meetingLog.list() });
+        if (path === "/api/meetings/get" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                let id = "";
+                try {
+                    id = String(JSON.parse(b || "{}").id ?? "");
+                } catch {
+                    /* none */
+                }
+                return json(res, 200, { meeting: meetingLog.get(id) ?? null });
+            });
+            return;
         }
         if (path === "/api/ambient/test" && req.method === "POST") {
             void ntfy

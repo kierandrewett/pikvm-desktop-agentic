@@ -28,6 +28,7 @@ import { SecretsStore } from "./secrets";
 import { NtfyClient } from "./ambient/ntfy";
 import { AmbientMonitor } from "./ambient/monitor";
 import { Transcriber } from "./ambient/transcriber";
+import { MeetingLog } from "./ambient/meeting-log";
 
 const staticPath = resolve(__dirname, "static");
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -99,6 +100,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         getToken: () => secrets.get("ntfy_token"),
     });
     const transcriber = new Transcriber();
+    const meetingLog = new MeetingLog(resolve(app.getPath("userData"), "agent-meetings.json"));
     const runner = new AgentRunner({
         control,
         reviewer,
@@ -150,7 +152,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     if (s.goal) runner.setGoal(s.goal);
 
     startControlServer(
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, transcriber, openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, transcriber, meetingLog, openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
     );
     console.log(`Agent backend listening on http://127.0.0.1:${CONTROL_PORT} (MCP at /mcp)`);
