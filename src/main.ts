@@ -451,6 +451,8 @@ function createWindow() {
                 clearTimeout(copilotHideTimer);
                 copilotHideTimer = null;
             }
+            // Fresh transcript per meeting — don't let the prior meeting bleed in.
+            agentBackend.transcriber.clear();
             if (agentBackend.settings.get().ambient.transcribe) {
                 agentBackend.transcriber.start();
                 mainView.webContents.send("kvm:transcribe-start");

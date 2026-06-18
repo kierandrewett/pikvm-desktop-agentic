@@ -496,6 +496,7 @@ export class AgentRunner {
     private meetingQueue: Promise<void> = Promise.resolve();
     private lastObserveAt = 0;
     private pendingObs = "";
+    private pendingTurns = 0;
     /** Wired in main → routes copilot output to the ambient stream/overlay. */
     onMeetingOutput: ((kind: "suggestion" | "activity", text: string) => void) | undefined;
 
@@ -548,6 +549,7 @@ export class AgentRunner {
         this.meetingAgent = agent;
         this.lastObserveAt = 0;
         this.pendingObs = "";
+        this.pendingTurns = 0;
         // Kick off an opening brief from the screen.
         this.meetingPrompt(
             "A meeting just started. Take a screenshot to see who/what it is, then `suggest` a one-line read of the meeting plus a natural opening line. Keep it tight.",
@@ -601,6 +603,7 @@ export class AgentRunner {
         const now = Date.now();
         if (now - this.lastObserveAt < 12000) return;
         if (this.pendingObs.length < 30) return; // nothing materially new
+        if (this.pendingTurns >= 2) return; // already backed up; keep accumulating speech
         this.lastObserveAt = now;
         const obs = this.pendingObs.slice(-2000);
         this.pendingObs = "";
@@ -612,6 +615,11 @@ export class AgentRunner {
     /** A direct question from the user, or a tap of "Suggest now" (no question). */
     meetingAsk(question?: string): void {
         if (!this.meetingAgent) return;
+        // Don't let rapid taps/questions queue unbounded serial turns.
+        if (this.pendingTurns >= 2) {
+            this.onMeetingOutput?.("activity", "…still working on the last request");
+            return;
+        }
         const q = question?.trim();
         this.meetingPrompt(
             q
@@ -627,14 +635,17 @@ export class AgentRunner {
     private meetingPrompt(text: string): void {
         const agent = this.meetingAgent;
         if (!agent) return;
+        this.pendingTurns++;
         this.meetingQueue = this.meetingQueue.then(async () => {
-            if (this.meetingAgent !== agent) return; // meeting changed/ended
             try {
+                if (this.meetingAgent !== agent) return; // meeting changed/ended
                 await agent.prompt(text);
             } catch (e: any) {
                 // Surface the failure (auth/model/etc.) instead of failing silently,
                 // so it's visible in the monitor console + overlay during use.
                 this.onMeetingOutput?.("activity", `⚠ copilot error: ${String(e?.message ?? e).slice(0, 140)}`);
+            } finally {
+                this.pendingTurns--;
             }
         });
     }
