@@ -63,6 +63,7 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "Before any irreversible or destructive action (deleting data, rebooting, submitting a form with side effects, running privileged commands), pause and explain what you are about to do — the human may need to authorize it.",
         "",
         "You also have cognitive tools: `web_search`/`fetch_url` for the internet, `remember`/`recall` for long-term memory across sessions, `search_conversations` to look up past sessions, `list_skills`/`use_skill` for reusable playbooks, and `spawn_subagent` to delegate a focused side-task to a fresh sub-agent.",
+        "For questions about internal corporate processes/policies, use Neo (neo.capgemini.com) in the target's browser — see the `neo-corporate-help` skill.",
         memoryCount > 0 ? `You have ${memoryCount} saved memories — use \`recall\` when prior context might help.` : "",
         goal ? `\nStanding goal for this session:\n${goal}` : "",
     ]
@@ -416,6 +417,15 @@ export class AgentRunner {
     /** Inject a non-disruptive side note mid-run (/btw). */
     note(text: string): void {
         this.agent.steer({ role: "user", content: text, timestamp: Date.now() });
+    }
+
+    /** Steer the running agent with a new user message, or start one if idle. */
+    steer(text: string): void {
+        if (this.agent.state.isStreaming) {
+            this.agent.steer({ role: "user", content: text, timestamp: Date.now() });
+        } else {
+            void this.run(text);
+        }
     }
 
     /** Set/replace the persistent goal (/goal); pinned into the system prompt. */

@@ -304,6 +304,22 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
             return;
         }
 
+        if (path === "/api/stop" && req.method === "POST") {
+            runner.stop();
+            return json(res, 200, state());
+        }
+        if (path === "/api/steer" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                try {
+                    const { text } = JSON.parse(b || "{}");
+                    if (text && String(text).trim()) runner.steer(String(text));
+                } catch {
+                    /* ignore */
+                }
+                return json(res, 200, { ok: true });
+            });
+            return;
+        }
         if (path === "/api/pause" && req.method === "POST") {
             runner.pauseForUser();
             return json(res, 200, state());

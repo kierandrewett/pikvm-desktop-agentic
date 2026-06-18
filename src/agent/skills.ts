@@ -22,6 +22,15 @@ const SEED: Record<string, string> = {
 3. Cross-check facts across sources; note disagreements.
 4. Summarise concisely and list the source URLs you used.
 5. \`remember\` any durable facts worth keeping for later.`,
+    "neo-corporate-help": `# Neo — internal corporate process help
+> Use Neo (neo.capgemini.com) to answer questions about internal corporate processes.
+
+Neo is Capgemini's internal assistant for company processes, policies, tools and how-tos.
+For ANY question about internal corporate process/policy:
+1. In the target machine's browser, open https://neo.capgemini.com.
+2. Ask the question in Neo's chat/search box.
+3. Wait for the answer, then \`ocr\`/zoom to read it precisely.
+4. Report exactly what Neo says (don't paraphrase loosely or invent details).`,
     "understand-ui": `# Understand the UI before acting
 > Figure out how an unfamiliar interface works before interacting — never assume.
 

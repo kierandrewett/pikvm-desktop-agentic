@@ -509,6 +509,24 @@ function App() {
         setImages([]);
         void sendMessage({ text: t, ...(files.length ? { files } : {}) });
     };
+
+    // Stop the agent for real — abort the run on the server, not just the client stream.
+    const stopAll = () => {
+        stop();
+        void post("/api/stop");
+    };
+
+    // Queue/steer a message while the agent is already working.
+    const steer = (text = input) => {
+        const t = text.trim();
+        if (!t) return;
+        setInput("");
+        setMessages((prev: any) => [...prev, { id: `u-${Date.now()}`, role: "user", parts: [{ type: "text", text: t }] }]);
+        void post("/api/steer", { text: t });
+    };
+
+    const isBusy = () => status === "streaming" || status === "submitted";
+    const submit = () => (isBusy() ? steer() : send());
     const newChat = () => void post("/api/sessions/new").then(() => { setMessages([]); refreshState(); });
     const resume = (id: string) =>
         void post("/api/sessions/resume", { id }).then((r) => r.json()).then((d) => { setMessages(d.messages ?? []); refreshState(); setPanel("none"); });
@@ -685,13 +703,17 @@ function App() {
                                             <Streamdown key={i} className="text-[14px] leading-relaxed">{p.text}</Streamdown>
                                         );
                                     }
-                                    if (p.type === "data-thinking")
+                                    if (p.type === "data-thinking") {
+                                        // If a run was cancelled mid-thought, drop an empty thought and
+                                        // stop the perpetual "Thinking…" — finalize it instead.
+                                        if (!busy && !p.data.text) return null;
                                         return (
-                                            <Reasoning key={i} isStreaming={!p.data.done} defaultOpen={false} className="mb-0">
+                                            <Reasoning key={i} isStreaming={!p.data.done && busy} defaultOpen={false} className="mb-0">
                                                 <ReasoningTrigger />
                                                 <ReasoningContent>{p.data.text}</ReasoningContent>
                                             </Reasoning>
                                         );
+                                    }
                                     if (p.type === "data-screenshot")
                                         // Collapse a run of screenshots into one carousel (rendered at the first).
                                         return i === firstShot ? (
@@ -784,7 +806,7 @@ function App() {
                     <textarea
                         ref={inputRef}
                         value={input}
-                        placeholder="Give the agent a task…  (/ for commands, paste an image)"
+                        placeholder={busy ? "Steer the agent… (sends while it works)" : "Give the agent a task…  (/ for commands, paste an image)"}
                         rows={1}
                         className="min-h-[34px] w-full resize-none overflow-y-auto bg-transparent px-1.5 py-1 text-sm outline-none placeholder:text-muted-foreground"
                         onChange={(e) => setInput(e.target.value)}
@@ -799,7 +821,7 @@ function App() {
                             }
                         }}
                         onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
                         }}
                     />
                     <div className="mt-1 flex items-center gap-1.5">
@@ -828,15 +850,20 @@ function App() {
                             <option value="autorun-trusted">Autorun</option>
                         </PillSelect>
                         <span className="flex-1" />
-                        {busy ? (
-                            <Button size="icon" variant="destructive" className="size-8 rounded-full" onClick={() => stop()} title="Stop">
+                        {busy && (
+                            <Button size="icon" variant="destructive" className="size-8 rounded-full" onClick={stopAll} title="Stop the agent">
                                 <Square className="size-3.5" />
                             </Button>
-                        ) : (
-                            <Button size="icon" className="size-8 rounded-full disabled:opacity-40" disabled={!input.trim() && images.length === 0} onClick={() => send()} title="Send">
-                                <ArrowUp className="size-4" />
-                            </Button>
                         )}
+                        <Button
+                            size="icon"
+                            className="size-8 rounded-full disabled:opacity-40"
+                            disabled={!input.trim() && images.length === 0}
+                            onClick={submit}
+                            title={busy ? "Steer / queue" : "Send"}
+                        >
+                            <ArrowUp className="size-4" />
+                        </Button>
                     </div>
                 </div>
             </div>
