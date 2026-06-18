@@ -125,6 +125,7 @@ export class AmbientMonitor extends EventEmitter {
 
     // Meeting state derived from sustained presence.
     private inMeeting = false;
+    private forcedMeeting = false; // simulated via forceMeeting — don't auto-end
     private activeSince = 0;
     private inactiveSince = 0;
 
@@ -242,6 +243,9 @@ export class AmbientMonitor extends EventEmitter {
     }
 
     private evaluateMeeting(s: AmbientSettings): void {
+        // A forced/simulated meeting has no real audio to sustain it — leave it
+        // entirely to forceMeeting(false) so it doesn't auto-end after the clear timer.
+        if (this.forcedMeeting) return;
         const p = this.deps.presence.getState();
         const live = p.micActive || p.audioActive;
         const now = Date.now();
@@ -396,11 +400,13 @@ export class AmbientMonitor extends EventEmitter {
         const s = this.deps.settings();
         if (on && !this.inMeeting) {
             this.inMeeting = true;
+            this.forcedMeeting = true; // persist until explicitly ended (no real audio to sustain it)
             this.activeSince = Date.now();
             this.inactiveSince = 0;
             await this.onMeetingStart(s);
         } else if (!on && this.inMeeting) {
             this.inMeeting = false;
+            this.forcedMeeting = false;
             this.activeSince = 0;
             this.inactiveSince = 0;
             this.emitEvent({ id: nextId(), ts: Date.now(), kind: "meeting-end", title: "Meeting ended (test)", important: false, notified: false });
