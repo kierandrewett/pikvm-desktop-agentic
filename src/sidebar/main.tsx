@@ -8,7 +8,7 @@
  */
 
 import { createRoot } from "react-dom/client";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Streamdown } from "streamdown";
@@ -24,6 +24,7 @@ import {
     ChevronRight,
     Copy,
     History,
+    Clock,
     Keyboard,
     Lock,
     MousePointerClick,
@@ -421,10 +422,10 @@ function ContextMeter({ ctx }: { ctx: { tokens: number; max: number } | undefine
     );
 }
 
-function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
     return (
         <div className="fixed inset-0 z-40 flex justify-end bg-black/40" onClick={onClose}>
-            <div className="flex w-72 flex-col border-l bg-card" onClick={(e) => e.stopPropagation()}>
+            <div className={cn("flex flex-col border-l bg-card", wide ? "w-full" : "w-72")} onClick={(e) => e.stopPropagation()}>
                 {children}
             </div>
         </div>
@@ -459,6 +460,29 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
                 <span>{amb?.enabled ? "Watching the screen in the background." : "Off — enable it in Settings → Ambient."}</span>
                 {events.length > 0 && (
                     <button className="shrink-0 hover:text-foreground" onClick={() => post("/api/ambient/clear")}>Clear</button>
+                )}
+            </div>
+            {/* Test / diagnostics */}
+            <div className="border-b bg-muted/10 px-3 py-2">
+                <div className="mb-1.5 flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="secondary" className="h-7" onClick={() => post("/api/ambient/check")} title="Triage the current screen now">
+                        Check screen now
+                    </Button>
+                    <Button size="sm" variant="secondary" className="h-7" onClick={() => post(amb?.inMeeting ? "/api/ambient/meeting" : "/api/ambient/meeting", { on: !amb?.inMeeting })}>
+                        {amb?.inMeeting ? "End test meeting" : "Simulate meeting"}
+                    </Button>
+                    <Button size="sm" variant="secondary" className="h-7" onClick={() => post("/api/ambient/test")}>Test push</Button>
+                </div>
+                {amb?.debug && (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                        <span>on KVM: <b className={amb.debug.onKVM ? "text-emerald-500" : "text-amber-500"}>{String(amb.debug.onKVM)}</b></span>
+                        <span>enabled: <b className={amb.debug.enabled ? "text-emerald-500" : "text-amber-500"}>{String(amb.debug.enabled)}</b></span>
+                        <span>in hours: <b className={amb.debug.withinHours ? "text-emerald-500" : "text-amber-500"}>{String(amb.debug.withinHours)}</b></span>
+                        <span>capture: <b className={amb.debug.hasFingerprint ? "text-emerald-500" : "text-amber-500"}>{String(amb.debug.hasFingerprint)}</b></span>
+                        <span>Δstep: <b>{amb.debug.lastStepDiff}</b></span>
+                        <span>Δbase: <b>{amb.debug.lastBaseDiff}</b></span>
+                        <span className="col-span-2">triage model: <b>{amb.debug.triageModel}</b></span>
+                    </div>
                 )}
             </div>
             {amb?.inMeeting && amb?.transcribe && (
@@ -520,6 +544,39 @@ function ActivityPanel({ state, onClose }: { state: ServerState | null; onClose:
     );
 }
 
+/** A polished on/off toggle (real switch, not a raw checkbox). */
+function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            disabled={disabled}
+            onClick={() => !disabled && onChange(!checked)}
+            className={cn(
+                "relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors",
+                checked ? "bg-primary" : "bg-muted-foreground/30",
+                disabled && "cursor-not-allowed opacity-40",
+            )}
+        >
+            <span className={cn("absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-[19px]" : "translate-x-[3px]")} />
+        </button>
+    );
+}
+
+/** label (+ optional description) on the left, a control on the right. */
+function Row({ label, desc, control, htmlFor }: { label: string; desc?: string; control: ReactNode; htmlFor?: string }) {
+    return (
+        <div className="flex items-center justify-between gap-3 py-0.5">
+            <label htmlFor={htmlFor} className="min-w-0 select-none">
+                <div className="text-[13px] leading-tight">{label}</div>
+                {desc && <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{desc}</div>}
+            </label>
+            <div className="shrink-0">{control}</div>
+        </div>
+    );
+}
+
 function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
     const hv = s?.humanize ?? 1;
@@ -537,6 +594,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
         });
     };
     const amb = state?.ambient;
+    const [tab, setTab] = useState<"behaviour" | "ambient" | "secrets">("behaviour");
     const [ntfyTopic, setNtfyTopic] = useState(amb?.ntfyTopic ?? "claude");
     const [ntfyBaseUrl, setNtfyBaseUrl] = useState(amb?.ntfyBaseUrl ?? "https://ntfy.sh");
     const [ntfyToken, setNtfyToken] = useState("");
@@ -552,213 +610,202 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
             });
         } else void saveConfig();
     };
+    const inputCls = "w-full rounded-lg border bg-background px-2.5 py-1.5 text-[13px] outline-none transition-colors focus:border-ring/60";
+    const tabs: { id: typeof tab; label: string; icon: any }[] = [
+        { id: "behaviour", label: "Behaviour", icon: Keyboard },
+        { id: "ambient", label: "Ambient", icon: Radar },
+        { id: "secrets", label: "Secrets", icon: Lock },
+    ];
     return (
-        <Modal onClose={onClose}>
-            <div className="flex items-center justify-between border-b p-3 font-semibold">
+        <Modal onClose={onClose} wide>
+            <div className="flex items-center justify-between p-3 pb-2 text-[15px] font-semibold">
                 Settings
-                <button onClick={onClose} className="text-muted-foreground">
+                <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
                     <X className="size-4" />
                 </button>
             </div>
-            <div className="space-y-4 p-3">
-                <label className="block">
-                    <span className="text-sm">Typing style</span>
-                    <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.1}
-                        defaultValue={hv}
-                        className="mt-1 w-full"
-                        onChange={(e) => onPatch({ humanize: parseFloat(e.target.value) })}
-                    />
-                    <small className="text-muted-foreground">{hv === 0 ? "Precise (no typos)" : hv >= 0.9 ? "Very human" : "Human"}</small>
-                </label>
-                <label className="block">
-                    <span className="text-sm">Typing speed</span>
-                    <input
-                        type="range"
-                        min={40}
-                        max={180}
-                        step={5}
-                        defaultValue={s?.wpm ?? 95}
-                        className="mt-1 w-full"
-                        onChange={(e) => onPatch({ wpm: parseInt(e.target.value, 10) })}
-                    />
-                    <small className="text-muted-foreground">~{s?.wpm ?? 95} WPM baseline (randomised per run)</small>
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={s?.pauseOnPresence ?? true} onChange={(e) => onPatch({ pauseOnPresence: e.target.checked })} />
-                    Pause when target mic/audio is active
-                </label>
-                {(state?.schedules ?? []).length > 0 && (
-                    <div>
-                        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Scheduled tasks</div>
-                        <div className="flex flex-col gap-1">
-                            {(state?.schedules ?? []).map((j) => (
-                                <div key={j.id} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-1.5 text-xs">
-                                    <div className="min-w-0 flex-1">
-                                        <div className="truncate">{j.label}</div>
-                                        <div className="text-[10px] text-muted-foreground">{j.when}</div>
-                                    </div>
-                                    <button className="text-muted-foreground hover:text-destructive" onClick={() => post("/api/schedules/cancel", { id: j.id }).then(() => onPatch({}))}>
-                                        <X className="size-3.5" />
-                                    </button>
+            {/* tab bar */}
+            <div className="px-3 pb-2">
+                <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted/60 p-1">
+                    {tabs.map((t) => (
+                        <button
+                            key={t.id}
+                            onClick={() => setTab(t.id)}
+                            className={cn(
+                                "flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition-colors",
+                                tab === t.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                            )}
+                        >
+                            <t.icon className="size-3.5" /> {t.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-auto p-3 pt-1">
+                {/* ------------------------------ behaviour ----------------------------- */}
+                {tab === "behaviour" && (
+                    <div className="space-y-5">
+                        <div>
+                            <div className="mb-1.5 flex items-baseline justify-between">
+                                <span className="text-[13px] font-medium">Typing style</span>
+                                <span className="text-[11px] text-muted-foreground">{hv === 0 ? "Precise" : hv >= 0.9 ? "Very human" : "Human"}</span>
+                            </div>
+                            <input type="range" min={0} max={1} step={0.1} defaultValue={hv} className="w-full accent-primary" onChange={(e) => onPatch({ humanize: parseFloat(e.target.value) })} />
+                            <p className="mt-1 text-[11px] text-muted-foreground">0 = no typos, full speed · 1 = natural typos &amp; cadence</p>
+                        </div>
+                        <div>
+                            <div className="mb-1.5 flex items-baseline justify-between">
+                                <span className="text-[13px] font-medium">Typing speed</span>
+                                <span className="text-[11px] text-muted-foreground">~{s?.wpm ?? 95} WPM</span>
+                            </div>
+                            <input type="range" min={40} max={180} step={5} defaultValue={s?.wpm ?? 95} className="w-full accent-primary" onChange={(e) => onPatch({ wpm: parseInt(e.target.value, 10) })} />
+                            <p className="mt-1 text-[11px] text-muted-foreground">Baseline — randomised per run</p>
+                        </div>
+                        <div className="border-t pt-3">
+                            <Row
+                                label="Pause on presence"
+                                desc="Hold automation while the target mic/audio is live"
+                                control={<Switch checked={s?.pauseOnPresence ?? true} onChange={(v) => onPatch({ pauseOnPresence: v })} />}
+                            />
+                        </div>
+                        {(state?.schedules ?? []).length > 0 && (
+                            <div className="border-t pt-3">
+                                <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    <Clock className="size-3" /> Scheduled tasks
                                 </div>
-                            ))}
+                                <div className="flex flex-col gap-1">
+                                    {(state?.schedules ?? []).map((j) => (
+                                        <div key={j.id} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-1.5 text-xs">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="truncate">{j.label}</div>
+                                                <div className="text-[10px] text-muted-foreground">{j.when}</div>
+                                            </div>
+                                            <button className="text-muted-foreground hover:text-destructive" onClick={() => post("/api/schedules/cancel", { id: j.id }).then(() => onPatch({}))}>
+                                                <X className="size-3.5" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ------------------------------- ambient ------------------------------ */}
+                {tab === "ambient" && (
+                    <div className="space-y-3">
+                        <Row
+                            label="Background monitoring"
+                            desc="Cheap on-device watch; calls a model only when something happens"
+                            control={<Switch checked={amb?.enabled ?? false} onChange={(v) => onPatch({ ambient: { enabled: v } })} />}
+                        />
+                        {amb?.enabled ? (
+                            <>
+                                <div className="space-y-2 rounded-xl border bg-card/40 p-3">
+                                    <Row label="Push notifications" desc="ntfy alerts for emails, messages, meetings" control={<Switch checked={amb?.notify ?? true} onChange={(v) => onPatch({ ambient: { notify: v } })} />} />
+                                    <Row label="Meeting assistant" desc="Brief you when a call starts" control={<Switch checked={amb?.meetingAssist ?? true} onChange={(v) => onPatch({ ambient: { meetingAssist: v } })} />} />
+                                    <Row label="Transcribe meetings" desc="Local whisper — stays on this machine" control={<Switch checked={amb?.transcribe ?? false} onChange={(v) => onPatch({ ambient: { transcribe: v } })} />} />
+                                </div>
+
+                                {amb?.notify && (
+                                    <div className="rounded-xl border bg-card/40 p-3">
+                                        <div className="mb-2 flex items-center gap-1.5 text-[12px] font-medium">
+                                            <Bell className="size-3.5 text-muted-foreground" /> ntfy
+                                            <span className={cn("ml-auto text-[10px]", amb?.hasToken ? "text-emerald-500" : "text-amber-500")}>{amb?.hasToken ? "token saved" : "no token"}</span>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <input value={ntfyBaseUrl} onChange={(e) => setNtfyBaseUrl(e.target.value)} placeholder="Server URL (e.g. https://ntfy.sh)" className={inputCls} />
+                                            <div className="flex gap-1.5">
+                                                <input value={ntfyTopic} onChange={(e) => setNtfyTopic(e.target.value)} placeholder="Topic" className={cn(inputCls, "w-28")} />
+                                                <input type="password" value={ntfyToken} onChange={(e) => setNtfyToken(e.target.value)} placeholder={amb?.hasToken ? "Replace token" : "Token (optional)"} className={cn(inputCls, "flex-1")} />
+                                            </div>
+                                            <div className="flex items-center justify-between pt-0.5">
+                                                <button className="text-[11px] text-primary hover:underline" onClick={() => post("/api/ambient/test")}>Send test</button>
+                                                <Button size="sm" className="h-7" onClick={saveNtfy}>Save</Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="rounded-xl border bg-card/40 p-3">
+                                    <Row label="Active hours only" desc="Monitor within a time window" control={<Switch checked={amb?.activeHours?.enabled ?? false} onChange={(v) => onPatch({ ambient: { activeHours: { enabled: v } } })} />} />
+                                    {amb?.activeHours?.enabled && (
+                                        <div className="mt-2.5 flex items-center gap-2 border-t pt-2.5 text-[13px]">
+                                            <input
+                                                type="time"
+                                                value={amb?.activeHours?.start ?? "09:00"}
+                                                onChange={(e) => onPatch({ ambient: { activeHours: { start: e.target.value } } })}
+                                                className="rounded-lg border bg-background px-2 py-1 text-[13px] outline-none"
+                                            />
+                                            <span className="text-muted-foreground">to</span>
+                                            <input
+                                                type="time"
+                                                value={amb?.activeHours?.end ?? "18:00"}
+                                                onChange={(e) => onPatch({ ambient: { activeHours: { end: e.target.value } } })}
+                                                className="rounded-lg border bg-background px-2 py-1 text-[13px] outline-none"
+                                            />
+                                            <span className="ml-auto text-[10px] text-muted-foreground">overnight ok</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <p className="rounded-xl border border-dashed p-4 text-center text-[12px] leading-relaxed text-muted-foreground">
+                                Turn on monitoring to configure notifications, the meeting assistant, transcription, and active hours.
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {/* ------------------------------- secrets ------------------------------ */}
+                {tab === "secrets" && (
+                    <div className="space-y-3">
+                        <p className="text-[12px] leading-snug text-muted-foreground">
+                            Values (passwords, PINs) the agent can <em>type</em> but never sees. A hint tells it when to use each. Entered by name with{" "}
+                            <code className="text-primary">type_secret</code>.{" "}
+                            {state?.secrets?.encrypted ? "Encrypted with your OS keychain." : "⚠ Stored unencrypted (no OS keychain)."}
+                        </p>
+                        {secretItems.length > 0 && (
+                            <div className="flex flex-col gap-1">
+                                {secretItems.map((it) => (
+                                    <div key={it.name} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-2 text-xs">
+                                        <Lock className="size-3.5 shrink-0 text-muted-foreground" />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-[13px]">{it.name}</div>
+                                            {it.hint && <div className="truncate text-[10px] text-muted-foreground">{it.hint}</div>}
+                                        </div>
+                                        <span className="font-mono text-muted-foreground">••••••</span>
+                                        <button className="text-muted-foreground hover:text-destructive" title="Delete secret" onClick={() => post("/api/secrets/delete", { name: it.name }).then(() => onPatch({}))}>
+                                            <X className="size-3.5" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="space-y-1.5 rounded-xl border bg-card/40 p-3">
+                            <div className="text-[11px] font-medium text-muted-foreground">Add a secret</div>
+                            <div className="flex gap-1.5">
+                                <input value={secName} onChange={(e) => setSecName(e.target.value)} placeholder="Name (e.g. Windows password)" className={cn(inputCls, "flex-1")} />
+                                <input type="password" value={secVal} onChange={(e) => setSecVal(e.target.value)} placeholder="Value" className={cn(inputCls, "w-24")} />
+                            </div>
+                            <div className="flex gap-1.5">
+                                <input
+                                    value={secHint}
+                                    onChange={(e) => setSecHint(e.target.value)}
+                                    placeholder="When to use it (e.g. Windows lock screen)"
+                                    className={cn(inputCls, "flex-1")}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") addSecret();
+                                    }}
+                                />
+                                <Button size="sm" className="h-8 shrink-0" disabled={!secName.trim() || !secVal} onClick={addSecret}>Add</Button>
+                            </div>
                         </div>
                     </div>
                 )}
-                <div>
-                    <div className="mb-1.5 flex items-center gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ambient monitor</span>
-                        <Radar className="size-3 text-muted-foreground" />
-                    </div>
-                    <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-                        Watches the screen in the background (cheap on-device change detection, only calling a model when something
-                        actually happens). Notifies you of emails/messages/meetings and can brief you when a call starts.
-                    </p>
-                    <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={amb?.enabled ?? false} onChange={(e) => onPatch({ ambient: { enabled: e.target.checked } })} />
-                        Enable background monitoring
-                    </label>
-                    <label className="mt-1.5 flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={amb?.notify ?? true} onChange={(e) => onPatch({ ambient: { notify: e.target.checked } })} disabled={!amb?.enabled} />
-                        Push notifications (ntfy)
-                    </label>
-                    <label className="mt-1.5 flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={amb?.meetingAssist ?? true} onChange={(e) => onPatch({ ambient: { meetingAssist: e.target.checked } })} disabled={!amb?.enabled} />
-                        Meeting assistant (brief on join)
-                    </label>
-                    <label className="mt-1.5 flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={amb?.transcribe ?? false} onChange={(e) => onPatch({ ambient: { transcribe: e.target.checked } })} disabled={!amb?.enabled} />
-                        Transcribe meetings (local whisper)
-                    </label>
-                    <div className="mt-2 rounded-lg border bg-card/50 p-2">
-                        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                            <Bell className="size-3" /> ntfy push {amb?.hasToken ? <span className="text-emerald-500">• token saved</span> : <span className="text-amber-500">• no token</span>}
-                        </div>
-                        <input
-                            value={ntfyBaseUrl}
-                            onChange={(e) => setNtfyBaseUrl(e.target.value)}
-                            placeholder="server (e.g. https://ntfy.sh)"
-                            className="mb-1.5 w-full rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                        />
-                        <div className="flex items-center gap-1.5">
-                            <input
-                                value={ntfyTopic}
-                                onChange={(e) => setNtfyTopic(e.target.value)}
-                                placeholder="topic"
-                                className="w-24 rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                            />
-                            <input
-                                type="password"
-                                value={ntfyToken}
-                                onChange={(e) => setNtfyToken(e.target.value)}
-                                placeholder={amb?.hasToken ? "token (saved — type to replace)" : "token (optional)"}
-                                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                            />
-                            <Button size="sm" className="h-7 shrink-0" onClick={saveNtfy}>Save</Button>
-                        </div>
-                        <button className="mt-1.5 text-[11px] text-primary hover:underline" onClick={() => post("/api/ambient/test")}>
-                            Send test notification
-                        </button>
-                    </div>
-                    <div className="mt-2 rounded-lg border bg-card/50 p-2">
-                        <label className="flex items-center gap-2 text-[13px]">
-                            <input
-                                type="checkbox"
-                                checked={amb?.activeHours?.enabled ?? false}
-                                onChange={(e) => onPatch({ ambient: { activeHours: { enabled: e.target.checked } } })}
-                                disabled={!amb?.enabled}
-                            />
-                            Only monitor during active hours
-                        </label>
-                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <span>From</span>
-                            <input
-                                type="time"
-                                value={amb?.activeHours?.start ?? "09:00"}
-                                onChange={(e) => onPatch({ ambient: { activeHours: { start: e.target.value } } })}
-                                disabled={!amb?.enabled || !amb?.activeHours?.enabled}
-                                className="rounded-md border bg-background px-1.5 py-1 text-xs outline-none disabled:opacity-50"
-                            />
-                            <span>to</span>
-                            <input
-                                type="time"
-                                value={amb?.activeHours?.end ?? "18:00"}
-                                onChange={(e) => onPatch({ ambient: { activeHours: { end: e.target.value } } })}
-                                disabled={!amb?.enabled || !amb?.activeHours?.enabled}
-                                className="rounded-md border bg-background px-1.5 py-1 text-xs outline-none disabled:opacity-50"
-                            />
-                        </div>
-                        <p className="mt-1 text-[10px] text-muted-foreground">Overnight windows (e.g. 22:00–06:00) are supported.</p>
-                    </div>
-                </div>
-                <div>
-                    <div className="mb-1.5 flex items-center gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Secrets</span>
-                        <Lock className="size-3 text-muted-foreground" />
-                    </div>
-                    <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-                        Saved values (passwords, PINs) the agent can <em>type</em> on your behalf but never sees. Add a hint so it knows
-                        when to use each one. The agent enters them by name with <code className="text-primary">type_secret</code>.{" "}
-                        {state?.secrets?.encrypted ? "Encrypted with your OS keychain." : "⚠ Stored unencrypted (OS keychain unavailable)."}
-                    </p>
-                    {secretItems.length > 0 && (
-                        <div className="mb-2 flex flex-col gap-1">
-                            {secretItems.map((it) => (
-                                <div key={it.name} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-1.5 text-xs">
-                                    <Lock className="size-3 shrink-0 text-muted-foreground" />
-                                    <div className="min-w-0 flex-1">
-                                        <div className="truncate">{it.name}</div>
-                                        {it.hint && <div className="truncate text-[10px] text-muted-foreground">{it.hint}</div>}
-                                    </div>
-                                    <span className="font-mono text-muted-foreground">••••••</span>
-                                    <button
-                                        className="text-muted-foreground hover:text-destructive"
-                                        title="Delete secret"
-                                        onClick={() => post("/api/secrets/delete", { name: it.name }).then(() => onPatch({}))}
-                                    >
-                                        <X className="size-3.5" />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center gap-1.5">
-                            <input
-                                value={secName}
-                                onChange={(e) => setSecName(e.target.value)}
-                                placeholder="Name (e.g. Windows password)"
-                                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                            />
-                            <input
-                                type="password"
-                                value={secVal}
-                                onChange={(e) => setSecVal(e.target.value)}
-                                placeholder="Value"
-                                className="w-24 rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                            />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <input
-                                value={secHint}
-                                onChange={(e) => setSecHint(e.target.value)}
-                                placeholder="When to use it (e.g. Windows lock screen, PIN option)"
-                                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") addSecret();
-                                }}
-                            />
-                            <Button size="sm" className="h-7 shrink-0" disabled={!secName.trim() || !secVal} onClick={addSecret}>
-                                Add
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-                <p className="text-[11px] text-muted-foreground">Model & review policy are in the header. Settings persist across restarts.</p>
+
+                <p className="mt-4 text-center text-[10px] text-muted-foreground">Model &amp; review policy live in the header · settings persist across restarts</p>
             </div>
         </Modal>
     );

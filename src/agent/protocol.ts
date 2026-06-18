@@ -97,6 +97,18 @@ export interface ServerState {
         ntfyBaseUrl: string;
         hasToken: boolean;
         activeHours: { enabled: boolean; start: string; end: string };
+        debug: {
+            enabled: boolean;
+            onKVM: boolean;
+            withinHours: boolean;
+            inMeeting: boolean;
+            busy: boolean;
+            lastStepDiff: number;
+            lastBaseDiff: number;
+            hasCapture: boolean;
+            hasFingerprint: boolean;
+            triageModel: string;
+        };
         transcript: string;
         events: AmbientEvent[];
     };

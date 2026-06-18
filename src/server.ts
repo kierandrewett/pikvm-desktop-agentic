@@ -150,6 +150,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 ntfyBaseUrl: a.ntfy.baseUrl,
                 hasToken: !!secrets.get("ntfy_token"),
                 activeHours: a.activeHours,
+                debug: ambient.getDebug(),
                 transcript: transcriber.getTranscript(),
                 events: ambientEvents.slice(-30).reverse(),
             };
@@ -445,6 +446,27 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 .notify("Test notification from the PiKVM ambient monitor.", { title: "PiKVM", priority: "default", tags: "white_check_mark" })
                 .then((r) => json(res, 200, { ok: r.sent, reason: r.reason }))
                 .catch(() => json(res, 200, { ok: false }));
+            return;
+        }
+        // Force a triage of the current screen right now (bypasses the change gate).
+        if (path === "/api/ambient/check" && req.method === "POST") {
+            void ambient
+                .forceTriage()
+                .then((r) => json(res, 200, r))
+                .catch((e) => json(res, 200, { ok: false, reason: String(e?.message ?? e) }));
+            return;
+        }
+        // Force the meeting state on/off (tests the brief + transcription path).
+        if (path === "/api/ambient/meeting" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                let on = true;
+                try {
+                    on = !!JSON.parse(b || "{}").on;
+                } catch {
+                    /* default on */
+                }
+                void ambient.forceMeeting(on).then(() => json(res, 200, state()));
+            });
             return;
         }
 

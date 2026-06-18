@@ -43,8 +43,11 @@ const TRIAGE_SYSTEM =
     "Decide if the user (who is away from this screen) would want to know. Be conservative — most changes (typing, " +
     "scrolling, cursor moves, app switches) are NOT important. Important = a NEW notification, a new email, a new chat/Teams " +
     "message, a meeting starting, an error/dialog needing attention, or a finished long task. " +
+    "NEVER important (set important=false, notify=false): a 'No signal'/no-input message, a blank/black/solid screen, a " +
+    "screensaver, a lock screen, the desktop wallpaper, or just the cursor/clock moving. " +
     'Respond with ONLY compact JSON: {"kind":"notification|email|message|meeting|app-change|content-change|nothing",' +
-    '"important":true|false,"notify":true|false,"title":"short headline","detail":"one sentence"}.';
+    '"important":true|false,"notify":true|false,"title":"...","detail":"..."}. ' +
+    "Keep title to AT MOST 6 words and detail to one short clause. Be terse — no filler, no pleasantries.";
 
 function parseTriage(raw: string): { kind: AmbientEvent["kind"]; important: boolean; notify: boolean; title: string; detail?: string } | null {
     if (!raw) return null;
@@ -72,6 +75,17 @@ function parseTriage(raw: string): { kind: AmbientEvent["kind"]; important: bool
     } catch {
         return null;
     }
+}
+
+/** Spread of a fingerprint; near-zero ⇒ a blank/solid/"no signal" screen. */
+function fpVariance(a: Uint8Array): number {
+    if (!a.length) return 0;
+    let mean = 0;
+    for (let i = 0; i < a.length; i++) mean += a[i]!;
+    mean /= a.length;
+    let v = 0;
+    for (let i = 0; i < a.length; i++) v += (a[i]! - mean) ** 2;
+    return Math.sqrt(v / a.length);
 }
 
 function fpDiff(a: Uint8Array, b: Uint8Array): number {
@@ -111,6 +125,10 @@ export class AmbientMonitor extends EventEmitter {
     private inMeeting = false;
     private activeSince = 0;
     private inactiveSince = 0;
+
+    // Last observed diffs (for the debug readout).
+    private lastStepDiff = 0;
+    private lastBaseDiff = 0;
 
     // Diff thresholds (mean abs diff of the tiny fingerprint, 0..1).
     private readonly MOVE = 0.04; // above this the screen is actively changing
@@ -165,6 +183,7 @@ export class AmbientMonitor extends EventEmitter {
             return;
         }
         const dStep = fpDiff(fp, this.lastFp);
+        this.lastStepDiff = dStep;
         this.lastFp = fp;
 
         if (dStep > this.MOVE) {
@@ -175,9 +194,12 @@ export class AmbientMonitor extends EventEmitter {
         if (this.changing && dStep < this.SETTLE) {
             this.changing = false;
             const dBase = this.baselineFp ? fpDiff(fp, this.baselineFp) : 1;
+            this.lastBaseDiff = dBase;
             this.baselineFp = fp;
             const now = Date.now();
-            if (dBase >= this.MEANINGFUL && now - this.lastTriageAt > this.TRIAGE_COOLDOWN_MS) {
+            // Skip blank/"no signal"/solid screens — not worth a model call or a ping.
+            const blank = fpVariance(fp) < 6;
+            if (!blank && dBase >= this.MEANINGFUL && now - this.lastTriageAt > this.TRIAGE_COOLDOWN_MS) {
                 this.lastTriageAt = now;
                 await this.triage(s);
             }
@@ -237,7 +259,8 @@ export class AmbientMonitor extends EventEmitter {
                 thumb: `data:${frame.mimeType};base64,${frame.data}`,
             };
             if (s.notify && t.notify) {
-                const res = await this.deps.ntfy.notify(t.detail ? `${t.title} — ${t.detail}` : t.title, {
+                // Short and sweet — just the headline.
+                const res = await this.deps.ntfy.notify(t.title, {
                     title: "PiKVM",
                     priority: t.kind === "meeting-start" ? "high" : "default",
                     tags: "desktop_computer",
@@ -273,7 +296,7 @@ export class AmbientMonitor extends EventEmitter {
             }
         }
         if (s.notify) {
-            const res = await this.deps.ntfy.notify(base.detail ? `Meeting detected — ${base.detail}` : "A meeting just started on the remote machine.", {
+            const res = await this.deps.ntfy.notify("Meeting started", {
                 title: "PiKVM — meeting",
                 priority: "high",
                 tags: "calendar",
@@ -281,5 +304,75 @@ export class AmbientMonitor extends EventEmitter {
             base.notified = res.sent;
         }
         this.emitEvent(base);
+    }
+
+    /* ------------------------------- testing ----------------------------- */
+
+    /** Live status so the UI can show why the monitor is / isn't firing. */
+    getDebug() {
+        const s = this.deps.settings();
+        return {
+            enabled: s.enabled,
+            onKVM: this.deps.isOnKVM(),
+            withinHours: withinActiveHours(s.activeHours, new Date()),
+            inMeeting: this.inMeeting,
+            busy: this.busy,
+            lastStepDiff: Number(this.lastStepDiff.toFixed(4)),
+            lastBaseDiff: Number(this.lastBaseDiff.toFixed(4)),
+            hasCapture: !!this.deps.control.captureScreen,
+            hasFingerprint: !!this.deps.control.captureFingerprint,
+            triageModel: s.triageModel,
+        };
+    }
+
+    /** Force a triage of the current frame right now (bypasses the change gate). */
+    async forceTriage(): Promise<{ ok: boolean; reason?: string; result?: unknown; raw?: string }> {
+        if (this.busy) return { ok: false, reason: "busy" };
+        const s = this.deps.settings();
+        this.busy = true;
+        try {
+            const frame = await this.grabFrame();
+            if (!frame) return { ok: false, reason: "no frame — not on the KVM screen or capture unavailable" };
+            const raw = await this.deps.quickLook(frame, "Classify this screen change.", {
+                model: s.triageModel,
+                thinking: "low",
+                system: TRIAGE_SYSTEM,
+            });
+            const t = parseTriage(raw);
+            const ev: AmbientEvent = {
+                id: nextId(),
+                ts: Date.now(),
+                kind: t?.kind ?? "info",
+                title: `[test] ${t?.title ?? "triage"}`,
+                important: !!t?.important,
+                notified: false,
+                ...(t?.detail ? { detail: t.detail } : raw ? { detail: raw.slice(0, 300) } : {}),
+                thumb: `data:${frame.mimeType};base64,${frame.data}`,
+            };
+            if (s.notify && t?.notify) {
+                const r = await this.deps.ntfy.notify(t.title, { title: "PiKVM", priority: "default" });
+                ev.notified = r.sent;
+            }
+            this.emitEvent(ev);
+            return { ok: true, result: t ?? null, raw };
+        } finally {
+            this.busy = false;
+        }
+    }
+
+    /** Force the meeting state on/off (tests the brief + transcription wiring). */
+    async forceMeeting(on: boolean): Promise<void> {
+        const s = this.deps.settings();
+        if (on && !this.inMeeting) {
+            this.inMeeting = true;
+            this.activeSince = Date.now();
+            this.inactiveSince = 0;
+            await this.onMeetingStart(s);
+        } else if (!on && this.inMeeting) {
+            this.inMeeting = false;
+            this.activeSince = 0;
+            this.inactiveSince = 0;
+            this.emitEvent({ id: nextId(), ts: Date.now(), kind: "meeting-end", title: "Meeting ended (test)", important: false, notified: false });
+        }
     }
 }
