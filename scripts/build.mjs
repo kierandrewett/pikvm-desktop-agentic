@@ -19,6 +19,7 @@ await build({
         resolve(root, "src/preload.ts"),
         resolve(root, "src/preload-ui.ts"),
         resolve(root, "src/preload-sidebar.ts"),
+        resolve(root, "src/preload-copilot.ts"),
     ],
     outdir: dist,
     platform: "node",

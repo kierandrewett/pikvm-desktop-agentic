@@ -368,27 +368,42 @@ export class AmbientMonitor extends EventEmitter {
         const transcript = (this.deps.getTranscript?.() ?? "").trim();
         // After the first pass, only re-assist when there's materially new speech.
         if (this.lastAssistLen >= 0 && transcript.length - this.lastAssistLen < 40) return;
-        const frame = await this.grabFrame();
-        if (!frame) return;
         this.lastAssistAt = now;
         this.lastAssistLen = transcript.length;
+        await this.produceSuggestion(s, undefined, false);
+    }
+
+    /** On-demand copilot nudge / answer to a specific question (bypasses the timer). */
+    async assistNow(question?: string): Promise<{ ok: boolean; reason?: string }> {
+        const s = this.deps.settings();
+        this.lastAssistAt = Date.now();
+        return this.produceSuggestion(s, question?.trim() || undefined, true);
+    }
+
+    private async produceSuggestion(s: AmbientSettings, question: string | undefined, force: boolean): Promise<{ ok: boolean; reason?: string }> {
+        if (this.busy) return { ok: false, reason: "busy" };
+        const frame = await this.grabFrame();
+        if (!frame) return { ok: false, reason: "no frame — not on the KVM screen" };
         this.busy = true;
         try {
+            const transcript = (this.deps.getTranscript?.() ?? "").trim();
             const ctx = transcript
                 ? `Live transcript so far (most recent at the end):\n"""${transcript.slice(-2400)}"""`
                 : "No transcript yet — base it on what's on screen.";
-            const prompt =
-                "You are my live meeting copilot and I'm in this meeting right now. From the screen and what's being said, give me AT MOST 2 SHORT, immediately useful nudges — a crisp answer to a question just asked, a sharp point to make, a fact/number to cite, or an action item to note. One line each, plain text, no preamble, no headers. If nothing is needed right now, reply with exactly: —\n\n" +
-                ctx;
+            const task = question
+                ? `The user is in this meeting and asks you directly: "${question}". Answer it concisely and usefully, using the meeting context and screen. If it needs info you can't see, say so briefly.`
+                : "From the screen and what's being said, give me AT MOST 2 SHORT, immediately useful nudges — a crisp answer to a question just asked, a sharp point to make, a fact/number to cite, or an action item to note. One line each. If nothing is needed right now, reply with exactly: —";
+            const prompt = `You are my live meeting copilot and I'm in this meeting right now. ${task} Plain text, no preamble, no headers.\n\n${ctx}`;
             const out = (await this.deps.quickLook(frame, prompt, { model: s.smartModel, thinking: "low" })).trim();
             const clean = out.replace(/^[-—\s]+$/, "").trim();
             const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-            const dup = norm(clean) === norm(this.lastSuggestion) || (this.lastSuggestion && norm(clean).startsWith(norm(this.lastSuggestion).slice(0, 60)));
+            const dup = !force && (norm(clean) === norm(this.lastSuggestion) || (!!this.lastSuggestion && norm(clean).startsWith(norm(this.lastSuggestion).slice(0, 60))));
             if (clean && clean.toLowerCase() !== "nothing" && !dup) {
                 this.lastSuggestion = clean.slice(0, 500);
-                this.emit("suggestion", { ts: Date.now(), text: clean.slice(0, 500) });
+                this.emit("suggestion", { ts: Date.now(), text: (question ? `Q: ${question}\n${clean}` : clean).slice(0, 600) });
                 this.trace(`💡 ${clean.replace(/\s+/g, " ").slice(0, 120)}`, "meeting");
             }
+            return { ok: true };
         } finally {
             this.busy = false;
         }

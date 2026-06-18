@@ -395,68 +395,6 @@ function AuthCard({ req, onDecide }: { req: AuthRequest; onDecide: (v: any) => v
     );
 }
 
-function MeetingCopilot({
-    open,
-    onToggle,
-    onExpand,
-    suggestions,
-    transcript,
-}: {
-    open: boolean;
-    onToggle: () => void;
-    onExpand: () => void;
-    suggestions: { ts: number; text: string }[];
-    transcript: string;
-}) {
-    const tail = transcript.trim().slice(-200);
-    return (
-        <div className="overflow-hidden rounded-2xl border border-emerald-500/40 bg-card/95 shadow-2xl shadow-black/40 backdrop-blur animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className="flex items-center gap-2 px-3 py-2">
-                <span className="relative flex size-2">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-60" />
-                    <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-                </span>
-                <span className="text-[13px] font-semibold">Meeting copilot</span>
-                <span className="text-[11px] text-muted-foreground">live</span>
-                <div className="ml-auto flex items-center gap-0.5">
-                    <button onClick={onExpand} title="Open monitor" className="rounded p-1 text-muted-foreground hover:text-foreground">
-                        <Radar className="size-3.5" />
-                    </button>
-                    <button onClick={onToggle} className="rounded p-1 text-muted-foreground hover:text-foreground">
-                        <ChevronDown className={cn("size-4 transition-transform", !open && "-rotate-90")} />
-                    </button>
-                </div>
-            </div>
-            {open && (
-                <div className="px-3 pb-3">
-                    {suggestions.length === 0 ? (
-                        <div className="rounded-lg bg-muted/40 px-2.5 py-2 text-[12px] text-muted-foreground">Listening… suggestions will appear as the meeting unfolds.</div>
-                    ) : (
-                        <div className="space-y-1.5">
-                            {suggestions.slice(0, 3).map((s, i) => (
-                                <div
-                                    key={s.ts}
-                                    className={cn(
-                                        "whitespace-pre-wrap rounded-lg border px-2.5 py-1.5 text-[13px] leading-snug",
-                                        i === 0 ? "border-emerald-500/40 bg-emerald-500/10" : "border-border bg-muted/30 text-muted-foreground",
-                                    )}
-                                >
-                                    {s.text}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    {tail && (
-                        <div className="mt-2 border-t pt-2 text-[11px] italic leading-snug text-muted-foreground">
-                            …{tail}
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-}
-
 function StatusPill({ state }: { state: ServerState | null }) {
     const label = !state ? "connecting" : state.presence.paused ? "paused" : state.acting ? "working" : "idle";
     const cls =
@@ -932,10 +870,6 @@ function App() {
     const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history" | "ambient">("none");
     const [historyQuery, setHistoryQuery] = useState("");
     const [images, setImages] = useState<{ url: string; mediaType: string }[]>([]);
-    // Live meeting copilot: suggestions + transcript tail streamed over SSE.
-    const [liveSuggestions, setLiveSuggestions] = useState<{ ts: number; text: string }[]>([]);
-    const [liveTranscript, setLiveTranscript] = useState("");
-    const [copilotOpen, setCopilotOpen] = useState(true);
     const fileInput = useRef<HTMLInputElement>(null);
     const transport = useRef(new DefaultChatTransport({ api: BASE + "/api/chat" }));
     const messagesRef = useRef<any[]>([]);
@@ -979,28 +913,6 @@ function App() {
         return () => clearInterval(id);
     }, []);
 
-    // Real-time meeting copilot feed (suggestions + transcript) over SSE.
-    useEffect(() => {
-        const es = new EventSource(BASE + "/api/ambient/stream");
-        es.onmessage = (e) => {
-            try {
-                const d = JSON.parse(e.data);
-                if (d.level === "suggestion") {
-                    setLiveSuggestions((s) => [{ ts: d.ts, text: d.text }, ...s].slice(0, 6));
-                    setCopilotOpen(true);
-                } else if (d.level === "transcript") {
-                    setLiveTranscript((t) => (t + " " + d.text).slice(-4000));
-                } else if (d.level === "event" && typeof d.text === "string" && d.text.startsWith("meeting-end")) {
-                    setLiveSuggestions([]);
-                    setLiveTranscript("");
-                }
-            } catch {
-                /* keep-alive */
-            }
-        };
-        return () => es.close();
-    }, []);
-    const inMeeting = !!serverState?.ambient?.inMeeting;
 
     // A prompt only shows once the server confirms it's pending (via /api/state).
     // When one streams into the transcript, refresh immediately so there's no
@@ -1419,23 +1331,10 @@ function App() {
                     addImageFiles(Array.from(e.dataTransfer.files));
                 }}
             >
-                {/* Meeting copilot + authorization prompt float above the composer. */}
-                {(inMeeting || pendingAuth) && (
-                    <div className="absolute inset-x-2 bottom-full z-30 mb-2 flex flex-col gap-2">
-                        {inMeeting && (
-                            <MeetingCopilot
-                                open={copilotOpen}
-                                onToggle={() => setCopilotOpen((o) => !o)}
-                                onExpand={() => setPanel("ambient")}
-                                suggestions={liveSuggestions.length ? liveSuggestions : (serverState?.ambient?.suggestions ?? [])}
-                                transcript={liveTranscript || serverState?.ambient?.transcript || ""}
-                            />
-                        )}
-                        {pendingAuth && (
-                            <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
-                                <AuthCard req={pendingAuth} onDecide={(v) => decide(pendingAuth.id, v)} />
-                            </div>
-                        )}
+                {/* Authorization prompt floats above the composer, anchored to it. */}
+                {pendingAuth && (
+                    <div className="absolute inset-x-2 bottom-full z-30 mb-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <AuthCard req={pendingAuth} onDecide={(v) => decide(pendingAuth.id, v)} />
                     </div>
                 )}
                 <div className="rounded-2xl border bg-background transition-colors focus-within:border-ring/50">

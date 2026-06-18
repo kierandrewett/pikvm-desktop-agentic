@@ -489,6 +489,23 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
             req.on("error", cleanup);
             return;
         }
+        // On-demand meeting copilot nudge / answer a question.
+        if (path === "/api/ambient/suggest" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                let question: string | undefined;
+                try {
+                    const q = JSON.parse(b || "{}").question;
+                    if (typeof q === "string" && q.trim()) question = q.trim();
+                } catch {
+                    /* none */
+                }
+                void ambient
+                    .assistNow(question)
+                    .then((r) => json(res, 200, r))
+                    .catch((e) => json(res, 200, { ok: false, reason: String(e?.message ?? e) }));
+            });
+            return;
+        }
         // Force a triage of the current screen right now (bypasses the change gate).
         if (path === "/api/ambient/check" && req.method === "POST") {
             void ambient

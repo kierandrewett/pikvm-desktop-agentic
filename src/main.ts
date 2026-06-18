@@ -233,6 +233,18 @@ function createWindow() {
     controlOverlayView.setBackgroundColor("#00000000");
     controlOverlayView.setVisible(false);
 
+    // Floating, draggable meeting-copilot overlay over the KVM surface.
+    const copilotView = new WebContentsView({
+        webPreferences: {
+            contextIsolation: true,
+            preload: resolve(__dirname, "preload-copilot.js"),
+        },
+    });
+    copilotView.setBackgroundColor("#00000000");
+    copilotView.setVisible(false);
+    const copilotBounds = { x: 80, y: TITLEBAR_HEIGHT + 24, width: 340, height: 220 };
+    let copilotVisible = false;
+
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
 
     let canCloseByButton = false;
@@ -242,9 +254,47 @@ function createWindow() {
 
     win.contentView.addChildView(overlayView);
     win.contentView.addChildView(mainView);
-    // Control overlay above the KVM; sidebar last so it sits on top of all.
+    // Control overlay above the KVM; sidebar above that; copilot floats on top.
     win.contentView.addChildView(controlOverlayView);
     win.contentView.addChildView(sidebarView);
+    win.contentView.addChildView(copilotView);
+    copilotView.webContents.loadFile(resolve(__dirname, "views", "copilot.html"));
+
+    const clampCopilot = () => {
+        const [w, h] = win.getContentSize();
+        copilotBounds.width = Math.min(copilotBounds.width, w!);
+        copilotBounds.height = Math.min(copilotBounds.height, Math.max(80, h! - TITLEBAR_HEIGHT));
+        copilotBounds.x = Math.max(0, Math.min(copilotBounds.x, w! - copilotBounds.width));
+        copilotBounds.y = Math.max(TITLEBAR_HEIGHT, Math.min(copilotBounds.y, h! - copilotBounds.height));
+        copilotView.setBounds(copilotBounds);
+    };
+    const showCopilot = () => {
+        const [w] = win.getContentSize();
+        const sbW = sidebarOpen ? sidebarWidth : 0;
+        // Default position: top-right of the KVM area, clear of the sidebar.
+        copilotBounds.x = Math.max(12, w! - sbW - copilotBounds.width - 20);
+        copilotBounds.y = TITLEBAR_HEIGHT + 24;
+        clampCopilot();
+        copilotView.setVisible(true);
+        copilotVisible = true;
+    };
+    const hideCopilot = () => {
+        copilotView.setVisible(false);
+        copilotVisible = false;
+    };
+
+    ipcMain.on("copilot:drag", (_, { dx, dy }: { dx: number; dy: number }) => {
+        copilotBounds.x += dx;
+        copilotBounds.y += dy;
+        clampCopilot();
+    });
+    ipcMain.on("copilot:resize", (_, { height }: { height: number }) => {
+        copilotBounds.height = Math.max(60, Math.min(640, Math.round(height)));
+        clampCopilot();
+    });
+    ipcMain.on("copilot:close", () => {
+        hideCopilot();
+    });
 
     const setAgentActing = (acting: boolean) => {
         if (acting === agentActing) return;
@@ -288,6 +338,9 @@ function createWindow() {
             width: w! - sbW,
             height: h! - TITLEBAR_HEIGHT,
         });
+
+        // Keep the floating copilot within the (possibly resized) window.
+        if (copilotVisible) clampCopilot();
 
         mainView.webContents.send("window:resize", mainView.getBounds());
     };
@@ -376,12 +429,17 @@ function createWindow() {
         }
     });
     agentBackend.ambient.on("event", (e: { kind: string }) => {
-        if (e.kind === "meeting-start" && agentBackend.settings.get().ambient.transcribe) {
-            agentBackend.transcriber.start();
-            mainView.webContents.send("kvm:transcribe-start");
+        if (e.kind === "meeting-start") {
+            if (agentBackend.settings.get().ambient.transcribe) {
+                agentBackend.transcriber.start();
+                mainView.webContents.send("kvm:transcribe-start");
+            }
+            // Pop the floating copilot over the KVM.
+            if (agentBackend.settings.get().ambient.meetingAssist) showCopilot();
         } else if (e.kind === "meeting-end") {
             agentBackend.transcriber.stop();
             mainView.webContents.send("kvm:transcribe-stop");
+            hideCopilot();
         }
     });
 
