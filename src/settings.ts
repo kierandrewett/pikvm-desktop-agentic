@@ -43,7 +43,9 @@ export interface AmbientSettings {
 const DEFAULT_AMBIENT: AmbientSettings = {
     enabled: false,
     intervalMs: 4000,
-    triageModel: "gpt-5.5-mini",
+    // Cheap vision model for change triage. gpt-5.4-mini is the available "mini"
+    // (the Codex sub exposes gpt-5.3-codex-spark / gpt-5.4 / gpt-5.4-mini / gpt-5.5).
+    triageModel: "gpt-5.4-mini",
     smartModel: "gpt-5.5",
     notify: true,
     meetingAssist: true,
@@ -83,6 +85,10 @@ export class SettingsStore {
                         ntfy: { ...DEFAULT_AMBIENT.ntfy, ...(saved.ambient?.ntfy ?? {}) },
                     },
                 };
+                // Migrate the never-valid early default model id off saved configs.
+                if (this.data.ambient.triageModel === "gpt-5.5-mini") {
+                    this.data.ambient.triageModel = DEFAULT_AMBIENT.triageModel;
+                }
             } catch {
                 /* keep defaults */
             }
