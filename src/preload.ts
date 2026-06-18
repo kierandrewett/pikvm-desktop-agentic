@@ -194,6 +194,46 @@ contextBridge.exposeInMainWorld("kvm", {
             }, data);
         });
 
+        // When the app window loses focus, swallow all mouse/keyboard in the KVM
+        // page so nothing leaks through to the remote machine; restore on focus.
+        ipcRenderer.on("kvm:input-enabled", (_, enabled: boolean) => {
+            inject((en) => {
+                const KEY = "_pikvmInputBlocker";
+                const events = [
+                    "keydown",
+                    "keyup",
+                    "keypress",
+                    "mousedown",
+                    "mouseup",
+                    "mousemove",
+                    "wheel",
+                    "contextmenu",
+                ];
+                const existing = (globalThis as any)[KEY];
+                if (en) {
+                    if (existing) {
+                        events.forEach((ev) =>
+                            window.removeEventListener(ev, existing, true)
+                        );
+                        (globalThis as any)[KEY] = null;
+                    }
+                    document.body?.removeAttribute("data-input-blocked");
+                } else {
+                    if (existing) return; // already blocking
+                    const blk = (e: Event) => {
+                        e.preventDefault();
+                        e.stopImmediatePropagation();
+                        return false;
+                    };
+                    (globalThis as any)[KEY] = blk;
+                    events.forEach((ev) =>
+                        window.addEventListener(ev, blk, true)
+                    );
+                    document.body?.setAttribute("data-input-blocked", "true");
+                }
+            }, enabled);
+        });
+
         ipcRenderer.on("kvm:release-mouse", () => {
             inject(() => {
                 const existingOverlay = document.getElementById(

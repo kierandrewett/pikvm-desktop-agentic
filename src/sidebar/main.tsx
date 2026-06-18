@@ -15,6 +15,7 @@ import { Streamdown } from "streamdown";
 import {
     Activity,
     ArrowUp,
+    AlertTriangle,
     Camera,
     Check,
     ChevronDown,
@@ -305,50 +306,88 @@ function AuthCard({ req, onDecide }: { req: AuthRequest; onDecide: (v: any) => v
     const [redirect, setRedirect] = useState(false);
     const [text, setText] = useState("");
     const [remember, setRemember] = useState(false);
+    const [showArgs, setShowArgs] = useState(false);
     return (
-        <div className={cn("rounded-xl border p-3", req.risky ? "border-destructive/60" : "border-primary/60")}>
-            <div className="flex items-center justify-between font-semibold">
-                <span>{req.risky ? "⚠ Authorize action" : "Authorize action"}</span>
-                <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{req.op.tool}</code>
-            </div>
-            {req.reason && <div className="mt-1.5 text-xs text-destructive">{req.reason}</div>}
-            <pre className="mt-1.5 max-h-20 overflow-auto whitespace-pre-wrap break-all rounded bg-muted px-2 py-1 text-[11px]">
-                {JSON.stringify(req.op.args)}
-            </pre>
-            {redirect ? (
-                <div className="mt-2">
-                    <textarea
-                        autoFocus
-                        className="mb-1.5 min-h-[54px] w-full resize-y rounded-md border bg-background p-2 text-sm"
-                        placeholder="Tell the agent what to do instead…"
-                        value={text}
-                        onChange={(e) => setText(e.target.value)}
-                    />
-                    <div className="flex gap-1.5">
-                        <Button size="sm" className="flex-1" onClick={() => onDecide({ decision: "redirect", text })}>
-                            Send redirect
-                        </Button>
-                        <Button size="sm" variant="secondary" onClick={() => setRedirect(false)}>
-                            Back
-                        </Button>
-                    </div>
-                </div>
-            ) : (
-                <div className="mt-2 flex gap-1.5">
-                    <Button size="sm" className="flex-1 bg-emerald-600 hover:bg-emerald-500" onClick={() => onDecide({ decision: "allow", rememberKind: remember })}>
-                        Allow
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => onDecide({ decision: "deny" })}>
-                        Deny
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => setRedirect(true)}>
-                        Something else
-                    </Button>
-                </div>
+        <div
+            className={cn(
+                "overflow-hidden rounded-2xl border bg-card/95 shadow-2xl shadow-black/40 backdrop-blur",
+                req.risky ? "border-destructive/50 ring-1 ring-destructive/25" : "border-primary/40 ring-1 ring-primary/20",
             )}
-            <label className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Always allow this kind
-            </label>
+        >
+            <div className="flex items-center gap-2.5 px-3.5 pt-3.5">
+                <div
+                    className={cn(
+                        "flex size-7 shrink-0 items-center justify-center rounded-lg",
+                        req.risky ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary",
+                    )}
+                >
+                    <AlertTriangle className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold leading-tight">Authorize action</div>
+                    <div className="text-[11px] text-muted-foreground">The agent is waiting for your go-ahead</div>
+                </div>
+                <code className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{req.op.tool}</code>
+            </div>
+
+            <div className="px-3.5 pt-2.5">
+                {req.reason && (
+                    <div className={cn("rounded-lg px-2.5 py-1.5 text-[13px] font-medium", req.risky ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary")}>
+                        {req.reason}
+                    </div>
+                )}
+                {req.op.args != null && JSON.stringify(req.op.args) !== "{}" && (
+                    <div className="mt-1.5">
+                        <button onClick={() => setShowArgs((v) => !v)} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+                            <ChevronRight className={cn("size-3 transition-transform", showArgs && "rotate-90")} /> Details
+                        </button>
+                        {showArgs && (
+                            <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/70 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                                {JSON.stringify(req.op.args, null, 2)}
+                            </pre>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <div className="px-3.5 pb-3.5 pt-2.5">
+                {redirect ? (
+                    <div>
+                        <textarea
+                            autoFocus
+                            className="mb-2 min-h-[54px] w-full resize-y rounded-lg border bg-background p-2 text-sm outline-none focus:border-ring/60"
+                            placeholder="Tell the agent what to do instead…"
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                        />
+                        <div className="flex gap-1.5">
+                            <Button size="sm" className="flex-1" disabled={!text.trim()} onClick={() => onDecide({ decision: "redirect", text })}>
+                                Send redirect
+                            </Button>
+                            <Button size="sm" variant="secondary" onClick={() => setRedirect(false)}>
+                                Back
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <div className="flex gap-1.5">
+                            <Button size="sm" className="h-8 flex-1 bg-emerald-600 text-white hover:bg-emerald-500" onClick={() => onDecide({ decision: "allow", rememberKind: remember })}>
+                                <Check className="mr-1 size-3.5" /> Allow
+                            </Button>
+                            <Button size="sm" variant="destructive" className="h-8" onClick={() => onDecide({ decision: "deny" })}>
+                                Deny
+                            </Button>
+                            <Button size="sm" variant="secondary" className="h-8" onClick={() => setRedirect(true)}>
+                                Something else
+                            </Button>
+                        </div>
+                        <label className="mt-2.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-primary" /> Always allow this kind of action
+                        </label>
+                    </>
+                )}
+            </div>
         </div>
     );
 }
@@ -647,6 +686,19 @@ function App() {
         setDecided((s) => new Set(s).add(id));
         void post("/api/approve", { id, ...verdict });
     };
+    // The most recent still-undecided authorization request — floated above the composer.
+    const pendingAuth = useMemo<AuthRequest | null>(() => {
+        for (let mi = messages.length - 1; mi >= 0; mi--) {
+            const parts = (messages[mi] as any).parts ?? [];
+            for (let pi = parts.length - 1; pi >= 0; pi--) {
+                if (parts[pi].type === "data-auth") {
+                    const req: AuthRequest = parts[pi].data.request;
+                    return decided.has(req.id) ? null : req;
+                }
+            }
+        }
+        return null;
+    }, [messages, decided]);
     const addImageFiles = (files: File[]) => {
         for (const f of files) {
             if (!f.type.startsWith("image/")) continue;
@@ -910,8 +962,17 @@ function App() {
                                         return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
                                     if (p.type === "data-auth") {
                                         const req: AuthRequest = p.data.request;
-                                        if (decided.has(req.id)) return <div key={i} className="text-xs italic text-muted-foreground">authorized</div>;
-                                        return <AuthCard key={i} req={req} onDecide={(v) => decide(req.id, v)} />;
+                                        if (decided.has(req.id))
+                                            return (
+                                                <div key={i} className="flex items-center gap-1.5 text-[11px] italic text-muted-foreground">
+                                                    <Check className="size-3" /> authorization handled
+                                                </div>
+                                            );
+                                        return (
+                                            <div key={i} className="flex items-center gap-1.5 text-[11px] font-medium text-amber-500">
+                                                <AlertTriangle className="size-3" /> Awaiting your authorization…
+                                            </div>
+                                        );
                                     }
                                     if (p.type === "dynamic-tool" || (typeof p.type === "string" && p.type.startsWith("tool-"))) {
                                         const name = p.toolName ?? p.type.replace("tool-", "");
@@ -967,13 +1028,19 @@ function App() {
 
             {/* composer */}
             <div
-                className="bg-card p-2"
+                className="relative bg-card p-2"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                     e.preventDefault();
                     addImageFiles(Array.from(e.dataTransfer.files));
                 }}
             >
+                {/* Authorization prompt floats above the composer, anchored to it. */}
+                {pendingAuth && (
+                    <div className="absolute inset-x-2 bottom-full z-30 mb-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <AuthCard req={pendingAuth} onDecide={(v) => decide(pendingAuth.id, v)} />
+                    </div>
+                )}
                 <div className="rounded-2xl border bg-background transition-colors focus-within:border-ring/50">
                     {images.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">

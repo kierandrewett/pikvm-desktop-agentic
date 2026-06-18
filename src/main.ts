@@ -499,6 +499,8 @@ function createWindow() {
         console.log("KVM page:", isKVMPage);
 
         await wc.executeJavaScript(`window.kvm?.init?.()`);
+        // Match the input-forwarding guard to the current focus state on load.
+        mainView.webContents.send("kvm:input-enabled", win.isFocused());
         sendWindowState();
 
         if (isKVMPage || isTerminalPage) {
@@ -574,6 +576,17 @@ function createWindow() {
     ipcMain.on("window:restore", () => {
         console.log("Restore");
         win.unmaximize();
+    });
+
+    // Snap the window to the KVM's native resolution (plus titlebar + sidebar).
+    ipcMain.on("window:fit-native", () => {
+        if (!lastStreamData?.width || !lastStreamData?.height) return;
+        if (win.isMaximized()) win.unmaximize();
+        win.setContentSize(
+            lastStreamData.width + (sidebarOpen ? sidebarWidth : 0),
+            lastStreamData.height + TITLEBAR_HEIGHT
+        );
+        setTimeout(() => layout(), 100);
     });
 
     ipcMain.on("navigate-back", () => {
@@ -657,10 +670,14 @@ function createWindow() {
 
     win.on("focus", () => {
         isFocused = true;
+        // Re-enable forwarding input to the remote now that we're focused.
+        mainView.webContents.send("kvm:input-enabled", true);
         sendWindowState();
     });
     win.on("blur", () => {
         isFocused = false;
+        // Stop any mouse/keyboard from reaching the KVM while we're not focused.
+        mainView.webContents.send("kvm:input-enabled", false);
         sendWindowState();
     });
     win.on("maximize", sendWindowState);

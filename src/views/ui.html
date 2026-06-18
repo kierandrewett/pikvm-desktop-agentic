@@ -16,6 +16,11 @@
                         <div class="icon" style="--icon: url(agent.svg)"></div>
                     </div>
                 </button>
+                <button id="fit" title="Resize to native resolution">
+                    <div class="inner">
+                        <div class="icon" style="--icon: url(native.svg)"></div>
+                    </div>
+                </button>
                 <button id="min">
                     <div class="inner">
                         <div
@@ -54,9 +59,11 @@
             const min = document.getElementById("min");
             const close = document.getElementById("close");
             const agent = document.getElementById("agent");
+            const fit = document.getElementById("fit");
             const title = document.getElementById("title");
 
             agent.onclick = () => ui.send("sidebar:toggle");
+            fit.onclick = () => ui.send("window:fit-native");
             max.onclick = () => ui.send("window:maximise");
             res.onclick = () => ui.send("window:restore");
             min.onclick = () => ui.send("window:minimise");
@@ -69,6 +76,7 @@
                 // Only expose the agent sidebar once we're on the KVM page and
                 // there's actually a screen to see/drive.
                 agent.style.display = state.onKVM ? "block" : "none";
+                fit.style.display = state.onKVM ? "block" : "none";
 
                 max.style.display = state.canMaximize
                     ? state.isMaximized
