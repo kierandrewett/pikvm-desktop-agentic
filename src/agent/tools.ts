@@ -257,12 +257,13 @@ export function createTools(
             name: "list_secrets",
             label: "List secrets",
             description:
-                "List the NAMES of secrets the user saved (e.g. passwords). You never see their values — use type_secret to enter one into the focused field.",
+                "List the saved secrets (e.g. passwords) with their names and the user's usage hint for each — telling you when/where to use it. You never see the values; use type_secret to enter one into the focused field.",
             parameters: emptySchema,
             async execute(): Promise<AgentToolResult<null>> {
-                const names = secrets.names();
-                if (!names.length) return { content: [text("No secrets are saved. The user can add them in Settings → Secrets.")], details: null };
-                return { content: [text(`Saved secrets (names only):\n${names.map((n) => `• ${n}`).join("\n")}`)], details: null };
+                const items = secrets.list();
+                if (!items.length) return { content: [text("No secrets are saved. The user can add them in Settings → Secrets.")], details: null };
+                const lines = items.map((i) => (i.hint ? `• ${i.name} — ${i.hint}` : `• ${i.name}`));
+                return { content: [text(`Saved secrets (names + usage hints, values hidden):\n${lines.join("\n")}`)], details: null };
             },
         };
         const secretSchema = Type.Object({

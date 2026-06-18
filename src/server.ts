@@ -123,7 +123,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         models: runner.availableModels(),
         context: runner.contextInfo(),
         uiVersion,
-        secrets: { names: secrets.names(), encrypted: secrets.encryptionAvailable() },
+        secrets: { items: secrets.list(), encrypted: secrets.encryptionAvailable() },
         sessionId: runner.currentSessionId(),
         sessions: runner.listSessions().map((s) => ({
             id: s.id,
@@ -382,8 +382,9 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         if (path === "/api/secrets" && req.method === "POST") {
             void readBody(req).then((b) => {
                 try {
-                    const { name, value } = JSON.parse(b || "{}");
-                    if (typeof name === "string" && name.trim() && typeof value === "string") secrets.set(name, value);
+                    const { name, value, hint } = JSON.parse(b || "{}");
+                    if (typeof name === "string" && name.trim() && typeof value === "string")
+                        secrets.set(name, value, typeof hint === "string" ? hint : undefined);
                 } catch {
                     /* ignore */
                 }

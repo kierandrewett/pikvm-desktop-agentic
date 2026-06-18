@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 interface Entry {
     enc?: string; // base64 of safeStorage-encrypted value
     plain?: string; // fallback when encryption is unavailable
+    hint?: string; // non-secret guidance for the agent on when/where to use it
 }
 
 export class SecretsStore {
@@ -41,14 +42,15 @@ export class SecretsStore {
         }
     }
 
-    set(name: string, value: string): void {
+    set(name: string, value: string, hint?: string): void {
         const key = name.trim();
         if (!key) return;
-        if (this.encryptionAvailable()) {
-            this.data[key] = { enc: safeStorage.encryptString(value).toString("base64") };
-        } else {
-            this.data[key] = { plain: value };
-        }
+        const stored: Entry = this.encryptionAvailable()
+            ? { enc: safeStorage.encryptString(value).toString("base64") }
+            : { plain: value };
+        const trimmedHint = hint?.trim();
+        if (trimmedHint) stored.hint = trimmedHint;
+        this.data[key] = stored;
         this.save();
     }
 
@@ -68,6 +70,11 @@ export class SecretsStore {
 
     names(): string[] {
         return Object.keys(this.data);
+    }
+
+    /** Names + non-secret usage hints — safe to show the agent and the UI. */
+    list(): { name: string; hint?: string }[] {
+        return Object.entries(this.data).map(([name, e]) => (e.hint ? { name, hint: e.hint } : { name }));
     }
 
     delete(name: string): void {

@@ -421,14 +421,16 @@ function ActivityPanel({ state, onClose }: { state: ServerState | null; onClose:
 function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
     const hv = s?.humanize ?? 1;
-    const secretNames = state?.secrets?.names ?? [];
+    const secretItems = state?.secrets?.items ?? [];
     const [secName, setSecName] = useState("");
     const [secVal, setSecVal] = useState("");
+    const [secHint, setSecHint] = useState("");
     const addSecret = () => {
         if (!secName.trim() || !secVal) return;
-        void post("/api/secrets", { name: secName.trim(), value: secVal }).then(() => {
+        void post("/api/secrets", { name: secName.trim(), value: secVal, hint: secHint.trim() }).then(() => {
             setSecName("");
             setSecVal("");
+            setSecHint("");
             onPatch({}); // refresh state to pick up the new name
         });
     };
@@ -495,21 +497,24 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         <Lock className="size-3 text-muted-foreground" />
                     </div>
                     <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-                        Saved values (passwords, PINs) the agent can <em>type</em> on your behalf but never sees. The agent enters them by
-                        name with <code className="text-primary">type_secret</code>.{" "}
+                        Saved values (passwords, PINs) the agent can <em>type</em> on your behalf but never sees. Add a hint so it knows
+                        when to use each one. The agent enters them by name with <code className="text-primary">type_secret</code>.{" "}
                         {state?.secrets?.encrypted ? "Encrypted with your OS keychain." : "⚠ Stored unencrypted (OS keychain unavailable)."}
                     </p>
-                    {secretNames.length > 0 && (
+                    {secretItems.length > 0 && (
                         <div className="mb-2 flex flex-col gap-1">
-                            {secretNames.map((n) => (
-                                <div key={n} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-1.5 text-xs">
+                            {secretItems.map((it) => (
+                                <div key={it.name} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-1.5 text-xs">
                                     <Lock className="size-3 shrink-0 text-muted-foreground" />
-                                    <span className="min-w-0 flex-1 truncate">{n}</span>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate">{it.name}</div>
+                                        {it.hint && <div className="truncate text-[10px] text-muted-foreground">{it.hint}</div>}
+                                    </div>
                                     <span className="font-mono text-muted-foreground">••••••</span>
                                     <button
                                         className="text-muted-foreground hover:text-destructive"
                                         title="Delete secret"
-                                        onClick={() => post("/api/secrets/delete", { name: n }).then(() => onPatch({}))}
+                                        onClick={() => post("/api/secrets/delete", { name: it.name }).then(() => onPatch({}))}
                                     >
                                         <X className="size-3.5" />
                                     </button>
@@ -517,26 +522,36 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                             ))}
                         </div>
                     )}
-                    <div className="flex items-center gap-1.5">
-                        <input
-                            value={secName}
-                            onChange={(e) => setSecName(e.target.value)}
-                            placeholder="Name (e.g. Windows password)"
-                            className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                        />
-                        <input
-                            type="password"
-                            value={secVal}
-                            onChange={(e) => setSecVal(e.target.value)}
-                            placeholder="Value"
-                            className="w-24 rounded-md border bg-background px-2 py-1 text-xs outline-none"
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter") addSecret();
-                            }}
-                        />
-                        <Button size="sm" className="h-7 shrink-0" disabled={!secName.trim() || !secVal} onClick={addSecret}>
-                            Add
-                        </Button>
+                    <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                value={secName}
+                                onChange={(e) => setSecName(e.target.value)}
+                                placeholder="Name (e.g. Windows password)"
+                                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                            />
+                            <input
+                                type="password"
+                                value={secVal}
+                                onChange={(e) => setSecVal(e.target.value)}
+                                placeholder="Value"
+                                className="w-24 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                            />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                value={secHint}
+                                onChange={(e) => setSecHint(e.target.value)}
+                                placeholder="When to use it (e.g. Windows lock screen, PIN option)"
+                                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") addSecret();
+                                }}
+                            />
+                            <Button size="sm" className="h-7 shrink-0" disabled={!secName.trim() || !secVal} onClick={addSecret}>
+                                Add
+                            </Button>
+                        </div>
                     </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">Model & review policy are in the header. Settings persist across restarts.</p>
