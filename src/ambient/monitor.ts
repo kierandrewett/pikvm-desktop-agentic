@@ -138,8 +138,15 @@ export class AmbientMonitor extends EventEmitter {
     private readonly MEETING_SUSTAIN_MS = 10000;
     private readonly MEETING_CLEAR_MS = 20000;
 
+    private lastIdleTraceAt = 0;
+
     constructor(private readonly deps: AmbientDeps) {
         super();
+    }
+
+    /** Emit a live trace line (streamed to the Ambient console over SSE). */
+    private trace(text: string, level: "info" | "change" | "triage" | "meeting" | "notify" = "info"): void {
+        this.emit("trace", { ts: Date.now(), level, text });
     }
 
     isInMeeting(): boolean {
@@ -167,8 +174,17 @@ export class AmbientMonitor extends EventEmitter {
 
     private async tick(): Promise<void> {
         const s = this.deps.settings();
-        if (!s.enabled || this.busy || !this.deps.isOnKVM()) return;
-        if (!withinActiveHours(s.activeHours, new Date())) return;
+        if (!s.enabled || this.busy) return;
+        // Surface idle reasons (throttled) so the console isn't silent.
+        const idle = !this.deps.isOnKVM() ? "waiting — not on the KVM screen" : !withinActiveHours(s.activeHours, new Date()) ? "idle — outside active hours" : null;
+        if (idle) {
+            const now = Date.now();
+            if (now - this.lastIdleTraceAt > 30000) {
+                this.lastIdleTraceAt = now;
+                this.trace(idle);
+            }
+            return;
+        }
 
         // --- meeting detection (programmatic, off sustained presence) ---
         this.evaluateMeeting(s);
@@ -199,8 +215,11 @@ export class AmbientMonitor extends EventEmitter {
             const now = Date.now();
             // Skip blank/"no signal"/solid screens — not worth a model call or a ping.
             const blank = fpVariance(fp) < 6;
-            if (!blank && dBase >= this.MEANINGFUL && now - this.lastTriageAt > this.TRIAGE_COOLDOWN_MS) {
+            if (blank) {
+                this.trace(`screen settled but blank/no-signal (Δ=${dBase.toFixed(3)}) — skipping`, "change");
+            } else if (dBase >= this.MEANINGFUL && now - this.lastTriageAt > this.TRIAGE_COOLDOWN_MS) {
                 this.lastTriageAt = now;
+                this.trace(`screen changed (Δ=${dBase.toFixed(3)}) → triaging with ${s.triageModel}…`, "change");
                 await this.triage(s);
             }
         }
@@ -215,6 +234,7 @@ export class AmbientMonitor extends EventEmitter {
             if (!this.activeSince) this.activeSince = now;
             if (!this.inMeeting && now - this.activeSince >= this.MEETING_SUSTAIN_MS) {
                 this.inMeeting = true;
+                this.trace("meeting detected — sustained target audio/mic", "meeting");
                 void this.onMeetingStart(s);
             }
         } else {
@@ -247,6 +267,7 @@ export class AmbientMonitor extends EventEmitter {
                 system: TRIAGE_SYSTEM,
             });
             const t = parseTriage(raw);
+            this.trace(t ? `verdict: ${t.kind} — "${t.title}" (important=${t.important})` : `verdict unparsed: ${raw.slice(0, 80)}`, "triage");
             if (!t || !t.important) return; // boring — drop it
             const ev: AmbientEvent = {
                 id: nextId(),
@@ -266,6 +287,7 @@ export class AmbientMonitor extends EventEmitter {
                     tags: "desktop_computer",
                 });
                 ev.notified = res.sent;
+                this.trace(res.sent ? `🔔 pushed: ${t.title}` : `push not sent (${res.reason ?? "?"})`, "notify");
             }
             this.emitEvent(ev);
         } finally {
@@ -286,12 +308,16 @@ export class AmbientMonitor extends EventEmitter {
         if (s.meetingAssist) {
             const frame = await this.grabFrame();
             if (frame) {
+                this.trace(`briefing with ${s.smartModel}…`, "meeting");
                 const brief = await this.deps.quickLook(
                     frame,
                     "A meeting just started on this screen. In 1–2 sentences: what app/meeting is this, and who/what is it about if visible? Then suggest a natural opening line to say. Be concise.",
                     { model: s.smartModel, thinking: "medium" },
                 );
-                if (brief) base.detail = brief.slice(0, 600);
+                if (brief) {
+                    base.detail = brief.slice(0, 600);
+                    this.trace(`brief: ${brief.slice(0, 160)}`, "meeting");
+                }
                 base.thumb = `data:${frame.mimeType};base64,${frame.data}`;
             }
         }
@@ -302,6 +328,7 @@ export class AmbientMonitor extends EventEmitter {
                 tags: "calendar",
             });
             base.notified = res.sent;
+            this.trace(res.sent ? "🔔 pushed: meeting started" : `meeting push not sent (${res.reason ?? "?"})`, "notify");
         }
         this.emitEvent(base);
     }
@@ -331,14 +358,19 @@ export class AmbientMonitor extends EventEmitter {
         const s = this.deps.settings();
         this.busy = true;
         try {
+            this.trace(`manual check → triaging with ${s.triageModel}…`, "change");
             const frame = await this.grabFrame();
-            if (!frame) return { ok: false, reason: "no frame — not on the KVM screen or capture unavailable" };
+            if (!frame) {
+                this.trace("manual check failed — no frame (not on KVM)", "change");
+                return { ok: false, reason: "no frame — not on the KVM screen or capture unavailable" };
+            }
             const raw = await this.deps.quickLook(frame, "Classify this screen change.", {
                 model: s.triageModel,
                 thinking: "low",
                 system: TRIAGE_SYSTEM,
             });
             const t = parseTriage(raw);
+            this.trace(t ? `verdict: ${t.kind} — "${t.title}" (important=${t.important})` : `verdict unparsed: ${raw.slice(0, 80)}`, "triage");
             const ev: AmbientEvent = {
                 id: nextId(),
                 ts: Date.now(),

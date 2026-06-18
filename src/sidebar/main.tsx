@@ -443,12 +443,42 @@ const AMBIENT_ICON: Record<string, string> = {
     info: "•",
 };
 
+const TRACE_COLOR: Record<string, string> = {
+    change: "text-sky-400",
+    triage: "text-violet-400",
+    meeting: "text-emerald-400",
+    notify: "text-amber-400",
+    transcript: "text-foreground",
+    event: "text-primary",
+    info: "text-muted-foreground",
+};
+
 function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: () => void }) {
     const amb = state?.ambient;
     const events = amb?.events ?? [];
     const fmt = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    // Live trace of the monitor's decisions (SSE).
+    const [trace, setTrace] = useState<{ ts: number; level: string; text: string }[]>([]);
+    const traceRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const es = new EventSource(BASE + "/api/ambient/stream");
+        es.onmessage = (e) => {
+            try {
+                const d = JSON.parse(e.data);
+                setTrace((t) => [...t.slice(-300), d]);
+            } catch {
+                /* ignore keep-alives */
+            }
+        };
+        return () => es.close();
+    }, []);
+    useEffect(() => {
+        const el = traceRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+    }, [trace]);
+    const fmtSec = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     return (
-        <Modal onClose={onClose}>
+        <Modal onClose={onClose} wide>
             <div className="flex items-center justify-between border-b p-3 font-semibold">
                 <span className="flex items-center gap-2">
                     <Radar className={cn("size-4", amb?.enabled && "text-primary")} /> Ambient monitor
@@ -495,6 +525,25 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
                     </div>
                 </div>
             )}
+            {/* Live monitor console (SSE) */}
+            <div className="border-b bg-black/30 px-3 py-2">
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" /> Live monitor
+                    <span className="ml-auto cursor-pointer hover:text-foreground" onClick={() => setTrace([])}>clear</span>
+                </div>
+                <div ref={traceRef} className="max-h-44 overflow-auto font-mono text-[11px] leading-relaxed">
+                    {trace.length === 0 ? (
+                        <span className="text-muted-foreground">Waiting for the monitor… (change the screen, or use the buttons above)</span>
+                    ) : (
+                        trace.map((l, i) => (
+                            <div key={i} className="flex gap-2">
+                                <span className="shrink-0 text-muted-foreground/60">{fmtSec(l.ts)}</span>
+                                <span className={cn("min-w-0 break-words", TRACE_COLOR[l.level] ?? "text-foreground")}>{l.text}</span>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
             <div className="flex-1 overflow-auto">
                 {events.length === 0 && <div className="p-4 text-sm text-muted-foreground">Nothing notable yet.</div>}
                 {events.map((e) => (

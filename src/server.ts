@@ -448,6 +448,33 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 .catch(() => json(res, 200, { ok: false }));
             return;
         }
+        // Live trace of the ambient monitor's decisions (SSE) for the console.
+        if (path === "/api/ambient/stream" && req.method === "GET") {
+            res.writeHead(200, {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache, no-transform",
+                Connection: "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+            });
+            res.write(": connected\n\n");
+            const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+            const onTrace = (t: unknown) => send(t);
+            const onEvent = (e: AmbientEvent) => send({ ts: e.ts, level: "event", text: `${e.kind}: ${e.title}` });
+            const onSeg = (text: string) => send({ ts: Date.now(), level: "transcript", text });
+            ambient.on("trace", onTrace);
+            ambient.on("event", onEvent);
+            transcriber.on("segment", onSeg);
+            const ka = setInterval(() => res.write(": ping\n\n"), 15000);
+            const cleanup = () => {
+                clearInterval(ka);
+                ambient.off("trace", onTrace);
+                ambient.off("event", onEvent);
+                transcriber.off("segment", onSeg);
+            };
+            req.on("close", cleanup);
+            req.on("error", cleanup);
+            return;
+        }
         // Force a triage of the current screen right now (bypasses the change gate).
         if (path === "/api/ambient/check" && req.method === "POST") {
             void ambient
