@@ -864,19 +864,19 @@ function App() {
 
             {/* composer */}
             <div
-                className="border-t bg-card px-3 pb-3 pt-2.5"
+                className="bg-card p-2"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                     e.preventDefault();
                     addImageFiles(Array.from(e.dataTransfer.files));
                 }}
             >
-                <div className="rounded-2xl border bg-background p-2.5 transition-colors focus-within:border-ring/60">
+                <div className="rounded-2xl border bg-background transition-colors focus-within:border-ring/50">
                     {images.length > 0 && (
-                        <div className="mb-1.5 flex flex-wrap gap-1.5">
+                        <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
                             {images.map((im, i) => (
                                 <div key={i} className="relative">
-                                    <img src={im.url} alt="attachment" className="size-14 rounded-md border object-cover" />
+                                    <img src={im.url} alt="attachment" className="size-12 rounded-md border object-cover" />
                                     <button
                                         className="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-white"
                                         onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
@@ -890,9 +890,9 @@ function App() {
                     <textarea
                         ref={inputRef}
                         value={input}
-                        placeholder={busy ? "Steer the agent… (sends while it works)" : "Give the agent a task…  (/ for commands, paste an image)"}
+                        placeholder={busy ? "Steer the agent…" : "Give the agent a task…"}
                         rows={1}
-                        className="min-h-[34px] w-full resize-none overflow-y-auto bg-transparent px-1.5 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                        className="block max-h-[200px] w-full resize-none bg-transparent px-3.5 pb-1 pt-2.5 text-sm leading-normal outline-none placeholder:text-muted-foreground"
                         onChange={(e) => setInput(e.target.value)}
                         onPaste={(e) => {
                             const imgs = Array.from(e.clipboardData.items)
@@ -908,7 +908,7 @@ function App() {
                             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
                         }}
                     />
-                    <div className="mt-1 flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 px-2 pb-1.5 pt-0.5">
                         <input
                             ref={fileInput}
                             type="file"
@@ -920,7 +920,7 @@ function App() {
                                 e.target.value = "";
                             }}
                         />
-                        <Button size="icon" variant="ghost" className="size-7 text-muted-foreground" title="Attach image" onClick={() => fileInput.current?.click()}>
+                        <Button size="icon" variant="ghost" className="size-7 shrink-0 text-muted-foreground" title="Attach image" onClick={() => fileInput.current?.click()}>
                             <Paperclip className="size-4" />
                         </Button>
                         <PillSelect value={serverState?.model ?? ""} title="Model" onChange={(m) => post("/api/model", { model: m }).then(refreshState)}>
@@ -935,13 +935,13 @@ function App() {
                         </PillSelect>
                         <span className="flex-1" />
                         {busy && (
-                            <Button size="icon" variant="destructive" className="size-8 rounded-full" onClick={stopAll} title="Stop the agent">
-                                <Square className="size-3.5" />
+                            <Button size="icon" variant="ghost" className="size-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10" onClick={stopAll} title="Stop the agent">
+                                <Square className="size-3.5 fill-current" />
                             </Button>
                         )}
                         <Button
                             size="icon"
-                            className="size-8 rounded-full disabled:opacity-40"
+                            className="size-8 shrink-0 rounded-full disabled:opacity-30"
                             disabled={!input.trim() && images.length === 0}
                             onClick={submit}
                             title={busy ? "Steer / queue" : "Send"}
@@ -953,7 +953,7 @@ function App() {
             </div>
 
             {/* footer status */}
-            <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-t bg-card px-4 text-[11px] text-muted-foreground">
+            <div className="flex shrink-0 items-center justify-between gap-2 bg-card px-4 pb-1.5 text-[10.5px] text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                     <span className={cn("size-1.5 rounded-full", serverState?.loggedIn ? "bg-emerald-500" : "bg-muted-foreground")} />
                     {serverState?.loggedIn ? "ChatGPT connected" : "Not signed in"}
