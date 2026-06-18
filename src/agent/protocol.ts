@@ -72,6 +72,8 @@ export interface ServerState {
     sessionId: string;
     /** Bumped when an autonomous/scheduled run updates the transcript. */
     uiVersion: number;
+    /** Auth request ids the server is currently blocked on (awaiting a decision). */
+    pendingAuthIds: string[];
     /** Named secrets the agent can type but never see. Values are never sent. */
     secrets: { items: { name: string; hint?: string }[]; encrypted: boolean };
     sessions: SessionSummary[];

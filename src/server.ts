@@ -123,6 +123,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         models: runner.availableModels(),
         context: runner.contextInfo(),
         uiVersion,
+        pendingAuthIds: Array.from(pendingAuth.keys()),
         secrets: { items: secrets.list(), encrypted: secrets.encryptionAvailable() },
         sessionId: runner.currentSessionId(),
         sessions: runner.listSessions().map((s) => ({

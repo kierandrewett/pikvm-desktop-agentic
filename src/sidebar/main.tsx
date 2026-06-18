@@ -686,19 +686,26 @@ function App() {
         setDecided((s) => new Set(s).add(id));
         void post("/api/approve", { id, ...verdict });
     };
-    // The most recent still-undecided authorization request — floated above the composer.
+    // The most recent still-undecided authorization request — floated above the
+    // composer. Only show it if the server is actually still blocked on it (or a
+    // run is live and just emitted it), so stale prompts from a reloaded transcript
+    // don't reappear when you re-open the sidebar.
     const pendingAuth = useMemo<AuthRequest | null>(() => {
-        for (let mi = messages.length - 1; mi >= 0; mi--) {
+        let candidate: AuthRequest | null = null;
+        outer: for (let mi = messages.length - 1; mi >= 0; mi--) {
             const parts = (messages[mi] as any).parts ?? [];
             for (let pi = parts.length - 1; pi >= 0; pi--) {
                 if (parts[pi].type === "data-auth") {
-                    const req: AuthRequest = parts[pi].data.request;
-                    return decided.has(req.id) ? null : req;
+                    candidate = parts[pi].data.request as AuthRequest;
+                    break outer;
                 }
             }
         }
-        return null;
-    }, [messages, decided]);
+        if (!candidate || decided.has(candidate.id)) return null;
+        const live = serverState?.pendingAuthIds ?? [];
+        const streaming = status === "streaming" || status === "submitted";
+        return live.includes(candidate.id) || streaming ? candidate : null;
+    }, [messages, decided, serverState?.pendingAuthIds, status]);
     const addImageFiles = (files: File[]) => {
         for (const f of files) {
             if (!f.type.startsWith("image/")) continue;
@@ -962,7 +969,9 @@ function App() {
                                         return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
                                     if (p.type === "data-auth") {
                                         const req: AuthRequest = p.data.request;
-                                        if (decided.has(req.id))
+                                        const livePending =
+                                            (serverState?.pendingAuthIds ?? []).includes(req.id) || status === "streaming" || status === "submitted";
+                                        if (decided.has(req.id) || !livePending)
                                             return (
                                                 <div key={i} className="flex items-center gap-1.5 text-[11px] italic text-muted-foreground">
                                                     <Check className="size-3" /> authorization handled
