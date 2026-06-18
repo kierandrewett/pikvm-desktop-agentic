@@ -563,12 +563,12 @@ function App() {
         void post("/api/stop");
     };
 
-    // Queue/steer a message while the agent is already working.
+    // Queue/steer a message while the agent is already working. The server echoes
+    // it into the live stream (data-steer) so it lands inline at the right spot.
     const steer = (text = input) => {
         const t = text.trim();
         if (!t) return;
         setInput("");
-        setMessages((prev: any) => [...prev, { id: `u-${Date.now()}`, role: "user", parts: [{ type: "text", text: t }] }]);
         void post("/api/steer", { text: t });
     };
 
@@ -779,6 +779,12 @@ function App() {
                                         const isLatest = run.some((s) => s.data.toolCallId === latestShotId);
                                         return <ScreenshotBlock key={i} shots={run} markerMap={markerMap} isLatest={isLatest} onOpen={setLightbox} />;
                                     }
+                                    if (p.type === "data-steer")
+                                        return (
+                                            <div key={i} className="self-end max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-primary/85 px-3.5 py-2 text-[14px] text-primary-foreground">
+                                                {p.data.text}
+                                            </div>
+                                        );
                                     if (p.type === "data-status")
                                         return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
                                     if (p.type === "data-auth") {

@@ -312,7 +312,11 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
             void readBody(req).then((b) => {
                 try {
                     const { text } = JSON.parse(b || "{}");
-                    if (text && String(text).trim()) runner.steer(String(text));
+                    if (text && String(text).trim()) {
+                        // Show the steering message inline in the live timeline.
+                        activeWriter?.write({ type: "data-steer", data: { text: String(text) } });
+                        runner.steer(String(text));
+                    }
                 } catch {
                     /* ignore */
                 }

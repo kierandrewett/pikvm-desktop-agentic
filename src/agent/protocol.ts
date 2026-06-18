@@ -46,6 +46,7 @@ export type PiKvmDataParts = {
     log: LogEntry;
     thinking: ThinkingData;
     marker: MarkerData;
+    steer: { text: string };
 };
 
 export type PiKvmUIMessage = UIMessage<never, PiKvmDataParts>;
