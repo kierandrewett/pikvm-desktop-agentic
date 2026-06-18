@@ -105,21 +105,31 @@ export class OperationReviewer extends EventEmitter {
         this.alwaysAllow.clear();
     }
 
-    /** Classify whether an operation is risky/irreversible. */
+    /** Classify whether an operation is risky/irreversible or outward-facing. */
     classify(op: Operation): { risky: boolean; reason?: string } {
+        // The agent explicitly asking for approval before an outward-facing action.
+        if (op.tool === "request_approval") {
+            return { risky: true, reason: String(op.args.action ?? "an action others would see") };
+        }
+
         const text = this.textOf(op);
         if (text) {
             for (const { re, reason } of DANGEROUS_PATTERNS) {
                 if (re.test(text)) return { risky: true, reason };
             }
         }
-        // A submit key on its own isn't risky, but a hotkey power chord is.
+
+        // Detectable commit/send/save shortcuts (others would see the result).
         if (op.tool === "hotkey") {
             const codes = (op.args.codes as string[] | undefined) ?? [];
             const set = new Set(codes);
-            if ((set.has("ControlLeft") || set.has("ControlRight")) && set.has("Delete") && set.has("Alt")) {
-                return { risky: true, reason: "Ctrl+Alt+Del" };
-            }
+            const ctrl = set.has("ControlLeft") || set.has("ControlRight");
+            const meta = set.has("MetaLeft") || set.has("MetaRight");
+            const alt = set.has("AltLeft") || set.has("AltRight") || set.has("Alt");
+            const enter = set.has("Enter") || set.has("NumpadEnter");
+            if (ctrl && alt && set.has("Delete")) return { risky: true, reason: "Ctrl+Alt+Del" };
+            if ((ctrl || meta) && enter) return { risky: true, reason: "send/submit shortcut (Ctrl/Cmd+Enter)" };
+            if (ctrl && set.has("KeyS")) return { risky: true, reason: "save (Ctrl+S)" };
         }
         return { risky: false };
     }
@@ -189,6 +199,8 @@ export class OperationReviewer extends EventEmitter {
     }
 
     private shouldPrompt(op: Operation, risky: boolean, kind: string): boolean {
+        // An explicit approval request always prompts, whatever the policy.
+        if (op.tool === "request_approval") return true;
         if (this.alwaysAllow.has(kind)) return false;
         switch (this.policy) {
             case "review-all":

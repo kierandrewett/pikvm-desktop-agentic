@@ -223,7 +223,24 @@ export function createTools(
         },
     };
 
-    const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, drag, typeText, pressKey, hotkey, scroll];
+    const approvalSchema = Type.Object({
+        action: Type.String({
+            description: "Short description of the outward-facing action you want to take, e.g. 'send the email to John', 'join the Teams meeting', 'submit the form', 'save changes to the shared doc'.",
+        }),
+    });
+    const requestApproval: AgentTool<typeof approvalSchema> = {
+        name: "request_approval",
+        label: "Request approval",
+        description:
+            "Ask the user to approve — BEFORE you do it — any action others would see or experience: sending an email/message/chat, joining or starting a meeting, posting, submitting a form, replying, sharing, editing or saving a shared/cloud document, accepting/declining invites, etc. Returns the user's decision.",
+        parameters: approvalSchema,
+        async execute(_id, p: Static<typeof approvalSchema>): Promise<AgentToolResult<null>> {
+            // If we got here the reviewer already prompted and the user allowed it.
+            return { content: [text(`Approved by the user: ${p.action}. You may proceed.`)], details: null };
+        },
+    };
+
+    const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, drag, typeText, pressKey, hotkey, scroll, requestApproval];
 
     if (deps.history) {
         const history = deps.history;
