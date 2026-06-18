@@ -499,10 +499,8 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 } catch {
                     /* none */
                 }
-                void ambient
-                    .assistNow(question)
-                    .then((r) => json(res, 200, r))
-                    .catch((e) => json(res, 200, { ok: false, reason: String(e?.message ?? e) }));
+                runner.meetingAsk(question);
+                json(res, 200, { ok: runner.isInMeeting(), reason: runner.isInMeeting() ? undefined : "no active meeting" });
             });
             return;
         }

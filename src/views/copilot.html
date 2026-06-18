@@ -127,13 +127,27 @@
             }
             function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
             function reportHeight() { window.copilot.resize(Math.ceil(card.getBoundingClientRect().height)); }
+            let statusTimer = null;
+            const subEl = document.getElementById("sub");
+            function status(text) {
+                if (statusTimer) { clearTimeout(statusTimer); statusTimer = null; }
+                if (text) {
+                    subEl.textContent = text;
+                    subEl.style.color = "#34d399";
+                    statusTimer = setTimeout(() => { subEl.textContent = "live"; subEl.style.color = ""; }, 6000);
+                } else {
+                    subEl.textContent = "live";
+                    subEl.style.color = "";
+                }
+            }
 
             // SSE feed
             try {
                 const es = new EventSource(base + "/api/ambient/stream");
                 es.onmessage = (e) => {
                     let d; try { d = JSON.parse(e.data); } catch { return; }
-                    if (d.level === "suggestion") { suggestions.unshift({ ts: d.ts, text: d.text }); suggestions = suggestions.slice(0, 8); render(); }
+                    if (d.level === "suggestion") { suggestions.unshift({ ts: d.ts, text: d.text }); suggestions = suggestions.slice(0, 8); status(""); render(); }
+                    else if (d.level === "activity") { status(d.text); }
                     else if (d.level === "transcript") { transcript = (transcript + " " + d.text).slice(-4000); render(); }
                     else if (d.level === "event" && typeof d.text === "string" && d.text.indexOf("meeting-end") === 0) { suggestions = []; transcript = ""; render(); }
                 };

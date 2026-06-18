@@ -124,6 +124,22 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     });
     ambient.start();
 
+    // The live meeting copilot is a real Pi agent (tools: screen, transcript, web,
+    // memory). It briefs + suggests; the monitor only detects the meeting and feeds it.
+    runner.onMeetingOutput = (kind, text) => {
+        if (kind === "suggestion") ambient.pushSuggestion(text);
+        else ambient.pushTrace(text, "activity");
+    };
+    ambient.on("event", (e: { kind: string }) => {
+        if (e.kind === "meeting-start") {
+            if (settings.get().ambient.meetingAssist) runner.startMeeting();
+        } else if (e.kind === "meeting-end") {
+            runner.stopMeeting();
+        }
+    });
+    // Feed each new transcript chunk to the copilot agent (it self-throttles).
+    transcriber.on("segment", () => runner.meetingObserve(transcriber.getTranscript()));
+
     // Apply persisted preferences.
     const s = settings.get();
     runner.setModel(s.model);

@@ -447,6 +447,7 @@ const TRACE_COLOR: Record<string, string> = {
     change: "text-sky-400",
     triage: "text-violet-400",
     meeting: "text-emerald-400",
+    activity: "text-emerald-300",
     notify: "text-amber-400",
     transcript: "text-foreground",
     event: "text-primary",

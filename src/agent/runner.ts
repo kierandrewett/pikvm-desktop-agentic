@@ -16,9 +16,10 @@ import {
     type AgentEvent,
     type AgentMessage,
     type AgentTool,
+    type AgentToolResult,
     type AgentLoopTurnUpdate,
 } from "@earendil-works/pi-agent-core";
-import { getModel, getModels, registerBuiltInApiProviders, type Model, type ImageContent } from "@earendil-works/pi-ai";
+import { getModel, getModels, registerBuiltInApiProviders, Type, type Model, type ImageContent } from "@earendil-works/pi-ai";
 import { resolve, dirname } from "path";
 import { PiKvmControl } from "../pikvm-control";
 import { OperationReviewer, type Operation } from "../reviewer";
@@ -43,6 +44,36 @@ const PROVIDER = "openai-codex";
 const DEFAULT_MODEL = "gpt-5.5";
 /** Model sub-agents use for hard thinking / deep work. */
 const SUBAGENT_MODEL = "gpt-5.5";
+
+const MEETING_PROMPT = [
+    "You are a live meeting copilot embedded on the user's screen during a real meeting happening RIGHT NOW.",
+    "You can see the screen (screenshot), read the live transcript (read_transcript), search the web (web_search/fetch_url), and recall/remember notes (recall/remember/search_conversations).",
+    "Your job: genuinely help the user in the moment. When something high-value comes up — a question you can answer, a claim worth verifying, a strong point to make, a number/fact to cite, or an action item — do any quick research first, then call `suggest` with a SHORT (1–2 line) nudge.",
+    "Be a real assistant, not a narrator: USE your tools when they make the help materially better (e.g. web_search to check a figure, recall to pull prior context about a person/project). Don't ask permission — just do the research and suggest.",
+    "Most of the time, stay silent — only surface non-obvious, immediately useful help. Never call `suggest` with filler, summaries of the obvious, or 'you could say hello'. Quality over quantity.",
+    "Keep every suggestion terse and immediately usable. When the user asks you something directly, always answer (after researching if useful).",
+].join(" ");
+
+function meetingActivityLabel(tool: string): string {
+    switch (tool) {
+        case "web_search":
+        case "fetch_url":
+            return "🔎 searching the web…";
+        case "recall":
+        case "search_conversations":
+            return "📓 recalling context…";
+        case "remember":
+            return "📌 noting that down…";
+        case "screenshot":
+            return "👀 reading the screen…";
+        case "read_transcript":
+            return "🎧 reviewing the transcript…";
+        case "notify_user":
+            return "🔔 sending you a notification…";
+        default:
+            return `… ${tool}`;
+    }
+}
 
 function systemPrompt(goal?: string, memoryCount = 0): string {
     return [
@@ -449,6 +480,109 @@ export class AgentRunner {
         } catch {
             return "";
         }
+    }
+
+    /* --------------------------- meeting copilot ------------------------- */
+
+    private meetingAgent: Agent | undefined;
+    private meetingQueue: Promise<void> = Promise.resolve();
+    private lastObserveAt = 0;
+    /** Wired in main → routes copilot output to the ambient stream/overlay. */
+    onMeetingOutput: ((kind: "suggestion" | "activity", text: string) => void) | undefined;
+
+    /** Spin up a real agent for the meeting: it watches, researches, and decides
+     *  when to surface help via the `suggest` tool. Tools are read-only + cognitive
+     *  (no clicking/typing during a call). */
+    startMeeting(): void {
+        this.stopMeeting();
+        const emit = (kind: "suggestion" | "activity", text: string) => this.onMeetingOutput?.(kind, text);
+        const suggestSchema = Type.Object({ text: Type.String({ description: "1–2 short lines, plain text — the actual nudge to show the user." }) });
+        const suggest: AgentTool<typeof suggestSchema> = {
+            name: "suggest",
+            label: "Suggest",
+            description:
+                "Surface a SHORT, high-value nudge to the user, live in their meeting — a crisp answer to a question just asked, a sharp point to make, a fact/number to cite, or an action item. Call this ONLY when it's genuinely useful; staying silent is usually right.",
+            parameters: suggestSchema,
+            async execute(_id, p): Promise<AgentToolResult<null>> {
+                emit("suggestion", p.text);
+                return { content: [{ type: "text", text: "Surfaced to the user." }], details: null };
+            },
+        };
+        // Read-only + cognitive tools only — never actuate the machine mid-meeting.
+        const allowed = new Set(["screenshot", "read_transcript", "web_search", "fetch_url", "recall", "remember", "search_conversations", "notify_user"]);
+        const tools: AgentTool<any>[] = [...this.toolsForSub.filter((t) => allowed.has(t.name)), suggest as AgentTool<any>];
+        const agent = new Agent({
+            initialState: { systemPrompt: MEETING_PROMPT, model: this.subModel, thinkingLevel: "low", tools },
+            getApiKey: async () => {
+                try {
+                    return await this.deps.auth.getToken();
+                } catch {
+                    return undefined;
+                }
+            },
+            sessionId: `pikvm-meeting-${Date.now()}`,
+        });
+        agent.subscribe((e: any) => {
+            if (e.type === "tool_execution_start" && e.toolName && e.toolName !== "suggest") {
+                emit("activity", meetingActivityLabel(e.toolName));
+            }
+        });
+        this.meetingAgent = agent;
+        this.lastObserveAt = 0;
+        // Kick off an opening brief from the screen.
+        this.meetingPrompt(
+            "A meeting just started. Take a screenshot to see who/what it is, then `suggest` a one-line read of the meeting plus a natural opening line. Keep it tight.",
+        );
+    }
+
+    stopMeeting(): void {
+        if (this.meetingAgent) {
+            try {
+                this.meetingAgent.abort();
+            } catch {
+                /* ignore */
+            }
+            this.meetingAgent = undefined;
+        }
+    }
+
+    /** Feed new live transcript; throttled so the agent reasons periodically. */
+    meetingObserve(transcriptTail: string): void {
+        if (!this.meetingAgent) return;
+        const now = Date.now();
+        if (now - this.lastObserveAt < 12000) return;
+        this.lastObserveAt = now;
+        this.meetingPrompt(
+            `Live meeting transcript so far (most recent at the end):\n"""${transcriptTail.slice(-2600)}"""\n\nIf something genuinely useful just came up — a question you can answer, a fact worth verifying (use web_search/recall), a point to make, an action item — research it if needed and call \`suggest\`. Otherwise do nothing.`,
+        );
+    }
+
+    /** A direct question from the user, or a tap of "Suggest now" (no question). */
+    meetingAsk(question?: string): void {
+        if (!this.meetingAgent) return;
+        const q = question?.trim();
+        this.meetingPrompt(
+            q
+                ? `The user asks you directly during the meeting: "${q}". Research if it helps (web_search/recall/read the screen), then ALWAYS answer concisely via the \`suggest\` tool.`
+                : "The user tapped 'Suggest now'. Take a fresh look (screenshot + read_transcript), and if there's anything genuinely useful right now, `suggest` it. If truly nothing, a brief, specific observation is fine.",
+        );
+    }
+
+    isInMeeting(): boolean {
+        return !!this.meetingAgent;
+    }
+
+    private meetingPrompt(text: string): void {
+        const agent = this.meetingAgent;
+        if (!agent) return;
+        this.meetingQueue = this.meetingQueue.then(async () => {
+            if (this.meetingAgent !== agent) return; // meeting changed/ended
+            try {
+                await agent.prompt(text);
+            } catch {
+                /* keep the copilot alive on errors */
+            }
+        });
     }
 
     /* ----------------------------- sessions ----------------------------- */
