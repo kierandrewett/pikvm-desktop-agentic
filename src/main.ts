@@ -25,8 +25,16 @@ import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
 import { SecretsStore } from "./secrets";
+import { NtfyClient } from "./ambient/ntfy";
+import { AmbientMonitor } from "./ambient/monitor";
 
 const staticPath = resolve(__dirname, "static");
+const appIconPath = resolve(__dirname, "assets/icon.png");
+
+// Friendly product name — drives the dock tooltip / WM_CLASS and the about
+// panel. Without this, Linux falls back to the package name
+// ("pikvm-desktop-agentic") and a generic icon.
+app.setName("PiKVM Desktop");
 
 /** Port for the local control server (MCP + sidebar chat bridge). */
 const CONTROL_PORT = 25650;
@@ -83,6 +91,12 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     const auth = new CodexAuth(resolve(app.getPath("userData"), "pi-credentials.json"));
     auth.load();
     const secrets = new SecretsStore(resolve(app.getPath("userData"), "agent-secrets.json"));
+    // ntfy push (token from the secrets vault) — created before the runner so the
+    // agent's notify_user tool can use it.
+    const ntfy = new NtfyClient({
+        config: () => settings.get().ambient.ntfy,
+        getToken: () => secrets.get("ntfy_token"),
+    });
     const runner = new AgentRunner({
         control,
         reviewer,
@@ -91,7 +105,20 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         sessionsDir: resolve(app.getPath("userData"), "agent-sessions"),
         inputTracker,
         secrets,
+        notify: (message, opts) => ntfy.notify(message, opts),
     });
+
+    // Ambient background monitor.
+    let onKVM = false;
+    const ambient = new AmbientMonitor({
+        control,
+        presence,
+        ntfy,
+        settings: () => settings.get().ambient,
+        isOnKVM: () => onKVM,
+        quickLook: (image, instruction, opts) => runner.quickLook(image, instruction, opts),
+    });
+    ambient.start();
 
     // Apply persisted preferences.
     const s = settings.get();
@@ -103,11 +130,11 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     if (s.goal) runner.setGoal(s.goal);
 
     startControlServer(
-        { control, reviewer, presence, auth, runner, settings, secrets, openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
     );
     console.log(`Agent backend listening on http://127.0.0.1:${CONTROL_PORT} (MCP at /mcp)`);
-    return { control, reviewer, presence, auth, runner };
+    return { control, reviewer, presence, auth, runner, ambient, setOnKVM: (b: boolean) => { onKVM = b; } };
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -163,6 +190,8 @@ function createWindow() {
         height: normalSize.height,
         darkTheme: true,
         frame: false,
+        icon: appIconPath,
+        title: "PiKVM Desktop",
         minWidth: 300,
         minHeight: 80,
         backgroundColor: "#0f0f14",
@@ -309,6 +338,25 @@ function createWindow() {
             const sz = img.getSize();
             if (!sz.width || !sz.height) return null;
             return { data: img.toJPEG(80), width: sz.width, height: sz.height };
+        } catch {
+            return null;
+        }
+    };
+
+    // Cheap 16x16 grayscale fingerprint for the ambient monitor's change detector
+    // (no decode lib, no LLM — just a perceptual diff between consecutive frames).
+    agentBackend.control.captureFingerprint = async () => {
+        try {
+            const img = await mainView.webContents.capturePage();
+            if (!img.getSize().width) return null;
+            const small = img.resize({ width: 16, height: 16, quality: "good" });
+            const bmp = small.toBitmap(); // BGRA, 16*16*4 bytes
+            const fp = new Uint8Array(256);
+            for (let i = 0; i < 256; i++) {
+                const o = i * 4;
+                fp[i] = ((bmp[o]! + bmp[o + 1]! + bmp[o + 2]!) / 3) | 0;
+            }
+            return fp;
         } catch {
             return null;
         }
@@ -485,6 +533,8 @@ function createWindow() {
         overlayView.webContents.send("window:state", state);
         mainView.webContents.send("window:state", state);
         sidebarView.webContents.send("window:state", state);
+        // Let the ambient monitor know whether the screen is actually visible.
+        agentBackend.setOnKVM(onKVM);
     }
 
     let canMaximize = win.isMaximizable();

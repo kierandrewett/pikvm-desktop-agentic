@@ -33,6 +33,7 @@ await build({
 cpSync(resolve(root, "package.json"), resolve(dist, "package.json"));
 cpSync(resolve(root, "src/static"), resolve(dist, "static"), { recursive: true });
 cpSync(resolve(root, "src/views"), resolve(dist, "views"), { recursive: true });
+cpSync(resolve(root, "src/assets"), resolve(dist, "assets"), { recursive: true });
 
 // 3. Browser bundle: the React sidebar, beside its HTML in dist/views.
 await build({

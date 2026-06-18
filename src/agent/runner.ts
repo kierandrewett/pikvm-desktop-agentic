@@ -86,6 +86,8 @@ export interface RunnerDeps {
     sessionsDir: string;
     inputTracker?: InputTracker;
     secrets?: SecretsStore;
+    /** Push a notification to the user (ntfy), wired in main. */
+    notify?: (message: string, opts: { title?: string; priority?: "default" | "high" | "urgent" }) => Promise<{ sent: boolean; reason?: string }>;
 }
 
 export class AgentRunner {
@@ -131,6 +133,7 @@ export class AgentRunner {
             sessions: this.sessions,
             scheduler: this.scheduler,
             runSubagent: (task, signal) => this.runSubagent(task, signal),
+            ...(deps.notify ? { notifyUser: deps.notify } : {}),
         });
         this.toolsForSub = [...createTools(deps.control, toolDeps), ...extra.filter((t) => t.name !== "spawn_subagent")];
 
@@ -391,6 +394,58 @@ export class AgentRunner {
     private persist(): void {
         const messages = this.agent.state.messages;
         if (messages.length) this.sessions.save(this.sessionId, messages as any);
+    }
+
+    /* ------------------------- ambient (one-shot) ------------------------ */
+
+    /**
+     * A single, tool-less harness turn over a frame with a chosen model — used by
+     * the ambient monitor so all of its intelligence still flows through Pi
+     * (cheap model for triage, a stronger one when it matters). Returns the
+     * model's raw text. Never throws (returns "" on failure).
+     */
+    async quickLook(
+        image: { data: string; mimeType: string },
+        instruction: string,
+        opts: { model?: string; thinking?: "low" | "medium" | "high"; system?: string } = {},
+    ): Promise<string> {
+        let model = this.model;
+        if (opts.model) {
+            try {
+                model = this.deps.auth.applyModel(getModel(PROVIDER as any, opts.model as any));
+            } catch {
+                model = this.model; // unknown model id → fall back to the default
+            }
+        }
+        try {
+            const agent = new Agent({
+                initialState: {
+                    systemPrompt: opts.system ?? "You are a fast, terse screen-watching assistant. Follow the instruction exactly and output only what is asked.",
+                    model,
+                    thinkingLevel: opts.thinking ?? "low",
+                    tools: [],
+                },
+                getApiKey: async () => {
+                    try {
+                        return await this.deps.auth.getToken();
+                    } catch {
+                        return undefined;
+                    }
+                },
+                sessionId: `pikvm-ambient-${Date.now()}`,
+            });
+            await agent.prompt(instruction, [{ type: "image", data: image.data, mimeType: image.mimeType }]);
+            const last: any = [...agent.state.messages].reverse().find((m: any) => m.role === "assistant");
+            const c = last?.content;
+            if (typeof c === "string") return c;
+            return (c ?? [])
+                .filter((x: any) => x?.type === "text")
+                .map((x: any) => x.text)
+                .join("\n")
+                .trim();
+        } catch {
+            return "";
+        }
     }
 
     /* ----------------------------- sessions ----------------------------- */

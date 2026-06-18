@@ -104,6 +104,12 @@ export class PiKvmControl {
      * ZERO extra load on the Pi and never stall the live stream.
      */
     captureScreen: (() => Promise<{ data: Buffer; width: number; height: number } | null>) | undefined;
+    /**
+     * Cheap perceptual fingerprint of the live view (tiny grayscale bitmap, set by
+     * main → mainView.capturePage().resize(...).toBitmap()). Used by the ambient
+     * monitor to detect meaningful screen changes WITHOUT an LLM or decode lib.
+     */
+    captureFingerprint: (() => Promise<Uint8Array | null>) | undefined;
     /** Native stream resolution (for OCR coordinate scaling). */
     private nativeDims: { width: number; height: number } | undefined;
 

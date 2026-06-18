@@ -21,12 +21,17 @@ import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, COMMANDS } from "./commands";
 import type { SettingsStore } from "./settings";
 import type { SecretsStore } from "./secrets";
+import type { AmbientMonitor } from "./ambient/monitor";
+import type { NtfyClient } from "./ambient/ntfy";
+import type { AmbientEvent } from "./agent/protocol";
 
 export interface ServerDeps extends McpDeps {
     runner: AgentRunner;
     auth: CodexAuth;
     settings: SettingsStore;
     secrets: SecretsStore;
+    ambient: AmbientMonitor;
+    ntfy: NtfyClient;
     openExternal: (url: string) => void;
 }
 
@@ -78,8 +83,15 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
 }
 
 export function startControlServer(deps: ServerDeps, port: number): ReturnType<typeof createServer> {
-    const { runner, reviewer, presence, auth, settings, secrets, control, openExternal } = deps;
+    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, control, openExternal } = deps;
     const mcpHandler = createMcpHttpHandler(deps);
+
+    // Ring buffer of ambient events surfaced to the sidebar feed.
+    const ambientEvents: AmbientEvent[] = [];
+    ambient.on("event", (e: AmbientEvent) => {
+        ambientEvents.push(e);
+        if (ambientEvents.length > 50) ambientEvents.splice(0, ambientEvents.length - 50);
+    });
 
     // Active chat stream writer (present while a run streams) so reviewer prompts
     // and presence changes can surface as data parts in real time.
@@ -124,6 +136,18 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         context: runner.contextInfo(),
         uiVersion,
         pendingAuthIds: Array.from(pendingAuth.keys()),
+        ambient: (() => {
+            const a = settings.get().ambient;
+            return {
+                enabled: a.enabled,
+                inMeeting: ambient.isInMeeting(),
+                notify: a.notify,
+                meetingAssist: a.meetingAssist,
+                ntfyTopic: a.ntfy.topic,
+                hasToken: !!secrets.get("ntfy_token"),
+                events: ambientEvents.slice(-30).reverse(),
+            };
+        })(),
         secrets: { items: secrets.list(), encrypted: secrets.encryptionAvailable() },
         sessionId: runner.currentSessionId(),
         sessions: runner.listSessions().map((s) => ({
@@ -403,6 +427,18 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 }
                 return json(res, 200, state());
             });
+            return;
+        }
+
+        if (path === "/api/ambient/clear" && req.method === "POST") {
+            ambientEvents.length = 0;
+            return json(res, 200, state());
+        }
+        if (path === "/api/ambient/test" && req.method === "POST") {
+            void ntfy
+                .notify("Test notification from the PiKVM ambient monitor.", { title: "PiKVM", priority: "default", tags: "white_check_mark" })
+                .then((r) => json(res, 200, { ok: r.sent, reason: r.reason }))
+                .catch(() => json(res, 200, { ok: false }));
             return;
         }
 

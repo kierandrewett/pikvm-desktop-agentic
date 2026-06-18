@@ -22,6 +22,8 @@ export interface ExtraDeps {
     scheduler: Scheduler;
     /** Run a focused sub-agent to completion and return its final answer. */
     runSubagent: (task: string, signal?: AbortSignal) => Promise<string>;
+    /** Push a notification to the user (ntfy). Returns whether it was sent. */
+    notifyUser?: (message: string, opts: { title?: string; priority?: "default" | "high" | "urgent" }) => Promise<{ sent: boolean; reason?: string }>;
 }
 
 export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
@@ -197,7 +199,7 @@ export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
         },
     };
 
-    return [
+    const tools: AgentTool<any>[] = [
         web_search,
         fetch_url,
         remember,
@@ -210,4 +212,34 @@ export function createExtraTools(deps: ExtraDeps): AgentTool<any>[] {
         cancel_schedule,
         spawn_subagent,
     ];
+
+    if (deps.notifyUser) {
+        const notifyUser = deps.notifyUser;
+        const notifySchema = Type.Object({
+            message: Type.String({ description: "What to tell the user. Be specific and useful." }),
+            priority: Type.Optional(
+                Type.Union([Type.Literal("default"), Type.Literal("high"), Type.Literal("urgent")], {
+                    description: "default = FYI; high = notable; urgent = needs attention now.",
+                }),
+            ),
+            title: Type.Optional(Type.String({ description: "Short title (default 'PiKVM Agent')." })),
+        });
+        const notify_user: AgentTool<typeof notifySchema> = {
+            name: "notify_user",
+            label: "Notify user",
+            description:
+                "Send a push notification to the user's phone (ntfy) when something happens they'd want to know about while away — a new email/message, a meeting starting, a long task finishing, or something needing attention. Only fires if the user is currently active. Don't spam: notify at meaningful moments.",
+            parameters: notifySchema,
+            async execute(_id, p: Static<typeof notifySchema>): Promise<AgentToolResult<null>> {
+                const r = await notifyUser(p.message, {
+                    ...(p.priority ? { priority: p.priority } : {}),
+                    ...(p.title ? { title: p.title } : {}),
+                });
+                return ok(r.sent ? "Notification sent." : `Not sent (${r.reason ?? "unknown"}).`);
+            },
+        };
+        tools.push(notify_user);
+    }
+
+    return tools;
 }

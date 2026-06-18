@@ -16,6 +16,7 @@ import {
     Activity,
     ArrowUp,
     AlertTriangle,
+    Bell,
     Camera,
     Check,
     ChevronDown,
@@ -30,6 +31,7 @@ import {
     Paperclip,
     Pause,
     Plus,
+    Radar,
     RotateCcw,
     Settings2,
     Sparkles,
@@ -429,6 +431,57 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
     );
 }
 
+const AMBIENT_ICON: Record<string, string> = {
+    notification: "🔔",
+    email: "📧",
+    message: "💬",
+    "meeting-start": "📞",
+    "meeting-end": "🔚",
+    "app-change": "🪟",
+    "content-change": "📝",
+    info: "•",
+};
+
+function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: () => void }) {
+    const amb = state?.ambient;
+    const events = amb?.events ?? [];
+    const fmt = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return (
+        <Modal onClose={onClose}>
+            <div className="flex items-center justify-between border-b p-3 font-semibold">
+                <span className="flex items-center gap-2">
+                    <Radar className={cn("size-4", amb?.enabled && "text-primary")} /> Ambient monitor
+                    {amb?.inMeeting && <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-500">in meeting</span>}
+                </span>
+                <button onClick={onClose} className="text-muted-foreground"><X className="size-4" /></button>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
+                <span>{amb?.enabled ? "Watching the screen in the background." : "Off — enable it in Settings → Ambient."}</span>
+                {events.length > 0 && (
+                    <button className="shrink-0 hover:text-foreground" onClick={() => post("/api/ambient/clear")}>Clear</button>
+                )}
+            </div>
+            <div className="flex-1 overflow-auto">
+                {events.length === 0 && <div className="p-4 text-sm text-muted-foreground">Nothing notable yet.</div>}
+                {events.map((e) => (
+                    <div key={e.id} className="flex gap-2.5 border-b px-3 py-2">
+                        <span className="mt-0.5 text-base leading-none">{AMBIENT_ICON[e.kind] ?? "•"}</span>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                                <span className="truncate text-[13px] font-medium">{e.title}</span>
+                                {e.notified && <Bell className="size-3 shrink-0 text-muted-foreground" />}
+                                <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{fmt(e.ts)}</span>
+                            </div>
+                            {e.detail && <div className="mt-0.5 whitespace-pre-wrap text-[12px] leading-snug text-muted-foreground">{e.detail}</div>}
+                        </div>
+                        {e.thumb && <img src={e.thumb} alt="" className="h-10 w-16 shrink-0 rounded border object-cover" />}
+                    </div>
+                ))}
+            </div>
+        </Modal>
+    );
+}
+
 function ActivityPanel({ state, onClose }: { state: ServerState | null; onClose: () => void }) {
     const log = (state?.log ?? []).slice().reverse();
     const fmt = (t: number) => new Date(t).toLocaleTimeString();
@@ -471,6 +524,19 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
             setSecVal("");
             setSecHint("");
             onPatch({}); // refresh state to pick up the new name
+        });
+    };
+    const amb = state?.ambient;
+    const [ntfyTopic, setNtfyTopic] = useState(amb?.ntfyTopic ?? "claude");
+    const [ntfyToken, setNtfyToken] = useState("");
+    const saveNtfy = () => {
+        void post("/api/settings", { ambient: { ntfy: { topic: ntfyTopic.trim() || "claude" } } }).then(() => {
+            if (ntfyToken.trim()) {
+                void post("/api/secrets", { name: "ntfy_token", value: ntfyToken.trim(), hint: "ntfy push token (used by the ambient monitor)" }).then(() => {
+                    setNtfyToken("");
+                    onPatch({});
+                });
+            } else onPatch({});
         });
     };
     return (
@@ -530,6 +596,52 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         </div>
                     </div>
                 )}
+                <div>
+                    <div className="mb-1.5 flex items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ambient monitor</span>
+                        <Radar className="size-3 text-muted-foreground" />
+                    </div>
+                    <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+                        Watches the screen in the background (cheap on-device change detection, only calling a model when something
+                        actually happens). Notifies you of emails/messages/meetings and can brief you when a call starts.
+                    </p>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={amb?.enabled ?? false} onChange={(e) => onPatch({ ambient: { enabled: e.target.checked } })} />
+                        Enable background monitoring
+                    </label>
+                    <label className="mt-1.5 flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={amb?.notify ?? true} onChange={(e) => onPatch({ ambient: { notify: e.target.checked } })} disabled={!amb?.enabled} />
+                        Push notifications (ntfy)
+                    </label>
+                    <label className="mt-1.5 flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={amb?.meetingAssist ?? true} onChange={(e) => onPatch({ ambient: { meetingAssist: e.target.checked } })} disabled={!amb?.enabled} />
+                        Meeting assistant (brief on join)
+                    </label>
+                    <div className="mt-2 rounded-lg border bg-card/50 p-2">
+                        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                            <Bell className="size-3" /> ntfy push {amb?.hasToken ? <span className="text-emerald-500">• token saved</span> : <span className="text-amber-500">• no token</span>}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                value={ntfyTopic}
+                                onChange={(e) => setNtfyTopic(e.target.value)}
+                                placeholder="topic (e.g. claude)"
+                                className="w-24 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                            />
+                            <input
+                                type="password"
+                                value={ntfyToken}
+                                onChange={(e) => setNtfyToken(e.target.value)}
+                                placeholder={amb?.hasToken ? "token (saved — type to replace)" : "ntfy token"}
+                                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                            />
+                            <Button size="sm" className="h-7 shrink-0" onClick={saveNtfy}>Save</Button>
+                        </div>
+                        <button className="mt-1.5 text-[11px] text-primary hover:underline" onClick={() => post("/api/ambient/test")}>
+                            Send test notification
+                        </button>
+                    </div>
+                </div>
                 <div>
                     <div className="mb-1.5 flex items-center gap-2">
                         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Secrets</span>
@@ -606,7 +718,7 @@ function App() {
     const [decided, setDecided] = useState<Set<string>>(new Set());
     const [input, setInput] = useState("");
     const [lightbox, setLightbox] = useState<string | null>(null);
-    const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history">("none");
+    const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history" | "ambient">("none");
     const [historyQuery, setHistoryQuery] = useState("");
     const [images, setImages] = useState<{ url: string; mediaType: string }[]>([]);
     const fileInput = useRef<HTMLInputElement>(null);
@@ -853,6 +965,10 @@ function App() {
                     </Button>
                     <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Copy conversation" onClick={copyConversation}>
                         <Copy className="size-[18px]" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="relative size-8 text-muted-foreground" title="Ambient monitor" onClick={() => setPanel("ambient")}>
+                        <Radar className={cn("size-[18px]", serverState?.ambient?.enabled && "text-primary")} />
+                        {serverState?.ambient?.inMeeting && <span className="absolute right-1 top-1 size-2 rounded-full bg-emerald-500" />}
                     </Button>
                     <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Activity" onClick={() => setPanel("activity")}>
                         <Activity className="size-[18px]" />
@@ -1161,6 +1277,7 @@ function App() {
             </div>
 
             {/* panels */}
+            {panel === "ambient" && <AmbientPanel state={serverState} onClose={() => setPanel("none")} />}
             {panel === "activity" && <ActivityPanel state={serverState} onClose={() => setPanel("none")} />}
             {panel === "settings" && <SettingsPanel state={serverState} onClose={() => setPanel("none")} onPatch={(p) => post("/api/settings", p).then(refreshState)} />}
             {panel === "history" && (

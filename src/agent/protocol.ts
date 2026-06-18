@@ -51,6 +51,18 @@ export type PiKvmDataParts = {
 
 export type PiKvmUIMessage = UIMessage<never, PiKvmDataParts>;
 
+export interface AmbientEvent {
+    id: string;
+    ts: number;
+    kind: "notification" | "email" | "message" | "meeting-start" | "meeting-end" | "app-change" | "content-change" | "info";
+    title: string;
+    detail?: string;
+    important: boolean;
+    notified: boolean;
+    /** Tiny data: URL thumbnail of the frame that triggered it. */
+    thumb?: string;
+}
+
 export interface SessionSummary {
     id: string;
     title: string;
@@ -74,6 +86,16 @@ export interface ServerState {
     uiVersion: number;
     /** Auth request ids the server is currently blocked on (awaiting a decision). */
     pendingAuthIds: string[];
+    /** Ambient background monitor: config + state + recent events. */
+    ambient: {
+        enabled: boolean;
+        inMeeting: boolean;
+        notify: boolean;
+        meetingAssist: boolean;
+        ntfyTopic: string;
+        hasToken: boolean;
+        events: AmbientEvent[];
+    };
     /** Named secrets the agent can type but never see. Values are never sent. */
     secrets: { items: { name: string; hint?: string }[]; encrypted: boolean };
     sessions: SessionSummary[];
