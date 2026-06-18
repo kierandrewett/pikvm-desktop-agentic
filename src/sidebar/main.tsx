@@ -538,16 +538,19 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
     };
     const amb = state?.ambient;
     const [ntfyTopic, setNtfyTopic] = useState(amb?.ntfyTopic ?? "claude");
+    const [ntfyBaseUrl, setNtfyBaseUrl] = useState(amb?.ntfyBaseUrl ?? "https://ntfy.sh");
     const [ntfyToken, setNtfyToken] = useState("");
     const saveNtfy = () => {
-        void post("/api/settings", { ambient: { ntfy: { topic: ntfyTopic.trim() || "claude" } } }).then(() => {
-            if (ntfyToken.trim()) {
-                void post("/api/secrets", { name: "ntfy_token", value: ntfyToken.trim(), hint: "ntfy push token (used by the ambient monitor)" }).then(() => {
-                    setNtfyToken("");
-                    onPatch({});
-                });
-            } else onPatch({});
-        });
+        const ntfy: any = { topic: ntfyTopic.trim() || "claude" };
+        if (ntfyBaseUrl.trim()) ntfy.baseUrl = ntfyBaseUrl.trim().replace(/\/$/, "");
+        // Save the token (a secret) FIRST so it can't be lost, then the config.
+        const saveConfig = () => post("/api/settings", { ambient: { ntfy } }).then(() => onPatch({}));
+        if (ntfyToken.trim()) {
+            void post("/api/secrets", { name: "ntfy_token", value: ntfyToken.trim(), hint: "ntfy push token (used by the ambient monitor)" }).then(() => {
+                setNtfyToken("");
+                void saveConfig();
+            });
+        } else void saveConfig();
     };
     return (
         <Modal onClose={onClose}>
@@ -632,21 +635,27 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         Transcribe meetings (local whisper)
                     </label>
                     <div className="mt-2 rounded-lg border bg-card/50 p-2">
-                        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
                             <Bell className="size-3" /> ntfy push {amb?.hasToken ? <span className="text-emerald-500">• token saved</span> : <span className="text-amber-500">• no token</span>}
                         </div>
+                        <input
+                            value={ntfyBaseUrl}
+                            onChange={(e) => setNtfyBaseUrl(e.target.value)}
+                            placeholder="server (e.g. https://ntfy.sh)"
+                            className="mb-1.5 w-full rounded-md border bg-background px-2 py-1 text-xs outline-none"
+                        />
                         <div className="flex items-center gap-1.5">
                             <input
                                 value={ntfyTopic}
                                 onChange={(e) => setNtfyTopic(e.target.value)}
-                                placeholder="topic (e.g. claude)"
+                                placeholder="topic"
                                 className="w-24 rounded-md border bg-background px-2 py-1 text-xs outline-none"
                             />
                             <input
                                 type="password"
                                 value={ntfyToken}
                                 onChange={(e) => setNtfyToken(e.target.value)}
-                                placeholder={amb?.hasToken ? "token (saved — type to replace)" : "ntfy token"}
+                                placeholder={amb?.hasToken ? "token (saved — type to replace)" : "token (optional)"}
                                 className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
                             />
                             <Button size="sm" className="h-7 shrink-0" onClick={saveNtfy}>Save</Button>
@@ -654,6 +663,36 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         <button className="mt-1.5 text-[11px] text-primary hover:underline" onClick={() => post("/api/ambient/test")}>
                             Send test notification
                         </button>
+                    </div>
+                    <div className="mt-2 rounded-lg border bg-card/50 p-2">
+                        <label className="flex items-center gap-2 text-[13px]">
+                            <input
+                                type="checkbox"
+                                checked={amb?.activeHours?.enabled ?? false}
+                                onChange={(e) => onPatch({ ambient: { activeHours: { enabled: e.target.checked } } })}
+                                disabled={!amb?.enabled}
+                            />
+                            Only monitor during active hours
+                        </label>
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span>From</span>
+                            <input
+                                type="time"
+                                value={amb?.activeHours?.start ?? "09:00"}
+                                onChange={(e) => onPatch({ ambient: { activeHours: { start: e.target.value } } })}
+                                disabled={!amb?.enabled || !amb?.activeHours?.enabled}
+                                className="rounded-md border bg-background px-1.5 py-1 text-xs outline-none disabled:opacity-50"
+                            />
+                            <span>to</span>
+                            <input
+                                type="time"
+                                value={amb?.activeHours?.end ?? "18:00"}
+                                onChange={(e) => onPatch({ ambient: { activeHours: { end: e.target.value } } })}
+                                disabled={!amb?.enabled || !amb?.activeHours?.enabled}
+                                className="rounded-md border bg-background px-1.5 py-1 text-xs outline-none disabled:opacity-50"
+                            />
+                        </div>
+                        <p className="mt-1 text-[10px] text-muted-foreground">Overnight windows (e.g. 22:00–06:00) are supported.</p>
                     </div>
                 </div>
                 <div>

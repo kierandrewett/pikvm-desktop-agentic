@@ -85,6 +85,20 @@ function fpDiff(a: Uint8Array, b: Uint8Array): number {
 let counter = 0;
 const nextId = () => `amb${Date.now().toString(36)}${(counter++).toString(36)}`;
 
+/** Is `now` within an "HH:MM"–"HH:MM" window? Handles overnight (start > end). */
+export function withinActiveHours(hours: { enabled: boolean; start: string; end: string }, now: Date): boolean {
+    if (!hours.enabled) return true;
+    const toMin = (s: string) => {
+        const [h, m] = s.split(":").map((x) => parseInt(x, 10));
+        return (h || 0) * 60 + (m || 0);
+    };
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const start = toMin(hours.start);
+    const end = toMin(hours.end);
+    if (start === end) return true; // full day
+    return start < end ? cur >= start && cur < end : cur >= start || cur < end;
+}
+
 export class AmbientMonitor extends EventEmitter {
     private timer: NodeJS.Timeout | undefined;
     private lastFp: Uint8Array | undefined;
@@ -136,6 +150,7 @@ export class AmbientMonitor extends EventEmitter {
     private async tick(): Promise<void> {
         const s = this.deps.settings();
         if (!s.enabled || this.busy || !this.deps.isOnKVM()) return;
+        if (!withinActiveHours(s.activeHours, new Date())) return;
 
         // --- meeting detection (programmatic, off sustained presence) ---
         this.evaluateMeeting(s);

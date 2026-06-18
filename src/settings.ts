@@ -37,6 +37,8 @@ export interface AmbientSettings {
     meetingAssist: boolean;
     /** Transcribe meeting audio locally (whisper.cpp) while a meeting is active. */
     transcribe: boolean;
+    /** Only run the monitor within these hours (24h "HH:MM"); supports overnight windows. */
+    activeHours: { enabled: boolean; start: string; end: string };
     ntfy: { baseUrl: string; topic: string; activeCheckUrl: string };
 }
 
@@ -50,6 +52,7 @@ const DEFAULT_AMBIENT: AmbientSettings = {
     notify: true,
     meetingAssist: true,
     transcribe: false,
+    activeHours: { enabled: false, start: "09:00", end: "18:00" },
     ntfy: {
         baseUrl: "https://ntfy.drewett.dev",
         topic: "claude",
@@ -83,6 +86,7 @@ export class SettingsStore {
                         ...DEFAULT_AMBIENT,
                         ...(saved.ambient ?? {}),
                         ntfy: { ...DEFAULT_AMBIENT.ntfy, ...(saved.ambient?.ntfy ?? {}) },
+                        activeHours: { ...DEFAULT_AMBIENT.activeHours, ...(saved.ambient?.activeHours ?? {}) },
                     },
                 };
                 // Migrate the never-valid early default model id off saved configs.
@@ -101,7 +105,12 @@ export class SettingsStore {
 
     patch(partial: Partial<AppSettings>): AppSettings {
         const ambient = partial.ambient
-            ? { ...this.data.ambient, ...partial.ambient, ntfy: { ...this.data.ambient.ntfy, ...(partial.ambient.ntfy ?? {}) } }
+            ? {
+                  ...this.data.ambient,
+                  ...partial.ambient,
+                  ntfy: { ...this.data.ambient.ntfy, ...(partial.ambient.ntfy ?? {}) },
+                  activeHours: { ...this.data.ambient.activeHours, ...(partial.ambient.activeHours ?? {}) },
+              }
             : this.data.ambient;
         this.data = { ...this.data, ...partial, ambient };
         try {

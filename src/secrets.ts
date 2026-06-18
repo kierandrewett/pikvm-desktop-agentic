@@ -5,7 +5,7 @@
  */
 
 import { safeStorage } from "electron";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 
 interface Entry {
     enc?: string; // base64 of safeStorage-encrypted value
@@ -17,18 +17,30 @@ export class SecretsStore {
     private data: Record<string, Entry> = {};
 
     constructor(private readonly path: string) {
-        if (existsSync(path)) {
-            try {
-                this.data = JSON.parse(readFileSync(path, "utf-8"));
-            } catch {
-                /* start empty */
-            }
+        this.data = this.load();
+    }
+
+    /** Read the on-disk vault (empty object if missing/corrupt). */
+    private load(): Record<string, Entry> {
+        if (!existsSync(this.path)) return {};
+        try {
+            const parsed = JSON.parse(readFileSync(this.path, "utf-8"));
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+            return {};
         }
     }
 
+    /**
+     * Atomic write: serialize to a temp file then rename over the target, so an
+     * interrupted write can never leave a truncated/unparseable vault (which would
+     * look like "all my secrets vanished" on next load).
+     */
     private save() {
         try {
-            writeFileSync(this.path, JSON.stringify(this.data, null, 2), { mode: 0o600 });
+            const tmp = `${this.path}.tmp`;
+            writeFileSync(tmp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
+            renameSync(tmp, this.path);
         } catch {
             /* best-effort */
         }
@@ -45,11 +57,18 @@ export class SecretsStore {
     set(name: string, value: string, hint?: string): void {
         const key = name.trim();
         if (!key) return;
-        const stored: Entry = this.encryptionAvailable()
-            ? { enc: safeStorage.encryptString(value).toString("base64") }
-            : { plain: value };
+        // Encrypt if we can; if the keychain hiccups, fall back to plaintext rather
+        // than throwing (a thrown set would otherwise drop the write entirely).
+        let stored: Entry;
+        try {
+            stored = this.encryptionAvailable() ? { enc: safeStorage.encryptString(value).toString("base64") } : { plain: value };
+        } catch {
+            stored = { plain: value };
+        }
         const trimmedHint = hint?.trim();
         if (trimmedHint) stored.hint = trimmedHint;
+        // Re-read first so a concurrent/earlier write to the same file is never lost.
+        this.data = this.load();
         this.data[key] = stored;
         this.save();
     }
@@ -78,6 +97,7 @@ export class SecretsStore {
     }
 
     delete(name: string): void {
+        this.data = this.load();
         delete this.data[name];
         this.save();
     }

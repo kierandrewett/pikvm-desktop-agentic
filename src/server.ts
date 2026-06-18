@@ -147,7 +147,9 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 meetingAssist: a.meetingAssist,
                 transcribe: a.transcribe,
                 ntfyTopic: a.ntfy.topic,
+                ntfyBaseUrl: a.ntfy.baseUrl,
                 hasToken: !!secrets.get("ntfy_token"),
+                activeHours: a.activeHours,
                 transcript: transcriber.getTranscript(),
                 events: ambientEvents.slice(-30).reverse(),
             };

@@ -94,7 +94,9 @@ export interface ServerState {
         meetingAssist: boolean;
         transcribe: boolean;
         ntfyTopic: string;
+        ntfyBaseUrl: string;
         hasToken: boolean;
+        activeHours: { enabled: boolean; start: string; end: string };
         transcript: string;
         events: AmbientEvent[];
     };
