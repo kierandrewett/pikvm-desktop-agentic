@@ -631,8 +631,10 @@ export class AgentRunner {
             if (this.meetingAgent !== agent) return; // meeting changed/ended
             try {
                 await agent.prompt(text);
-            } catch {
-                /* keep the copilot alive on errors */
+            } catch (e: any) {
+                // Surface the failure (auth/model/etc.) instead of failing silently,
+                // so it's visible in the monitor console + overlay during use.
+                this.onMeetingOutput?.("activity", `⚠ copilot error: ${String(e?.message ?? e).slice(0, 140)}`);
             }
         });
     }
