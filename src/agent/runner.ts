@@ -546,6 +546,30 @@ export class AgentRunner {
         }
     }
 
+    /** Final recap turn (summary + action items saved to memory), then tear down. */
+    endMeeting(): void {
+        const agent = this.meetingAgent;
+        if (!agent) return;
+        this.meetingQueue = this.meetingQueue.then(async () => {
+            if (this.meetingAgent !== agent) return;
+            try {
+                await agent.prompt(
+                    "The meeting just ended. In ONE `suggest` call, give a tight recap (2–3 bullets) plus any action items for me. Then use `remember` to save each action item / key decision so I can recall it later.",
+                );
+            } catch {
+                /* ignore */
+            }
+            if (this.meetingAgent === agent) {
+                try {
+                    agent.abort();
+                } catch {
+                    /* ignore */
+                }
+                this.meetingAgent = undefined;
+            }
+        });
+    }
+
     /** Feed new live transcript; throttled so the agent reasons periodically. */
     meetingObserve(transcriptTail: string): void {
         if (!this.meetingAgent) return;

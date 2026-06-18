@@ -134,7 +134,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         if (e.kind === "meeting-start") {
             if (settings.get().ambient.meetingAssist) runner.startMeeting();
         } else if (e.kind === "meeting-end") {
-            runner.stopMeeting();
+            runner.endMeeting(); // final recap + remember action items, then tear down
         }
     });
     // Feed each new transcript chunk to the copilot agent (it self-throttles).
@@ -260,6 +260,7 @@ function createWindow() {
     copilotView.setVisible(false);
     const copilotBounds = { x: 80, y: TITLEBAR_HEIGHT + 24, width: 340, height: 220 };
     let copilotVisible = false;
+    let copilotHideTimer: NodeJS.Timeout | null = null;
 
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
 
@@ -446,6 +447,10 @@ function createWindow() {
     });
     agentBackend.ambient.on("event", (e: { kind: string }) => {
         if (e.kind === "meeting-start") {
+            if (copilotHideTimer) {
+                clearTimeout(copilotHideTimer);
+                copilotHideTimer = null;
+            }
             if (agentBackend.settings.get().ambient.transcribe) {
                 agentBackend.transcriber.start();
                 mainView.webContents.send("kvm:transcribe-start");
@@ -455,7 +460,12 @@ function createWindow() {
         } else if (e.kind === "meeting-end") {
             agentBackend.transcriber.stop();
             mainView.webContents.send("kvm:transcribe-stop");
-            hideCopilot();
+            // Keep the copilot up briefly so the end-of-meeting recap lands.
+            if (copilotHideTimer) clearTimeout(copilotHideTimer);
+            copilotHideTimer = setTimeout(() => {
+                hideCopilot();
+                copilotHideTimer = null;
+            }, 30000);
         }
     });
 
