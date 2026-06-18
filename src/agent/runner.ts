@@ -495,6 +495,7 @@ export class AgentRunner {
     private meetingAgent: Agent | undefined;
     private meetingQueue: Promise<void> = Promise.resolve();
     private lastObserveAt = 0;
+    private pendingObs = "";
     /** Wired in main → routes copilot output to the ambient stream/overlay. */
     onMeetingOutput: ((kind: "suggestion" | "activity", text: string) => void) | undefined;
 
@@ -546,6 +547,7 @@ export class AgentRunner {
         });
         this.meetingAgent = agent;
         this.lastObserveAt = 0;
+        this.pendingObs = "";
         // Kick off an opening brief from the screen.
         this.meetingPrompt(
             "A meeting just started. Take a screenshot to see who/what it is, then `suggest` a one-line read of the meeting plus a natural opening line. Keep it tight.",
@@ -587,14 +589,23 @@ export class AgentRunner {
         });
     }
 
-    /** Feed new live transcript; throttled so the agent reasons periodically. */
-    meetingObserve(transcriptTail: string): void {
+    /**
+     * Feed a new transcript segment. We accumulate segments and, at most every
+     * ~12s, hand the agent only the NEW speech (it keeps prior context in its own
+     * history) — far less redundant than re-sending the whole transcript each turn.
+     */
+    meetingObserve(segment: string): void {
         if (!this.meetingAgent) return;
+        const piece = segment.trim();
+        if (piece) this.pendingObs = `${this.pendingObs} ${piece}`.trim();
         const now = Date.now();
         if (now - this.lastObserveAt < 12000) return;
+        if (this.pendingObs.length < 30) return; // nothing materially new
         this.lastObserveAt = now;
+        const obs = this.pendingObs.slice(-2000);
+        this.pendingObs = "";
         this.meetingPrompt(
-            `Live meeting transcript so far (most recent at the end):\n"""${transcriptTail.slice(-2600)}"""\n\nIf something genuinely useful just came up — a question you can answer, a fact worth verifying (use web_search/recall), a point to make, an action item — research it if needed and call \`suggest\`. Otherwise do nothing.`,
+            `New in the meeting (the live transcript continues): "${obs}"\n\nIf something genuinely useful just came up — a question you can answer, a fact worth verifying (use web_search/recall), a point to make, an action item — research it if needed and call \`suggest\`. Otherwise do nothing.`,
         );
     }
 

@@ -137,8 +137,8 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
             runner.endMeeting(); // final recap + remember action items, then tear down
         }
     });
-    // Feed each new transcript chunk to the copilot agent (it self-throttles).
-    transcriber.on("segment", () => runner.meetingObserve(transcriber.getTranscript()));
+    // Feed each new transcript chunk to the copilot agent (it accumulates + self-throttles).
+    transcriber.on("segment", (text: string) => runner.meetingObserve(text));
 
     // Apply persisted preferences.
     const s = settings.get();
