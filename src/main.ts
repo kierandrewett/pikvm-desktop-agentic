@@ -260,6 +260,7 @@ function createWindow() {
     copilotView.setVisible(false);
     const copilotBounds = { x: 80, y: TITLEBAR_HEIGHT + 24, width: 340, height: 220 };
     let copilotVisible = false;
+    let copilotPlaced = false; // becomes true after first auto-placement; then we keep the user's position
     let copilotHideTimer: NodeJS.Timeout | null = null;
 
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
@@ -286,11 +287,14 @@ function createWindow() {
         copilotView.setBounds(copilotBounds);
     };
     const showCopilot = () => {
-        const [w] = win.getContentSize();
-        const sbW = sidebarOpen ? sidebarWidth : 0;
-        // Default position: top-right of the KVM area, clear of the sidebar.
-        copilotBounds.x = Math.max(12, w! - sbW - copilotBounds.width - 20);
-        copilotBounds.y = TITLEBAR_HEIGHT + 24;
+        // Only auto-place the first time; afterwards keep wherever the user dragged it.
+        if (!copilotPlaced) {
+            const [w] = win.getContentSize();
+            const sbW = sidebarOpen ? sidebarWidth : 0;
+            copilotBounds.x = Math.max(12, w! - sbW - copilotBounds.width - 20); // top-right, clear of the sidebar
+            copilotBounds.y = TITLEBAR_HEIGHT + 24;
+            copilotPlaced = true;
+        }
         clampCopilot();
         copilotView.setVisible(true);
         copilotVisible = true;
