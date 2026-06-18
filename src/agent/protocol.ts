@@ -70,6 +70,8 @@ export interface ServerState {
     models: string[];
     context: { tokens: number; max: number };
     sessionId: string;
+    /** Bumped when an autonomous/scheduled run updates the transcript. */
+    uiVersion: number;
     sessions: SessionSummary[];
     settings: { humanize: number; pauseOnPresence: boolean; wpm: number };
     schedules: { id: string; label: string; when: string }[];

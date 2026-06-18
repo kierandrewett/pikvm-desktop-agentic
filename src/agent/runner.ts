@@ -164,10 +164,89 @@ export class AgentRunner {
 
     /* ----------------------------- scheduler ---------------------------- */
 
+    /** Notified (by the server) whenever an autonomous run updates the UI transcript. */
+    onUiChanged: (() => void) | undefined;
+
     /** Fired by the scheduler when a job is due. Skips if already busy. */
     private runScheduled(task: string, label: string): void {
         if (this.agent.state.isStreaming || this.pausedForUser) return;
-        void this.run(`[Scheduled task: ${label}] ${task}`);
+        void this.runAutonomous(task, label);
+    }
+
+    /**
+     * Run a task with no client stream attached (scheduled/autonomous), building
+     * the UI transcript ourselves and persisting it so the sidebar can show the
+     * full flow — screenshots, reasoning, tools — exactly like a normal turn.
+     */
+    private async runAutonomous(task: string, label: string): Promise<void> {
+        const imageOf = (r: any) => {
+            const c = r?.content;
+            const img = Array.isArray(c) ? c.find((x: any) => x?.type === "image" && x.data) : undefined;
+            return img ? { data: img.data, mimeType: img.mimeType ?? "image/jpeg" } : undefined;
+        };
+        const textOf = (r: any) =>
+            Array.isArray(r?.content)
+                ? r.content.filter((x: any) => x?.type === "text").map((x: any) => x.text).join(" ")
+                : "";
+
+        const base = this.sessions.loadUi(this.sessionId);
+        const trigger: any = { id: `u-${Date.now()}`, role: "user", parts: [{ type: "text", text: `⏰ Scheduled: ${label}` }] };
+        const assistant: any = { id: `a-${Date.now()}`, role: "assistant", parts: [] };
+        let curText: any = null;
+        let curThink: any = null;
+        const persist = () => {
+            this.sessions.saveUi(this.sessionId, [...base, trigger, assistant]);
+            this.onUiChanged?.();
+        };
+
+        const unsub = this.agent.subscribe((e: any) => {
+            if (e.type === "message_update") {
+                const ev = e.assistantMessageEvent;
+                if (!ev) return;
+                if (ev.type === "text_delta") {
+                    if (!curText) { curText = { type: "text", text: "" }; assistant.parts.push(curText); curThink = null; }
+                    curText.text += ev.delta ?? "";
+                    persist();
+                } else if (ev.type === "text_end") curText = null;
+                else if (ev.type === "thinking_delta") {
+                    if (!curThink) {
+                        curThink = { type: "data-thinking", data: { id: `t${assistant.parts.length}`, text: "" } };
+                        assistant.parts.push(curThink);
+                        curText = null;
+                    }
+                    curThink.data.text += ev.delta ?? "";
+                    persist();
+                } else if (ev.type === "thinking_end") {
+                    if (curThink) curThink.data.done = true;
+                    curThink = null;
+                }
+            } else if (e.type === "tool_execution_start") {
+                assistant.parts.push({ type: "dynamic-tool", toolName: e.toolName, state: "input-available", input: e.args });
+                curText = null;
+                curThink = null;
+                persist();
+            } else if (e.type === "tool_execution_end") {
+                const img = imageOf(e.result);
+                if (img && e.toolName === "screenshot") {
+                    assistant.parts.push({
+                        type: "data-screenshot",
+                        data: { toolCallId: e.toolCallId, src: `data:${img.mimeType};base64,${img.data}`, width: e.result?.details?.width ?? 0, height: e.result?.details?.height ?? 0 },
+                    });
+                }
+                const tp = [...assistant.parts].reverse().find((p: any) => p.type === "dynamic-tool" && p.toolName === e.toolName && p.state === "input-available");
+                if (tp) { tp.state = "output-available"; tp.output = { summary: textOf(e.result), isError: e.isError }; }
+                persist();
+            }
+        });
+
+        try {
+            await this.agent.prompt(`[Scheduled task: ${label}] ${task}`);
+        } catch {
+            /* ignore */
+        } finally {
+            unsub();
+            persist();
+        }
     }
 
     listSchedules(): Job[] {

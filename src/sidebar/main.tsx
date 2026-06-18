@@ -8,7 +8,7 @@
  */
 
 import { createRoot } from "react-dom/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Streamdown } from "streamdown";
@@ -537,14 +537,27 @@ function App() {
     }, []);
 
     // Restore the current session's transcript (with screenshots) on load.
-    useEffect(() => {
+    const loadTranscript = () =>
         fetch(BASE + "/api/sessions/current")
             .then((r) => r.json())
             .then((d) => {
-                if (Array.isArray(d.messages) && d.messages.length) setMessages(d.messages);
+                if (Array.isArray(d.messages)) setMessages(d.messages);
             })
             .catch(() => {});
+    useEffect(() => {
+        void loadTranscript();
     }, []);
+
+    // When an autonomous (scheduled) run updates the transcript, reload it so its
+    // flow shows in the sidebar — as long as the user isn't mid-conversation.
+    const seenUiVersion = useRef(0);
+    useEffect(() => {
+        const v = serverState?.uiVersion ?? 0;
+        if (v !== seenUiVersion.current) {
+            seenUiVersion.current = v;
+            if (status !== "streaming" && status !== "submitted") void loadTranscript();
+        }
+    }, [serverState?.uiVersion, status]);
 
     // Persist the transcript shortly after each change settles, so it survives restarts.
     useEffect(() => {
@@ -622,8 +635,9 @@ function App() {
         else void navigator.clipboard?.writeText(t);
     };
 
-    // Auto-grow the composer with its content (e.g. when pasting a big block).
-    useEffect(() => {
+    // Auto-grow the composer with its content. useLayoutEffect runs before paint
+    // (incl. on mount) so the box is sized correctly immediately — no snap on first keystroke.
+    useLayoutEffect(() => {
         const el = inputRef.current;
         if (!el) return;
         el.style.height = "auto";

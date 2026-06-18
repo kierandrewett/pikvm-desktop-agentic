@@ -83,6 +83,13 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
     // and presence changes can surface as data parts in real time.
     let activeWriter: Writer | undefined;
 
+    // Bumped whenever an autonomous (scheduled) run updates the saved transcript,
+    // so an idle sidebar knows to reload and show the flow.
+    let uiVersion = 0;
+    runner.onUiChanged = () => {
+        uiVersion++;
+    };
+
     // Pending authorization prompts awaiting an /api/approve response.
     const pendingAuth = new Map<string, (v: Verdict) => void>();
     reviewer.setPrompter((req) => {
@@ -113,6 +120,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         model: runner.getModelId(),
         models: runner.availableModels(),
         context: runner.contextInfo(),
+        uiVersion,
         sessionId: runner.currentSessionId(),
         sessions: runner.listSessions().map((s) => ({
             id: s.id,
