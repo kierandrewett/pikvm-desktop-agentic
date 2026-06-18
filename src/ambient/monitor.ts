@@ -36,6 +36,8 @@ export interface AmbientDeps {
         instruction: string,
         opts?: { model?: string; thinking?: "low" | "medium" | "high"; system?: string },
     ) => Promise<string>;
+    /** The live local meeting transcript (for the copilot). */
+    getTranscript?: () => string;
 }
 
 const TRIAGE_SYSTEM =
@@ -140,6 +142,12 @@ export class AmbientMonitor extends EventEmitter {
 
     private lastIdleTraceAt = 0;
 
+    // Live meeting copilot cadence.
+    private lastAssistAt = 0;
+    private lastAssistLen = -1;
+    private lastSuggestion = "";
+    private readonly ASSIST_INTERVAL_MS = 16000;
+
     constructor(private readonly deps: AmbientDeps) {
         super();
     }
@@ -175,7 +183,19 @@ export class AmbientMonitor extends EventEmitter {
     private async tick(): Promise<void> {
         const s = this.deps.settings();
         if (!s.enabled || this.busy) return;
-        // Surface idle reasons (throttled) so the console isn't silent.
+
+        // Meeting detection always runs while enabled — a meeting is worth helping
+        // with whenever it happens, regardless of the active-hours window.
+        this.evaluateMeeting(s);
+
+        // In a meeting → prioritise live copilot suggestions over screen triage.
+        if (this.inMeeting && s.meetingAssist) {
+            await this.maybeAssist(s);
+            return;
+        }
+
+        // Screen-change triage respects on-KVM + active hours. Surface idle reasons
+        // (throttled) so the console isn't silent.
         const idle = !this.deps.isOnKVM() ? "waiting — not on the KVM screen" : !withinActiveHours(s.activeHours, new Date()) ? "idle — outside active hours" : null;
         if (idle) {
             const now = Date.now();
@@ -185,9 +205,6 @@ export class AmbientMonitor extends EventEmitter {
             }
             return;
         }
-
-        // --- meeting detection (programmatic, off sustained presence) ---
-        this.evaluateMeeting(s);
 
         // --- screen-change detection (programmatic) ---
         const fp = this.deps.control.captureFingerprint ? await this.deps.control.captureFingerprint() : null;
@@ -296,6 +313,10 @@ export class AmbientMonitor extends EventEmitter {
     }
 
     private async onMeetingStart(s: AmbientSettings): Promise<void> {
+        // Fresh copilot cadence; first suggestion comes once some speech accrues.
+        this.lastAssistAt = Date.now();
+        this.lastAssistLen = -1;
+        this.lastSuggestion = "";
         const base: AmbientEvent = {
             id: nextId(),
             ts: Date.now(),
@@ -317,6 +338,9 @@ export class AmbientMonitor extends EventEmitter {
                 if (brief) {
                     base.detail = brief.slice(0, 600);
                     this.trace(`brief: ${brief.slice(0, 160)}`, "meeting");
+                    // Surface the brief in the live copilot card right away.
+                    this.emit("suggestion", { ts: Date.now(), text: brief.slice(0, 500) });
+                    this.lastSuggestion = brief.slice(0, 500);
                 }
                 base.thumb = `data:${frame.mimeType};base64,${frame.data}`;
             }
@@ -331,6 +355,43 @@ export class AmbientMonitor extends EventEmitter {
             this.trace(res.sent ? "🔔 pushed: meeting started" : `meeting push not sent (${res.reason ?? "?"})`, "notify");
         }
         this.emitEvent(base);
+    }
+
+    /**
+     * Live meeting copilot. Periodically (and when there's materially new
+     * transcript) ask the strong model for 1–2 short, immediately useful nudges
+     * based on the screen + what's being said. Emits "suggestion".
+     */
+    private async maybeAssist(s: AmbientSettings): Promise<void> {
+        const now = Date.now();
+        if (now - this.lastAssistAt < this.ASSIST_INTERVAL_MS) return;
+        const transcript = (this.deps.getTranscript?.() ?? "").trim();
+        // After the first pass, only re-assist when there's materially new speech.
+        if (this.lastAssistLen >= 0 && transcript.length - this.lastAssistLen < 40) return;
+        const frame = await this.grabFrame();
+        if (!frame) return;
+        this.lastAssistAt = now;
+        this.lastAssistLen = transcript.length;
+        this.busy = true;
+        try {
+            const ctx = transcript
+                ? `Live transcript so far (most recent at the end):\n"""${transcript.slice(-2400)}"""`
+                : "No transcript yet — base it on what's on screen.";
+            const prompt =
+                "You are my live meeting copilot and I'm in this meeting right now. From the screen and what's being said, give me AT MOST 2 SHORT, immediately useful nudges — a crisp answer to a question just asked, a sharp point to make, a fact/number to cite, or an action item to note. One line each, plain text, no preamble, no headers. If nothing is needed right now, reply with exactly: —\n\n" +
+                ctx;
+            const out = (await this.deps.quickLook(frame, prompt, { model: s.smartModel, thinking: "low" })).trim();
+            const clean = out.replace(/^[-—\s]+$/, "").trim();
+            const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+            const dup = norm(clean) === norm(this.lastSuggestion) || (this.lastSuggestion && norm(clean).startsWith(norm(this.lastSuggestion).slice(0, 60)));
+            if (clean && clean.toLowerCase() !== "nothing" && !dup) {
+                this.lastSuggestion = clean.slice(0, 500);
+                this.emit("suggestion", { ts: Date.now(), text: clean.slice(0, 500) });
+                this.trace(`💡 ${clean.replace(/\s+/g, " ").slice(0, 120)}`, "meeting");
+            }
+        } finally {
+            this.busy = false;
+        }
     }
 
     /* ------------------------------- testing ----------------------------- */

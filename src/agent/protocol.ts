@@ -110,6 +110,7 @@ export interface ServerState {
             triageModel: string;
         };
         transcript: string;
+        suggestions: { ts: number; text: string }[];
         events: AmbientEvent[];
     };
     /** Named secrets the agent can type but never see. Values are never sent. */

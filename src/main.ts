@@ -120,6 +120,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         settings: () => settings.get().ambient,
         isOnKVM: () => onKVM,
         quickLook: (image, instruction, opts) => runner.quickLook(image, instruction, opts),
+        getTranscript: () => transcriber.getTranscript(),
     });
     ambient.start();
 

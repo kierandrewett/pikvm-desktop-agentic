@@ -94,6 +94,16 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         ambientEvents.push(e);
         if (ambientEvents.length > 50) ambientEvents.splice(0, ambientEvents.length - 50);
     });
+    // Live meeting-copilot suggestions.
+    let ambientSuggestions: { ts: number; text: string }[] = [];
+    ambient.on("suggestion", (sug: { ts: number; text: string }) => {
+        ambientSuggestions.push(sug);
+        if (ambientSuggestions.length > 12) ambientSuggestions = ambientSuggestions.slice(-12);
+    });
+    // Clear stale suggestions when a meeting ends.
+    ambient.on("event", (e: AmbientEvent) => {
+        if (e.kind === "meeting-end") ambientSuggestions = [];
+    });
 
     // Active chat stream writer (present while a run streams) so reviewer prompts
     // and presence changes can surface as data parts in real time.
@@ -152,6 +162,7 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
                 activeHours: a.activeHours,
                 debug: ambient.getDebug(),
                 transcript: transcriber.getTranscript(),
+                suggestions: ambientSuggestions.slice(-6).reverse(),
                 events: ambientEvents.slice(-30).reverse(),
             };
         })(),
@@ -461,14 +472,17 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
             const onTrace = (t: unknown) => send(t);
             const onEvent = (e: AmbientEvent) => send({ ts: e.ts, level: "event", text: `${e.kind}: ${e.title}` });
             const onSeg = (text: string) => send({ ts: Date.now(), level: "transcript", text });
+            const onSug = (sug: { ts: number; text: string }) => send({ ts: sug.ts, level: "suggestion", text: sug.text });
             ambient.on("trace", onTrace);
             ambient.on("event", onEvent);
+            ambient.on("suggestion", onSug);
             transcriber.on("segment", onSeg);
             const ka = setInterval(() => res.write(": ping\n\n"), 15000);
             const cleanup = () => {
                 clearInterval(ka);
                 ambient.off("trace", onTrace);
                 ambient.off("event", onEvent);
+                ambient.off("suggestion", onSug);
                 transcriber.off("segment", onSeg);
             };
             req.on("close", cleanup);
