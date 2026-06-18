@@ -45,9 +45,17 @@ const DEFAULT_MODEL = "gpt-5.5";
 /** Model sub-agents use for hard thinking / deep work. */
 const SUBAGENT_MODEL = "gpt-5.5";
 
+/**
+ * Tools the meeting copilot may use. READ-ONLY + cognitive ONLY — it observes
+ * (screen/transcript), researches (web/memory), and notifies the user. It can
+ * NEVER touch the mouse/keyboard or otherwise actuate the target machine. This is
+ * enforced three ways: this allowlist, a beforeToolCall hard-block, and the prompt.
+ */
+const READ_ONLY_MEETING_TOOLS = new Set(["screenshot", "read_transcript", "web_search", "fetch_url", "recall", "remember", "search_conversations", "notify_user"]);
+
 const MEETING_PROMPT = [
     "You are a live meeting copilot embedded on the user's screen during a real meeting happening RIGHT NOW.",
-    "You can see the screen (screenshot), read the live transcript (read_transcript), search the web (web_search/fetch_url), and recall/remember notes (recall/remember/search_conversations).",
+    "YOU ARE STRICTLY READ-ONLY. You can OBSERVE the screen (screenshot) and the live transcript (read_transcript), RESEARCH (web_search/fetch_url), and recall/remember notes (recall/remember/search_conversations). You CANNOT and MUST NOT control the mouse or keyboard, click, type, or take ANY action on the machine — you only watch and advise. If something needs doing, tell the user via `suggest`; never attempt it yourself.",
     "Your job: genuinely help the user in the moment. When something high-value comes up — a question you can answer, a claim worth verifying, a strong point to make, a number/fact to cite, or an action item — do any quick research first, then call `suggest` with a SHORT (1–2 line) nudge.",
     "Be a real assistant, not a narrator: USE your tools when they make the help materially better (e.g. web_search to check a figure, recall to pull prior context about a person/project). Don't ask permission — just do the research and suggest.",
     "Most of the time, stay silent — only surface non-obvious, immediately useful help. Never call `suggest` with filler, summaries of the obvious, or 'you could say hello'. Quality over quantity.",
@@ -509,8 +517,7 @@ export class AgentRunner {
             },
         };
         // Read-only + cognitive tools only — never actuate the machine mid-meeting.
-        const allowed = new Set(["screenshot", "read_transcript", "web_search", "fetch_url", "recall", "remember", "search_conversations", "notify_user"]);
-        const tools: AgentTool<any>[] = [...this.toolsForSub.filter((t) => allowed.has(t.name)), suggest as AgentTool<any>];
+        const tools: AgentTool<any>[] = [...this.toolsForSub.filter((t) => READ_ONLY_MEETING_TOOLS.has(t.name)), suggest as AgentTool<any>];
         const agent = new Agent({
             initialState: { systemPrompt: MEETING_PROMPT, model: this.subModel, thinkingLevel: "low", tools },
             getApiKey: async () => {
@@ -521,6 +528,13 @@ export class AgentRunner {
                 }
             },
             sessionId: `pikvm-meeting-${Date.now()}`,
+            // Hard guarantee: block anything that isn't a read-only/cognitive tool,
+            // even if the tool list ever changes. The copilot can never act on the KVM.
+            beforeToolCall: async (ctx: any) => {
+                const name = ctx?.toolCall?.name;
+                if (name === "suggest" || READ_ONLY_MEETING_TOOLS.has(name)) return undefined;
+                return { block: true, reason: "The meeting copilot is read-only and cannot control the machine." };
+            },
         });
         agent.subscribe((e: any) => {
             if (e.type === "tool_execution_start" && e.toolName && e.toolName !== "suggest") {
