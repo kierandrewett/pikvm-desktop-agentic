@@ -652,6 +652,27 @@ function App() {
         return () => clearInterval(id);
     }, []);
 
+    // A prompt only shows once the server confirms it's pending (via /api/state).
+    // When one streams into the transcript, refresh immediately so there's no
+    // poll-latency gap before the card appears.
+    const lastAuthId = useRef<string | null>(null);
+    useEffect(() => {
+        let latest: string | null = null;
+        outer: for (let mi = messages.length - 1; mi >= 0; mi--) {
+            const parts = (messages[mi] as any).parts ?? [];
+            for (let pi = parts.length - 1; pi >= 0; pi--) {
+                if (parts[pi].type === "data-auth") {
+                    latest = parts[pi].data.request.id;
+                    break outer;
+                }
+            }
+        }
+        if (latest && latest !== lastAuthId.current) {
+            lastAuthId.current = latest;
+            refreshState();
+        }
+    }, [messages]);
+
     // Restore the current session's transcript (with screenshots) on load.
     const loadTranscript = () =>
         fetch(BASE + "/api/sessions/current")
@@ -702,10 +723,11 @@ function App() {
             }
         }
         if (!candidate || decided.has(candidate.id)) return null;
-        const live = serverState?.pendingAuthIds ?? [];
-        const streaming = status === "streaming" || status === "submitted";
-        return live.includes(candidate.id) || streaming ? candidate : null;
-    }, [messages, decided, serverState?.pendingAuthIds, status]);
+        // Show ONLY if the server is genuinely still blocked on this exact request.
+        // (Don't fall back to "is streaming" — that resurfaces a stale prompt the
+        // moment a new run starts.)
+        return (serverState?.pendingAuthIds ?? []).includes(candidate.id) ? candidate : null;
+    }, [messages, decided, serverState?.pendingAuthIds]);
     const addImageFiles = (files: File[]) => {
         for (const f of files) {
             if (!f.type.startsWith("image/")) continue;
@@ -969,8 +991,7 @@ function App() {
                                         return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
                                     if (p.type === "data-auth") {
                                         const req: AuthRequest = p.data.request;
-                                        const livePending =
-                                            (serverState?.pendingAuthIds ?? []).includes(req.id) || status === "streaming" || status === "submitted";
+                                        const livePending = (serverState?.pendingAuthIds ?? []).includes(req.id);
                                         if (decided.has(req.id) || !livePending)
                                             return (
                                                 <div key={i} className="flex items-center gap-1.5 text-[11px] italic text-muted-foreground">
