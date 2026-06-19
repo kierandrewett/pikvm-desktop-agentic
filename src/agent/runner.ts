@@ -46,6 +46,14 @@ const DEFAULT_MODEL = "gpt-5.5";
 const SUBAGENT_MODEL = "gpt-5.5";
 /** Cheap model for naming conversations (titles refresh as the chat shifts). */
 const TITLE_MODEL = "gpt-5.4-mini";
+/** Cheap model for recognising the foreground app + sensitive contexts. */
+const CONTEXT_MODEL = "gpt-5.4-mini";
+const CONTEXT_SYSTEM =
+    'You identify the foreground application/window on a screen and whether the CURRENT focus is a SENSITIVE area - one where an accidental click or keypress could send/post something or be hard to undo: a chat or message compose box or its Send/Reply button (Microsoft Teams, Slack, Discord, WhatsApp, Outlook/Gmail compose), a social-media post box, a Submit/Post/Pay/Confirm button, a checkout/payment field, or a terminal/command prompt. Normal navigation, reading, menus, file browsers and form fields that only stage input are NOT sensitive. Reply with ONLY compact JSON: {"app":"<short app or window name>","sensitive":true|false,"reason":"<at most 8 words>"}.';
+/** Tools that actuate input on the target (gated harder in sensitive areas). */
+const INPUT_ACTIONS = new Set(["click", "double_click", "drag", "type_text", "type_secret", "press_key", "hotkey"]);
+/** How long a context assessment stays fresh before we re-look. */
+const CONTEXT_TTL_MS = 12_000;
 const TITLE_SYSTEM =
     "You name conversations. Given a transcript between a user and a computer-use agent driving a remote PC, reply with a SHORT title (3 to 6 words, Title Case, no quotes, no trailing punctuation) describing what the conversation is CURRENTLY about. If the focus has shifted, name the current focus. Output ONLY the title.";
 
@@ -112,7 +120,7 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "Only your most recent screenshots stay visible; older ones appear as placeholders with an id (e.g. s4). If you need to recover an earlier state, call `view_screenshot` with that id to see it again.",
         "Work in small, verifiable steps. If something looks wrong, stop and re-observe rather than guessing.",
         "LEAVE NO TRACE: when you finish, tidy up after yourself — close any windows, dialogs, terminals or apps you opened (e.g. winver/About, Run, command prompts, settings panes), discard scratch text you typed, and return the screen roughly to how you found it. Do not close windows the user already had open.",
-        "APPROVAL: before ANY action that other people would see or experience, call `request_approval` with a short description and WAIT for the user's decision before doing it. This includes: sending an email, message, chat or DM; joining or starting a meeting/call; posting or commenting; submitting a form; replying or forwarding; sharing; editing or saving a shared/cloud document; accepting/declining invites; making a purchase; or anything with an outward side effect. Also pause before destructive/irreversible actions (deleting data, rebooting, privileged commands). Reading, navigating, searching and drafting (without sending) do NOT need approval.",
+        "APPROVAL: before ANY action that other people would see or experience, call `request_approval` with a short description and WAIT for the user's decision before doing it. This includes: sending an email, message, chat or DM; joining or starting a meeting/call; posting or commenting; submitting a form; replying or forwarding; sharing; editing or saving a shared/cloud document; accepting/declining invites; making a purchase; or anything with an outward side effect. Also pause before destructive/irreversible actions (deleting data, rebooting, privileged commands). Reading, navigating, searching and drafting (without sending) do NOT need approval. The app you are in is recognised automatically, and acting inside a SENSITIVE area (a chat/message compose box or Send button — Teams, Slack, email — a Post/Submit/Pay button, or a terminal) will require the user's approval even for a click or keypress; expect that and do not fight it. When you are in such a place, prefer to draft and then ask.",
         "",
         "You also have cognitive tools: `web_search`/`fetch_url` for the internet, `remember`/`recall` for long-term memory across sessions, `search_conversations` to look up past sessions, `list_skills`/`use_skill` for reusable playbooks, and `spawn_subagent` to delegate a focused side-task to a fresh sub-agent.",
         "PREFER RESEARCHING IN THE TARGET'S BROWSER. For real web research, open the browser ON THE KVM and search there (you get better, current, logged-in results, and can click into pages, scroll and read the actual content) — drive it like a person: focus/open the browser, type the query, press Enter, then `screenshot`/`ocr` to read the results, and open the best result to read it properly. Use `web_search`/`fetch_url` only as a quick fallback when driving the browser is not worth it. See the `web-research` skill.",
@@ -848,6 +856,51 @@ export class AgentRunner {
         }
     }
 
+    /* ----------------------- sensitive-context watch -------------------- */
+
+    private sensCtx: { app: string; sensitive: boolean; reason: string; at: number } | null = null;
+    private sensInflight: Promise<void> | null = null;
+
+    /** Cheap LLM look at the current frame: foreground app + whether the focus is
+     *  a sensitive area. Cached for CONTEXT_TTL_MS; coalesces concurrent calls. */
+    private async assessContext(): Promise<void> {
+        if (this.sensInflight) return this.sensInflight;
+        this.sensInflight = (async () => {
+            try {
+                const shot = await this.deps.control.screenshot();
+                const raw = await this.quickLook(
+                    { data: shot.base64, mimeType: shot.mimeType },
+                    "Classify the current screen now. Output only the JSON.",
+                    { model: CONTEXT_MODEL, system: CONTEXT_SYSTEM },
+                );
+                const parsed = this.parseContext(raw);
+                if (parsed) this.sensCtx = { ...parsed, at: Date.now() };
+            } catch {
+                /* keep the previous assessment */
+            } finally {
+                this.sensInflight = null;
+            }
+        })();
+        return this.sensInflight;
+    }
+
+    private parseContext(raw: string): { app: string; sensitive: boolean; reason: string } | null {
+        try {
+            const m = raw.match(/\{[\s\S]*\}/);
+            if (!m) return null;
+            const j = JSON.parse(m[0]);
+            return { app: String(j.app ?? "").slice(0, 40), sensitive: j.sensitive === true, reason: String(j.reason ?? "").slice(0, 60) };
+        } catch {
+            return null;
+        }
+    }
+
+    /** Foreground/sensitivity for the current screen, refreshing if stale. */
+    private async currentContext(): Promise<{ app: string; sensitive: boolean; reason: string } | null> {
+        if (!this.sensCtx || Date.now() - this.sensCtx.at > CONTEXT_TTL_MS) await this.assessContext();
+        return this.sensCtx;
+    }
+
     /** Presence + reviewer gate for every agent tool call. */
     private async gate(tool: string, args: unknown, signal?: AbortSignal) {
         // 1. Yield while the user is present (mic/audio active).
@@ -856,8 +909,22 @@ export class AgentRunner {
         } catch {
             return { block: true, reason: "Aborted while paused for user presence." };
         }
+        // The agent screenshots before acting, which is exactly when the screen
+        // (and thus the context) likely changed - invalidate so the next input
+        // action re-assesses against the fresh view.
+        if (tool === "screenshot") this.sensCtx = null;
         // 2. Authorization.
         const op: Operation = { tool, args: (args as Record<string, unknown>) ?? {}, source: "agent" };
+        // 2a. For input actions, recognise the app and flag sensitive areas (chat
+        // compose boxes, Send buttons, terminals) so they require approval.
+        if (INPUT_ACTIONS.has(tool)) {
+            try {
+                const ctx = await this.currentContext();
+                if (ctx?.sensitive) op.sensitive = { reason: ctx.reason || "sensitive area", ...(ctx.app ? { app: ctx.app } : {}) };
+            } catch {
+                /* detection is best-effort; never block input on it failing */
+            }
+        }
         const verdict = await this.deps.reviewer.review(op);
         if (verdict.decision === "allow") return undefined;
         if (verdict.decision === "redirect") {

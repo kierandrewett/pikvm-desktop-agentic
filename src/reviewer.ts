@@ -27,6 +27,12 @@ export interface Operation {
     source: "agent" | "mcp";
     /** Optional human label for the timeline. */
     label?: string;
+    /**
+     * Set when this input action lands in a SENSITIVE part of an app (a chat
+     * compose box, a Send button, a terminal, ...): forces an approval prompt so
+     * the agent can't blindly click/type somewhere an accident has consequences.
+     */
+    sensitive?: { reason: string; app?: string };
 }
 
 export interface Verdict {
@@ -112,6 +118,13 @@ export class OperationReviewer extends EventEmitter {
             return { risky: true, reason: String(op.args.action ?? "an action others would see") };
         }
 
+        // Acting inside a sensitive area (chat box, Send button, terminal, ...)
+        // is risky regardless of what the action itself looks like.
+        if (op.sensitive) {
+            const where = op.sensitive.app ? ` in ${op.sensitive.app}` : "";
+            return { risky: true, reason: `Sensitive area${where}: ${op.sensitive.reason}` };
+        }
+
         const text = this.textOf(op);
         if (text) {
             for (const { re, reason } of DANGEROUS_PATTERNS) {
@@ -143,6 +156,9 @@ export class OperationReviewer extends EventEmitter {
     }
 
     private kindOf(op: Operation): string {
+        // Sensitive ops key their always-allow per app, so "always allow" means
+        // "stop asking while I work in this app" - not "stop asking everywhere".
+        if (op.sensitive) return `sensitive:${op.sensitive.app ?? "area"}`;
         // Coarse: tool name is enough for "always allow this kind of action".
         return op.tool;
     }
@@ -202,6 +218,9 @@ export class OperationReviewer extends EventEmitter {
         // An explicit approval request always prompts, whatever the policy.
         if (op.tool === "request_approval") return true;
         if (this.alwaysAllow.has(kind)) return false;
+        // Sensitive areas always prompt (even under autorun-trusted) unless the
+        // user has chosen to always-allow this app for the session (handled above).
+        if (op.sensitive) return true;
         switch (this.policy) {
             case "review-all":
                 return true;
