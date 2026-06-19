@@ -23,10 +23,13 @@ import {
     ChevronLeft,
     ChevronRight,
     Copy,
+    Download,
     History,
     Clock,
     Globe,
     Keyboard,
+    Mic,
+    Volume2,
     Lock,
     MousePointerClick,
     Move,
@@ -494,6 +497,45 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
     useEffect(() => {
         void loadMeetings();
     }, [amb?.inMeeting]); // refresh when a meeting ends
+    // Live transcript: status + timestamped segments, with copy/export + manual toggle.
+    const ts = amb?.transcriptStatus;
+    const segs = amb?.transcriptSegments ?? [];
+    const transcriptRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = transcriptRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+    }, [segs.length]);
+    const transcribing = !!ts && ts.state !== "idle";
+    const relTime = (t: number) => {
+        const base = ts?.startedAt && ts.startedAt > 0 ? ts.startedAt : segs[0]?.ts ?? t;
+        const s = Math.max(0, Math.floor((t - base) / 1000));
+        return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    };
+    const copyTranscript = () => {
+        const txt = segs.map((s) => s.text).join("\n");
+        if (txt) void navigator.clipboard?.writeText(txt).catch(() => {});
+    };
+    const exportTranscript = () => {
+        const txt = segs.map((s) => `[${relTime(s.ts)}] ${s.text}`).join("\n");
+        if (!txt) return;
+        const blob = new Blob([txt], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `transcript-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.txt`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    const sttWarn = ts && (ts.state === "no-whisper" || ts.state === "no-ffmpeg" || ts.state === "no-audio");
+    const sttTone: Record<string, string> = {
+        "no-whisper": "text-destructive",
+        "no-ffmpeg": "text-destructive",
+        "no-audio": "text-amber-500",
+        "downloading-model": "text-sky-500",
+        listening: "text-muted-foreground",
+        transcribing: "text-emerald-500",
+        idle: "text-muted-foreground",
+    };
     return (
         <Modal onClose={onClose} wide>
             <div className="flex items-center justify-between border-b p-3 font-semibold">
@@ -532,13 +574,54 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
                     </div>
                 )}
             </div>
-            {amb?.inMeeting && amb?.transcribe && (
+            {(amb?.transcribe || transcribing) && (
                 <div className="border-b bg-muted/20 px-3 py-2">
-                    <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                        <span className="size-1.5 animate-pulse rounded-full bg-red-500" /> Live transcript
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium">
+                        <span className={cn("size-1.5 rounded-full bg-red-500", ts?.state === "transcribing" && "animate-pulse")} />
+                        <span className="text-muted-foreground">Live transcript</span>
+                        {ts?.mic && (
+                            <span className="ml-1 inline-flex items-center gap-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground">
+                                <Mic className="size-2.5" /> mic
+                            </span>
+                        )}
+                        {ts?.remote && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-muted px-1 text-[9px] text-muted-foreground">
+                                <Volume2 className="size-2.5" /> remote
+                            </span>
+                        )}
+                        <div className="ml-auto flex items-center gap-1">
+                            <button title="Copy transcript" onClick={copyTranscript} disabled={!segs.length} className="text-muted-foreground hover:text-foreground disabled:opacity-40">
+                                <Copy className="size-3" />
+                            </button>
+                            <button title="Export as .txt" onClick={exportTranscript} disabled={!segs.length} className="text-muted-foreground hover:text-foreground disabled:opacity-40">
+                                <Download className="size-3" />
+                            </button>
+                            <button
+                                title={transcribing ? "Stop listening" : "Start listening"}
+                                onClick={() => post("/api/ambient/transcribe", { on: !transcribing })}
+                                className={cn("ml-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium", transcribing ? "bg-red-500/15 text-red-500 hover:bg-red-500/25" : "bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25")}
+                            >
+                                {transcribing ? "Stop" : "Start"}
+                            </button>
+                        </div>
                     </div>
-                    <div className="max-h-28 overflow-auto whitespace-pre-wrap text-[12px] leading-snug">
-                        {amb.transcript?.trim() || <span className="text-muted-foreground">Listening…</span>}
+                    {ts && ts.state !== "listening" && ts.state !== "transcribing" && (
+                        <div className={cn("mb-1.5 flex items-start gap-1.5 rounded-md border px-2 py-1 text-[11px] leading-snug", sttWarn ? "border-amber-500/30 bg-amber-500/10" : "border-border bg-muted/40", sttTone[ts.state])}>
+                            {sttWarn ? <AlertTriangle className="mt-0.5 size-3 shrink-0" /> : <Clock className="mt-0.5 size-3 shrink-0" />}
+                            <span>{ts.detail}</span>
+                        </div>
+                    )}
+                    <div ref={transcriptRef} className="max-h-48 overflow-auto text-[12px] leading-snug">
+                        {segs.length === 0 ? (
+                            <span className="text-muted-foreground">{ts?.detail ?? "Listening…"}</span>
+                        ) : (
+                            segs.map((s, i) => (
+                                <div key={i} className="flex gap-2">
+                                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/60">{relTime(s.ts)}</span>
+                                    <span className="min-w-0 break-words">{s.text}</span>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             )}

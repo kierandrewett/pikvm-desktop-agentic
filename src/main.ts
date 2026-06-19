@@ -485,6 +485,15 @@ function createWindow() {
             /* ignore malformed chunk */
         }
     });
+    // The renderer reports which audio sources it tapped (mic / remote) so the
+    // transcriber's status can explain a stuck "Listening…".
+    ipcMain.on("kvm:audio-status", (_, s: { mic?: boolean; remote?: boolean; error?: string | null }) => {
+        agentBackend.transcriber.setCaptureStatus(s ?? {});
+    });
+    // Manual transcription toggle (server endpoint) → drive renderer capture.
+    agentBackend.transcriber.on("capture", (on: boolean) => {
+        mainView.webContents.send(on ? "kvm:transcribe-start" : "kvm:transcribe-stop");
+    });
     agentBackend.ambient.on("event", (e: { kind: string }) => {
         if (e.kind === "meeting-start") {
             if (copilotHideTimer) {

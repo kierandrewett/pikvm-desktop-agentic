@@ -205,6 +205,8 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 activeHours: a.activeHours,
                 debug: ambient.getDebug(),
                 transcript: transcriber.getTranscript(),
+                transcriptStatus: transcriber.getStatus(),
+                transcriptSegments: transcriber.getSegments(80),
                 suggestions: ambientSuggestions.slice(-6).reverse(),
                 events: ambientEvents.slice(-30).reverse(),
             };
@@ -548,6 +550,21 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         if (path === "/api/ambient/clear" && req.method === "POST") {
             ambientEvents.length = 0;
             return json(res, 200, state());
+        }
+        // Manual start/stop of meeting transcription, independent of auto-detection.
+        if (path === "/api/ambient/transcribe" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                let on = false;
+                try {
+                    on = !!JSON.parse(b || "{}").on;
+                } catch {
+                    /* default off */
+                }
+                if (on) transcriber.clear();
+                transcriber.setCapturing(on);
+                return json(res, 200, state());
+            });
+            return;
         }
         // Past meetings log.
         if (path === "/api/meetings" && req.method === "GET") return json(res, 200, { meetings: meetingLog.list() });

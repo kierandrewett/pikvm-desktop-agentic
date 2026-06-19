@@ -128,6 +128,19 @@ export interface ServerState {
             triageModel: string;
         };
         transcript: string;
+        /** Live transcription status — why there is/isn't text yet, and which sources are tapped. */
+        transcriptStatus: {
+            state: "idle" | "no-whisper" | "no-node" | "no-ffmpeg" | "downloading-model" | "no-audio" | "listening" | "transcribing";
+            detail: string;
+            mic: boolean;
+            remote: boolean;
+            captureError: string | null;
+            segmentCount: number;
+            lastSegmentAt: number;
+            startedAt: number;
+        };
+        /** Recent timestamped transcript lines for the UI. */
+        transcriptSegments: { ts: number; text: string }[];
         suggestions: { ts: number; text: string }[];
         events: AmbientEvent[];
     };

@@ -71,15 +71,26 @@ contextBridge.exposeInMainWorld("kvm", {
                 ipcRenderer.send("kvm-stream-data", data);
             } else if (typeof e.data === "string" && e.data.startsWith("kvm:audio-chunk::")) {
                 ipcRenderer.send("kvm:audio-chunk", e.data.slice("kvm:audio-chunk::".length));
+            } else if (typeof e.data === "string" && e.data.startsWith("kvm:audio-status::")) {
+                try {
+                    ipcRenderer.send("kvm:audio-status", JSON.parse(e.data.slice("kvm:audio-status::".length)));
+                } catch {}
             }
         });
 
-        // Meeting transcription: tap the live audio element and ship complete ~10s
-        // WebM blobs out to main (→ ffmpeg → local whisper). Toggled by the ambient
-        // monitor when a meeting starts/ends.
+        // Meeting transcription: mix the user's local mic with the PiKVM playback
+        // audio and ship complete ~10s WebM blobs out to main (→ ffmpeg → local
+        // whisper). Reports which sources it tapped via "kvm:audio-status" so the UI
+        // can say WHY there's no transcript instead of a permanent "Listening…".
+        // Toggled by the ambient monitor (or the manual toggle) on meeting start/end.
         const captureAudio = (en?: boolean) => {
             const KEY = "_pikvmStt";
             const g = globalThis as any;
+            const postStatus = (s: any) => {
+                try {
+                    window.postMessage("kvm:audio-status::" + JSON.stringify(s), "*");
+                } catch {}
+            };
             if (!en) {
                 const s = g[KEY];
                 if (s) {
@@ -87,15 +98,24 @@ contextBridge.exposeInMainWorld("kvm", {
                     try {
                         if (s.rec && s.rec.state !== "inactive") s.rec.stop();
                     } catch {}
+                    try {
+                        s.micStream && s.micStream.getTracks().forEach((t: any) => t.stop());
+                    } catch {}
+                    try {
+                        s.ctx && s.ctx.close();
+                    } catch {}
                     clearTimeout(s.timer);
                     g[KEY] = null;
                 }
+                postStatus({ mic: false, remote: false, error: null });
                 return;
             }
             if (g[KEY]) return;
-            const state: any = { stop: false, rec: null, timer: null };
+            const state: any = { stop: false, rec: null, timer: null, micStream: null, ctx: null };
             g[KEY] = state;
-            const findStream = () => {
+
+            // The remote machine's audio, played back into an <audio>/<video> element.
+            const findRemote = (): any => {
                 const els = Array.from(document.querySelectorAll("audio,video")) as any[];
                 for (const el of els) {
                     try {
@@ -112,18 +132,56 @@ contextBridge.exposeInMainWorld("kvm", {
                 }
                 return null;
             };
-            const cycle = () => {
-                if (state.stop) return;
-                const stream = findStream();
-                if (!stream) {
-                    state.timer = setTimeout(cycle, 3000);
-                    return;
+
+            // The local mic — usually the same device PiKVM already transmits, so it's
+            // typically pre-authorised. Non-fatal if denied: we fall back to remote audio.
+            let micError: string | null = null;
+            const getMic = async (): Promise<any> => {
+                try {
+                    if (!navigator.mediaDevices?.getUserMedia) return null;
+                    return await navigator.mediaDevices.getUserMedia({
+                        audio: { echoCancellation: true, noiseSuppression: true } as any,
+                    });
+                } catch (e: any) {
+                    micError = e?.name === "NotAllowedError" ? "Microphone permission denied." : null;
+                    return null;
                 }
+            };
+
+            // Mix whatever sources we have into one mono stream for the recorder.
+            const buildMixed = (remote: any): { stream: any; mic: boolean; remote: boolean } => {
+                const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+                if (!Ctx) return { stream: remote, mic: false, remote: !!remote };
+                const ctx = new Ctx();
+                state.ctx = ctx;
+                const dest = ctx.createMediaStreamDestination();
+                let mic = false;
+                let rem = false;
+                if (state.micStream && state.micStream.getAudioTracks().length) {
+                    try {
+                        ctx.createMediaStreamSource(state.micStream).connect(dest);
+                        mic = true;
+                    } catch {}
+                }
+                if (remote && remote.getAudioTracks().length) {
+                    try {
+                        ctx.createMediaStreamSource(remote).connect(dest);
+                        rem = true;
+                    } catch {}
+                }
+                return { stream: dest.stream, mic, remote: rem };
+            };
+
+            const recordOnce = (mixed: { stream: any; mic: boolean; remote: boolean }) => {
                 let chunks: any[] = [];
                 let rec: any;
                 try {
-                    rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+                    rec = new MediaRecorder(mixed.stream, { mimeType: "audio/webm" });
                 } catch {
+                    try {
+                        state.ctx && state.ctx.close();
+                        state.ctx = null;
+                    } catch {}
                     state.timer = setTimeout(cycle, 5000);
                     return;
                 }
@@ -132,6 +190,10 @@ contextBridge.exposeInMainWorld("kvm", {
                     if (ev.data && ev.data.size) chunks.push(ev.data);
                 };
                 rec.onstop = () => {
+                    try {
+                        state.ctx && state.ctx.close();
+                        state.ctx = null;
+                    } catch {}
                     const blob = new Blob(chunks, { type: "audio/webm" });
                     chunks = [];
                     if (blob.size > 2000) {
@@ -151,7 +213,28 @@ contextBridge.exposeInMainWorld("kvm", {
                     } catch {}
                 }, 10000);
             };
-            cycle();
+
+            const cycle = async () => {
+                if (state.stop) return;
+                if (!state.micStream && !micError) state.micStream = await getMic();
+                const remote = findRemote();
+                const mixed =
+                    state.micStream || remote
+                        ? buildMixed(remote)
+                        : { stream: null, mic: false, remote: false };
+                if (!mixed.mic && !mixed.remote) {
+                    try {
+                        state.ctx && state.ctx.close();
+                        state.ctx = null;
+                    } catch {}
+                    postStatus({ mic: false, remote: false, error: micError });
+                    state.timer = setTimeout(cycle, 3000);
+                    return;
+                }
+                postStatus({ mic: mixed.mic, remote: mixed.remote, error: null });
+                recordOnce(mixed);
+            };
+            void cycle();
         };
         ipcRenderer.on("kvm:transcribe-start", () => inject(captureAudio, true));
         ipcRenderer.on("kvm:transcribe-stop", () => inject(captureAudio, false));
