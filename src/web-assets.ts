@@ -1,9 +1,11 @@
 /**
  * Web assets bolted onto the proxied PiKVM pages.
  *
- * `htmlInjection()` returns the markup spliced into proxied HTML before </head>.
- * `serve()` serves our own bundle under `/_agent/...`. Phase 1 only injects a
- * mobile viewport; Phase 2 adds the agent UI bundle + mount container.
+ * `htmlInjection()` returns markup spliced into proxied HTML (head + body).
+ * `serve()` serves our own bundle under `/_agent/...` (sidebar.html/js/css).
+ *
+ * The agent UI runs in a same-origin iframe so its Tailwind/React tree stays
+ * isolated from the PiKVM page. A floating button toggles a slide-in panel.
  */
 
 import { readFileSync, existsSync, statSync } from "node:fs";
@@ -28,10 +30,52 @@ function asset(file: string): string | null {
     return p;
 }
 
+// The agent UI is hosted in a same-origin iframe (pointing at our own
+// /_agent/sidebar.html) so its Tailwind CSS and React tree are fully isolated
+// from the PiKVM page we inject into. A floating button toggles a slide-in panel
+// that is a docked sidebar on desktop and a full-screen sheet on mobile.
+const HEAD_INJECT = '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" data-pikvm-agent>';
+
+const BODY_INJECT = `
+<style data-pikvm-agent>
+  #pikvm-agent-host{position:fixed;top:0;right:0;height:100%;width:min(440px,100vw);transform:translateX(105%);
+    transition:transform .22s cubic-bezier(.2,0,0,1);z-index:2147483000;background:#0b0d12;
+    box-shadow:-10px 0 40px rgba(0,0,0,.5);display:flex;flex-direction:column}
+  #pikvm-agent-host.open{transform:none}
+  #pikvm-agent-frame{flex:1;width:100%;height:100%;border:0;display:block;background:#0b0d12}
+  #pikvm-agent-fab{position:fixed;bottom:max(16px,env(safe-area-inset-bottom));right:16px;width:52px;height:52px;
+    border-radius:50%;border:0;cursor:pointer;z-index:2147483001;display:flex;align-items:center;justify-content:center;
+    color:#fff;background:#3b6ef0;box-shadow:0 6px 20px rgba(0,0,0,.45);-webkit-tap-highlight-color:transparent}
+  #pikvm-agent-fab svg{width:24px;height:24px}
+  @media (max-width:640px){#pikvm-agent-host{width:100vw}}
+</style>
+<div id="pikvm-agent-host" aria-hidden="true"></div>
+<button id="pikvm-agent-fab" type="button" aria-label="Toggle agent" title="Agent">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/><circle cx="18" cy="17" r="2.4"/></svg>
+</button>
+<script data-pikvm-agent>(function(){
+  if (window.top !== window.self) return; // never inject inside our own iframe
+  var host=document.getElementById('pikvm-agent-host');
+  var fab=document.getElementById('pikvm-agent-fab');
+  var loaded=false;
+  function toggle(){
+    var open=host.classList.toggle('open');
+    host.setAttribute('aria-hidden', open?'false':'true');
+    if(open && !loaded){
+      var f=document.createElement('iframe');
+      f.id='pikvm-agent-frame'; f.title='Agent'; f.src='/_agent/sidebar.html';
+      host.appendChild(f); loaded=true;
+    }
+  }
+  fab.addEventListener('click',toggle);
+})();</script>
+`;
+
 export const webAssets = {
-    /** Markup injected into proxied HTML (mobile viewport for now). */
-    htmlInjection(): string {
-        return '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" data-pikvm-agent>';
+    /** Markup injected into proxied HTML: head (viewport) + body (agent UI). */
+    htmlInjection(): { head: string; body: string } {
+        return { head: HEAD_INJECT, body: BODY_INJECT };
     },
 
     /** Serve `/_agent/<file>`; returns true if handled. */

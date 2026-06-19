@@ -21,8 +21,8 @@ import type { PiKvmControl } from "./pikvm-control";
 
 export interface ProxyDeps {
     control: PiKvmControl;
-    /** Markup injected before </head> of proxied HTML pages (our UI + viewport). */
-    htmlInjection: () => string;
+    /** Markup spliced into proxied HTML: `head` before </head>, `body` before </body>. */
+    htmlInjection: () => { head: string; body: string };
 }
 
 /** Rewrite a Set-Cookie so it binds to OUR origin, not the Pi's. */
@@ -31,6 +31,11 @@ function rewriteSetCookie(value: string, secureConnection: boolean): string {
     if (!secureConnection) out = out.replace(/;\s*Secure/gi, "");
     return out;
 }
+
+// Hop-by-hop headers must not be forwarded (RFC 7230). Forwarding
+// transfer-encoding alongside a content-length we set produces an illegal,
+// unparseable response.
+const HOP_BY_HOP = ["connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-authenticate", "proxy-authorization"];
 
 /** If the Pi sent an absolute redirect back to itself, keep the client on us. */
 function rewriteLocation(location: string, target: URL): string {
@@ -68,6 +73,7 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             (proxyRes) => {
                 const status = proxyRes.statusCode ?? 502;
                 const headers: OutgoingHttpHeaders = { ...proxyRes.headers };
+                for (const h of HOP_BY_HOP) delete headers[h];
                 const secure = (req.socket as { encrypted?: boolean }).encrypted === true;
 
                 if (headers["set-cookie"]) {
@@ -92,10 +98,13 @@ export function createPiKvmProxy(deps: ProxyDeps) {
                 proxyRes.on("end", () => {
                     let body = Buffer.concat(chunks).toString("utf8");
                     const inject = deps.htmlInjection();
-                    if (inject) {
-                        if (body.includes("</head>")) body = body.replace("</head>", `${inject}</head>`);
-                        else if (body.includes("</body>")) body = body.replace("</body>", `${inject}</body>`);
-                        else body += inject;
+                    if (inject.head) {
+                        if (body.includes("</head>")) body = body.replace("</head>", `${inject.head}</head>`);
+                        else body = inject.head + body;
+                    }
+                    if (inject.body) {
+                        if (body.includes("</body>")) body = body.replace("</body>", `${inject.body}</body>`);
+                        else body += inject.body;
                     }
                     const buf = Buffer.from(body, "utf8");
                     delete headers["content-length"];

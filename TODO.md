@@ -15,9 +15,10 @@ configurable server; auth is simplified to one server token.
 - [ ] live smoke test (needs desktop restart — user)
 
 ## Phase 2 - inject the agent UI into proxied HTML
-- [ ] serve `app.js` / `app.css` under `/_agent`
-- [ ] inject the sidebar bundle + mount container into proxied pages
-- [ ] graceful no-Electron degradation (window.ui optional)
+- [x] serve `sidebar.html/js/css` under `/_agent`
+- [x] inject FAB + slide-in iframe panel (CSS-isolated) into proxied pages
+- [x] graceful no-Electron degradation (window.ui already guarded with ?.)
+- [x] smoke test (yarn smoke:proxy) - 9/9 pass
 
 ## Phase 3 - mobile touch
 - [ ] viewport meta, touch CSS
