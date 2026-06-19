@@ -234,7 +234,7 @@ export class AgentRunner {
      * the UI transcript ourselves and persisting it so the sidebar can show the
      * full flow — screenshots, reasoning, tools — exactly like a normal turn.
      */
-    private async runAutonomous(task: string, label: string): Promise<void> {
+    private async runAutonomous(task: string, label: string, opts?: { trigger?: string; prompt?: string }): Promise<void> {
         const imageOf = (r: any) => {
             const c = r?.content;
             const img = Array.isArray(c) ? c.find((x: any) => x?.type === "image" && x.data) : undefined;
@@ -246,7 +246,7 @@ export class AgentRunner {
                 : "";
 
         const base = this.sessions.loadUi(this.sessionId);
-        const trigger: any = { id: `u-${Date.now()}`, role: "user", parts: [{ type: "text", text: `⏰ Scheduled: ${label}` }] };
+        const trigger: any = { id: `u-${Date.now()}`, role: "user", parts: [{ type: "text", text: opts?.trigger ?? `⏰ Scheduled: ${label}` }] };
         const assistant: any = { id: `a-${Date.now()}`, role: "assistant", parts: [] };
         let curText: any = null;
         let curThink: any = null;
@@ -296,7 +296,7 @@ export class AgentRunner {
         });
 
         try {
-            await this.agent.prompt(`[Scheduled task: ${label}] ${task}`);
+            await this.agent.prompt(opts?.prompt ?? `[Scheduled task: ${label}] ${task}`);
         } catch {
             /* ignore */
         } finally {
@@ -772,14 +772,20 @@ export class AgentRunner {
         return this.pausedForUser;
     }
 
-    /** Resume after a user pause — re-evaluate since the screen may have changed. */
+    /**
+     * Resume after a user pause. Pausing aborts the original /api/chat stream, so a
+     * bare agent.prompt() here would run invisibly (no stream attached). Route it
+     * through the autonomous-transcript path so the resumed flow — screenshots,
+     * reasoning, tools — is persisted and shows up in the sidebar.
+     */
     resumeFromUser(): void {
         if (!this.pausedForUser) return;
         this.pausedForUser = false;
         if (this.agent.state.messages.length) {
-            void this.agent.prompt(
-                "[Control resumed] You paused and the user took manual control of the screen. The state may have changed — take a fresh screenshot and re-evaluate before continuing the task.",
-            );
+            void this.runAutonomous("", "Resumed", {
+                trigger: "▶ Resumed control — re-evaluating",
+                prompt: "[Control resumed] You paused and the user took manual control of the screen. The state may have changed — take a fresh screenshot and re-evaluate before continuing the task.",
+            });
         }
     }
 
