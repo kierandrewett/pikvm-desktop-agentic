@@ -19,6 +19,12 @@ function tokenize(s: string): string[] {
 export class MemoryStore {
     private mems: Memory[] = [];
 
+    /**
+     * Write-through hook fired on every add, so a fact saved here is also
+     * mirrored into the Atlas vault (set once the Atlas bridge connects).
+     */
+    onAdd?: (m: Memory) => void;
+
     constructor(private readonly path: string) {
         if (existsSync(path)) {
             try {
@@ -41,6 +47,11 @@ export class MemoryStore {
         const m: Memory = { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, text, tags, createdAt: Date.now() };
         this.mems.push(m);
         this.save();
+        try {
+            this.onAdd?.(m);
+        } catch {
+            /* mirroring is best-effort; never let it break a local save */
+        }
         return m;
     }
 

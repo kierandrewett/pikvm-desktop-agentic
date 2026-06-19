@@ -120,7 +120,10 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     const atlasCfg = settings.get().atlas;
     if (atlasCfg.enabled) {
         void connectAtlas({ atlasBin: atlasCfg.binPath, vault: atlasCfg.vaultPath }).then((bridge) => {
-            if (bridge) runner.addTools(bridge.tools);
+            if (!bridge) return;
+            runner.addTools(bridge.tools);
+            // Hook: every `remember` (and recap save) write-throughs into Atlas.
+            runner.setMemoryMirror((m) => void bridge.remember(m.text, m.tags, m.id));
         });
     }
 

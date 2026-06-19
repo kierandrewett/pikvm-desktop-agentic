@@ -16,7 +16,33 @@ import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 export interface AtlasBridge {
     tools: AgentTool<any>[];
     toolNames: string[];
+    /**
+     * Mirror a quick-capture fact (from the `remember` tool / recap saves) into
+     * the vault as a markdown page under `memory/notes/`, so Atlas stays the
+     * single source of truth for the agent's memory. Best-effort.
+     */
+    remember: (text: string, tags?: string[], id?: string) => Promise<void>;
     close: () => Promise<void>;
+}
+
+/** Turn a fact into a short, file-safe slug for the page path. */
+function slugify(text: string): string {
+    const s = text
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .split("-")
+        .slice(0, 8)
+        .join("-")
+        .slice(0, 60);
+    return s || "note";
+}
+
+/** A human-readable title: the first sentence/clause, trimmed to a sane length. */
+function titleOf(text: string): string {
+    const first = (text.split(/[.\n]/)[0] ?? "").trim();
+    const t = (first.length >= 8 ? first : text.trim()).slice(0, 80);
+    return t || "Note";
 }
 
 /**
@@ -103,6 +129,21 @@ export async function connectAtlas(opts: { atlasBin: string; vault: string }): P
         },
     }));
 
+    const hasPageTool = listed.tools.some((t) => t.name === "atlas_page");
+    const remember = async (text: string, tags: string[] = [], id?: string): Promise<void> => {
+        if (!hasPageTool || !text.trim()) return;
+        const suffix = (id ?? `${Date.now().toString(36)}`).replace(/[^a-z0-9]+/gi, "").slice(-8);
+        const path = `memory/notes/${slugify(text)}-${suffix}`;
+        const body = [text.trim(), "", tags.length ? `Tags: ${tags.join(", ")}` : ""].join("\n").trimEnd() + "\n";
+        try {
+            await client.callTool({ name: "atlas_page", arguments: { action: "create", path, title: titleOf(text) } });
+            await client.callTool({ name: "atlas_page", arguments: { action: "update", path, body } });
+            scheduleReindex();
+        } catch (e) {
+            console.error("[atlas] mirror remember failed:", (e as Error)?.message ?? e);
+        }
+    };
+
     console.log(`[atlas] connected — ${tools.length} tools from vault ${opts.vault}`);
-    return { tools, toolNames: tools.map((t) => t.name), close: () => client.close() };
+    return { tools, toolNames: tools.map((t) => t.name), remember, close: () => client.close() };
 }
