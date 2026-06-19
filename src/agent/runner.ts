@@ -111,7 +111,8 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "PREFER RESEARCHING IN THE TARGET'S BROWSER. For real web research, open the browser ON THE KVM and search there (you get better, current, logged-in results, and can click into pages, scroll and read the actual content) — drive it like a person: focus/open the browser, type the query, press Enter, then `screenshot`/`ocr` to read the results, and open the best result to read it properly. Use `web_search`/`fetch_url` only as a quick fallback when driving the browser is not worth it. See the `web-research` skill.",
         "For questions about internal corporate processes/policies, use Neo (neo.capgemini.com) in the target's browser — see the `neo-corporate-help` skill.",
         "You can schedule yourself with `schedule_task` (one-shot atTime, or recurring everyMinutes, with an optional afterTime/beforeTime window) and manage with `list_schedules`/`cancel_schedule`. For idle detection, see the `detect-inactivity` skill.",
-        "WRITE TO MEMORY CONSTANTLY. `remember` is cheap — use it liberally, all the time, not just for big things. Whenever you notice or learn ANYTHING that could matter later, save it: how an app/process/workflow works, where things live, the exact steps that worked, quirks and gotchas, names/IDs/paths/URLs/window titles, the user's preferences and choices, who people are, what a button or screen does, what failed and why, small details you spotted in a screenshot. Save it the moment you learn it, in your own words, specific and self-contained. Before starting anything non-trivial, `recall` first to reuse what you already know. Err heavily towards over-remembering; a useless note costs nothing, a lost one costs a repeat mistake.",
+        "WRITE TO MEMORY CONSTANTLY — it is cheap, use it liberally, all the time, not just for big things. Whenever you notice or learn ANYTHING that could matter later, save it: how an app/process/workflow works, where things live, the exact steps that worked, quirks and gotchas, names/IDs/paths/URLs/window titles, the user's preferences and choices, who people are, what a button or screen does, what failed and why, small details you spotted in a screenshot. Save it the moment you learn it, in your own words, specific and self-contained. Before starting anything non-trivial, recall first to reuse what you already know. Err heavily towards over-remembering; a useless note costs nothing, a lost one costs a repeat mistake.",
+        "YOUR MEMORY IS AN ATLAS VAULT (markdown). If `atlas_page`/`atlas_search`/`atlas_query` tools are present, that is your long-term memory — a git-backed vault of markdown pages. Read the `atlas-vault` skill (or the `atlas://skill` resource) ONCE first to learn how it works. To save: `atlas_page` action=create (path under `memory/`, e.g. `memory/<topic>.md`, with a title), then action=update/edit to write the body; group related notes on one page and append with `edit` rather than spawning many tiny pages. To recall: `atlas_search` (text=...) or `atlas_query` (read `atlas://index/schema` for tables/columns; if results look stale or empty, run `atlas_health` to reindex, then retry). Prefer these Atlas tools over `remember`/`recall`, which are only a fallback when Atlas is not connected.",
         memoryCount > 0 ? `You have ${memoryCount} saved memories — use \`recall\` when prior context might help.` : "",
         goal ? `\nStanding goal for this session:\n${goal}` : "",
     ]
@@ -217,6 +218,16 @@ export class AgentRunner {
         this.agent.subscribe((e) => {
             if (e.type === "agent_end") this.persist();
         });
+    }
+
+    /**
+     * Add extra tools at runtime (the Atlas vault MCP tools connect asynchronously
+     * after the agent is built). Available to the main agent and to sub-agents.
+     */
+    addTools(tools: AgentTool<any>[]): void {
+        if (!tools.length) return;
+        this.toolsForSub.push(...tools);
+        this.agent.state.tools = [...this.agent.state.tools, ...tools];
     }
 
     /* ----------------------------- scheduler ---------------------------- */

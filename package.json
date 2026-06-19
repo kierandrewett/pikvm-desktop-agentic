@@ -11,7 +11,8 @@
         "build": "node scripts/build.mjs",
         "smoke:proxy": "esbuild scripts/smoke-proxy.ts --bundle --platform=node --format=cjs --outfile=dist/smoke-proxy.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/smoke-proxy.cjs",
         "package:linux": "make package",
-        "postinstall": "patch-package"
+        "postinstall": "patch-package",
+        "smoke:atlas": "esbuild scripts/atlas-mcp-test.ts --bundle --platform=node --format=cjs --outfile=dist/atlas-mcp-test.cjs --log-level=error && node dist/atlas-mcp-test.cjs"
     },
     "dependencies": {
         "@ai-sdk/react": "^3.0.209",

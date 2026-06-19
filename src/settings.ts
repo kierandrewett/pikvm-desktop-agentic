@@ -5,6 +5,8 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import type { ReviewPolicy } from "./reviewer";
 
 export interface AppSettings {
@@ -29,7 +31,24 @@ export interface AppSettings {
     desktopUseProxy: boolean;
     /** Ambient background screen/meeting monitor. */
     ambient: AmbientSettings;
+    /** Atlas markdown memory vault (via the Atlas MCP server). */
+    atlas: AtlasSettings;
 }
+
+export interface AtlasSettings {
+    /** Use the Atlas vault for memory (markdown via the Atlas MCP server). */
+    enabled: boolean;
+    /** Path to the built `atlas` binary. */
+    binPath: string;
+    /** Path to the vault directory. */
+    vaultPath: string;
+}
+
+const DEFAULT_ATLAS: AtlasSettings = {
+    enabled: true,
+    binPath: resolve(homedir(), "dev/atlas-2/atlas-app-v16/target/release/atlas"),
+    vaultPath: resolve(homedir(), "Documents/Atlas/Capgemini"),
+};
 
 export interface AmbientSettings {
     /** Master switch for the background monitor. */
@@ -81,6 +100,7 @@ const DEFAULTS: AppSettings = {
     accessToken: "",
     desktopUseProxy: false,
     ambient: DEFAULT_AMBIENT,
+    atlas: DEFAULT_ATLAS,
 };
 
 export class SettingsStore {
@@ -101,6 +121,7 @@ export class SettingsStore {
                         ntfy: { ...DEFAULT_AMBIENT.ntfy, ...(saved.ambient?.ntfy ?? {}) },
                         activeHours: { ...DEFAULT_AMBIENT.activeHours, ...(saved.ambient?.activeHours ?? {}) },
                     },
+                    atlas: { ...DEFAULT_ATLAS, ...(saved.atlas ?? {}) },
                 };
                 // Migrate the never-valid early default model id off saved configs.
                 if (this.data.ambient.triageModel === "gpt-5.5-mini") {
@@ -125,7 +146,8 @@ export class SettingsStore {
                   activeHours: { ...this.data.ambient.activeHours, ...(partial.ambient.activeHours ?? {}) },
               }
             : this.data.ambient;
-        this.data = { ...this.data, ...partial, ambient };
+        const atlas = partial.atlas ? { ...this.data.atlas, ...partial.atlas } : this.data.atlas;
+        this.data = { ...this.data, ...partial, ambient, atlas };
         try {
             writeFileSync(this.path, JSON.stringify(this.data, null, 2));
         } catch {

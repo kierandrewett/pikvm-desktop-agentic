@@ -21,6 +21,7 @@ import { OperationReviewer } from "./reviewer";
 import { PresenceMonitor } from "./presence";
 import { CodexAuth } from "./agent/auth";
 import { AgentRunner } from "./agent/runner";
+import { connectAtlas } from "./agent/atlas-mcp";
 import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
@@ -113,6 +114,15 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         getTranscript: () => transcriber.getTranscript(),
         getMeetings: () => meetingLog.recent(8),
     });
+
+    // Connect the Atlas memory vault (markdown memory via its MCP server). Best
+    // effort and async: if Atlas is missing the agent still runs with JSON memory.
+    const atlasCfg = settings.get().atlas;
+    if (atlasCfg.enabled) {
+        void connectAtlas({ atlasBin: atlasCfg.binPath, vault: atlasCfg.vaultPath }).then((bridge) => {
+            if (bridge) runner.addTools(bridge.tools);
+        });
+    }
 
     // Ambient background monitor.
     let onKVM = false;
