@@ -937,6 +937,11 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                             desc="Bind to 0.0.0.0 so other devices can reach it. Needs a restart to take effect."
                             control={<Switch checked={lanOn} onChange={(v) => onPatch({ bindHost: v ? "0.0.0.0" : "127.0.0.1" })} />}
                         />
+                        <Row
+                            label="Desktop view via proxy"
+                            desc="Render this app's KVM view through the proxy too (one path with the web client). Off by default; needs a restart."
+                            control={<Switch checked={state?.settings?.desktopUseProxy ?? false} onChange={(v) => onPatch({ desktopUseProxy: v })} />}
+                        />
                         <div className="rounded-xl border bg-card/40 p-3">
                             <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium">
                                 <Lock className="size-3.5 text-muted-foreground" /> Access token

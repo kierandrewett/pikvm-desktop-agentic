@@ -34,7 +34,7 @@ async function main(): Promise<void> {
 
     // 2. Control + proxy pointing at the mock, then our minimal server shell.
     const control = new PiKvmControl({ origin: `http://127.0.0.1:${piPort}` });
-    const proxy = createPiKvmProxy({ control, htmlInjection: () => webAssets.htmlInjection() });
+    const proxy = createPiKvmProxy({ control, htmlInjection: (req) => webAssets.htmlInjection(req) });
     const srv = createServer((req, res) => {
         let path = new URL(req.url ?? "/", "http://x").pathname;
         if (path === "/_agent" || path.startsWith("/_agent/")) {
@@ -68,6 +68,11 @@ async function main(): Promise<void> {
     checks.push(["non-HTML passthrough", txt === "plain-passthrough"]);
 
     checks.push(["touch.js script injected", html.includes('src="/_agent/touch.js"')]);
+
+    // Desktop shell (cookie) suppresses the body injection but keeps the viewport.
+    const desktopHtml = await (await fetch(`${base}/`, { headers: { cookie: "agent_shell=desktop" } })).text();
+    checks.push(["desktop shell: no FAB", !desktopHtml.includes("pikvm-agent-fab")]);
+    checks.push(["desktop shell: viewport kept", desktopHtml.includes("data-pikvm-agent")]);
 
     const sidebar = await fetch(`${base}/_agent/sidebar.html`);
     checks.push(["/_agent/sidebar.html served", sidebar.status === 200 && (await sidebar.text()).includes("root")]);

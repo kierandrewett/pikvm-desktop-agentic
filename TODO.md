@@ -26,14 +26,17 @@ configurable server; auth is simplified to one server token.
       to PiKVM as input; double-tap reset; ctrl/cmd+wheel zoom on desktop
 - [ ] on-device validation (gesture feel + PiKVM rect-relative input mapping) - user
 
-## Phase 4 - desktop unification (deferred, by decision)
+## Phase 4 - desktop unification (opt-in toggle)
 - [x] desktop agent/sidebar/MCP/copilot already run on + talk to the server
-- decision: the desktop renders the Pi directly for its own view rather than
-  self-proxying localhost->localhost->Pi. Remote clients use the proxy (the actual
-  "web app"). A "desktop-via-proxy" toggle is possible but unenabled - it would
-  touch the desktop's navigation guards, autofill and onKVM detection (all
-  origin-keyed) and cannot be GUI-validated here, so it is left as an opt-in to
-  add when it can be tested. No functional gain for the host today.
+- [x] `settings.desktopUseProxy` (default OFF): KVM view loads through the proxy
+- [x] `viewOrigin()` live helper routes load + nav guards + onKVM; default path
+      provably unchanged (else-branch is the original code, evaluated live)
+- [x] desktop shell sets `agent_shell=desktop` cookie -> proxy suppresses the
+      injected FAB (native sidebar stays); covered by smoke (22/22)
+- [x] Server settings toggle
+- [ ] ON-path GUI validation (needs desktop restart with toggle on) - user
+- note: changing the PiKVM target at runtime while in proxy mode is a known
+  limitation (the proxy target is fixed at server start)
 
 ## Phase 5 - auth
 - [x] single server access token (settings.accessToken); gates HTTP + WS

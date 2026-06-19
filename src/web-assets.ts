@@ -10,7 +10,10 @@
 
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import type { ServerResponse } from "node:http";
+import type { ServerResponse, IncomingMessage } from "node:http";
+
+/** Cookie the desktop shell sets on the proxy origin to suppress the injected UI. */
+export const DESKTOP_SHELL_COOKIE = "agent_shell";
 
 // Built assets sit beside the compiled server in dist/views (CJS bundle, so
 // __dirname is the dist root — matching how main.ts resolves its views).
@@ -74,9 +77,14 @@ const BODY_INJECT = `
 `;
 
 export const webAssets = {
-    /** Markup injected into proxied HTML: head (viewport) + body (agent UI). */
-    htmlInjection(): { head: string; body: string } {
-        return { head: HEAD_INJECT, body: BODY_INJECT };
+    /**
+     * Markup injected into proxied HTML: head (viewport) + body (agent UI). The
+     * desktop shell (identified by its cookie) gets the viewport only - it has its
+     * own native sidebar, so the floating panel would be a duplicate.
+     */
+    htmlInjection(req: IncomingMessage): { head: string; body: string } {
+        const isDesktopShell = (req.headers.cookie ?? "").includes(`${DESKTOP_SHELL_COOKIE}=desktop`);
+        return { head: HEAD_INJECT, body: isDesktopShell ? "" : BODY_INJECT };
     },
 
     /** Serve `/_agent/<file>`; returns true if handled. */

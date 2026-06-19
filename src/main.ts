@@ -272,6 +272,21 @@ function createWindow() {
 
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
 
+    // Opt-in: load the KVM view through our own proxy instead of the Pi directly,
+    // so the desktop shares the web client's rendering path. Off by default; needs
+    // a restart to change. `viewOrigin()` is a live function so a runtime origin
+    // change still applies in the default (non-proxy) mode.
+    const PROXY_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
+    const desktopProxy = settings.get().desktopUseProxy;
+    const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
+    if (desktopProxy) {
+        // Mark this Electron session as the desktop shell so the proxy suppresses
+        // the injected floating panel (the desktop has its own native sidebar).
+        void session.defaultSession.cookies
+            .set({ url: PROXY_ORIGIN, name: "agent_shell", value: "desktop", expirationDate: Date.now() / 1000 + 31536000 })
+            .catch(() => {});
+    }
+
     let canCloseByButton = false;
     let sidebarOpen = false;
     let sidebarWidth = settings.get().sidebarWidth;
@@ -543,23 +558,23 @@ function createWindow() {
         origin = config.origin;
 
         console.log("New PiKVM origin:", origin);
-        wc.loadURL(origin);
+        wc.loadURL(viewOrigin());
         return true;
     });
 
     ipcMain.handle("pikvm:connected-to-origin", () => {
-        return wc.getURL().startsWith(origin);
+        return wc.getURL().startsWith(viewOrigin());
     });
     ipcMain.handle("pikvm:get-origin", () => origin);
 
     const connect = () => {
-        console.log("Connecting to PiKVM at:", origin);
-        let parsedOrigin = new URL(origin);
-        parsedOrigin.username = "";
-        parsedOrigin.password = "";
-        parsedOrigin.pathname = "/kvm";
+        console.log("Connecting to KVM view at:", viewOrigin());
+        const parsed = new URL(viewOrigin());
+        parsed.username = "";
+        parsed.password = "";
+        parsed.pathname = "/kvm";
 
-        mainView.webContents.loadURL(parsedOrigin.toString());
+        mainView.webContents.loadURL(parsed.toString());
     };
 
     ipcMain.on("pikvm:connect", () => {
@@ -581,7 +596,7 @@ function createWindow() {
     wc.setWindowOpenHandler(({ url }) => {
         console.log("Window open request:", url);
 
-        const parsedOrigin = new URL(origin);
+        const parsedOrigin = new URL(viewOrigin());
         const parsedURL = new URL(url);
         const isOrigin =
             parsedOrigin.host === parsedURL.host &&
@@ -608,14 +623,14 @@ function createWindow() {
     });
 
     win.on("close", (e) => {
-        const isOnKVMPage = wc.getURL().startsWith(origin + "/kvm");
+        const isOnKVMPage = wc.getURL().startsWith(viewOrigin() + "/kvm");
         if (isOnKVMPage && !canCloseByButton) e.preventDefault();
     });
 
     wc.on("will-navigate", (e, url) => {
         console.log("Will navigate:", url);
 
-        const parsedOrigin = new URL(origin);
+        const parsedOrigin = new URL(viewOrigin());
         const parsedURL = new URL(url);
         const isOrigin =
             parsedOrigin.host === parsedURL.host &&

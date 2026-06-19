@@ -22,6 +22,9 @@ export interface AppSettings {
     bindHost: string;
     /** Single access token gating the server when set. Empty = open (loopback dev). */
     accessToken: string;
+    /** Opt-in: the desktop KVM view loads through our proxy instead of the Pi
+     *  directly (one rendering path with the web client). Off by default. */
+    desktopUseProxy: boolean;
     /** Ambient background screen/meeting monitor. */
     ambient: AmbientSettings;
 }
@@ -73,6 +76,7 @@ const DEFAULTS: AppSettings = {
     sidebarWidth: 440,
     bindHost: "127.0.0.1",
     accessToken: "",
+    desktopUseProxy: false,
     ambient: DEFAULT_AMBIENT,
 };
 

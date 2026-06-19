@@ -21,8 +21,12 @@ import type { PiKvmControl } from "./pikvm-control";
 
 export interface ProxyDeps {
     control: PiKvmControl;
-    /** Markup spliced into proxied HTML: `head` before </head>, `body` before </body>. */
-    htmlInjection: () => { head: string; body: string };
+    /**
+     * Markup spliced into proxied HTML: `head` before </head>, `body` before
+     * </body>. Request-aware so the desktop shell (which has its own native
+     * sidebar) can suppress the body injection.
+     */
+    htmlInjection: (req: IncomingMessage) => { head: string; body: string };
 }
 
 /** Rewrite a Set-Cookie so it binds to OUR origin, not the Pi's. */
@@ -97,7 +101,7 @@ export function createPiKvmProxy(deps: ProxyDeps) {
                 proxyRes.on("data", (c: Buffer) => chunks.push(c));
                 proxyRes.on("end", () => {
                     let body = Buffer.concat(chunks).toString("utf8");
-                    const inject = deps.htmlInjection();
+                    const inject = deps.htmlInjection(req);
                     if (inject.head) {
                         if (body.includes("</head>")) body = body.replace("</head>", `${inject.head}</head>`);
                         else body = inject.head + body;

@@ -98,7 +98,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     const mcpHandler = createMcpHttpHandler(deps);
     // Reverse proxy to the PiKVM target. Our own surface lives under `/_agent`;
     // everything else is forwarded to the Pi (UI, stream, HID, login).
-    const proxy = createPiKvmProxy({ control, htmlInjection: () => webAssets.htmlInjection() });
+    const proxy = createPiKvmProxy({ control, htmlInjection: (req) => webAssets.htmlInjection(req) });
 
     // Ring buffer of ambient events surfaced to the sidebar feed.
     const ambientEvents: AmbientEvent[] = [];
@@ -219,7 +219,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         })),
         settings: (() => {
             const s = settings.get();
-            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, bindHost: s.bindHost, hasToken: !!s.accessToken };
+            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy };
         })(),
         schedules: runner.listSchedules().map((j) => ({
             id: j.id,
