@@ -10,7 +10,7 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { PiKvmControl, MouseButton } from "../pikvm-control";
-import { hasNewline } from "../human-typing";
+import { hasNewline, stripNewlines } from "../human-typing";
 import type { BackgroundTasks } from "./background";
 import type { InputTracker } from "../input-tracker";
 import type { ScreenshotHistory } from "./screenshot-history";
@@ -132,7 +132,12 @@ export function createTools(
         background: Type.Optional(
             Type.Boolean({ description: "Type in the background and return immediately with a task id (for long text)." }),
         ),
+        verify_region: Type.Optional(
+            { ...RegionSchema, description: "STRONGLY RECOMMENDED: frame-pixel box around the field. After typing, it is OCR'd and read back to you so you can confirm the field actually contains what you typed (caret-at-start, autocorrect and layout mishaps are caught here). A scan box is drawn so the user sees the checked area." } as typeof RegionSchema,
+        ),
     });
+    /** Normalise for a forgiving read-back compare (case/space-insensitive). */
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
     const typeText: AgentTool<typeof typeSchema> = {
         name: "type_text",
         label: "Type",
@@ -159,6 +164,29 @@ export function createTools(
                 return { content: [text(`Typing in background as ${id}. Use wait_for_task or list_tasks.${note}`)], details: null };
             }
             await control.typeText(p.text, { ...codeOpt, ...(signal ? { signal } : {}) });
+
+            // Read the field back so the agent monitors EXACTLY what landed (like a
+            // human glancing up): OCR the field region and compare to what we typed.
+            if (p.verify_region) {
+                const intended = stripNewlines(p.text);
+                let readBack = "";
+                try {
+                    readBack = (await control.ocr(p.verify_region)).trim();
+                } catch {
+                    readBack = "";
+                }
+                const match = norm(readBack) === norm(intended);
+                const contains = norm(readBack).includes(norm(intended));
+                const verdict = match
+                    ? "Read-back MATCHES."
+                    : contains
+                      ? "Read-back CONTAINS your text but has extra content — check the field isn't appended to or pre-filled."
+                      : "Read-back DOES NOT MATCH — the field does not show what you typed (caret may have been at the start, or the layout/autocorrect changed it). Fix it: select all (Ctrl+A) and retype, or clear and try again, then verify before you submit.";
+                return {
+                    content: [text(`Typed the text.${note}\nIntended: "${intended}"\nField now reads (OCR): "${readBack || "(nothing read)"}"\n${verdict}`)],
+                    details: null,
+                };
+            }
             return { content: [text(`Typed the text.${note}`)], details: null };
         },
     };

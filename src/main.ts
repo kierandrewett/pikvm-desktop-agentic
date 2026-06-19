@@ -538,9 +538,23 @@ function createWindow() {
             // ask) and for cropped/zoom screenshots. Routine full-frame screenshots
             // are skipped (the pulsing scrim already signals "looking").
             const hasRegion = args.region && typeof args.region.x === "number" && typeof args.region.width === "number";
-            if (event.toolName === "ocr" || (event.toolName === "screenshot" && hasRegion)) {
+            const verifyRegion = args.verify_region && typeof args.verify_region.x === "number";
+            if (event.toolName === "ocr" || (event.toolName === "screenshot" && hasRegion) || (event.toolName === "type_text" && verifyRegion)) {
                 const dims = agentBackend.control.getDimensions();
-                const r = hasRegion ? args.region : { x: 0, y: 0, width: dims.width, height: dims.height };
+                const r =
+                    event.toolName === "type_text"
+                        ? args.verify_region
+                        : hasRegion
+                          ? args.region
+                          : { x: 0, y: 0, width: dims.width, height: dims.height };
+                const label =
+                    event.toolName === "ocr"
+                        ? hasRegion
+                            ? "Reading text"
+                            : "Reading screen"
+                        : event.toolName === "type_text"
+                          ? "Checking typing"
+                          : "Zoom in";
                 controlOverlayView.webContents.send("overlay:region", {
                     x: r.x,
                     y: r.y,
@@ -548,7 +562,9 @@ function createWindow() {
                     height: r.height,
                     w: dims.width,
                     h: dims.height,
-                    label: event.toolName === "ocr" ? (hasRegion ? "Reading text" : "Reading screen") : "Zoom in",
+                    label,
+                    // Typing + read-back takes longer than a one-shot OCR; hold longer.
+                    hold: event.toolName === "type_text" ? 3500 : 1500,
                 });
             }
         } else if (event.type === "agent_end") {
