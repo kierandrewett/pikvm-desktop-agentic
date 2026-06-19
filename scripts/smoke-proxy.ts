@@ -66,8 +66,13 @@ async function main(): Promise<void> {
     const txt = await (await fetch(`${base}/x.txt`)).text();
     checks.push(["non-HTML passthrough", txt === "plain-passthrough"]);
 
+    checks.push(["touch.js script injected", html.includes('src="/_agent/touch.js"')]);
+
     const sidebar = await fetch(`${base}/_agent/sidebar.html`);
     checks.push(["/_agent/sidebar.html served", sidebar.status === 200 && (await sidebar.text()).includes("root")]);
+
+    const touch = await fetch(`${base}/_agent/touch.js`);
+    checks.push(["/_agent/touch.js served", touch.status === 200 && (await touch.text()).includes("pinch")]);
 
     let ok = true;
     for (const [name, pass] of checks) {

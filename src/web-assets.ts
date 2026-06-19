@@ -70,6 +70,7 @@ const BODY_INJECT = `
   }
   fab.addEventListener('click',toggle);
 })();</script>
+<script data-pikvm-agent src="/_agent/touch.js" defer></script>
 `;
 
 export const webAssets = {

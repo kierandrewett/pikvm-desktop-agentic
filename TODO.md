@@ -21,8 +21,10 @@ configurable server; auth is simplified to one server token.
 - [x] smoke test (yarn smoke:proxy) - 9/9 pass
 
 ## Phase 3 - mobile touch
-- [ ] viewport meta, touch CSS
-- [ ] pinch-zoom + drag-pan over the proxied stream (screen-mirror feel)
+- [x] viewport meta (Phase 1)
+- [x] pinch-zoom + 2-finger pan over the proxied stream; 1-finger passes through
+      to PiKVM as input; double-tap reset; ctrl/cmd+wheel zoom on desktop
+- [ ] on-device validation (gesture feel + PiKVM rect-relative input mapping) - user
 
 ## Phase 4 - desktop unification
 - [ ] Electron loads the proxy origin instead of the Pi directly
