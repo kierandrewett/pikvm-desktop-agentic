@@ -16,6 +16,7 @@ import { nativeImage } from "electron";
 import { Agent as HttpsAgent } from "https";
 import WebSocket from "ws";
 import { planTyping, type Persona, type TypingOptions } from "./human-typing";
+import { windMousePath } from "./windmouse";
 
 export interface Region {
     x: number;
@@ -94,6 +95,8 @@ export class PiKvmControl {
     private shiftHeld = false;
     /** Default typing humanity (0..1); used when typeText omits an intensity. */
     private humanize = 1;
+    /** WindMouse speed factor for cursor moves (higher = faster). */
+    private mouseSpeed = 1.9;
     /** Forced WPM (0 = use the random persona). */
     private wpm = 0;
     /** Target keyboard layout (we send physical key codes; the layout sets glyphs). */
@@ -416,6 +419,11 @@ export class PiKvmControl {
         return Math.max(-32768, Math.min(32767, Math.round(ratio * 65534) - 32767));
     }
 
+    /** Inverse of toNorm: a normalized HID coordinate back to a frame pixel. */
+    private fromNorm(n: number, span: number): number {
+        return ((n + 32767) / 65534) * Math.max(0, span - 1);
+    }
+
     private clampNorm(v: number): number {
         return Math.max(-32768, Math.min(32767, Math.round(v)));
     }
@@ -424,15 +432,14 @@ export class PiKvmControl {
         await this.send("mouse_move", { to: { x: this.clampNorm(x), y: this.clampNorm(y) } });
     }
 
-    /** Move the cursor to a pixel coordinate with a human-feeling path: a gentle
-     *  arc (curved, not straight), micro-tremor along the way, a small overshoot,
-     *  and a settle with a slight random landing offset (never dead-centre). */
+    /** Move the cursor to a pixel coordinate using the WindMouse algorithm:
+     *  gravity pulls toward the target while a random "wind" walk perturbs the
+     *  path, giving an organic curved trajectory with a natural speed profile,
+     *  subtle tremor and an off-centre landing. Runs in frame-pixel space (where
+     *  WindMouse's force constants are tuned), then converts to HID units. */
     async moveMouse(px: number, py: number, opts: { signal?: AbortSignal; instant?: boolean } = {}): Promise<void> {
-        // Tiny landing offset so we don't hit the exact same pixel / dead centre.
-        const ox = (Math.random() * 2 - 1) * 5;
-        const oy = (Math.random() * 2 - 1) * 5;
-        const tx = this.toNorm(px + ox, this.dims.width);
-        const ty = this.toNorm(py + oy, this.dims.height);
+        const tx = this.toNorm(px, this.dims.width);
+        const ty = this.toNorm(py, this.dims.height);
 
         if (opts.instant) {
             await this.sendMove(tx, ty);
@@ -440,56 +447,50 @@ export class PiKvmControl {
             return;
         }
 
-        const fromX = this.mouse.x;
-        const fromY = this.mouse.y;
-        const dx = tx - fromX;
-        const dy = ty - fromY;
-        const dist = Math.hypot(dx, dy);
-
-        // Very short hops: just a couple of steps.
-        if (dist < 600) {
-            await this.sendMove((fromX + tx) / 2, (fromY + ty) / 2);
-            await sleep(10 + Math.random() * 20, opts.signal);
+        // Current position and the target, both as frame pixels.
+        const start = { x: this.fromNorm(this.mouse.x, this.dims.width), y: this.fromNorm(this.mouse.y, this.dims.height) };
+        const end = { x: px, y: py };
+        const dist = Math.hypot(end.x - start.x, end.y - start.y);
+        if (dist < 2) {
             await this.sendMove(tx, ty);
             this.mouse = { x: tx, y: ty };
             return;
         }
 
-        const steps = Math.max(10, Math.min(48, Math.round(dist / 700)));
-        // Quadratic-bezier control point offset perpendicular to the path → an arc.
-        const len = dist || 1;
-        const perpX = -dy / len;
-        const perpY = dx / len;
-        const arc = (Math.random() * 2 - 1) * dist * (0.06 + Math.random() * 0.14);
-        const cx = (fromX + tx) / 2 + perpX * arc;
-        const cy = (fromY + ty) / 2 + perpY * arc;
-        // Slight overshoot target the path aims past before settling back.
-        const overshoot = 1 + (dist > 6000 ? 0.02 + Math.random() * 0.04 : 0);
-        const aimX = fromX + dx * overshoot;
-        const aimY = fromY + dy * overshoot;
+        // Humanize intensity (0..1) scales the extra jitter/scatter/hesitation;
+        // the WindMouse geometry and the requested speed stay constant.
+        const h = this.humanize;
+        let samples = windMousePath(start, end, {
+            speed: this.mouseSpeed,
+            tremor: 0.5 * h,
+            endScatter: 2 * h,
+            hes: 0.04 * h,
+        });
 
-        const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
-        let tremor = 140;
-        for (let i = 1; i <= steps; i++) {
-            if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-            const e = ease(i / steps);
-            const u = 1 - e;
-            let x = u * u * fromX + 2 * u * e * cx + e * e * aimX;
-            let y = u * u * fromY + 2 * u * e * cy + e * e * aimY;
-            if (i < steps) {
-                x += (Math.random() * 2 - 1) * tremor;
-                y += (Math.random() * 2 - 1) * tremor;
+        // WindMouse emits one point per integration step (~7px apart), so a long
+        // move can be 100+ points. Decimate to a sane cap (timing preserved) to
+        // avoid flooding the HID WebSocket; wall-clock is unchanged.
+        const CAP = 80;
+        if (samples.length > CAP) {
+            const keep: typeof samples = [];
+            for (let i = 0; i < CAP; i++) {
+                const s = samples[Math.round((i * (samples.length - 1)) / (CAP - 1))];
+                if (s) keep.push(s);
             }
-            tremor *= 0.9; // settle as we approach
-            await this.sendMove(x, y);
-            await sleep(6 + Math.random() * 15, opts.signal);
+            samples = keep;
         }
-        // Settle: one or two small corrective nudges onto the target.
-        const settles = 1 + Math.floor(Math.random() * 2);
-        for (let k = 0; k < settles; k++) {
-            await this.sendMove(tx + (Math.random() * 2 - 1) * 220, ty + (Math.random() * 2 - 1) * 220);
-            await sleep(18 + Math.random() * 40, opts.signal);
+
+        let prevT = 0;
+        for (let i = 0; i < samples.length; i++) {
+            if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+            const s = samples[i];
+            if (!s) continue;
+            await this.sendMove(this.toNorm(s.x, this.dims.width), this.toNorm(s.y, this.dims.height));
+            const dt = s.t - prevT;
+            prevT = s.t;
+            if (i < samples.length - 1 && dt > 0.5) await sleep(dt, opts.signal);
         }
+        // Land exactly on the requested target (the click site).
         await this.sendMove(tx, ty);
         this.mouse = { x: tx, y: ty };
     }
