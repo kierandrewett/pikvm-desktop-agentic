@@ -26,9 +26,14 @@ configurable server; auth is simplified to one server token.
       to PiKVM as input; double-tap reset; ctrl/cmd+wheel zoom on desktop
 - [ ] on-device validation (gesture feel + PiKVM rect-relative input mapping) - user
 
-## Phase 4 - desktop unification
-- [ ] Electron loads the proxy origin instead of the Pi directly
-- [ ] reconcile the existing WebContentsView sidebar with the injected one
+## Phase 4 - desktop unification (deferred, by decision)
+- [x] desktop agent/sidebar/MCP/copilot already run on + talk to the server
+- decision: the desktop renders the Pi directly for its own view rather than
+  self-proxying localhost->localhost->Pi. Remote clients use the proxy (the actual
+  "web app"). A "desktop-via-proxy" toggle is possible but unenabled - it would
+  touch the desktop's navigation guards, autofill and onKVM detection (all
+  origin-keyed) and cannot be GUI-validated here, so it is left as an opt-in to
+  add when it can be tested. No functional gain for the host today.
 
 ## Phase 5 - auth
 - [x] single server access token (settings.accessToken); gates HTTP + WS
@@ -36,9 +41,12 @@ configurable server; auth is simplified to one server token.
 - [x] loopback exempt (desktop app trusted); LAN clients gated
 - [x] PiKVM creds stay server-side (proxy injects them) - clients only need our token
 - [x] smoke test covers gate/login/cookie (20/20)
-- [ ] settings UI field for the token - follow-up
+- [x] settings UI: Server tab (LAN toggle + access token)
 
 ## Notes / decisions
 - Breaking: agent API moved from `/api/*` to `/_agent/api/*` because PiKVM owns
   `/api/*` and we now proxy it. Moved atomically with the frontend update.
-- Old desktop split-view kept as reference until the proxy reaches parity.
+- `/mcp` kept at the root too, so existing external MCP clients keep working.
+- Validation: `yarn smoke:proxy` (20/20) covers proxy injection, passthrough,
+  cookie/redirect rewrite, asset serving and the auth gate. The desktop sidebar
+  and the live Pi proxying still need a desktop restart to smoke on real hardware.
