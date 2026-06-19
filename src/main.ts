@@ -511,6 +511,12 @@ function createWindow() {
         }
     });
 
+    // Surface the recognised app + sensitivity onto the overlay so the user sees
+    // where the agent thinks it is (and when it's in a sensitive area).
+    agentBackend.runner.onContext = (ctx) => {
+        controlOverlayView.webContents.send("overlay:context", ctx);
+    };
+
     // Mirror the agent's "is acting" state onto the control overlay.
     agentBackend.runner.subscribe((event) => {
         if (event.type === "tool_execution_start") {

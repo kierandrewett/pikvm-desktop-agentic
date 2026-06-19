@@ -860,6 +860,8 @@ export class AgentRunner {
 
     private sensCtx: { app: string; sensitive: boolean; reason: string; at: number } | null = null;
     private sensInflight: Promise<void> | null = null;
+    /** Notified when a fresh app/sensitivity assessment lands (for the overlay). */
+    onContext: ((ctx: { app: string; sensitive: boolean; reason: string }) => void) | undefined;
 
     /** Cheap LLM look at the current frame: foreground app + whether the focus is
      *  a sensitive area. Cached for CONTEXT_TTL_MS; coalesces concurrent calls. */
@@ -874,7 +876,14 @@ export class AgentRunner {
                     { model: CONTEXT_MODEL, system: CONTEXT_SYSTEM },
                 );
                 const parsed = this.parseContext(raw);
-                if (parsed) this.sensCtx = { ...parsed, at: Date.now() };
+                if (parsed) {
+                    this.sensCtx = { ...parsed, at: Date.now() };
+                    try {
+                        this.onContext?.(parsed);
+                    } catch {
+                        /* observer errors never affect gating */
+                    }
+                }
             } catch {
                 /* keep the previous assessment */
             } finally {

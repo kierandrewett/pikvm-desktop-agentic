@@ -58,6 +58,29 @@
                 font-size: 11px;
                 color: #9a9aa8;
             }
+            #context {
+                margin-top: 2px;
+                display: none;
+                align-items: center;
+                gap: 5px;
+                font-size: 11px;
+            }
+            #context.show {
+                display: inline-flex;
+            }
+            #context .cdot {
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                background: #6cd38a;
+            }
+            #context.sensitive {
+                color: #ffd479;
+            }
+            #context.sensitive .cdot {
+                background: #ffd479;
+                box-shadow: 0 0 6px rgba(255, 212, 121, 0.9);
+            }
             #dot {
                 width: 9px;
                 height: 9px;
@@ -245,6 +268,7 @@
                 <div id="label">
                     <b>Agent is in control</b>
                     <span id="action">performing actions…</span>
+                    <span id="context"></span>
                 </div>
                 <button id="pause" title="Pause — take control temporarily, then resume">
                     ❚❚ Pause
@@ -264,6 +288,15 @@
             window.ui?.on?.("overlay:acting", (info) => {
                 const a = document.getElementById("action");
                 if (a && info && info.action) a.textContent = info.action;
+            });
+            // Show the recognised app + whether the agent is in a sensitive area.
+            window.ui?.on?.("overlay:context", (c) => {
+                const el = document.getElementById("context");
+                if (!el || !c || !c.app) return;
+                el.classList.add("show");
+                el.classList.toggle("sensitive", !!c.sensitive);
+                const where = c.sensitive ? `${c.app} · sensitive — actions need approval` : c.app;
+                el.innerHTML = '<span class="cdot"></span>' + String(where).replace(/[<>&]/g, "");
             });
 
             // Exaggerated AI cursor: lerp a glowing dot to the target, pulse on click.
