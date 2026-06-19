@@ -447,7 +447,23 @@ CHAR_TO_KEY.set("\t", { code: "Tab", shift: false, row: 1, col: -1, hand: "L" })
  * Plan a humanlike keystroke sequence for `text`. The returned strokes, when
  * played in order, leave exactly `text` in the target buffer.
  */
+/** True if the text contains any line break (so callers can warn before typing). */
+export function hasNewline(text: string): boolean {
+    return /[\r\n]/.test(text);
+}
+
+/**
+ * HARD GUARDRAIL: collapse every line break to a single space so typing can NEVER
+ * emit Enter. Pressing Enter mid-type would submit a chat message, run a command,
+ * or confirm a dialog — an Enter/submit must always be a separate, explicit,
+ * reviewable key press, never a side effect of typing text.
+ */
+export function stripNewlines(text: string): string {
+    return text.replace(/[\r\n]+/g, " ");
+}
+
 export function planTyping(text: string, opts: TypingOptions = {}): KeyStroke[] {
+    text = stripNewlines(text);
     // `wpm` is a *baseline* the random persona centers on — randomness is kept.
     const persona = opts.persona ?? createPersona(opts.seed, opts.wpm && opts.wpm > 0 ? opts.wpm : undefined);
     const seed = opts.seed ?? ((persona.wpm * 7919 + Math.floor(persona.skill * 1e6)) | 0);

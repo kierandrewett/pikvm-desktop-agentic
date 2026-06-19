@@ -10,6 +10,7 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { PiKvmControl, MouseButton } from "../pikvm-control";
+import { hasNewline } from "../human-typing";
 import type { BackgroundTasks } from "./background";
 import type { InputTracker } from "../input-tracker";
 import type { ScreenshotHistory } from "./screenshot-history";
@@ -123,7 +124,10 @@ export function createTools(
     };
 
     const typeSchema = Type.Object({
-        text: Type.String({ description: "Text to type. Newlines press Enter." }),
+        text: Type.String({
+            description:
+                "Text to type into the focused field. MUST be a single line - newlines are NOT typed and NEVER submit. To press Enter / submit, use press_key('Enter') as a separate, deliberate step. For multi-line content, type into a scratchpad (e.g. Notepad) and copy/paste.",
+        }),
         code: Type.Optional(Type.Boolean({ description: "Treat as code (preserve indentation, code rhythm)." })),
         background: Type.Optional(
             Type.Boolean({ description: "Type in the background and return immediately with a task id (for long text)." }),
@@ -133,10 +137,16 @@ export function createTools(
         name: "type_text",
         label: "Type",
         description:
-            "Type text into the focused field with humanlike timing and self-correcting typos. Final text always matches exactly. Set background:true for long text, then use wait_for_task / list_tasks.",
+            "Type text into the focused field with humanlike timing and self-correcting typos. NEVER emits Enter/newline - typing can never submit a form, send a message, or run a command (press_key('Enter') does that, deliberately). Any newlines in `text` are collapsed to spaces. Final text always matches the (sanitised) input exactly. Set background:true for long text, then use wait_for_task / list_tasks.",
         parameters: typeSchema,
         async execute(_id, p: Static<typeof typeSchema>, signal): Promise<AgentToolResult<null>> {
             const codeOpt = typeof p.code === "boolean" ? { code: p.code } : {};
+            // HARD GUARDRAIL: typing never presses Enter. Warn the model so it uses
+            // an explicit press_key('Enter') or a scratchpad+paste for multi-line.
+            const stripped = hasNewline(p.text);
+            const note = stripped
+                ? " NOTE: newline(s) in your text were collapsed to spaces and NOT submitted - type_text never presses Enter. Use press_key('Enter') to submit, or a Notepad scratchpad + paste for multi-line text."
+                : "";
             if (p.background && deps.background) {
                 const id = deps.background.start(`Type ${p.text.length} chars`, async (report) => {
                     await control.typeText(p.text, {
@@ -146,10 +156,10 @@ export function createTools(
                     });
                     return `Typed ${p.text.length} characters.`;
                 });
-                return { content: [text(`Typing in background as ${id}. Use wait_for_task or list_tasks.`)], details: null };
+                return { content: [text(`Typing in background as ${id}. Use wait_for_task or list_tasks.${note}`)], details: null };
             }
             await control.typeText(p.text, { ...codeOpt, ...(signal ? { signal } : {}) });
-            return { content: [text(`Typed ${p.text.length} characters.`)], details: null };
+            return { content: [text(`Typed the text.${note}`)], details: null };
         },
     };
 
