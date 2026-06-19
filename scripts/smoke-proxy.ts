@@ -108,6 +108,11 @@ async function main(): Promise<void> {
     checks.push(["valid cookie -> allowed", isAuthed(mkReq({ cookie: `${SESSION_COOKIE}=${sessionValue(TOKEN)}` }), TOKEN)]);
     checks.push(["bearer token -> allowed", isAuthed(mkReq({ authorization: `Bearer ${TOKEN}` }), TOKEN)]);
     checks.push(["login page renders", loginPage().includes("Access token")]);
+    // Login page is part of the installable PWA shell + has the signed-out notice.
+    const loginHtml = loginPage(false, true);
+    checks.push(["login page is PWA shell", loginHtml.includes('rel="manifest"') && loginHtml.includes('name="theme-color"') && loginHtml.includes('name="apple-mobile-web-app-capable"')]);
+    checks.push(["login page shows signed-out notice", loginHtml.includes("Signed out")]);
+    checks.push(["login error precedes signed-out", loginPage(true, true).includes("Wrong token") && !loginPage(true, true).includes("Signed out")]);
 
     // 5. Auth flow against a token-gated shell (mirrors the server gate).
     const gated = createServer((req, res) => {
@@ -123,6 +128,10 @@ async function main(): Promise<void> {
         if (p === "/_agent/login") {
             res.writeHead(200, { "content-type": "text/html" });
             return res.end(loginPage());
+        }
+        if (p === "/_agent/logout") {
+            res.writeHead(302, { location: "/_agent/login?bye=1", "set-cookie": `${SESSION_COOKIE}=; Path=/; Max-Age=0` });
+            return res.end();
         }
         if (p === "/_agent/auth" && req.method === "POST") {
             const chunks: Buffer[] = [];
@@ -158,6 +167,13 @@ async function main(): Promise<void> {
     checks.push(["correct token -> session cookie", authRes.status === 302 && cookie.startsWith(SESSION_COOKIE)]);
     const withCookie = await fetch(`${gbase}/`, { headers: { accept: "text/html", cookie }, redirect: "manual" });
     checks.push(["request with session cookie -> allowed", withCookie.status === 200 && (await withCookie.text()) === "authed-ok"]);
+    // Logout: reachable without re-auth, clears the cookie, returns to login.
+    const logout = await fetch(`${gbase}/_agent/logout`, { headers: { cookie }, redirect: "manual" });
+    const cleared = logout.headers.getSetCookie()[0] ?? "";
+    checks.push([
+        "logout clears cookie + redirects to login",
+        logout.status === 302 && logout.headers.get("location") === "/_agent/login?bye=1" && /Max-Age=0/.test(cleared),
+    ]);
     gated.close();
 
     // 6. WebSocket proxy (the HID / stream-info path). Mock Pi WS echoes on /ws; a

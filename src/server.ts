@@ -331,7 +331,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         // Single-token gate (no-op when no token is configured). The login + auth
         // endpoints must stay reachable; everything else needs a valid session.
         const token = settings.get().accessToken;
-        if (token && !isLoopback(req) && !isAuthed(req, token) && path !== "/_agent/login" && path !== "/_agent/auth") {
+        if (token && !isLoopback(req) && !isAuthed(req, token) && path !== "/_agent/login" && path !== "/_agent/auth" && path !== "/_agent/logout") {
             if (String(req.headers.accept ?? "").includes("text/html")) {
                 res.writeHead(302, { location: "/_agent/login" });
                 return res.end();
@@ -352,7 +352,15 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         // Auth pages (only meaningful when a token is configured).
         if (path === "/login" && req.method === "GET") {
             res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-            return res.end(loginPage(url.searchParams.get("error") === "1"));
+            return res.end(loginPage(url.searchParams.get("error") === "1", url.searchParams.get("bye") === "1"));
+        }
+        // Logout: clear the session cookie and return to the login screen.
+        if (path === "/logout") {
+            res.writeHead(302, {
+                location: "/_agent/login?bye=1",
+                "set-cookie": `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`,
+            });
+            return res.end();
         }
         if (path === "/auth" && req.method === "POST") {
             void readBody(req).then((b) => {

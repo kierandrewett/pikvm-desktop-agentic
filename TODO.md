@@ -55,8 +55,13 @@ configurable server; auth is simplified to one server token.
 - [x] login page + cookie session (derived from token, survives restarts)
 - [x] loopback exempt (desktop app trusted); LAN clients gated
 - [x] PiKVM creds stay server-side (proxy injects them) - clients only need our token
-- [x] smoke test covers gate/login/cookie (20/20)
+- [x] smoke test covers gate/login/cookie (now 34/34)
 - [x] settings UI: Server tab (LAN toggle + access token)
+- [x] login page is part of the PWA shell (theme/manifest/apple-* meta), safe-area
+      aware, mobile-input hygiene (no autocap/autocorrect/spellcheck, enterkeyhint),
+      logo + signed-out notice
+- [x] logout route (/_agent/logout): clears the session cookie, returns to login
+- [ ] wire a "Sign out" affordance into the sidebar Server tab (next)
 
 ## Notes / decisions
 - Breaking: agent API moved from `/api/*` to `/_agent/api/*` because PiKVM owns
