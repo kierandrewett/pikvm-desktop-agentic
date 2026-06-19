@@ -31,8 +31,12 @@ configurable server; auth is simplified to one server token.
 - [ ] reconcile the existing WebContentsView sidebar with the injected one
 
 ## Phase 5 - auth
-- [ ] single server access token; gate `/_agent/*` and the proxy
-- [ ] store PiKVM creds server-side only
+- [x] single server access token (settings.accessToken); gates HTTP + WS
+- [x] login page + cookie session (derived from token, survives restarts)
+- [x] loopback exempt (desktop app trusted); LAN clients gated
+- [x] PiKVM creds stay server-side (proxy injects them) - clients only need our token
+- [x] smoke test covers gate/login/cookie (20/20)
+- [ ] settings UI field for the token - follow-up
 
 ## Notes / decisions
 - Breaking: agent API moved from `/api/*` to `/_agent/api/*` because PiKVM owns

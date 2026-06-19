@@ -25,6 +25,7 @@ import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, COMMANDS } from "./commands";
 import { createPiKvmProxy } from "./proxy";
 import { webAssets } from "./web-assets";
+import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
 import type { SettingsStore } from "./settings";
 import type { SecretsStore } from "./secrets";
 import type { AmbientMonitor } from "./ambient/monitor";
@@ -327,6 +328,17 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         const url = new URL(req.url ?? "/", "http://localhost");
         let path = url.pathname;
 
+        // Single-token gate (no-op when no token is configured). The login + auth
+        // endpoints must stay reachable; everything else needs a valid session.
+        const token = settings.get().accessToken;
+        if (token && !isLoopback(req) && !isAuthed(req, token) && path !== "/_agent/login" && path !== "/_agent/auth") {
+            if (String(req.headers.accept ?? "").includes("text/html")) {
+                res.writeHead(302, { location: "/_agent/login" });
+                return res.end();
+            }
+            return json(res, 401, { error: "Unauthorized" });
+        }
+
         // Our surface is `/_agent/*` plus `/mcp` (kept at the root so existing
         // external MCP clients keep working). Everything else is the PiKVM target.
         const isMcp = path === "/mcp";
@@ -336,6 +348,27 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         }
         // Strip the namespace so the existing route table matches unchanged.
         if (!isMcp) path = path.slice("/_agent".length) || "/";
+
+        // Auth pages (only meaningful when a token is configured).
+        if (path === "/login" && req.method === "GET") {
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+            return res.end(loginPage(url.searchParams.get("error") === "1"));
+        }
+        if (path === "/auth" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                const submitted = new URLSearchParams(b).get("token") ?? "";
+                if (token && submitted === token) {
+                    res.writeHead(302, {
+                        location: "/",
+                        "set-cookie": `${SESSION_COOKIE}=${sessionValue(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000`,
+                    });
+                    return res.end();
+                }
+                res.writeHead(302, { location: "/_agent/login?error=1" });
+                return res.end();
+            });
+            return;
+        }
 
         // Static agent assets (the UI bundle), served under `/_agent/...`.
         if (req.method === "GET" && webAssets.serve(path, res)) return;
@@ -661,8 +694,14 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         json(res, 404, { error: "Not found" });
     });
 
-    // PiKVM uses WebSockets for HID and stream-info; proxy every upgrade to it.
+    // PiKVM uses WebSockets for HID and stream-info; proxy every upgrade to it
+    // (subject to the same token gate as HTTP).
     server.on("upgrade", (req, socket, head) => {
+        const token = settings.get().accessToken;
+        if (token && !isLoopback(req) && !isAuthed(req, token)) {
+            socket.destroy();
+            return;
+        }
         void proxy.handleUpgrade(req, socket, head);
     });
 

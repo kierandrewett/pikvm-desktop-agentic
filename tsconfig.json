@@ -37,5 +37,8 @@
         "noUncheckedSideEffectImports": true,
         "moduleDetection": "force",
         "skipLibCheck": true
-    }
+    },
+    // Source lives in src/; scripts/ are esbuild-bundled smoke tests, not part of
+    // the app typecheck (they import across rootDir on purpose).
+    "exclude": ["scripts", "dist", "node_modules"]
 }

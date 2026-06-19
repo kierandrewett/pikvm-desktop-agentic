@@ -20,6 +20,8 @@ export interface AppSettings {
     goal?: string;
     /** Host the control server + proxy binds to. "0.0.0.0" exposes it on the LAN. */
     bindHost: string;
+    /** Single access token gating the server when set. Empty = open (loopback dev). */
+    accessToken: string;
     /** Ambient background screen/meeting monitor. */
     ambient: AmbientSettings;
 }
@@ -70,6 +72,7 @@ const DEFAULTS: AppSettings = {
     wpm: 95,
     sidebarWidth: 440,
     bindHost: "127.0.0.1",
+    accessToken: "",
     ambient: DEFAULT_AMBIENT,
 };
 
