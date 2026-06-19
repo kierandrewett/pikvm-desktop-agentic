@@ -123,6 +123,12 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" });
             res.end(`Proxy error: ${err.message}`);
         });
+        // If the client goes away (phone drops mid-stream, tab closed), abort the
+        // upstream request so a long-lived response (the MJPEG video) doesn't leak
+        // a Pi connection on every mobile reconnect. Harmless after normal end.
+        res.on("close", () => {
+            if (!proxyReq.destroyed) proxyReq.destroy();
+        });
         req.pipe(proxyReq);
     }
 
@@ -142,7 +148,21 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             rejectUnauthorized,
         });
 
+        // Settle once: either the upgrade succeeds or the upstream answers with a
+        // normal response / error. Guards against double-handling and lets us know
+        // whether a client disconnect should still abort the pending upstream req.
+        let settled = false;
+
+        // If the client (a phone on a flaky link) drops before the handshake
+        // completes, abort the upstream request so we don't leak a Pi connection.
+        const earlyAbort = () => {
+            if (!settled) proxyReq.destroy();
+        };
+        clientSocket.on("close", earlyAbort);
+        clientSocket.on("error", earlyAbort);
+
         proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
+            settled = true;
             const lines = [`HTTP/1.1 ${proxyRes.statusCode} ${proxyRes.statusMessage}`];
             for (const [k, v] of Object.entries(proxyRes.headers)) {
                 if (Array.isArray(v)) v.forEach((vv) => lines.push(`${k}: ${vv}`));
@@ -151,17 +171,51 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             clientSocket.write(lines.join("\r\n") + "\r\n\r\n");
             if (proxyHead && proxyHead.length) clientSocket.write(proxyHead);
 
-            const onErr = () => {
+            // Tear down BOTH ends when either closes or errors, so a Pi-side close
+            // (stream restart) drops the client cleanly and a client-side close
+            // (phone sleeps / switches network) frees the upstream connection.
+            const cleanup = () => {
                 proxySocket.destroy();
                 clientSocket.destroy();
             };
-            proxySocket.on("error", onErr);
-            clientSocket.on("error", onErr);
+            proxySocket.on("error", cleanup);
+            proxySocket.on("close", cleanup);
+            clientSocket.on("error", cleanup);
+            clientSocket.on("close", cleanup);
             proxySocket.pipe(clientSocket);
             clientSocket.pipe(proxySocket);
         });
 
-        proxyReq.on("error", () => clientSocket.destroy());
+        // Upstream answered WITHOUT upgrading (auth failure, redirect, 5xx, Pi
+        // restarting): relay it to the client and close, instead of hanging the
+        // WebSocket open until it times out.
+        proxyReq.on("response", (proxyRes) => {
+            if (settled) return;
+            settled = true;
+            if (!clientSocket.writable) {
+                proxyRes.resume();
+                clientSocket.destroy();
+                return;
+            }
+            const lines = [`HTTP/1.1 ${proxyRes.statusCode ?? 502} ${proxyRes.statusMessage ?? ""}`];
+            for (const [k, v] of Object.entries(proxyRes.headers)) {
+                if (HOP_BY_HOP.includes(k.toLowerCase())) continue;
+                if (Array.isArray(v)) v.forEach((vv) => lines.push(`${k}: ${vv}`));
+                else if (v !== undefined) lines.push(`${k}: ${v}`);
+            }
+            lines.push("connection: close");
+            clientSocket.write(lines.join("\r\n") + "\r\n\r\n");
+            proxyRes.pipe(clientSocket);
+            proxyRes.on("end", () => clientSocket.end());
+            proxyRes.on("error", () => clientSocket.destroy());
+        });
+
+        proxyReq.on("error", () => {
+            settled = true;
+            clientSocket.destroy();
+        });
+        // A dead/unreachable Pi must not hang the client socket forever.
+        proxyReq.setTimeout(15000, () => proxyReq.destroy());
         if (head && head.length) proxyReq.write(head);
         proxyReq.end();
     }

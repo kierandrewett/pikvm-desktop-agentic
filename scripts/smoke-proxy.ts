@@ -160,10 +160,16 @@ async function main(): Promise<void> {
     checks.push(["request with session cookie -> allowed", withCookie.status === 200 && (await withCookie.text()) === "authed-ok"]);
     gated.close();
 
-    // 6. WebSocket proxy (the HID / stream-info path). Mock Pi WS echoes; a client
-    // connects through our proxy and must get the echo back.
-    const wss = new WebSocketServer({ server: pi });
+    // 6. WebSocket proxy (the HID / stream-info path). Mock Pi WS echoes on /ws; a
+    // client connects through our proxy and must get the echo back. On any other
+    // path the mock Pi refuses to upgrade and returns a normal HTTP response - the
+    // proxy must relay that and close, never leave the client WS hanging.
+    const wss = new WebSocketServer({ noServer: true });
     wss.on("connection", (s) => s.on("message", (m) => s.send(`echo:${m.toString()}`)));
+    pi.on("upgrade", (req, socket, head) => {
+        if (req.url === "/ws") wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+        else socket.end("HTTP/1.1 401 Unauthorized\r\nconnection: close\r\ncontent-length: 6\r\n\r\ndenied");
+    });
     srv.on("upgrade", (req, socket, head) => void proxy.handleUpgrade(req, socket, head as Buffer));
     const wsOk = await new Promise<boolean>((resolve) => {
         const c = new WebSocket(`ws://127.0.0.1:${port}/ws`);
@@ -183,6 +189,28 @@ async function main(): Promise<void> {
         });
     });
     checks.push(["WebSocket proxied (HID path)", wsOk]);
+
+    // Non-upgrade upstream response: the client must be told (unexpected-response
+    // / error) promptly, not hang until timeout.
+    const noHang = await new Promise<boolean>((resolve) => {
+        const c = new WebSocket(`ws://127.0.0.1:${port}/denied-ws`);
+        const t = setTimeout(() => {
+            resolve(false);
+            c.terminate();
+        }, 3000);
+        const done = () => {
+            clearTimeout(t);
+            resolve(true);
+        };
+        c.on("unexpected-response", done);
+        c.on("error", done);
+        c.on("open", () => {
+            clearTimeout(t);
+            resolve(false);
+            c.close();
+        });
+    });
+    checks.push(["WS non-upgrade response relayed (no hang)", noHang]);
     wss.close();
 
     let ok = true;

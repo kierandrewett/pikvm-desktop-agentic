@@ -9,6 +9,10 @@ configurable server; auth is simplified to one server token.
 - [x] `src/proxy.ts` - HTTP proxy (HTML injection, cookie/redirect rewrite) + WS upgrade proxy
 - [x] server: namespace our routes under `/_agent` (+ `/mcp` at root), proxy everything else
 - [x] server: handle WebSocket upgrades via the proxy
+- [x] WS/HTTP resilience for flaky mobile links: relay non-upgrade upstream
+      responses (no client hang), abort upstream on client drop (no leaked Pi
+      connections), 15s connect timeout, teardown on close (not just error).
+      smoke:proxy covers the non-upgrade path (30/30).
 - [x] server: configurable bind host (LAN access) via `settings.bindHost`
 - [x] frontend `BASE` -> `<origin>/_agent`, configurable per shell (preload sets origin)
 - [x] build green
