@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer } from "electron";
 // server directly over HTTP/SSE; it only needs main for window mechanics
 // (dragging the view, resizing it to its content, and dismissing it).
 contextBridge.exposeInMainWorld("copilot", {
-    base: "http://127.0.0.1:25650",
+    base: "http://127.0.0.1:25650/_agent",
     drag: (dx: number, dy: number) => ipcRenderer.send("copilot:drag", { dx, dy }),
     resize: (height: number) => ipcRenderer.send("copilot:resize", { height }),
     close: () => ipcRenderer.send("copilot:close"),

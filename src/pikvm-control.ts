@@ -148,6 +148,16 @@ export class PiKvmControl {
         return `${proto}//${this.origin.host}/api/ws`;
     }
 
+    /**
+     * Everything the reverse proxy needs to forward a request to the PiKVM target:
+     * the origin (protocol/host/port), per-request auth headers (so the browser
+     * client never has to log into PiKVM itself), and the fact we ignore the Pi's
+     * self-signed cert. Used by src/proxy.ts.
+     */
+    async proxyTarget(): Promise<{ origin: URL; headers: Record<string, string>; rejectUnauthorized: boolean }> {
+        return { origin: this.origin, headers: await this.headers(), rejectUnauthorized: false };
+    }
+
     /* -------------------------------------------------------------- *
      * Screen
      * -------------------------------------------------------------- */

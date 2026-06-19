@@ -49,7 +49,10 @@ import { completions, type CommandSpec } from "../commands";
 import type { AuthRequest } from "../reviewer";
 import type { ServerState, MarkerData } from "../agent/protocol";
 
-const BASE = "http://127.0.0.1:25650";
+// Our API + assets live under `/_agent`. The desktop sidebar (loaded from a
+// file:// page) gets the origin from its preload; a browser uses same-origin.
+const AGENT_ORIGIN = (window as unknown as { __AGENT_ORIGIN__?: string }).__AGENT_ORIGIN__ ?? location.origin;
+const BASE = `${AGENT_ORIGIN}/_agent`;
 
 function post(path: string, body: unknown = {}) {
     return fetch(BASE + path, {

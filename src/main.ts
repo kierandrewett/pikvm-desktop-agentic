@@ -152,11 +152,15 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     presence.setEnabled(s.pauseOnPresence);
     if (s.goal) runner.setGoal(s.goal);
 
+    // Bind to the LAN only when the user opts in (so a phone/browser can reach
+    // the proxy); default to loopback. Auth gating lands in a later phase.
+    const bindHost = settings.get().bindHost || "127.0.0.1";
     startControlServer(
         { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, transcriber, meetingLog, openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
+        bindHost,
     );
-    console.log(`Agent backend listening on http://127.0.0.1:${CONTROL_PORT} (MCP at /mcp)`);
+    console.log(`Agent backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*)`);
     return { control, reviewer, presence, auth, runner, ambient, transcriber, settings, setOnKVM: (b: boolean) => { onKVM = b; } };
 }
 

@@ -1,12 +1,16 @@
 /**
- * Local control server (127.0.0.1).
+ * Control server + PiKVM reverse proxy.
  *
- * Hosts two things on one port:
- *  - /mcp        : the integrated MCP server (external clients drive the KVM)
- *  - /api/*      : the sidebar bridge (chat stream, approvals, state, login)
+ * One port hosts our own surface under `/_agent` and proxies everything else to
+ * the PiKVM target (so web and desktop clients use the Pi's own UI):
+ *  - /_agent/mcp       : the integrated MCP server (external clients drive the KVM)
+ *  - /_agent/api/*     : the sidebar bridge (chat stream, approvals, state, login)
+ *  - /_agent/<asset>   : the agent UI bundle injected into proxied pages
+ *  - everything else   : proxied to PiKVM (UI, MJPEG stream, HID WebSocket, login)
  *
  * The chat stream speaks the Vercel AI SDK UI message protocol so the React
- * sidebar's `useChat` can consume it directly.
+ * sidebar's `useChat` can consume it directly. The agent API moved from `/api/*`
+ * to `/_agent/api/*` because PiKVM owns `/api/*` and we now proxy it.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
@@ -19,6 +23,8 @@ import { createMcpHttpHandler, type McpDeps } from "./mcp-server";
 import { bridgeAgentEvents } from "./agent/ui-stream";
 import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, COMMANDS } from "./commands";
+import { createPiKvmProxy } from "./proxy";
+import { webAssets } from "./web-assets";
 import type { SettingsStore } from "./settings";
 import type { SecretsStore } from "./secrets";
 import type { AmbientMonitor } from "./ambient/monitor";
@@ -86,9 +92,12 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
     return { text: "", images: [] };
 }
 
-export function startControlServer(deps: ServerDeps, port: number): ReturnType<typeof createServer> {
+export function startControlServer(deps: ServerDeps, port: number, host = "127.0.0.1"): ReturnType<typeof createServer> {
     const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, transcriber, meetingLog, control, openExternal } = deps;
     const mcpHandler = createMcpHttpHandler(deps);
+    // Reverse proxy to the PiKVM target. Our own surface lives under `/_agent`;
+    // everything else is forwarded to the Pi (UI, stream, HID, login).
+    const proxy = createPiKvmProxy({ control, htmlInjection: () => webAssets.htmlInjection() });
 
     // Ring buffer of ambient events surfaced to the sidebar feed.
     const ambientEvents: AmbientEvent[] = [];
@@ -316,7 +325,20 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
 
     const server = createServer((req, res) => {
         const url = new URL(req.url ?? "/", "http://localhost");
-        const path = url.pathname;
+        let path = url.pathname;
+
+        // Our surface is `/_agent/*` plus `/mcp` (kept at the root so existing
+        // external MCP clients keep working). Everything else is the PiKVM target.
+        const isMcp = path === "/mcp";
+        if (!isMcp && path !== "/_agent" && !path.startsWith("/_agent/")) {
+            void proxy.handleHttp(req, res);
+            return;
+        }
+        // Strip the namespace so the existing route table matches unchanged.
+        if (!isMcp) path = path.slice("/_agent".length) || "/";
+
+        // Static agent assets (the UI bundle), served under `/_agent/...`.
+        if (req.method === "GET" && webAssets.serve(path, res)) return;
 
         if (req.method === "OPTIONS") {
             res.writeHead(204, {
@@ -639,6 +661,11 @@ export function startControlServer(deps: ServerDeps, port: number): ReturnType<t
         json(res, 404, { error: "Not found" });
     });
 
-    server.listen(port, "127.0.0.1");
+    // PiKVM uses WebSockets for HID and stream-info; proxy every upgrade to it.
+    server.on("upgrade", (req, socket, head) => {
+        void proxy.handleUpgrade(req, socket, head);
+    });
+
+    server.listen(port, host);
     return server;
 }

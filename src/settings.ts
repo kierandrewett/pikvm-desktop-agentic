@@ -18,6 +18,8 @@ export interface AppSettings {
     wpm: number;
     sidebarWidth: number;
     goal?: string;
+    /** Host the control server + proxy binds to. "0.0.0.0" exposes it on the LAN. */
+    bindHost: string;
     /** Ambient background screen/meeting monitor. */
     ambient: AmbientSettings;
 }
@@ -67,6 +69,7 @@ const DEFAULTS: AppSettings = {
     pauseOnPresence: true,
     wpm: 95,
     sidebarWidth: 440,
+    bindHost: "127.0.0.1",
     ambient: DEFAULT_AMBIENT,
 };
 
