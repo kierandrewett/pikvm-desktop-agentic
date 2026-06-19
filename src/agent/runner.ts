@@ -44,6 +44,10 @@ const PROVIDER = "openai-codex";
 const DEFAULT_MODEL = "gpt-5.5";
 /** Model sub-agents use for hard thinking / deep work. */
 const SUBAGENT_MODEL = "gpt-5.5";
+/** Cheap model for naming conversations (titles refresh as the chat shifts). */
+const TITLE_MODEL = "gpt-5.4-mini";
+const TITLE_SYSTEM =
+    "You name conversations. Given a transcript between a user and a computer-use agent driving a remote PC, reply with a SHORT title (3 to 6 words, Title Case, no quotes, no trailing punctuation) describing what the conversation is CURRENTLY about. If the focus has shifted, name the current focus. Output ONLY the title.";
 
 /**
  * Tools the meeting copilot may use. READ-ONLY + cognitive ONLY — it observes
@@ -216,7 +220,10 @@ export class AgentRunner {
 
         // Auto-save the transcript whenever a run finishes.
         this.agent.subscribe((e) => {
-            if (e.type === "agent_end") this.persist();
+            if (e.type === "agent_end") {
+                this.persist();
+                this.maybeRetitle();
+            }
         });
     }
 
@@ -465,6 +472,102 @@ export class AgentRunner {
         if (messages.length) this.sessions.save(this.sessionId, messages as any);
     }
 
+    /* --------------------------- session titles -------------------------- */
+
+    private lastTitledCount = 0;
+    private lastTitleAt = 0;
+    private titling = false;
+
+    /** Reset titling bookkeeping when the active session changes. */
+    private resetTitleTracking(): void {
+        this.lastTitledCount = 0;
+        this.lastTitleAt = 0;
+    }
+
+    /** Regenerate the session title as the conversation grows/shifts: after the
+     *  first exchange, then every few new messages, throttled so a multi-message
+     *  turn coalesces into one cheap call. Best-effort and fully async. */
+    private maybeRetitle(): void {
+        const n = (this.agent.state.messages as any[]).filter((m) => m.role === "user" || m.role === "assistant").length;
+        if (n < 2 || this.titling) return;
+        const enoughNew = this.lastTitledCount === 0 || n - this.lastTitledCount >= 3;
+        const enoughTime = Date.now() - this.lastTitleAt > 15_000;
+        if (!enoughNew || !enoughTime) return;
+        this.titling = true;
+        this.lastTitledCount = n;
+        this.lastTitleAt = Date.now();
+        void this.summariseTitle().finally(() => {
+            this.titling = false;
+        });
+    }
+
+    /** Compact recent text transcript (no images/tools) for the titler. */
+    private transcriptForTitle(): string {
+        const lines: string[] = [];
+        for (const m of this.agent.state.messages as any[]) {
+            if (m.role !== "user" && m.role !== "assistant") continue;
+            const text =
+                typeof m.content === "string"
+                    ? m.content
+                    : (m.content ?? [])
+                          .filter((c: any) => c?.type === "text")
+                          .map((c: any) => c.text)
+                          .join(" ");
+            const t = String(text).replace(/\s+/g, " ").trim();
+            if (t) lines.push(`${m.role === "user" ? "User" : "Agent"}: ${t.slice(0, 240)}`);
+        }
+        return lines.slice(-14).join("\n").slice(-2400);
+    }
+
+    private cleanTitle(s: string): string {
+        let t = s
+            .replace(/^\s*title\s*[:\-]\s*/i, "")
+            .replace(/^["'`]+|["'`]+$/g, "")
+            .replace(/\s+/g, " ")
+            .replace(/[.\s]+$/, "")
+            .trim();
+        const words = t.split(" ");
+        if (words.length > 7) t = words.slice(0, 7).join(" ");
+        return t.slice(0, 60);
+    }
+
+    /** One cheap, tool-less Pi turn that names the conversation, then stores it. */
+    private async summariseTitle(): Promise<void> {
+        const sid = this.sessionId;
+        const transcript = this.transcriptForTitle();
+        if (!transcript) return;
+        let model = this.subModel;
+        try {
+            model = this.deps.auth.applyModel(getModel(PROVIDER as any, TITLE_MODEL as any));
+        } catch {
+            model = this.subModel; // unknown id → fall back to a known model
+        }
+        try {
+            const agent = new Agent({
+                initialState: { systemPrompt: TITLE_SYSTEM, model, thinkingLevel: "low", tools: [] },
+                getApiKey: async () => {
+                    try {
+                        return await this.deps.auth.getToken();
+                    } catch {
+                        return undefined;
+                    }
+                },
+                sessionId: `pikvm-title-${Date.now()}`,
+            });
+            await agent.prompt(`Conversation so far:\n\n${transcript}\n\nReturn the title now.`);
+            const last: any = [...agent.state.messages].reverse().find((m: any) => m.role === "assistant");
+            const c = last?.content;
+            const raw = typeof c === "string" ? c : (c ?? []).filter((x: any) => x?.type === "text").map((x: any) => x.text).join(" ");
+            const title = this.cleanTitle(raw);
+            if (title) {
+                this.sessions.setTitle(sid, title);
+                this.onUiChanged?.(); // nudge the UI to refetch the session list
+            }
+        } catch {
+            /* best-effort: a missing title is harmless */
+        }
+    }
+
     /* ------------------------- ambient (one-shot) ------------------------ */
 
     /**
@@ -692,6 +795,7 @@ export class AgentRunner {
         this.stop();
         this.agent.state.messages = [];
         this.sessionId = this.sessions.create();
+        this.resetTitleTracking();
         return this.sessionId;
     }
 
@@ -702,6 +806,7 @@ export class AgentRunner {
         const messages = this.sessions.load(id);
         this.agent.state.messages = messages as any;
         this.sessionId = id;
+        this.resetTitleTracking();
         // Prefer the stored UI transcript (keeps screenshots); fall back to a
         // reconstruction from the agent messages.
         const ui = this.sessions.loadUi(id);

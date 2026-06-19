@@ -68,7 +68,10 @@ export class SessionStore {
         const now = Date.now();
         const meta: SessionMeta = {
             id,
-            title: titleFrom(messages),
+            // Keep a generated/once-set title; only derive the first-message
+            // heuristic for a brand-new session (the runner refreshes it via
+            // setTitle as the conversation shifts).
+            title: existing?.meta.title || titleFrom(messages),
             createdAt: existing?.meta.createdAt ?? now,
             updatedAt: now,
             messageCount: messages.length,
@@ -76,6 +79,21 @@ export class SessionStore {
         const file: SessionFile = { meta, messages: stripImages(messages) };
         writeFileSync(this.path(id), JSON.stringify(file));
         return meta;
+    }
+
+    /** Update just the title (e.g. an auto-generated summary). Does not reorder
+     *  the session list - updatedAt is left untouched. */
+    setTitle(id: string, title: string): void {
+        if (!existsSync(this.path(id))) return;
+        const clean = title.trim().slice(0, 80);
+        if (!clean) return;
+        try {
+            const file = this.read(id);
+            file.meta.title = clean;
+            writeFileSync(this.path(id), JSON.stringify(file));
+        } catch {
+            /* best-effort */
+        }
     }
 
     private read(id: string): SessionFile {
