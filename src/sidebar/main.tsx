@@ -25,6 +25,7 @@ import {
     Copy,
     History,
     Clock,
+    Globe,
     Keyboard,
     Lock,
     MousePointerClick,
@@ -710,7 +711,8 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
         });
     };
     const amb = state?.ambient;
-    const [tab, setTab] = useState<"behaviour" | "ambient" | "secrets">("behaviour");
+    const [tab, setTab] = useState<"behaviour" | "ambient" | "secrets" | "server">("behaviour");
+    const [accessToken, setAccessToken] = useState("");
     const [ntfyTopic, setNtfyTopic] = useState(amb?.ntfyTopic ?? "claude");
     const [ntfyBaseUrl, setNtfyBaseUrl] = useState(amb?.ntfyBaseUrl ?? "https://ntfy.sh");
     const [ntfyToken, setNtfyToken] = useState("");
@@ -731,7 +733,9 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
         { id: "behaviour", label: "Behaviour", icon: Keyboard },
         { id: "ambient", label: "Ambient", icon: Radar },
         { id: "secrets", label: "Secrets", icon: Lock },
+        { id: "server", label: "Server", icon: Globe },
     ];
+    const lanOn = (state?.settings?.bindHost ?? "127.0.0.1") === "0.0.0.0";
     return (
         <Modal onClose={onClose} wide>
             <div className="flex items-center justify-between p-3 pb-2 text-[15px] font-semibold">
@@ -917,6 +921,56 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 />
                                 <Button size="sm" className="h-8 shrink-0" disabled={!secName.trim() || !secVal} onClick={addSecret}>Add</Button>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* -------------------------------- server ------------------------------ */}
+                {tab === "server" && (
+                    <div className="space-y-3">
+                        <p className="text-[12px] leading-snug text-muted-foreground">
+                            Use this on your phone or another browser. The server proxies the PiKVM UI and serves the agent, so a client only
+                            needs the address below and the access token.
+                        </p>
+                        <Row
+                            label="Allow access from the LAN"
+                            desc="Bind to 0.0.0.0 so other devices can reach it. Needs a restart to take effect."
+                            control={<Switch checked={lanOn} onChange={(v) => onPatch({ bindHost: v ? "0.0.0.0" : "127.0.0.1" })} />}
+                        />
+                        <div className="rounded-xl border bg-card/40 p-3">
+                            <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium">
+                                <Lock className="size-3.5 text-muted-foreground" /> Access token
+                                <span className={cn("ml-auto text-[10px]", state?.settings?.hasToken ? "text-emerald-500" : "text-amber-500")}>
+                                    {state?.settings?.hasToken ? "set" : "not set"}
+                                </span>
+                            </div>
+                            <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+                                Required for LAN clients (this machine is always allowed). PiKVM credentials stay on the server.
+                            </p>
+                            <div className="flex gap-1.5">
+                                <input
+                                    type="password"
+                                    value={accessToken}
+                                    onChange={(e) => setAccessToken(e.target.value)}
+                                    placeholder={state?.settings?.hasToken ? "Replace token" : "Set a token"}
+                                    className={cn(inputCls, "flex-1")}
+                                />
+                                <Button size="sm" className="h-8" onClick={() => post("/api/settings", { accessToken: accessToken.trim() }).then(() => { setAccessToken(""); onPatch({}); })}>
+                                    Save
+                                </Button>
+                            </div>
+                            {state?.settings?.hasToken && (
+                                <button className="mt-1.5 text-[11px] text-destructive hover:underline" onClick={() => post("/api/settings", { accessToken: "" }).then(() => onPatch({}))}>
+                                    Clear token (open access)
+                                </button>
+                            )}
+                        </div>
+                        <div className="rounded-xl border bg-card/40 p-3 text-[12px]">
+                            <div className="mb-1 font-medium">Connect a device</div>
+                            <p className="leading-snug text-muted-foreground">
+                                On the same network, open <code className="text-primary">http://&lt;this-machine-ip&gt;:25650</code> in a browser, then
+                                enter the access token. Tap the floating button to open the agent.
+                            </p>
                         </div>
                     </div>
                 )}
