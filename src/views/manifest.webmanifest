@@ -1,0 +1,15 @@
+{
+  "name": "PiKVM Agent",
+  "short_name": "PiKVM",
+  "description": "PiKVM with an integrated AI agent — see and drive the target from any device.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0d12",
+  "theme_color": "#0b0d12",
+  "icons": [
+    { "src": "/_agent/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/_agent/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

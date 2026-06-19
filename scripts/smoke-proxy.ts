@@ -81,6 +81,25 @@ async function main(): Promise<void> {
     const touch = await fetch(`${base}/_agent/touch.js`);
     checks.push(["/_agent/touch.js served", touch.status === 200 && (await touch.text()).includes("pinch")]);
 
+    // PWA: manifest + icon + service worker served with the right content-types,
+    // and the install metadata injected into proxied pages.
+    checks.push(["manifest link injected", html.includes('rel="manifest"') && html.includes("/_agent/manifest.webmanifest")]);
+    checks.push(["apple-touch-icon injected", html.includes('rel="apple-touch-icon"') && html.includes("/_agent/icon.png")]);
+    checks.push(["standalone meta injected", html.includes('name="apple-mobile-web-app-capable"')]);
+    const manifest = await fetch(`${base}/_agent/manifest.webmanifest`);
+    const manifestBody = await manifest.json().catch(() => null);
+    checks.push([
+        "/_agent/manifest.webmanifest served as manifest+json",
+        manifest.status === 200 && (manifest.headers.get("content-type") ?? "").includes("manifest+json") && manifestBody?.display === "standalone",
+    ]);
+    const sw = await fetch(`${base}/_agent/sw.js`);
+    checks.push([
+        "/_agent/sw.js served as javascript",
+        sw.status === 200 && (sw.headers.get("content-type") ?? "").includes("javascript") && (await sw.text()).includes("pikvm-agent-v1"),
+    ]);
+    const icon = await fetch(`${base}/_agent/icon.png`);
+    checks.push(["/_agent/icon.png served as image/png", icon.status === 200 && (icon.headers.get("content-type") ?? "") === "image/png"]);
+
     // 4. Auth helpers (unit-level).
     const TOKEN = "s3cret";
     const mkReq = (h: Record<string, string>) => ({ headers: h, url: "/" }) as unknown as Parameters<typeof isAuthed>[0];

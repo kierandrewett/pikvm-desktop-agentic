@@ -23,6 +23,10 @@ const MIME: Record<string, string> = {
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".html": "text/html; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".json": "application/json; charset=utf-8",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
 };
 
 function asset(file: string): string | null {
@@ -37,7 +41,18 @@ function asset(file: string): string | null {
 // /_agent/sidebar.html) so its Tailwind CSS and React tree are fully isolated
 // from the PiKVM page we inject into. A floating button toggles a slide-in panel
 // that is a docked sidebar on desktop and a full-screen sheet on mobile.
-const HEAD_INJECT = '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" data-pikvm-agent>';
+// Viewport + PWA install metadata so the client can be added to a phone's home
+// screen and launch full-screen (standalone), vaultwarden-style. iOS honours the
+// apple-* tags over plain HTTP; the manifest + theme-color drive Android/desktop.
+const HEAD_INJECT =
+    '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover" data-pikvm-agent>' +
+    '<link rel="manifest" href="/_agent/manifest.webmanifest" data-pikvm-agent>' +
+    '<meta name="theme-color" content="#0b0d12" data-pikvm-agent>' +
+    '<meta name="mobile-web-app-capable" content="yes" data-pikvm-agent>' +
+    '<meta name="apple-mobile-web-app-capable" content="yes" data-pikvm-agent>' +
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" data-pikvm-agent>' +
+    '<meta name="apple-mobile-web-app-title" content="PiKVM" data-pikvm-agent>' +
+    '<link rel="apple-touch-icon" href="/_agent/icon.png" data-pikvm-agent>';
 
 const BODY_INJECT = `
 <style data-pikvm-agent>
@@ -72,6 +87,13 @@ const BODY_INJECT = `
     }
   }
   fab.addEventListener('click',toggle);
+  // Install the agent-shell service worker only in a secure context (HTTPS or
+  // localhost); over a plain-http LAN it is skipped silently (no console noise).
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/_agent/sw.js', {scope:'/_agent/'}).catch(function(){});
+    });
+  }
 })();</script>
 <script data-pikvm-agent src="/_agent/touch.js" defer></script>
 `;

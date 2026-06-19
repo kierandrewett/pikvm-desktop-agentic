@@ -27,7 +27,12 @@ configurable server; auth is simplified to one server token.
 - [x] inertial/momentum pan: a two-finger flick keeps gliding and decelerates
       (exp decay, TAU 130ms), clamped each frame; only when zoomed; never touches
       PiKVM input. Matches screen-mirror's smooth "panning a map" feel.
+- [x] PWA install: web manifest + apple-* standalone meta + theme-color injected;
+      icon + manifest + service worker served under /_agent. Add-to-home-screen
+      launches full-screen. SW caches the agent shell (scope /_agent/), gated to
+      secure contexts so plain-http LAN is silent. smoke:proxy covers it (29/29).
 - [ ] on-device validation (gesture feel + PiKVM rect-relative input mapping) - user
+- [ ] install validation over HTTPS (SW registration + add-to-home-screen) - user
 
 ## Phase 4 - desktop unification (opt-in toggle)
 - [x] desktop agent/sidebar/MCP/copilot already run on + talk to the server
