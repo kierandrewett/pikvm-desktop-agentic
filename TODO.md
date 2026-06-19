@@ -61,7 +61,8 @@ configurable server; auth is simplified to one server token.
       aware, mobile-input hygiene (no autocap/autocorrect/spellcheck, enterkeyhint),
       logo + signed-out notice
 - [x] logout route (/_agent/logout): clears the session cookie, returns to login
-- [ ] wire a "Sign out" affordance into the sidebar Server tab (next)
+- [x] "Sign out" button in the sidebar Server tab (web clients only, when a token
+      is set); navigates the top page to /_agent/logout. Hidden on desktop (loopback)
 
 ## Notes / decisions
 - Breaking: agent API moved from `/api/*` to `/_agent/api/*` because PiKVM owns

@@ -54,6 +54,10 @@ import type { ServerState, MarkerData } from "../agent/protocol";
 // file:// page) gets the origin from its preload; a browser uses same-origin.
 const AGENT_ORIGIN = (window as unknown as { __AGENT_ORIGIN__?: string }).__AGENT_ORIGIN__ ?? location.origin;
 const BASE = `${AGENT_ORIGIN}/_agent`;
+// The desktop shell injects __AGENT_ORIGIN__ via its preload and is loopback-
+// exempt (never gated), so "Sign out" is meaningless there - only web clients
+// hold a session cookie to clear.
+const IS_DESKTOP = !!(window as unknown as { __AGENT_ORIGIN__?: string }).__AGENT_ORIGIN__;
 
 function post(path: string, body: unknown = {}) {
     return fetch(BASE + path, {
@@ -999,6 +1003,24 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 enter the access token. Tap the floating button to open the agent.
                             </p>
                         </div>
+
+                        {!IS_DESKTOP && state?.settings?.hasToken && (
+                            <button
+                                className="w-full rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/20"
+                                onClick={() => {
+                                    // The sidebar is a same-origin iframe; navigate the TOP page to the
+                                    // logout route so the whole client returns to the login screen.
+                                    const target = `${AGENT_ORIGIN}/_agent/logout`;
+                                    try {
+                                        (window.top ?? window).location.assign(target);
+                                    } catch {
+                                        window.location.assign(target);
+                                    }
+                                }}
+                            >
+                                Sign out of this device
+                            </button>
+                        )}
 
                         <div className="rounded-xl border bg-card/40 p-3">
                             <Row
