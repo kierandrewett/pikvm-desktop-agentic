@@ -59,6 +59,17 @@ For ANY question about internal corporate process/policy:
 3. Watch for the POST screen and repeatedly \`press_key\` the setup key
    (commonly Delete, F2, F10, or Esc) during early boot.
 4. \`screenshot\` to confirm you reached the firmware menus before proceeding.`,
+    "fix-keyboard-layout": `# Fix a keyboard layout mismatch on the target
+> When typed symbols come out wrong (e.g. ~ becomes ¬, " becomes @), the target's layout does not match what you are sending.
+
+Symptom: symbols like ~ / \\\\ " @ # come out as different characters while letters and numbers are fine. That is a LAYOUT mismatch, not a typo.
+Fixes, easiest first:
+1. Change the target's input layout to match. On Windows press Win+Space (\`hotkey\` MetaLeft+Space) to cycle input languages/layouts; pick the one that types symbols correctly. Test in a text field and \`ocr\` to confirm.
+2. If the right layout is not installed, configure the system yourself — you are not limited to what is already on screen. Windows: Settings → Time & language → Language & region / Typing, add or set the keyboard (e.g. English US vs UK). macOS: System Settings → Keyboard → Input Sources. Linux: Settings → Keyboard.
+3. After changing it, retype and \`ocr\` to verify the symbols are right before continuing.
+4. \`remember\` which layout this target uses so you do not have to rediscover it.
+
+Note: you also have a US/UK setting (Settings → Behaviour) that changes which physical keys you send. Matching that to the target avoids the problem up front; changing the target's own layout is the fix when you cannot.`,
 };
 
 export class SkillStore {
