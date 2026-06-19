@@ -24,6 +24,9 @@ configurable server; auth is simplified to one server token.
 - [x] viewport meta (Phase 1)
 - [x] pinch-zoom + 2-finger pan over the proxied stream; 1-finger passes through
       to PiKVM as input; double-tap reset; ctrl/cmd+wheel zoom on desktop
+- [x] inertial/momentum pan: a two-finger flick keeps gliding and decelerates
+      (exp decay, TAU 130ms), clamped each frame; only when zoomed; never touches
+      PiKVM input. Matches screen-mirror's smooth "panning a map" feel.
 - [ ] on-device validation (gesture feel + PiKVM rect-relative input mapping) - user
 
 ## Phase 4 - desktop unification (opt-in toggle)

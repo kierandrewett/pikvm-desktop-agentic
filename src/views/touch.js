@@ -30,6 +30,45 @@
     var prevCy = 0;
     var lastTap = 0;
 
+    // Inertia: a flick of the two-finger pan keeps gliding and decelerates,
+    // so the view "feels like panning a map" (screen-mirror's smooth-follow feel)
+    // rather than stopping dead. Velocity is in px/ms; momentum only matters when
+    // zoomed (scale > 1), and it never touches PiKVM input (two-finger is ours).
+    var velX = 0;
+    var velY = 0;
+    var moveT = 0;
+    var rafId = 0;
+    var DECAY_TAU = 130; // ms; larger = longer glide
+    var MIN_VEL = 0.012; // px/ms; below this, stop
+
+    function stopInertia() {
+        if (rafId) {
+            (window.cancelAnimationFrame || window.clearTimeout)(rafId);
+            rafId = 0;
+        }
+    }
+
+    function startInertia() {
+        stopInertia();
+        if (scale <= 1) return;
+        if (Math.hypot(velX, velY) < MIN_VEL) return;
+        var last = performance.now();
+        var step = function (now) {
+            var dt = Math.min(48, now - last);
+            last = now;
+            tx += velX * dt;
+            ty += velY * dt;
+            var d = Math.exp(-dt / DECAY_TAU);
+            velX *= d;
+            velY *= d;
+            clampPan();
+            apply();
+            if (Math.hypot(velX, velY) > MIN_VEL) rafId = window.requestAnimationFrame(step);
+            else rafId = 0;
+        };
+        rafId = window.requestAnimationFrame(step);
+    }
+
     function findStream() {
         return document.querySelector("#stream-image, #stream-video, #stream-canvas");
     }
@@ -87,6 +126,7 @@
 
     function onDown(e) {
         if (e.pointerType !== "touch") return;
+        stopInertia(); // a new touch grabs the gliding view
         pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (pts.size === 2) {
             engaged = true;
@@ -94,6 +134,9 @@
             var c = centroid();
             prevCx = c.x;
             prevCy = c.y;
+            velX = 0;
+            velY = 0;
+            moveT = performance.now();
         }
     }
 
@@ -110,13 +153,23 @@
         var f = prevDist > 0 ? d / prevDist : 1;
         var newScale = Math.min(MAX, Math.max(MIN, scale * f));
 
+        // Translational pan this frame = centroid movement; track its velocity
+        // (low-passed) so a release can carry the glide.
+        var panDX = c.x - prevCx;
+        var panDY = c.y - prevCy;
+        var now = performance.now();
+        var dt = Math.max(1, now - moveT);
+        moveT = now;
+        velX = velX * 0.7 + (panDX / dt) * 0.3;
+        velY = velY * 0.7 + (panDY / dt) * 0.3;
+
         // Zoom around the pinch centroid, then add the centroid's own pan.
         var rect = el.getBoundingClientRect();
         var ox = rect.left - tx;
         var oy = rect.top - ty;
         var ratio = newScale / scale;
-        tx = prevCx - ox - ratio * (prevCx - ox - tx) + (c.x - prevCx);
-        ty = prevCy - oy - ratio * (prevCy - oy - ty) + (c.y - prevCy);
+        tx = prevCx - ox - ratio * (prevCx - ox - tx) + panDX;
+        ty = prevCy - oy - ratio * (prevCy - oy - ty) + panDY;
         scale = newScale;
 
         prevDist = d;
@@ -127,13 +180,26 @@
     }
 
     function onUp(e) {
+        var wasEngaged = engaged;
         if (pts.has(e.pointerId)) pts.delete(e.pointerId);
         if (pts.size < 2) {
             engaged = false;
+            // If the pan finger lifted while still moving, glide on. A stale
+            // velocity (finger paused before lifting) is dropped via moveT age.
+            if (wasEngaged) {
+                if (performance.now() - moveT > 70) {
+                    velX = 0;
+                    velY = 0;
+                }
+                startInertia();
+            }
             // Double-tap (two quick single-finger taps) resets the view.
             if (e.pointerType === "touch" && pts.size === 0) {
                 var now = Date.now();
-                if (now - lastTap < 300) reset();
+                if (now - lastTap < 300) {
+                    stopInertia();
+                    reset();
+                }
                 lastTap = now;
             }
         }
