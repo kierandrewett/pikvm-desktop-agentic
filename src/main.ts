@@ -534,6 +534,23 @@ function createWindow() {
                     kind: event.toolName === "move_mouse" ? "move" : "click",
                 });
             }
+            // Show what the agent is READING: a labelled scan box for OCR (the key
+            // ask) and for cropped/zoom screenshots. Routine full-frame screenshots
+            // are skipped (the pulsing scrim already signals "looking").
+            const hasRegion = args.region && typeof args.region.x === "number" && typeof args.region.width === "number";
+            if (event.toolName === "ocr" || (event.toolName === "screenshot" && hasRegion)) {
+                const dims = agentBackend.control.getDimensions();
+                const r = hasRegion ? args.region : { x: 0, y: 0, width: dims.width, height: dims.height };
+                controlOverlayView.webContents.send("overlay:region", {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                    w: dims.width,
+                    h: dims.height,
+                    label: event.toolName === "ocr" ? (hasRegion ? "Reading text" : "Reading screen") : "Zoom in",
+                });
+            }
         } else if (event.type === "agent_end") {
             setAgentActing(false);
             // Notify on completion if the user isn't looking at the window.
