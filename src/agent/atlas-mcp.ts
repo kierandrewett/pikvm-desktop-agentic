@@ -19,6 +19,23 @@ export interface AtlasBridge {
     close: () => Promise<void>;
 }
 
+/**
+ * Tools that mutate the vault on disk. After one of these runs we rebuild the
+ * derived index (atlas_health) so a separately-running `atlas web` frontend —
+ * which reads a shared on-disk index and does NOT watch for external git writes —
+ * reflects the new page straight away instead of serving a stale view.
+ */
+const WRITE_TOOLS = new Set([
+    "atlas_page",
+    "atlas_object",
+    "atlas_statement",
+    "atlas_schema",
+    "atlas_import",
+    "atlas_propose",
+    "atlas_command",
+]);
+const REINDEX_TOOL = "atlas_health";
+
 /** Flatten an MCP tool result into plain text for the agent. */
 function resultText(res: any): string {
     const content = res?.content;
@@ -52,6 +69,21 @@ export async function connectAtlas(opts: { atlasBin: string; vault: string }): P
         return null;
     }
 
+    const canReindex = listed.tools.some((t) => t.name === REINDEX_TOOL);
+    // Debounce reindexing so a burst of writes (create page + several edits)
+    // coalesces into a single rebuild shortly after the agent stops writing.
+    let reindexTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleReindex = () => {
+        if (!canReindex) return;
+        if (reindexTimer) clearTimeout(reindexTimer);
+        reindexTimer = setTimeout(() => {
+            reindexTimer = null;
+            client
+                .callTool({ name: REINDEX_TOOL, arguments: {} })
+                .catch((e) => console.error("[atlas] auto-reindex failed:", (e as Error)?.message ?? e));
+        }, 800);
+    };
+
     const tools: AgentTool<any>[] = listed.tools.map((t) => ({
         name: t.name,
         label: t.name,
@@ -62,6 +94,8 @@ export async function connectAtlas(opts: { atlasBin: string; vault: string }): P
         async execute(_id: string, params: unknown): Promise<AgentToolResult<null>> {
             try {
                 const res = await client.callTool({ name: t.name, arguments: (params as Record<string, unknown>) ?? {} });
+                // A successful write means the frontend's index is now stale; refresh it.
+                if (WRITE_TOOLS.has(t.name) && res?.isError !== true) scheduleReindex();
                 return { content: [{ type: "text", text: resultText(res) }], details: null };
             } catch (e) {
                 return { content: [{ type: "text", text: `Atlas error: ${(e as Error)?.message ?? e}` }], details: null };
