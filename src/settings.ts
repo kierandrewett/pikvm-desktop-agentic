@@ -16,6 +16,8 @@ export interface AppSettings {
     pauseOnPresence: boolean;
     /** Baseline typing WPM the random persona centers on. */
     wpm: number;
+    /** Target keyboard layout (the agent sends physical key codes; this sets glyphs). */
+    keyboardLayout: "us" | "uk";
     sidebarWidth: number;
     goal?: string;
     /** Host the control server + proxy binds to. "0.0.0.0" exposes it on the LAN. */
@@ -73,6 +75,7 @@ const DEFAULTS: AppSettings = {
     humanize: 1,
     pauseOnPresence: true,
     wpm: 95,
+    keyboardLayout: "us",
     sidebarWidth: 440,
     bindHost: "127.0.0.1",
     accessToken: "",

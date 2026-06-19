@@ -134,7 +134,7 @@ export interface ServerState {
     /** Named secrets the agent can type but never see. Values are never sent. */
     secrets: { items: { name: string; hint?: string }[]; encrypted: boolean };
     sessions: SessionSummary[];
-    settings: { humanize: number; pauseOnPresence: boolean; wpm: number; bindHost: string; hasToken: boolean; desktopUseProxy: boolean };
+    settings: { humanize: number; pauseOnPresence: boolean; wpm: number; keyboardLayout: "us" | "uk"; bindHost: string; hasToken: boolean; desktopUseProxy: boolean };
     schedules: { id: string; label: string; when: string }[];
     log: LogEntry[];
 }

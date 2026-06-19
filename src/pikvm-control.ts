@@ -96,6 +96,8 @@ export class PiKvmControl {
     private humanize = 1;
     /** Forced WPM (0 = use the random persona). */
     private wpm = 0;
+    /** Target keyboard layout (we send physical key codes; the layout sets glyphs). */
+    private layout: "us" | "uk" = "us";
     /** Hook fired with text the agent types / keys it presses (for input tracking). */
     onAgentInput: ((info: { text?: string; key?: string }) => void) | undefined;
     /**
@@ -356,6 +358,11 @@ export class PiKvmControl {
         this.wpm = Math.max(0, Math.min(220, Math.round(wpm)));
     }
 
+    /** Set the target keyboard layout (so symbols map to the right physical keys). */
+    setLayout(layout: "us" | "uk"): void {
+        this.layout = layout === "uk" ? "uk" : "us";
+    }
+
     /** Type text with humanlike timing, typos and self-correction. */
     async typeText(
         text: string,
@@ -370,6 +377,7 @@ export class PiKvmControl {
         const { signal, onProgress, secret, ...typingOpts } = opts;
         const strokes = planTyping(text, {
             intensity: this.humanize,
+            layout: this.layout,
             ...(this.wpm ? { wpm: this.wpm } : {}),
             ...typingOpts,
         });

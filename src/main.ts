@@ -149,6 +149,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     reviewer.setPolicy(s.policy);
     control.setHumanize(s.humanize);
     control.setWpm(s.wpm);
+    control.setLayout(s.keyboardLayout);
     presence.setEnabled(s.pauseOnPresence);
     if (s.goal) runner.setGoal(s.goal);
 

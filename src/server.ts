@@ -219,7 +219,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         })),
         settings: (() => {
             const s = settings.get();
-            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy };
+            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, keyboardLayout: s.keyboardLayout, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy };
         })(),
         schedules: runner.listSchedules().map((j) => ({
             id: j.id,
@@ -503,6 +503,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 if (typeof patch.humanize === "number") control.setHumanize(next.humanize);
                 if (typeof patch.pauseOnPresence === "boolean") presence.setEnabled(next.pauseOnPresence);
                 if (typeof patch.wpm === "number") control.setWpm(next.wpm);
+                if (patch.keyboardLayout === "us" || patch.keyboardLayout === "uk") control.setLayout(next.keyboardLayout);
                 return json(res, 200, state());
             });
             return;

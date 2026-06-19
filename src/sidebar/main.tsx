@@ -784,6 +784,28 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         </div>
                         <div className="border-t pt-3">
                             <Row
+                                label="Keyboard layout"
+                                desc="The target's layout. Get this wrong and symbols come out as the wrong characters."
+                                control={
+                                    <div className="flex gap-0.5 rounded-lg bg-muted/60 p-0.5">
+                                        {(["us", "uk"] as const).map((l) => (
+                                            <button
+                                                key={l}
+                                                onClick={() => onPatch({ keyboardLayout: l })}
+                                                className={cn(
+                                                    "rounded-md px-2.5 py-1 text-xs font-medium uppercase transition-colors",
+                                                    (s?.keyboardLayout ?? "us") === l ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                                                )}
+                                            >
+                                                {l}
+                                            </button>
+                                        ))}
+                                    </div>
+                                }
+                            />
+                        </div>
+                        <div className="border-t pt-3">
+                            <Row
                                 label="Pause on presence"
                                 desc="Hold automation while the target mic/audio is live"
                                 control={<Switch checked={s?.pauseOnPresence ?? true} onChange={(v) => onPatch({ pauseOnPresence: v })} />}

@@ -54,6 +54,8 @@ export interface TypingOptions {
     wpm?: number;
     /** Explicit seed for reproducibility. */
     seed?: number;
+    /** Target keyboard layout. We send physical key codes, so this decides glyphs. */
+    layout?: "us" | "uk";
 }
 
 /* ------------------------------------------------------------------ *
@@ -147,6 +149,22 @@ for (let r = 0; r < ROWS.length; r++) {
 }
 CHAR_TO_KEY.set(" ", { code: "Space", shift: false, row: 4, col: 4, hand: "R" });
 
+// UK ISO layout overrides for the printable chars whose PHYSICAL key differs from
+// US (everything else is identical). We send physical key codes over HID, so the
+// target's layout decides the glyph; without this, `cd ~/...` types `cd ¬/...` and
+// `"` types `@` on a UK target. row/col/hand are approximate (only used by the
+// typo engine, which rarely substitutes symbols).
+const UK_OVERRIDES = new Map<string, KeyInfo>([
+    ['"', { code: "Digit2", shift: true, row: 0, col: 2, hand: "L" }],
+    ["@", { code: "Quote", shift: true, row: 2, col: 10, hand: "R" }],
+    ["#", { code: "Backslash", shift: false, row: 1, col: 12, hand: "R" }],
+    ["~", { code: "Backslash", shift: true, row: 1, col: 12, hand: "R" }],
+    ["\\", { code: "IntlBackslash", shift: false, row: 3, col: 0, hand: "L" }],
+    ["|", { code: "IntlBackslash", shift: true, row: 3, col: 0, hand: "L" }],
+    ["£", { code: "Digit3", shift: true, row: 0, col: 3, hand: "L" }],
+    ["¬", { code: "Backquote", shift: true, row: 0, col: 0, hand: "L" }],
+]);
+
 /** Physical neighbours of a printable char (same row ±1, adjacent rows). */
 function neighbours(ch: string): string[] {
     const k = CHAR_TO_KEY.get(ch);
@@ -167,7 +185,11 @@ function neighbours(ch: string): string[] {
     return out.filter((x) => CHAR_TO_KEY.has(x));
 }
 
-function keyFor(ch: string): KeyInfo | undefined {
+function keyFor(ch: string, layout: "us" | "uk" = "us"): KeyInfo | undefined {
+    if (layout === "uk") {
+        const override = UK_OVERRIDES.get(ch);
+        if (override) return override;
+    }
     return CHAR_TO_KEY.get(ch);
 }
 
@@ -255,13 +277,13 @@ class Planner {
     constructor(
         private rng: Rng,
         private persona: Persona,
-        private opts: Required<Pick<TypingOptions, "code" | "intensity">>,
+        private opts: Required<Pick<TypingOptions, "code" | "intensity" | "layout">>,
     ) {
         this.base = baseGapMs(persona.wpm);
     }
 
     private pushChar(ch: string, extraGap = 0, pause = false) {
-        const key = keyFor(ch);
+        const key = keyFor(ch, this.opts.layout);
         if (!key) {
             // Unsupported char (e.g. newline handled by caller) — skip silently.
             return;
@@ -307,7 +329,7 @@ class Planner {
             const burst = COMMON_BIGRAMS.has(bigram.toLowerCase());
 
             const corrupt =
-                keyFor(ch) && ch !== " " && corrections < maxCorrections && this.rng() < errorRate
+                keyFor(ch, this.opts.layout) && ch !== " " && corrections < maxCorrections && this.rng() < errorRate
                     ? pickCorruption(this.rng, ch, next)
                     : null;
 
@@ -433,6 +455,7 @@ export function planTyping(text: string, opts: TypingOptions = {}): KeyStroke[] 
     const planner = new Planner(rng, persona, {
         code: opts.code ?? looksLikeCode(text),
         intensity: clamp01(opts.intensity ?? 1),
+        layout: opts.layout ?? "us",
     });
     return applyCapsLock(planner.plan(text).strokes, makeRng((seed ^ 0x9e3779b1) >>> 0), persona);
 }
