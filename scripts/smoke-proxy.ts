@@ -3,6 +3,7 @@
 //   esbuild scripts/smoke-proxy.ts --bundle --platform=node --format=cjs --outfile=dist/smoke-proxy.cjs && node dist/smoke-proxy.cjs
 
 import { createServer, type AddressInfo } from "node:http";
+import { WebSocket, WebSocketServer } from "ws";
 import { PiKvmControl } from "../src/pikvm-control";
 import { createPiKvmProxy } from "../src/proxy";
 import { webAssets } from "../src/web-assets";
@@ -139,6 +140,31 @@ async function main(): Promise<void> {
     const withCookie = await fetch(`${gbase}/`, { headers: { accept: "text/html", cookie }, redirect: "manual" });
     checks.push(["request with session cookie -> allowed", withCookie.status === 200 && (await withCookie.text()) === "authed-ok"]);
     gated.close();
+
+    // 6. WebSocket proxy (the HID / stream-info path). Mock Pi WS echoes; a client
+    // connects through our proxy and must get the echo back.
+    const wss = new WebSocketServer({ server: pi });
+    wss.on("connection", (s) => s.on("message", (m) => s.send(`echo:${m.toString()}`)));
+    srv.on("upgrade", (req, socket, head) => void proxy.handleUpgrade(req, socket, head as Buffer));
+    const wsOk = await new Promise<boolean>((resolve) => {
+        const c = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+        const t = setTimeout(() => {
+            resolve(false);
+            c.terminate();
+        }, 3000);
+        c.on("open", () => c.send("ping"));
+        c.on("message", (m) => {
+            clearTimeout(t);
+            resolve(m.toString() === "echo:ping");
+            c.close();
+        });
+        c.on("error", () => {
+            clearTimeout(t);
+            resolve(false);
+        });
+    });
+    checks.push(["WebSocket proxied (HID path)", wsOk]);
+    wss.close();
 
     let ok = true;
     for (const [name, pass] of checks) {
