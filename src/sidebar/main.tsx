@@ -1422,6 +1422,14 @@ function App() {
                                         const name = p.toolName ?? p.type.replace("tool-", "");
                                         // The screenshot itself is shown as a thumbnail; skip the duplicate row.
                                         if (name === "screenshot") return null;
+                                        // Surface memory writes prominently so you can watch knowledge build up.
+                                        if (name === "remember" && p.input?.text)
+                                            return (
+                                                <div key={i} className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[12px] leading-snug">
+                                                    <span className="mt-0.5 shrink-0">📌</span>
+                                                    <span><span className="font-medium text-amber-500">Remembered</span> {p.input.text}</span>
+                                                </div>
+                                            );
                                         return <ToolCall key={i} name={name} state={p.state} input={p.input} output={p.output} />;
                                     }
                                     return null;
