@@ -14,14 +14,16 @@ export interface SkillSummary {
 }
 
 const SEED: Record<string, string> = {
-    "web-research": `# Web research
-> Research a topic on the web and summarise findings with sources.
+    "web-research": `# Web research (in the target's browser)
+> Research a topic on the web by driving the browser ON THE KVM — better, current, logged-in results than the offline tools.
 
-1. Use \`web_search\` with a focused query.
-2. \`fetch_url\` the 2–3 most relevant results for detail.
-3. Cross-check facts across sources; note disagreements.
-4. Summarise concisely and list the source URLs you used.
-5. \`remember\` any durable facts worth keeping for later.`,
+Prefer the KVM browser over \`web_search\`/\`fetch_url\` (those are a quick fallback only).
+1. Focus or open the browser on the target (taskbar/dock, or open a new one). \`screenshot\` to see it.
+2. Click the address/search bar, type a focused query, and (after \`ocr\`-verifying what you typed) press Enter.
+3. \`screenshot\`/\`ocr\` the results. Open the 2–3 most relevant by clicking the link; scroll and \`ocr\`/zoom to read the actual content, don't guess from the snippet.
+4. Cross-check facts across pages; note disagreements. Read exact figures/dates rather than approximating.
+5. Summarise concisely and keep the source URLs (read them off the address bar).
+6. \`remember\` any durable facts, and how the search/site worked, for next time.`,
     "detect-inactivity": `# Detect inactivity (ignoring a mouse jiggler)
 > Decide whether the machine is idle without being fooled by a mouse jiggler.
 
