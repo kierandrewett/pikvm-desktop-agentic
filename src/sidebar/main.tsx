@@ -83,6 +83,44 @@ const EMBED_MODE = (() => {
 const IS_EMBED = EMBED_MODE === "1" || EMBED_MODE === "desktop";
 const IS_EMBED_DESKTOP = EMBED_MODE === "desktop";
 
+// Browser/PWA notifications (Web Notification API) — opt-in, persisted per-device.
+const WEB_NOTIFS_KEY = "pikvm-web-notifs";
+function webNotifsOn(): boolean {
+    try {
+        return localStorage.getItem(WEB_NOTIFS_KEY) === "1";
+    } catch {
+        return false;
+    }
+}
+/**
+ * Fire a browser notification for an agent event — but only when enabled, permitted,
+ * and the user isn't already looking at this window (no point pinging the screen
+ * they're staring at). Tags collapse repeats of the same kind.
+ */
+function notify(title: string, body: string, tag?: string): void {
+    try {
+        if (typeof Notification === "undefined" || !webNotifsOn() || Notification.permission !== "granted") return;
+        if (typeof document !== "undefined" && document.visibilityState === "visible" && document.hasFocus()) return;
+        const opts: NotificationOptions = { body, icon: "/_agent/icon.png", ...(tag ? { tag } : {}) };
+        const n = new Notification(title, opts);
+        n.onclick = () => {
+            try {
+                window.focus();
+            } catch {
+                /* ignore */
+            }
+            try {
+                (window.parent as Window | null)?.focus();
+            } catch {
+                /* ignore */
+            }
+            n.close();
+        };
+    } catch {
+        /* notifications are best-effort */
+    }
+}
+
 function post(path: string, body: unknown = {}) {
     return fetch(BASE + path, {
         method: "POST",
@@ -908,6 +946,46 @@ function Row({ label, desc, control, htmlFor }: { label: string; desc?: string; 
     );
 }
 
+/** Browser-notification toggle (client-local: localStorage + Notification permission).
+ *  Turning it on requests permission; reflects a blocked/unsupported state. */
+function WebNotifyRow() {
+    const supported = typeof Notification !== "undefined";
+    const [on, setOn] = useState(webNotifsOn);
+    const [perm, setPerm] = useState<NotificationPermission>(supported ? Notification.permission : "denied");
+    const toggle = async (v: boolean) => {
+        if (v && supported && Notification.permission !== "granted") {
+            let p: NotificationPermission = "denied";
+            try {
+                p = await Notification.requestPermission();
+            } catch {
+                /* ignore */
+            }
+            setPerm(p);
+            if (p !== "granted") {
+                setOn(false);
+                try {
+                    localStorage.setItem(WEB_NOTIFS_KEY, "0");
+                } catch {
+                    /* ignore */
+                }
+                return;
+            }
+        }
+        setOn(v);
+        try {
+            localStorage.setItem(WEB_NOTIFS_KEY, v ? "1" : "0");
+        } catch {
+            /* ignore */
+        }
+    };
+    const desc = !supported
+        ? "Not supported in this browser"
+        : perm === "denied"
+          ? "Blocked — allow notifications for this site in your browser settings"
+          : "Alerts on this device when a task finishes, needs approval, errors, or a suggestion appears";
+    return <Row label="Browser notifications" desc={desc} control={<Switch checked={on && perm === "granted"} disabled={!supported || perm === "denied"} onChange={toggle} />} />;
+}
+
 /* =============================== MCP servers ============================== */
 /* NEW SECTION. A generic editor for the agent's MCP-server registry. Each entry
    is a stdio process (command/args/env) or an http endpoint (url/headers); the
@@ -1451,6 +1529,9 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 {/* ------------------------------- ambient ------------------------------ */}
                 {tab === "ambient" && (
                     <div className="space-y-3">
+                        <div className="rounded-xl border bg-card/40 p-3">
+                            <WebNotifyRow />
+                        </div>
                         <Row
                             label="Background monitoring"
                             desc="Cheap on-device watch; calls a model only when something happens"
@@ -1915,6 +1996,9 @@ function App() {
                 active = false;
                 spec = null;
                 showActivity(null); // a finished run clears any lingering internal-step chip
+                // On desktop the main process already fires a native "finished"
+                // notification, so only the web path notifies here.
+                if (!IS_EMBED_DESKTOP) notify("Agent finished", "The task is complete.", "agent-finished");
                 return; // the canonical saved transcript lands via the uiVersion reload
             }
             // Ephemeral internal-step indicator — handled globally (works for our own
@@ -1973,6 +2057,24 @@ function App() {
         // moment a new run starts.)
         return (serverState?.pendingAuthIds ?? []).includes(candidate.id) ? candidate : null;
     }, [messages, decided, serverState?.pendingAuthIds]);
+
+    // Browser-notify when the agent newly needs authorization, or hits an error.
+    const notifiedAuth = useRef<string | null>(null);
+    useEffect(() => {
+        if (pendingAuth && pendingAuth.id !== notifiedAuth.current) {
+            notifiedAuth.current = pendingAuth.id;
+            notify("Authorization needed", describeOp(pendingAuth.op) || "The agent needs your approval to continue.", "agent-auth");
+        }
+        if (!pendingAuth) notifiedAuth.current = null;
+    }, [pendingAuth?.id]);
+    const notifiedError = useRef(false);
+    useEffect(() => {
+        if (error && !notifiedError.current) {
+            notifiedError.current = true;
+            notify("Agent error", error.message || "The agent hit a problem and stopped.", "agent-error");
+        }
+        if (!error) notifiedError.current = false;
+    }, [error]);
     const addImageFiles = (files: File[]) => {
         for (const f of files) {
             if (!f.type.startsWith("image/")) continue;
