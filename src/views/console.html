@@ -26,6 +26,40 @@
             } catch (e) {}
         </script>
 
+        <!-- ── Native desktop titlebar ─────────────────────────────────────────
+             Rendered ONLY inside the Electron desktop console window; console.js
+             reveals it (and adds `html.desktop-console`) only when the preload's
+             `window.desktopConsole` API is present. On phones/browsers this stays
+             `display:none` and nothing below it runs, so the web/mobile UI is
+             byte-for-byte unchanged. The whole bar is the window drag region; the
+             buttons opt out with -webkit-app-region:no-drag (set in CSS). -->
+        <div class="titlebar" id="titlebar" aria-hidden="true">
+            <div class="tb-left">
+                <button class="tb-btn" id="tb-panel" title="Toggle agent panel" aria-label="Toggle agent panel">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg>
+                </button>
+            </div>
+            <div class="tb-title" id="tb-title">pikvm · PiKVM Session</div>
+            <div class="tb-right">
+                <button class="tb-btn" id="tb-fit" title="Fit to native resolution" aria-label="Fit to native resolution">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+                </button>
+                <span class="tb-sep"></span>
+                <button class="tb-btn tb-win" id="tb-min" title="Minimise" aria-label="Minimise">
+                    <svg viewBox="0 0 12 12"><rect x="2" y="5.5" width="8" height="1" /></svg>
+                </button>
+                <button class="tb-btn tb-win" id="tb-max" title="Maximise" aria-label="Maximise">
+                    <svg class="tb-ico-max" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><rect x="2.5" y="2.5" width="7" height="7" /></svg>
+                    <svg class="tb-ico-restore" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><rect x="2.5" y="3.5" width="6" height="6" /><path d="M4.5 3.5V2.5h6v6h-1" /></svg>
+                </button>
+                <button class="tb-btn tb-win tb-close" id="tb-close" title="Close" aria-label="Close">
+                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.1"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+                </button>
+            </div>
+        </div>
+
         <div class="app" id="app">
             <!-- Live screen (top, resizable) -->
             <div class="screen" id="screen-pane">

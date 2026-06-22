@@ -899,3 +899,180 @@ body {
     border: 0;
     display: block;
 }
+
+/* ===========================================================================
+ * NATIVE DESKTOP CONSOLE — EVERYTHING below is gated behind `html.desktop-console`
+ * ===========================================================================
+ * console.js adds that class to <html> ONLY when the Electron preload's
+ * `window.desktopConsole` API exists. On a phone/browser the class is never set,
+ * so NONE of these rules apply and the mobile/web console is unchanged. We reuse
+ * the existing wide-landscape layout (screen left, agent panel right) and just
+ * frame it with a custom titlebar, drop the floating chrome over the screen, and
+ * give the agent panel its own collapse.
+ *
+ * The titlebar itself is `display:none` by default (any client); the desktop
+ * class flips it on.
+ * --------------------------------------------------------------------------- */
+.titlebar {
+    display: none;
+}
+
+html.desktop-console,
+html.desktop-console body {
+    position: static;
+    inset: auto;
+    overflow: hidden;
+}
+html.desktop-console body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* The titlebar: the window drag region; ~34px; card background, bottom border. */
+html.desktop-console .titlebar {
+    display: flex;
+    align-items: center;
+    flex: none;
+    height: 34px;
+    padding: 0 6px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-app-region: drag;
+}
+html.desktop-console .tb-left,
+html.desktop-console .tb-right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+}
+html.desktop-console .tb-title {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 8px;
+    pointer-events: none; /* keep the centre as pure drag surface */
+}
+/* All titlebar buttons opt out of the drag region so they remain clickable. */
+html.desktop-console .tb-btn {
+    -webkit-app-region: no-drag;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    height: 26px;
+    min-width: 30px;
+    padding: 0 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background 0.12s,
+        color 0.12s;
+}
+html.desktop-console .tb-btn:hover {
+    background: var(--accent);
+    color: var(--foreground);
+}
+html.desktop-console .tb-btn:active {
+    background: var(--secondary);
+}
+html.desktop-console .tb-btn svg {
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+}
+/* Window controls render a touch smaller + symmetric. */
+html.desktop-console .tb-win svg {
+    width: 12px;
+    height: 12px;
+}
+html.desktop-console .tb-win svg rect {
+    fill: currentColor;
+}
+html.desktop-console .tb-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    margin: 0 5px;
+    -webkit-app-region: no-drag;
+}
+/* Maximise vs restore glyph swap, driven by `.is-maximised` on the titlebar. */
+html.desktop-console .tb-ico-restore {
+    display: none;
+}
+html.desktop-console .titlebar.is-maximised .tb-ico-max {
+    display: none;
+}
+html.desktop-console .titlebar.is-maximised .tb-ico-restore {
+    display: inline;
+}
+/* Close goes red on hover (and its glyph white). */
+html.desktop-console .tb-close:hover {
+    background: var(--danger);
+    color: #fff;
+}
+/* The panel toggle reads "active" while the agent panel is shown. */
+html.desktop-console .tb-btn.active {
+    color: var(--primary);
+}
+
+/* The app fills the space under the titlebar; force the wide-landscape layout
+ * (screen left, agent panel right) regardless of the OS-reported orientation,
+ * and animate the panel collapse. */
+html.desktop-console .app {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    grid-template-columns: var(--sw, 62vw) minmax(300px, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    transition: grid-template-columns 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+html.desktop-console .screen {
+    grid-column: 1;
+    grid-row: 1;
+}
+html.desktop-console .chat {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    border-left: 1px solid var(--border);
+}
+/* No bottom status bar over/under the screen in desktop mode — the titlebar
+ * carries the chrome and nothing should cover the clickable surface. */
+html.desktop-console .bar {
+    display: none;
+}
+/* Never let the mobile booting/chat-full transforms strand the panel here. */
+html.desktop-console .app.booting .chat {
+    transform: none;
+}
+html.desktop-console .app.chat-full {
+    grid-template-columns: var(--sw, 62vw) minmax(300px, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+}
+html.desktop-console .app.chat-full > .screen {
+    display: block;
+}
+
+/* Collapse the agent panel: the screen takes the full width, the chat column
+ * folds to zero. */
+html.desktop-console .app.panel-collapsed {
+    grid-template-columns: minmax(0, 1fr) 0;
+}
+html.desktop-console .app.panel-collapsed .chat {
+    border-left: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
