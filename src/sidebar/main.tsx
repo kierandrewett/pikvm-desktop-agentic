@@ -2383,23 +2383,28 @@ function App() {
                             <Paperclip className="size-4" />
                         </Button>
                         <PillSelect
-                            value={serverState?.settings?.modelRouting?.enabled ? "__auto__" : (serverState?.model ?? "")}
+                            value={serverState?.settings?.modelRouting?.enabled ? "__auto__" : (serverState?.settings?.modelRouting?.reasoningModel ?? serverState?.model ?? "")}
                             title="Model — Auto routes reasoning vs fast per turn"
                             onChange={(m) => {
-                                if (m === "__auto__") {
-                                    void post("/api/settings", { modelRouting: { enabled: true } }).then(refreshState);
-                                } else {
-                                    // Pin a single model: turn routing off and use it every turn.
-                                    void post("/api/settings", { modelRouting: { enabled: false } }).then(() =>
-                                        post("/api/model", { model: m }).then(refreshState),
-                                    );
-                                }
+                                // Auto = dynamic routing on; any specific provider/model pins it
+                                // (routing off, that model every turn). Same path as the role pickers.
+                                const patch = m === "__auto__" ? { enabled: true } : { enabled: false, reasoningModel: m };
+                                void post("/api/settings", { modelRouting: patch }).then(refreshState);
                             }}
                         >
                             <option value="__auto__">Auto</option>
-                            {(serverState?.models ?? []).map((m) => (
-                                <option key={m} value={m}>{m}</option>
-                            ))}
+                            {(() => {
+                                const authed = (serverState?.providers ?? []).filter((p) => p.ready && p.models.length);
+                                // Fall back to the legacy codex list if providers aren't populated.
+                                if (!authed.length) return (serverState?.models ?? []).map((m) => <option key={m} value={`codex/${m}`}>{m}</option>);
+                                return authed.map((p) => (
+                                    <optgroup key={p.id} label={p.label}>
+                                        {p.models.map((m) => (
+                                            <option key={m} value={m}>{m}</option>
+                                        ))}
+                                    </optgroup>
+                                ));
+                            })()}
                         </PillSelect>
                         <PillSelect value={serverState?.policy ?? "risky-only"} title="Review policy" onChange={(p) => post("/api/policy", { policy: p }).then(refreshState)}>
                             <option value="risky-only">Confirm risky</option>
