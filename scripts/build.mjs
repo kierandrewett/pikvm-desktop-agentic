@@ -46,7 +46,7 @@ await build({
     platform: "node",
     format: "cjs",
     bundle: true,
-    external: ["electron", "nodejs-whisper", "sharp"],
+    external: ["electron", "nodejs-whisper", "sharp", "tesseract.js"],
     sourcemap: true,
     logLevel: "info",
 });
