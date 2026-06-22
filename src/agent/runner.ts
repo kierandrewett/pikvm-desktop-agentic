@@ -1304,6 +1304,9 @@ export class AgentRunner {
      */
     maybeAssessContext(): void {
         if (this.sensInflight) return;
+        // Still fresh — don't re-spend a vision call every screenshot; the gate will
+        // refresh once it ages past the TTL.
+        if (this.sensCtx && Date.now() - this.sensCtx.at <= CONTEXT_TTL_MS) return;
         void this.assessContext();
     }
 
