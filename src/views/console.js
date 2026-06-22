@@ -1870,21 +1870,30 @@
             var nh = webrtcActive ? vid.videoHeight : img.naturalHeight;
             return nw && nh ? { w: nw, h: nh } : null;
         }
-        var tbFit = document.getElementById("tb-fit");
-        if (tbFit) {
-            tbFit.addEventListener("click", function () {
-                var d = nativeDims();
-                if (!d) return;
-                dc.fitNative({
-                    width: d.w,
-                    height: d.h,
-                    // The chat column's measured width (0 when collapsed) so the
-                    // screen lands exactly on its native size.
-                    agentPanelWidth: panelShown() ? Math.round(document.querySelector(".chat").getBoundingClientRect().width) : 0,
-                    titlebarHeight: TITLEBAR_H,
-                });
+        function fitNativeNow() {
+            var d = nativeDims();
+            if (!d) return false;
+            dc.fitNative({
+                width: d.w,
+                height: d.h,
+                // The chat column's measured width (0 when collapsed) so the
+                // screen lands exactly on its native size.
+                agentPanelWidth: panelShown() ? Math.round(document.querySelector(".chat").getBoundingClientRect().width) : 0,
+                titlebarHeight: TITLEBAR_H,
             });
+            return true;
         }
+        var tbFit = document.getElementById("tb-fit");
+        if (tbFit) tbFit.addEventListener("click", fitNativeNow);
+
+        // Auto-size the window to the target's native resolution once, as soon as the
+        // first frame's dimensions are known after launch (the stream connects a beat
+        // after the window appears). Poll briefly, then give up so a user resize during
+        // start-up is never stomped on.
+        var autoFitTries = 0;
+        var autoFitTimer = setInterval(function () {
+            if (fitNativeNow() || ++autoFitTries > 80) clearInterval(autoFitTimer);
+        }, 150);
 
         // Titlebar audio/mic: drive the canonical toggles (the hidden menu buttons run
         // setAudio/setMic + getUserMedia; paintToggle mirrors state back to these).
