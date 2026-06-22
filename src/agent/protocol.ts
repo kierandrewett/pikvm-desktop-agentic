@@ -163,6 +163,19 @@ export interface ServerState {
         /** Per-turn model routing: reasoning vs cheap tool-calling. `lastTier` is
          *  the tier the most recent routed turn ran on (observability). */
         modelRouting: { enabled: boolean; reasoningModel: string; fastModel: string; lastTier: "reasoning" | "fast" };
+        mcpServers: {
+            id: string;
+            name: string;
+            enabled: boolean;
+            transport: "stdio" | "http";
+            command?: string;
+            args?: string[];
+            env?: Record<string, string>;
+            url?: string;
+            headers?: Record<string, string>;
+            rawToolNames?: boolean;
+            skill?: string;
+        }[];
     };
     schedules: { id: string; label: string; when: string }[];
     log: LogEntry[];

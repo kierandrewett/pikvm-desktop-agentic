@@ -22,7 +22,7 @@ import { OperationReviewer } from "./reviewer";
 import { PresenceMonitor } from "./presence";
 import { CodexAuth } from "./agent/auth";
 import { AgentRunner } from "./agent/runner";
-import { connectAtlas } from "./agent/atlas-mcp";
+import { connectMcpServers } from "./agent/mcp-servers";
 import { startControlServer } from "./server";
 import { OverlayBus } from "./overlay-bus";
 import { SettingsStore } from "./settings";
@@ -126,17 +126,17 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         getMeetings: () => meetingLog.recent(8),
     });
 
-    // Connect the Atlas memory vault (markdown memory via its MCP server). Best
-    // effort and async: if Atlas is missing the agent still runs with JSON memory.
-    const atlasCfg = settings.get().atlas;
-    if (atlasCfg.enabled) {
-        void connectAtlas({ atlasBin: atlasCfg.binPath, vault: atlasCfg.vaultPath }).then((bridge) => {
-            if (!bridge) return;
-            runner.addTools(bridge.tools);
-            // Hook: every `remember` (and recap save) write-throughs into Atlas.
-            runner.setMemoryMirror((m) => void bridge.remember(m.text, m.tags, m.id));
-        });
-    }
+    // Connect every configured MCP server (Atlas is now just one entry). Best
+    // effort and async: a server that fails to connect is skipped, never blocking
+    // startup, and the agent still runs with JSON memory if none come up.
+    void connectMcpServers(settings.get().mcpServers).then((registry) => {
+        if (registry.tools.length) runner.addTools(registry.tools);
+        // Hook: every `remember` (and recap save) write-throughs into any connected
+        // Atlas-style vault, so saving a fact and updating the knowledgebase are one.
+        runner.setMemoryMirror((m) => void registry.remember(m.text, m.tags, m.id));
+        // Let the agent know which servers ship a usage skill (e.g. Atlas → atlas-vault).
+        if (registry.skills.length) runner.setMcpSkills(registry.skills);
+    });
 
     // Ambient background monitor.
     let onKVM = false;

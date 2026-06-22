@@ -19,7 +19,8 @@
         "smoke:typing": "esbuild scripts/watched-typing-test.ts --bundle --platform=node --format=cjs --outfile=dist/watched-typing-test.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/watched-typing-test.cjs",
         "smoke:autonomy": "esbuild scripts/autonomy-classifier-test.ts --bundle --platform=node --format=cjs --outfile=dist/autonomy-classifier-test.cjs --log-level=error && node dist/autonomy-classifier-test.cjs",
         "smoke:regions": "esbuild scripts/regions-test.ts --bundle --platform=node --format=cjs --outfile=dist/regions-test.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/regions-test.cjs",
-        "smoke:models": "esbuild scripts/model-router-test.ts --bundle --platform=node --format=cjs --outfile=dist/model-router-test.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/model-router-test.cjs"
+        "smoke:models": "esbuild scripts/model-router-test.ts --bundle --platform=node --format=cjs --outfile=dist/model-router-test.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/model-router-test.cjs",
+        "smoke:mcp": "esbuild scripts/mcp-servers-test.ts --bundle --platform=node --format=cjs --outfile=dist/mcp-servers-test.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/mcp-servers-test.cjs"
     },
     "dependencies": {
         "@ai-sdk/react": "^3.0.209",
