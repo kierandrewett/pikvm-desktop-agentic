@@ -202,6 +202,13 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         broadcast.send(chunk);
     });
 
+    // Internal-step indicator (e.g. a blocking screen assessment before an action).
+    // Broadcast-ONLY and not written to the active /api/chat stream — the sidebar
+    // shows it as an ephemeral chip rather than appending it to the transcript.
+    runner.onActivity = (a) => {
+        broadcast.send({ type: "data-activity", data: a });
+    };
+
     const state = (): ServerState => ({
         policy: reviewer.getPolicy(),
         autonomy: reviewer.getAutonomy(),

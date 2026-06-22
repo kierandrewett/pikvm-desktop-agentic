@@ -1714,6 +1714,15 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
 function App() {
     const [serverState, setServerState] = useState<ServerState | null>(null);
     const [decided, setDecided] = useState<Set<string>>(new Set());
+    // Ephemeral "agent is doing an internal step" label (e.g. "Checking the screen…").
+    // Auto-clears as a safety in case the explicit clear event is missed.
+    const [liveActivity, setLiveActivity] = useState<string | null>(null);
+    const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const showActivity = (text: string | null) => {
+        if (activityTimer.current) clearTimeout(activityTimer.current);
+        setLiveActivity(text);
+        if (text) activityTimer.current = setTimeout(() => setLiveActivity(null), 12000);
+    };
     const [input, setInput] = useState("");
     const [lightbox, setLightbox] = useState<string | null>(null);
     const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history" | "ambient">("none");
@@ -1905,7 +1914,14 @@ function App() {
             if (c.type === "end") {
                 active = false;
                 spec = null;
+                showActivity(null); // a finished run clears any lingering internal-step chip
                 return; // the canonical saved transcript lands via the uiVersion reload
+            }
+            // Ephemeral internal-step indicator — handled globally (works for our own
+            // run too, since this stream is always open), never appended to a message.
+            if (c.type === "data-activity") {
+                showActivity(c.data?.text ?? null);
+                return;
             }
             if (!active || !spec) return;
             apply(c);
@@ -2378,6 +2394,15 @@ function App() {
                 {pendingAuth && (
                     <div className="absolute inset-x-2 bottom-full z-30 mb-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
                         <AuthCard req={pendingAuth} onDecide={(v) => decide(pendingAuth.id, v)} />
+                    </div>
+                )}
+                {/* Ephemeral internal-step chip (e.g. "Checking the screen…") so a
+                    blocking step isn't silent. Auth card takes priority when present. */}
+                {!pendingAuth && liveActivity && (
+                    <div className="pointer-events-none absolute inset-x-2 bottom-full z-20 mb-2 flex justify-center">
+                        <div className="flex items-center gap-1.5 rounded-full border bg-card/95 px-3 py-1 text-[11px] text-muted-foreground shadow-sm animate-in fade-in slide-in-from-bottom-1">
+                            <Loader size={12} className="text-primary" /> {liveActivity}
+                        </div>
                     </div>
                 )}
                 <div className="rounded-2xl border bg-card transition-colors focus-within:border-ring/50">

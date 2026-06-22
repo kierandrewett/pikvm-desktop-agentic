@@ -45,6 +45,17 @@ export interface AuthData {
     request: AuthRequest;
 }
 
+/**
+ * An ephemeral "the agent is doing an internal step" indicator — e.g. a blocking
+ * screen assessment before it acts. Surfaced as a transient chip (NOT a transcript
+ * line) so the user isn't left staring at silence. `text:null` clears it.
+ */
+export interface ActivityData {
+    text: string | null;
+    /** Coarse phase tag for the icon/colour. */
+    phase?: "screen" | "auth" | "reviewing" | "blocked";
+}
+
 export interface ThinkingData {
     id: string;
     text: string;
@@ -67,6 +78,7 @@ export type PiKvmDataParts = {
     thinking: ThinkingData;
     marker: MarkerData;
     steer: { text: string };
+    activity: ActivityData;
 };
 
 export type PiKvmUIMessage = UIMessage<never, PiKvmDataParts>;

@@ -1230,6 +1230,10 @@ export class AgentRunner {
     private lastTypedLine = "";
     /** Notified when a fresh app/sensitivity assessment lands (for the overlay). */
     onContext: ((ctx: { app: string; sensitive: boolean; reason: string }) => void) | undefined;
+    /** Notified when the gate starts/stops a blocking internal step (e.g. a screen
+     *  assessment), so the UI can show "checking the screen…" instead of stalling
+     *  silently. Called with `text:null` to clear the indicator. */
+    onActivity: ((a: { text: string | null; phase?: "screen" | "auth" | "reviewing" | "blocked" }) => void) | undefined;
 
     /** Cheap LLM look at the current frame: foreground app + whether the focus is
      *  a sensitive area. Cached for CONTEXT_TTL_MS; coalesces concurrent calls. */
@@ -1335,11 +1339,17 @@ export class AgentRunner {
         // areas (chat compose boxes, Send buttons, terminals) so they require
         // approval. Pure hotkeys/navigation skip this — they can't submit text.
         if (INPUT_ACTIONS.has(tool) && needsSensitiveCheck(tool, argRec)) {
+            // Only flag "checking the screen" when the look will actually block (no
+            // warm cache and none already in flight) — otherwise it's instant.
+            const willWait = this.sensInflight != null || !(this.sensCtx && Date.now() - this.sensCtx.at <= CONTEXT_TTL_MS);
+            if (willWait) this.onActivity?.({ text: "Checking the screen…", phase: "screen" });
             try {
                 const ctx = await this.sensitiveContext();
                 if (ctx?.sensitive) op.sensitive = { reason: ctx.reason || "sensitive area", ...(ctx.app ? { app: ctx.app } : {}) };
             } catch {
                 /* detection is best-effort; never block input on it failing */
+            } finally {
+                if (willWait) this.onActivity?.({ text: null });
             }
         }
         const verdict = await this.deps.reviewer.review(op);
