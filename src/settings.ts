@@ -31,8 +31,11 @@ export interface AppSettings {
     desktopUseProxy: boolean;
     /** Ambient background screen/meeting monitor. */
     ambient: AmbientSettings;
-    /** Atlas markdown memory vault (via the Atlas MCP server). */
+    /** Atlas markdown memory vault (via the Atlas MCP server). KEPT for back-compat
+     *  (older configs + the legacy Settings UI); migrated into `mcpServers` on load. */
     atlas: AtlasSettings;
+    /** Configured MCP servers whose tools the agent gains at startup. */
+    mcpServers: McpServerSettings[];
 }
 
 export interface AtlasSettings {
@@ -44,11 +47,50 @@ export interface AtlasSettings {
     vaultPath: string;
 }
 
+/**
+ * One MCP server entry. Either stdio (a local process: command/args/env) or http
+ * (a URL with optional headers). Mirrors `McpServerConfig` in agent/mcp-servers.ts
+ * but lives here so settings stay self-contained (no agent import in the renderer).
+ */
+export interface McpServerSettings {
+    id: string;
+    name: string;
+    enabled: boolean;
+    transport: "stdio" | "http";
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    headers?: Record<string, string>;
+    /** Keep tool names verbatim (no `<id>_` prefix). Used by the Atlas default. */
+    rawToolNames?: boolean;
+    /** Optional skill name documenting how to use this server. */
+    skill?: string;
+}
+
 const DEFAULT_ATLAS: AtlasSettings = {
     enabled: true,
     binPath: resolve(homedir(), "dev/atlas-2/atlas-app-v16/target/release/atlas"),
     vaultPath: resolve(homedir(), "Documents/Atlas/Capgemini"),
 };
+
+/** The id of the built-in Atlas server entry (so we can find/migrate it). */
+export const ATLAS_SERVER_ID = "atlas";
+
+/** Build the default Atlas MCP server entry from the (legacy) Atlas settings, so
+ *  Atlas keeps working with zero user action — it is now just one configured server. */
+function atlasServer(atlas: AtlasSettings): McpServerSettings {
+    return {
+        id: ATLAS_SERVER_ID,
+        name: "Atlas memory vault",
+        enabled: atlas.enabled,
+        transport: "stdio",
+        command: atlas.binPath,
+        args: ["mcp", atlas.vaultPath],
+        rawToolNames: true,
+        skill: "atlas-vault",
+    };
+}
 
 export interface AmbientSettings {
     /** Master switch for the background monitor. */
@@ -101,6 +143,7 @@ const DEFAULTS: AppSettings = {
     desktopUseProxy: false,
     ambient: DEFAULT_AMBIENT,
     atlas: DEFAULT_ATLAS,
+    mcpServers: [atlasServer(DEFAULT_ATLAS)],
 };
 
 export class SettingsStore {
@@ -122,10 +165,18 @@ export class SettingsStore {
                         activeHours: { ...DEFAULT_AMBIENT.activeHours, ...(saved.ambient?.activeHours ?? {}) },
                     },
                     atlas: { ...DEFAULT_ATLAS, ...(saved.atlas ?? {}) },
+                    mcpServers: Array.isArray(saved.mcpServers) ? (saved.mcpServers as McpServerSettings[]) : [],
                 };
                 // Migrate the never-valid early default model id off saved configs.
                 if (this.data.ambient.triageModel === "gpt-5.5-mini") {
                     this.data.ambient.triageModel = DEFAULT_AMBIENT.triageModel;
+                }
+                // Migrate the legacy hardwired Atlas connection into the generic
+                // mcpServers registry, so Atlas keeps working with zero user action.
+                // (Configs predating mcpServers only have `atlas`.) We keep the saved
+                // Atlas paths/enabled but reshape them as a normal server entry.
+                if (!this.data.mcpServers.some((m) => m.id === ATLAS_SERVER_ID)) {
+                    this.data.mcpServers = [atlasServer(this.data.atlas), ...this.data.mcpServers];
                 }
             } catch {
                 /* keep defaults */
@@ -147,7 +198,17 @@ export class SettingsStore {
               }
             : this.data.ambient;
         const atlas = partial.atlas ? { ...this.data.atlas, ...partial.atlas } : this.data.atlas;
-        this.data = { ...this.data, ...partial, ambient, atlas };
+        // mcpServers is replaced wholesale (the UI sends the full edited list); if
+        // the Atlas legacy block was patched, keep the Atlas server entry in sync.
+        let mcpServers = partial.mcpServers ?? this.data.mcpServers;
+        if (partial.atlas && !partial.mcpServers) {
+            mcpServers = mcpServers.map((m) =>
+                m.id === ATLAS_SERVER_ID
+                    ? { ...m, enabled: atlas.enabled, command: atlas.binPath, args: ["mcp", atlas.vaultPath] }
+                    : m,
+            );
+        }
+        this.data = { ...this.data, ...partial, ambient, atlas, mcpServers };
         try {
             writeFileSync(this.path, JSON.stringify(this.data, null, 2));
         } catch {

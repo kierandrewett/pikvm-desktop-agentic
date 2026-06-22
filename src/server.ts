@@ -221,7 +221,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         })),
         settings: (() => {
             const s = settings.get();
-            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, keyboardLayout: s.keyboardLayout, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy, atlas: s.atlas };
+            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, keyboardLayout: s.keyboardLayout, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy, atlas: s.atlas, mcpServers: s.mcpServers };
         })(),
         schedules: runner.listSchedules().map((j) => ({
             id: j.id,

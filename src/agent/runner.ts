@@ -95,7 +95,7 @@ function meetingActivityLabel(tool: string): string {
     }
 }
 
-function systemPrompt(goal?: string, memoryCount = 0): string {
+function systemPrompt(goal?: string, memoryCount = 0, mcpSkills: string[] = []): string {
     return [
         "You operate a real computer through a PiKVM, as if you were a careful human at the keyboard and mouse.",
         "",
@@ -127,7 +127,9 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "For questions about internal corporate processes/policies, use Neo (neo.capgemini.com) in the target's browser — see the `neo-corporate-help` skill.",
         "You can schedule yourself with `schedule_task` (one-shot atTime, or recurring everyMinutes, with an optional afterTime/beforeTime window) and manage with `list_schedules`/`cancel_schedule`. For idle detection, see the `detect-inactivity` skill.",
         "WRITE TO MEMORY CONSTANTLY — it is cheap, use it liberally, all the time, not just for big things. Whenever you notice or learn ANYTHING that could matter later, save it: how an app/process/workflow works, where things live, the exact steps that worked, quirks and gotchas, names/IDs/paths/URLs/window titles, the user's preferences and choices, who people are, what a button or screen does, what failed and why, small details you spotted in a screenshot. Save it the moment you learn it, in your own words, specific and self-contained. Before starting anything non-trivial, recall first to reuse what you already know. Err heavily towards over-remembering; a useless note costs nothing, a lost one costs a repeat mistake.",
-        "YOUR MEMORY IS AN ATLAS VAULT (markdown). If `atlas_page`/`atlas_search`/`atlas_query` tools are present, that is your long-term memory — a git-backed vault of markdown pages. Read the `atlas-vault` skill (or the `atlas://skill` resource) ONCE first to learn how it works. To save: `atlas_page` action=create (path under `memory/`, e.g. `memory/<topic>.md`, with a title), then action=update/edit to write the body; group related notes on one page and append with `edit` rather than spawning many tiny pages. To recall: `atlas_search` (text=...) or `atlas_query` (read `atlas://index/schema` for tables/columns; if results look stale or empty, run `atlas_health` to reindex, then retry). NOTE: `remember` now write-throughs into this same vault automatically (it mirrors the fact to a quick-capture page under `memory/notes/` and reindexes), so anything you `remember` lands in Atlas — use it freely for fast capture. Reach for `atlas_page` directly when you want to curate a structured topic page instead of a one-off note.",
+        mcpSkills.length
+            ? `Some of your tools come from connected MCP servers; before using a server's tools, read its skill ONCE to learn how it works (\`use_skill\`): ${mcpSkills.join(", ")}.`
+            : "",
         memoryCount > 0 ? `You have ${memoryCount} saved memories — use \`recall\` when prior context might help.` : "",
         goal ? `\nStanding goal for this session:\n${goal}` : "",
     ]
@@ -157,6 +159,8 @@ export interface RunnerDeps {
 export class AgentRunner {
     readonly agent: Agent;
     private goal: string | undefined;
+    /** Skills named by connected MCP servers (pointed at from the system prompt). */
+    private mcpSkills: string[] = [];
     private model: Model<any>;
     private modelId = DEFAULT_MODEL;
     private loopController: { stop: () => void } | undefined;
@@ -205,7 +209,7 @@ export class AgentRunner {
 
         this.agent = new Agent({
             initialState: {
-                systemPrompt: systemPrompt(undefined, this.memory.count()),
+                systemPrompt: systemPrompt(undefined, this.memory.count(), this.mcpSkills),
                 model: this.model,
                 thinkingLevel: "medium",
                 tools: [...createTools(deps.control, toolDeps), ...extra],
@@ -249,11 +253,22 @@ export class AgentRunner {
     }
 
     /**
-     * Write-through every `remember` (and internal memory save) into the Atlas
-     * vault, so saving a fact and updating the knowledgebase are one action.
+     * Write-through every `remember` (and internal memory save) into any connected
+     * Atlas-style MCP vault, so saving a fact and updating the knowledgebase are
+     * one action.
      */
     setMemoryMirror(mirror: (m: Memory) => void): void {
         this.memory.onAdd = mirror;
+    }
+
+    /**
+     * Record the usage skills named by connected MCP servers and refresh the
+     * system prompt to point the agent at them (e.g. Atlas → the `atlas-vault`
+     * skill). Connected asynchronously after the agent is built.
+     */
+    setMcpSkills(skills: string[]): void {
+        this.mcpSkills = [...new Set(skills.filter((s) => s.trim()))];
+        this.agent.state.systemPrompt = systemPrompt(this.goal, this.memory.count(), this.mcpSkills);
     }
 
     /* ----------------------------- scheduler ---------------------------- */
@@ -1010,7 +1025,7 @@ export class AgentRunner {
     /** Set/replace the persistent goal (/goal); pinned into the system prompt. */
     setGoal(goal: string | undefined): void {
         this.goal = goal?.trim() || undefined;
-        this.agent.state.systemPrompt = systemPrompt(this.goal, this.memory.count());
+        this.agent.state.systemPrompt = systemPrompt(this.goal, this.memory.count(), this.mcpSkills);
     }
 
     getGoal(): string | undefined {

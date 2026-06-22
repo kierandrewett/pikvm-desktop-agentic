@@ -35,6 +35,22 @@ A "mouse jiggler" nudges the cursor a few pixels periodically to keep the PC awa
 
 To LOCK the computer: Windows → Win+L (\`hotkey\` MetaLeft+KeyL); macOS → Ctrl+Cmd+Q (ControlLeft+MetaLeft+KeyQ); most Linux → Super+L (MetaLeft+KeyL) or Ctrl+Alt+L.
 Tip: schedule this check with \`schedule_task\` (e.g. everyMinutes 5, afterTime "17:30").`,
+    "atlas-vault": `# Atlas vault — your long-term memory (markdown)
+> How to use the Atlas MCP server's tools (atlas_page/atlas_search/atlas_query/…) as a git-backed markdown memory vault.
+
+If \`atlas_page\`/\`atlas_search\`/\`atlas_query\` tools are present, that is your long-term memory — a git-backed vault of markdown pages. Read this skill ONCE first.
+
+SAVE a curated topic page:
+1. \`atlas_page\` action=create with a \`path\` under \`memory/\` (e.g. \`memory/<topic>.md\`) and a \`title\`.
+2. \`atlas_page\` action=update (or edit) to write the body.
+3. Group related notes on ONE page and append with \`edit\` rather than spawning many tiny pages.
+
+RECALL:
+- \`atlas_search\` (text=...) for full-text search.
+- \`atlas_query\` for structured queries — read \`atlas://index/schema\` for the tables/columns.
+- If results look stale or empty, run \`atlas_health\` to reindex, then retry.
+
+QUICK CAPTURE: \`remember\` write-throughs into this same vault automatically (it mirrors the fact to a quick-capture page under \`memory/notes/\` and reindexes), so anything you \`remember\` lands in Atlas — use it freely. Reach for \`atlas_page\` directly when you want to curate a structured topic page instead of a one-off note.`,
     "neo-corporate-help": `# Neo — internal corporate process help
 > Use Neo (neo.capgemini.com) to answer questions about internal corporate processes.
 
@@ -76,14 +92,17 @@ Note: you also have a US/UK setting (Settings → Behaviour) that changes which 
 
 export class SkillStore {
     constructor(private readonly dir: string) {
-        if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
-            for (const [name, body] of Object.entries(SEED)) {
-                try {
-                    writeFileSync(resolve(dir, `${name}.md`), body);
-                } catch {
-                    /* ignore */
-                }
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        // Seed any built-in skills that aren't on disk yet. This both populates a
+        // fresh install and back-fills NEW seeds (e.g. atlas-vault) on upgrade,
+        // without overwriting a user's edits to existing skill files.
+        for (const [name, body] of Object.entries(SEED)) {
+            const path = resolve(dir, `${name}.md`);
+            if (existsSync(path)) continue;
+            try {
+                writeFileSync(path, body);
+            } catch {
+                /* ignore */
             }
         }
     }

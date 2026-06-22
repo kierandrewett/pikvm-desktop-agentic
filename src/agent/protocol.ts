@@ -156,6 +156,19 @@ export interface ServerState {
         hasToken: boolean;
         desktopUseProxy: boolean;
         atlas: { enabled: boolean; binPath: string; vaultPath: string };
+        mcpServers: {
+            id: string;
+            name: string;
+            enabled: boolean;
+            transport: "stdio" | "http";
+            command?: string;
+            args?: string[];
+            env?: Record<string, string>;
+            url?: string;
+            headers?: Record<string, string>;
+            rawToolNames?: boolean;
+            skill?: string;
+        }[];
     };
     schedules: { id: string; label: string; when: string }[];
     log: LogEntry[];

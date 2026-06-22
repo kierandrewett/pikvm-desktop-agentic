@@ -35,6 +35,7 @@ import {
     Move,
     Paperclip,
     Pause,
+    Plug,
     Plus,
     Radar,
     RotateCcw,
@@ -781,6 +782,172 @@ function Row({ label, desc, control, htmlFor }: { label: string; desc?: string; 
     );
 }
 
+/* =============================== MCP servers ============================== */
+/* NEW SECTION. A generic editor for the agent's MCP-server registry. Each entry
+   is a stdio process (command/args/env) or an http endpoint (url/headers); the
+   whole edited list is sent back via onPatch({ mcpServers }). Tools connect at
+   the next restart, so changes are advisory until then. */
+
+type McpServer = NonNullable<ServerState["settings"]>["mcpServers"][number];
+
+/** Parse a textarea of "KEY=value" lines into a record (skips blanks/comments). */
+function parseKeyVals(text: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const line of text.split("\n")) {
+        const t = line.trim();
+        if (!t || t.startsWith("#")) continue;
+        const eq = t.indexOf("=");
+        if (eq <= 0) continue;
+        out[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+    }
+    return out;
+}
+
+/** Render a record back to "KEY=value" lines for editing. */
+function stringifyKeyVals(rec: Record<string, string> | undefined): string {
+    return Object.entries(rec ?? {})
+        .map(([k, v]) => `${k}=${v}`)
+        .join("\n");
+}
+
+function McpServersTab({ servers, inputCls, onPatch }: { servers: McpServer[]; inputCls: string; onPatch: (p: any) => void }) {
+    // Edit the list locally, then push the whole array on every change so the
+    // server persists it. The list re-renders from server state after each patch.
+    const save = (next: McpServer[]) => onPatch({ mcpServers: next });
+    const update = (id: string, patch: Partial<McpServer>) => save(servers.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+    const remove = (id: string) => save(servers.filter((m) => m.id !== id));
+    const add = () => {
+        const base = "server";
+        let n = 1;
+        const ids = new Set(servers.map((m) => m.id));
+        while (ids.has(`${base}-${n}`)) n++;
+        const id = `${base}-${n}`;
+        save([...servers, { id, name: `New server ${n}`, enabled: false, transport: "stdio", command: "", args: [] }]);
+    };
+    return (
+        <div className="space-y-3">
+            <p className="text-[12px] leading-snug text-muted-foreground">
+                Connect MCP servers to give the agent extra tools. Each server is a local process (stdio) or a URL (http). Atlas (the
+                memory vault) is just one server here. Changes connect on the next restart.
+            </p>
+            {servers.length === 0 && (
+                <p className="rounded-xl border border-dashed p-4 text-center text-[12px] leading-relaxed text-muted-foreground">
+                    No MCP servers configured. Add one to extend the agent's tools.
+                </p>
+            )}
+            {servers.map((m) => (
+                <div key={m.id} className="space-y-2 rounded-xl border bg-card/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <Plug className={cn("size-3.5 shrink-0", m.enabled ? "text-primary" : "text-muted-foreground")} />
+                            <input
+                                defaultValue={m.name}
+                                onBlur={(e) => e.target.value.trim() !== m.name && update(m.id, { name: e.target.value.trim() || m.id })}
+                                className={cn(inputCls, "h-7 flex-1 text-[12px] font-medium")}
+                            />
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                            <Switch checked={m.enabled} onChange={(v) => update(m.id, { enabled: v })} />
+                            <button className="text-muted-foreground hover:text-destructive" title="Remove" onClick={() => remove(m.id)}>
+                                <Trash2 className="size-3.5" />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* transport toggle */}
+                    <div className="flex gap-0.5 rounded-lg bg-muted/60 p-0.5">
+                        {(["stdio", "http"] as const).map((tr) => (
+                            <button
+                                key={tr}
+                                onClick={() => update(m.id, { transport: tr })}
+                                className={cn(
+                                    "flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                                    m.transport === tr ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                                )}
+                            >
+                                {tr}
+                            </button>
+                        ))}
+                    </div>
+
+                    {m.transport === "stdio" ? (
+                        <div className="space-y-1.5">
+                            <label className="block text-[11px] text-muted-foreground">
+                                Command
+                                <input
+                                    defaultValue={m.command ?? ""}
+                                    onBlur={(e) => e.target.value !== (m.command ?? "") && update(m.id, { command: e.target.value.trim() })}
+                                    placeholder="/path/to/server-binary"
+                                    className={cn(inputCls, "mt-1 font-mono text-[11px]")}
+                                />
+                            </label>
+                            <label className="block text-[11px] text-muted-foreground">
+                                Arguments (one per line)
+                                <textarea
+                                    defaultValue={(m.args ?? []).join("\n")}
+                                    onBlur={(e) => {
+                                        const args = e.target.value.split("\n").map((a) => a.trim()).filter(Boolean);
+                                        update(m.id, { args });
+                                    }}
+                                    rows={2}
+                                    placeholder={"mcp\n/path/to/vault"}
+                                    className={cn(inputCls, "mt-1 resize-y font-mono text-[11px]")}
+                                />
+                            </label>
+                            <label className="block text-[11px] text-muted-foreground">
+                                Environment (KEY=value per line)
+                                <textarea
+                                    defaultValue={stringifyKeyVals(m.env)}
+                                    onBlur={(e) => update(m.id, { env: parseKeyVals(e.target.value) })}
+                                    rows={2}
+                                    placeholder="API_TOKEN=…"
+                                    className={cn(inputCls, "mt-1 resize-y font-mono text-[11px]")}
+                                />
+                            </label>
+                        </div>
+                    ) : (
+                        <div className="space-y-1.5">
+                            <label className="block text-[11px] text-muted-foreground">
+                                URL
+                                <input
+                                    defaultValue={m.url ?? ""}
+                                    onBlur={(e) => e.target.value !== (m.url ?? "") && update(m.id, { url: e.target.value.trim() })}
+                                    placeholder="https://host/mcp"
+                                    className={cn(inputCls, "mt-1 font-mono text-[11px]")}
+                                />
+                            </label>
+                            <label className="block text-[11px] text-muted-foreground">
+                                Headers (KEY=value per line)
+                                <textarea
+                                    defaultValue={stringifyKeyVals(m.headers)}
+                                    onBlur={(e) => update(m.id, { headers: parseKeyVals(e.target.value) })}
+                                    rows={2}
+                                    placeholder="Authorization=Bearer …"
+                                    className={cn(inputCls, "mt-1 resize-y font-mono text-[11px]")}
+                                />
+                            </label>
+                        </div>
+                    )}
+
+                    <label className="block text-[11px] text-muted-foreground">
+                        Usage skill (optional)
+                        <input
+                            defaultValue={m.skill ?? ""}
+                            onBlur={(e) => e.target.value !== (m.skill ?? "") && update(m.id, { skill: e.target.value.trim() })}
+                            placeholder="e.g. atlas-vault"
+                            className={cn(inputCls, "mt-1 text-[11px]")}
+                        />
+                    </label>
+                </div>
+            ))}
+            <Button size="sm" variant="secondary" className="h-8 w-full" onClick={add}>
+                <Plus className="size-3.5" /> Add MCP server
+            </Button>
+            <p className="text-center text-[10px] text-muted-foreground">Servers connect at startup — restart to apply changes.</p>
+        </div>
+    );
+}
+
 function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
     const hv = s?.humanize ?? 1;
@@ -798,7 +965,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
         });
     };
     const amb = state?.ambient;
-    const [tab, setTab] = useState<"behaviour" | "ambient" | "secrets" | "server">("behaviour");
+    const [tab, setTab] = useState<"behaviour" | "ambient" | "mcp" | "secrets" | "server">("behaviour");
     const [accessToken, setAccessToken] = useState("");
     const [ntfyTopic, setNtfyTopic] = useState(amb?.ntfyTopic ?? "claude");
     const [ntfyBaseUrl, setNtfyBaseUrl] = useState(amb?.ntfyBaseUrl ?? "https://ntfy.sh");
@@ -819,6 +986,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
     const tabs: { id: typeof tab; label: string; icon: any }[] = [
         { id: "behaviour", label: "Behaviour", icon: Keyboard },
         { id: "ambient", label: "Ambient", icon: Radar },
+        { id: "mcp", label: "MCP", icon: Plug },
         { id: "secrets", label: "Secrets", icon: Lock },
         { id: "server", label: "Server", icon: Globe },
     ];
@@ -833,7 +1001,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
             </div>
             {/* tab bar */}
             <div className="px-3 pb-2">
-                <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted/60 p-1">
+                <div className="grid grid-cols-5 gap-1 rounded-xl bg-muted/60 p-1">
                     {tabs.map((t) => (
                         <button
                             key={t.id}
@@ -986,6 +1154,12 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         )}
                     </div>
                 )}
+
+                {/* ============================ MCP servers ============================ */}
+                {/* NEW SECTION — generic, config-driven MCP server registry. Atlas is just
+                    one entry here. Add any stdio (command/args/env) or http (url/headers)
+                    MCP server; its tools become the agent's tools at the next restart. */}
+                {tab === "mcp" && <McpServersTab servers={s?.mcpServers ?? []} inputCls={inputCls} onPatch={onPatch} />}
 
                 {/* ------------------------------- secrets ------------------------------ */}
                 {tab === "secrets" && (
