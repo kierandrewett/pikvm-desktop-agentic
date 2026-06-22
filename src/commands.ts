@@ -18,6 +18,7 @@ export const COMMANDS: CommandSpec[] = [
     { name: "goal", arg: "[text]", summary: "Set a persistent goal pinned into every turn (no text = show current)." },
     { name: "btw", arg: "<text>", summary: "Inject a side note mid-run without interrupting the task." },
     { name: "loop", arg: "[count] <task>", summary: "Repeat a task until /stop (or N times)." },
+    { name: "pursue", arg: "[cap] <goal>", summary: "Pursue a goal with blind self-verification, iterating until done (or N tries)." },
     { name: "pause", summary: "Pause automation (manual do-not-disturb)." },
     { name: "resume", summary: "Resume automation." },
     { name: "stop", summary: "Stop the agent / loop." },
@@ -58,4 +59,11 @@ export function parseLoopArg(arg: string): { count?: number; task: string } {
     const m = arg.match(/^(\d+)\s+([\s\S]+)$/);
     if (m) return { count: parseInt(m[1]!, 10), task: m[2]!.trim() };
     return { task: arg.trim() };
+}
+
+/** Parse a /pursue argument into an optional iteration cap and the goal. */
+export function parsePursueArg(arg: string): { cap?: number; goal: string } {
+    const m = arg.match(/^(\d+)\s+([\s\S]+)$/);
+    if (m) return { cap: parseInt(m[1]!, 10), goal: m[2]!.trim() };
+    return { goal: arg.trim() };
 }

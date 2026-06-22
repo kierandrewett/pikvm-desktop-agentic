@@ -21,6 +21,26 @@ export interface StatusData {
     text: string;
 }
 
+/**
+ * State of a self-verifying goal-pursuit loop: the agent works toward `goal`,
+ * then an INDEPENDENT ("blind") verifier judges pass/fail each iteration. Surfaced
+ * to the UI so the console can show "iterating (2/6): <whats missing>".
+ */
+export interface GoalLoopState {
+    /** The concrete, checkable objective the loop is pursuing. */
+    goal: string;
+    /** Optional explicit success criteria the verifier should weigh. */
+    criteria?: string;
+    /** 1-based current iteration. */
+    iteration: number;
+    /** Hard cap on iterations (never infinite). */
+    cap: number;
+    /** Whether the loop is still running. */
+    active: boolean;
+    /** The last blind verdict (absent before the first verification). */
+    lastVerdict?: { achieved: boolean; reason: string; whatsMissing?: string };
+}
+
 export interface AuthData {
     request: AuthRequest;
 }
@@ -92,6 +112,8 @@ export interface ServerState {
     policy: ReviewPolicy;
     presence: { paused: boolean; reason?: string };
     goal?: string;
+    /** Live self-verifying goal loop, when one is running (or just finished). */
+    goalLoop?: GoalLoopState;
     loggedIn: boolean;
     streaming: boolean;
     acting: boolean;
