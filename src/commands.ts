@@ -26,6 +26,7 @@ export const COMMANDS: CommandSpec[] = [
     { name: "screenshot", summary: "Capture the screen into the log." },
     { name: "model", arg: "<id>", summary: "Switch the model (e.g. gpt-5.5)." },
     { name: "policy", arg: "<risky-only|review-all|autorun-trusted>", summary: "Set the review policy." },
+    { name: "autonomy", arg: "<0-5>", summary: "Set the autonomy dial (0 = ask first, 5 = hands-off)." },
     { name: "help", summary: "List commands." },
 ];
 

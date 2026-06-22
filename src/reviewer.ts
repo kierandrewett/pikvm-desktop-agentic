@@ -10,6 +10,12 @@
  *  - "review-all"               : every op is held for explicit authorization.
  *  - "autorun-trusted"          : only the hard deny-list ever prompts.
  *
+ * Layered on top of the policy is an *autonomy dial* (0–5) that tunes how
+ * eagerly inherently-safe, validated commands are allowed to run without a
+ * prompt — so the agent stops asking permission to press Enter on an `ls`,
+ * while still always pausing before anything dangerous or anything other
+ * people would see. See {@link classifyCommand} and {@link autonomyThreshold}.
+ *
  * The authorization prompt is three-way: Allow / Deny / "Do something
  * different" (a free-text redirect that steers the agent onto a new course).
  */
@@ -18,6 +24,32 @@ import { EventEmitter } from "events";
 
 export type ReviewPolicy = "risky-only" | "review-all" | "autorun-trusted";
 export type Decision = "allow" | "deny" | "redirect";
+
+/**
+ * Autonomy dial: 0 = maximum caution (prompt for almost everything),
+ * 5 = maximum autonomy (prompt only for genuinely dangerous or
+ * outward-facing actions). 3 is the balanced default.
+ */
+export type AutonomyLevel = 0 | 1 | 2 | 3 | 4 | 5;
+
+/**
+ * Risk tier derived purely from the text of a shell-style command:
+ *  - "safe"        : read-only / inspection (ls, cat, git status, …).
+ *  - "dangerous"   : irreversible or destructive (rm -rf, dd, force push, …).
+ *  - "side-effect" : others would see it (send a message, post, submit, …).
+ *  - "medium"      : anything else — caution scales with the autonomy dial.
+ */
+export type CommandRisk = "safe" | "dangerous" | "side-effect" | "medium";
+
+/** British-English labels/descriptions for each rung of the autonomy dial. */
+export const AUTONOMY_LABELS: Record<AutonomyLevel, { label: string; description: string }> = {
+    0: { label: "Ask first", description: "Prompt before almost every action — maximum caution." },
+    1: { label: "Cautious", description: "Auto-run only plainly safe, read-only commands." },
+    2: { label: "Measured", description: "Auto-run safe commands; pause on anything unfamiliar." },
+    3: { label: "Balanced", description: "Auto-run safe and routine actions; prompt for risky or outward-facing ones." },
+    4: { label: "Trusting", description: "Auto-run most things; prompt only for risky or outward-facing actions." },
+    5: { label: "Hands-off", description: "Prompt only for genuinely dangerous or outward-facing actions." },
+};
 
 export interface Operation {
     /** Tool name, e.g. "type_text", "click", "press_key". */
@@ -33,6 +65,13 @@ export interface Operation {
      * the agent can't blindly click/type somewhere an accident has consequences.
      */
     sensitive?: { reason: string; app?: string };
+    /**
+     * The command line this op would submit, when known. Set for a submitting
+     * keypress (Enter on a terminal/prompt) so the reviewer can classify the
+     * command being *run* rather than the bare key. The runner fills this from
+     * the most recently typed line when it submits a terminal command.
+     */
+    commandText?: string;
 }
 
 export interface Verdict {
@@ -83,8 +122,133 @@ const DANGEROUS_PATTERNS: { re: RegExp; reason: string }[] = [
 /** Keys that submit/commit and are worth flagging when paired with risky text. */
 const SUBMIT_KEYS = new Set(["Enter", "NumpadEnter"]);
 
+/**
+ * Commands that only read/inspect — they have no side effects and are safe to
+ * run unattended at higher autonomy. Matched as the *leading* word of a command
+ * (after stripping a leading `sudo` is deliberately NOT done — sudo is risky).
+ */
+const SAFE_COMMANDS = new Set([
+    "ls", "ll", "la", "dir", "pwd", "cd", "cat", "bat", "less", "more", "head", "tail",
+    "grep", "egrep", "fgrep", "rg", "ag", "find", "fd", "locate", "which", "whereis", "type",
+    "echo", "printf", "stat", "file", "wc", "du", "df", "tree", "realpath", "basename", "dirname",
+    "whoami", "id", "hostname", "uname", "date", "uptime", "env", "printenv", "history", "man",
+    "ps", "top", "htop", "free", "lscpu", "lsblk", "lsusb", "lspci", "ip", "ifconfig", "ping",
+    // NB: sed/awk are deliberately NOT here — `sed -i` and awk's system()/redirects
+    // can mutate, so they fall through to "medium" rather than auto-running.
+    "diff", "cmp", "sort", "uniq", "cut", "jq", "column", "tac", "nl",
+]);
+
+/** Read-only `git` subcommands (anything else under git falls through to medium/danger). */
+const SAFE_GIT_SUBCOMMANDS = new Set([
+    // Read-only inspection only — mutating subcommands (stash, checkout, add,
+    // commit, …) deliberately fall through to "medium".
+    "status", "branch", "log", "diff", "show", "describe", "blame", "remote",
+    "rev-parse", "ls-files", "ls-remote", "shortlog", "reflog", "whatchanged",
+]);
+
+/**
+ * Verbs (CLI subcommands or noun phrases) that produce an outward, human-visible
+ * side effect: someone else sees/receives something, or money/commitment moves.
+ * These ALWAYS prompt regardless of how "safe" the surrounding command looks.
+ */
+const SIDE_EFFECT_RE =
+    /\b(send|sendmail|post|publish|tweet|toot|comment|reply|submit|pay|purchase|checkout|deploy|release|email|mailx?|message|dm|broadcast|invite|rsvp|share|join)\b/i;
+
+/** Hard-dangerous, irreversible or destructive command shapes. */
+const DANGEROUS_COMMAND_RE: RegExp[] = [
+    /\brm\s+(-\w*\s+)*-?\w*[rf]\w*/i, // rm with -r/-f in any flag combination
+    /\brm\s+-[a-z]*[rf]/i,
+    /\b(dd)\s+if=/i,
+    /\bmkfs(\.\w+)?\b/i,
+    /\b(shutdown|reboot|poweroff|halt)\b/i,
+    /\binit\s+0\b/i,
+    /\bchmod\s+-R\b/i,
+    /\bchown\s+-R\b/i,
+    /\bgit\s+push\b.*--force|\bgit\s+push\s+-f\b/i,
+    /\bgit\s+reset\s+--hard\b/i,
+    /\bgit\s+clean\s+-[a-z]*f/i,
+    /\b(format)\s+[a-z]:/i,
+    /\bdrop\s+(table|database)\b/i,
+    /:\(\)\s*\{.*\};:/, // fork bomb
+    /\b(curl|wget)\b.+\|\s*(sudo\s+)?(ba|z|c)?sh\b/i, // pipe remote script to a shell
+    /(^|\s|\|)\s*sudo\b/i, // anything under sudo
+    />\s*\/dev\/sd[a-z]/i, // writing straight to a block device
+    /\b(rm|mv|cp|chmod|chown|tee|truncate)\b[^|;&]*\s\/etc(\/|\b)/i, // mutating /etc
+    />>?\s*\/etc(\/|\b)/i, // redirecting output into /etc
+];
+
+/**
+ * Outward-side-effect verbs, but only when they're the command/sub-command
+ * being invoked — not, say, "checkout" inside `git checkout`. A bare word in
+ * {@link SIDE_EFFECT_RE} would over-match; this guards the common false hit.
+ */
+function isBenignGitVerb(clause: string): boolean {
+    const words = clause.trim().split(/\s+/);
+    return (words[0] ?? "").toLowerCase() === "git" && (words[1] ?? "").toLowerCase() === "checkout";
+}
+
+/**
+ * Classify a shell-style command purely from its text — no per-app rules.
+ * Precedence: side-effect > dangerous > safe > medium. A line is split on
+ * `;`, `&&`, `||` and `|` so the *riskiest* clause wins (e.g.
+ * `ls && rm -rf foo` is dangerous; `git status | grep foo` is safe).
+ */
+export function classifyCommand(cmd: string): CommandRisk {
+    const trimmed = (cmd ?? "").trim();
+    if (!trimmed) return "medium";
+
+    const clauses = trimmed.split(/\s*(?:\|\||&&|;|\||&)\s*/).filter(Boolean);
+    if (!clauses.length) return "medium";
+
+    // An outward side effect in any clause dominates — others see it. We test
+    // per clause so we can exempt benign uses (e.g. `git checkout`).
+    for (const clause of clauses) {
+        if (!isBenignGitVerb(clause) && SIDE_EFFECT_RE.test(clause)) return "side-effect";
+    }
+
+    // Any dangerous clause makes the whole line dangerous (some patterns span
+    // a pipe, e.g. curl | sh, so also test the whole line).
+    if (DANGEROUS_COMMAND_RE.some((re) => re.test(trimmed))) return "dangerous";
+
+    // Otherwise the line is safe only if EVERY clause is safe; one unknown
+    // clause demotes it to medium (so a hidden mutating command can't ride
+    // along behind an `ls`).
+    return clauses.every(isSafeClause) ? "safe" : "medium";
+}
+
+/** Is a single command clause read-only/inspection? */
+function isSafeClause(clause: string): boolean {
+    const words = clause.trim().split(/\s+/);
+    const head = (words[0] ?? "").toLowerCase();
+    if (!head) return false;
+    if (head === "git") {
+        const sub = (words[1] ?? "").toLowerCase();
+        return SAFE_GIT_SUBCOMMANDS.has(sub);
+    }
+    return SAFE_COMMANDS.has(head);
+}
+
+/**
+ * Map an autonomy level to the lowest {@link CommandRisk}/op disposition that
+ * still auto-runs. Higher autonomy → more is allowed to run silently. Returns
+ * the predicate "may this risk tier auto-run at this level?".
+ *
+ * - "dangerous" and "side-effect" NEVER auto-run (handled before this).
+ * - "safe" auto-runs from level 1 upward.
+ * - "medium" auto-runs only at the top of the dial (levels 4–5).
+ */
+export function autonomyThreshold(level: AutonomyLevel): (risk: CommandRisk) => boolean {
+    return (risk: CommandRisk): boolean => {
+        if (risk === "dangerous" || risk === "side-effect") return false;
+        if (risk === "safe") return level >= 1;
+        // medium
+        return level >= 4;
+    };
+}
+
 export class OperationReviewer extends EventEmitter {
     private policy: ReviewPolicy = "risky-only";
+    private autonomy: AutonomyLevel = 3;
     private prompter: Prompter | undefined;
     private alwaysAllow = new Set<string>();
     private readonly log: LogEntry[] = [];
@@ -99,6 +263,17 @@ export class OperationReviewer extends EventEmitter {
         return this.policy;
     }
 
+    /** Set the autonomy dial (0–5). Out-of-range values are clamped. */
+    setAutonomy(level: number): void {
+        const clamped = Math.max(0, Math.min(5, Math.round(level))) as AutonomyLevel;
+        this.autonomy = clamped;
+        this.emit("autonomy", clamped);
+    }
+
+    getAutonomy(): AutonomyLevel {
+        return this.autonomy;
+    }
+
     setPrompter(fn: Prompter | undefined): void {
         this.prompter = fn;
     }
@@ -111,24 +286,41 @@ export class OperationReviewer extends EventEmitter {
         this.alwaysAllow.clear();
     }
 
-    /** Classify whether an operation is risky/irreversible or outward-facing. */
-    classify(op: Operation): { risky: boolean; reason?: string } {
+    /**
+     * Classify an operation. `risky` means "irreversible or outward-facing"
+     * (always worth a prompt at the cautious end). `commandRisk` is the finer
+     * tier from {@link classifyCommand} for any command text the op carries —
+     * it lets the autonomy dial auto-run inherently-safe commands.
+     */
+    classify(op: Operation): { risky: boolean; reason?: string; commandRisk: CommandRisk } {
         // The agent explicitly asking for approval before an outward-facing action.
         if (op.tool === "request_approval") {
-            return { risky: true, reason: String(op.args.action ?? "an action others would see") };
+            return { risky: true, reason: String(op.args.action ?? "an action others would see"), commandRisk: "side-effect" };
         }
 
         // Acting inside a sensitive area (chat box, Send button, terminal, ...)
         // is risky regardless of what the action itself looks like.
         if (op.sensitive) {
             const where = op.sensitive.app ? ` in ${op.sensitive.app}` : "";
-            return { risky: true, reason: `Sensitive area${where}: ${op.sensitive.reason}` };
+            return { risky: true, reason: `Sensitive area${where}: ${op.sensitive.reason}`, commandRisk: "medium" };
+        }
+
+        // A submitting keypress (Enter) carries the command it would run: classify
+        // the command itself so a safe `ls`/`git status` can auto-run, while a
+        // dangerous or outward-facing one always prompts.
+        const command = this.commandOf(op);
+        if (command) {
+            const commandRisk = classifyCommand(command);
+            if (commandRisk === "side-effect") return { risky: true, reason: `Outward action: ${command.slice(0, 60)}`, commandRisk };
+            if (commandRisk === "dangerous") return { risky: true, reason: `Dangerous command: ${command.slice(0, 60)}`, commandRisk };
+            // safe / medium fall through (no `risky`, dial decides via commandRisk).
+            return { risky: false, commandRisk };
         }
 
         const text = this.textOf(op);
         if (text) {
             for (const { re, reason } of DANGEROUS_PATTERNS) {
-                if (re.test(text)) return { risky: true, reason };
+                if (re.test(text)) return { risky: true, reason, commandRisk: "dangerous" };
             }
         }
 
@@ -140,11 +332,23 @@ export class OperationReviewer extends EventEmitter {
             const meta = set.has("MetaLeft") || set.has("MetaRight");
             const alt = set.has("AltLeft") || set.has("AltRight") || set.has("Alt");
             const enter = set.has("Enter") || set.has("NumpadEnter");
-            if (ctrl && alt && set.has("Delete")) return { risky: true, reason: "Ctrl+Alt+Del" };
-            if ((ctrl || meta) && enter) return { risky: true, reason: "send/submit shortcut (Ctrl/Cmd+Enter)" };
-            if (ctrl && set.has("KeyS")) return { risky: true, reason: "save (Ctrl+S)" };
+            if (ctrl && alt && set.has("Delete")) return { risky: true, reason: "Ctrl+Alt+Del", commandRisk: "dangerous" };
+            if ((ctrl || meta) && enter) return { risky: true, reason: "send/submit shortcut (Ctrl/Cmd+Enter)", commandRisk: "side-effect" };
+            if (ctrl && set.has("KeyS")) return { risky: true, reason: "save (Ctrl+S)", commandRisk: "side-effect" };
         }
-        return { risky: false };
+        return { risky: false, commandRisk: "medium" };
+    }
+
+    /**
+     * The command line an op would submit, if any. A submit keypress (Enter)
+     * carries the most recently typed line via `op.commandText`; we only treat
+     * Enter as a command submission so ordinary text entry is unaffected.
+     */
+    private commandOf(op: Operation): string {
+        if (op.tool !== "press_key") return "";
+        const key = String(op.args.key ?? op.args.code ?? "");
+        if (!SUBMIT_KEYS.has(key)) return "";
+        return (op.commandText ?? "").trim();
     }
 
     /** Extract any free text an op would type, for pattern matching. */
@@ -170,11 +374,11 @@ export class OperationReviewer extends EventEmitter {
      *  - redirect : block; steer the agent with `text`
      */
     async review(op: Operation): Promise<Verdict> {
-        const { risky, reason } = this.classify(op);
+        const { risky, reason, commandRisk } = this.classify(op);
         const kind = this.kindOf(op);
 
         const reasonField = reason ? { reason } : {};
-        const needsPrompt = this.shouldPrompt(op, risky, kind);
+        const needsPrompt = this.shouldPrompt(op, risky, kind, commandRisk);
         if (!needsPrompt) {
             this.record({ op, risky, ...reasonField, decision: "auto-allow" });
             return { decision: "allow" };
@@ -214,22 +418,38 @@ export class OperationReviewer extends EventEmitter {
         return verdict;
     }
 
-    private shouldPrompt(op: Operation, risky: boolean, kind: string): boolean {
+    private shouldPrompt(op: Operation, risky: boolean, kind: string, commandRisk: CommandRisk): boolean {
         // An explicit approval request always prompts, whatever the policy.
         if (op.tool === "request_approval") return true;
         if (this.alwaysAllow.has(kind)) return false;
+        // Dangerous/irreversible commands and outward, human-visible actions
+        // ALWAYS prompt — at every autonomy level and under every policy.
+        if (commandRisk === "dangerous" || commandRisk === "side-effect") return true;
         // Sensitive areas always prompt (even under autorun-trusted) unless the
         // user has chosen to always-allow this app for the session (handled above).
         if (op.sensitive) return true;
         switch (this.policy) {
             case "review-all":
                 return true;
-            case "risky-only":
+            case "risky-only": {
+                // The autonomy dial decides for non-risky command ops: a safe
+                // `ls`/`git status` (or, high up the dial, a medium command)
+                // auto-runs without a prompt.
+                if (this.autonomyAllows(commandRisk)) return false;
+                // At the cautious floor (level 0) we prompt for everything that
+                // wasn't explicitly allowed above — maximum caution.
+                if (this.autonomy === 0) return true;
                 return risky;
+            }
             case "autorun-trusted":
                 // Only the hardest deny-list (a strict subset of risky) prompts.
                 return risky && this.isHardDeny(op);
         }
+    }
+
+    /** Does the current autonomy dial allow this command-risk tier to auto-run? */
+    private autonomyAllows(risk: CommandRisk): boolean {
+        return autonomyThreshold(this.autonomy)(risk);
     }
 
     private isHardDeny(op: Operation): boolean {
@@ -245,4 +465,4 @@ export class OperationReviewer extends EventEmitter {
     }
 }
 
-export { SUBMIT_KEYS };
+export { SUBMIT_KEYS, SAFE_COMMANDS, SAFE_GIT_SUBCOMMANDS };

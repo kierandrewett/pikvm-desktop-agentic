@@ -22,7 +22,7 @@ import {
 import { getModel, getModels, registerBuiltInApiProviders, Type, type Model, type ImageContent } from "@earendil-works/pi-ai";
 import { resolve, dirname } from "path";
 import { PiKvmControl } from "../pikvm-control";
-import { OperationReviewer, type Operation } from "../reviewer";
+import { OperationReviewer, SUBMIT_KEYS, type Operation } from "../reviewer";
 import { PresenceMonitor } from "../presence";
 import { CodexAuth } from "./auth";
 import { createTools } from "./tools";
@@ -860,6 +860,8 @@ export class AgentRunner {
 
     private sensCtx: { app: string; sensitive: boolean; reason: string; at: number } | null = null;
     private sensInflight: Promise<void> | null = null;
+    /** The most recently typed line — what a following Enter would submit. */
+    private lastTypedLine = "";
     /** Notified when a fresh app/sensitivity assessment lands (for the overlay). */
     onContext: ((ctx: { app: string; sensitive: boolean; reason: string }) => void) | undefined;
 
@@ -923,8 +925,19 @@ export class AgentRunner {
         // action re-assesses against the fresh view.
         if (tool === "screenshot") this.sensCtx = null;
         // 2. Authorization.
-        const op: Operation = { tool, args: (args as Record<string, unknown>) ?? {}, source: "agent" };
-        // 2a. For input actions, recognise the app and flag sensitive areas (chat
+        const argRec = (args as Record<string, unknown>) ?? {};
+        const op: Operation = { tool, args: argRec, source: "agent" };
+        // 2a. Track the most recently typed line so a following Enter can be
+        // classified as the *command it submits* (e.g. `ls` vs `rm -rf`). The
+        // dial then auto-runs safe commands without a prompt.
+        if (tool === "type_text") {
+            const t = String(argRec.text ?? "").trim();
+            if (t) this.lastTypedLine = t;
+        } else if (tool === "press_key") {
+            const key = String(argRec.key ?? argRec.code ?? "");
+            if (SUBMIT_KEYS.has(key) && this.lastTypedLine) op.commandText = this.lastTypedLine;
+        }
+        // 2b. For input actions, recognise the app and flag sensitive areas (chat
         // compose boxes, Send buttons, terminals) so they require approval.
         if (INPUT_ACTIONS.has(tool)) {
             try {

@@ -12,6 +12,13 @@ import type { ReviewPolicy } from "./reviewer";
 export interface AppSettings {
     model: string;
     policy: ReviewPolicy;
+    /**
+     * Autonomy dial (0–5). 0 = maximum caution (prompt for almost everything);
+     * 5 = maximum autonomy (prompt only for dangerous / outward-facing actions).
+     * 3 is the balanced default. Tunes how eagerly inherently-safe commands run
+     * without an approval prompt — see the reviewer's command classifier.
+     */
+    autonomy: number;
     /** Typing humanity 0..1 (0 = no typos, full cadence; 1 = full human). */
     humanize: number;
     /** Whether the agent auto-pauses when the PiKVM mic/audio is active. */
@@ -91,6 +98,7 @@ const DEFAULT_AMBIENT: AmbientSettings = {
 const DEFAULTS: AppSettings = {
     model: "gpt-5.5",
     policy: "risky-only",
+    autonomy: 3,
     humanize: 1,
     pauseOnPresence: true,
     wpm: 95,
