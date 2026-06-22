@@ -578,7 +578,11 @@
     }
 
     // ---- audio activity meters: a live level lights up the button background ----
+    // The AudioContext opens a hardware output stream, which on some systems steals
+    // /switches the OS default audio device. So we NEVER create it on open — only
+    // after the user explicitly interacts with the audio/mic buttons (a gesture).
     var audioCtx = null;
+    var audioGestureDone = false;
     var speakerMeterStop = null;
     var micMeterStop = null;
     var micMeterStream = null;
@@ -591,6 +595,7 @@
     }
     /** Drive `--vol` (0..1) on `els` from the RMS level of `stream`'s audio. */
     function startMeter(stream, els) {
+        if (!audioGestureDone) return null; // no AudioContext before a user gesture
         var ctx = ensureAudioCtx();
         if (!ctx || !stream || !stream.getAudioTracks || !stream.getAudioTracks().length) return null;
         try {
@@ -666,6 +671,7 @@
         audioBtn.addEventListener("click", function (e) {
             e.stopPropagation();
             if (!stream) return;
+            audioGestureDone = true; // user interaction → meters may now open an AudioContext
             audioOn = !audioOn;
             vid.muted = !audioOn; // browsers gate autoplay on muted; unmute on opt-in
             if (audioOn) {
@@ -688,6 +694,7 @@
         micBtn.addEventListener("click", function (e) {
             e.stopPropagation();
             if (!stream) return;
+            audioGestureDone = true;
             if (micOn) {
                 micOn = false;
                 stream.setMic(false);
