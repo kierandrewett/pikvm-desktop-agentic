@@ -340,6 +340,12 @@ function createWindow() {
     const PROXY_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
     const desktopProxy = settings.get().desktopUseProxy;
     const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
+    // The unified web console (/_agent/console) is now the PRIMARY desktop UI: the
+    // main view loads it, so the desktop and web/phone share ONE interface with all
+    // the same features (WebRTC, region overlay, audio/mic, agent chat). The native
+    // KVM-web-page composition is kept as a fallback behind PIKVM_NATIVE_UI=1.
+    const useConsole = process.env.PIKVM_NATIVE_UI !== "1";
+    const CONSOLE_URL = `${PROXY_ORIGIN}/_agent/console`;
     if (desktopProxy) {
         // Mark this Electron session as the desktop shell so the proxy suppresses
         // the injected floating panel (the desktop has its own native sidebar).
@@ -403,7 +409,9 @@ function createWindow() {
     const setAgentActing = (acting: boolean) => {
         if (acting === agentActing) return;
         agentActing = acting;
-        controlOverlayView.setVisible(acting);
+        // In console mode the console draws its own "agent in control" overlay (via
+        // the overlay SSE), so the native transparent overlay view stays hidden.
+        if (!useConsole) controlOverlayView.setVisible(acting);
         if (acting) layout();
     };
 
@@ -411,7 +419,9 @@ function createWindow() {
         const [w, h] = win.getContentSize();
         console.log(`Layout: ${w}x${h}`);
 
-        const sbW = sidebarOpen ? sidebarWidth : 0;
+        // The console hosts its own agent chat panel, so the native sidebar view is
+        // not used in console mode — the main view (the console) spans full width.
+        const sbW = useConsole ? 0 : sidebarOpen ? sidebarWidth : 0;
 
         mainView.setBounds({
             x: 0,
@@ -492,7 +502,11 @@ function createWindow() {
 
     // Agent screenshots come from the already-rendered live view (capturePage),
     // NOT the PiKVM snapshot endpoint — so they put no load on the Pi and never
-    // stall the live stream the user is watching.
+    // stall the live stream the user is watching. This zero-load path only works
+    // when the main view IS the KVM picture; with the unified console as the main
+    // view, capturePage would grab our own UI, so we leave these unset and the
+    // control core falls back to the Pi snapshot (clean frames, like headless mode).
+    if (!useConsole) {
     agentBackend.control.captureScreen = async () => {
         try {
             const img = await mainView.webContents.capturePage();
@@ -544,6 +558,7 @@ function createWindow() {
             return null;
         }
     };
+    } // end if (!useConsole) — console mode uses the Pi snapshot for clean frames
 
     // Watched-typing events → the on-screen X-ray overlay (teal typing box).
     agentBackend.control.onTypingEvent = (ev) => {
@@ -714,6 +729,12 @@ function createWindow() {
     ipcMain.handle("pikvm:get-origin", () => origin);
 
     const connect = () => {
+        if (useConsole) {
+            // The unified console is the primary UI; it proxies to the Pi itself.
+            console.log("Loading unified console at:", CONSOLE_URL);
+            mainView.webContents.loadURL(CONSOLE_URL);
+            return;
+        }
         console.log("Connecting to KVM view at:", viewOrigin());
         const parsed = new URL(viewOrigin());
         parsed.username = "";
@@ -1049,7 +1070,10 @@ function createWindow() {
 
     sendWindowState();
 
-    mainView.webContents.loadFile(resolve(__dirname, "views", "settings.html"));
+    // Console mode: the main view IS the unified console from boot. Otherwise show
+    // the legacy settings/connect screen and let ui.html drive the KVM connect.
+    if (useConsole) connect();
+    else mainView.webContents.loadFile(resolve(__dirname, "views", "settings.html"));
 
     mainView.webContents.addListener(
         "did-fail-load",
@@ -1063,6 +1087,12 @@ function createWindow() {
             frameRoutingId
         ) => {
             console.log("Main view failed to load");
+            // In console mode the local server may not be up yet on first boot —
+            // retry the console rather than dropping to the legacy settings screen.
+            if (useConsole) {
+                setTimeout(connect, 600);
+                return;
+            }
             mainView.webContents.loadFile(
                 resolve(__dirname, "views", "settings.html")
             );
