@@ -249,10 +249,14 @@ function openUnifiedConsole() {
         title: "PiKVM — Unified Console",
         backgroundColor: "#0a0a0c",
         autoHideMenuBar: true,
+        show: false, // revealed on ready-to-show, so no white flash
         webPreferences: {
             contextIsolation: true,
             preload: resolve(__dirname, "preload-console.js"),
         },
+    });
+    w.once("ready-to-show", () => {
+        if (!w.isDestroyed()) w.show();
     });
     void w.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/console`);
     // Mirror maximise/unmaximise back to the renderer so its maximise/restore glyph
@@ -410,7 +414,10 @@ function createWindow() {
         ...(useConsole ? consoleFrameOpts : { frame: false }),
         icon: appIconPath,
         title: "PiKVM Desktop",
-        backgroundColor: "#0f0f14",
+        backgroundColor: "#0a0a0c",
+        // Start hidden so the user never sees the white "flashbang" before the
+        // console paints; we reveal it once the content has loaded (below).
+        show: false,
     });
 
     const mainView = new WebContentsView({
@@ -422,6 +429,19 @@ function createWindow() {
             preload: resolve(__dirname, useConsole ? "preload-console.js" : "preload.js"),
         },
     });
+    // Dark view background so there is no white paint before the console CSS applies.
+    mainView.setBackgroundColor("#0a0a0c");
+
+    // Reveal the window only once the main content has loaded (or after a safety
+    // timeout), so there is no flash of an empty/white window on launch.
+    let shownOnce = false;
+    const revealWindow = () => {
+        if (shownOnce || win.isDestroyed()) return;
+        shownOnce = true;
+        win.show();
+    };
+    mainView.webContents.once("did-finish-load", () => setTimeout(revealWindow, 60));
+    setTimeout(revealWindow, 4000); // fallback in case load never finishes
 
     const overlayView = new WebContentsView({
         webPreferences: {
