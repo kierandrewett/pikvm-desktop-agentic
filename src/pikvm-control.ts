@@ -12,12 +12,12 @@
  */
 
 import axios from "axios";
-import { nativeImage } from "electron";
 import { Agent as HttpsAgent } from "https";
 import WebSocket from "ws";
 import { planTyping, type Persona, type TypingOptions } from "./human-typing";
 import { windMousePath } from "./windmouse";
 import type { GridSnapshot, TypingEvent } from "./agent/watched-typing";
+import type { ImageOps } from "./image-ops";
 
 export interface Region {
     x: number;
@@ -126,8 +126,11 @@ export class PiKvmControl {
     captureGrid: (() => Promise<GridSnapshot | null>) | undefined;
     /** Native stream resolution (for OCR coordinate scaling). */
     private nativeDims: { width: number; height: number } | undefined;
+    /** Injected crop/resize/encode — Electron `nativeImage` or headless `sharp`. */
+    private readonly imageOps: ImageOps;
 
-    constructor(creds: PiKvmCredentials) {
+    constructor(creds: PiKvmCredentials, imageOps: ImageOps) {
+        this.imageOps = imageOps;
         const u = new URL(creds.origin);
         this.user = creds.username ?? decodeURIComponent(u.username || "");
         this.pass = creds.password ?? decodeURIComponent(u.password || "");
@@ -192,6 +195,7 @@ export class PiKvmControl {
             }
         }
 
+
         const res = await axios.get(`${this.httpBase()}/api/streamer/snapshot`, {
             responseType: "arraybuffer",
             headers: await this.headers(),
@@ -216,11 +220,11 @@ export class PiKvmControl {
      *    preserving the whole view.
      * `this.dims` (the agent's coordinate basis) only tracks full-frame sends.
      */
-    private finalize(raw: Buffer, fw: number, fh: number, region?: Region): Screenshot {
+    private async finalize(raw: Buffer, fw: number, fh: number, region?: Region): Promise<Screenshot> {
         if (region) {
             const sx = fw / (this.dims.width || fw);
             const sy = fh / (this.dims.height || fh);
-            const cropped = this.crop(raw, fw, fh, {
+            const cropped = await this.crop(raw, fw, fh, {
                 x: region.x * sx,
                 y: region.y * sy,
                 width: region.width * sx,
@@ -228,39 +232,34 @@ export class PiKvmControl {
             });
             if (cropped) return cropped;
         }
-        const d = this.downscale(raw, fw, fh);
+        const d = await this.downscale(raw, fw, fh);
         this.dims = { width: d.width, height: d.height };
         return { data: d.data, base64: d.data.toString("base64"), mimeType: "image/jpeg", width: d.width, height: d.height };
     }
 
     /** Downscale a JPEG so its long edge is at most MAX_SCREENSHOT_DIM. */
-    private downscale(jpeg: Buffer, w: number, h: number): { data: Buffer; width: number; height: number } {
+    private async downscale(jpeg: Buffer, w: number, h: number): Promise<{ data: Buffer; width: number; height: number }> {
         const longEdge = Math.max(w, h);
         if (longEdge <= MAX_SCREENSHOT_DIM) return { data: jpeg, width: w, height: h };
-        try {
-            const scale = MAX_SCREENSHOT_DIM / longEdge;
-            const nw = Math.round(w * scale);
-            const nh = Math.round(h * scale);
-            const out = nativeImage.createFromBuffer(jpeg).resize({ width: nw, height: nh, quality: "good" }).toJPEG(78);
-            return { data: out, width: nw, height: nh };
-        } catch {
-            return { data: jpeg, width: w, height: h };
-        }
+        const scale = MAX_SCREENSHOT_DIM / longEdge;
+        const nw = Math.round(w * scale);
+        const nh = Math.round(h * scale);
+        const out = await this.imageOps.resize(jpeg, nw, nh, 78);
+        // Op failed (e.g. sharp unavailable) → keep the original full-res frame.
+        if (!out) return { data: jpeg, width: w, height: h };
+        return { data: out, width: nw, height: nh };
     }
 
     /** Crop a full-res JPEG to a clamped region (then cap its size). */
-    private crop(jpeg: Buffer, fw: number, fh: number, region: Region): Screenshot | null {
-        try {
-            const x = Math.max(0, Math.min(Math.round(region.x), fw - 1));
-            const y = Math.max(0, Math.min(Math.round(region.y), fh - 1));
-            const w = Math.max(1, Math.min(Math.round(region.width), fw - x));
-            const h = Math.max(1, Math.min(Math.round(region.height), fh - y));
-            const cropBuf = nativeImage.createFromBuffer(jpeg).crop({ x, y, width: w, height: h }).toJPEG(88);
-            const d = this.downscale(cropBuf, w, h);
-            return { data: d.data, base64: d.data.toString("base64"), mimeType: "image/jpeg", width: d.width, height: d.height };
-        } catch {
-            return null;
-        }
+    private async crop(jpeg: Buffer, fw: number, fh: number, region: Region): Promise<Screenshot | null> {
+        const x = Math.max(0, Math.min(Math.round(region.x), fw - 1));
+        const y = Math.max(0, Math.min(Math.round(region.y), fh - 1));
+        const w = Math.max(1, Math.min(Math.round(region.width), fw - x));
+        const h = Math.max(1, Math.min(Math.round(region.height), fh - y));
+        const cropBuf = await this.imageOps.crop(jpeg, { x, y, width: w, height: h }, 88);
+        if (!cropBuf) return null;
+        const d = await this.downscale(cropBuf, w, h);
+        return { data: d.data, base64: d.data.toString("base64"), mimeType: "image/jpeg", width: d.width, height: d.height };
     }
 
     /** Latest known frame dimensions (updated on every screenshot). */

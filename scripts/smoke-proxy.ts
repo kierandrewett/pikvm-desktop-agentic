@@ -54,7 +54,12 @@ async function main(): Promise<void> {
     const piPort = await listen(pi);
 
     // 2. Control + proxy pointing at the mock, then our minimal server shell.
-    const control = new PiKvmControl({ origin: `http://127.0.0.1:${piPort}` });
+    // Image ops are never exercised here (the smoke never screenshots), so a
+    // no-op impl suffices.
+    const control = new PiKvmControl(
+        { origin: `http://127.0.0.1:${piPort}` },
+        { resize: async () => null, crop: async () => null },
+    );
     const proxy = createPiKvmProxy({ control, htmlInjection: (req) => webAssets.htmlInjection(req) });
     const srv = createServer((req, res) => {
         const u = new URL(req.url ?? "/", "http://x");

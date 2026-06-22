@@ -12,12 +12,12 @@ import {
     clipboard,
     Menu,
     Rectangle,
-    safeStorage,
 } from "electron";
 import { readFileSync, existsSync, writeFileSync } from "fs";
 import { url } from "inspector/promises";
 import { resolve } from "path";
 import { PiKvmControl } from "./pikvm-control";
+import { electronImageOps } from "./image-ops-electron";
 import { OperationReviewer } from "./reviewer";
 import { PresenceMonitor } from "./presence";
 import { CodexAuth } from "./agent/auth";
@@ -28,6 +28,7 @@ import { OverlayBus } from "./overlay-bus";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
 import { SecretsStore } from "./secrets";
+import { electronSecretCrypto } from "./secret-crypto-electron";
 import { NtfyClient } from "./ambient/ntfy";
 import { AmbientMonitor } from "./ambient/monitor";
 import { Transcriber } from "./ambient/transcriber";
@@ -75,19 +76,22 @@ function humanAction(tool: string, args: any): string {
 
 /** Start the agentic backend (control core, reviewer, presence, agent, servers). */
 function startAgentBackend(origin: string, settings: SettingsStore, inputTracker: InputTracker) {
-    const control = new PiKvmControl({
-        origin,
-        // Reuse the logged-in PiKVM web session so the agent's snapshot/HID
-        // requests are authorized even when credentials aren't in the URL.
-        getCookie: async () => {
-            try {
-                const cookies = await session.defaultSession.cookies.get({ name: "auth_token" });
-                return cookies[0]?.value;
-            } catch {
-                return undefined;
-            }
+    const control = new PiKvmControl(
+        {
+            origin,
+            // Reuse the logged-in PiKVM web session so the agent's snapshot/HID
+            // requests are authorized even when credentials aren't in the URL.
+            getCookie: async () => {
+                try {
+                    const cookies = await session.defaultSession.cookies.get({ name: "auth_token" });
+                    return cookies[0]?.value;
+                } catch {
+                    return undefined;
+                }
+            },
         },
-    });
+        electronImageOps,
+    );
     // Feed the agent's own keystrokes into the unified input tracker.
     control.onAgentInput = (info) => {
         if (info.text) inputTracker.appendText("agent", info.text);
@@ -99,18 +103,8 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     const auth = new CodexAuth(resolve(app.getPath("userData"), "pi-credentials.json"));
     auth.load();
     // Desktop encrypts secrets with the OS keychain (Electron safeStorage); the
-    // headless server uses a keyfile instead (see SecretCrypto).
-    const secrets = new SecretsStore(resolve(app.getPath("userData"), "agent-secrets.json"), {
-        available: () => {
-            try {
-                return safeStorage.isEncryptionAvailable();
-            } catch {
-                return false;
-            }
-        },
-        encrypt: (v) => safeStorage.encryptString(v),
-        decrypt: (b) => safeStorage.decryptString(b),
-    });
+    // headless server uses a keyfile instead (see secret-crypto-*.ts).
+    const secrets = new SecretsStore(resolve(app.getPath("userData"), "agent-secrets.json"), electronSecretCrypto);
     // ntfy push (token from the secrets vault) — created before the runner so the
     // agent's notify_user tool can use it.
     const ntfy = new NtfyClient({
