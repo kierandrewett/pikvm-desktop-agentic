@@ -398,7 +398,7 @@
     var micBtn = document.getElementById("mic-btn");
     var audioPip = document.getElementById("audio-pip");
     var micPip = document.getElementById("mic-pip");
-    var hud = document.getElementById("hud");
+    var avSep = document.getElementById("av-sep");
     var resToast = document.getElementById("res-toast");
     var resToastMain = document.getElementById("res-toast-main");
     var resToastAv = document.getElementById("res-toast-av");
@@ -456,8 +456,12 @@
     }
 
     function revealAvToggles(on) {
-        // The HUD (top-left audio/mic) only makes sense with a WebRTC session.
-        if (hud) hud.classList.toggle("show", !!on);
+        // Audio/mic only make sense with a WebRTC session (MJPEG has no audio).
+        [audioBtn, micBtn, avSep].forEach(function (el) {
+            if (!el) return;
+            if (on) el.removeAttribute("hidden");
+            else el.setAttribute("hidden", "");
+        });
         if (!on) {
             // MJPEG has no audio: reset the toggles so the state can't read stale.
             audioOn = false;
@@ -1231,8 +1235,10 @@
             e.stopPropagation();
             if (moreMenu.classList.toggle("open")) placeMenu();
         });
-        // Picking an item closes it.
-        moreMenu.addEventListener("click", function () {
+        // Picking an item closes it — EXCEPT the audio/mic toggles, which stay open
+        // so you can flip both without the menu vanishing (the original bug).
+        moreMenu.addEventListener("click", function (e) {
+            if (e.target.closest && e.target.closest(".more-item.toggle")) return;
             moreMenu.classList.remove("open");
         });
         // Click/tap-outside detection: anything that isn't the menu or the button

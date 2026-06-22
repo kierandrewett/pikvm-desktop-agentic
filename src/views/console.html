@@ -47,25 +47,9 @@
                      like PiKVM's: a translucent blue dot with a light ring. -->
                 <div class="kvm-cursor" id="kvm-cursor"></div>
 
-                <!-- Top-left HUD: persistent audio + mic indicators (click to toggle).
-                     Shown only when the WebRTC path is live (MJPEG has no audio). They
-                     live OVER the stream, not in the ⋯ menu, so toggling never disturbs
-                     a menu. Off by default for privacy. -->
-                <div class="hud" id="hud">
-                    <button class="hud-pill" id="audio-btn" title="Audio output" aria-label="Toggle audio output">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z" /><path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" /></svg>
-                        <span id="audio-pip">Off</span>
-                    </button>
-                    <button class="hud-pill" id="mic-btn" title="Microphone" aria-label="Toggle microphone">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v4" /></svg>
-                        <span id="mic-pip">Off</span>
-                    </button>
-                </div>
-
                 <!-- Transient toast over the top of the stream: pops when the stream
-                     resolution / source changes, then fades. Also reflects A/M state. -->
+                     resolution / source changes, then fades. Also reflects A/M state.
+                     pointer-events:none so it never blocks a click on the surface. -->
                 <div class="res-toast" id="res-toast">
                     <span id="res-toast-main">—</span>
                     <span class="res-toast-av" id="res-toast-av"></span>
@@ -131,6 +115,15 @@
                 <button class="more-item" data-agent="settings">Settings</button>
                 <button class="more-item" data-agent="copy">Copy conversation</button>
                 <div class="more-sep"></div>
+                <!-- WebRTC audio/mic. Hidden until the WebRTC path is live (MJPEG has
+                     no audio); off by default. Toggling these never closes the menu. -->
+                <button class="more-item toggle" id="audio-btn" hidden>
+                    <span>Audio output</span><span class="more-pip" id="audio-pip">Off</span>
+                </button>
+                <button class="more-item toggle" id="mic-btn" hidden>
+                    <span>Microphone</span><span class="more-pip" id="mic-pip">Off</span>
+                </button>
+                <div class="more-sep" id="av-sep" hidden></div>
                 <button class="more-item" id="theme-btn">Toggle theme</button>
                 <a class="more-item" id="full-ui" href="/?native=1">Full PiKVM UI ⤢</a>
             </div>
