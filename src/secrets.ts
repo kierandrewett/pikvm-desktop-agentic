@@ -1,22 +1,47 @@
 /**
  * Secrets vault. Named secrets (e.g. "Windows password") the agent can TYPE but
- * never SEE — the value is never returned to the model's context. Encrypted at
- * rest with the OS keychain via Electron safeStorage when available.
+ * never SEE — the value is never returned to the model's context.
+ *
+ * Encryption at rest is pluggable via an injected `SecretCrypto`:
+ *  - desktop: Electron `safeStorage` (OS keychain) — see `secret-crypto-electron.ts`
+ *  - headless: an AES-256-GCM keyfile (0600) on disk — see `secret-crypto-keyfile.ts`
+ * When no crypto is available (or it fails) values fall back to plaintext on disk,
+ * rather than throwing (a thrown set would otherwise drop the write entirely).
  */
 
-import { safeStorage } from "electron";
 import { readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 
+/**
+ * Pluggable encryption backend. Both methods are sync to match the store's API;
+ * `available()` gates whether we encrypt at all (false → plaintext fallback).
+ */
+export interface SecretCrypto {
+    available(): boolean;
+    /** Encrypt a UTF-8 string to bytes (caller base64-encodes for storage). */
+    encrypt(value: string): Buffer;
+    /** Decrypt bytes produced by `encrypt` back to a UTF-8 string. */
+    decrypt(data: Buffer): string;
+}
+
+/** No-op crypto: never encrypts (everything is stored as plaintext). */
+const noopCrypto: SecretCrypto = {
+    available: () => false,
+    encrypt: (v) => Buffer.from(v, "utf-8"),
+    decrypt: (d) => d.toString("utf-8"),
+};
+
 interface Entry {
-    enc?: string; // base64 of safeStorage-encrypted value
+    enc?: string; // base64 of crypto-encrypted value
     plain?: string; // fallback when encryption is unavailable
     hint?: string; // non-secret guidance for the agent on when/where to use it
 }
 
 export class SecretsStore {
     private data: Record<string, Entry> = {};
+    private readonly crypto: SecretCrypto;
 
-    constructor(private readonly path: string) {
+    constructor(private readonly path: string, crypto: SecretCrypto = noopCrypto) {
+        this.crypto = crypto;
         this.data = this.load();
     }
 
@@ -48,7 +73,7 @@ export class SecretsStore {
 
     encryptionAvailable(): boolean {
         try {
-            return safeStorage.isEncryptionAvailable();
+            return this.crypto.available();
         } catch {
             return false;
         }
@@ -57,11 +82,11 @@ export class SecretsStore {
     set(name: string, value: string, hint?: string): void {
         const key = name.trim();
         if (!key) return;
-        // Encrypt if we can; if the keychain hiccups, fall back to plaintext rather
+        // Encrypt if we can; if the backend hiccups, fall back to plaintext rather
         // than throwing (a thrown set would otherwise drop the write entirely).
         let stored: Entry;
         try {
-            stored = this.encryptionAvailable() ? { enc: safeStorage.encryptString(value).toString("base64") } : { plain: value };
+            stored = this.encryptionAvailable() ? { enc: this.crypto.encrypt(value).toString("base64") } : { plain: value };
         } catch {
             stored = { plain: value };
         }
@@ -79,7 +104,7 @@ export class SecretsStore {
         if (!e) return undefined;
         if (e.enc != null) {
             try {
-                return safeStorage.decryptString(Buffer.from(e.enc, "base64"));
+                return this.crypto.decrypt(Buffer.from(e.enc, "base64"));
             } catch {
                 return undefined;
             }

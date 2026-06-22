@@ -32,6 +32,23 @@ await build({
     logLevel: "info",
 });
 
+// 1b. Headless server bundle: the same control server + runner + proxy, started
+//     by src/server-main.ts with plain-Node (non-Electron) implementations. Run
+//     with `node dist/server-main.js`. `electron` stays external (it's never
+//     reached in the headless path, but a stray transitive import must not be
+//     bundled); `sharp` and `nodejs-whisper` are native/__dirname-bound, so they
+//     resolve from node_modules at runtime too.
+await build({
+    entryPoints: [resolve(root, "src/server-main.ts")],
+    outfile: resolve(dist, "server-main.js"),
+    platform: "node",
+    format: "cjs",
+    bundle: true,
+    external: ["electron", "nodejs-whisper", "sharp"],
+    sourcemap: true,
+    logLevel: "info",
+});
+
 // 2. Static assets and views.
 cpSync(resolve(root, "package.json"), resolve(dist, "package.json"));
 cpSync(resolve(root, "src/static"), resolve(dist, "static"), { recursive: true });

@@ -8,6 +8,7 @@
     "license": "MIT",
     "scripts": {
         "start": "electron dist",
+        "start:headless": "node dist/server-main.js",
         "build": "node scripts/build.mjs",
         "smoke:proxy": "esbuild scripts/smoke-proxy.ts --bundle --platform=node --format=cjs --outfile=dist/smoke-proxy.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/smoke-proxy.cjs",
         "package:linux": "make package",
@@ -38,6 +39,9 @@
         "tailwind-merge": "^3.6.0",
         "use-stick-to-bottom": "^1.1.6",
         "ws": "^8.21.0"
+    },
+    "optionalDependencies": {
+        "sharp": "^0.34.1"
     },
     "devDependencies": {
         "@electron/packager": "^19.0.1",
