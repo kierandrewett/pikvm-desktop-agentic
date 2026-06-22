@@ -44,25 +44,54 @@ export interface AppSettings {
     modelRouting: ModelRoutingSettings;
 }
 
+/**
+ * Per-role model selection. Each model is named as a `provider/model` spec (e.g.
+ * `codex/gpt-5.5`, `moonshotai/kimi-k2.6`), so different roles can run on
+ * different providers. Bare model ids saved by older builds (`gpt-5.5`) are
+ * migrated to `codex/<id>` on load, preserving today's behaviour.
+ */
 export interface ModelRoutingSettings {
     /** Route each turn dynamically. When off, every turn uses `reasoningModel`. */
     enabled: boolean;
-    /** Capable model for thinking/reasoning/problem-solving turns. */
+    /** Capable model for thinking/reasoning/problem-solving turns (`provider/model`). */
     reasoningModel: string;
     /**
-     * Cheap/fast model for routine, mechanical tool-driving turns.
-     * NB: must be reachable through the active provider. Under the ChatGPT-
-     * subscription auth (`openai-codex`) Kimi is NOT available — the cheapest
-     * fast+vision model there is gpt-5.4-mini.
+     * Cheap/fast model for routine, mechanical tool-driving turns (`provider/model`).
+     * MUST be vision-capable (the loop sends screenshots) — a text-only choice is
+     * rejected at runtime and the reasoning model is used instead.
      */
     fastModel: string;
+    /** Model sub-agents use for focused side-tasks (`provider/model`). */
+    subagentModel: string;
 }
 
 const DEFAULT_MODEL_ROUTING: ModelRoutingSettings = {
     enabled: true,
-    reasoningModel: "gpt-5.5",
-    fastModel: "gpt-5.4-mini",
+    reasoningModel: "codex/gpt-5.5",
+    fastModel: "codex/gpt-5.4-mini",
+    subagentModel: "codex/gpt-5.5",
 };
+
+/**
+ * Migrate a model field to the `provider/model` form. A value already containing
+ * a "/" is left as-is; a bare id (legacy) is assumed to be a codex model and
+ * prefixed with `codex/`, preserving the pre-multi-provider behaviour exactly.
+ */
+function migrateModelSpec(value: unknown, fallback: string): string {
+    if (typeof value !== "string" || !value.trim()) return fallback;
+    const v = value.trim();
+    return v.includes("/") ? v : `codex/${v}`;
+}
+
+/** Apply spec migration to a (possibly legacy) saved modelRouting object. */
+function migrateModelRouting(saved: Partial<ModelRoutingSettings> | undefined): ModelRoutingSettings {
+    return {
+        enabled: typeof saved?.enabled === "boolean" ? saved.enabled : DEFAULT_MODEL_ROUTING.enabled,
+        reasoningModel: migrateModelSpec(saved?.reasoningModel, DEFAULT_MODEL_ROUTING.reasoningModel),
+        fastModel: migrateModelSpec(saved?.fastModel, DEFAULT_MODEL_ROUTING.fastModel),
+        subagentModel: migrateModelSpec(saved?.subagentModel, DEFAULT_MODEL_ROUTING.subagentModel),
+    };
+}
 
 export interface AtlasSettings {
     /** Use the Atlas vault for memory (markdown via the Atlas MCP server). */
@@ -153,7 +182,8 @@ export class SettingsStore {
                         activeHours: { ...DEFAULT_AMBIENT.activeHours, ...(saved.ambient?.activeHours ?? {}) },
                     },
                     atlas: { ...DEFAULT_ATLAS, ...(saved.atlas ?? {}) },
-                    modelRouting: { ...DEFAULT_MODEL_ROUTING, ...(saved.modelRouting ?? {}) },
+                    // Migrate legacy bare model ids (`gpt-5.5`) to `codex/gpt-5.5`.
+                    modelRouting: migrateModelRouting(saved.modelRouting),
                 };
                 // Migrate the never-valid early default model id off saved configs.
                 if (this.data.ambient.triageModel === "gpt-5.5-mini") {

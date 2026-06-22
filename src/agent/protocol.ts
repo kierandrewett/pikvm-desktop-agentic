@@ -160,10 +160,27 @@ export interface ServerState {
         hasToken: boolean;
         desktopUseProxy: boolean;
         atlas: { enabled: boolean; binPath: string; vaultPath: string };
-        /** Per-turn model routing: reasoning vs cheap tool-calling. `lastTier` is
-         *  the tier the most recent routed turn ran on (observability). */
-        modelRouting: { enabled: boolean; reasoningModel: string; fastModel: string; lastTier: "reasoning" | "fast" };
+        /** Per-role model selection as `provider/model` specs. `lastTier` is the
+         *  tier the most recent routed turn ran on; `fastTierWarning` is set when a
+         *  chosen fast model was text-only and got swapped for the reasoning model. */
+        modelRouting: {
+            enabled: boolean;
+            reasoningModel: string;
+            fastModel: string;
+            subagentModel: string;
+            lastTier: "reasoning" | "fast";
+            fastTierWarning: string | null;
+        };
     };
+    /** Model providers: per-provider auth state + reachable `provider/model` specs. */
+    providers: {
+        id: string;
+        label: string;
+        kind: string;
+        ready: boolean;
+        keyHint?: string;
+        models: string[];
+    }[];
     schedules: { id: string; label: string; when: string }[];
     log: LogEntry[];
 }

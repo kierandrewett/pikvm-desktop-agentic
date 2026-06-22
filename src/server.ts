@@ -183,7 +183,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     // fast tier + on/off switch on top so routing is live from the first run.
     {
         const mr = settings.get().modelRouting;
-        runner.setRouterModels({ enabled: mr.enabled, reasoningModel: mr.reasoningModel, fastModel: mr.fastModel });
+        runner.setRouterModels({ enabled: mr.enabled, reasoningModel: mr.reasoningModel, fastModel: mr.fastModel, subagentModel: mr.subagentModel });
     }
 
     // Pending authorization prompts awaiting an /api/approve response.
@@ -250,8 +250,23 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         })),
         settings: (() => {
             const s = settings.get();
-            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, keyboardLayout: s.keyboardLayout, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy, atlas: s.atlas, modelRouting: { ...s.modelRouting, lastTier: runner.getRouterConfig().lastTier } };
+            const rc = runner.getRouterConfig();
+            return {
+                humanize: s.humanize,
+                pauseOnPresence: s.pauseOnPresence,
+                wpm: s.wpm,
+                keyboardLayout: s.keyboardLayout,
+                bindHost: s.bindHost,
+                hasToken: !!s.accessToken,
+                desktopUseProxy: s.desktopUseProxy,
+                atlas: s.atlas,
+                // Surface the runner's live router config (migrated provider/model
+                // specs + the per-turn tier + any vision-guard warning).
+                modelRouting: { ...s.modelRouting, lastTier: rc.lastTier, fastTierWarning: rc.fastTierWarning },
+            };
         })(),
+        // Providers & Models: each provider's auth state + reachable model specs.
+        providers: runner.availableProviderModels(),
         schedules: runner.listSchedules().map((j) => ({
             id: j.id,
             label: j.label,
@@ -629,7 +644,26 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 if (patch.keyboardLayout === "us" || patch.keyboardLayout === "uk") control.setLayout(next.keyboardLayout);
                 if (patch.modelRouting) {
                     const mr = next.modelRouting;
-                    runner.setRouterModels({ enabled: mr.enabled, reasoningModel: mr.reasoningModel, fastModel: mr.fastModel });
+                    runner.setRouterModels({ enabled: mr.enabled, reasoningModel: mr.reasoningModel, fastModel: mr.fastModel, subagentModel: mr.subagentModel });
+                }
+                return json(res, 200, state());
+            });
+            return;
+        }
+
+        // Providers & Models: store (or clear, with an empty value) an API key for
+        // a model provider. The key lands in the secrets vault, never in plaintext
+        // settings. After saving, role models re-resolve so a newly-keyed provider
+        // is immediately usable. (OAuth providers like `codex` use /api/login.)
+        if (path === "/api/provider-key" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                try {
+                    const { provider, key } = JSON.parse(b || "{}");
+                    if (typeof provider === "string" && typeof key === "string") {
+                        runner.setProviderKey(provider, key);
+                    }
+                } catch {
+                    /* ignore malformed body */
                 }
                 return json(res, 200, state());
             });
