@@ -2182,11 +2182,6 @@ function App() {
                         const parts = m.parts ?? [];
                         return (
                         <div key={m.id} className={cn("group flex gap-3", m.role === "user" ? "justify-end" : "")}>
-                            {m.role === "assistant" && (
-                                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary">
-                                    <Sparkles className="size-4" />
-                                </div>
-                            )}
                             <div className={cn("flex min-w-0 flex-col gap-2.5 leading-relaxed", m.role === "user" ? "max-w-[85%] items-end" : "flex-1")}>
                                 {parts.map((p: any, i: number) => {
                                     if (p.type === "file" && typeof p.url === "string" && String(p.mediaType).startsWith("image/"))

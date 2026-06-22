@@ -457,7 +457,8 @@
 
     function revealAvToggles(on) {
         // Audio/mic only make sense with a WebRTC session (MJPEG has no audio).
-        [audioBtn, micBtn, avSep].forEach(function (el) {
+        // Reveal both the menu items (web/mobile) AND the desktop titlebar buttons.
+        [audioBtn, micBtn, avSep, document.getElementById("tb-audio"), document.getElementById("tb-mic"), document.querySelector(".tb-av-sep")].forEach(function (el) {
             if (!el) return;
             if (on) el.removeAttribute("hidden");
             else el.setAttribute("hidden", "");
@@ -561,6 +562,12 @@
         btn.classList.toggle("on", on);
         btn.classList.toggle("warn", !!warn);
         pip.textContent = label || (on ? "On" : "Off");
+        // Mirror state onto the matching desktop-titlebar button.
+        var tb = btn === audioBtn ? document.getElementById("tb-audio") : btn === micBtn ? document.getElementById("tb-mic") : null;
+        if (tb) {
+            tb.classList.toggle("on", on);
+            tb.classList.toggle("warn", !!warn);
+        }
     }
     if (audioBtn) {
         audioBtn.addEventListener("click", function (e) {
@@ -1698,6 +1705,13 @@
                 });
             });
         }
+
+        // Titlebar audio/mic: drive the canonical toggles (the hidden menu buttons run
+        // setAudio/setMic + getUserMedia; paintToggle mirrors state back to these).
+        var tbAudio = document.getElementById("tb-audio");
+        var tbMic = document.getElementById("tb-mic");
+        if (tbAudio) tbAudio.addEventListener("click", function () { var b = document.getElementById("audio-btn"); if (b) b.click(); });
+        if (tbMic) tbMic.addEventListener("click", function () { var b = document.getElementById("mic-btn"); if (b) b.click(); });
 
         /* ---- NATIVE context menu (replaces the HTML .more-menu) ----
          * The same actions the web ⋯ menu offers, plus the WebRTC Audio/Mic

@@ -42,6 +42,16 @@
             </div>
             <div class="tb-title" id="tb-title">pikvm · PiKVM Session</div>
             <div class="tb-right">
+                <!-- Audio + mic (WebRTC only) — hidden until a WebRTC session is live. -->
+                <button class="tb-btn tb-av" id="tb-audio" title="Audio output" aria-label="Toggle audio output" hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z" /><path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14" /></svg>
+                </button>
+                <button class="tb-btn tb-av" id="tb-mic" title="Microphone" aria-label="Toggle microphone" hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v4" /></svg>
+                </button>
+                <span class="tb-sep tb-av-sep" hidden></span>
                 <button class="tb-btn" id="tb-fit" title="Fit to native resolution" aria-label="Fit to native resolution">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>

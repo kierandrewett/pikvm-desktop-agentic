@@ -1030,6 +1030,19 @@ html.desktop-console .tb-btn svg {
     height: 16px;
     pointer-events: none;
 }
+/* Audio/mic toggles: blue when on, amber when mic denied; speaker waves on with audio. */
+html.desktop-console .tb-av .wave {
+    opacity: 0;
+}
+html.desktop-console .tb-av.on {
+    color: var(--primary);
+}
+html.desktop-console .tb-av.on .wave {
+    opacity: 1;
+}
+html.desktop-console .tb-av.warn {
+    color: var(--warn);
+}
 /* Window controls render a touch smaller + symmetric. */
 html.desktop-console .tb-win svg {
     width: 12px;
