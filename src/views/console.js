@@ -514,7 +514,7 @@
         stream = window.JanusStream({
             wsUrl: janusWsUrl(),
             video: vid,
-            wantAudio: false, // privacy: audio + mic off until the user opts in
+            wantAudio: true, // audio output ON by default (mic stays off for privacy)
             wantMic: false,
             onStatus: function (st) {
                 // "connecting" / "live" / "error". We only surface this quietly; the
@@ -560,8 +560,17 @@
      * Audio = unmute the remote audio track (and ask Janus to send it). Mic =
      * capture the local microphone and push it to the target; needs getUserMedia
      * permission, handled gracefully. Both off by default. */
-    var audioOn = false;
+    var audioOn = true; // audio output on by default
     var micOn = false;
+    // If the user turns audio OFF, re-enable it after an hour.
+    var audioReenableTimer = null;
+    function scheduleAudioReenable() {
+        if (audioReenableTimer) clearTimeout(audioReenableTimer);
+        audioReenableTimer = setTimeout(function () {
+            audioReenableTimer = null;
+            if (!audioOn && audioBtn) audioBtn.click(); // turn it back on
+        }, 3600000); // 1 hour
+    }
     function paintToggle(btn, pip, on, warn, label) {
         if (!btn || !pip) return;
         btn.classList.toggle("on", on);
@@ -586,6 +595,12 @@
             stream.setAudio(audioOn);
             paintToggle(audioBtn, audioPip, audioOn, false);
             showResToast(true); // flash confirmation with the new A/M state
+            // Turned off → re-enable in an hour; turned back on → cancel that.
+            if (!audioOn) scheduleAudioReenable();
+            else if (audioReenableTimer) {
+                clearTimeout(audioReenableTimer);
+                audioReenableTimer = null;
+            }
         });
     }
     if (micBtn) {
@@ -655,7 +670,9 @@
         }
         var fx = (clientX - r.left - ox) / cw;
         var fy = (clientY - r.top - oy) / ch;
-        return { fx: Math.max(0, Math.min(1, fx)), fy: Math.max(0, Math.min(1, fy)) };
+        // Outside the actual picture (in the letterbox/empty space) → not a KVM point.
+        if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return null;
+        return { fx: fx, fy: fy };
     }
     // Absolute move (desktop mouse): set the virtual cursor to the exact point and
     // send coalesced via rAF (one per frame) — same smooth path as the trackpad.
@@ -822,9 +839,24 @@
             pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
             if (e.pointerType === "mouse") {
-                // Desktop: real buttons, absolute move. Clicking the screen also
-                // captures the keyboard so typing goes straight to the target.
-                kbd.focus({ preventScroll: true });
+                // Only act on clicks INSIDE the actual picture — a click in the
+                // letterbox/empty space around the stream is not a KVM click.
+                if (!fracAt(e.clientX, e.clientY)) {
+                    try {
+                        pane.releasePointerCapture(e.pointerId);
+                    } catch (err) {}
+                    pts.delete(e.pointerId);
+                    return;
+                }
+                // Real buttons, absolute move. In the native desktop window the global
+                // keydown handler captures keys; elsewhere focus the hidden input so
+                // typing (and the soft keyboard) goes to the target. Either way, blur
+                // the agent iframe so keystrokes route to the KVM, not the chat.
+                if (window.desktopConsole) {
+                    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+                } else {
+                    kbd.focus({ preventScroll: true });
+                }
                 var b = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
                 moveTo(e.clientX, e.clientY, true);
                 paintCursor(e.clientX, e.clientY);
@@ -1648,6 +1680,43 @@
         });
         window.addEventListener("blur", function () {
             windowFocused = false;
+        });
+
+        // Desktop keyboard: forward PHYSICAL keystrokes straight to the KVM. The agent
+        // chat is an iframe, so when it has focus the parent document never sees the
+        // key — this only fires for KVM-destined input. We skip our own editable fields.
+        document.addEventListener("keydown", function (e) {
+            if (!windowFocused) return;
+            var t = e.target;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+            if (e.isComposing) return;
+            var code = e.code;
+            if (!code) return;
+            if (/^(Control|Alt|Meta|Shift)(Left|Right)?$/.test(code)) return; // bare modifier rides the chord
+            var mods = modsFromEvent(e).concat(armedList());
+            var ctl = CONTROL_KEYS[code] || CONTROL_KEYS[e.key] || (/^F\d{1,2}$/.test(code) ? code : null);
+            if (ctl) {
+                e.preventDefault();
+                if (dedupe(ctl)) sendChord(mods, ctl, false);
+                clearArmed();
+                return;
+            }
+            if (e.ctrlKey || e.altKey || e.metaKey) {
+                e.preventDefault();
+                if (dedupe(code)) sendChord(mods, code, e.shiftKey);
+                clearArmed();
+                return;
+            }
+            // Printable: send the produced character (respects the host keyboard layout).
+            if (e.key && e.key.length === 1) {
+                e.preventDefault();
+                sendChar(e.key);
+                clearArmed();
+            } else if (dedupe(code)) {
+                e.preventDefault();
+                sendChord(mods, code, e.shiftKey);
+                clearArmed();
+            }
         });
 
         // The MAIN desktop window keeps the original ui.html titlebar ABOVE the

@@ -1039,6 +1039,17 @@ html.desktop-console .tb-btn svg {
     height: 15px;
     pointer-events: none;
 }
+/* Masked SVG icons (the actual GTK icons from the old PiKVM titlebar). They take
+ * currentColor so hover/active states recolour them. */
+html.desktop-console .tb-ico {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    background-color: currentColor;
+    -webkit-mask: var(--icon) no-repeat center / contain;
+    mask: var(--icon) no-repeat center / contain;
+    pointer-events: none;
+}
 /* ---- platform window-control styles ----------------------------------------
  * Linux: GNOME/Adwaita — round buttons with an always-on subtle backdrop on the
  * window controls (min/max/close), brighter on hover; close reddens. */
@@ -1097,7 +1108,7 @@ html.desktop-console .titlebar.is-maximised .tb-ico-max {
     display: none;
 }
 html.desktop-console .titlebar.is-maximised .tb-ico-restore {
-    display: inline;
+    display: inline-block;
 }
 /* Close goes red on hover (and its glyph white). */
 html.desktop-console .tb-close:hover {

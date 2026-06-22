@@ -53,9 +53,10 @@ const SIDEBAR_MAX = 640;
 // preload's `window.desktopConsole`). The legacy native KVM-page + sidebar
 // composition is kept behind PIKVM_NATIVE_UI=1.
 const useConsole = process.env.PIKVM_NATIVE_UI !== "1";
-// Windows whose renderer has the console preload (the main window in console mode
-// + any "open in new window" console). The console-scoped IPC only serves these.
-const consoleWindows = new Set<Electron.BrowserWindow>();
+// Map a console RENDERER's webContents id → its window. The main window hosts the
+// console in a child WebContentsView, so BrowserWindow.fromWebContents(sender) can
+// return null; this resolves the window reliably for the console-scoped IPC.
+const consoleWcToWin = new Map<number, Electron.BrowserWindow>();
 // Window-chrome per platform: macOS keeps its native traffic lights (titleBarStyle
 // "hidden", positioned to sit inside our 34px titlebar); Linux + Windows are fully
 // frameless so the console draws its own controls (GTK-style on Linux).
@@ -261,19 +262,20 @@ function openUnifiedConsole() {
     };
     w.on("maximize", emitMax);
     w.on("unmaximize", emitMax);
+    const wcId = w.webContents.id;
     w.on("closed", () => {
-        consoleWindows.delete(w);
+        consoleWcToWin.delete(wcId);
         unifiedConsoleWin = null;
     });
-    consoleWindows.add(w);
+    consoleWcToWin.set(wcId, w);
     unifiedConsoleWin = w;
 }
 
 /** Resolve a console-chromed window from an IPC sender (the main window in console
  *  mode and any "open in new window" console both carry the console preload). */
-function consoleWinFrom(event: Electron.IpcMainEvent): Electron.BrowserWindow | null {
-    const w = BrowserWindow.fromWebContents(event.sender);
-    return w && consoleWindows.has(w) && !w.isDestroyed() ? w : null;
+function consoleWinFrom(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): Electron.BrowserWindow | null {
+    const w = consoleWcToWin.get(event.sender.id);
+    return w && !w.isDestroyed() ? w : null;
 }
 
 // ── Console window IPC (only the frameless console carries preload-console) ──
@@ -285,8 +287,8 @@ ipcMain.on("console:toggle-maximise", (e) => {
 });
 ipcMain.on("console:close", (e) => consoleWinFrom(e)?.close());
 ipcMain.handle("console:is-maximised", (e) => {
-    const w = BrowserWindow.fromWebContents(e.sender);
-    return !!w && consoleWindows.has(w) && !w.isDestroyed() && w.isMaximized();
+    const w = consoleWinFrom(e);
+    return !!w && w.isMaximized();
 });
 
 // Snap the window so the live-screen area renders the native resolution 1:1. The
@@ -327,7 +329,9 @@ ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: num
             checked: !!it?.checked,
             enabled: it?.enabled !== false,
             click: () => {
-                if (!w.isDestroyed() && it?.id) w.webContents.send("console:menu-command", String(it.id));
+                // Send back to the SENDER renderer (the console view), not w.webContents
+                // (empty for the main window which hosts the console in a child view).
+                if (!e.sender.isDestroyed() && it?.id) e.sender.send("console:menu-command", String(it.id));
             },
         };
     });
@@ -470,13 +474,16 @@ function createWindow() {
     // console preload, so register it for the console-scoped IPC (window controls,
     // fit-native, native menus) and mirror its maximise state to the titlebar glyph.
     if (useConsole) {
-        consoleWindows.add(win);
+        // The console renderer is mainView (a child view), so register ITS webContents
+        // and send window-state to it (not win.webContents, which is empty).
+        const consoleWcId = mainView.webContents.id;
+        consoleWcToWin.set(consoleWcId, win);
         const mirrorMax = () => {
-            if (!win.isDestroyed()) win.webContents.send("console:maximise-change", win.isMaximized());
+            if (!win.isDestroyed()) mainView.webContents.send("console:maximise-change", win.isMaximized());
         };
         win.on("maximize", mirrorMax);
         win.on("unmaximize", mirrorMax);
-        win.on("closed", () => consoleWindows.delete(win));
+        win.on("closed", () => consoleWcToWin.delete(consoleWcId));
     }
 
     win.contentView.addChildView(overlayView);

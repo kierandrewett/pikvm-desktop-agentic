@@ -242,7 +242,7 @@ async function main(): Promise<void> {
 
     // --- WebRTC swap: <video> shown, <img> hidden + MJPEG conn released ---------
     checks.push(["WebRTC: JanusStream started with the <video> element", !!janusOpts && janusOpts.video === ids["screen-video"]]);
-    checks.push(["WebRTC: audio + mic OFF by default (privacy)", !!janusOpts && !janusOpts.wantAudio && !janusOpts.wantMic]);
+    checks.push(["WebRTC: audio ON by default, mic OFF (privacy)", !!janusOpts && janusOpts.wantAudio === true && !janusOpts.wantMic]);
     checks.push(["WebRTC live: <video> shown, <img> hidden", !ids["screen-video"]!.classList.contains("hidden") && ids["screen"]!.classList.contains("hidden")]);
     checks.push(["WebRTC live: MJPEG <img> src released", !ids["screen"]!.src]);
     checks.push(["WebRTC live: audio/mic toggles revealed", ids["audio-btn"]!.getAttribute("hidden") == null && ids["mic-btn"]!.getAttribute("hidden") == null]);
@@ -262,10 +262,14 @@ async function main(): Promise<void> {
         vMoves.length > 0 && Math.abs(vMoves[vMoves.length - 1].event.to.x) < 60 && Math.abs(vMoves[vMoves.length - 1].event.to.y) < 60,
     ]);
 
-    // --- Audio toggle asks Janus to send audio + unmutes the <video> -----------
+    // --- Audio toggle flips Janus audio + the <video> mute (default ON → off → on) -
     janusCalls.length = 0;
-    ids["audio-btn"]!.emit("click", { stopPropagation() {} });
-    checks.push(["Audio toggle calls setAudio(true) + unmutes video", janusCalls.includes("audio:true") && (ids["screen-video"] as any).muted === false]);
+    ids["audio-btn"]!.emit("click", { stopPropagation() {} }); // on -> off
+    const audioOffOk = janusCalls.includes("audio:false") && (ids["screen-video"] as any).muted === true;
+    janusCalls.length = 0;
+    ids["audio-btn"]!.emit("click", { stopPropagation() {} }); // off -> on
+    const audioOnOk = janusCalls.includes("audio:true") && (ids["screen-video"] as any).muted === false;
+    checks.push(["Audio toggle flips setAudio + video mute (default on → off → on)", audioOffOk && audioOnOk]);
 
     // --- Mic toggle requests permission then calls setMic(true) ----------------
     janusCalls.length = 0;
