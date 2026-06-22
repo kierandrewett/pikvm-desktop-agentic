@@ -41,6 +41,12 @@
             </div>
             <div class="tb-title" id="tb-title">pikvm · PiKVM Session</div>
             <div class="tb-right">
+                <!-- Send a keyboard shortcut to the KVM (Ctrl+Alt+Del, Alt+Tab, …). -->
+                <button class="tb-btn" id="tb-keys" title="Send keyboard shortcut to the target" aria-label="Send keyboard shortcut">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12" /></svg>
+                </button>
+                <span class="tb-sep"></span>
                 <!-- Audio + mic (WebRTC only) — hidden until a WebRTC session is live. -->
                 <button class="tb-btn tb-av" id="tb-audio" title="Audio output" aria-label="Toggle audio output" hidden>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"

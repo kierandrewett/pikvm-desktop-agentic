@@ -1700,36 +1700,6 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                             </button>
                         )}
 
-                        <div className="rounded-xl border bg-card/40 p-3">
-                            <Row
-                                label="Atlas memory vault"
-                                desc="Store the agent's memory as markdown in an Atlas vault (via its MCP server). Needs a restart."
-                                control={<Switch checked={state?.settings?.atlas?.enabled ?? false} onChange={(v) => onPatch({ atlas: { enabled: v } })} />}
-                            />
-                            {state?.settings?.atlas?.enabled && (
-                                <div className="mt-2 space-y-1.5 border-t pt-2.5">
-                                    <label className="block text-[11px] text-muted-foreground">
-                                        Vault path
-                                        <input
-                                            defaultValue={state?.settings?.atlas?.vaultPath ?? ""}
-                                            onBlur={(e) => e.target.value !== state?.settings?.atlas?.vaultPath && onPatch({ atlas: { vaultPath: e.target.value.trim() } })}
-                                            placeholder="~/Documents/Atlas/Capgemini"
-                                            className={cn(inputCls, "mt-1 font-mono text-[11px]")}
-                                        />
-                                    </label>
-                                    <label className="block text-[11px] text-muted-foreground">
-                                        atlas binary
-                                        <input
-                                            defaultValue={state?.settings?.atlas?.binPath ?? ""}
-                                            onBlur={(e) => e.target.value !== state?.settings?.atlas?.binPath && onPatch({ atlas: { binPath: e.target.value.trim() } })}
-                                            placeholder="/path/to/atlas"
-                                            className={cn(inputCls, "mt-1 font-mono text-[11px]")}
-                                        />
-                                    </label>
-                                    <p className="text-[10px] text-muted-foreground">Changes apply on the next restart (the vault connects at startup).</p>
-                                </div>
-                            )}
-                        </div>
                     </div>
                 )}
 

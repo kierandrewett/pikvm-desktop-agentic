@@ -1925,6 +1925,10 @@
             return items;
         }
         function runCommand(id) {
+            if (id.indexOf("kb:") === 0) {
+                runShortcut(id.slice(3));
+                return;
+            }
             switch (id) {
                 case "history":
                 case "ambient":
@@ -1982,6 +1986,41 @@
             e.preventDefault();
             popNative({ x: e.clientX, y: e.clientY });
         });
+
+        /* ---- send a keyboard shortcut/chord to the KVM target ---- */
+        var KVM_SHORTCUTS = [
+            { id: "cad", label: "Ctrl + Alt + Delete", mods: ["ControlLeft", "AltLeft"], code: "Delete" },
+            { id: "taskmgr", label: "Ctrl + Shift + Esc  (Task Manager)", mods: ["ControlLeft", "ShiftLeft"], code: "Escape" },
+            { id: "alttab", label: "Alt + Tab", mods: ["AltLeft"], code: "Tab" },
+            { id: "altf4", label: "Alt + F4  (Close window)", mods: ["AltLeft"], code: "F4" },
+            { id: "win", label: "Windows / Super key", mods: [], code: "MetaLeft" },
+            { id: "wind", label: "Win + D  (Show desktop)", mods: ["MetaLeft"], code: "KeyD" },
+            { id: "winl", label: "Win + L  (Lock)", mods: ["MetaLeft"], code: "KeyL" },
+            { id: "winr", label: "Win + R  (Run)", mods: ["MetaLeft"], code: "KeyR" },
+            { id: "prtsc", label: "Print Screen", mods: [], code: "PrintScreen" },
+            { id: "esc", label: "Escape", mods: [], code: "Escape" },
+        ];
+        function runShortcut(sid) {
+            for (var i = 0; i < KVM_SHORTCUTS.length; i++) {
+                if (KVM_SHORTCUTS[i].id === sid) {
+                    sendChord(KVM_SHORTCUTS[i].mods, KVM_SHORTCUTS[i].code, false);
+                    return;
+                }
+            }
+        }
+        var tbKeys = document.getElementById("tb-keys");
+        if (tbKeys) {
+            tbKeys.addEventListener("click", function (e) {
+                e.stopPropagation();
+                var r = tbKeys.getBoundingClientRect();
+                dc.popupMenu(
+                    KVM_SHORTCUTS.map(function (s) {
+                        return { id: "kb:" + s.id, label: s.label };
+                    }),
+                    { x: r.left, y: r.bottom },
+                );
+            });
+        }
 
         // The window starts wide enough for the desktop layout immediately, so fit
         // the screen once the first frame is known.
