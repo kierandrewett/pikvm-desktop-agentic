@@ -1,7 +1,7 @@
 {
     "name": "pikvm-desktop-agentic",
     "description": "PiKVM Desktop Client with an integrated AI agent (Pi harness + MCP)",
-    "version": "1.10.0",
+    "version": "1.10.1",
     "main": "main.js",
     "repository": "https://github.com/kierandrewett/pikvm-desktop-agentic",
     "author": "kierandrewett <kieran@drewett.dev>",
