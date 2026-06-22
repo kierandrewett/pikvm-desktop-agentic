@@ -13,7 +13,8 @@
         "package:linux": "make package",
         "postinstall": "patch-package",
         "smoke:atlas": "esbuild scripts/atlas-mcp-test.ts --bundle --platform=node --format=cjs --outfile=dist/atlas-mcp-test.cjs --log-level=error && node dist/atlas-mcp-test.cjs",
-        "smoke:atlas-mirror": "esbuild scripts/atlas-mirror-test.ts --bundle --platform=node --format=cjs --outfile=dist/atlas-mirror-test.cjs --log-level=error && node dist/atlas-mirror-test.cjs"
+        "smoke:atlas-mirror": "esbuild scripts/atlas-mirror-test.ts --bundle --platform=node --format=cjs --outfile=dist/atlas-mirror-test.cjs --log-level=error && node dist/atlas-mirror-test.cjs",
+        "smoke:models": "esbuild scripts/model-router-test.ts --bundle --platform=node --format=cjs --outfile=dist/model-router-test.cjs --alias:electron=./scripts/electron-stub.cjs --log-level=error && node dist/model-router-test.cjs"
     },
     "dependencies": {
         "@ai-sdk/react": "^3.0.209",

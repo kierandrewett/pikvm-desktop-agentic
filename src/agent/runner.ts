@@ -36,12 +36,25 @@ import type { InputTracker } from "../input-tracker";
 import type { SecretsStore } from "../secrets";
 import { SessionStore, agentMessagesToUi, type SessionMeta } from "./sessions";
 import type { PiKvmUIMessage } from "./protocol";
+import { decideModelTier, type ModelTier, type TurnSummary } from "./model-router";
 
 registerBuiltInApiProviders();
 
 const PROVIDER = "openai-codex";
-/** Default model for the main chat loop — capable by default. */
+/** Default model for the main chat loop — capable by default (the "reasoning" tier). */
 const DEFAULT_MODEL = "gpt-5.5";
+/**
+ * Fast/cheap model for routine, mechanical tool-driving turns (the "fast" tier).
+ *
+ * NB: the brief asked for something like Kimi K2.6 here. Kimi IS in pi-ai's model
+ * catalogue, but only under the `moonshot`/`moonshotai`/`workers-ai` providers —
+ * it is NOT reachable through `openai-codex` (the ChatGPT-subscription auth this
+ * app uses). The only models the Codex subscription exposes are
+ * gpt-5.3-codex-spark (text-only — unusable here, the agent needs vision), gpt-5.4,
+ * gpt-5.4-mini and gpt-5.5. So the cheapest AVAILABLE fast+vision model is
+ * gpt-5.4-mini ($0.75/$4.5 vs gpt-5.5's $5/$30), which we use for the fast path.
+ */
+const FAST_MODEL = "gpt-5.4-mini";
 /** Model sub-agents use for hard thinking / deep work. */
 const SUBAGENT_MODEL = "gpt-5.5";
 /** Cheap model for naming conversations (titles refresh as the chat shifts). */
@@ -159,6 +172,18 @@ export class AgentRunner {
     private goal: string | undefined;
     private model: Model<any>;
     private modelId = DEFAULT_MODEL;
+    /* ----- per-turn model routing (reasoning vs cheap tool-calling) ----- */
+    /** Whether to route each turn dynamically. When off, every turn uses `model`. */
+    private routingEnabled = true;
+    /** Model id used for the "reasoning" tier. Mirrors the main `modelId`. */
+    private reasoningModelId = DEFAULT_MODEL;
+    /** Model id used for the "fast" tier (routine tool-driving turns). */
+    private fastModelId = FAST_MODEL;
+    /** Resolved (auth-applied) model objects per tier, rebuilt when ids change. */
+    private reasoningModel: Model<any> | undefined;
+    private fastModel: Model<any> | undefined;
+    /** The tier the most recent routed turn ran on — surfaced for observability. */
+    private lastTier: ModelTier = "reasoning";
     private loopController: { stop: () => void } | undefined;
     private readonly sessions: SessionStore;
     private readonly memory: MemoryStore;
@@ -173,6 +198,9 @@ export class AgentRunner {
     constructor(private deps: RunnerDeps) {
         this.model = deps.auth.applyModel(getModel(PROVIDER as any, DEFAULT_MODEL as any));
         this.subModel = deps.auth.applyModel(getModel(PROVIDER as any, SUBAGENT_MODEL as any));
+        // The reasoning tier is the main model; resolve the fast tier up front.
+        this.reasoningModel = this.model;
+        this.fastModel = this.resolveModel(FAST_MODEL);
         const dataDir = dirname(deps.sessionsDir);
         this.sessions = new SessionStore(deps.sessionsDir);
         this.memory = new MemoryStore(resolve(dataDir, "agent-memory.json"));
@@ -392,9 +420,82 @@ export class AgentRunner {
 
     /* --------------------------- auto-compaction ------------------------- */
 
-    /** Summarise older context when it approaches the window limit. */
-    private maybeCompact(): Promise<AgentLoopTurnUpdate | undefined> {
-        return this.compactContext(this.agent, this.model);
+    /**
+     * Per-turn hook: compact context if it's getting full, AND pick the model for
+     * the next turn (reasoning vs fast). The low-level loop honours the returned
+     * `model`, and keeps using it until we hand it another — so we set it EVERY
+     * turn. The framework's `prepareNextTurn` wrapper hands us no turn context, so
+     * we read the just-completed turn straight off the live transcript instead.
+     */
+    private async maybeCompact(): Promise<AgentLoopTurnUpdate | undefined> {
+        const compaction = await this.compactContext(this.agent, this.model);
+        const routedModel = this.routeNextTurnModel();
+        if (!routedModel) return compaction;
+        // Merge the routed model into whatever compaction returned (compaction may
+        // also have replaced the context); never drop one for the other.
+        return { ...(compaction ?? {}), model: routedModel };
+    }
+
+    /* --------------------------- model routing -------------------------- */
+
+    /** Notified whenever a turn is routed, with the tier and model id chosen. */
+    onModelRoute: ((info: { tier: ModelTier; modelId: string }) => void) | undefined;
+
+    /**
+     * Pick the model for the next turn from a summary of the turn that just
+     * finished. Returns undefined when routing is off or the chosen model can't be
+     * resolved (so the loop keeps its current model rather than breaking).
+     */
+    private routeNextTurnModel(): Model<any> | undefined {
+        if (!this.routingEnabled) return undefined;
+        const tier = decideModelTier(this.summariseLastTurn());
+        this.lastTier = tier;
+        const id = tier === "fast" ? this.fastModelId : this.reasoningModelId;
+        const model = tier === "fast" ? this.fastModel : this.reasoningModel;
+        if (!model) return undefined;
+        try {
+            this.onModelRoute?.({ tier, modelId: id });
+        } catch {
+            /* observer errors never affect the loop */
+        }
+        return model;
+    }
+
+    /**
+     * Reduce the most recently completed assistant turn to the compact summary the
+     * pure router consumes. Looks at the last assistant message (its text /
+     * thinking / tool calls + stopReason) and the tool results that followed it.
+     */
+    private summariseLastTurn(): TurnSummary {
+        const messages = this.agent.state.messages as any[];
+        // Find the last assistant message — the turn that just completed.
+        let ai = -1;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i]?.role === "assistant") {
+                ai = i;
+                break;
+            }
+        }
+        if (ai < 0) return { isStart: true, hadError: false, assistantTextLength: 0, hadThinking: false, toolCallCount: 0 };
+
+        const msg = messages[ai];
+        const content = Array.isArray(msg?.content) ? msg.content : [];
+        let assistantTextLength = 0;
+        let hadThinking = false;
+        let toolCallCount = 0;
+        for (const c of content) {
+            if (c?.type === "text") assistantTextLength += String(c.text ?? "").trim().length;
+            else if (c?.type === "thinking") hadThinking = true;
+            else if (c?.type === "toolCall") toolCallCount++;
+        }
+        // An error this turn = the assistant itself errored, or any tool result
+        // after it failed (tool results sit after the assistant message).
+        let hadError = msg?.stopReason === "error";
+        for (let i = ai + 1; i < messages.length; i++) {
+            const m = messages[i];
+            if (m?.role === "toolResult" && m.isError === true) hadError = true;
+        }
+        return { isStart: false, hadError, assistantTextLength, hadThinking, toolCallCount };
     }
 
     /** Tool-pairing-safe context compaction for any agent (main, meeting, …). */
@@ -1034,7 +1135,63 @@ export class AgentRunner {
             this.model = this.deps.auth.applyModel(m);
             this.modelId = modelId;
             this.agent.state.model = this.model;
+            // The header model picker selects the "reasoning" tier — keep the
+            // router's reasoning model in step so routing escalates to the
+            // model the user actually chose.
+            this.reasoningModelId = modelId;
+            this.reasoningModel = this.model;
         }
+    }
+
+    /** Resolve + auth-apply a provider model id; undefined if unknown/unreachable. */
+    private resolveModel(modelId: string): Model<any> | undefined {
+        try {
+            const m = getModel(PROVIDER as any, modelId as any);
+            return m ? this.deps.auth.applyModel(m) : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /* ------------------- per-turn model routing config ------------------ */
+
+    /**
+     * Configure dynamic per-turn model switching: a capable model for reasoning
+     * turns and a cheap/fast one for routine tool-driving. Unknown/unreachable
+     * model ids are ignored (the previous resolved model is kept), so a bad value
+     * can never break the loop. The reasoning model also doubles as the agent's
+     * base `state.model`, so it's what runs when routing is disabled.
+     */
+    setRouterModels(opts: { enabled?: boolean; reasoningModel?: string; fastModel?: string }): void {
+        if (typeof opts.enabled === "boolean") this.routingEnabled = opts.enabled;
+        if (opts.reasoningModel) {
+            const m = this.resolveModel(opts.reasoningModel);
+            if (m) {
+                this.reasoningModelId = opts.reasoningModel;
+                this.reasoningModel = m;
+                // Reasoning is the base model: keep the main loop + header in sync.
+                this.model = m;
+                this.modelId = opts.reasoningModel;
+                this.agent.state.model = m;
+            }
+        }
+        if (opts.fastModel) {
+            const m = this.resolveModel(opts.fastModel);
+            if (m) {
+                this.fastModelId = opts.fastModel;
+                this.fastModel = m;
+            }
+        }
+    }
+
+    /** Current routing configuration (for the settings UI + observability). */
+    getRouterConfig(): { enabled: boolean; reasoningModel: string; fastModel: string; lastTier: ModelTier } {
+        return {
+            enabled: this.routingEnabled,
+            reasoningModel: this.reasoningModelId,
+            fastModel: this.fastModelId,
+            lastTier: this.lastTier,
+        };
     }
 
     /** Repeat a task until stopped, or for `count` iterations, optionally with a gap. */

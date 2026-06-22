@@ -159,6 +159,14 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         uiVersion++;
     };
 
+    // Apply the persisted per-turn model-routing config on startup. main.ts already
+    // calls runner.setModel(settings.model) (the reasoning tier); this layers the
+    // fast tier + on/off switch on top so routing is live from the first run.
+    {
+        const mr = settings.get().modelRouting;
+        runner.setRouterModels({ enabled: mr.enabled, reasoningModel: mr.reasoningModel, fastModel: mr.fastModel });
+    }
+
     // Pending authorization prompts awaiting an /api/approve response.
     const pendingAuth = new Map<string, (v: Verdict) => void>();
     reviewer.setPrompter((req) => {
@@ -221,7 +229,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         })),
         settings: (() => {
             const s = settings.get();
-            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, keyboardLayout: s.keyboardLayout, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy, atlas: s.atlas };
+            return { humanize: s.humanize, pauseOnPresence: s.pauseOnPresence, wpm: s.wpm, keyboardLayout: s.keyboardLayout, bindHost: s.bindHost, hasToken: !!s.accessToken, desktopUseProxy: s.desktopUseProxy, atlas: s.atlas, modelRouting: { ...s.modelRouting, lastTier: runner.getRouterConfig().lastTier } };
         })(),
         schedules: runner.listSchedules().map((j) => ({
             id: j.id,
@@ -514,6 +522,10 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 if (typeof patch.pauseOnPresence === "boolean") presence.setEnabled(next.pauseOnPresence);
                 if (typeof patch.wpm === "number") control.setWpm(next.wpm);
                 if (patch.keyboardLayout === "us" || patch.keyboardLayout === "uk") control.setLayout(next.keyboardLayout);
+                if (patch.modelRouting) {
+                    const mr = next.modelRouting;
+                    runner.setRouterModels({ enabled: mr.enabled, reasoningModel: mr.reasoningModel, fastModel: mr.fastModel });
+                }
                 return json(res, 200, state());
             });
             return;
