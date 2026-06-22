@@ -51,6 +51,9 @@ export interface DesktopConsoleApi {
      * when the panel is collapsed.
      */
     fitNative(opts: { width: number; height: number; agentPanelWidth: number; titlebarHeight: number }): void;
+    /** Grow/shrink the window content size by a delta (px). Used when toggling the
+     *  agent panel so the KVM screen keeps its size and the window changes width. */
+    resizeBy(dw: number, dh: number): void;
     /**
      * Pop a NATIVE Electron context menu built from `items`. The chosen item's
      * `id` is delivered via `onMenuCommand`. `anchor` (optional) positions it;
@@ -76,6 +79,7 @@ const api: DesktopConsoleApi = {
         return () => ipcRenderer.removeListener("console:maximise-change", listener);
     },
     fitNative: (opts) => ipcRenderer.send("console:fit-native", opts),
+    resizeBy: (dw, dh) => ipcRenderer.send("console:resize-by", { dw, dh }),
     popupMenu: (items, anchor) => ipcRenderer.send("console:popup-menu", { items, anchor }),
     onMenuCommand: (cb) => {
         const listener = (_e: unknown, id: string) => cb(id);

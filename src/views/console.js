@@ -1404,6 +1404,19 @@
     themeBtn.addEventListener("click", function () {
         applyTheme(currentTheme() === "light" ? "dark" : "light");
     });
+    // Follow the OS appearance: switch the whole console (light/dark) live whenever
+    // the OS theme changes. In the desktop window this tracks the OS via Electron's
+    // system nativeTheme; in a browser it tracks prefers-color-scheme directly.
+    try {
+        var osThemeMq = window.matchMedia("(prefers-color-scheme: dark)");
+        var onOsTheme = function (e) {
+            applyTheme(e.matches ? "dark" : "light");
+        };
+        if (osThemeMq.addEventListener) osThemeMq.addEventListener("change", onOsTheme);
+        else if (osThemeMq.addListener) osThemeMq.addListener(onOsTheme);
+        // Sync to the OS now so we start matching it (overrides any stale saved value).
+        applyTheme(osThemeMq.matches ? "dark" : "light");
+    } catch (e) {}
     // First paint of the embedded chat should match; pass the theme on its URL and
     // re-assert on load (in case it booted before the message handler attached).
     // Inside the native desktop console the agent panel keeps its own header
@@ -1815,12 +1828,22 @@
         function paintPanelToggle() {
             if (tbPanel) tbPanel.classList.toggle("active", panelShown());
         }
+        var lastPanelW = 380;
         function setPanel(show) {
-            app.classList.toggle("panel-collapsed", !show);
+            if (show === panelShown()) return;
+            if (!show) {
+                // Collapsing: remember the panel's width, then SHRINK the window by it
+                // so the KVM screen keeps its exact size (window loses the panel column).
+                var chat = document.querySelector(".chat");
+                lastPanelW = chat ? Math.round(chat.getBoundingClientRect().width) : lastPanelW;
+                app.classList.add("panel-collapsed");
+                if (dc.resizeBy) dc.resizeBy(-lastPanelW, 0);
+            } else {
+                // Expanding: GROW the window by the panel width first, then show it.
+                app.classList.remove("panel-collapsed");
+                if (dc.resizeBy) dc.resizeBy(lastPanelW, 0);
+            }
             paintPanelToggle();
-            // The screen's fitted width changes with the panel; re-fit after the
-            // CSS grid transition settles.
-            setTimeout(function () { try { fitAspect(); } catch (e) {} }, 240);
         }
         paintPanelToggle();
         if (tbPanel) tbPanel.addEventListener("click", function () { setPanel(!panelShown()); });

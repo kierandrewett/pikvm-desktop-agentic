@@ -316,6 +316,21 @@ ipcMain.on("console:fit-native", (e, opts: { width?: number; height?: number; ag
     w.setContentSize(screenW + panel, screenH + bar);
 });
 
+// Grow/shrink the window by a delta (toggling the agent panel) so the KVM screen
+// keeps its exact size — the window changes width by the panel's width instead.
+ipcMain.on("console:resize-by", (e, opts: { dw?: number; dh?: number }) => {
+    const w = consoleWinFrom(e);
+    if (!w || w.isMaximized()) return; // pointless while maximised
+    const dw = Math.round(Number(opts?.dw) || 0);
+    const dh = Math.round(Number(opts?.dh) || 0);
+    const size = w.getContentSize();
+    const cw = size[0] ?? 0;
+    const ch = size[1] ?? 0;
+    const area = screen.getDisplayMatching(w.getBounds()).workAreaSize;
+    // setContentSize keeps the top-left anchored, so the screen (on the left) stays put.
+    w.setContentSize(Math.max(480, Math.min(area.width, cw + dw)), Math.max(360, Math.min(area.height, ch + dh)));
+});
+
 // Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.
 ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: number; y: number } }) => {
     const w = consoleWinFrom(e);
