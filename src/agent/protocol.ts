@@ -214,6 +214,7 @@ export interface ServerState {
         kind: string;
         ready: boolean;
         keyHint?: string;
+        desc?: string;
         models: string[];
     }[];
     schedules: { id: string; label: string; when: string }[];

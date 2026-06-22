@@ -1084,6 +1084,7 @@ function ModelsTab({ state, inputCls, onPatch }: { state: ServerState | null; in
     const mr = state?.settings?.modelRouting;
     const routingOn = mr?.enabled ?? true;
     const [keys, setKeys] = useState<Record<string, string>>({});
+    const [openProvider, setOpenProvider] = useState<string | null>(null);
 
     // A role picker: optgroups per authed provider, listing `provider/model` specs.
     const RolePicker = ({ label, value, field, desc }: { label: string; value: string | undefined; field: "reasoningModel" | "fastModel" | "subagentModel"; desc?: string }) => {
@@ -1122,67 +1123,85 @@ function ModelsTab({ state, inputCls, onPatch }: { state: ServerState | null; in
                 <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     <Sparkles className="size-3" /> Providers
                 </div>
-                <div className="flex flex-col gap-2">
-                    {providers.map((p) => (
-                        <div key={p.id} className="rounded-lg border bg-card/60 px-2.5 py-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0">
-                                    <div className="truncate text-[13px] font-medium">{p.label}</div>
-                                    <div className="text-[10px] text-muted-foreground">
-                                        {p.kind === "oauth" ? "Sign in (ChatGPT subscription)" : p.keyHint ?? "API key"}
+                <div className="overflow-hidden rounded-xl border divide-y">
+                    {providers.map((p) => {
+                        const isOpen = openProvider === p.id;
+                        return (
+                            <div key={p.id} className="bg-card/40">
+                                <button
+                                    type="button"
+                                    onClick={() => setOpenProvider(isOpen ? null : p.id)}
+                                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-accent/50"
+                                >
+                                    <span className={cn("size-2 shrink-0 rounded-full", p.ready ? "bg-emerald-500" : "bg-muted-foreground/30")} />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="truncate text-[13px] font-medium">{p.label}</span>
+                                            {p.ready ? <Check className="size-3 shrink-0 text-emerald-600" /> : null}
+                                        </div>
+                                        {p.desc ? <div className="truncate text-[10.5px] text-muted-foreground">{p.desc}</div> : null}
                                     </div>
-                                </div>
-                                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", p.ready ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground")}>
-                                    {p.ready ? "Ready" : "Not configured"}
-                                </span>
+                                    <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
+                                        {p.ready ? "Connected" : p.kind === "oauth" ? "Sign in" : "Add key"}
+                                    </span>
+                                    <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-180")} />
+                                </button>
+                                {isOpen ? (
+                                    <div className="px-3 pb-3 pt-0.5">
+                                        {p.kind === "oauth" ? (
+                                            p.ready ? (
+                                                <p className="text-[11px] text-muted-foreground">Signed in with your ChatGPT subscription.</p>
+                                            ) : (
+                                                <Button size="sm" className="h-8 w-full" onClick={() => post("/api/login").then(() => onPatch({}))}>
+                                                    Sign in
+                                                </Button>
+                                            )
+                                        ) : (
+                                            <>
+                                                <div className="flex gap-1.5">
+                                                    <input
+                                                        type="password"
+                                                        placeholder={p.ready ? "Replace key…" : "Paste API key"}
+                                                        value={keys[p.id] ?? ""}
+                                                        onChange={(e) => setKeys((k) => ({ ...k, [p.id]: e.target.value }))}
+                                                        className={cn(inputCls, "text-[12px]")}
+                                                    />
+                                                    <Button
+                                                        size="sm"
+                                                        className="h-8 shrink-0"
+                                                        disabled={!(keys[p.id] ?? "").trim()}
+                                                        onClick={() =>
+                                                            post("/api/provider-key", { provider: p.id, key: (keys[p.id] ?? "").trim() }).then(() => {
+                                                                setKeys((k) => ({ ...k, [p.id]: "" }));
+                                                                onPatch({});
+                                                            })
+                                                        }
+                                                    >
+                                                        Save
+                                                    </Button>
+                                                    {p.ready ? (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            className="h-8 shrink-0 text-destructive"
+                                                            title="Remove key"
+                                                            onClick={() => post("/api/provider-key", { provider: p.id, key: "" }).then(() => onPatch({}))}
+                                                        >
+                                                            <Trash2 className="size-3.5" />
+                                                        </Button>
+                                                    ) : null}
+                                                </div>
+                                                {p.keyHint ? <p className="mt-1 text-[10px] text-muted-foreground">{p.keyHint}</p> : null}
+                                            </>
+                                        )}
+                                    </div>
+                                ) : null}
                             </div>
-                            {p.kind === "oauth" ? (
-                                !p.ready ? (
-                                    <Button size="sm" className="mt-2 h-8 w-full" onClick={() => post("/api/login").then(() => onPatch({}))}>
-                                        Sign in
-                                    </Button>
-                                ) : null
-                            ) : (
-                                <div className="mt-2 flex gap-1.5">
-                                    <input
-                                        type="password"
-                                        placeholder={p.ready ? "Replace key…" : "Paste API key"}
-                                        value={keys[p.id] ?? ""}
-                                        onChange={(e) => setKeys((k) => ({ ...k, [p.id]: e.target.value }))}
-                                        className={cn(inputCls, "text-[12px]")}
-                                    />
-                                    <Button
-                                        size="sm"
-                                        className="h-8 shrink-0"
-                                        disabled={!(keys[p.id] ?? "").trim()}
-                                        onClick={() =>
-                                            post("/api/provider-key", { provider: p.id, key: (keys[p.id] ?? "").trim() }).then(() => {
-                                                setKeys((k) => ({ ...k, [p.id]: "" }));
-                                                onPatch({});
-                                            })
-                                        }
-                                    >
-                                        Save
-                                    </Button>
-                                    {p.ready ? (
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="h-8 shrink-0 text-destructive"
-                                            title="Remove key"
-                                            onClick={() => post("/api/provider-key", { provider: p.id, key: "" }).then(() => onPatch({}))}
-                                        >
-                                            <Trash2 className="size-3.5" />
-                                        </Button>
-                                    ) : null}
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
                 <p className="mt-1.5 text-[10px] text-muted-foreground">
-                    Keys are stored in your encrypted secrets vault, never in settings. Kimi becomes reachable once Moonshot, OpenRouter or opencode has a key
-                    (e.g. <code>moonshotai/kimi-k2.6</code>).
+                    Keys live in your encrypted vault, never in settings. Kimi unlocks once Moonshot, OpenRouter or opencode has a key.
                 </p>
             </div>
 
@@ -2363,7 +2382,21 @@ function App() {
                         <Button size="icon" variant="ghost" className="size-7 shrink-0 text-muted-foreground" title="Attach image" onClick={() => fileInput.current?.click()}>
                             <Paperclip className="size-4" />
                         </Button>
-                        <PillSelect value={serverState?.model ?? ""} title="Model" onChange={(m) => post("/api/model", { model: m }).then(refreshState)}>
+                        <PillSelect
+                            value={serverState?.settings?.modelRouting?.enabled ? "__auto__" : (serverState?.model ?? "")}
+                            title="Model — Auto routes reasoning vs fast per turn"
+                            onChange={(m) => {
+                                if (m === "__auto__") {
+                                    void post("/api/settings", { modelRouting: { enabled: true } }).then(refreshState);
+                                } else {
+                                    // Pin a single model: turn routing off and use it every turn.
+                                    void post("/api/settings", { modelRouting: { enabled: false } }).then(() =>
+                                        post("/api/model", { model: m }).then(refreshState),
+                                    );
+                                }
+                            }}
+                        >
+                            <option value="__auto__">Auto</option>
                             {(serverState?.models ?? []).map((m) => (
                                 <option key={m} value={m}>{m}</option>
                             ))}

@@ -1101,7 +1101,7 @@ export class AgentRunner {
      * vision-capable models are listed (the loop sends screenshots). Each entry
      * carries whether the provider is ready and its model specs.
      */
-    availableProviderModels(): { id: string; label: string; kind: string; ready: boolean; keyHint?: string; models: string[] }[] {
+    availableProviderModels(): { id: string; label: string; kind: string; ready: boolean; keyHint?: string; desc?: string; models: string[] }[] {
         return PROVIDERS.map((p) => {
             let models: string[] = [];
             try {
@@ -1117,6 +1117,7 @@ export class AgentRunner {
                 kind: p.kind,
                 ready: this.providerAuth.isReady(p.id),
                 ...(p.keyHint ? { keyHint: p.keyHint } : {}),
+                ...(p.desc ? { desc: p.desc } : {}),
                 models,
             };
         });

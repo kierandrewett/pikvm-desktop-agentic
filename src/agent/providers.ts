@@ -39,6 +39,8 @@ export interface ProviderInfo {
     envVar?: string;
     /** A short hint shown in the UI about where to get a key. */
     keyHint?: string;
+    /** One-line description of what the provider is / when to use it. */
+    desc?: string;
 }
 
 /**
@@ -62,7 +64,7 @@ export interface ProviderInfo {
  * gpt-5.x family), which is why a non-OpenAI provider must be authed separately.
  */
 export const PROVIDERS: readonly ProviderInfo[] = [
-    { id: "codex", piProvider: "openai-codex", label: "ChatGPT (Codex)", kind: "oauth" },
+    { id: "codex", piProvider: "openai-codex", label: "ChatGPT (Codex)", kind: "oauth", desc: "Your ChatGPT subscription — GPT-5.x family only." },
     {
         id: "moonshotai",
         piProvider: "moonshotai",
@@ -70,6 +72,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
         kind: "apiKey",
         envVar: "MOONSHOT_API_KEY",
         keyHint: "platform.moonshot.ai → API keys",
+        desc: "Kimi K2.x, first-party. Vision-capable.",
     },
     {
         id: "openrouter",
@@ -78,6 +81,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
         kind: "apiKey",
         envVar: "OPENROUTER_API_KEY",
         keyHint: "openrouter.ai/keys",
+        desc: "One key, hundreds of models from every vendor.",
     },
     {
         id: "opencode",
@@ -86,6 +90,16 @@ export const PROVIDERS: readonly ProviderInfo[] = [
         kind: "apiKey",
         envVar: "OPENCODE_API_KEY",
         keyHint: "opencode.ai → API keys",
+        desc: "opencode's hosted model gateway (zen) — broad model catalogue.",
+    },
+    {
+        id: "opencode-go",
+        piProvider: "opencode-go",
+        label: "opencode go",
+        kind: "apiKey",
+        envVar: "OPENCODE_API_KEY",
+        keyHint: "opencode.ai → API keys (same key as zen)",
+        desc: "opencode's 'go' endpoint — same key as zen, different routing.",
     },
     {
         id: "anthropic",
@@ -94,6 +108,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
         kind: "apiKey",
         envVar: "ANTHROPIC_API_KEY",
         keyHint: "console.anthropic.com → API keys",
+        desc: "Claude models — all vision-capable.",
     },
     {
         id: "google",
@@ -102,6 +117,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
         kind: "apiKey",
         envVar: "GEMINI_API_KEY",
         keyHint: "aistudio.google.com → API keys",
+        desc: "Gemini models — all vision-capable.",
     },
 ] as const;
 
