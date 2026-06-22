@@ -62,6 +62,10 @@ export interface DesktopConsoleApi {
     popupMenu(items: DesktopMenuItem[], anchor?: { x: number; y: number }): void;
     /** Subscribe to native-menu command picks; returns an unsubscribe fn. */
     onMenuCommand(cb: (id: string) => void): () => void;
+    /** The console origin this desktop loads from + whether it's local / env-locked. */
+    originConfig: { origin: string; isLocal: boolean; envLocked: boolean };
+    /** Persist a new console origin and relaunch (empty / local URL → back to local). */
+    setConsoleOrigin(origin: string): void;
 }
 
 const api: DesktopConsoleApi = {
@@ -86,6 +90,8 @@ const api: DesktopConsoleApi = {
         ipcRenderer.on("console:menu-command", listener);
         return () => ipcRenderer.removeListener("console:menu-command", listener);
     },
+    originConfig: ipcRenderer.sendSync("console:get-origin") as { origin: string; isLocal: boolean; envLocked: boolean },
+    setConsoleOrigin: (origin) => ipcRenderer.send("console:set-origin", origin),
 };
 
 contextBridge.exposeInMainWorld("desktopConsole", api);

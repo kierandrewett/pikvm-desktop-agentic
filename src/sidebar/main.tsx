@@ -1262,6 +1262,27 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
     };
     const amb = state?.ambient;
     const [tab, setTab] = useState<"behaviour" | "models" | "mcp" | "ambient" | "secrets" | "server">("behaviour");
+    // Desktop-only: where THIS desktop app loads the console from (asked of the parent
+    // console window over postMessage, since the desktop config lives in the shell).
+    const [desktopOrigin, setDesktopOrigin] = useState<{ origin: string; isLocal: boolean; envLocked: boolean } | null>(null);
+    const [originInput, setOriginInput] = useState("");
+    useEffect(() => {
+        if (!IS_EMBED_DESKTOP) return;
+        const onMsg = (e: MessageEvent) => {
+            const cfg = (e.data as any)?.type === "desktop-origin" ? (e.data as any).config : null;
+            if (cfg) {
+                setDesktopOrigin(cfg);
+                setOriginInput(cfg.isLocal ? "" : cfg.origin);
+            }
+        };
+        window.addEventListener("message", onMsg);
+        try {
+            window.parent.postMessage({ type: "desktop-origin-request" }, "*");
+        } catch {
+            /* not embedded */
+        }
+        return () => window.removeEventListener("message", onMsg);
+    }, []);
     const [accessToken, setAccessToken] = useState("");
     const [ntfyTopic, setNtfyTopic] = useState(amb?.ntfyTopic ?? "claude");
     const [ntfyBaseUrl, setNtfyBaseUrl] = useState(amb?.ntfyBaseUrl ?? "https://ntfy.sh");
@@ -1547,6 +1568,42 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 {/* -------------------------------- server ------------------------------ */}
                 {tab === "server" && (
                     <div className="space-y-3">
+                        {IS_EMBED_DESKTOP && desktopOrigin && (
+                            <div className="rounded-xl border bg-card/40 p-3">
+                                <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium">
+                                    <Globe className="size-3.5 text-muted-foreground" /> Console source
+                                    <span className={cn("ml-auto text-[10px]", desktopOrigin.isLocal ? "text-muted-foreground" : "text-emerald-500")}>
+                                        {desktopOrigin.isLocal ? "local" : "remote"}
+                                    </span>
+                                </div>
+                                <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+                                    Where this desktop app loads the console from. Leave blank for the built-in local server, or point it at a
+                                    hosted deployment (e.g. <code>https://cg.drewett.dev</code>). Changing it restarts the app.
+                                </p>
+                                <div className="flex gap-1.5">
+                                    <input
+                                        type="url"
+                                        inputMode="url"
+                                        placeholder="https://cg.drewett.dev  (blank = local)"
+                                        value={originInput}
+                                        disabled={desktopOrigin.envLocked}
+                                        onChange={(e) => setOriginInput(e.target.value)}
+                                        className={cn(inputCls, "text-[12px]")}
+                                    />
+                                    <Button
+                                        size="sm"
+                                        className="h-8 shrink-0"
+                                        disabled={desktopOrigin.envLocked || originInput.trim().replace(/\/$/, "") === (desktopOrigin.isLocal ? "" : desktopOrigin.origin)}
+                                        onClick={() => window.parent.postMessage({ type: "desktop-set-console-origin", origin: originInput.trim() }, "*")}
+                                    >
+                                        Save &amp; restart
+                                    </Button>
+                                </div>
+                                {desktopOrigin.envLocked && (
+                                    <p className="mt-1 text-[10px] text-amber-500">Locked by the PIKVM_CONSOLE_ORIGIN environment variable.</p>
+                                )}
+                            </div>
+                        )}
                         <p className="text-[12px] leading-snug text-muted-foreground">
                             Use this on your phone or another browser. The server proxies the PiKVM UI and serves the agent, so a client only
                             needs the address below and the access token.

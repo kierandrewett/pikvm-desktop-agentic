@@ -1330,8 +1330,22 @@
             app.classList.toggle("chat-full", !!d.on);
         } else if (d.type === "chat-ready") {
             reveal(); // conversation loaded — slide the chat in
+            sendDesktopOrigin();
+        } else if (d.type === "desktop-origin-request") {
+            // The embedded settings (re)opened and wants the current origin config.
+            sendDesktopOrigin();
+        } else if (d.type === "desktop-set-console-origin") {
+            // The embedded settings asked to change the desktop's console origin.
+            if (window.desktopConsole && window.desktopConsole.setConsoleOrigin) window.desktopConsole.setConsoleOrigin(String(d.origin || ""));
         }
     });
+    // Tell the embedded settings where this desktop loads the console from.
+    function sendDesktopOrigin() {
+        if (!window.desktopConsole || !window.desktopConsole.originConfig) return;
+        try {
+            chatFrame.contentWindow.postMessage({ type: "desktop-origin", config: window.desktopConsole.originConfig }, "*");
+        } catch (e2) {}
+    }
 
     /* ---- overflow (⋯) menu: positioned to the best-fitting spot, closes on
      * pick/outside. Flips above/below by available room and clamps on-screen. */

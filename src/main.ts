@@ -282,7 +282,35 @@ function consoleWinFrom(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEve
     return w && !w.isDestroyed() ? w : null;
 }
 
+/** The console origin the desktop loads from (Settings → Connection, or the env
+ *  override, else the local server). */
+function resolvedConsoleOrigin(): string {
+    let saved: string | undefined;
+    try {
+        saved = loadConfig().consoleOrigin;
+    } catch {
+        /* no config yet */
+    }
+    return (saved || process.env.PIKVM_CONSOLE_ORIGIN || `http://127.0.0.1:${CONTROL_PORT}`).replace(/\/$/, "");
+}
+
 // ── Console window IPC (only the frameless console carries preload-console) ──
+// Read/write the console origin (a desktop-level setting; changing it relaunches).
+ipcMain.on("console:get-origin", (e) => {
+    const origin = resolvedConsoleOrigin();
+    e.returnValue = { origin, isLocal: origin === `http://127.0.0.1:${CONTROL_PORT}`, envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN };
+});
+ipcMain.on("console:set-origin", (e, origin: unknown) => {
+    if (!consoleWinFrom(e)) return;
+    const cfg = loadConfig();
+    const o = typeof origin === "string" ? origin.trim().replace(/\/$/, "") : "";
+    // Empty / the local server → clear it (back to local mode).
+    if (o && o !== `http://127.0.0.1:${CONTROL_PORT}`) cfg.consoleOrigin = o;
+    else delete cfg.consoleOrigin;
+    saveConfig(cfg);
+    app.relaunch();
+    app.exit(0);
+});
 ipcMain.on("console:minimise", (e) => consoleWinFrom(e)?.minimize());
 ipcMain.on("console:toggle-maximise", (e) => {
     const w = consoleWinFrom(e);
@@ -490,12 +518,13 @@ function createWindow() {
     // change still applies in the default (non-proxy) mode.
     const PROXY_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
     const desktopProxy = settings.get().desktopUseProxy;
-    // The console can be served from ANYWHERE — set PIKVM_CONSOLE_ORIGIN to point the
-    // desktop at a hosted deployment (e.g. https://cg.drewett.dev). When set, the
+    // The console can be served from ANYWHERE — set it in Settings → Connection (or
+    // the PIKVM_CONSOLE_ORIGIN env override) to point the desktop at a hosted
+    // deployment (e.g. https://cg.drewett.dev). When it's not the local server, the
     // desktop is a pure THIN CLIENT: it loads the remote console and does NOT start a
     // local backend (the remote server owns the agent, capture, HID, proxy, etc.).
-    const CONSOLE_ORIGIN = (process.env.PIKVM_CONSOLE_ORIGIN || PROXY_ORIGIN).replace(/\/$/, "");
-    const remoteConsole = !!process.env.PIKVM_CONSOLE_ORIGIN;
+    const CONSOLE_ORIGIN = (config.consoleOrigin || process.env.PIKVM_CONSOLE_ORIGIN || PROXY_ORIGIN).replace(/\/$/, "");
+    const remoteConsole = CONSOLE_ORIGIN !== PROXY_ORIGIN;
     const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
     const CONSOLE_URL = `${CONSOLE_ORIGIN}/_agent/console`;
     if (desktopProxy) {
