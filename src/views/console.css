@@ -92,7 +92,9 @@ body {
  * the right (not the bottom). `--sw` is computed in console.js (fitAspect). */
 @media (min-width: 900px) and (orientation: landscape) {
     .app {
-        grid-template-columns: var(--sw, 62vw) minmax(300px, 1fr);
+        /* Screen takes the remainder; the agent panel is a USER-RESIZABLE width
+         * (drag its left edge). Use "fit to native resolution" for a 1:1 screen. */
+        grid-template-columns: minmax(0, 1fr) var(--chat-w, 380px);
         grid-template-rows: minmax(0, 1fr) auto;
         transition: none;
     }
@@ -113,13 +115,43 @@ body {
     .app.booting .chat {
         transform: translateX(100%);
     }
-    /* No vertical split to drag on desktop — the screen auto-fits its width. */
+    /* Draggable divider on the agent panel's left edge. */
+    .chat-resize {
+        display: block;
+        position: absolute;
+        left: -3px;
+        top: 0;
+        bottom: 0;
+        width: 7px;
+        cursor: col-resize;
+        z-index: 8;
+        -webkit-app-region: no-drag;
+    }
+    .chat-resize::after {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: transparent;
+        transition: background 0.12s;
+    }
+    .chat-resize:hover::after,
+    .app.col-resizing .chat-resize::after {
+        background: var(--primary);
+    }
+    /* No vertical split to drag on desktop — the screen takes the remainder. */
     .grip {
         display: none;
     }
     .bar-main {
         cursor: default;
     }
+}
+/* Hidden unless the desktop side-by-side layout is active. */
+.chat-resize {
+    display: none;
 }
 
 /* ---- the one control bar (status + actions + resize grip + keys) --------- */
@@ -914,6 +946,11 @@ body {
  * class flips it on.
  * --------------------------------------------------------------------------- */
 .titlebar {
+    display: none;
+}
+/* Native shell: the window already has the ui.html titlebar above us, so the
+ * console's own titlebar stays hidden and the .app fills the whole view. */
+html.desktop-console.native-titlebar .titlebar {
     display: none;
 }
 

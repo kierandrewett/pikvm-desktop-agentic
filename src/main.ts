@@ -530,14 +530,12 @@ function createWindow() {
         // not used in console mode — the main view (the console) spans full width.
         const sbW = useConsole ? 0 : sidebarOpen ? sidebarWidth : 0;
 
-        // In console mode the console draws its OWN titlebar, so the main view fills
-        // the whole window (no native titlebar strip reserved).
-        const topY = useConsole ? 0 : TITLEBAR_HEIGHT;
+        // The console sits UNDER the ui.html titlebar (same titlebar as the old UI).
         mainView.setBounds({
             x: 0,
-            y: topY,
+            y: TITLEBAR_HEIGHT,
             width: w! - sbW,
-            height: h! - topY,
+            height: h! - TITLEBAR_HEIGHT,
         });
 
         // Docked right; slides off the right edge when closed.
@@ -841,8 +839,11 @@ function createWindow() {
     const connect = () => {
         if (useConsole) {
             // The unified console is the primary UI; it proxies to the Pi itself.
-            console.log("Loading unified console at:", CONSOLE_URL);
-            mainView.webContents.loadURL(CONSOLE_URL);
+            // ?shell=native tells it to hide its OWN titlebar (the window already has
+            // the ui.html titlebar above it) while keeping its other desktop chrome.
+            const url = `${CONSOLE_URL}?shell=native`;
+            console.log("Loading unified console at:", url);
+            mainView.webContents.loadURL(url);
             return;
         }
         console.log("Connecting to KVM view at:", viewOrigin());
@@ -1174,15 +1175,11 @@ function createWindow() {
     });
 
     console.log("Loading overlay UI");
-    // Console mode: the console draws its own titlebar/chrome, so the native ui.html
-    // overlay (legacy titlebar + connect screen) is hidden and not loaded.
-    if (useConsole) {
-        overlayView.setVisible(false);
-    } else {
-        overlayView.webContents.loadFile(resolve(__dirname, "views", "ui.html"));
-        overlayView.webContents.setIgnoreMenuShortcuts(true);
-        overlayView.webContents.setVisualZoomLevelLimits(1, 1);
-    }
+    // The console runs UNDER the original ui.html titlebar (the user prefers it to a
+    // console-drawn one); the console hides its own titlebar via ?shell=native.
+    overlayView.webContents.loadFile(resolve(__dirname, "views", "ui.html"));
+    overlayView.webContents.setIgnoreMenuShortcuts(true);
+    overlayView.webContents.setVisualZoomLevelLimits(1, 1);
 
     sendWindowState();
 

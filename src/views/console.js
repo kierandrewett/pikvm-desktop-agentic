@@ -1115,13 +1115,9 @@
         var nh = webrtcActive ? vid.videoHeight : img.naturalHeight;
         if (!nw || !nh) return;
         if (isDesktop()) {
-            // Size the screen WIDTH to the stream aspect at the pane's full height; the
-            // chat panel fills the horizontal remainder (kept ≥ 300px). No black bars.
-            var availH = pane.clientHeight || window.innerHeight;
-            var sw = Math.round((availH * nw) / nh);
-            var maxSw = Math.max(360, window.innerWidth - 300);
-            sw = Math.max(360, Math.min(maxSw, sw));
-            app.style.setProperty("--sw", sw + "px");
+            // The screen is the flexible remainder beside the (user-resizable) agent
+            // panel; the stream is object-fit:contain within it. "Fit to native
+            // resolution" snaps the window so it's 1:1. Nothing to compute here.
             app.style.removeProperty("--sh");
         } else {
             var w = pane.clientWidth || window.innerWidth;
@@ -1181,6 +1177,40 @@
         el.addEventListener("pointerup", resizeEnd);
         el.addEventListener("pointercancel", resizeEnd);
     });
+
+    /* ---- desktop: drag the agent panel's left edge to resize its WIDTH (--chat-w).
+     * Works regardless of the screen size (incl. after "fit to native resolution"). */
+    var chatResize = document.getElementById("chat-resize");
+    if (chatResize) {
+        var cresizing = false;
+        var cStartX = 0;
+        var cStartW = 0;
+        chatResize.addEventListener("pointerdown", function (e) {
+            cresizing = true;
+            cStartX = e.clientX;
+            var chatEl = document.querySelector(".chat");
+            cStartW = chatEl ? chatEl.offsetWidth : 380;
+            app.classList.add("col-resizing");
+            try {
+                chatResize.setPointerCapture(e.pointerId);
+            } catch (err) {}
+            e.preventDefault();
+        });
+        chatResize.addEventListener("pointermove", function (e) {
+            if (!cresizing) return;
+            // Dragging the LEFT edge left widens the panel.
+            var want = cStartW + (cStartX - e.clientX);
+            var max = Math.max(280, window.innerWidth - 360);
+            want = Math.max(280, Math.min(max, want));
+            app.style.setProperty("--chat-w", Math.round(want) + "px");
+        });
+        function cresizeEnd() {
+            cresizing = false;
+            app.classList.remove("col-resizing");
+        }
+        chatResize.addEventListener("pointerup", cresizeEnd);
+        chatResize.addEventListener("pointercancel", cresizeEnd);
+    }
 
     /* ---- merged bar: drive the embedded agent + show its status ---- */
     document.querySelectorAll("[data-agent]").forEach(function (btn) {
@@ -1589,6 +1619,21 @@
 
         var TITLEBAR_H = 34; // keep in sync with .titlebar height in console.css
         document.documentElement.classList.add("desktop-console");
+
+        // The MAIN desktop window keeps the original ui.html titlebar ABOVE the
+        // console (?shell=native) — hide the console's own titlebar then, but keep all
+        // the other desktop chrome (agent header, native menus, fit-native).
+        var nativeShell = false;
+        try {
+            nativeShell = new URLSearchParams(location.search).get("shell") === "native";
+        } catch (e) {}
+        if (nativeShell) {
+            document.documentElement.classList.add("native-titlebar");
+            // The console has no titlebar of its own, but the window has the ui.html
+            // titlebar strip (38px, = main.ts TITLEBAR_HEIGHT) above this view — so
+            // fit-native must reserve that, not the console's own 34px.
+            TITLEBAR_H = 38;
+        }
 
         var titlebar = document.getElementById("titlebar");
         if (titlebar) titlebar.setAttribute("aria-hidden", "false");
