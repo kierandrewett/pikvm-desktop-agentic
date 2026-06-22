@@ -29,6 +29,7 @@ interface StubEl {
     addEventListener(t: string, fn: (ev: any) => void): void;
     emit(t: string, ev?: any): void;
     setAttribute(k: string, v: string): void;
+    removeAttribute(k: string): void;
     getAttribute(k: string): any;
     focus(): void;
     blur(): void;
@@ -81,6 +82,10 @@ function makeEl(attrs: Record<string, string> = {}): StubEl {
         setAttribute(k, v) {
             (this as any)["attr_" + k] = v;
         },
+        removeAttribute(k) {
+            delete (this as any)["attr_" + k];
+            if (k === "src") delete (this as any).src;
+        },
         getAttribute(k) {
             return (this as any)["attr_" + k] ?? attrs[k] ?? null;
         },
@@ -107,9 +112,11 @@ async function main(): Promise<void> {
     for (const id of [
         "app",
         "screen",
+        "screen-video",
         "screen-pane",
         "overlay-msg",
         "conn",
+        "conn-text",
         "kbd",
         "chat-frame",
         "theme-btn",
@@ -118,11 +125,20 @@ async function main(): Promise<void> {
         "cad",
         "drag-lock",
         "divider",
+        "audio-btn",
+        "mic-btn",
+        "audio-pip",
+        "mic-pip",
+        "av-sep",
     ])
         ids[id] = makeEl();
     // The screen <img> reports its native resolution (used by the coordinate maths).
     (ids["screen"] as any).naturalWidth = 1000;
     (ids["screen"] as any).naturalHeight = 600;
+    // The WebRTC <video> reports its decoded size the same way (videoWidth/Height).
+    (ids["screen-video"] as any).videoWidth = 1000;
+    (ids["screen-video"] as any).videoHeight = 600;
+    (ids["screen-video"] as any).play = () => Promise.resolve();
 
     const documentElement = makeEl();
     documentElement.setAttribute("data-theme", "dark");
@@ -153,9 +169,40 @@ async function main(): Promise<void> {
         close() {}
     }
 
-    const win: any = { innerWidth: 1200, innerHeight: 800, addEventListener: () => {} };
+    // Stub WebRTC: a JanusStream that, once start() is called, reports a live video
+    // track on the next tick (so we can assert the <img>→<video> swap + fallback).
+    let janusOpts: any = null;
+    const janusCalls: string[] = [];
+    const win: any = { innerWidth: 1200, innerHeight: 800, addEventListener: () => {}, RTCPeerConnection: function () {} };
+    win.JanusStream = (opts: any) => {
+        janusOpts = opts;
+        return {
+            start() {
+                setTimeout(() => {
+                    // Pretend a remote video track arrived and is playing.
+                    (opts.video as any).videoWidth = 1280;
+                    (opts.video as any).videoHeight = 720;
+                    (opts.video as any)._hasVideo = true;
+                    opts.onActive(true);
+                }, 0);
+            },
+            stop() {
+                janusCalls.push("stop");
+            },
+            setAudio(on: boolean) {
+                janusCalls.push("audio:" + on);
+            },
+            setMic(on: boolean) {
+                janusCalls.push("mic:" + on);
+            },
+            hasVideo() {
+                return !!(opts.video as any)._hasVideo;
+            },
+        };
+    };
+    win.JanusStream.available = () => true;
     const location = { protocol: "http:", host: "127.0.0.1:9" };
-    const navigator = { userAgent: "Mozilla/5.0 Chrome/120" };
+    const navigator = { userAgent: "Mozilla/5.0 Chrome/120", mediaDevices: { getUserMedia: () => Promise.resolve({ getTracks: () => [] }) } };
     const store: Record<string, string> = {};
     const localStorage = {
         getItem: (k: string) => (k in store ? store[k] : null),
@@ -190,10 +237,41 @@ async function main(): Promise<void> {
     }
     checks.push(["console.js wiring runs without throwing", ran]);
 
-    // Let the stub WS open + the layout fetch resolve.
+    // Let the stub WS open + the layout fetch resolve + Janus report video.
     await new Promise((r) => setTimeout(r, 20));
 
+    // --- WebRTC swap: <video> shown, <img> hidden + MJPEG conn released ---------
+    checks.push(["WebRTC: JanusStream started with the <video> element", !!janusOpts && janusOpts.video === ids["screen-video"]]);
+    checks.push(["WebRTC: audio + mic OFF by default (privacy)", !!janusOpts && !janusOpts.wantAudio && !janusOpts.wantMic]);
+    checks.push(["WebRTC live: <video> shown, <img> hidden", !ids["screen-video"]!.classList.contains("hidden") && ids["screen"]!.classList.contains("hidden")]);
+    checks.push(["WebRTC live: MJPEG <img> src released", !ids["screen"]!.src]);
+    checks.push(["WebRTC live: audio/mic toggles revealed", ids["audio-btn"]!.getAttribute("hidden") == null && ids["mic-btn"]!.getAttribute("hidden") == null]);
+
     const pane = ids["screen-pane"]!;
+
+    // --- input geometry now reads the <video>, not the hidden <img> ------------
+    // The video is 1280x720 in a 1000x600 box (object-fit:contain → 1000x562.5,
+    // letterboxed). A mouse click at the box centre must still map to ~centre.
+    sent.length = 0;
+    pane.emit("pointerdown", { pointerType: "mouse", pointerId: 9, button: 0, clientX: 500, clientY: 300, preventDefault() {} });
+    pane.emit("pointerup", { pointerType: "mouse", pointerId: 9, button: 0, clientX: 500, clientY: 300, preventDefault() {} });
+    await new Promise((r) => setTimeout(r, 20));
+    const vMoves = sent.filter((m) => m.event_type === "mouse_move");
+    checks.push([
+        "WebRTC: absolute click maps off the <video> geometry (~centre)",
+        vMoves.length > 0 && Math.abs(vMoves[vMoves.length - 1].event.to.x) < 60 && Math.abs(vMoves[vMoves.length - 1].event.to.y) < 60,
+    ]);
+
+    // --- Audio toggle asks Janus to send audio + unmutes the <video> -----------
+    janusCalls.length = 0;
+    ids["audio-btn"]!.emit("click", { stopPropagation() {} });
+    checks.push(["Audio toggle calls setAudio(true) + unmutes video", janusCalls.includes("audio:true") && (ids["screen-video"] as any).muted === false]);
+
+    // --- Mic toggle requests permission then calls setMic(true) ----------------
+    janusCalls.length = 0;
+    ids["mic-btn"]!.emit("click", { stopPropagation() {} });
+    await new Promise((r) => setTimeout(r, 20));
+    checks.push(["Mic toggle (granted) calls setMic(true)", janusCalls.includes("mic:true")]);
 
     // --- TOUCH = relative trackpad: a tap clicks at the cursor (no absolute move) -
     sent.length = 0;

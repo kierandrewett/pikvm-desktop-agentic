@@ -29,7 +29,13 @@
         <div class="app" id="app">
             <!-- Live screen (top, resizable) -->
             <div class="screen" id="screen-pane">
+                <!-- MJPEG fallback picture. -->
                 <img id="screen" alt="KVM screen" draggable="false" />
+                <!-- WebRTC (Janus) H.264 video — occupies the EXACT same box as the
+                     <img>; shown when WebRTC is live, hidden (and the <img> shown)
+                     when it is unavailable or fails. Muted by default for autoplay;
+                     the Audio toggle unmutes the remote audio track. -->
+                <video id="screen-video" class="hidden" autoplay playsinline muted></video>
 
                 <!-- Agent "X-ray": cursor / look / typing boxes drawn over the screen,
                      fed by /_agent/api/overlay/stream. pointer-events:none. -->
@@ -101,6 +107,16 @@
                 <button class="more-item" data-agent="settings">Settings</button>
                 <button class="more-item" data-agent="copy">Copy conversation</button>
                 <div class="more-sep"></div>
+                <!-- WebRTC audio/mic. Hidden until the WebRTC path is live (MJPEG has
+                     no audio); off by default for privacy. The right-hand pip shows
+                     on/off state. -->
+                <button class="more-item toggle" id="audio-btn" hidden>
+                    <span>Audio output</span><span class="more-pip" id="audio-pip">Off</span>
+                </button>
+                <button class="more-item toggle" id="mic-btn" hidden>
+                    <span>Microphone</span><span class="more-pip" id="mic-pip">Off</span>
+                </button>
+                <div class="more-sep" id="av-sep" hidden></div>
                 <button class="more-item" id="theme-btn">Toggle theme</button>
                 <a class="more-item" id="full-ui" href="/?native=1">Full PiKVM UI ⤢</a>
             </div>
@@ -149,6 +165,9 @@
             spellcheck="false"
         />
 
+        <!-- WebRTC (Janus) wrapper — defines window.JanusStream; console.js consumes
+             it and falls back to MJPEG if it is missing or Janus is down. -->
+        <script src="/_agent/webrtc.js"></script>
         <script src="/_agent/console.js"></script>
     </body>
 </html>

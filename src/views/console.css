@@ -237,6 +237,37 @@ body {
     background: var(--border);
     margin: 4px 6px;
 }
+/* Toggle rows (Audio / Microphone): label left, on/off pip right. */
+.more-item.toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.more-item[hidden] {
+    display: none;
+}
+.more-pip {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted-foreground);
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 9px;
+    flex: none;
+}
+.more-item.on .more-pip {
+    color: var(--primary-foreground);
+    background: var(--primary);
+    border-color: var(--primary);
+}
+/* Mic permission denied / unsupported: amber pip so it's clearly not "on". */
+.more-item.warn .more-pip {
+    color: #1a1407;
+    background: var(--warn);
+    border-color: var(--warn);
+}
 
 /* While an agent panel is open it covers the whole phone (the embedded chat asks
  * for this) — collapse the screen + bar so the panel is a true full overlay. */
@@ -336,7 +367,11 @@ body {
 .copilot-x {
     cursor: pointer;
 }
-#screen {
+/* The MJPEG <img> and the WebRTC <video> share the SAME box, sizing, object-fit
+ * and zoom/pan transform-origin so the input coordinate maths is identical for
+ * either source. Only one is visible at a time (the other carries `.hidden`). */
+#screen,
+#screen-video {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -346,6 +381,12 @@ body {
     transform-origin: 0 0;
     user-select: none;
     -webkit-user-drag: none;
+    background: #000;
+}
+/* Hidden stream source — kept in the DOM (so its geometry/decoder stay warm)
+ * but not painted. */
+.hidden {
+    display: none !important;
 }
 /* ---- agent X-ray overlay (ported from acting.html, fed by overlay SSE) ---- */
 .xray {

@@ -223,7 +223,28 @@
 
     var app = document.getElementById("app");
     var img = document.getElementById("screen");
+    var vid = document.getElementById("screen-video");
     var pane = document.getElementById("screen-pane");
+
+    /* ---- active stream element + geometry source ----
+     * The picture is either the MJPEG <img> (#screen) or the WebRTC <video>
+     * (#screen-video). Both occupy the SAME box (CSS) and carry the SAME zoom/pan
+     * transform, so all the input/overlay maths can read whichever is active.
+     * For an <img> the intrinsic size is natural{Width,Height}; for a <video> it's
+     * video{Width,Height}. `streamEl()` returns the visible one; `geomW/H()` return
+     * its intrinsic content size (falling back to a 16:9 guess before first frame). */
+    var webrtcActive = false; // true once a remote video track is playing
+    function streamEl() {
+        return webrtcActive ? vid : img;
+    }
+    function geomW() {
+        var el = streamEl();
+        return (webrtcActive ? el.videoWidth : el.naturalWidth) || 16;
+    }
+    function geomH() {
+        var el = streamEl();
+        return (webrtcActive ? el.videoHeight : el.naturalHeight) || 9;
+    }
     var overlayMsg = document.getElementById("overlay-msg");
     var conn = document.getElementById("conn");
     var connText = document.getElementById("conn-text");
@@ -242,6 +263,11 @@
     var retryMs = 800;
     var streamWatchdog = null;
     var reconnectTimer = null;
+    // When WebRTC is the live source we suspend the MJPEG pipeline entirely: blank
+    // the <img> src (so the Pi's MJPEG connection is released) and stop the watchdog
+    // / health-driven state changes from fighting the WebRTC status. Resumed on
+    // fallback. The HID health poll keeps running regardless (input is independent).
+    var mjpegPaused = false;
 
     var STATUS = {
         connecting: ["", "Connecting…", true],
@@ -268,6 +294,7 @@
         }
     }
     function loadStream() {
+        if (mjpegPaused) return; // WebRTC owns the picture; don't open an MJPEG conn
         if (streamState !== "live") setState(streamState === "disconnected" ? "reconnecting" : streamState || "connecting");
         img.src = streamPath(streamKey, navigator.userAgent) + "&t=" + Date.now();
         if (streamWatchdog) clearTimeout(streamWatchdog);
@@ -276,7 +303,7 @@
         }, 7000);
     }
     function scheduleReconnect() {
-        if (reconnectTimer) return;
+        if (mjpegPaused || reconnectTimer) return;
         if (streamState !== "disconnected") setState("offline");
         reconnectTimer = setTimeout(function () {
             reconnectTimer = null;
@@ -285,12 +312,14 @@
         retryMs = Math.min(Math.round(retryMs * 1.7), 8000);
     }
     img.addEventListener("load", function () {
+        if (mjpegPaused) return;
         streamUp = true;
         retryMs = 800;
         if (streamWatchdog) clearTimeout(streamWatchdog);
         if (!serverDown) setState("live");
     });
     img.addEventListener("error", function () {
+        if (mjpegPaused) return;
         streamUp = false;
         scheduleReconnect();
     });
@@ -311,6 +340,7 @@
                 clearTimeout(to);
                 var wasDown = serverDown;
                 serverDown = false;
+                if (mjpegPaused) return; // WebRTC owns the status while it's live
                 var online = !!(j && j.result && j.result.source && j.result.source.online);
                 if (wasDown) {
                     streamKey = Math.random().toString(16).slice(2) + Date.now().toString(16);
@@ -325,7 +355,7 @@
                 clearTimeout(to);
                 serverDown = true;
                 streamUp = false;
-                setState("disconnected");
+                if (!mjpegPaused) setState("disconnected");
             });
     }
 
@@ -353,8 +383,195 @@
     });
     window.addEventListener("offline", function () {
         serverDown = true;
-        setState("disconnected");
+        if (!mjpegPaused) setState("disconnected");
     });
+
+    /* ----------------------------------------------------------------- *
+     * WebRTC (Janus) video + audio + mic, with MJPEG fallback
+     * ----------------------------------------------------------------- *
+     * On load we try the Pi's Janus ustreamer (smooth ~60fps H.264). When a remote
+     * video track starts playing we swap the visible source from the MJPEG <img> to
+     * the <video> and suspend the MJPEG pipeline; if Janus is missing/unsupported or
+     * the connection errors before we ever saw video, we stay on (or fall back to)
+     * MJPEG. The whole block degrades to a no-op when window.JanusStream is absent. */
+    var audioBtn = document.getElementById("audio-btn");
+    var micBtn = document.getElementById("mic-btn");
+    var audioPip = document.getElementById("audio-pip");
+    var micPip = document.getElementById("mic-pip");
+    var avSep = document.getElementById("av-sep");
+
+    function janusWsUrl() {
+        return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/janus/ws";
+    }
+
+    // Switch the visible picture to WebRTC: show <video>, hide <img>, suspend MJPEG.
+    function activateWebrtc() {
+        if (webrtcActive) return;
+        webrtcActive = true;
+        mjpegPaused = true;
+        if (streamWatchdog) {
+            clearTimeout(streamWatchdog);
+            streamWatchdog = null;
+        }
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+        vid.classList.remove("hidden");
+        img.classList.add("hidden");
+        img.removeAttribute("src"); // release the Pi's MJPEG connection
+        applyXform(); // make sure the video carries the current zoom/pan
+        setState("live");
+        if (connText) connText.textContent = "Live · HD";
+        // Audio/mic become available now there's a WebRTC session.
+        revealAvToggles(true);
+        fitAspect();
+    }
+
+    // Fall back to MJPEG: show <img>, hide <video>, resume the MJPEG pipeline.
+    function fallbackToMjpeg() {
+        var was = webrtcActive;
+        webrtcActive = false;
+        mjpegPaused = false;
+        revealAvToggles(false);
+        vid.classList.add("hidden");
+        img.classList.remove("hidden");
+        try {
+            if (vid.srcObject) {
+                vid.srcObject.getTracks().forEach(function (t) {
+                    try {
+                        t.stop();
+                    } catch (e) {}
+                });
+            }
+        } catch (e) {}
+        vid.srcObject = null;
+        applyXform();
+        if (was) setState("offline"); // brief "reconnecting" while the img reloads
+        streamUp = false;
+        loadStream();
+    }
+
+    function revealAvToggles(on) {
+        [audioBtn, micBtn, avSep].forEach(function (el) {
+            if (!el) return;
+            if (on) el.removeAttribute("hidden");
+            else el.setAttribute("hidden", "");
+        });
+    }
+
+    var stream = null;
+    if (window.JanusStream && window.JanusStream.available()) {
+        var sawVideo = false;
+        var startGuard = null;
+        stream = window.JanusStream({
+            wsUrl: janusWsUrl(),
+            video: vid,
+            wantAudio: false, // privacy: audio + mic off until the user opts in
+            wantMic: false,
+            onStatus: function (st) {
+                // "connecting" / "live" / "error". We only surface this quietly; the
+                // visible status is driven by activate/fallback below.
+                if (st === "error") {
+                    // If we never managed to show video, drop to MJPEG. (Once live,
+                    // the wrapper auto-retries; we keep showing the video element.)
+                    if (!sawVideo) fallbackToMjpeg();
+                }
+            },
+            onActive: function (active) {
+                if (active && stream && stream.hasVideo()) {
+                    sawVideo = true;
+                    if (startGuard) {
+                        clearTimeout(startGuard);
+                        startGuard = null;
+                    }
+                    activateWebrtc();
+                } else if (!active && webrtcActive) {
+                    // The session stopped while live — go back to MJPEG so the user
+                    // isn't left on a frozen frame.
+                    fallbackToMjpeg();
+                }
+            },
+        });
+        try {
+            stream.start();
+        } catch (e) {
+            stream = null;
+        }
+        // If WebRTC hasn't produced video within a few seconds (Janus down, no
+        // ICE, SDP issue), don't keep the user staring at MJPEG-less black — MJPEG
+        // is already running underneath, so just make sure the toggles stay hidden.
+        if (stream) {
+            startGuard = setTimeout(function () {
+                startGuard = null;
+                if (!sawVideo) fallbackToMjpeg(); // harmless: MJPEG is already live
+            }, 8000);
+        }
+    }
+
+    /* ---- Audio / Mic toggles (WebRTC only) ----
+     * Audio = unmute the remote audio track (and ask Janus to send it). Mic =
+     * capture the local microphone and push it to the target; needs getUserMedia
+     * permission, handled gracefully. Both off by default. */
+    var audioOn = false;
+    var micOn = false;
+    function paintToggle(btn, pip, on, warn, label) {
+        if (!btn || !pip) return;
+        btn.classList.toggle("on", on);
+        btn.classList.toggle("warn", !!warn);
+        pip.textContent = label || (on ? "On" : "Off");
+    }
+    if (audioBtn) {
+        audioBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            if (!stream) return;
+            audioOn = !audioOn;
+            vid.muted = !audioOn; // browsers gate autoplay on muted; unmute on opt-in
+            if (audioOn) {
+                vid.play().catch(function () {}); // some browsers need a fresh play()
+            }
+            stream.setAudio(audioOn);
+            paintToggle(audioBtn, audioPip, audioOn, false);
+        });
+    }
+    if (micBtn) {
+        micBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            if (!stream) return;
+            if (micOn) {
+                micOn = false;
+                stream.setMic(false);
+                paintToggle(micBtn, micPip, false, false);
+                return;
+            }
+            // Mic needs a permission grant; the wrapper's createAnswer will call
+            // getUserMedia. Pre-flight the prompt so we can show a clear hint on
+            // denial instead of silently failing.
+            paintToggle(micBtn, micPip, false, false, "…");
+            var gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+            if (!gum) {
+                paintToggle(micBtn, micPip, false, true, "No mic");
+                return;
+            }
+            navigator.mediaDevices
+                .getUserMedia({ audio: true })
+                .then(function (s) {
+                    // We only needed the grant; the wrapper opens its own capture.
+                    s.getTracks().forEach(function (t) {
+                        try {
+                            t.stop();
+                        } catch (e) {}
+                    });
+                    micOn = true;
+                    // Mic implies an audio session; make sure audio is requested too.
+                    stream.setMic(true);
+                    paintToggle(micBtn, micPip, true, false);
+                })
+                .catch(function () {
+                    paintToggle(micBtn, micPip, false, true, "Denied");
+                });
+        });
+    }
 
     /* ---- coordinate mapping ----
      * The <img> fills the pane (object-fit:contain) and may be transformed by the
@@ -362,10 +579,10 @@
      * accounting for the letterbox bars and the current transform. */
     var lastMoveTs = 0;
     function fracAt(clientX, clientY) {
-        var r = img.getBoundingClientRect(); // transformed element box
+        var r = streamEl().getBoundingClientRect(); // transformed element box
         if (r.width <= 0 || r.height <= 0) return null;
-        var nw = img.naturalWidth || 16;
-        var nh = img.naturalHeight || 9;
+        var nw = geomW();
+        var nh = geomH();
         var elemAR = r.width / r.height;
         var natAR = nw / nh;
         var cw, ch, ox, oy;
@@ -414,8 +631,14 @@
     var tx = 0;
     var ty = 0;
     function applyXform() {
-        img.style.transform = "translate(" + tx.toFixed(1) + "px," + ty.toFixed(1) + "px) scale(" + scale.toFixed(4) + ")";
-        img.style.willChange = scale > 1 ? "transform" : "auto";
+        // Drive BOTH the <img> and the <video> with the same transform so zoom/pan
+        // is identical whichever source is currently visible.
+        var t = "translate(" + tx.toFixed(1) + "px," + ty.toFixed(1) + "px) scale(" + scale.toFixed(4) + ")";
+        var wc = scale > 1 ? "transform" : "auto";
+        img.style.transform = t;
+        img.style.willChange = wc;
+        vid.style.transform = t;
+        vid.style.willChange = wc;
     }
     function clampPan() {
         if (scale <= 1) {
@@ -482,8 +705,9 @@
         if (!moveRaf) moveRaf = raf(flushMove);
     }
     function relMove(dx, dy) {
-        var w = img.offsetWidth || pane.clientWidth || 1;
-        var h = img.offsetHeight || pane.clientHeight || 1;
+        var el = streamEl();
+        var w = el.offsetWidth || pane.clientWidth || 1;
+        var h = el.offsetHeight || pane.clientHeight || 1;
         vcur.x = Math.max(-32768, Math.min(32767, vcur.x + (dx / w) * SENS * 65534));
         vcur.y = Math.max(-32768, Math.min(32767, vcur.y + (dy / h) * SENS * 65534));
         queueMove();
@@ -832,13 +1056,17 @@
     }
     function fitAspect() {
         if (userResized || booting) return;
-        var nw = img.naturalWidth;
-        var nh = img.naturalHeight;
+        // Use the active source's intrinsic size: <img> natural*, <video> video*.
+        var nw = webrtcActive ? vid.videoWidth : img.naturalWidth;
+        var nh = webrtcActive ? vid.videoHeight : img.naturalHeight;
         if (!nw || !nh) return;
         var w = pane.clientWidth || window.innerWidth;
         app.style.setProperty("--sh", clampH(Math.round((w * nh) / nw)) + "px");
     }
     img.addEventListener("load", fitAspect);
+    // The video reports its size asynchronously once the first frame decodes.
+    vid.addEventListener("loadedmetadata", fitAspect);
+    vid.addEventListener("resize", fitAspect);
     window.addEventListener("resize", fitAspect);
     window.addEventListener("orientationchange", function () {
         setTimeout(fitAspect, 250);
@@ -1011,9 +1239,9 @@
         // Frame fraction (0..1) -> pane-relative px on the screen content (tracks
         // the object-fit letterbox AND the current zoom/pan transform).
         function contentBox() {
-            var r = img.getBoundingClientRect();
-            var nw = img.naturalWidth || 16;
-            var nh = img.naturalHeight || 9;
+            var r = streamEl().getBoundingClientRect();
+            var nw = geomW();
+            var nh = geomH();
             var elemAR = r.width / r.height;
             var natAR = nw / nh;
             var cw, ch, ox, oy;
