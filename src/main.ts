@@ -217,23 +217,107 @@ function openUnifiedConsole() {
         unifiedConsoleWin.focus();
         return;
     }
+    // Frameless + a dedicated preload: the console draws its OWN titlebar/window
+    // controls (see src/views/console.{html,css,js}) and gets `window.desktopConsole`
+    // for window mechanics, fit-native and native menus. The page still talks to the
+    // backend over plain HTTP/WS/SSE for everything else. The same `/_agent/console`
+    // URL is served to phones/browsers; the renderer keys ALL of its desktop chrome
+    // off the presence of `window.desktopConsole`, so the web/mobile path is untouched.
     const w = new BrowserWindow({
         width: 1100,
         height: 800,
+        minWidth: 720,
+        minHeight: 480,
+        frame: false,
         darkTheme: true,
         icon: appIconPath,
         title: "PiKVM — Unified Console",
         backgroundColor: "#0a0a0c",
         autoHideMenuBar: true,
-        webPreferences: { contextIsolation: true },
+        webPreferences: {
+            contextIsolation: true,
+            preload: resolve(__dirname, "preload-console.js"),
+        },
     });
-    // The console talks to the backend over plain HTTP/WS/SSE — no preload/IPC needed.
     void w.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/console`);
+    // Mirror maximise/unmaximise back to the renderer so its maximise/restore glyph
+    // stays correct (e.g. a double-click on the OS edge or a snap gesture).
+    const emitMax = () => {
+        if (!w.isDestroyed()) w.webContents.send("console:maximise-change", w.isMaximized());
+    };
+    w.on("maximize", emitMax);
+    w.on("unmaximize", emitMax);
     w.on("closed", () => {
         unifiedConsoleWin = null;
     });
     unifiedConsoleWin = w;
 }
+
+/** Resolve the console window from an IPC sender (only it carries this preload). */
+function consoleWinFrom(event: Electron.IpcMainEvent): Electron.BrowserWindow | null {
+    const w = BrowserWindow.fromWebContents(event.sender);
+    return w && w === unifiedConsoleWin && !w.isDestroyed() ? w : null;
+}
+
+// ── Console window IPC (only the frameless console carries preload-console) ──
+ipcMain.on("console:minimise", (e) => consoleWinFrom(e)?.minimize());
+ipcMain.on("console:toggle-maximise", (e) => {
+    const w = consoleWinFrom(e);
+    if (!w) return;
+    w.isMaximized() ? w.unmaximize() : w.maximize();
+});
+ipcMain.on("console:close", (e) => consoleWinFrom(e)?.close());
+ipcMain.handle("console:is-maximised", (e) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    return !!w && w === unifiedConsoleWin && !w.isDestroyed() && w.isMaximized();
+});
+
+// Snap the window so the live-screen area renders the native resolution 1:1. The
+// renderer passes the stream's native size, the agent-panel width (0 if collapsed)
+// and the titlebar height it drew; we add those to the screen size and set the
+// window's CONTENT size (excludes the OS frame — and we're frameless anyway).
+ipcMain.on("console:fit-native", (e, opts: { width?: number; height?: number; agentPanelWidth?: number; titlebarHeight?: number }) => {
+    const w = consoleWinFrom(e);
+    if (!w) return;
+    const nw = Number(opts?.width);
+    const nh = Number(opts?.height);
+    if (!nw || !nh || nw < 1 || nh < 1) return;
+    const panel = Math.max(0, Math.round(Number(opts?.agentPanelWidth) || 0));
+    const bar = Math.max(0, Math.round(Number(opts?.titlebarHeight) || 0));
+    if (w.isMaximized()) w.unmaximize();
+    // Clamp to the work area so a 4K stream doesn't push the window off-screen.
+    const area = screen.getDisplayMatching(w.getBounds()).workAreaSize;
+    const wantW = nw + panel;
+    const wantH = nh + bar;
+    const scale = Math.min(1, area.width / wantW, area.height / wantH);
+    w.setContentSize(Math.round(wantW * scale), Math.round(wantH * scale));
+});
+
+// Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.
+ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: number; y: number } }) => {
+    const w = consoleWinFrom(e);
+    if (!w) return;
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const template: Electron.MenuItemConstructorOptions[] = items.map((it) => {
+        if (it?.type === "separator") return { type: "separator" };
+        return {
+            label: String(it?.label ?? ""),
+            type: it?.type === "checkbox" ? "checkbox" : "normal",
+            checked: !!it?.checked,
+            enabled: it?.enabled !== false,
+            click: () => {
+                if (!w.isDestroyed() && it?.id) w.webContents.send("console:menu-command", String(it.id));
+            },
+        };
+    });
+    const menu = Menu.buildFromTemplate(template);
+    const anchor = payload?.anchor;
+    menu.popup(
+        anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
+            ? { window: w, x: Math.round(anchor.x), y: Math.round(anchor.y) }
+            : { window: w }
+    );
+});
 
 /** Standard editing context menu (cut/copy/paste/select all) for a view. */
 function attachContextMenu(wc: Electron.WebContents, opts: { conversation?: boolean } = {}) {

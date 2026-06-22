@@ -1278,7 +1278,10 @@
     });
     // First paint of the embedded chat should match; pass the theme on its URL and
     // re-assert on load (in case it booted before the message handler attached).
-    chatFrame.src = "/_agent/sidebar.html?embed=1&theme=" + encodeURIComponent(currentTheme());
+    // Inside the native desktop console the agent panel keeps its own header
+    // (?embed=desktop); on web/mobile it is the headerless merged-bar embed (?embed=1).
+    var EMBED_PARAM = window.desktopConsole ? "desktop" : "1";
+    chatFrame.src = "/_agent/sidebar.html?embed=" + EMBED_PARAM + "&theme=" + encodeURIComponent(currentTheme());
     chatFrame.addEventListener("load", function () {
         applyTheme(currentTheme());
     });
@@ -1571,4 +1574,178 @@
     document.addEventListener("gesturestart", function (e) {
         e.preventDefault();
     });
+
+    /* ===================================================================== *
+     * NATIVE DESKTOP CONSOLE wiring — runs ONLY inside the Electron desktop
+     * window, where the preload exposes `window.desktopConsole`. On any phone
+     * or browser this whole block is skipped, so the web/mobile console is
+     * completely unchanged. It: reveals the custom titlebar, wires the window
+     * controls + panel toggle + fit-native, and swaps the HTML `.more-menu`
+     * for a NATIVE Electron context menu (incl. live Audio/Mic toggles).
+     * ===================================================================== */
+    (function desktopConsole() {
+        var dc = window.desktopConsole;
+        if (!dc) return; // web/mobile: nothing below runs
+
+        var TITLEBAR_H = 34; // keep in sync with .titlebar height in console.css
+        document.documentElement.classList.add("desktop-console");
+
+        var titlebar = document.getElementById("titlebar");
+        if (titlebar) titlebar.setAttribute("aria-hidden", "false");
+
+        /* ---- window controls ---- */
+        var tbMin = document.getElementById("tb-min");
+        var tbMax = document.getElementById("tb-max");
+        var tbClose = document.getElementById("tb-close");
+        if (tbMin) tbMin.addEventListener("click", function () { dc.minimise(); });
+        if (tbMax) tbMax.addEventListener("click", function () { dc.toggleMaximise(); });
+        if (tbClose) tbClose.addEventListener("click", function () { dc.close(); });
+        // Reflect the maximised state on the glyph (max ⇄ restore).
+        function paintMax(maxed) {
+            if (titlebar) titlebar.classList.toggle("is-maximised", !!maxed);
+        }
+        Promise.resolve(dc.isMaximised && dc.isMaximised()).then(paintMax).catch(function () {});
+        if (dc.onMaximiseChange) dc.onMaximiseChange(paintMax);
+        // Double-clicking the drag area toggles maximise, like a native titlebar.
+        if (titlebar) {
+            titlebar.addEventListener("dblclick", function (e) {
+                if (e.target.closest && e.target.closest(".tb-btn")) return;
+                dc.toggleMaximise();
+            });
+        }
+
+        /* ---- agent panel collapse (titlebar-left toggle) ---- */
+        var tbPanel = document.getElementById("tb-panel");
+        function panelShown() {
+            return !app.classList.contains("panel-collapsed");
+        }
+        function paintPanelToggle() {
+            if (tbPanel) tbPanel.classList.toggle("active", panelShown());
+        }
+        function setPanel(show) {
+            app.classList.toggle("panel-collapsed", !show);
+            paintPanelToggle();
+            // The screen's fitted width changes with the panel; re-fit after the
+            // CSS grid transition settles.
+            setTimeout(function () { try { fitAspect(); } catch (e) {} }, 240);
+        }
+        paintPanelToggle();
+        if (tbPanel) tbPanel.addEventListener("click", function () { setPanel(!panelShown()); });
+
+        /* ---- fit to native resolution ---- */
+        function nativeDims() {
+            var nw = webrtcActive ? vid.videoWidth : img.naturalWidth;
+            var nh = webrtcActive ? vid.videoHeight : img.naturalHeight;
+            return nw && nh ? { w: nw, h: nh } : null;
+        }
+        var tbFit = document.getElementById("tb-fit");
+        if (tbFit) {
+            tbFit.addEventListener("click", function () {
+                var d = nativeDims();
+                if (!d) return;
+                dc.fitNative({
+                    width: d.w,
+                    height: d.h,
+                    // The chat column's measured width (0 when collapsed) so the
+                    // screen lands exactly on its native size.
+                    agentPanelWidth: panelShown() ? Math.round(document.querySelector(".chat").getBoundingClientRect().width) : 0,
+                    titlebarHeight: TITLEBAR_H,
+                });
+            });
+        }
+
+        /* ---- NATIVE context menu (replaces the HTML .more-menu) ----
+         * The same actions the web ⋯ menu offers, plus the WebRTC Audio/Mic
+         * checkbox toggles reflecting the live state. We DELEGATE the actual work
+         * to the existing buttons/handlers (click them) so there is one source of
+         * truth — desktop just renders the menu natively and routes the pick. */
+        var audioBtnEl = document.getElementById("audio-btn");
+        var micBtnEl = document.getElementById("mic-btn");
+        function avAvailable() {
+            // The toggles are unhidden by revealAvToggles() once WebRTC is live.
+            return !!(audioBtnEl && !audioBtnEl.hidden);
+        }
+        function buildMenu() {
+            var items = [
+                { id: "history", label: "History" },
+                { id: "ambient", label: "Monitor" },
+                { id: "settings", label: "Settings" },
+                { id: "copy", label: "Copy conversation" },
+            ];
+            if (avAvailable()) {
+                items.push({ type: "separator" });
+                items.push({ id: "audio", label: "Audio output", type: "checkbox", checked: audioOn });
+                items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
+            }
+            items.push({ type: "separator" });
+            items.push({ id: "panel", label: panelShown() ? "Hide agent panel" : "Show agent panel" });
+            items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
+            items.push({ id: "theme", label: "Toggle theme" });
+            items.push({ type: "separator" });
+            items.push({ id: "full-ui", label: "Full PiKVM UI" });
+            return items;
+        }
+        function runCommand(id) {
+            switch (id) {
+                case "history":
+                case "ambient":
+                case "settings":
+                    try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: id }, "*"); } catch (e) {}
+                    break;
+                case "copy":
+                    try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: "copy" }, "*"); } catch (e) {}
+                    break;
+                case "audio":
+                    if (audioBtnEl) audioBtnEl.click();
+                    break;
+                case "mic":
+                    if (micBtnEl) micBtnEl.click();
+                    break;
+                case "panel":
+                    setPanel(!panelShown());
+                    break;
+                case "fit":
+                    if (tbFit) tbFit.click();
+                    break;
+                case "theme":
+                    if (themeBtn) themeBtn.click();
+                    break;
+                case "full-ui":
+                    location.href = "/?native=1";
+                    break;
+            }
+        }
+        if (dc.onMenuCommand) dc.onMenuCommand(runCommand);
+
+        // The ⋯ button + a right-click anywhere (outside the chat iframe — that owns
+        // its own menus) pop the native menu instead of the HTML one.
+        function popNative(anchor) {
+            dc.popupMenu(buildMenu(), anchor || undefined);
+        }
+        var moreBtnEl = document.getElementById("more-btn");
+        if (moreBtnEl) {
+            // Stop the HTML .more-menu from opening; pop the native one at the button.
+            moreBtnEl.addEventListener(
+                "click",
+                function (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    var r = moreBtnEl.getBoundingClientRect();
+                    popNative({ x: r.left, y: r.bottom });
+                },
+                true // capture: beat the existing HTML-menu handler
+            );
+        }
+        // Right-click on the desktop chrome (not the live screen — that forwards a
+        // remote right-click — and not the chat iframe) opens the native menu.
+        document.addEventListener("contextmenu", function (e) {
+            if (e.target.closest && (e.target.closest(".screen") || e.target.closest(".chat"))) return;
+            e.preventDefault();
+            popNative({ x: e.clientX, y: e.clientY });
+        });
+
+        // The window starts wide enough for the desktop layout immediately, so fit
+        // the screen once the first frame is known.
+        setTimeout(function () { try { fitAspect(); } catch (e) {} }, 0);
+    })();
 })();

@@ -65,14 +65,23 @@ const CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
 // exempt (never gated), so "Sign out" is meaningless there - only web clients
 // hold a session cookie to clear.
 const IS_DESKTOP = !!(window as unknown as { __AGENT_ORIGIN__?: string }).__AGENT_ORIGIN__;
-// Embedded as the chat pane of the web console (?embed=1): trim chrome to save space.
-const IS_EMBED = (() => {
+// Embedded as the chat pane of a console. Two flavours:
+//   ?embed=1        → the web/mobile console: trim ALL chrome (the console's single
+//                     merged bar drives new-chat/history/copy via postMessage).
+//   ?embed=desktop  → the native desktop console: same page-level trims, but KEEP
+//                     this header visible (new-chat / history / copy / monitor /
+//                     settings live here, in the right panel) and DON'T ask the
+//                     console to full-screen the chat when a panel opens — the panel
+//                     renders inside the right column, not over the live screen.
+const EMBED_MODE = (() => {
     try {
-        return new URLSearchParams(location.search).get("embed") === "1";
+        return new URLSearchParams(location.search).get("embed");
     } catch {
-        return false;
+        return null;
     }
 })();
+const IS_EMBED = EMBED_MODE === "1" || EMBED_MODE === "desktop";
+const IS_EMBED_DESKTOP = EMBED_MODE === "desktop";
 
 function post(path: string, body: unknown = {}) {
     return fetch(BASE + path, {
@@ -1990,9 +1999,11 @@ function App() {
         }
     }, [busy, serverState]);
     // A panel (history/settings/…) should cover the whole phone, not just the chat
-    // pane — ask the console to expand the chat to full-screen while one is open.
+    // pane — ask the WEB console to expand the chat to full-screen while one is open.
+    // The DESKTOP console keeps the panel inside its right column (the live screen on
+    // the left must stay visible + clickable), so we never full-screen there.
     useEffect(() => {
-        if (!IS_EMBED) return;
+        if (!IS_EMBED || IS_EMBED_DESKTOP) return;
         try {
             parent.postMessage({ type: "chat-fullscreen", on: panel !== "none" }, "*");
         } catch {
@@ -2030,9 +2041,11 @@ function App() {
                 <div className="absolute left-0 top-0 z-30 h-full w-1.5 cursor-ew-resize hover:bg-primary/40" onMouseDown={onHandleDown} title="Drag to resize" />
             )}
 
-            {/* header — hidden when embedded in the console (its single bar carries
-                these actions via postMessage), so there's only ONE toolbar. */}
-            {!IS_EMBED && (
+            {/* header — hidden when embedded in the WEB console (its single bar carries
+                these actions via postMessage), so there's only ONE toolbar. In the
+                DESKTOP console (?embed=desktop) it stays: the agent panel is its own
+                column on the right and owns these actions. */}
+            {(!IS_EMBED || IS_EMBED_DESKTOP) && (
                 <header className="flex h-14 shrink-0 items-center gap-2.5 border-b bg-card px-4">
                     <div className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
                         <Sparkles className="size-4" />

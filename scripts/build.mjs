@@ -20,6 +20,7 @@ await build({
         resolve(root, "src/preload-ui.ts"),
         resolve(root, "src/preload-sidebar.ts"),
         resolve(root, "src/preload-copilot.ts"),
+        resolve(root, "src/preload-console.ts"),
         resolve(root, "src/ambient/transcriber-worker.ts"),
     ],
     outdir: dist,
