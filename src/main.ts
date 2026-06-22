@@ -490,8 +490,14 @@ function createWindow() {
     // change still applies in the default (non-proxy) mode.
     const PROXY_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
     const desktopProxy = settings.get().desktopUseProxy;
+    // The console can be served from ANYWHERE — set PIKVM_CONSOLE_ORIGIN to point the
+    // desktop at a hosted deployment (e.g. https://cg.drewett.dev). When set, the
+    // desktop is a pure THIN CLIENT: it loads the remote console and does NOT start a
+    // local backend (the remote server owns the agent, capture, HID, proxy, etc.).
+    const CONSOLE_ORIGIN = (process.env.PIKVM_CONSOLE_ORIGIN || PROXY_ORIGIN).replace(/\/$/, "");
+    const remoteConsole = !!process.env.PIKVM_CONSOLE_ORIGIN;
     const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
-    const CONSOLE_URL = `${PROXY_ORIGIN}/_agent/console`;
+    const CONSOLE_URL = `${CONSOLE_ORIGIN}/_agent/console`;
     if (desktopProxy) {
         // Mark this Electron session as the desktop shell so the proxy suppresses
         // the injected floating panel (the desktop has its own native sidebar).
@@ -661,8 +667,10 @@ function createWindow() {
         else if (data.type === "mouse") inputTracker.mouse("user", `button ${data.button ?? 0}`);
     });
 
-    // Start the agentic backend (control core + agent + MCP/chat server).
-    const agentBackend = startAgentBackend(origin, settings, inputTracker);
+    // Start the agentic backend (control core + agent + MCP/chat server) — UNLESS
+    // we're a thin client pointing at a remote console, where the remote owns all of
+    // that. `agentBackend` is then null and every binding below is guarded/skipped.
+    const agentBackend = remoteConsole ? null : startAgentBackend(origin, settings, inputTracker);
 
     // Agent screenshots come from the already-rendered live view (capturePage),
     // NOT the PiKVM snapshot endpoint — so they put no load on the Pi and never
@@ -670,7 +678,7 @@ function createWindow() {
     // when the main view IS the KVM picture; with the unified console as the main
     // view, capturePage would grab our own UI, so we leave these unset and the
     // control core falls back to the Pi snapshot (clean frames, like headless mode).
-    if (!useConsole) {
+    if (agentBackend && !useConsole) {
     agentBackend.control.captureScreen = async () => {
         try {
             const img = await mainView.webContents.capturePage();
@@ -724,6 +732,9 @@ function createWindow() {
     };
     } // end if (!useConsole) — console mode uses the Pi snapshot for clean frames
 
+    // All of the local-backend wiring below (overlays, transcription, copilot, agent
+    // control) is skipped in thin-client mode — the remote console owns it.
+    if (agentBackend) {
     // Watched-typing events → the on-screen X-ray overlay (teal typing box).
     agentBackend.control.onTypingEvent = (ev) => {
         const dims = agentBackend.control.getDimensions();
@@ -863,6 +874,7 @@ function createWindow() {
         agentBackend.runner.pauseForUser();
         setAgentActing(false);
     });
+    } // end if (agentBackend) — local-backend wiring
 
     ipcMain.on("open-external", (_, url: string) => {
         if (typeof url === "string" && /^https?:\/\//.test(url)) void shell.openExternal(url);
@@ -1002,7 +1014,7 @@ function createWindow() {
         mainView.webContents.send("window:state", state);
         sidebarView.webContents.send("window:state", state);
         // Let the ambient monitor know whether the screen is actually visible.
-        agentBackend.setOnKVM(onKVM);
+        agentBackend?.setOnKVM(onKVM);
     }
 
     let canMaximize = win.isMaximizable();
@@ -1167,12 +1179,12 @@ function createWindow() {
 
             // Drive the presence / do-not-disturb gate off the PiKVM's own
             // mic/audio transmission state.
-            agentBackend.presence.setMediaState({
+            agentBackend?.presence.setMediaState({
                 audio: !!data.isTransmittingAudio,
                 mic: !!data.isTransmittingMicrophone,
             });
             // Native resolution for OCR coordinate scaling.
-            if (data.width && data.height) agentBackend.control.setNativeDims(data.width, data.height);
+            if (data.width && data.height) agentBackend?.control.setNativeDims(data.width, data.height);
 
             mainView.webContents.send("kvm:media-transmission", {
                 isTransmittingAudio: data.isTransmittingAudio,
