@@ -206,6 +206,35 @@ function saveConfig(cfg: any) {
     writeFileSync(configPath, JSON.stringify(cfg, null, 2));
 }
 
+/** The unified web console as a desktop window — a thin client over the local API.
+ *  This is the same `/_agent/console` UI the phone and browser use; rendering it in
+ *  an Electron window proves the decoupled, hostable-anywhere path WITHOUT disturbing
+ *  the native KVM+sidebar composition (which keeps driving the agent's screen capture).
+ *  Singleton: re-invoking focuses the existing window. */
+let unifiedConsoleWin: Electron.BrowserWindow | null = null;
+function openUnifiedConsole() {
+    if (unifiedConsoleWin && !unifiedConsoleWin.isDestroyed()) {
+        unifiedConsoleWin.focus();
+        return;
+    }
+    const w = new BrowserWindow({
+        width: 1100,
+        height: 800,
+        darkTheme: true,
+        icon: appIconPath,
+        title: "PiKVM — Unified Console",
+        backgroundColor: "#0a0a0c",
+        autoHideMenuBar: true,
+        webPreferences: { contextIsolation: true },
+    });
+    // The console talks to the backend over plain HTTP/WS/SSE — no preload/IPC needed.
+    void w.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/console`);
+    w.on("closed", () => {
+        unifiedConsoleWin = null;
+    });
+    unifiedConsoleWin = w;
+}
+
 /** Standard editing context menu (cut/copy/paste/select all) for a view. */
 function attachContextMenu(wc: Electron.WebContents, opts: { conversation?: boolean } = {}) {
     wc.on("context-menu", (_e, params) => {
@@ -226,7 +255,10 @@ function attachContextMenu(wc: Electron.WebContents, opts: { conversation?: bool
             if (template.length) template.push({ type: "separator" });
             template.push({ label: "Copy conversation", click: () => wc.send("copy-conversation") });
         }
-        if (template.length) Menu.buildFromTemplate(template).popup();
+        // Always offer the unified web console, so it's reachable from any view.
+        if (template.length) template.push({ type: "separator" });
+        template.push({ label: "Open unified console (web)", click: () => openUnifiedConsole() });
+        Menu.buildFromTemplate(template).popup();
     });
 }
 
@@ -656,6 +688,8 @@ function createWindow() {
     ipcMain.on("open-external", (_, url: string) => {
         if (typeof url === "string" && /^https?:\/\//.test(url)) void shell.openExternal(url);
     });
+    // Open the unified web console in its own desktop window (thin client over the API).
+    ipcMain.on("open-unified-console", () => openUnifiedConsole());
 
     win.on("resize", layout);
     layout();
