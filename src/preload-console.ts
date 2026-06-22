@@ -29,6 +29,11 @@ export interface DesktopMenuItem {
 }
 
 export interface DesktopConsoleApi {
+    /** Host OS — drives window-control style (gtk on linux, traffic lights on mac). */
+    platform: NodeJS.Platform;
+    /** Whether the OS draws native window controls (mac traffic lights) — then the
+     *  console hides its own and only reserves space for them. */
+    nativeControls: boolean;
     /** Minimise the console window. */
     minimise(): void;
     /** Toggle between maximised and restored. */
@@ -57,6 +62,10 @@ export interface DesktopConsoleApi {
 }
 
 const api: DesktopConsoleApi = {
+    platform: process.platform,
+    // macOS draws native traffic lights (window created with titleBarStyle:"hidden");
+    // Linux/Windows are frameless so the console draws its own controls.
+    nativeControls: process.platform === "darwin",
     minimise: () => ipcRenderer.send("console:minimise"),
     toggleMaximise: () => ipcRenderer.send("console:toggle-maximise"),
     close: () => ipcRenderer.send("console:close"),

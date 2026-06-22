@@ -56,6 +56,11 @@ const useConsole = process.env.PIKVM_NATIVE_UI !== "1";
 // Windows whose renderer has the console preload (the main window in console mode
 // + any "open in new window" console). The console-scoped IPC only serves these.
 const consoleWindows = new Set<Electron.BrowserWindow>();
+// Window-chrome per platform: macOS keeps its native traffic lights (titleBarStyle
+// "hidden", positioned to sit inside our 34px titlebar); Linux + Windows are fully
+// frameless so the console draws its own controls (GTK-style on Linux).
+const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
+    process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 13, y: 10 } } : { frame: false };
 
 /** A readable phrase for the overlay describing the current agent action. */
 function humanAction(tool: string, args: any): string {
@@ -237,7 +242,7 @@ function openUnifiedConsole() {
         height: 800,
         minWidth: 720,
         minHeight: 480,
-        frame: false,
+        ...consoleFrameOpts,
         darkTheme: true,
         icon: appIconPath,
         title: "PiKVM — Unified Console",
@@ -297,12 +302,16 @@ ipcMain.on("console:fit-native", (e, opts: { width?: number; height?: number; ag
     const panel = Math.max(0, Math.round(Number(opts?.agentPanelWidth) || 0));
     const bar = Math.max(0, Math.round(Number(opts?.titlebarHeight) || 0));
     if (w.isMaximized()) w.unmaximize();
-    // Clamp to the work area so a 4K stream doesn't push the window off-screen.
+    // The agent panel + titlebar are FIXED-pixel chrome (they don't scale), so we
+    // scale only the SCREEN to fit the work area beside them, then add them back.
+    // This makes the screen column land exactly on the stream aspect — no black bars.
     const area = screen.getDisplayMatching(w.getBounds()).workAreaSize;
-    const wantW = nw + panel;
-    const wantH = nh + bar;
-    const scale = Math.min(1, area.width / wantW, area.height / wantH);
-    w.setContentSize(Math.round(wantW * scale), Math.round(wantH * scale));
+    const availW = Math.max(320, area.width - panel);
+    const availH = Math.max(240, area.height - bar);
+    const scale = Math.min(1, availW / nw, availH / nh);
+    const screenW = Math.round(nw * scale);
+    const screenH = Math.round(nh * scale);
+    w.setContentSize(screenW + panel, screenH + bar);
 });
 
 // Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.
@@ -379,7 +388,7 @@ function createWindow() {
         minHeight: useConsole ? 560 : 80,
         center: true,
         darkTheme: true,
-        frame: false,
+        ...(useConsole ? consoleFrameOpts : { frame: false }),
         icon: appIconPath,
         title: "PiKVM Desktop",
         backgroundColor: "#0f0f14",

@@ -426,7 +426,10 @@
         applyXform(); // make sure the video carries the current zoom/pan
         setState("live");
         if (connText) connText.textContent = "Live · HD";
-        // Audio/mic become available now there's a WebRTC session.
+        // Audio/mic become available now there's a WebRTC session. Re-apply the
+        // user's desired audio mute state (it survives the re-watch) and play.
+        vid.muted = !audioOn;
+        if (audioOn) vid.play().catch(function () {});
         revealAvToggles(true);
         fitAspect();
     }
@@ -458,17 +461,19 @@
     function revealAvToggles(on) {
         // Audio/mic only make sense with a WebRTC session (MJPEG has no audio).
         // Reveal both the menu items (web/mobile) AND the desktop titlebar buttons.
+        // We do NOT reset audioOn/micOn here: toggling audio triggers a brief Janus
+        // re-watch (a transient MJPEG flash), and resetting would wipe the user's
+        // choice + the indicators every time. The desired state persists and is
+        // re-applied/repainted when WebRTC re-activates (see activateWebrtc).
         [audioBtn, micBtn, avSep, document.getElementById("tb-audio"), document.getElementById("tb-mic"), document.querySelector(".tb-av-sep")].forEach(function (el) {
             if (!el) return;
             if (on) el.removeAttribute("hidden");
             else el.setAttribute("hidden", "");
         });
-        if (!on) {
-            // MJPEG has no audio: reset the toggles so the state can't read stale.
-            audioOn = false;
-            micOn = false;
-            paintToggle(audioBtn, audioPip, false, false);
-            paintToggle(micBtn, micPip, false, false);
+        if (on) {
+            // Re-paint the indicators to the persisted desired state.
+            paintToggle(audioBtn, audioPip, audioOn, false);
+            paintToggle(micBtn, micPip, micOn, false);
         }
     }
 
@@ -749,10 +754,15 @@
     var raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : function (cb) { return setTimeout(cb, 16); };
     var moveDirty = false;
     var moveRaf = 0;
+    // In the desktop window, a passing cursor must not drive the remote pointer while
+    // the window is in the background. Updated by focus/blur listeners (desktop only);
+    // stays true on web/mobile where there is no real window-focus concept.
+    var windowFocused = true;
     function flushMove() {
         moveRaf = 0;
         if (!moveDirty) return;
         moveDirty = false;
+        if (window.desktopConsole && !windowFocused) return; // background window: don't move the KVM cursor
         hid.move(Math.round(vcur.x), Math.round(vcur.y));
     }
     function queueMove() {
@@ -1624,8 +1634,21 @@
         var dc = window.desktopConsole;
         if (!dc) return; // web/mobile: nothing below runs
 
-        var TITLEBAR_H = 34; // keep in sync with .titlebar height in console.css
+        var TITLEBAR_H = 38; // keep in sync with .titlebar height in console.css
         document.documentElement.classList.add("desktop-console");
+        // Platform → window-control style (GNOME/Adwaita on Linux, native traffic
+        // lights on macOS so we hide our own, Windows keeps the default custom set).
+        if (dc.platform) document.documentElement.classList.add("platform-" + dc.platform);
+        if (dc.nativeControls) document.documentElement.classList.add("native-window-controls");
+
+        // Block KVM mouse movement while the window is NOT focused — a background
+        // window must not let a passing cursor drive the remote pointer.
+        window.addEventListener("focus", function () {
+            windowFocused = true;
+        });
+        window.addEventListener("blur", function () {
+            windowFocused = false;
+        });
 
         // The MAIN desktop window keeps the original ui.html titlebar ABOVE the
         // console (?shell=native) — hide the console's own titlebar then, but keep all

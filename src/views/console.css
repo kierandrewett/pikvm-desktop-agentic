@@ -966,13 +966,15 @@ html.desktop-console body {
     height: 100vh;
 }
 
-/* The titlebar: the window drag region; ~34px; card background, bottom border. */
+/* The titlebar: window drag region; 38px (matches the old PiKVM titlebar). */
 html.desktop-console .titlebar {
+    position: relative; /* anchor the absolutely-centred title */
     display: flex;
     align-items: center;
+    justify-content: space-between;
     flex: none;
-    height: 34px;
-    padding: 0 6px;
+    height: 38px;
+    padding: 0 4px;
     background: var(--card);
     border-bottom: 1px solid var(--border);
     user-select: none;
@@ -983,52 +985,81 @@ html.desktop-console .tb-left,
 html.desktop-console .tb-right {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 1px;
     flex: none;
+    z-index: 1; /* above the absolutely-centred title */
 }
+/* Title centred in the WHOLE window (not just the gap between the clusters). */
 html.desktop-console .tb-title {
-    flex: 1;
-    min-width: 0;
-    text-align: center;
-    font-size: 12px;
-    font-weight: 550;
+    position: absolute;
+    left: 50%;
+    top: 0;
+    height: 100%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    max-width: 52%;
+    font-size: 12.5px;
+    font-weight: 600;
     color: var(--muted-foreground);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    padding: 0 8px;
-    pointer-events: none; /* keep the centre as pure drag surface */
+    pointer-events: none; /* the centre stays a pure drag surface */
 }
-/* All titlebar buttons opt out of the drag region so they remain clickable. */
+/* GNOME/Adwaita-style buttons: round, transparent, a subtle backdrop on hover. */
 html.desktop-console .tb-btn {
     -webkit-app-region: no-drag;
     appearance: none;
     border: 0;
     background: transparent;
     color: var(--muted-foreground);
-    height: 26px;
-    min-width: 30px;
-    padding: 0 6px;
-    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    margin: 0 1px;
+    border-radius: 50%;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     transition:
-        background 0.12s,
-        color 0.12s;
+        background 0.15s,
+        color 0.15s;
 }
 html.desktop-console .tb-btn:hover {
-    background: var(--accent);
+    background: color-mix(in srgb, currentColor 16%, transparent);
     color: var(--foreground);
 }
 html.desktop-console .tb-btn:active {
-    background: var(--secondary);
+    background: color-mix(in srgb, currentColor 26%, transparent);
 }
 html.desktop-console .tb-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
     pointer-events: none;
+}
+/* ---- platform window-control styles ----------------------------------------
+ * Linux: GNOME/Adwaita — round buttons with an always-on subtle backdrop on the
+ * window controls (min/max/close), brighter on hover; close reddens. */
+html.desktop-console.platform-linux .tb-win {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+}
+html.desktop-console.platform-linux .tb-win:hover {
+    background: color-mix(in srgb, currentColor 20%, transparent);
+}
+html.desktop-console.platform-linux .tb-close:hover {
+    background: var(--danger);
+    color: #fff;
+}
+/* macOS: the OS draws native traffic lights (top-left). Hide our own window
+ * controls and reserve space on the LEFT so they don't overlap the panel toggle. */
+html.desktop-console.native-window-controls .tb-win,
+html.desktop-console.native-window-controls .tb-sep {
+    display: none;
+}
+html.desktop-console.native-window-controls .titlebar {
+    padding-left: 78px;
 }
 /* Audio/mic toggles: blue when on, amber when mic denied; speaker waves on with audio. */
 html.desktop-console .tb-av .wave {
