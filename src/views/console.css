@@ -1085,6 +1085,26 @@ html.desktop-console .tb-av.on .wave {
 html.desktop-console .tb-av.warn {
     color: var(--warn);
 }
+/* Live activity meter: a glow in the button background scales with the audio level
+ * (--vol, 0..1, driven by a Web Audio analyser). Behind the icon. */
+html.desktop-console .tb-av {
+    position: relative;
+    isolation: isolate;
+}
+html.desktop-console .tb-av::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
+    opacity: calc(var(--vol, 0) * 0.95);
+    transform: scale(calc(0.7 + var(--vol, 0) * 0.6));
+    transition:
+        opacity 0.06s linear,
+        transform 0.06s linear;
+    pointer-events: none;
+}
 /* Window controls render a touch smaller + symmetric. */
 html.desktop-console .tb-win svg {
     width: 12px;
@@ -1127,8 +1147,13 @@ html.desktop-console .app {
     flex: 1;
     min-height: 0;
     height: auto;
-    grid-template-columns: var(--sw, 62vw) minmax(300px, 1fr);
+    /* Screen takes the remainder; the agent panel is a fixed, user-RESIZABLE width
+     * (--chat-w). This MUST match what fit-native assumes (window = screen + panel). */
+    grid-template-columns: minmax(0, 1fr) var(--chat-w, 380px);
     grid-template-rows: minmax(0, 1fr);
+    transition: none;
+}
+html.desktop-console.panel-anim .app {
     transition: grid-template-columns 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 html.desktop-console .screen {

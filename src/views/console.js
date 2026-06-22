@@ -431,6 +431,10 @@
         vid.muted = !audioOn;
         if (audioOn) vid.play().catch(function () {});
         revealAvToggles(true);
+        // Light up the speaker meter once the audio track lands (retry a couple of times).
+        updateSpeakerMeter();
+        setTimeout(updateSpeakerMeter, 700);
+        setTimeout(updateSpeakerMeter, 1600);
         fitAspect();
     }
 
@@ -440,6 +444,7 @@
         webrtcActive = false;
         mjpegPaused = false;
         revealAvToggles(false);
+        updateSpeakerMeter(); // webrtcActive is now false → stops the speaker meter
         vid.classList.add("hidden");
         img.classList.remove("hidden");
         try {
@@ -571,6 +576,80 @@
             if (!audioOn && audioBtn) audioBtn.click(); // turn it back on
         }, 3600000); // 1 hour
     }
+
+    // ---- audio activity meters: a live level lights up the button background ----
+    var audioCtx = null;
+    var speakerMeterStop = null;
+    var micMeterStop = null;
+    var micMeterStream = null;
+    function ensureAudioCtx() {
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === "suspended") audioCtx.resume();
+        } catch (e) {}
+        return audioCtx;
+    }
+    /** Drive `--vol` (0..1) on `els` from the RMS level of `stream`'s audio. */
+    function startMeter(stream, els) {
+        var ctx = ensureAudioCtx();
+        if (!ctx || !stream || !stream.getAudioTracks || !stream.getAudioTracks().length) return null;
+        try {
+            var srcNode = ctx.createMediaStreamSource(stream);
+            var an = ctx.createAnalyser();
+            an.fftSize = 256;
+            srcNode.connect(an);
+            var data = new Uint8Array(an.fftSize);
+            var stopped = false;
+            var r = 0;
+            (function tick() {
+                if (stopped) return;
+                an.getByteTimeDomainData(data);
+                var s = 0;
+                for (var i = 0; i < data.length; i++) {
+                    var v = (data[i] - 128) / 128;
+                    s += v * v;
+                }
+                var lvl = Math.min(1, Math.sqrt(s / data.length) * 3.2);
+                els.forEach(function (el) {
+                    if (el) el.style.setProperty("--vol", lvl.toFixed(3));
+                });
+                r = requestAnimationFrame(tick);
+            })();
+            return function () {
+                stopped = true;
+                if (r) cancelAnimationFrame(r);
+                try {
+                    srcNode.disconnect();
+                } catch (e) {}
+                els.forEach(function (el) {
+                    if (el) el.style.setProperty("--vol", "0");
+                });
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+    function updateSpeakerMeter() {
+        if (speakerMeterStop) {
+            speakerMeterStop();
+            speakerMeterStop = null;
+        }
+        if (audioOn && webrtcActive && vid.srcObject) speakerMeterStop = startMeter(vid.srcObject, [document.getElementById("tb-audio"), audioBtn]);
+    }
+    function stopMicMeter() {
+        if (micMeterStop) {
+            micMeterStop();
+            micMeterStop = null;
+        }
+        if (micMeterStream) {
+            micMeterStream.getTracks().forEach(function (t) {
+                try {
+                    t.stop();
+                } catch (e) {}
+            });
+            micMeterStream = null;
+        }
+    }
     function paintToggle(btn, pip, on, warn, label) {
         if (!btn || !pip) return;
         btn.classList.toggle("on", on);
@@ -595,6 +674,8 @@
             stream.setAudio(audioOn);
             paintToggle(audioBtn, audioPip, audioOn, false);
             showResToast(true); // flash confirmation with the new A/M state
+            updateSpeakerMeter();
+            setTimeout(updateSpeakerMeter, 800);
             // Turned off → re-enable in an hour; turned back on → cancel that.
             if (!audioOn) scheduleAudioReenable();
             else if (audioReenableTimer) {
@@ -612,6 +693,7 @@
                 stream.setMic(false);
                 paintToggle(micBtn, micPip, false, false);
                 showResToast(true);
+                stopMicMeter();
                 return;
             }
             // Mic needs a permission grant; the wrapper's createAnswer will call
@@ -626,17 +708,16 @@
             navigator.mediaDevices
                 .getUserMedia({ audio: true })
                 .then(function (s) {
-                    // We only needed the grant; the wrapper opens its own capture.
-                    s.getTracks().forEach(function (t) {
-                        try {
-                            t.stop();
-                        } catch (e) {}
-                    });
+                    // Keep this granted stream for the level meter (the wrapper opens
+                    // its OWN capture for the actual send; same mic → same levels).
+                    stopMicMeter();
+                    micMeterStream = s;
                     micOn = true;
                     // Mic implies an audio session; make sure audio is requested too.
                     stream.setMic(true);
                     paintToggle(micBtn, micPip, true, false);
                     showResToast(true);
+                    micMeterStop = startMeter(micMeterStream, [document.getElementById("tb-mic"), micBtn]);
                 })
                 .catch(function () {
                     paintToggle(micBtn, micPip, false, true, "Denied");
