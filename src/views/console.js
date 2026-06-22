@@ -1241,26 +1241,83 @@
         setTimeout(fitAspect, 250);
     });
 
+    /* ---- haptic feedback (web-haptics: haptics.lochie.me) ----
+     * Android = navigator.vibrate; iOS = the lib's hidden <input switch> Taptic
+     * trick. Lazily loaded as a served module so the un-bundled console can use it.
+     * Every call is a no-op until it loads (and on devices without a vibrator). */
+    var haptics = null;
+    if (typeof navigator !== "undefined") {
+        import("/_agent/haptics.js")
+            .then(function (m) {
+                try {
+                    haptics = new m.WebHaptics();
+                } catch (e) {}
+            })
+            .catch(function () {});
+    }
+    function buzz(kind) {
+        if (haptics) {
+            try {
+                haptics.trigger(kind || "light");
+            } catch (e) {}
+        }
+    }
+
+    // Snap targets for the vertical drag: the height at which the live screen sits
+    // flush against the bottom of the picture (no black bars) — "the edge of the
+    // PiKVM" — plus the fully-collapsed and fully-expanded extents.
+    function snapTargets() {
+        var nw = webrtcActive ? vid.videoWidth : img.naturalWidth;
+        var nh = webrtcActive ? vid.videoHeight : img.naturalHeight;
+        var w = pane.clientWidth || window.innerWidth;
+        var list = [];
+        if (nw && nh) list.push(clampH(Math.round((w * nh) / nw)));
+        list.push(clampH(110));
+        list.push(clampH(window.innerHeight));
+        return list;
+    }
+
     var resizing = false;
     var startY = 0;
     var startH = 0;
+    var dragTouch = false; // pointer is a finger (haptics only make sense then)
+    var lastSnap = null; // the snap target we're currently parked on (for edge-trigger)
     function resizeStart(e) {
         if (e.target.closest && e.target.closest(".ibtn")) return; // let buttons click
         if (isDesktop()) return; // desktop auto-fits the screen width; no vertical drag
         resizing = true;
         userResized = true; // a manual drag stops auto-fit for this session
+        dragTouch = e.pointerType !== "mouse";
+        lastSnap = null;
         app.classList.add("resizing"); // kill the --sh transition so the drag is 1:1, never eased
         startY = e.clientY;
         startH = pane.offsetHeight;
         try {
             e.currentTarget.setPointerCapture(e.pointerId);
         } catch (err) {}
+        if (dragTouch) buzz("light"); // grab
         e.preventDefault();
     }
     function resizeMove(e) {
         if (!resizing) return;
         e.preventDefault();
-        app.style.setProperty("--sh", clampH(startH + (e.clientY - startY)).toFixed(0) + "px");
+        var raw = clampH(startH + (e.clientY - startY));
+        // Magnetically snap when the drag passes within ~20px of a target.
+        var SNAP = 20;
+        var snapped = null;
+        var best = SNAP + 1;
+        snapTargets().forEach(function (t) {
+            var d = Math.abs(raw - t);
+            if (d <= SNAP && d < best) {
+                best = d;
+                snapped = t;
+            }
+        });
+        var h = snapped == null ? raw : snapped;
+        // Tick once each time the drag enters (or moves between) a snap zone.
+        if (snapped != null && snapped !== lastSnap && dragTouch) buzz("medium");
+        lastSnap = snapped;
+        app.style.setProperty("--sh", h.toFixed(0) + "px");
     }
     function resizeEnd() {
         resizing = false;

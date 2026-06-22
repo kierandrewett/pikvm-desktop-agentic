@@ -73,6 +73,19 @@ await build({
     logLevel: "info",
 });
 
+// 3b. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
+//     statically-served) console dynamically imports as /_agent/haptics.js.
+await build({
+    entryPoints: [resolve(root, "src/haptics-entry.js")],
+    outfile: resolve(dist, "views/haptics.js"),
+    platform: "browser",
+    format: "esm",
+    bundle: true,
+    minify: true,
+    sourcemap: false,
+    logLevel: "info",
+});
+
 // 4. Tailwind: compile the AI Elements / shadcn styles for the sidebar.
 execFileSync(
     "npx",
