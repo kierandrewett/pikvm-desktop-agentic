@@ -1098,14 +1098,32 @@
     function clampH(h) {
         return Math.max(110, Math.min(Math.max(140, window.innerHeight - 160), h));
     }
+    // Desktop = wide + landscape: the chat sits to the RIGHT and the screen sizes to
+    // the stream's aspect by WIDTH (so there are no black bars); mobile stacks and
+    // sizes by HEIGHT.
+    function isDesktop() {
+        return window.matchMedia("(min-width: 900px) and (orientation: landscape)").matches;
+    }
     function fitAspect() {
         if (userResized || booting) return;
         // Use the active source's intrinsic size: <img> natural*, <video> video*.
         var nw = webrtcActive ? vid.videoWidth : img.naturalWidth;
         var nh = webrtcActive ? vid.videoHeight : img.naturalHeight;
         if (!nw || !nh) return;
-        var w = pane.clientWidth || window.innerWidth;
-        app.style.setProperty("--sh", clampH(Math.round((w * nh) / nw)) + "px");
+        if (isDesktop()) {
+            // Size the screen WIDTH to the stream aspect at the pane's full height; the
+            // chat panel fills the horizontal remainder (kept ≥ 300px). No black bars.
+            var availH = pane.clientHeight || window.innerHeight;
+            var sw = Math.round((availH * nw) / nh);
+            var maxSw = Math.max(360, window.innerWidth - 300);
+            sw = Math.max(360, Math.min(maxSw, sw));
+            app.style.setProperty("--sw", sw + "px");
+            app.style.removeProperty("--sh");
+        } else {
+            var w = pane.clientWidth || window.innerWidth;
+            app.style.setProperty("--sh", clampH(Math.round((w * nh) / nw)) + "px");
+            app.style.removeProperty("--sw");
+        }
     }
     img.addEventListener("load", function () {
         fitAspect();
@@ -1130,6 +1148,7 @@
     var startH = 0;
     function resizeStart(e) {
         if (e.target.closest && e.target.closest(".ibtn")) return; // let buttons click
+        if (isDesktop()) return; // desktop auto-fits the screen width; no vertical drag
         resizing = true;
         userResized = true; // a manual drag stops auto-fit for this session
         app.classList.add("resizing"); // kill the --sh transition so the drag is 1:1, never eased
