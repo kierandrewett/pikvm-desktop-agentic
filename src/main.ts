@@ -367,17 +367,21 @@ function createWindow() {
     const kvmSize = { width: 1280, height: 720 };
     const normalSize = { width: 400, height: 350 };
     const settingsSize = { width: 400, height: 110 };
+    const consoleSize = { width: 1400, height: 880 };
     const TITLEBAR_HEIGHT = 38;
 
     const win = new BrowserWindow({
-        width: normalSize.width,
-        height: normalSize.height,
+        // The console is the full primary UI → open at a proper desktop size and let
+        // it be resized; the legacy compact UI keeps its small start size.
+        width: useConsole ? consoleSize.width : normalSize.width,
+        height: useConsole ? consoleSize.height : normalSize.height,
+        minWidth: useConsole ? 900 : 300,
+        minHeight: useConsole ? 560 : 80,
+        center: true,
         darkTheme: true,
         frame: false,
         icon: appIconPath,
         title: "PiKVM Desktop",
-        minWidth: 300,
-        minHeight: 80,
         backgroundColor: "#0f0f14",
     });
 
@@ -965,6 +969,16 @@ function createWindow() {
         // Match the input-forwarding guard to the current focus state on load.
         mainView.webContents.send("kvm:input-enabled", win.isFocused());
         sendWindowState();
+
+        if (useConsole) {
+            // The console IS the full primary UI — always a big, resizable, maximisable
+            // window. Never fall into the legacy compact "normal mode" (400×350).
+            canMaximize = true;
+            win.setMaximizable(true);
+            win.setClosable(true);
+            win.setResizable(true);
+            return;
+        }
 
         if (isKVMPage || isTerminalPage) {
             await wc.executeJavaScript(`window.kvm?.enter?.()`);
