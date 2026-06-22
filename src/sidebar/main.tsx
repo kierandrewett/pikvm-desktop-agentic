@@ -868,6 +868,18 @@ function Row({ label, desc, control, htmlFor }: { label: string; desc?: string; 
 function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
     const hv = s?.humanize ?? 1;
+    const autonomy = Math.max(0, Math.min(5, state?.autonomy ?? 3)) as 0 | 1 | 2 | 3 | 4 | 5;
+    // British-English copy for each rung of the autonomy dial (kept in sync with
+    // AUTONOMY_LABELS in reviewer.ts; defined locally so the server-only reviewer
+    // module is never pulled into the browser bundle).
+    const AUTONOMY_LABELS: Record<0 | 1 | 2 | 3 | 4 | 5, { label: string; description: string }> = {
+        0: { label: "Ask first", description: "Prompt before almost every action — maximum caution." },
+        1: { label: "Cautious", description: "Auto-run only plainly safe, read-only commands." },
+        2: { label: "Measured", description: "Auto-run safe commands; pause on anything unfamiliar." },
+        3: { label: "Balanced", description: "Auto-run safe and routine actions; prompt for risky or outward-facing ones." },
+        4: { label: "Trusting", description: "Auto-run most things; prompt only for risky or outward-facing actions." },
+        5: { label: "Hands-off", description: "Prompt only for genuinely dangerous or outward-facing actions." },
+    };
     const secretItems = state?.secrets?.items ?? [];
     const [secName, setSecName] = useState("");
     const [secVal, setSecVal] = useState("");
@@ -938,6 +950,24 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 {tab === "behaviour" && (
                     <div className="space-y-5">
                         <div>
+                            <div className="mb-1.5 flex items-baseline justify-between">
+                                <span className="text-[13px] font-medium">Autonomy</span>
+                                <span className="text-[11px] text-muted-foreground">{AUTONOMY_LABELS[autonomy]?.label ?? "Balanced"}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min={0}
+                                max={5}
+                                step={1}
+                                value={autonomy}
+                                className="w-full accent-primary"
+                                onChange={(e) => onPatch({ autonomy: parseInt(e.target.value, 10) })}
+                            />
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                                {AUTONOMY_LABELS[autonomy]?.description ?? ""} Dangerous and outward-facing actions always ask first.
+                            </p>
+                        </div>
+                        <div className="border-t pt-3">
                             <div className="mb-1.5 flex items-baseline justify-between">
                                 <span className="text-[13px] font-medium">Typing style</span>
                                 <span className="text-[11px] text-muted-foreground">{hv === 0 ? "Precise" : hv >= 0.9 ? "Very human" : "Human"}</span>

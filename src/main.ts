@@ -175,6 +175,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     const s = settings.get();
     runner.setModel(s.model);
     reviewer.setPolicy(s.policy);
+    reviewer.setAutonomy(s.autonomy);
     control.setHumanize(s.humanize);
     control.setWpm(s.wpm);
     control.setLayout(s.keyboardLayout);

@@ -90,6 +90,8 @@ export interface SessionSummary {
 
 export interface ServerState {
     policy: ReviewPolicy;
+    /** Autonomy dial (0–5): 0 = ask first, 5 = hands-off. */
+    autonomy: number;
     presence: { paused: boolean; reason?: string };
     goal?: string;
     loggedIn: boolean;

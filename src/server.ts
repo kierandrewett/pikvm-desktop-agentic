@@ -16,7 +16,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { createUIMessageStream, pipeUIMessageStreamToResponse } from "ai";
 import { AgentRunner } from "./agent/runner";
-import { OperationReviewer, type Verdict } from "./reviewer";
+import { OperationReviewer, AUTONOMY_LABELS, type Verdict } from "./reviewer";
 import { PresenceMonitor } from "./presence";
 import { CodexAuth } from "./agent/auth";
 import { createMcpHttpHandler, type McpDeps } from "./mcp-server";
@@ -196,6 +196,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
 
     const state = (): ServerState => ({
         policy: reviewer.getPolicy(),
+        autonomy: reviewer.getAutonomy(),
         presence: (() => {
             const p = presence.getState();
             return p.reason ? { paused: p.paused, reason: p.reason } : { paused: p.paused };
@@ -341,6 +342,16 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                     return status(`Review policy: ${arg}`);
                 }
                 return status("Usage: /policy <risky-only|review-all|autorun-trusted>");
+            case "autonomy": {
+                const n = Number(arg);
+                if (arg !== "" && Number.isFinite(n) && n >= 0 && n <= 5) {
+                    reviewer.setAutonomy(n);
+                    const lvl = reviewer.getAutonomy();
+                    settings.patch({ autonomy: lvl });
+                    return status(`Autonomy: ${lvl} — ${AUTONOMY_LABELS[lvl].label}.`);
+                }
+                return status("Usage: /autonomy <0-5> (0 = ask first, 5 = hands-off)");
+            }
             case "help":
                 return status("Commands:\n" + COMMANDS.map((c) => `/${c.name} ${c.arg ?? ""} — ${c.summary}`).join("\n"));
         }
@@ -606,6 +617,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 if (typeof patch.humanize === "number") control.setHumanize(next.humanize);
                 if (typeof patch.pauseOnPresence === "boolean") presence.setEnabled(next.pauseOnPresence);
                 if (typeof patch.wpm === "number") control.setWpm(next.wpm);
+                if (typeof patch.autonomy === "number") reviewer.setAutonomy(next.autonomy);
                 if (patch.keyboardLayout === "us" || patch.keyboardLayout === "uk") control.setLayout(next.keyboardLayout);
                 return json(res, 200, state());
             });
