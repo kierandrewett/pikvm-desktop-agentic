@@ -298,7 +298,24 @@ function resolvedConsoleOrigin(): string {
 // Read/write the console origin (a desktop-level setting; changing it relaunches).
 ipcMain.on("console:get-origin", (e) => {
     const origin = resolvedConsoleOrigin();
-    e.returnValue = { origin, isLocal: origin === `http://127.0.0.1:${CONTROL_PORT}`, envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN };
+    let pikvmOrigin = "https://pikvm/";
+    try {
+        pikvmOrigin = loadConfig().origin || pikvmOrigin;
+    } catch {
+        /* no config yet */
+    }
+    e.returnValue = { origin, isLocal: origin === `http://127.0.0.1:${CONTROL_PORT}`, envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN, pikvmOrigin };
+});
+// Set where the LOCAL backend reaches the PiKVM (creds may be in the URL). Relaunch.
+ipcMain.on("console:set-pikvm-origin", (e, url: unknown) => {
+    if (!consoleWinFrom(e)) return;
+    const u = typeof url === "string" ? url.trim().replace(/\/$/, "") : "";
+    if (!u) return;
+    const cfg = loadConfig();
+    cfg.origin = u;
+    saveConfig(cfg);
+    app.relaunch();
+    app.exit(0);
 });
 ipcMain.on("console:set-origin", (e, origin: unknown) => {
     if (!consoleWinFrom(e)) return;

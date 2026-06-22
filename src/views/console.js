@@ -1337,6 +1337,8 @@
         } else if (d.type === "desktop-set-console-origin") {
             // The embedded settings asked to change the desktop's console origin.
             if (window.desktopConsole && window.desktopConsole.setConsoleOrigin) window.desktopConsole.setConsoleOrigin(String(d.origin || ""));
+        } else if (d.type === "desktop-set-pikvm-origin") {
+            if (window.desktopConsole && window.desktopConsole.setPikvmOrigin) window.desktopConsole.setPikvmOrigin(String(d.url || ""));
         }
     });
     // Tell the embedded settings where this desktop loads the console from.

@@ -1264,8 +1264,9 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
     const [tab, setTab] = useState<"behaviour" | "models" | "mcp" | "ambient" | "secrets" | "server">("behaviour");
     // Desktop-only: where THIS desktop app loads the console from (asked of the parent
     // console window over postMessage, since the desktop config lives in the shell).
-    const [desktopOrigin, setDesktopOrigin] = useState<{ origin: string; isLocal: boolean; envLocked: boolean } | null>(null);
+    const [desktopOrigin, setDesktopOrigin] = useState<{ origin: string; isLocal: boolean; envLocked: boolean; pikvmOrigin: string } | null>(null);
     const [originInput, setOriginInput] = useState("");
+    const [pikvmInput, setPikvmInput] = useState("");
     useEffect(() => {
         if (!IS_EMBED_DESKTOP) return;
         const onMsg = (e: MessageEvent) => {
@@ -1273,6 +1274,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
             if (cfg) {
                 setDesktopOrigin(cfg);
                 setOriginInput(cfg.isLocal ? "" : cfg.origin);
+                setPikvmInput(cfg.pikvmOrigin ?? "");
             }
         };
         window.addEventListener("message", onMsg);
@@ -1601,6 +1603,32 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 </div>
                                 {desktopOrigin.envLocked && (
                                     <p className="mt-1 text-[10px] text-amber-500">Locked by the PIKVM_CONSOLE_ORIGIN environment variable.</p>
+                                )}
+                                {desktopOrigin.isLocal && (
+                                    <div className="mt-3 border-t pt-2.5">
+                                        <div className="mb-1 text-[12px] font-medium">PiKVM address</div>
+                                        <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+                                            Where the local backend reaches your PiKVM. Include credentials if needed, e.g.{" "}
+                                            <code>https://user:pass@pikvm/</code>. Changing it restarts the app.
+                                        </p>
+                                        <div className="flex gap-1.5">
+                                            <input
+                                                type="text"
+                                                placeholder="https://pikvm/"
+                                                value={pikvmInput}
+                                                onChange={(e) => setPikvmInput(e.target.value)}
+                                                className={cn(inputCls, "text-[12px]")}
+                                            />
+                                            <Button
+                                                size="sm"
+                                                className="h-8 shrink-0"
+                                                disabled={!pikvmInput.trim() || pikvmInput.trim().replace(/\/$/, "") === (desktopOrigin.pikvmOrigin || "").replace(/\/$/, "")}
+                                                onClick={() => window.parent.postMessage({ type: "desktop-set-pikvm-origin", url: pikvmInput.trim() }, "*")}
+                                            >
+                                                Save &amp; restart
+                                            </Button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         )}
