@@ -40,7 +40,29 @@ export interface AppSettings {
     ambient: AmbientSettings;
     /** Atlas markdown memory vault (via the Atlas MCP server). */
     atlas: AtlasSettings;
+    /** Dynamic per-turn model switching (reasoning vs cheap tool-calling). */
+    modelRouting: ModelRoutingSettings;
 }
+
+export interface ModelRoutingSettings {
+    /** Route each turn dynamically. When off, every turn uses `reasoningModel`. */
+    enabled: boolean;
+    /** Capable model for thinking/reasoning/problem-solving turns. */
+    reasoningModel: string;
+    /**
+     * Cheap/fast model for routine, mechanical tool-driving turns.
+     * NB: must be reachable through the active provider. Under the ChatGPT-
+     * subscription auth (`openai-codex`) Kimi is NOT available — the cheapest
+     * fast+vision model there is gpt-5.4-mini.
+     */
+    fastModel: string;
+}
+
+const DEFAULT_MODEL_ROUTING: ModelRoutingSettings = {
+    enabled: true,
+    reasoningModel: "gpt-5.5",
+    fastModel: "gpt-5.4-mini",
+};
 
 export interface AtlasSettings {
     /** Use the Atlas vault for memory (markdown via the Atlas MCP server). */
@@ -109,6 +131,7 @@ const DEFAULTS: AppSettings = {
     desktopUseProxy: false,
     ambient: DEFAULT_AMBIENT,
     atlas: DEFAULT_ATLAS,
+    modelRouting: DEFAULT_MODEL_ROUTING,
 };
 
 export class SettingsStore {
@@ -130,6 +153,7 @@ export class SettingsStore {
                         activeHours: { ...DEFAULT_AMBIENT.activeHours, ...(saved.ambient?.activeHours ?? {}) },
                     },
                     atlas: { ...DEFAULT_ATLAS, ...(saved.atlas ?? {}) },
+                    modelRouting: { ...DEFAULT_MODEL_ROUTING, ...(saved.modelRouting ?? {}) },
                 };
                 // Migrate the never-valid early default model id off saved configs.
                 if (this.data.ambient.triageModel === "gpt-5.5-mini") {
@@ -155,7 +179,8 @@ export class SettingsStore {
               }
             : this.data.ambient;
         const atlas = partial.atlas ? { ...this.data.atlas, ...partial.atlas } : this.data.atlas;
-        this.data = { ...this.data, ...partial, ambient, atlas };
+        const modelRouting = partial.modelRouting ? { ...this.data.modelRouting, ...partial.modelRouting } : this.data.modelRouting;
+        this.data = { ...this.data, ...partial, ambient, atlas, modelRouting };
         try {
             writeFileSync(this.path, JSON.stringify(this.data, null, 2));
         } catch {

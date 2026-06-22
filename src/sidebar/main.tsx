@@ -1012,6 +1012,54 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 control={<Switch checked={s?.pauseOnPresence ?? true} onChange={(v) => onPatch({ pauseOnPresence: v })} />}
                             />
                         </div>
+                        <div className="border-t pt-3">
+                            <Row
+                                label="Smart model routing"
+                                desc="Use a capable model for thinking, a cheap/fast one for routine clicks &amp; typing"
+                                control={
+                                    <Switch
+                                        checked={s?.modelRouting?.enabled ?? true}
+                                        onChange={(v) => post("/api/settings", { modelRouting: { enabled: v } }).then(() => onPatch({}))}
+                                    />
+                                }
+                            />
+                            {(s?.modelRouting?.enabled ?? true) && (
+                                <div className="mt-2 grid grid-cols-2 gap-2 border-t pt-2.5">
+                                    <label className="block text-[11px] text-muted-foreground">
+                                        Reasoning model
+                                        <select
+                                            value={s?.modelRouting?.reasoningModel ?? ""}
+                                            onChange={(e) => post("/api/settings", { modelRouting: { reasoningModel: e.target.value } }).then(() => onPatch({}))}
+                                            className={cn(inputCls, "mt-1 text-[12px]")}
+                                        >
+                                            {(state?.models ?? []).map((m) => (
+                                                <option key={m} value={m}>
+                                                    {m}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="block text-[11px] text-muted-foreground">
+                                        Fast / tool model
+                                        <select
+                                            value={s?.modelRouting?.fastModel ?? ""}
+                                            onChange={(e) => post("/api/settings", { modelRouting: { fastModel: e.target.value } }).then(() => onPatch({}))}
+                                            className={cn(inputCls, "mt-1 text-[12px]")}
+                                        >
+                                            {(state?.models ?? []).map((m) => (
+                                                <option key={m} value={m}>
+                                                    {m}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <p className="col-span-2 text-[10px] text-muted-foreground">
+                                        Last turn ran on <b>{s?.modelRouting?.lastTier ?? "reasoning"}</b>. Kimi isn't reachable on the ChatGPT
+                                        subscription — gpt-5.4-mini is the cheapest fast model here.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
                         {(state?.schedules ?? []).length > 0 && (
                             <div className="border-t pt-3">
                                 <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">

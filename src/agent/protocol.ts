@@ -160,6 +160,9 @@ export interface ServerState {
         hasToken: boolean;
         desktopUseProxy: boolean;
         atlas: { enabled: boolean; binPath: string; vaultPath: string };
+        /** Per-turn model routing: reasoning vs cheap tool-calling. `lastTier` is
+         *  the tier the most recent routed turn ran on (observability). */
+        modelRouting: { enabled: boolean; reasoningModel: string; fastModel: string; lastTier: "reasoning" | "fast" };
     };
     schedules: { id: string; label: string; when: string }[];
     log: LogEntry[];
