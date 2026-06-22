@@ -33,6 +33,7 @@ import { Scheduler, type Job } from "./scheduler";
 import { MemoryStore, type Memory } from "./memory";
 import { SkillStore } from "./skills";
 import { LocalOcr } from "./local-ocr";
+import { RegionSegmenter, type RegionsResult } from "./regions";
 import type { InputTracker } from "../input-tracker";
 import type { SecretsStore } from "../secrets";
 import { SessionStore, agentMessagesToUi, type SessionMeta } from "./sessions";
@@ -49,6 +50,8 @@ const SUBAGENT_MODEL = "gpt-5.5";
 const TITLE_MODEL = "gpt-5.4-mini";
 /** Cheap model for recognising the foreground app + sensitive contexts. */
 const CONTEXT_MODEL = "gpt-5.4-mini";
+/** Cheap/low-latency vision model for segmenting the screen into labelled regions. */
+const REGION_MODEL = "gpt-5.4-mini";
 const CONTEXT_SYSTEM =
     'You identify the foreground application/window on a screen and whether the CURRENT focus is a SENSITIVE area - one where an accidental click or keypress could send/post something or be hard to undo: a chat or message compose box or its Send/Reply button (Microsoft Teams, Slack, Discord, WhatsApp, Outlook/Gmail compose), a social-media post box, a Submit/Post/Pay/Confirm button, a checkout/payment field, or a terminal/command prompt. Normal navigation, reading, menus, file browsers and form fields that only stage input are NOT sensitive. Reply with ONLY compact JSON: {"app":"<short app or window name>","sensitive":true|false,"reason":"<at most 8 words>"}.';
 /** Optical read-back of a cropped text field for watched typing (independent of the
@@ -106,6 +109,7 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "",
         "Loop: call `screenshot` to see the screen, decide ONE next action, perform it, then screenshot again to verify before continuing.",
         "Coordinates are in the pixels of the most recent screenshot. Re-screenshot after anything that changes the screen (scroll, navigation, window changes).",
+        "KNOW WHERE YOU ARE: the screen is automatically segmented into labelled regions — call `get_regions` to see the windows, the host taskbar, an embedded emulator (e.g. an AVD), terminals, browsers and panels as boxes in full-frame pixels. Use it to tell, for instance, whether a coordinate is on the host taskbar versus inside the AVD versus a terminal, and to find a window's bounds before clicking or cropping. The map refreshes as the layout changes; if you just changed the screen, screenshot first.",
         "Type with `type_text` (it already feels human — do not add your own delays). Use `press_key`/`hotkey` for keys and shortcuts.",
         "HARD RULE — TYPING NEVER SUBMITS: `type_text` is for a SINGLE LINE of text and NEVER presses Enter (any newline you pass is collapsed to a space). Pressing Enter could send a chat message, run a command, or confirm a dialog before you have checked it — so submitting is ALWAYS a separate, deliberate `press_key('Enter')` AFTER you have OCR-verified the field. Do not put `\\n` in `type_text`. For multi-line content (a note, an email body, code), open a scratchpad like Notepad, type/build it there, then select-all and copy/paste into the target — never type raw newlines into the real field.",
         "KNOW WHERE THE CARET IS BEFORE TYPING: typing inserts at the current caret, which is NOT always where you think — a field may have existing text with the caret at the start, or text may be selected. Before typing into an existing field, look: `ocr`/zoomed `screenshot` to see the current contents and caret. To append, click at the end (or press End / Ctrl+End) first; to replace, select all (Ctrl+A) then type. If asked to \"finish\" or continue existing text, confirm the caret is at the END first — never assume.",
@@ -174,6 +178,10 @@ export class AgentRunner {
     private readonly screenshots = new ScreenshotHistory();
     /** In-process OCR for watched typing's fast read-back path. */
     private readonly localOcr = new LocalOcr();
+    /** Change-gated, LLM-driven segmentation of the screen into labelled regions. */
+    private readonly regions = new RegionSegmenter({
+        segment: (image, instruction, system) => this.quickLook(image, instruction, { model: REGION_MODEL, thinking: "low", system }),
+    });
     private readonly toolsForSub: AgentTool<any>[];
     private readonly subModel: Model<any>;
     private sessionId: string;
@@ -208,6 +216,10 @@ export class AgentRunner {
                 return this.visionRead(image);
             },
             opticalReadStrong: (image: { data: string; mimeType: string }) => this.visionRead(image),
+            // Spatial map of the screen (LLM-segmented, change-gated) so the agent
+            // can reason about WHERE it is - host taskbar vs inside the AVD vs a
+            // terminal. Returns the cached regions; never blocks on a model call.
+            getRegions: () => this.regions.getRegions(),
             remember: (text: string) => {
                 try {
                     this.memory.add(text, ["keyboard-layout"]);
@@ -890,6 +902,45 @@ export class AgentRunner {
         } catch {
             return [DEFAULT_MODEL];
         }
+    }
+
+    /* --------------------------- region segmentation -------------------- */
+
+    /** Notified when the screen's labelled regions are (re)computed (for the overlay). */
+    onRegions: ((result: RegionsResult) => void) | undefined;
+
+    /** The current cached screen regions (or null if not yet computed). Never blocks. */
+    currentRegions(): RegionsResult | null {
+        return this.regions.getRegions();
+    }
+
+    /**
+     * Opportunistically re-segment the screen into labelled regions, but ONLY when
+     * the cheap grid diff says the layout shifted materially (a new window, an app
+     * switch, a resize) - a stable screen costs ~zero model calls. Fire-and-forget:
+     * the agent loop never waits on this. Broadcasts the result via `onRegions`.
+     */
+    maybeSegmentRegions(): void {
+        void (async () => {
+            try {
+                const grid = this.deps.control.captureGrid ? await this.deps.control.captureGrid() : null;
+                if (!this.regions.shouldRecompute(grid)) return;
+                const shot = await this.deps.control.screenshot();
+                const result = await this.regions.maybeRecompute(
+                    { image: { data: shot.base64, mimeType: shot.mimeType }, width: shot.width, height: shot.height },
+                    grid,
+                );
+                if (result) {
+                    try {
+                        this.onRegions?.(result);
+                    } catch {
+                        /* observer errors never affect the agent */
+                    }
+                }
+            } catch {
+                /* best-effort: segmentation never disturbs the run */
+            }
+        })();
     }
 
     /* ----------------------- sensitive-context watch -------------------- */

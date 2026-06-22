@@ -66,6 +66,8 @@ function humanAction(tool: string, args: any): string {
             return "scrolling…";
         case "screenshot":
             return "looking at the screen…";
+        case "get_regions":
+            return "mapping the screen…";
         default:
             return "performing actions…";
     }
@@ -575,8 +577,29 @@ function createWindow() {
         agentBackend.overlay.emitOverlay({ type: "context", ...(ctx as { app?: string; sensitive?: boolean }) });
     };
 
+    // LLM-segmented screen regions → labelled boxes on the console (and native)
+    // overlay. The map is change-gated in the runner, so this fires only when the
+    // layout actually shifts; here we just fan the result out to every client.
+    agentBackend.runner.onRegions = (result) => {
+        const payload = {
+            regions: result.regions.map((r) => ({ label: r.label, kind: r.kind, x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height })),
+            w: result.width,
+            h: result.height,
+        };
+        controlOverlayView.webContents.send("overlay:regions", payload);
+        agentBackend.overlay.emitOverlay({ type: "regions", ...payload });
+    };
+
     // Mirror the agent's "is acting" state onto the control overlay.
     agentBackend.runner.subscribe((event) => {
+        // After a full-frame screenshot the screen is settled and freshly captured —
+        // the ideal, cheap moment to (re)segment regions (the runner's grid gate then
+        // decides whether a model call is actually warranted). Never blocks the loop.
+        if (event.type === "tool_execution_end" && event.toolName === "screenshot") {
+            const args = (event as any).args ?? {};
+            const hasRegion = args.region && typeof args.region.x === "number";
+            if (!hasRegion) agentBackend.runner.maybeSegmentRegions();
+        }
         if (event.type === "tool_execution_start") {
             setAgentActing(true);
             const args = (event as any).args ?? {};

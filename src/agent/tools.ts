@@ -16,6 +16,7 @@ import type { InputTracker } from "../input-tracker";
 import type { ScreenshotHistory } from "./screenshot-history";
 import type { SecretsStore } from "../secrets";
 import { runWatchedTyping, type Region as TypingRegion, type WatchedTypingDeps } from "./watched-typing";
+import type { RegionsResult } from "./regions";
 
 function text(t: string) {
     return { type: "text" as const, text: t };
@@ -42,6 +43,8 @@ export function createTools(
         opticalRead?: (image: { data: string; mimeType: string }) => Promise<string>;
         /** Stronger read (vision model) to confirm a suspected mismatch. */
         opticalReadStrong?: (image: { data: string; mimeType: string }) => Promise<string>;
+        /** Current LLM-segmented screen regions (cached) for the `get_regions` tool. */
+        getRegions?: () => RegionsResult | null;
         /** Persist a learned fact (e.g. the target's keyboard layout). */
         remember?: (text: string) => void;
     } = {},
@@ -313,6 +316,35 @@ export function createTools(
     };
 
     const tools: AgentTool<any>[] = [screenshot, ocr, moveMouse, click, doubleClick, drag, typeText, pressKey, hotkey, scroll, requestApproval];
+
+    // Spatial awareness: the live screen is segmented (by a fast vision model,
+    // change-gated so it's cheap) into labelled regions — windows, the host
+    // taskbar, an embedded emulator (AVD), terminals, browsers, panels. Lets the
+    // agent reason about WHERE a coordinate falls (am I on the host taskbar or
+    // inside the AVD?) without guessing from the raw pixels.
+    if (deps.getRegions) {
+        const getRegions = deps.getRegions;
+        const regionsTool: AgentTool<typeof emptySchema> = {
+            name: "get_regions",
+            label: "Screen regions",
+            description:
+                "List the salient UI regions of the current screen — each with a short label, a kind (taskbar, window, terminal, browser, emulator/AVD, panel, dialog, menu…) and a bounding box in FULL-frame pixels. Use it to know where you are (e.g. host taskbar vs inside the AVD vs a terminal) and to find a window/region's bounds before clicking or cropping. The map updates as the layout changes; take a screenshot first if you've just changed the screen.",
+            parameters: emptySchema,
+            async execute(): Promise<AgentToolResult<null>> {
+                const result = getRegions();
+                if (!result || !result.regions.length) {
+                    return { content: [text("No screen regions are available yet — take a screenshot first, then try again.")], details: null };
+                }
+                const lines = result.regions.map((r) => {
+                    const b = r.bbox;
+                    return `• ${r.label} [${r.kind}] — x=${b.x}, y=${b.y}, ${b.width}×${b.height}`;
+                });
+                const header = `Screen regions (frame ${result.width}×${result.height} px, origin top-left):`;
+                return { content: [text(`${header}\n${lines.join("\n")}`)], details: null };
+            },
+        };
+        tools.push(regionsTool);
+    }
 
     // Secrets: the agent can type saved credentials it is never allowed to see.
     if (deps.secrets) {
