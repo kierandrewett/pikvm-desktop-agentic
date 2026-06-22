@@ -18,6 +18,7 @@ import {
     type AgentTool,
     type AgentToolResult,
     type AgentLoopTurnUpdate,
+    type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
 import { getModel, getModels, registerBuiltInApiProviders, Type, type Model, type ImageContent } from "@earendil-works/pi-ai";
 import { resolve, dirname } from "path";
@@ -79,6 +80,32 @@ const OPTICAL_READ_SYSTEM =
 const INPUT_ACTIONS = new Set(["click", "double_click", "drag", "type_text", "type_secret", "press_key", "hotkey"]);
 /** How long a context assessment stays fresh before we re-look. */
 const CONTEXT_TTL_MS = 12_000;
+
+/**
+ * Of the input actions, only those that can ENTER or SUBMIT text into the focused
+ * field need the (slower) sensitive-focus vision check: typing, mouse actions that
+ * might land on a Send button, and Enter / submit chords. Pure navigation or system
+ * hotkeys (Win+L, Alt+Tab, Ctrl+Alt+Del, arrows, Esc, …) skip it entirely so they
+ * fire instantly instead of waiting on a screen assessment.
+ */
+function needsSensitiveCheck(tool: string, args: Record<string, unknown>): boolean {
+    switch (tool) {
+        case "click":
+        case "double_click":
+        case "drag":
+        case "type_text":
+        case "type_secret":
+            return true;
+        case "press_key":
+            return SUBMIT_KEYS.has(String(args.key ?? args.code ?? ""));
+        case "hotkey": {
+            const codes = Array.isArray(args.codes) ? (args.codes as unknown[]).map(String) : [];
+            return codes.some((c) => SUBMIT_KEYS.has(c));
+        }
+        default:
+            return false;
+    }
+}
 const TITLE_SYSTEM =
     "You name conversations. Given a transcript between a user and a computer-use agent driving a remote PC, reply with a SHORT title (3 to 6 words, Title Case, no quotes, no trailing punctuation) describing what the conversation is CURRENTLY about. If the focus has shifted, name the current focus. Output ONLY the title.";
 
@@ -565,9 +592,12 @@ export class AgentRunner {
         const compaction = await this.compactContext(this.agent, this.model);
         const routedModel = this.routeNextTurnModel();
         if (!routedModel) return compaction;
+        // The fast tier drives routine clicks/keys/screenshots — extended thinking
+        // there is wasted latency, so run it at "low". Reasoning turns keep "medium".
+        const thinkingLevel: ThinkingLevel = this.lastTier === "fast" ? "low" : "medium";
         // Merge the routed model into whatever compaction returned (compaction may
         // also have replaced the context); never drop one for the other.
-        return { ...(compaction ?? {}), model: routedModel };
+        return { ...(compaction ?? {}), model: routedModel, thinkingLevel };
     }
 
     /* --------------------------- model routing -------------------------- */
@@ -1242,10 +1272,39 @@ export class AgentRunner {
         }
     }
 
-    /** Foreground/sensitivity for the current screen, refreshing if stale. */
-    private async currentContext(): Promise<{ app: string; sensitive: boolean; reason: string } | null> {
-        if (!this.sensCtx || Date.now() - this.sensCtx.at > CONTEXT_TTL_MS) await this.assessContext();
+    /**
+     * Sensitivity of the current focus, for gating a text-entry / submit action.
+     * Prefers a warm or in-flight assessment — the screen-watch (maybeAssessContext,
+     * fired after each of the agent's screenshots) keeps it fresh, so this usually
+     * returns instantly. It only pays a cold round-trip when there's no recent look
+     * at all (the first action of a run, or the screen sat unchanged past the TTL).
+     */
+    private async sensitiveContext(): Promise<{ app: string; sensitive: boolean; reason: string } | null> {
+        // A background assessment is already running (kicked after the agent's last
+        // screenshot) — join it. Its latency overlaps the agent's own between-step
+        // thinking, so the action rarely actually waits.
+        if (this.sensInflight) {
+            try {
+                await this.sensInflight;
+            } catch {
+                /* keep whatever we had */
+            }
+            return this.sensCtx;
+        }
+        if (this.sensCtx && Date.now() - this.sensCtx.at <= CONTEXT_TTL_MS) return this.sensCtx;
+        await this.assessContext();
         return this.sensCtx;
+    }
+
+    /**
+     * Kick a background sensitivity assessment — call it right after a screenshot,
+     * when the view has just settled and likely changed. Coalesced (a no-op while one
+     * is in flight) and best-effort; never blocks the caller. This is what keeps the
+     * gate's cache warm so text-entry actions don't pay a serial vision round-trip.
+     */
+    maybeAssessContext(): void {
+        if (this.sensInflight) return;
+        void this.assessContext();
     }
 
     /** Presence + reviewer gate for every agent tool call. */
@@ -1256,10 +1315,6 @@ export class AgentRunner {
         } catch {
             return { block: true, reason: "Aborted while paused for user presence." };
         }
-        // The agent screenshots before acting, which is exactly when the screen
-        // (and thus the context) likely changed - invalidate so the next input
-        // action re-assesses against the fresh view.
-        if (tool === "screenshot") this.sensCtx = null;
         // 2. Authorization.
         const argRec = (args as Record<string, unknown>) ?? {};
         const op: Operation = { tool, args: argRec, source: "agent" };
@@ -1273,11 +1328,12 @@ export class AgentRunner {
             const key = String(argRec.key ?? argRec.code ?? "");
             if (SUBMIT_KEYS.has(key) && this.lastTypedLine) op.commandText = this.lastTypedLine;
         }
-        // 2b. For input actions, recognise the app and flag sensitive areas (chat
-        // compose boxes, Send buttons, terminals) so they require approval.
-        if (INPUT_ACTIONS.has(tool)) {
+        // 2b. For text-entry / submit actions, recognise the app and flag sensitive
+        // areas (chat compose boxes, Send buttons, terminals) so they require
+        // approval. Pure hotkeys/navigation skip this — they can't submit text.
+        if (INPUT_ACTIONS.has(tool) && needsSensitiveCheck(tool, argRec)) {
             try {
-                const ctx = await this.currentContext();
+                const ctx = await this.sensitiveContext();
                 if (ctx?.sensitive) op.sensitive = { reason: ctx.reason || "sensitive area", ...(ctx.app ? { app: ctx.app } : {}) };
             } catch {
                 /* detection is best-effort; never block input on it failing */

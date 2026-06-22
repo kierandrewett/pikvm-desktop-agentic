@@ -334,7 +334,7 @@ export function createTools(
             name: "get_regions",
             label: "Screen regions",
             description:
-                "List the salient UI regions of the current screen — each with a short label, a kind (taskbar, window, terminal, browser, emulator/AVD, panel, dialog, menu…) and a bounding box in FULL-frame pixels. Use it to know where you are (e.g. host taskbar vs inside the AVD vs a terminal) and to find a window/region's bounds before clicking or cropping. The map updates as the layout changes; take a screenshot first if you've just changed the screen.",
+                "List the salient UI regions of the current screen — each with a short label, a kind (taskbar, window, terminal, browser, emulator/AVD, panel, dialog, menu…) and a bounding box in FULL-frame pixels. Use it to know where you are (e.g. host taskbar vs inside the AVD vs a terminal) and to find a window/region's bounds before clicking or cropping. You can zoom into any region for a closer look by passing its box to screenshot({ region: { x, y, width, height } }) — handy to read small text or confirm a control before acting. The map updates as the layout changes; take a screenshot first if you've just changed the screen.",
             parameters: emptySchema,
             async execute(): Promise<AgentToolResult<null>> {
                 const result = getRegions();
@@ -346,7 +346,8 @@ export function createTools(
                     return `• ${r.label} [${r.kind}] — x=${b.x}, y=${b.y}, ${b.width}×${b.height}`;
                 });
                 const header = `Screen regions (frame ${result.width}×${result.height} px, origin top-left):`;
-                return { content: [text(`${header}\n${lines.join("\n")}`)], details: null };
+                const hint = "\n\nZoom into any of these with screenshot({ region: { x, y, width, height } }) using its box above.";
+                return { content: [text(`${header}\n${lines.join("\n")}${hint}`)], details: null };
             },
         };
         tools.push(regionsTool);

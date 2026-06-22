@@ -1649,7 +1649,14 @@
             }
         }
         function onRegions(d) {
-            if (!d || !d.w || !d.h) return;
+            if (!d) return;
+            // An empty map (sent when the agent hands control back) clears the boxes.
+            if (!d.regions || !d.regions.length) {
+                lastRegions = null;
+                if (regionsLayer) regionsLayer.textContent = "";
+                return;
+            }
+            if (!d.w || !d.h) return;
             lastRegions = d;
             renderRegions();
         }

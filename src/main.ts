@@ -857,6 +857,15 @@ function createWindow() {
         agentBackend.overlay.emitOverlay({ type: "regions", ...payload });
     };
 
+    // The region map belongs to the agent's run: it's segmented while the agent is
+    // driving and is meaningless (stale) the moment it hands control back. Wipe the
+    // boxes from every client whenever the agent stops/finishes/is paused.
+    const clearRegions = () => {
+        const empty = { regions: [], w: 0, h: 0 };
+        controlOverlayView.webContents.send("overlay:regions", empty);
+        agentBackend.overlay.emitOverlay({ type: "regions", ...empty });
+    };
+
     // Mirror the agent's "is acting" state onto the control overlay.
     agentBackend.runner.subscribe((event) => {
         // After a full-frame screenshot the screen is settled and freshly captured —
@@ -865,7 +874,13 @@ function createWindow() {
         if (event.type === "tool_execution_end" && event.toolName === "screenshot") {
             const args = (event as any).args ?? {};
             const hasRegion = args.region && typeof args.region.x === "number";
-            if (!hasRegion) agentBackend.runner.maybeSegmentRegions();
+            if (!hasRegion) {
+                agentBackend.runner.maybeSegmentRegions();
+                // Warm the sensitive-focus assessment off the same fresh frame so the
+                // next text-entry/click reads a warm cache instead of blocking on a
+                // serial vision round-trip (overlaps with the agent's next think).
+                agentBackend.runner.maybeAssessContext();
+            }
         }
         if (event.type === "tool_execution_start") {
             setAgentActing(true);
@@ -906,6 +921,7 @@ function createWindow() {
         } else if (event.type === "agent_end") {
             setAgentActing(false);
             agentBackend.overlay.emitOverlay({ type: "acting", active: false });
+            clearRegions(); // agent handed control back — drop its stale region map
             // Notify on completion if the user isn't looking at the window.
             if (!win.isFocused() && Notification.isSupported()) {
                 new Notification({ title: "Agent finished", body: "The task is complete." }).show();
@@ -917,12 +933,14 @@ function createWindow() {
         console.log("Emergency stop from overlay");
         agentBackend.runner.stop();
         setAgentActing(false);
+        clearRegions();
     });
 
     ipcMain.on("agent:pause", () => {
         console.log("Pause — handing control to user");
         agentBackend.runner.pauseForUser();
         setAgentActing(false);
+        clearRegions();
     });
     } // end if (agentBackend) — local-backend wiring
 
