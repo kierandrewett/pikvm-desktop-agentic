@@ -519,6 +519,38 @@ body {
     background: #6cd38a;
 }
 
+/* LLM-segmented region map: thin, persistent violet rectangles labelling the
+   salient regions (windows, taskbar, AVD, terminal…). Violet keeps it distinct
+   from amber (observation), teal (typing) and blue (pointer). The boxes live in
+   a layer that is re-laid-out as the stream zooms/pans, so they stay glued. */
+.region-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+.region-box {
+    position: absolute;
+    border: 1px solid rgba(167, 139, 250, 0.85);
+    border-radius: 4px;
+    background: color-mix(in srgb, #a78bfa 4%, transparent);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+.region-tag {
+    position: absolute;
+    top: 0;
+    left: 0;
+    font-size: 9px;
+    font-weight: 700;
+    background: rgba(167, 139, 250, 0.92);
+    color: #160b2e;
+    border-radius: 0 0 4px 0;
+    padding: 0 5px;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
 /* "Agent is in control" bar + soft scrim while acting. */
 .screen.acting::after {
     content: "";

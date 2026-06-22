@@ -630,6 +630,9 @@
     var scale = 1;
     var tx = 0;
     var ty = 0;
+    // Set by the overlay layer so persistent boxes (the region map) re-scale with
+    // the stream on every zoom/pan/resize, not just when a fresh map arrives.
+    var onXform = null;
     function applyXform() {
         // Drive BOTH the <img> and the <video> with the same transform so zoom/pan
         // is identical whichever source is currently visible.
@@ -639,6 +642,7 @@
         img.style.willChange = wc;
         vid.style.transform = t;
         vid.style.willChange = wc;
+        if (onXform) onXform(); // let the region overlay re-scale with the stream
     }
     function clampPan() {
         if (scale <= 1) {
@@ -1321,6 +1325,47 @@
                 }, 240);
             }, d.hold || 1500);
         }
+        // LLM-segmented region map: persistent, thin labelled rectangles for the
+        // salient regions (windows, taskbar, AVD, terminal…), redrawn whenever a
+        // fresh map arrives. Held in their own layer so they can be re-scaled with
+        // the stream (letterbox + zoom/pan) on every reflow, like the other boxes.
+        var regionsLayer = null;
+        var lastRegions = null;
+        function renderRegions() {
+            if (!lastRegions || !lastRegions.w || !lastRegions.h) return;
+            if (!regionsLayer) {
+                regionsLayer = document.createElement("div");
+                regionsLayer.className = "region-layer";
+                xray.appendChild(regionsLayer);
+            }
+            var b = contentBox();
+            regionsLayer.textContent = "";
+            var rs = lastRegions.regions || [];
+            for (var i = 0; i < rs.length; i++) {
+                var r = rs[i];
+                var p = pt(r.x / lastRegions.w, r.y / lastRegions.h);
+                var box = document.createElement("div");
+                box.className = "region-box";
+                box.style.left = p.x + "px";
+                box.style.top = p.y + "px";
+                box.style.width = Math.max(8, (r.width / lastRegions.w) * b.width) + "px";
+                box.style.height = Math.max(8, (r.height / lastRegions.h) * b.height) + "px";
+                var tag = document.createElement("div");
+                tag.className = "region-tag";
+                tag.textContent = (r.label || "Region") + (r.kind ? " · " + r.kind : "");
+                box.appendChild(tag);
+                regionsLayer.appendChild(box);
+            }
+        }
+        function onRegions(d) {
+            if (!d || !d.w || !d.h) return;
+            lastRegions = d;
+            renderRegions();
+        }
+        // Keep the persistent region boxes glued to the stream as it zooms/pans/resizes.
+        onXform = renderRegions;
+        window.addEventListener("resize", renderRegions);
+
         var typeBox = null;
         var typeHide = null;
         function onTyping(d) {
@@ -1405,6 +1450,7 @@
             }
             if (d.type === "cursor") onCursor(d);
             else if (d.type === "region") onRegion(d);
+            else if (d.type === "regions") onRegions(d);
             else if (d.type === "typing") onTyping(d);
             else if (d.type === "acting") onActing(d);
             else if (d.type === "context") onContext(d);

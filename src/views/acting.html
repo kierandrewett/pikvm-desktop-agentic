@@ -258,6 +258,37 @@
                     opacity: 0.2;
                 }
             }
+            /* LLM-segmented region map: thin, persistent violet rectangles labelling
+               the salient regions (windows, taskbar, AVD, terminal…). Violet keeps it
+               distinct from amber (observation), teal (typing) and blue (pointer). */
+            #regions {
+                position: fixed;
+                inset: 0;
+                pointer-events: none;
+                z-index: 2;
+            }
+            #regions .region-box {
+                position: fixed;
+                border: 1px solid rgba(167, 139, 250, 0.85);
+                border-radius: 4px;
+                background: color-mix(in srgb, #a78bfa 4%, transparent);
+                box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+            }
+            #regions .region-tag {
+                position: absolute;
+                top: 0;
+                left: 0;
+                font-size: 9px;
+                font-weight: 700;
+                background: rgba(167, 139, 250, 0.92);
+                color: #160b2e;
+                border-radius: 0 0 4px 0;
+                padding: 0 5px;
+                white-space: nowrap;
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
             /* Watched typing — a teal box tracking the field, with a live progress
                bar. Teal = "machine verification", distinct from amber (observation)
                and blue (pointer). It morphs colour as it verifies / self-corrects. */
@@ -434,6 +465,33 @@
                     box.classList.remove("show");
                     setTimeout(() => box.remove(), 240);
                 }, hold);
+            });
+
+            // LLM-segmented region map: persistent, thin labelled rectangles for the
+            // salient regions (windows, taskbar, AVD, terminal…). Redrawn whenever a
+            // fresh map arrives, scaled to the overlay (which already tracks the KVM).
+            let regionsLayer = null;
+            window.ui?.on?.("overlay:regions", (d) => {
+                if (!d || !d.w || !d.h) return;
+                if (!regionsLayer) {
+                    regionsLayer = document.createElement("div");
+                    regionsLayer.id = "regions";
+                    document.body.appendChild(regionsLayer);
+                }
+                regionsLayer.textContent = "";
+                for (const r of d.regions || []) {
+                    const box = document.createElement("div");
+                    box.className = "region-box";
+                    box.style.left = (r.x / d.w) * innerWidth + "px";
+                    box.style.top = (r.y / d.h) * innerHeight + "px";
+                    box.style.width = Math.max(8, (r.width / d.w) * innerWidth) + "px";
+                    box.style.height = Math.max(8, (r.height / d.h) * innerHeight) + "px";
+                    const tag = document.createElement("div");
+                    tag.className = "region-tag";
+                    tag.textContent = (r.label || "Region") + (r.kind ? " · " + r.kind : "");
+                    box.appendChild(tag);
+                    regionsLayer.appendChild(box);
+                }
             });
 
             // Watched typing X-ray: one persistent teal box that tracks the field,
