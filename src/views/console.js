@@ -432,9 +432,7 @@
         if (audioOn) vid.play().catch(function () {});
         revealAvToggles(true);
         // Light up the speaker meter once the audio track lands (retry a couple of times).
-        updateSpeakerMeter();
-        setTimeout(updateSpeakerMeter, 700);
-        setTimeout(updateSpeakerMeter, 1600);
+        startMeters();
         fitAspect();
     }
 
@@ -443,8 +441,7 @@
         var was = webrtcActive;
         webrtcActive = false;
         mjpegPaused = false;
-        revealAvToggles(false);
-        updateSpeakerMeter(); // webrtcActive is now false → stops the speaker meter
+        revealAvToggles(false); // the meter loop sees !webrtcActive next tick and clears
         vid.classList.add("hidden");
         img.classList.remove("hidden");
         try {
@@ -577,85 +574,49 @@
         }, 3600000); // 1 hour
     }
 
-    // ---- audio activity meters: a live level lights up the button background ----
-    // The AudioContext opens a hardware output stream, which on some systems steals
-    // /switches the OS default audio device. So we NEVER create it on open — only
-    // after the user explicitly interacts with the audio/mic buttons (a gesture).
-    var audioCtx = null;
-    var audioGestureDone = false;
-    var speakerMeterStop = null;
-    var micMeterStop = null;
-    var micMeterStream = null;
-    function ensureAudioCtx() {
-        try {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (audioCtx.state === "suspended") audioCtx.resume();
-        } catch (e) {}
-        return audioCtx;
+    // ---- audio activity meters --------------------------------------------------
+    // Read the live audio level straight from WebRTC stats (getAudioLevels) — NO
+    // AudioContext / output device, so it works with no user gesture and can't touch
+    // the OS default device. A rAF loop polls ~every 90ms and drives `--vol` (0..1)
+    // on the speaker + mic buttons with a VU-style decay (rise fast, fall slow).
+    var meterRaf = 0;
+    var spkTarget = 0;
+    var micTarget = 0;
+    var spkShown = 0;
+    var micShown = 0;
+    var lastPollTs = 0;
+    function setVol(els, v) {
+        els.forEach(function (el) {
+            if (el) el.style.setProperty("--vol", v.toFixed(3));
+        });
     }
-    /** Drive `--vol` (0..1) on `els` from the RMS level of `stream`'s audio. */
-    function startMeter(stream, els) {
-        if (!audioGestureDone) return null; // no AudioContext before a user gesture
-        var ctx = ensureAudioCtx();
-        if (!ctx || !stream || !stream.getAudioTracks || !stream.getAudioTracks().length) return null;
-        try {
-            var srcNode = ctx.createMediaStreamSource(stream);
-            var an = ctx.createAnalyser();
-            an.fftSize = 256;
-            srcNode.connect(an);
-            var data = new Uint8Array(an.fftSize);
-            var stopped = false;
-            var r = 0;
-            var shown = 0; // displayed level — rises instantly, falls slowly (VU decay)
-            (function tick() {
-                if (stopped) return;
-                an.getByteTimeDomainData(data);
-                var s = 0;
-                for (var i = 0; i < data.length; i++) {
-                    var v = (data[i] - 128) / 128;
-                    s += v * v;
-                }
-                var inst = Math.min(1, Math.sqrt(s / data.length) * 3.6);
-                shown = inst > shown ? inst : Math.max(inst, shown - 0.035); // ~0.4s fall
-                els.forEach(function (el) {
-                    if (el) el.style.setProperty("--vol", shown.toFixed(3));
-                });
-                r = requestAnimationFrame(tick);
-            })();
-            return function () {
-                stopped = true;
-                if (r) cancelAnimationFrame(r);
-                try {
-                    srcNode.disconnect();
-                } catch (e) {}
-                els.forEach(function (el) {
-                    if (el) el.style.setProperty("--vol", "0");
-                });
-            };
-        } catch (e) {
-            return null;
-        }
+    function nowMs() {
+        return typeof performance !== "undefined" && performance.now ? performance.now() : 0;
     }
-    function updateSpeakerMeter() {
-        if (speakerMeterStop) {
-            speakerMeterStop();
-            speakerMeterStop = null;
+    function meterTick() {
+        meterRaf = 0;
+        if (!webrtcActive || !stream || !stream.getAudioLevels) {
+            setVol([document.getElementById("tb-audio"), audioBtn, document.getElementById("tb-mic"), micBtn], 0);
+            spkShown = micShown = spkTarget = micTarget = 0;
+            return; // loop stops; activateWebrtc restarts it
         }
-        if (audioOn && webrtcActive && vid.srcObject) speakerMeterStop = startMeter(vid.srcObject, [document.getElementById("tb-audio"), audioBtn]);
-    }
-    function stopMicMeter() {
-        if (micMeterStop) {
-            micMeterStop();
-            micMeterStop = null;
-        }
-        if (micMeterStream) {
-            micMeterStream.getTracks().forEach(function (t) {
-                try {
-                    t.stop();
-                } catch (e) {}
+        var t = nowMs();
+        if (!lastPollTs || t - lastPollTs > 90) {
+            lastPollTs = t;
+            stream.getAudioLevels().then(function (lv) {
+                if (lv && lv.speaker != null) spkTarget = Math.min(1, lv.speaker * 2.4);
+                if (lv && lv.mic != null) micTarget = Math.min(1, lv.mic * 2.4);
             });
-            micMeterStream = null;
         }
+        // Rise instantly, fall slowly (~0.4s) — a real VU meter.
+        spkShown = spkTarget > spkShown ? spkTarget : Math.max(spkTarget, spkShown - 0.03);
+        micShown = micTarget > micShown ? micTarget : Math.max(micTarget, micShown - 0.03);
+        setVol([document.getElementById("tb-audio"), audioBtn], audioOn ? spkShown : 0);
+        setVol([document.getElementById("tb-mic"), micBtn], micOn ? micShown : 0);
+        meterRaf = raf(meterTick);
+    }
+    function startMeters() {
+        if (!meterRaf) meterRaf = raf(meterTick);
     }
     function paintToggle(btn, pip, on, warn, label) {
         if (!btn || !pip) return;
@@ -673,7 +634,6 @@
         audioBtn.addEventListener("click", function (e) {
             e.stopPropagation();
             if (!stream) return;
-            audioGestureDone = true; // user interaction → meters may now open an AudioContext
             audioOn = !audioOn;
             vid.muted = !audioOn; // browsers gate autoplay on muted; unmute on opt-in
             if (audioOn) {
@@ -682,8 +642,7 @@
             stream.setAudio(audioOn);
             paintToggle(audioBtn, audioPip, audioOn, false);
             showResToast(true); // flash confirmation with the new A/M state
-            updateSpeakerMeter();
-            setTimeout(updateSpeakerMeter, 800);
+            startMeters();
             // Turned off → re-enable in an hour; turned back on → cancel that.
             if (!audioOn) scheduleAudioReenable();
             else if (audioReenableTimer) {
@@ -696,18 +655,17 @@
         micBtn.addEventListener("click", function (e) {
             e.stopPropagation();
             if (!stream) return;
-            audioGestureDone = true;
             if (micOn) {
                 micOn = false;
                 stream.setMic(false);
                 paintToggle(micBtn, micPip, false, false);
                 showResToast(true);
-                stopMicMeter();
                 return;
             }
             // Mic needs a permission grant; the wrapper's createAnswer will call
             // getUserMedia. Pre-flight the prompt so we can show a clear hint on
-            // denial instead of silently failing.
+            // denial instead of silently failing. (The level meter reads the mic
+            // energy from WebRTC stats, so we don't keep this stream.)
             paintToggle(micBtn, micPip, false, false, "…");
             var gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
             if (!gum) {
@@ -717,16 +675,17 @@
             navigator.mediaDevices
                 .getUserMedia({ audio: true })
                 .then(function (s) {
-                    // Keep this granted stream for the level meter (the wrapper opens
-                    // its OWN capture for the actual send; same mic → same levels).
-                    stopMicMeter();
-                    micMeterStream = s;
+                    s.getTracks().forEach(function (t) {
+                        try {
+                            t.stop();
+                        } catch (e) {}
+                    });
                     micOn = true;
                     // Mic implies an audio session; make sure audio is requested too.
                     stream.setMic(true);
                     paintToggle(micBtn, micPip, true, false);
                     showResToast(true);
-                    micMeterStop = startMeter(micMeterStream, [document.getElementById("tb-mic"), micBtn]);
+                    startMeters();
                 })
                 .catch(function () {
                     paintToggle(micBtn, micPip, false, true, "Denied");

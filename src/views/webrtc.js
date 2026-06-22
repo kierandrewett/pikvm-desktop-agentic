@@ -229,6 +229,25 @@
             hasVideo: function () {
                 return !!(video.srcObject && video.srcObject.getVideoTracks().length);
             },
+            // Read the live audio energy (0..1) for the received (speaker) and sent
+            // (mic) tracks straight from WebRTC stats — no AudioContext / output
+            // device needed. Resolves { speaker, mic } (null when unavailable).
+            getAudioLevels: function () {
+                var pc = handle && handle.webrtcStuff && handle.webrtcStuff.pc;
+                if (!pc || !pc.getStats) return Promise.resolve({ speaker: null, mic: null });
+                return pc.getStats().then(function (report) {
+                    var speaker = null;
+                    var mic = null;
+                    report.forEach(function (s) {
+                        if (s.kind !== "audio" && s.mediaType !== "audio") return;
+                        if (s.type === "inbound-rtp" && typeof s.audioLevel === "number") speaker = s.audioLevel;
+                        else if ((s.type === "media-source" || s.type === "outbound-rtp") && typeof s.audioLevel === "number") mic = s.audioLevel;
+                    });
+                    return { speaker: speaker, mic: mic };
+                }).catch(function () {
+                    return { speaker: null, mic: null };
+                });
+            },
         };
     };
 
