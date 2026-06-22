@@ -1063,6 +1063,145 @@ function McpServersTab({ servers, inputCls, onPatch }: { servers: McpServer[]; i
     );
 }
 
+/**
+ * Providers & Models settings: sign in / enter an API key per provider (keys go
+ * to the secrets vault via /api/provider-key), and pick the `provider/model` for
+ * each role — reasoning, fast/tool, sub-agent. Only authed providers' models are
+ * offered. Non-OpenAI models like Kimi become reachable once their provider has
+ * a key (e.g. Moonshot → `moonshotai/kimi-k2.6`).
+ */
+function ModelsTab({ state, inputCls, onPatch }: { state: ServerState | null; inputCls: string; onPatch: (p: any) => void }) {
+    const providers = state?.providers ?? [];
+    const mr = state?.settings?.modelRouting;
+    const routingOn = mr?.enabled ?? true;
+    const [keys, setKeys] = useState<Record<string, string>>({});
+
+    // A role picker: optgroups per authed provider, listing `provider/model` specs.
+    const RolePicker = ({ label, value, field, desc }: { label: string; value: string | undefined; field: "reasoningModel" | "fastModel" | "subagentModel"; desc?: string }) => {
+        const authed = providers.filter((p) => p.ready && p.models.length);
+        // Keep the current value selectable even if its provider is now un-authed.
+        const known = authed.some((p) => p.models.includes(value ?? ""));
+        return (
+            <label className="block text-[11px] text-muted-foreground">
+                {label}
+                <select
+                    value={value ?? ""}
+                    onChange={(e) => post("/api/settings", { modelRouting: { [field]: e.target.value } }).then(() => onPatch({}))}
+                    className={cn(inputCls, "mt-1 text-[12px]")}
+                >
+                    {!known && value ? <option value={value}>{value} (provider not signed in)</option> : null}
+                    {authed.map((p) => (
+                        <optgroup key={p.id} label={p.label}>
+                            {p.models.map((m) => (
+                                <option key={m} value={m}>
+                                    {m}
+                                </option>
+                            ))}
+                        </optgroup>
+                    ))}
+                    {authed.length === 0 ? <option value="">Sign in / add a key below</option> : null}
+                </select>
+                {desc ? <span className="mt-0.5 block text-[10px] text-muted-foreground/80">{desc}</span> : null}
+            </label>
+        );
+    };
+
+    return (
+        <div className="flex flex-col gap-3 text-sm">
+            {/* ---- providers: sign-in / API keys ---- */}
+            <div>
+                <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Sparkles className="size-3" /> Providers
+                </div>
+                <div className="flex flex-col gap-2">
+                    {providers.map((p) => (
+                        <div key={p.id} className="rounded-lg border bg-card/60 px-2.5 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                    <div className="truncate text-[13px] font-medium">{p.label}</div>
+                                    <div className="text-[10px] text-muted-foreground">
+                                        {p.kind === "oauth" ? "Sign in (ChatGPT subscription)" : p.keyHint ?? "API key"}
+                                    </div>
+                                </div>
+                                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", p.ready ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground")}>
+                                    {p.ready ? "Ready" : "Not configured"}
+                                </span>
+                            </div>
+                            {p.kind === "oauth" ? (
+                                !p.ready ? (
+                                    <Button size="sm" className="mt-2 h-8 w-full" onClick={() => post("/api/login").then(() => onPatch({}))}>
+                                        Sign in
+                                    </Button>
+                                ) : null
+                            ) : (
+                                <div className="mt-2 flex gap-1.5">
+                                    <input
+                                        type="password"
+                                        placeholder={p.ready ? "Replace key…" : "Paste API key"}
+                                        value={keys[p.id] ?? ""}
+                                        onChange={(e) => setKeys((k) => ({ ...k, [p.id]: e.target.value }))}
+                                        className={cn(inputCls, "text-[12px]")}
+                                    />
+                                    <Button
+                                        size="sm"
+                                        className="h-8 shrink-0"
+                                        disabled={!(keys[p.id] ?? "").trim()}
+                                        onClick={() =>
+                                            post("/api/provider-key", { provider: p.id, key: (keys[p.id] ?? "").trim() }).then(() => {
+                                                setKeys((k) => ({ ...k, [p.id]: "" }));
+                                                onPatch({});
+                                            })
+                                        }
+                                    >
+                                        Save
+                                    </Button>
+                                    {p.ready ? (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-8 shrink-0 text-destructive"
+                                            title="Remove key"
+                                            onClick={() => post("/api/provider-key", { provider: p.id, key: "" }).then(() => onPatch({}))}
+                                        >
+                                            <Trash2 className="size-3.5" />
+                                        </Button>
+                                    ) : null}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                    Keys are stored in your encrypted secrets vault, never in settings. Kimi becomes reachable once Moonshot, OpenRouter or opencode has a key
+                    (e.g. <code>moonshotai/kimi-k2.6</code>).
+                </p>
+            </div>
+
+            {/* ---- per-role model selection ---- */}
+            <div className="border-t pt-3">
+                <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Roles
+                </div>
+                <div className="flex flex-col gap-2">
+                    <RolePicker label="Reasoning model" field="reasoningModel" value={mr?.reasoningModel} desc="Thinking / planning / error-recovery turns." />
+                    {routingOn ? (
+                        <RolePicker label="Fast / tool model" field="fastModel" value={mr?.fastModel} desc="Routine tool-driving turns — must be vision-capable." />
+                    ) : (
+                        <p className="text-[10px] text-muted-foreground">Smart routing is off — every turn uses the reasoning model. Enable it in the Behaviour tab.</p>
+                    )}
+                    <RolePicker label="Sub-agent model" field="subagentModel" value={mr?.subagentModel} desc="Focused side-tasks spawned via spawn_subagent." />
+                </div>
+                {mr?.fastTierWarning ? (
+                    <p className="mt-2 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[10px] text-amber-700">{mr.fastTierWarning}</p>
+                ) : null}
+                <p className="mt-2 text-[10px] text-muted-foreground">
+                    Last turn ran on <b>{mr?.lastTier ?? "reasoning"}</b>. Models are named <code>provider/model</code>; only signed-in providers are listed.
+                </p>
+            </div>
+        </div>
+    );
+}
+
 function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
     const hv = s?.humanize ?? 1;
@@ -1092,7 +1231,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
         });
     };
     const amb = state?.ambient;
-    const [tab, setTab] = useState<"behaviour" | "ambient" | "mcp" | "secrets" | "server">("behaviour");
+    const [tab, setTab] = useState<"behaviour" | "models" | "mcp" | "ambient" | "secrets" | "server">("behaviour");
     const [accessToken, setAccessToken] = useState("");
     const [ntfyTopic, setNtfyTopic] = useState(amb?.ntfyTopic ?? "claude");
     const [ntfyBaseUrl, setNtfyBaseUrl] = useState(amb?.ntfyBaseUrl ?? "https://ntfy.sh");
@@ -1112,6 +1251,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
     const inputCls = "w-full rounded-lg border bg-background px-2.5 py-1.5 text-[13px] outline-none transition-colors focus:border-ring/60";
     const tabs: { id: typeof tab; label: string; icon: any }[] = [
         { id: "behaviour", label: "Behaviour", icon: Keyboard },
+        { id: "models", label: "Models", icon: Sparkles },
         { id: "ambient", label: "Ambient", icon: Radar },
         { id: "mcp", label: "MCP", icon: Plug },
         { id: "secrets", label: "Secrets", icon: Lock },
@@ -1134,11 +1274,11 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                             key={t.id}
                             onClick={() => setTab(t.id)}
                             className={cn(
-                                "flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition-colors",
+                                "flex items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium transition-colors",
                                 tab === t.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                             )}
                         >
-                            <t.icon className="size-3.5" /> {t.label}
+                            <t.icon className="size-3.5 shrink-0" /> <span className="truncate">{t.label}</span>
                         </button>
                     ))}
                 </div>
@@ -1222,42 +1362,12 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                     />
                                 }
                             />
-                            {(s?.modelRouting?.enabled ?? true) && (
-                                <div className="mt-2 grid grid-cols-2 gap-2 border-t pt-2.5">
-                                    <label className="block text-[11px] text-muted-foreground">
-                                        Reasoning model
-                                        <select
-                                            value={s?.modelRouting?.reasoningModel ?? ""}
-                                            onChange={(e) => post("/api/settings", { modelRouting: { reasoningModel: e.target.value } }).then(() => onPatch({}))}
-                                            className={cn(inputCls, "mt-1 text-[12px]")}
-                                        >
-                                            {(state?.models ?? []).map((m) => (
-                                                <option key={m} value={m}>
-                                                    {m}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    <label className="block text-[11px] text-muted-foreground">
-                                        Fast / tool model
-                                        <select
-                                            value={s?.modelRouting?.fastModel ?? ""}
-                                            onChange={(e) => post("/api/settings", { modelRouting: { fastModel: e.target.value } }).then(() => onPatch({}))}
-                                            className={cn(inputCls, "mt-1 text-[12px]")}
-                                        >
-                                            {(state?.models ?? []).map((m) => (
-                                                <option key={m} value={m}>
-                                                    {m}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    <p className="col-span-2 text-[10px] text-muted-foreground">
-                                        Last turn ran on <b>{s?.modelRouting?.lastTier ?? "reasoning"}</b>. Kimi isn't reachable on the ChatGPT
-                                        subscription — gpt-5.4-mini is the cheapest fast model here.
-                                    </p>
-                                </div>
-                            )}
+                            <button
+                                onClick={() => setTab("models")}
+                                className="mt-2 flex w-full items-center gap-1.5 rounded-lg border bg-card/60 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                                <Sparkles className="size-3.5" /> Choose providers &amp; per-role models in the <b className="text-foreground">Models</b> tab →
+                            </button>
                         </div>
                         {(state?.schedules ?? []).length > 0 && (
                             <div className="border-t pt-3">
@@ -1281,6 +1391,9 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         )}
                     </div>
                 )}
+
+                {/* ----------------------------- models / providers --------------------- */}
+                {tab === "models" && <ModelsTab state={state} inputCls={inputCls} onPatch={onPatch} />}
 
                 {/* ------------------------------- ambient ------------------------------ */}
                 {tab === "ambient" && (

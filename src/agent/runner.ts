@@ -24,7 +24,17 @@ import { resolve, dirname } from "path";
 import { PiKvmControl } from "../pikvm-control";
 import { OperationReviewer, SUBMIT_KEYS, type Operation } from "../reviewer";
 import { PresenceMonitor } from "../presence";
-import { CodexAuth } from "./auth";
+import { CodexAuth, ProviderAuthRegistry } from "./auth";
+import {
+    parseSpecOrDefault,
+    formatSpec,
+    guardFastTier,
+    PROVIDERS,
+    DEFAULT_REASONING_SPEC,
+    DEFAULT_FAST_SPEC,
+    DEFAULT_SUBAGENT_SPEC,
+    type ModelSpec,
+} from "./providers";
 import { createTools } from "./tools";
 import { createExtraTools } from "./extra-tools";
 import { BackgroundTasks } from "./background";
@@ -42,23 +52,17 @@ import { decideModelTier, type ModelTier, type TurnSummary } from "./model-route
 
 registerBuiltInApiProviders();
 
-const PROVIDER = "openai-codex";
-/** Default model for the main chat loop — capable by default (the "reasoning" tier). */
-const DEFAULT_MODEL = "gpt-5.5";
 /**
- * Fast/cheap model for routine, mechanical tool-driving turns (the "fast" tier).
- *
- * NB: the brief asked for something like Kimi K2.6 here. Kimi IS in pi-ai's model
- * catalogue, but only under the `moonshot`/`moonshotai`/`workers-ai` providers —
- * it is NOT reachable through `openai-codex` (the ChatGPT-subscription auth this
- * app uses). The only models the Codex subscription exposes are
- * gpt-5.3-codex-spark (text-only — unusable here, the agent needs vision), gpt-5.4,
- * gpt-5.4-mini and gpt-5.5. So the cheapest AVAILABLE fast+vision model is
- * gpt-5.4-mini ($0.75/$4.5 vs gpt-5.5's $5/$30), which we use for the fast path.
+ * The pi-ai provider id for the ChatGPT-subscription auth. The AUXILIARY models
+ * below (titles, context/region vision triage, ambient quick-looks) always run
+ * on this provider — they must be cheap, vision-capable and always available, so
+ * they are intentionally NOT user-routable. The user-facing ROLES (reasoning /
+ * fast / sub-agent) are chosen as `provider/model` specs and may target any
+ * authed provider (e.g. `moonshotai/kimi-k2.6`).
  */
-const FAST_MODEL = "gpt-5.4-mini";
-/** Model sub-agents use for hard thinking / deep work. */
-const SUBAGENT_MODEL = "gpt-5.5";
+const PROVIDER = "openai-codex";
+/** Default reasoning model (legacy bare id, used for codex auxiliary lookups). */
+const DEFAULT_MODEL = "gpt-5.5";
 /** Cheap model for naming conversations (titles refresh as the chat shifts). */
 const TITLE_MODEL = "gpt-5.4-mini";
 /** Cheap model for recognising the foreground app + sensitive contexts. */
@@ -220,7 +224,14 @@ export interface RunnerDeps {
     control: PiKvmControl;
     reviewer: OperationReviewer;
     presence: PresenceMonitor;
+    /** The ChatGPT-subscription OAuth provider (codex). Auxiliary models use it directly. */
     auth: CodexAuth;
+    /**
+     * Multi-provider auth registry. Optional: when omitted we build one wrapping
+     * `auth` + `secrets`, so existing callers (and the codex-only path) keep
+     * working unchanged. The user-facing roles resolve their credentials through it.
+     */
+    providerAuth?: ProviderAuthRegistry;
     sessionsDir: string;
     inputTracker?: InputTracker;
     secrets?: SecretsStore;
@@ -240,19 +251,27 @@ export class AgentRunner {
     private goalLoop: GoalLoopState | undefined;
     private goalLoopAbort: AbortController | undefined;
     private model: Model<any>;
-    private modelId = DEFAULT_MODEL;
+    /** Multi-provider auth: the codex OAuth provider plus API-key providers. */
+    private readonly providerAuth: ProviderAuthRegistry;
+    /** The reasoning role's spec — also the main loop's base model + header value. */
+    private reasoningSpec: ModelSpec = parseSpecOrDefault(DEFAULT_REASONING_SPEC, DEFAULT_REASONING_SPEC);
+    private get modelId(): string {
+        return formatSpec(this.reasoningSpec);
+    }
     /* ----- per-turn model routing (reasoning vs cheap tool-calling) ----- */
     /** Whether to route each turn dynamically. When off, every turn uses `model`. */
     private routingEnabled = true;
-    /** Model id used for the "reasoning" tier. Mirrors the main `modelId`. */
-    private reasoningModelId = DEFAULT_MODEL;
-    /** Model id used for the "fast" tier (routine tool-driving turns). */
-    private fastModelId = FAST_MODEL;
-    /** Resolved (auth-applied) model objects per tier, rebuilt when ids change. */
+    /** The "fast" tier's spec (routine tool-driving turns). */
+    private fastSpec: ModelSpec = parseSpecOrDefault(DEFAULT_FAST_SPEC, DEFAULT_FAST_SPEC);
+    /** The sub-agent role's spec (focused side-tasks). */
+    private subagentSpec: ModelSpec = parseSpecOrDefault(DEFAULT_SUBAGENT_SPEC, DEFAULT_SUBAGENT_SPEC);
+    /** Resolved (auth-applied) model objects per tier, rebuilt when specs change. */
     private reasoningModel: Model<any> | undefined;
     private fastModel: Model<any> | undefined;
     /** The tier the most recent routed turn ran on — surfaced for observability. */
     private lastTier: ModelTier = "reasoning";
+    /** Last fast-tier vision-guard warning (null when the fast model is fine). */
+    private fastTierWarning: string | null = null;
     private loopController: { stop: () => void } | undefined;
     private readonly sessions: SessionStore;
     private readonly memory: MemoryStore;
@@ -267,17 +286,22 @@ export class AgentRunner {
         segment: (image, instruction, system) => this.quickLook(image, instruction, { model: REGION_MODEL, thinking: "low", system }),
     });
     private readonly toolsForSub: AgentTool<any>[];
-    private readonly subModel: Model<any>;
+    /** Resolved sub-agent model — rebuilt when the sub-agent spec changes. */
+    private subModel: Model<any>;
     private sessionId: string;
 
     constructor(private deps: RunnerDeps) {
-        this.model = deps.auth.applyModel(getModel(PROVIDER as any, DEFAULT_MODEL as any));
-        this.subModel = deps.auth.applyModel(getModel(PROVIDER as any, SUBAGENT_MODEL as any));
+        // Build (or accept) the multi-provider auth registry. Falls back to a
+        // codex-only registry so existing callers keep working unchanged.
+        this.providerAuth = deps.providerAuth ?? new ProviderAuthRegistry(deps.auth, deps.secrets);
+        // Resolve each role's model through the registry; defaults are codex/* so
+        // a fresh install behaves exactly as before (reasoning gpt-5.5, fast 5.4-mini).
+        this.reasoningModel = this.resolveSpec(this.reasoningSpec) ?? deps.auth.applyModel(getModel(PROVIDER as any, DEFAULT_MODEL as any));
+        this.model = this.reasoningModel;
+        this.fastModel = this.resolveSpec(this.fastSpec);
+        this.subModel = this.resolveSpec(this.subagentSpec) ?? this.reasoningModel;
         // Warm the OCR worker so the first watched-type isn't blocked on a cold start.
         this.localOcr.warm();
-        // The reasoning tier is the main model; resolve the fast tier up front.
-        this.reasoningModel = this.model;
-        this.fastModel = this.resolveModel(FAST_MODEL);
         const dataDir = dirname(deps.sessionsDir);
         this.sessions = new SessionStore(deps.sessionsDir);
         this.memory = new MemoryStore(resolve(dataDir, "agent-memory.json"));
@@ -340,13 +364,10 @@ export class AgentRunner {
                 thinkingLevel: "medium",
                 tools: [...createTools(deps.control, mainToolDeps), ...extra],
             },
-            getApiKey: async () => {
-                try {
-                    return await deps.auth.getToken();
-                } catch {
-                    return undefined;
-                }
-            },
+            // Dispatch by the model's pi-ai provider id (codex OAuth bearer, or a
+            // stored API key), so a tool turn can run on Kimi while reasoning runs
+            // on codex within the same loop.
+            getApiKey: (provider) => this.keyForProvider(provider),
             sessionId: "pikvm-agent",
             beforeToolCall: async (ctx, signal) => this.gate(ctx.toolCall.name, ctx.args, signal),
             prepareNextTurn: () => this.maybeCompact(),
@@ -563,7 +584,7 @@ export class AgentRunner {
         if (!this.routingEnabled) return undefined;
         const tier = decideModelTier(this.summariseLastTurn());
         this.lastTier = tier;
-        const id = tier === "fast" ? this.fastModelId : this.reasoningModelId;
+        const id = formatSpec(tier === "fast" ? this.fastSpec : this.reasoningSpec);
         const model = tier === "fast" ? this.fastModel : this.reasoningModel;
         if (!model) return undefined;
         try {
@@ -660,18 +681,12 @@ export class AgentRunner {
         const sub = new Agent({
             initialState: {
                 systemPrompt: SUBAGENT_PROMPT,
-                // Sub-agents use the stronger model + deeper thinking for hard work.
+                // Sub-agents use the configured sub-agent role model + deeper thinking.
                 model: this.subModel,
                 thinkingLevel: "high",
                 tools: this.toolsForSub,
             },
-            getApiKey: async () => {
-                try {
-                    return await this.deps.auth.getToken();
-                } catch {
-                    return undefined;
-                }
-            },
+            getApiKey: (provider) => this.keyForProvider(provider),
             sessionId: `pikvm-subagent-${Date.now()}`,
             beforeToolCall: async (ctx, sig) => this.gate(ctx.toolCall.name, ctx.args, sig),
         });
@@ -1069,6 +1084,7 @@ export class AgentRunner {
         }
     }
 
+    /** Codex model ids (bare) — what the existing header model picker shows. */
     availableModels(): string[] {
         try {
             return getModels(PROVIDER as any)
@@ -1077,6 +1093,63 @@ export class AgentRunner {
         } catch {
             return [DEFAULT_MODEL];
         }
+    }
+
+    /**
+     * Reachable models per provider, as `provider/model` specs, for the
+     * Providers & Models pickers. Only providers that are authed AND have
+     * vision-capable models are listed (the loop sends screenshots). Each entry
+     * carries whether the provider is ready and its model specs.
+     */
+    availableProviderModels(): { id: string; label: string; kind: string; ready: boolean; keyHint?: string; models: string[] }[] {
+        return PROVIDERS.map((p) => {
+            let models: string[] = [];
+            try {
+                models = getModels(p.piProvider as any)
+                    .filter((m: any) => Array.isArray(m.input) && m.input.includes("image"))
+                    .map((m: any) => `${p.id}/${m.id}`);
+            } catch {
+                models = [];
+            }
+            return {
+                id: p.id,
+                label: p.label,
+                kind: p.kind,
+                ready: this.providerAuth.isReady(p.id),
+                ...(p.keyHint ? { keyHint: p.keyHint } : {}),
+                models,
+            };
+        });
+    }
+
+    /** Per-provider auth status (signed in / key stored), for the settings UI. */
+    providerStatus() {
+        return this.providerAuth.status();
+    }
+
+    /** Store/clear an API key for an API-key provider (vault-backed). */
+    setProviderKey(providerId: string, key: string): boolean {
+        const ok = this.providerAuth.setKey(providerId, key);
+        if (ok) {
+            // A newly-keyed provider may make a previously-unreachable role spec
+            // resolvable — re-resolve the roles so they pick it up immediately.
+            this.refreshRoleModels();
+        }
+        return ok;
+    }
+
+    /** Re-resolve all role models (after an auth change makes new providers reachable). */
+    private refreshRoleModels(): void {
+        const r = this.resolveSpec(this.reasoningSpec);
+        if (r) {
+            this.reasoningModel = r;
+            this.model = r;
+            this.agent.state.model = r;
+        }
+        const f = this.resolveSpec(this.fastSpec);
+        if (f) this.fastModel = f;
+        const s = this.resolveSpec(this.subagentSpec);
+        if (s) this.subModel = s;
     }
 
     /* --------------------------- region segmentation -------------------- */
@@ -1455,68 +1528,119 @@ export class AgentRunner {
         this.agent.state.messages = [];
     }
 
-    setModel(modelId: string): void {
-        const m = getModel(PROVIDER as any, modelId as any);
+    /**
+     * Set the reasoning-role model from the header picker. Accepts a full
+     * `provider/model` spec, or a bare model id (treated as a `codex/` model so
+     * the existing header keeps working). The reasoning model is also the loop's
+     * base model, so this updates both.
+     */
+    setModel(modelSpec: string): void {
+        const spec = parseSpecOrDefault(modelSpec.includes("/") ? modelSpec : `codex/${modelSpec}`, formatSpec(this.reasoningSpec));
+        const m = this.resolveSpec(spec);
         if (m) {
-            this.model = this.deps.auth.applyModel(m);
-            this.modelId = modelId;
-            this.agent.state.model = this.model;
-            // The header model picker selects the "reasoning" tier — keep the
-            // router's reasoning model in step so routing escalates to the
-            // model the user actually chose.
-            this.reasoningModelId = modelId;
-            this.reasoningModel = this.model;
+            this.reasoningSpec = spec;
+            this.reasoningModel = m;
+            this.model = m;
+            this.agent.state.model = m;
         }
     }
 
-    /** Resolve + auth-apply a provider model id; undefined if unknown/unreachable. */
-    private resolveModel(modelId: string): Model<any> | undefined {
+    /* ------------------------- provider resolution ---------------------- */
+
+    /**
+     * Resolve + auth-apply a `provider/model` spec to a concrete pi-ai model.
+     * Returns undefined when the provider/model is unknown or unreachable, so a
+     * bad value is ignored rather than breaking the loop.
+     */
+    private resolveSpec(spec: ModelSpec): Model<any> | undefined {
         try {
-            const m = getModel(PROVIDER as any, modelId as any);
-            return m ? this.deps.auth.applyModel(m) : undefined;
+            const m = getModel(spec.piProvider as any, spec.model as any);
+            return m ? this.providerAuth.applyModel(spec.piProvider, m) : undefined;
         } catch {
             return undefined;
         }
     }
 
+    /** Whether a spec's model is vision-capable (accepts image input). */
+    private specHasVision(spec: ModelSpec): boolean | undefined {
+        try {
+            const m: any = getModel(spec.piProvider as any, spec.model as any);
+            if (!m) return undefined;
+            return Array.isArray(m.input) ? m.input.includes("image") : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    /**
+     * The API key for a pi-ai provider id, dispatched through the auth registry:
+     * the codex OAuth bearer (refreshed), or a stored API key for an API-key
+     * provider. Returns undefined when the provider isn't configured.
+     */
+    private async keyForProvider(provider: string): Promise<string | undefined> {
+        return this.providerAuth.keyForPiProvider(provider);
+    }
+
     /* ------------------- per-turn model routing config ------------------ */
 
     /**
-     * Configure dynamic per-turn model switching: a capable model for reasoning
-     * turns and a cheap/fast one for routine tool-driving. Unknown/unreachable
-     * model ids are ignored (the previous resolved model is kept), so a bad value
-     * can never break the loop. The reasoning model also doubles as the agent's
-     * base `state.model`, so it's what runs when routing is disabled.
+     * Configure the per-role models as `provider/model` specs. Unknown/unreachable
+     * specs are ignored (the previous resolved model is kept), so a bad value can
+     * never break the loop. The reasoning model also doubles as the agent's base
+     * `state.model` (what runs when routing is disabled). The fast tier is guarded
+     * for vision: the loop sends screenshots, so a text-only fast model is rejected
+     * and the reasoning model is used for the fast tier instead.
      */
-    setRouterModels(opts: { enabled?: boolean; reasoningModel?: string; fastModel?: string }): void {
+    setRouterModels(opts: { enabled?: boolean; reasoningModel?: string; fastModel?: string; subagentModel?: string }): void {
         if (typeof opts.enabled === "boolean") this.routingEnabled = opts.enabled;
         if (opts.reasoningModel) {
-            const m = this.resolveModel(opts.reasoningModel);
+            const spec = parseSpecOrDefault(opts.reasoningModel, formatSpec(this.reasoningSpec));
+            const m = this.resolveSpec(spec);
             if (m) {
-                this.reasoningModelId = opts.reasoningModel;
+                this.reasoningSpec = spec;
                 this.reasoningModel = m;
                 // Reasoning is the base model: keep the main loop + header in sync.
                 this.model = m;
-                this.modelId = opts.reasoningModel;
                 this.agent.state.model = m;
             }
         }
         if (opts.fastModel) {
-            const m = this.resolveModel(opts.fastModel);
+            const requested = parseSpecOrDefault(opts.fastModel, formatSpec(this.fastSpec));
+            // Guard: the fast tier must take screenshots → must be vision-capable.
+            const guard = guardFastTier(requested, { vision: this.specHasVision(requested) ?? false }, this.reasoningSpec, true);
+            this.fastTierWarning = guard.warning;
+            const m = this.resolveSpec(guard.spec);
             if (m) {
-                this.fastModelId = opts.fastModel;
+                this.fastSpec = guard.spec;
                 this.fastModel = m;
+            }
+        }
+        if (opts.subagentModel) {
+            const spec = parseSpecOrDefault(opts.subagentModel, formatSpec(this.subagentSpec));
+            const m = this.resolveSpec(spec);
+            if (m) {
+                this.subagentSpec = spec;
+                this.subModel = m;
             }
         }
     }
 
     /** Current routing configuration (for the settings UI + observability). */
-    getRouterConfig(): { enabled: boolean; reasoningModel: string; fastModel: string; lastTier: ModelTier } {
+    getRouterConfig(): {
+        enabled: boolean;
+        reasoningModel: string;
+        fastModel: string;
+        subagentModel: string;
+        lastTier: ModelTier;
+        fastTierWarning: string | null;
+    } {
         return {
             enabled: this.routingEnabled,
-            reasoningModel: this.reasoningModelId,
-            fastModel: this.fastModelId,
+            reasoningModel: formatSpec(this.reasoningSpec),
+            fastModel: formatSpec(this.fastSpec),
+            subagentModel: formatSpec(this.subagentSpec),
             lastTier: this.lastTier,
+            fastTierWarning: this.fastTierWarning,
         };
     }
 
