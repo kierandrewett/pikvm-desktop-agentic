@@ -1079,6 +1079,7 @@
         if (e.target.closest && e.target.closest(".ibtn")) return; // let buttons click
         resizing = true;
         userResized = true; // a manual drag stops auto-fit for this session
+        app.classList.add("resizing"); // kill the --sh transition so the drag is 1:1, never eased
         startY = e.clientY;
         startH = pane.offsetHeight;
         try {
@@ -1093,6 +1094,7 @@
     }
     function resizeEnd() {
         resizing = false;
+        app.classList.remove("resizing");
     }
     // Only the grip + the status area of the bar resize; the keys row scrolls
     // independently and the action buttons keep clicking.
