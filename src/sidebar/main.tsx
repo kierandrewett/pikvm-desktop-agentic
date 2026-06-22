@@ -1578,13 +1578,13 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 </div>
                                 <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
                                     Where this desktop app loads the console from. Leave blank for the built-in local server, or point it at a
-                                    hosted deployment (e.g. <code>https://cg.drewett.dev</code>). Changing it restarts the app.
+                                    hosted deployment (a full <code>https://host</code> origin). Changing it restarts the app.
                                 </p>
                                 <div className="flex gap-1.5">
                                     <input
                                         type="url"
                                         inputMode="url"
-                                        placeholder="https://cg.drewett.dev  (blank = local)"
+                                        placeholder="https://host  (blank = local)"
                                         value={originInput}
                                         disabled={desktopOrigin.envLocked}
                                         onChange={(e) => setOriginInput(e.target.value)}

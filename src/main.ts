@@ -463,12 +463,16 @@ function createWindow() {
     // Reveal the window only once the main content has loaded (or after a safety
     // timeout), so there is no flash of an empty/white window on launch.
     let shownOnce = false;
+    let consoleLoadFails = 0; // consecutive remote-console load failures
     const revealWindow = () => {
         if (shownOnce || win.isDestroyed()) return;
         shownOnce = true;
         win.show();
     };
-    mainView.webContents.once("did-finish-load", () => setTimeout(revealWindow, 60));
+    mainView.webContents.on("did-finish-load", () => {
+        consoleLoadFails = 0; // loaded OK — reset the remote-failure counter
+        setTimeout(revealWindow, 60);
+    });
     setTimeout(revealWindow, 4000); // fallback in case load never finishes
 
     const overlayView = new WebContentsView({
@@ -520,9 +524,9 @@ function createWindow() {
     const desktopProxy = settings.get().desktopUseProxy;
     // The console can be served from ANYWHERE — set it in Settings → Connection (or
     // the PIKVM_CONSOLE_ORIGIN env override) to point the desktop at a hosted
-    // deployment (e.g. https://cg.drewett.dev). When it's not the local server, the
-    // desktop is a pure THIN CLIENT: it loads the remote console and does NOT start a
-    // local backend (the remote server owns the agent, capture, HID, proxy, etc.).
+    // deployment. When it's not the local server, the desktop is a pure THIN CLIENT:
+    // it loads the remote console and does NOT start a local backend (the remote
+    // server owns the agent, capture, HID, proxy, etc.).
     const CONSOLE_ORIGIN = (config.consoleOrigin || process.env.PIKVM_CONSOLE_ORIGIN || PROXY_ORIGIN).replace(/\/$/, "");
     const remoteConsole = CONSOLE_ORIGIN !== PROXY_ORIGIN;
     const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
@@ -1309,11 +1313,46 @@ function createWindow() {
             frameProcessId,
             frameRoutingId
         ) => {
-            console.log("Main view failed to load");
-            // In console mode the local server may not be up yet on first boot —
-            // retry the console rather than dropping to the legacy settings screen.
+            if (!isMainFrame || errorCode === -3) return; // ignore sub-resources + aborts
+            console.log("Main view failed to load:", errorCode, errorDescription, validatedURL);
             if (useConsole) {
-                setTimeout(connect, 600);
+                // Local server may just be starting on first boot — keep retrying.
+                if (!remoteConsole) {
+                    setTimeout(connect, 600);
+                    return;
+                }
+                // REMOTE console unreachable → the user can't reach in-app Settings,
+                // so give a NATIVE recovery dialog (independent of the dead frontend).
+                consoleLoadFails++;
+                if (consoleLoadFails < 3) {
+                    setTimeout(connect, 1200);
+                    return;
+                }
+                consoleLoadFails = 0;
+                if (!win.isDestroyed() && !win.isVisible()) win.show();
+                void dialog
+                    .showMessageBox(win, {
+                        type: "error",
+                        title: "Can't reach the console",
+                        message: `Couldn't load the console from:\n${CONSOLE_ORIGIN}`,
+                        detail: (errorDescription || "The server may be down or the address may be wrong.") + "\n\nUse the local server to get back in and fix the address in Settings → Connection.",
+                        buttons: ["Retry", "Use local server", "Quit"],
+                        defaultId: 0,
+                        cancelId: 2,
+                    })
+                    .then((r) => {
+                        if (r.response === 1) {
+                            const cfg = loadConfig();
+                            delete cfg.consoleOrigin; // back to local
+                            saveConfig(cfg);
+                            app.relaunch();
+                            app.exit(0);
+                        } else if (r.response === 2) {
+                            app.quit();
+                        } else {
+                            connect();
+                        }
+                    });
                 return;
             }
             mainView.webContents.loadFile(
