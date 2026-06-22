@@ -606,6 +606,7 @@
             var data = new Uint8Array(an.fftSize);
             var stopped = false;
             var r = 0;
+            var shown = 0; // displayed level — rises instantly, falls slowly (VU decay)
             (function tick() {
                 if (stopped) return;
                 an.getByteTimeDomainData(data);
@@ -614,9 +615,10 @@
                     var v = (data[i] - 128) / 128;
                     s += v * v;
                 }
-                var lvl = Math.min(1, Math.sqrt(s / data.length) * 3.2);
+                var inst = Math.min(1, Math.sqrt(s / data.length) * 3.6);
+                shown = inst > shown ? inst : Math.max(inst, shown - 0.035); // ~0.4s fall
                 els.forEach(function (el) {
-                    if (el) el.style.setProperty("--vol", lvl.toFixed(3));
+                    if (el) el.style.setProperty("--vol", shown.toFixed(3));
                 });
                 r = requestAnimationFrame(tick);
             })();

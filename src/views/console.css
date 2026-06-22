@@ -1085,24 +1085,25 @@ html.desktop-console .tb-av.on .wave {
 html.desktop-console .tb-av.warn {
     color: var(--warn);
 }
-/* Live activity meter: a glow in the button background scales with the audio level
- * (--vol, 0..1, driven by a Web Audio analyser). Behind the icon. */
+/* Live level meter: a real bottom-to-top fill behind the icon. `--vol` (0..1,
+ * driven by a Web Audio analyser with VU-style decay in console.js) is the fill
+ * height — 0% at the bottom, rising to 100%, falling back smoothly. The round
+ * button clips the rectangular fill to its circle. */
 html.desktop-console .tb-av {
     position: relative;
     isolation: isolate;
+    overflow: hidden;
 }
 html.desktop-console .tb-av::before {
     content: "";
     position: absolute;
-    inset: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--vol, 0) * 100%);
     z-index: -1;
-    border-radius: 50%;
-    background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
-    opacity: calc(var(--vol, 0) * 0.95);
-    transform: scale(calc(0.7 + var(--vol, 0) * 0.6));
-    transition:
-        opacity 0.06s linear,
-        transform 0.06s linear;
+    background: linear-gradient(to top, var(--primary), color-mix(in srgb, var(--primary) 45%, transparent));
+    transition: height 0.05s linear;
     pointer-events: none;
 }
 /* Window controls render a touch smaller + symmetric. */
