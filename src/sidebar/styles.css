@@ -98,3 +98,38 @@ body {
 *::-webkit-scrollbar-track {
     background: transparent;
 }
+
+/* iOS Safari: smooth momentum scroll, no page rubber-band, and the conversation
+ * scrolls VERTICALLY ONLY — no stray left/right swipe. */
+html,
+body,
+#root {
+    overscroll-behavior: none;
+    overflow-x: hidden;
+    max-width: 100%;
+}
+.overflow-auto,
+.overflow-y-auto,
+.overflow-scroll,
+.overflow-y-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    overflow-x: hidden !important;
+    touch-action: pan-y;
+}
+/* Markdown answers: long URLs/tokens wrap instead of widening the bubble; code
+ * blocks and tables stay inside their own horizontally-scrollable box. */
+.chat-md {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.chat-md :where(pre, table) {
+    max-width: 100%;
+    overflow-x: auto;
+    touch-action: pan-x;
+    overscroll-behavior-x: contain;
+}
+.chat-md :where(p, li, a, h1, h2, h3, h4, code) {
+    overflow-wrap: anywhere;
+}

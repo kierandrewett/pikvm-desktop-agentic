@@ -57,17 +57,28 @@ const HEAD_INJECT =
 const BODY_INJECT = `
 <style data-pikvm-agent>
   #pikvm-agent-host{position:fixed;top:0;right:0;height:100%;width:min(440px,100vw);transform:translateX(105%);
-    transition:transform .22s cubic-bezier(.2,0,0,1);z-index:2147483000;background:#0b0d12;
+    transition:transform .22s cubic-bezier(.2,0,0,1);z-index:2147483004;background:#0b0d12;
     box-shadow:-10px 0 40px rgba(0,0,0,.5);display:flex;flex-direction:column}
   #pikvm-agent-host.open{transform:none}
   #pikvm-agent-frame{flex:1;width:100%;height:100%;border:0;display:block;background:#0b0d12}
+  #pikvm-agent-close{position:absolute;top:max(10px,env(safe-area-inset-top));right:12px;width:34px;height:34px;
+    border-radius:9px;border:0;cursor:pointer;z-index:2;display:none;align-items:center;justify-content:center;
+    color:#e7e9ee;background:rgba(120,128,150,.18);-webkit-tap-highlight-color:transparent}
+  #pikvm-agent-host.open #pikvm-agent-close{display:flex}
+  #pikvm-agent-close svg{width:18px;height:18px}
   #pikvm-agent-fab{position:fixed;bottom:max(16px,env(safe-area-inset-bottom));right:16px;width:52px;height:52px;
-    border-radius:50%;border:0;cursor:pointer;z-index:2147483001;display:flex;align-items:center;justify-content:center;
-    color:#fff;background:#3b6ef0;box-shadow:0 6px 20px rgba(0,0,0,.45);-webkit-tap-highlight-color:transparent}
+    border-radius:50%;border:0;cursor:pointer;z-index:2147483003;display:flex;align-items:center;justify-content:center;
+    color:#fff;background:#3b6ef0;box-shadow:0 6px 20px rgba(0,0,0,.45);-webkit-tap-highlight-color:transparent;
+    transition:opacity .15s,transform .15s}
+  #pikvm-agent-fab.hidden{opacity:0;transform:scale(.6);pointer-events:none}
   #pikvm-agent-fab svg{width:24px;height:24px}
   @media (max-width:640px){#pikvm-agent-host{width:100vw}}
 </style>
-<div id="pikvm-agent-host" aria-hidden="true"></div>
+<div id="pikvm-agent-host" aria-hidden="true">
+  <button id="pikvm-agent-close" type="button" aria-label="Close agent" title="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+</div>
 <button id="pikvm-agent-fab" type="button" aria-label="Toggle agent" title="Agent">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/><circle cx="18" cy="17" r="2.4"/></svg>
@@ -76,17 +87,23 @@ const BODY_INJECT = `
   if (window.top !== window.self) return; // never inject inside our own iframe
   var host=document.getElementById('pikvm-agent-host');
   var fab=document.getElementById('pikvm-agent-fab');
+  var closeBtn=document.getElementById('pikvm-agent-close');
   var loaded=false;
-  function toggle(){
-    var open=host.classList.toggle('open');
+  function setOpen(open){
+    host.classList.toggle('open', open);
     host.setAttribute('aria-hidden', open?'false':'true');
+    // Hide the FAB while the panel is open so it never sits over the chat; the
+    // in-panel close button takes over.
+    fab.classList.toggle('hidden', open);
     if(open && !loaded){
       var f=document.createElement('iframe');
       f.id='pikvm-agent-frame'; f.title='Agent'; f.src='/_agent/sidebar.html';
       host.appendChild(f); loaded=true;
     }
   }
+  function toggle(){ setOpen(!host.classList.contains('open')); }
   fab.addEventListener('click',toggle);
+  closeBtn.addEventListener('click',function(){ setOpen(false); });
   // Install the agent-shell service worker only in a secure context (HTTPS or
   // localhost); over a plain-http LAN it is skipped silently (no console noise).
   if ('serviceWorker' in navigator && window.isSecureContext) {

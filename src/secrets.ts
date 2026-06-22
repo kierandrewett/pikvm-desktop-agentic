@@ -1,14 +1,22 @@
 /**
  * Secrets vault. Named secrets (e.g. "Windows password") the agent can TYPE but
  * never SEE — the value is never returned to the model's context. Encrypted at
- * rest with the OS keychain via Electron safeStorage when available.
+ * rest via an injected `SecretCrypto` (Electron safeStorage on the desktop, Node
+ * crypto + a keyfile on a headless server), so this module is Electron-free and
+ * runs anywhere.
  */
 
-import { safeStorage } from "electron";
 import { readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 
+/** Pluggable encryption backend (OS keychain on desktop, keyfile on a server). */
+export interface SecretCrypto {
+    available(): boolean;
+    encrypt(value: string): Buffer;
+    decrypt(buf: Buffer): string;
+}
+
 interface Entry {
-    enc?: string; // base64 of safeStorage-encrypted value
+    enc?: string; // base64 of encrypted value
     plain?: string; // fallback when encryption is unavailable
     hint?: string; // non-secret guidance for the agent on when/where to use it
 }
@@ -16,7 +24,10 @@ interface Entry {
 export class SecretsStore {
     private data: Record<string, Entry> = {};
 
-    constructor(private readonly path: string) {
+    constructor(
+        private readonly path: string,
+        private readonly crypto?: SecretCrypto,
+    ) {
         this.data = this.load();
     }
 
@@ -48,7 +59,7 @@ export class SecretsStore {
 
     encryptionAvailable(): boolean {
         try {
-            return safeStorage.isEncryptionAvailable();
+            return this.crypto?.available() ?? false;
         } catch {
             return false;
         }
@@ -61,7 +72,7 @@ export class SecretsStore {
         // than throwing (a thrown set would otherwise drop the write entirely).
         let stored: Entry;
         try {
-            stored = this.encryptionAvailable() ? { enc: safeStorage.encryptString(value).toString("base64") } : { plain: value };
+            stored = this.crypto?.available() ? { enc: this.crypto.encrypt(value).toString("base64") } : { plain: value };
         } catch {
             stored = { plain: value };
         }
@@ -79,7 +90,7 @@ export class SecretsStore {
         if (!e) return undefined;
         if (e.enc != null) {
             try {
-                return safeStorage.decryptString(Buffer.from(e.enc, "base64"));
+                return this.crypto?.decrypt(Buffer.from(e.enc, "base64"));
             } catch {
                 return undefined;
             }

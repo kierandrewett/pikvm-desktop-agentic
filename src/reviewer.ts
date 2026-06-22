@@ -84,9 +84,15 @@ const DANGEROUS_PATTERNS: { re: RegExp; reason: string }[] = [
 const SUBMIT_KEYS = new Set(["Enter", "NumpadEnter"]);
 
 export class OperationReviewer extends EventEmitter {
+    private static readonly SENSITIVE_ALLOW_MS = 45_000;
+    private static readonly EXPLICIT_APPROVAL_MS = 90_000;
+    private static readonly DUPLICATE_APPROVAL_MS = 5 * 60_000;
+
     private policy: ReviewPolicy = "risky-only";
     private prompter: Prompter | undefined;
     private alwaysAllow = new Set<string>();
+    private temporaryAllow = new Map<string, number>();
+    private explicitApprovalUntil = 0;
     private readonly log: LogEntry[] = [];
     private seq = 0;
 
@@ -109,6 +115,8 @@ export class OperationReviewer extends EventEmitter {
 
     clearAlwaysAllow(): void {
         this.alwaysAllow.clear();
+        this.temporaryAllow.clear();
+        this.explicitApprovalUntil = 0;
     }
 
     /** Classify whether an operation is risky/irreversible or outward-facing. */
@@ -204,6 +212,9 @@ export class OperationReviewer extends EventEmitter {
         if (verdict.rememberKind && verdict.decision === "allow") {
             this.alwaysAllow.add(kind);
         }
+        if (verdict.decision === "allow") {
+            this.grantTemporaryAllow(op, kind);
+        }
         this.record({
             op,
             risky,
@@ -215,9 +226,18 @@ export class OperationReviewer extends EventEmitter {
     }
 
     private shouldPrompt(op: Operation, risky: boolean, kind: string): boolean {
-        // An explicit approval request always prompts, whatever the policy.
+        const now = Date.now();
+        this.pruneTemporaryAllows(now);
+
+        const duplicateApproval = this.requestApprovalKey(op);
+        if (duplicateApproval && (this.temporaryAllow.get(duplicateApproval) ?? 0) > now) return false;
+        // An explicit approval request prompts unless this exact request was just approved.
         if (op.tool === "request_approval") return true;
         if (this.alwaysAllow.has(kind)) return false;
+        if (op.sensitive) {
+            if ((this.temporaryAllow.get(this.sensitiveAllowKey(kind)) ?? 0) > now) return false;
+            if (this.explicitApprovalUntil > now) return false;
+        }
         // Sensitive areas always prompt (even under autorun-trusted) unless the
         // user has chosen to always-allow this app for the session (handled above).
         if (op.sensitive) return true;
@@ -229,6 +249,39 @@ export class OperationReviewer extends EventEmitter {
             case "autorun-trusted":
                 // Only the hardest deny-list (a strict subset of risky) prompts.
                 return risky && this.isHardDeny(op);
+        }
+    }
+
+    private grantTemporaryAllow(op: Operation, kind: string): void {
+        const now = Date.now();
+        if (op.tool === "request_approval") {
+            this.explicitApprovalUntil = Math.max(this.explicitApprovalUntil, now + OperationReviewer.EXPLICIT_APPROVAL_MS);
+            const key = this.requestApprovalKey(op);
+            if (key) this.temporaryAllow.set(key, now + OperationReviewer.DUPLICATE_APPROVAL_MS);
+        }
+        if (op.sensitive) {
+            this.temporaryAllow.set(this.sensitiveAllowKey(kind), now + OperationReviewer.SENSITIVE_ALLOW_MS);
+        }
+    }
+
+    private sensitiveAllowKey(kind: string): string {
+        return `sensitive:${kind}`;
+    }
+
+    private requestApprovalKey(op: Operation): string | null {
+        if (op.tool !== "request_approval") return null;
+        const action = String(op.args.action ?? "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, " ")
+            .slice(0, 200);
+        return action ? `approval:${action}` : null;
+    }
+
+    private pruneTemporaryAllows(now: number): void {
+        if (this.explicitApprovalUntil <= now) this.explicitApprovalUntil = 0;
+        for (const [key, expires] of this.temporaryAllow) {
+            if (expires <= now) this.temporaryAllow.delete(key);
         }
     }
 

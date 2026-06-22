@@ -8,7 +8,7 @@
  */
 
 import { createRoot } from "react-dom/client";
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { Streamdown } from "streamdown";
@@ -57,10 +57,21 @@ import type { ServerState, MarkerData } from "../agent/protocol";
 // file:// page) gets the origin from its preload; a browser uses same-origin.
 const AGENT_ORIGIN = (window as unknown as { __AGENT_ORIGIN__?: string }).__AGENT_ORIGIN__ ?? location.origin;
 const BASE = `${AGENT_ORIGIN}/_agent`;
+// Stable per-tab id so the live broadcast can tell our own run's echo from runs
+// started by other clients (web/desktop) or autonomously.
+const CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
 // The desktop shell injects __AGENT_ORIGIN__ via its preload and is loopback-
 // exempt (never gated), so "Sign out" is meaningless there - only web clients
 // hold a session cookie to clear.
 const IS_DESKTOP = !!(window as unknown as { __AGENT_ORIGIN__?: string }).__AGENT_ORIGIN__;
+// Embedded as the chat pane of the web console (?embed=1): trim chrome to save space.
+const IS_EMBED = (() => {
+    try {
+        return new URLSearchParams(location.search).get("embed") === "1";
+    } catch {
+        return false;
+    }
+})();
 
 function post(path: string, body: unknown = {}) {
     return fetch(BASE + path, {
@@ -273,47 +284,116 @@ function toolLabel(name: string, input: any): string {
     }
 }
 
-function ToolCall({ name, state, input, output }: { name: string; state?: string; input?: any; output?: any }) {
+/** Markdown answer, memoised on its text so the 2-3s state poll (and streaming of
+ *  OTHER messages) doesn't re-run Shiki highlighting on every block every time. */
+const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
+    return <Streamdown className="chat-md text-[14px] leading-relaxed">{text}</Streamdown>;
+});
+
+/** A readable string from a tool's result — never a raw JSON dump. */
+function formatToolOutput(output: any): string {
+    if (output == null) return "";
+    if (typeof output === "string") return output.trim();
+    if (Array.isArray(output)) {
+        const t = output.map((p: any) => (typeof p === "string" ? p : (p?.text ?? ""))).filter(Boolean).join("\n");
+        if (t) return t.trim();
+    }
+    if (typeof output === "object") {
+        for (const k of ["text", "message", "result", "summary", "content", "value", "reason"]) {
+            if (typeof output[k] === "string" && output[k]) return output[k].trim();
+        }
+        return Object.entries(output)
+            .filter(([, v]) => v != null && typeof v !== "object")
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(" · ");
+    }
+    return String(output);
+}
+
+const ToolCall = memo(function ToolCall({ name, state, input, output }: { name: string; state?: string; input?: any; output?: any }) {
     const [open, setOpen] = useState(false);
     const running = state && state !== "output-available" && state !== "output-error";
     const isErr = state === "output-error" || (output && typeof output === "object" && output.isError);
     const Icon = TOOL_ICONS[name] ?? Activity;
+    const label = toolLabel(name, input);
+
+    // In progress: prominent, raised — front and centre.
+    if (running) {
+        return (
+            <div className="flex items-center gap-2.5 rounded-xl border border-primary/40 bg-primary/[0.06] px-3 py-2.5 shadow-sm shadow-primary/10 ring-1 ring-primary/10">
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                    <Icon className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13.5px] font-medium leading-tight text-foreground">{label}</div>
+                    <div className="text-[11px] text-primary">Working…</div>
+                </div>
+                <Loader size={15} className="shrink-0 text-primary" />
+            </div>
+        );
+    }
+
+    // Done: minimised to a single quiet line, but still visible + expandable.
+    const detail = formatToolOutput(output);
     return (
-        <div className="overflow-hidden rounded-lg border bg-card/60">
-            <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-accent/50">
-                <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate text-foreground/90">{toolLabel(name, input)}</span>
-                <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                    {running ? (
-                        <Loader size={12} className="text-muted-foreground" />
-                    ) : isErr ? (
-                        <X className="size-3.5 text-destructive" />
-                    ) : (
-                        <Check className="size-3.5 text-emerald-500" />
-                    )}
-                    <ChevronDown className={cn("size-3 text-muted-foreground transition-transform", open && "rotate-180")} />
-                </span>
+        <div className="text-[12px]">
+            <button
+                onClick={() => setOpen((o) => !o)}
+                className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-muted-foreground transition-colors hover:bg-accent/40"
+            >
+                <Icon className="size-3 shrink-0 opacity-60" />
+                <span className="truncate">{label}</span>
+                {isErr ? (
+                    <X className="ml-auto size-3 shrink-0 text-destructive" />
+                ) : (
+                    <Check className="ml-auto size-3 shrink-0 text-emerald-500/70" />
+                )}
+                {detail && <ChevronDown className={cn("size-3 shrink-0 transition-transform", open && "rotate-180")} />}
             </button>
-            {open && (
-                <div className="space-y-2 border-t px-2.5 py-2 text-[11px]">
-                    {input != null && Object.keys(input).length > 0 && (
-                        <div>
-                            <div className="mb-1 text-muted-foreground">Input</div>
-                            <pre className="overflow-x-auto rounded-md bg-muted/60 p-2">{JSON.stringify(input, null, 2)}</pre>
-                        </div>
+            {open && detail && (
+                <div
+                    className={cn(
+                        "ml-[26px] mt-1 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg px-2.5 py-1.5 text-[11.5px] leading-snug",
+                        isErr ? "bg-destructive/10 text-destructive" : "bg-muted/50 text-foreground/80",
                     )}
-                    {output != null && (
-                        <div>
-                            <div className="mb-1 text-muted-foreground">Result</div>
-                            <pre className={cn("overflow-x-auto rounded-md p-2", isErr ? "bg-destructive/10 text-destructive" : "bg-muted/60")}>
-                                {typeof output === "object" ? JSON.stringify(output, null, 2) : String(output)}
-                            </pre>
-                        </div>
-                    )}
+                >
+                    {detail}
                 </div>
             )}
         </div>
     );
+});
+
+/** A plain-English "what is about to happen" line from a tool + its args, so the
+ *  approval card shows the concrete action — not just the agent's free-text reason. */
+function describeOp(op: { tool: string; args?: any }): string {
+    const a = op.args ?? {};
+    const at = typeof a.x === "number" && typeof a.y === "number" ? ` at (${a.x}, ${a.y})` : "";
+    const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
+    switch (op.tool) {
+        case "type_text":
+            return `Type “${clip(String(a.text ?? ""))}”`;
+        case "type_secret":
+            return `Type the secret “${a.name ?? ""}”`;
+        case "press_key":
+            return `Press ${a.key ?? "a key"}`;
+        case "hotkey":
+            return `Press ${Array.isArray(a.keys) ? a.keys.join(" + ") : a.keys ?? "a chord"}`;
+        case "click":
+            return `Click${at}`;
+        case "double_click":
+            return `Double-click${at}`;
+        case "move_mouse":
+            return `Move the mouse${at}`;
+        case "drag":
+            return `Drag${at}`;
+        case "scroll":
+            return `Scroll${at}`;
+        default: {
+            const keys = Object.keys(a);
+            return keys.length ? `${op.tool} (${clip(keys.map((k) => `${k}: ${JSON.stringify(a[k])}`).join(", "))})` : op.tool;
+        }
+    }
 }
 
 function AuthCard({ req, onDecide }: { req: AuthRequest; onDecide: (v: any) => void }) {
@@ -345,11 +425,12 @@ function AuthCard({ req, onDecide }: { req: AuthRequest; onDecide: (v: any) => v
             </div>
 
             <div className="px-3.5 pt-2.5">
-                {req.reason && (
-                    <div className={cn("rounded-lg px-2.5 py-1.5 text-[13px] font-medium", req.risky ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary")}>
-                        {req.reason}
-                    </div>
-                )}
+                {/* The concrete action (the "what") — always visible so you can see
+                    exactly what's about to happen without expanding Details. */}
+                <div className={cn("rounded-lg px-2.5 py-1.5 text-[13px] font-semibold", req.risky ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary")}>
+                    {describeOp(req.op)}
+                </div>
+                {req.reason && <div className="mt-1.5 px-0.5 text-[12px] leading-snug text-muted-foreground">{req.reason}</div>}
                 {req.op.args != null && JSON.stringify(req.op.args) !== "{}" && (
                     <div className="mt-1.5">
                         <button onClick={() => setShowArgs((v) => !v)} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
@@ -436,7 +517,10 @@ function ContextMeter({ ctx }: { ctx: { tokens: number; max: number } | undefine
 function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
     return (
         <div className="fixed inset-0 z-40 flex justify-end bg-black/40" onClick={onClose}>
-            <div className={cn("relative flex flex-col border-l bg-card", wide ? "w-full" : "w-72")} onClick={(e) => e.stopPropagation()}>
+            <div
+                className={cn("relative flex flex-col bg-card", IS_EMBED || wide ? "w-full" : "w-72 border-l")}
+                onClick={(e) => e.stopPropagation()}
+            >
                 {children}
             </div>
         </div>
@@ -465,7 +549,7 @@ const TRACE_COLOR: Record<string, string> = {
     info: "text-muted-foreground",
 };
 
-function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: () => void }) {
+function AmbientPanel({ state, onClose, onRefresh }: { state: ServerState | null; onClose: () => void; onRefresh: () => void }) {
     const amb = state?.ambient;
     const events = amb?.events ?? [];
     const fmt = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -505,7 +589,7 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
         const el = transcriptRef.current;
         if (el) el.scrollTop = el.scrollHeight;
     }, [segs.length]);
-    const transcribing = !!ts && ts.state !== "idle";
+    const transcriptActive = !!amb?.transcriptActive;
     const relTime = (t: number) => {
         const base = ts?.startedAt && ts.startedAt > 0 ? ts.startedAt : segs[0]?.ts ?? t;
         const s = Math.max(0, Math.floor((t - base) / 1000));
@@ -574,7 +658,7 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
                     </div>
                 )}
             </div>
-            {(amb?.transcribe || transcribing) && (
+            {(amb?.transcribe || transcriptActive) && (
                 <div className="border-b bg-muted/20 px-3 py-2">
                     <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium">
                         <span className={cn("size-1.5 rounded-full bg-red-500", ts?.state === "transcribing" && "animate-pulse")} />
@@ -597,11 +681,11 @@ function AmbientPanel({ state, onClose }: { state: ServerState | null; onClose: 
                                 <Download className="size-3" />
                             </button>
                             <button
-                                title={transcribing ? "Stop listening" : "Start listening"}
-                                onClick={() => post("/api/ambient/transcribe", { on: !transcribing })}
-                                className={cn("ml-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium", transcribing ? "bg-red-500/15 text-red-500 hover:bg-red-500/25" : "bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25")}
+                                title={transcriptActive ? "Stop listening" : "Start listening"}
+                                onClick={() => post("/api/ambient/transcribe", { on: !transcriptActive }).then(onRefresh)}
+                                className={cn("ml-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium", transcriptActive ? "bg-red-500/15 text-red-500 hover:bg-red-500/25" : "bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25")}
                             >
-                                {transcribing ? "Stop" : "Start"}
+                                {transcriptActive ? "Stop" : "Start"}
                             </button>
                         </div>
                     </div>
@@ -1155,7 +1239,7 @@ function App() {
     const [historyQuery, setHistoryQuery] = useState("");
     const [images, setImages] = useState<{ url: string; mediaType: string }[]>([]);
     const fileInput = useRef<HTMLInputElement>(null);
-    const transport = useRef(new DefaultChatTransport({ api: BASE + "/api/chat" }));
+    const transport = useRef(new DefaultChatTransport({ api: BASE + "/api/chat", body: { clientId: CLIENT_ID } }));
     const messagesRef = useRef<any[]>([]);
     const { messages, sendMessage, status, stop, setMessages, regenerate, error } = useChat({ transport: transport.current });
     messagesRef.current = messages;
@@ -1193,8 +1277,19 @@ function App() {
 
     useEffect(() => {
         refreshState();
-        const id = setInterval(refreshState, 2000);
-        return () => clearInterval(id);
+        // Poll less aggressively, and not at all while the tab is hidden — each
+        // poll re-renders the whole conversation, so this matters for perf.
+        const id = setInterval(() => {
+            if (!document.hidden) refreshState();
+        }, 3000);
+        const onVis = () => {
+            if (!document.hidden) refreshState();
+        };
+        document.addEventListener("visibilitychange", onVis);
+        return () => {
+            clearInterval(id);
+            document.removeEventListener("visibilitychange", onVis);
+        };
     }, []);
 
 
@@ -1220,16 +1315,123 @@ function App() {
     }, [messages]);
 
     // Restore the current session's transcript (with screenshots) on load.
+    const [convLoading, setConvLoading] = useState(true);
     const loadTranscript = () =>
         fetch(BASE + "/api/sessions/current")
             .then((r) => r.json())
             .then((d) => {
                 if (Array.isArray(d.messages)) setMessages(d.messages);
             })
-            .catch(() => {});
+            .catch(() => {})
+            .finally(() => setConvLoading(false));
     useEffect(() => {
         void loadTranscript();
     }, []);
+
+    // Live spectating: render runs started by OTHER clients (or autonomously) in
+    // real time, from /api/events. Our OWN run is owned by useChat (we tag it and
+    // skip its echo here), so this is purely additive and can't disturb sending.
+    useEffect(() => {
+        const es = new EventSource(BASE + "/api/events");
+        let spec: any = null; // the assistant message we're building from the stream
+        let active = false; // are we spectating the current run?
+        const flush = () =>
+            setMessages((prev: any[]) => {
+                if (!spec) return prev;
+                const clone = { ...spec, parts: spec.parts.slice() };
+                const i = prev.findIndex((m) => m.id === spec.id);
+                if (i < 0) return [...prev, clone];
+                const next = prev.slice();
+                next[i] = clone;
+                return next;
+            });
+        const apply = (c: any) => {
+            const parts = spec.parts;
+            switch (c.type) {
+                case "text-start":
+                    parts.push({ type: "text", text: "", _id: c.id });
+                    break;
+                case "text-delta": {
+                    const p = parts.find((x: any) => x._id === c.id);
+                    if (p) p.text += c.delta ?? "";
+                    break;
+                }
+                case "data-thinking": {
+                    const p = parts.find((x: any) => x.type === "data-thinking" && x.data?.id === c.data.id);
+                    if (p) p.data = c.data;
+                    else parts.push({ type: "data-thinking", data: c.data });
+                    break;
+                }
+                case "tool-input-available":
+                    parts.push({ type: `tool-${c.toolName}`, toolName: c.toolName, toolCallId: c.toolCallId, state: "input-available", input: c.input });
+                    break;
+                case "tool-output-available": {
+                    const p = parts.find((x: any) => x.toolCallId === c.toolCallId);
+                    if (p) {
+                        p.state = "output-available";
+                        p.output = c.output;
+                    }
+                    break;
+                }
+                case "data-screenshot":
+                    parts.push({ type: "data-screenshot", id: c.id, data: c.data });
+                    break;
+                case "data-marker":
+                    parts.push({ type: "data-marker", data: c.data });
+                    break;
+                case "data-status":
+                    parts.push({ type: "data-status", data: c.data });
+                    break;
+                case "data-auth":
+                    parts.push({ type: "data-auth", data: c.data });
+                    break;
+                case "data-steer":
+                    parts.push({ type: "data-steer", data: c.data });
+                    break;
+            }
+        };
+        es.onmessage = (ev) => {
+            let c: any;
+            try {
+                c = JSON.parse(ev.data);
+            } catch {
+                return;
+            }
+            if (c.type === "begin") {
+                active = c.clientId !== CLIENT_ID; // our own run is handled by useChat
+                spec = active ? { id: `spec-${Date.now()}`, role: "assistant", parts: [] } : null;
+                return;
+            }
+            if (c.type === "user") {
+                if (c.clientId === CLIENT_ID) return; // our own message — already shown
+                setMessages((prev: any[]) =>
+                    prev.some((m) => m.id === c.id)
+                        ? prev
+                        : [
+                              ...prev,
+                              {
+                                  id: c.id,
+                                  role: "user",
+                                  parts: [
+                                      ...(c.text ? [{ type: "text", text: c.text }] : []),
+                                      ...((c.images ?? []) as { url: string }[]).map((im) => ({ type: "file", url: im.url, mediaType: "image/jpeg" })),
+                                  ],
+                              },
+                          ],
+                );
+                return;
+            }
+            if (c.type === "end") {
+                active = false;
+                spec = null;
+                return; // the canonical saved transcript lands via the uiVersion reload
+            }
+            if (!active || !spec) return;
+            apply(c);
+            flush();
+        };
+        return () => es.close();
+    }, [setMessages]);
 
     // When an autonomous (scheduled) run updates the transcript, reload it so its
     // flow shows in the sidebar — as long as the user isn't mid-conversation.
@@ -1364,6 +1566,52 @@ function App() {
     const busy = status === "streaming" || status === "submitted";
     const empty = messages.length === 0;
     const lastAssistantId = useMemo(() => [...messages].reverse().find((m: any) => m.role === "assistant")?.id, [messages]);
+
+    // Embedded in the web console: no agent header — the console's single merged
+    // bar drives these actions over postMessage, and we report status back to it.
+    const agentActions = useRef({ newChat, setPanel, copyConversation });
+    agentActions.current = { newChat, setPanel, copyConversation };
+    useEffect(() => {
+        if (!IS_EMBED) return;
+        const onMsg = (e: MessageEvent) => {
+            const d = e.data as { type?: string; action?: string };
+            if (!d || d.type !== "agent-action") return;
+            const a = agentActions.current;
+            if (d.action === "new") a.newChat();
+            else if (d.action === "copy") a.copyConversation();
+            else if (d.action) a.setPanel(d.action as any);
+        };
+        window.addEventListener("message", onMsg);
+        return () => window.removeEventListener("message", onMsg);
+    }, []);
+    useEffect(() => {
+        if (!IS_EMBED) return;
+        const text = busy ? "Working…" : serverState?.pausedForUser || serverState?.presence?.paused ? "Paused" : "Idle";
+        try {
+            parent.postMessage({ type: "agent-status", busy, text, inMeeting: !!serverState?.ambient?.inMeeting }, "*");
+        } catch {
+            /* not embedded */
+        }
+    }, [busy, serverState]);
+    // A panel (history/settings/…) should cover the whole phone, not just the chat
+    // pane — ask the console to expand the chat to full-screen while one is open.
+    useEffect(() => {
+        if (!IS_EMBED) return;
+        try {
+            parent.postMessage({ type: "chat-fullscreen", on: panel !== "none" }, "*");
+        } catch {
+            /* not embedded */
+        }
+    }, [panel]);
+    // Tell the console the conversation is ready, so it can slide the chat in.
+    useEffect(() => {
+        if (!IS_EMBED || convLoading) return;
+        try {
+            parent.postMessage({ type: "chat-ready" }, "*");
+        } catch {
+            /* not embedded */
+        }
+    }, [convLoading]);
     const latestShotId = useMemo(() => {
         for (let mi = (messages as any[]).length - 1; mi >= 0; mi--) {
             const parts = (messages as any[])[mi].parts ?? [];
@@ -1380,38 +1628,45 @@ function App() {
 
     return (
         <div className="relative flex h-screen w-full flex-col overflow-hidden bg-background text-foreground">
-            <div className="absolute left-0 top-0 z-30 h-full w-1.5 cursor-ew-resize hover:bg-primary/40" onMouseDown={onHandleDown} title="Drag to resize" />
+            {/* Width-resize handle is only meaningful for the desktop docked sidebar;
+                on web (embedded in the console / FAB panel) it is a stray edge bar. */}
+            {IS_DESKTOP && (
+                <div className="absolute left-0 top-0 z-30 h-full w-1.5 cursor-ew-resize hover:bg-primary/40" onMouseDown={onHandleDown} title="Drag to resize" />
+            )}
 
-            {/* header */}
-            <header className="flex h-14 shrink-0 items-center gap-2.5 border-b bg-card px-4">
-                <div className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                    <Sparkles className="size-4" />
-                </div>
-                <span className="text-[15px] font-semibold tracking-tight">Agent</span>
-                <StatusPill state={serverState} />
-                <span className="flex-1" />
-                <div className="flex items-center gap-0.5">
-                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="New chat (⌘K)" onClick={newChat}>
-                        <Plus className="size-[18px]" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="History" onClick={() => setPanel("history")}>
-                        <History className="size-[18px]" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Copy conversation" onClick={copyConversation}>
-                        <Copy className="size-[18px]" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="relative size-8 text-muted-foreground" title="Ambient monitor" onClick={() => setPanel("ambient")}>
-                        <Radar className={cn("size-[18px]", serverState?.ambient?.enabled && "text-primary")} />
-                        {serverState?.ambient?.inMeeting && <span className="absolute right-1 top-1 size-2 rounded-full bg-emerald-500" />}
-                    </Button>
-                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Activity" onClick={() => setPanel("activity")}>
-                        <Activity className="size-[18px]" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Settings" onClick={() => setPanel("settings")}>
-                        <Settings2 className="size-[18px]" />
-                    </Button>
-                </div>
-            </header>
+            {/* header — hidden when embedded in the console (its single bar carries
+                these actions via postMessage), so there's only ONE toolbar. */}
+            {!IS_EMBED && (
+                <header className="flex h-14 shrink-0 items-center gap-2.5 border-b bg-card px-4">
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                        <Sparkles className="size-4" />
+                    </div>
+                    <span className="text-[15px] font-semibold tracking-tight">Agent</span>
+                    <StatusPill state={serverState} />
+                    <span className="flex-1" />
+                    <div className="flex items-center gap-0.5">
+                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="New chat (⌘K)" onClick={newChat}>
+                            <Plus className="size-[18px]" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="History" onClick={() => setPanel("history")}>
+                            <History className="size-[18px]" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Copy conversation" onClick={copyConversation}>
+                            <Copy className="size-[18px]" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="relative size-8 text-muted-foreground" title="Ambient monitor" onClick={() => setPanel("ambient")}>
+                            <Radar className={cn("size-[18px]", serverState?.ambient?.enabled && "text-primary")} />
+                            {serverState?.ambient?.inMeeting && <span className="absolute right-1 top-1 size-2 rounded-full bg-emerald-500" />}
+                        </Button>
+                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Activity" onClick={() => setPanel("activity")}>
+                            <Activity className="size-[18px]" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground" title="Settings" onClick={() => setPanel("settings")}>
+                            <Settings2 className="size-[18px]" />
+                        </Button>
+                    </div>
+                </header>
+            )}
 
             {serverState && !serverState.loggedIn && (
                 <div className="border-b bg-card px-3 py-2">
@@ -1439,8 +1694,14 @@ function App() {
             {serverState?.goal && <div className="border-b bg-primary/10 px-3 py-1.5 text-xs">🎯 {serverState.goal}</div>}
 
             {/* conversation */}
-            <Conversation className="flex-1">
-                <ConversationContent className="gap-6 px-4 py-5">
+            {convLoading ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+                    <Loader />
+                    <span className="text-sm">Loading conversation…</span>
+                </div>
+            ) : (
+            <Conversation initial="instant" resize="instant" className="flex-1">
+                <ConversationContent className="gap-2.5 px-3 py-3">
                     {empty && (
                         <div className="flex flex-1 flex-col justify-center gap-7 py-4">
                             <div className="text-center">
@@ -1505,7 +1766,7 @@ function App() {
                                                 {p.text}
                                             </div>
                                         ) : (
-                                            <Streamdown key={i} className="text-[14px] leading-relaxed">{p.text}</Streamdown>
+                                            <ChatMarkdown key={i} text={p.text} />
                                         );
                                     }
                                     if (p.type === "data-thinking") {
@@ -1571,7 +1832,7 @@ function App() {
                                     return null;
                                 })}
                                 {m.role === "assistant" && !busy && (
-                                    <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100">
+                                    <div className="flex gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:hover:opacity-100">
                                         <Button size="icon" variant="ghost" className="size-6" title="Copy" onClick={() => copyText(m)}>
                                             <Copy className="size-3.5" />
                                         </Button>
@@ -1601,6 +1862,7 @@ function App() {
                 </ConversationContent>
                 <ConversationScrollButton />
             </Conversation>
+            )}
 
             {/* slash autocomplete */}
             {comps.length > 0 && (
@@ -1616,7 +1878,7 @@ function App() {
 
             {/* composer */}
             <div
-                className="relative bg-card p-2"
+                className="relative p-2 pt-0"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                     e.preventDefault();
@@ -1629,7 +1891,7 @@ function App() {
                         <AuthCard req={pendingAuth} onDecide={(v) => decide(pendingAuth.id, v)} />
                     </div>
                 )}
-                <div className="rounded-2xl border bg-background transition-colors focus-within:border-ring/50">
+                <div className="rounded-2xl border bg-card transition-colors focus-within:border-ring/50">
                     {images.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
                             {images.map((im, i) => (
@@ -1665,7 +1927,10 @@ function App() {
                             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
                         }}
                     />
-                    <div className="flex items-center gap-1 px-2 pb-1.5 pt-0.5">
+                    <div
+                        className="flex items-center gap-1 px-2 pb-1.5 pt-0.5"
+                        style={{ paddingBottom: "max(0.375rem, env(safe-area-inset-bottom))" }}
+                    >
                         <input
                             ref={fileInput}
                             type="file"
@@ -1691,6 +1956,23 @@ function App() {
                             <option value="autorun-trusted">Autorun</option>
                         </PillSelect>
                         <span className="flex-1" />
+                        {(() => {
+                            const c = serverState?.context;
+                            if (!c || !c.max) return null;
+                            const pct = Math.min(100, Math.round((c.tokens / c.max) * 100));
+                            const col = pct > 85 ? "var(--destructive)" : pct > 65 ? "#e0a52b" : "var(--primary)";
+                            return (
+                                <div
+                                    title={`Context ${pct}% — ${c.tokens.toLocaleString()} / ${c.max.toLocaleString()} tokens`}
+                                    className="size-[18px] shrink-0 rounded-full"
+                                    style={{
+                                        background: `conic-gradient(${col} ${pct * 3.6}deg, var(--border) 0deg)`,
+                                        WebkitMask: "radial-gradient(closest-side, transparent 56%, #000 58%)",
+                                        mask: "radial-gradient(closest-side, transparent 56%, #000 58%)",
+                                    }}
+                                />
+                            );
+                        })()}
                         {busy && (
                             <Button size="icon" variant="ghost" className="size-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10" onClick={stopAll} title="Stop the agent">
                                 <Square className="size-3.5 fill-current" />
@@ -1709,17 +1991,8 @@ function App() {
                 </div>
             </div>
 
-            {/* footer status */}
-            <div className="flex shrink-0 items-center justify-between gap-2 bg-card px-4 pb-1.5 text-[10.5px] text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                    <span className={cn("size-1.5 rounded-full", serverState?.loggedIn ? "bg-emerald-500" : "bg-muted-foreground")} />
-                    {serverState?.loggedIn ? "ChatGPT connected" : "Not signed in"}
-                </span>
-                <ContextMeter ctx={serverState?.context} />
-            </div>
-
             {/* panels */}
-            {panel === "ambient" && <AmbientPanel state={serverState} onClose={() => setPanel("none")} />}
+            {panel === "ambient" && <AmbientPanel state={serverState} onClose={() => setPanel("none")} onRefresh={refreshState} />}
             {panel === "activity" && <ActivityPanel state={serverState} onClose={() => setPanel("none")} />}
             {panel === "settings" && <SettingsPanel state={serverState} onClose={() => setPanel("none")} onPatch={(p) => post("/api/settings", p).then(refreshState)} />}
             {panel === "history" && (

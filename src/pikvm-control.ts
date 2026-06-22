@@ -17,6 +17,7 @@ import { Agent as HttpsAgent } from "https";
 import WebSocket from "ws";
 import { planTyping, type Persona, type TypingOptions } from "./human-typing";
 import { windMousePath } from "./windmouse";
+import type { GridSnapshot, TypingEvent } from "./agent/watched-typing";
 
 export interface Region {
     x: number;
@@ -103,6 +104,8 @@ export class PiKvmControl {
     private layout: "us" | "uk" = "us";
     /** Hook fired with text the agent types / keys it presses (for input tracking). */
     onAgentInput: ((info: { text?: string; key?: string }) => void) | undefined;
+    /** Live watched-typing events (progress / verify / self-correct) → overlay X-ray. */
+    onTypingEvent: ((ev: TypingEvent) => void) | undefined;
     /**
      * Capture the already-rendered live view (set by main → mainView.capturePage).
      * Preferred over the PiKVM snapshot endpoint so the agent's screenshots put
@@ -115,6 +118,12 @@ export class PiKvmControl {
      * monitor to detect meaningful screen changes WITHOUT an LLM or decode lib.
      */
     captureFingerprint: (() => Promise<Uint8Array | null>) | undefined;
+    /**
+     * Dense grayscale grid of the live view (set by main → capturePage().resize()).
+     * Used by watched typing to localise the field via the pixels that change while
+     * typing, and to detect "keystrokes aren't landing".
+     */
+    captureGrid: (() => Promise<GridSnapshot | null>) | undefined;
     /** Native stream resolution (for OCR coordinate scaling). */
     private nativeDims: { width: number; height: number } | undefined;
 
@@ -364,6 +373,11 @@ export class PiKvmControl {
     /** Set the target keyboard layout (so symbols map to the right physical keys). */
     setLayout(layout: "us" | "uk"): void {
         this.layout = layout === "uk" ? "uk" : "us";
+    }
+
+    /** Current target keyboard layout (watched typing toggles this on a layout slip). */
+    getLayout(): "us" | "uk" {
+        return this.layout;
     }
 
     /** Type text with humanlike timing, typos and self-correction. */

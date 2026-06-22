@@ -12,6 +12,7 @@ import {
     clipboard,
     Menu,
     Rectangle,
+    safeStorage,
 } from "electron";
 import { readFileSync, existsSync, writeFileSync } from "fs";
 import { url } from "inspector/promises";
@@ -23,6 +24,7 @@ import { CodexAuth } from "./agent/auth";
 import { AgentRunner } from "./agent/runner";
 import { connectAtlas } from "./agent/atlas-mcp";
 import { startControlServer } from "./server";
+import { OverlayBus } from "./overlay-bus";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
 import { SecretsStore } from "./secrets";
@@ -39,8 +41,9 @@ const appIconPath = resolve(__dirname, "assets/icon.png");
 // ("pikvm-desktop-agentic") and a generic icon.
 app.setName("PiKVM Desktop");
 
-/** Port for the local control server (MCP + sidebar chat bridge). */
-const CONTROL_PORT = 25650;
+/** Port for the local control server (MCP + sidebar chat bridge). Overridable via
+ *  PIKVM_CONTROL_PORT so a dev build can run alongside an installed instance. */
+const CONTROL_PORT = Number(process.env.PIKVM_CONTROL_PORT) || 25650;
 const SIDEBAR_MIN = 300;
 const SIDEBAR_MAX = 640;
 
@@ -93,7 +96,19 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     presence.start();
     const auth = new CodexAuth(resolve(app.getPath("userData"), "pi-credentials.json"));
     auth.load();
-    const secrets = new SecretsStore(resolve(app.getPath("userData"), "agent-secrets.json"));
+    // Desktop encrypts secrets with the OS keychain (Electron safeStorage); the
+    // headless server uses a keyfile instead (see SecretCrypto).
+    const secrets = new SecretsStore(resolve(app.getPath("userData"), "agent-secrets.json"), {
+        available: () => {
+            try {
+                return safeStorage.isEncryptionAvailable();
+            } catch {
+                return false;
+            }
+        },
+        encrypt: (v) => safeStorage.encryptString(v),
+        decrypt: (b) => safeStorage.decryptString(b),
+    });
     // ntfy push (token from the secrets vault) — created before the runner so the
     // agent's notify_user tool can use it.
     const ntfy = new NtfyClient({
@@ -168,14 +183,17 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
 
     // Bind to the LAN only when the user opts in (so a phone/browser can reach
     // the proxy); default to loopback. Auth gating lands in a later phase.
-    const bindHost = settings.get().bindHost || "127.0.0.1";
+    // PIKVM_BIND_HOST overrides the persisted setting (e.g. 0.0.0.0 to test from a
+    // phone with a dev build, without flipping the setting the installed app shares).
+    const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
+    const overlay = new OverlayBus();
     startControlServer(
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, transcriber, meetingLog, openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, transcriber, meetingLog, overlay, openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
         bindHost,
     );
     console.log(`Agent backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*)`);
-    return { control, reviewer, presence, auth, runner, ambient, transcriber, settings, setOnKVM: (b: boolean) => { onKVM = b; } };
+    return { control, reviewer, presence, auth, runner, ambient, transcriber, settings, overlay, setOnKVM: (b: boolean) => { onKVM = b; } };
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -476,6 +494,36 @@ function createWindow() {
         }
     };
 
+    // Dense grayscale grid (96x54) for watched typing: diffing it before/after a
+    // chunk localises the field (the pixels that change while typing) and catches
+    // "keystrokes aren't landing". Same cheap capturePage path as the fingerprint.
+    agentBackend.control.captureGrid = async () => {
+        try {
+            const img = await mainView.webContents.capturePage();
+            if (!img.getSize().width) return null;
+            const cols = 96;
+            const rows = 54;
+            const small = img.resize({ width: cols, height: rows, quality: "good" });
+            const bmp = small.toBitmap(); // BGRA
+            const cells = new Uint8Array(cols * rows);
+            for (let i = 0; i < cells.length; i++) {
+                const o = i * 4;
+                cells[i] = ((bmp[o]! + bmp[o + 1]! + bmp[o + 2]!) / 3) | 0;
+            }
+            return { cols, rows, cells };
+        } catch {
+            return null;
+        }
+    };
+
+    // Watched-typing events → the on-screen X-ray overlay (teal typing box).
+    agentBackend.control.onTypingEvent = (ev) => {
+        const dims = agentBackend.control.getDimensions();
+        const payload = { ...ev, w: dims.width, h: dims.height };
+        controlOverlayView.webContents.send("overlay:typing", payload);
+        agentBackend.overlay.emitOverlay({ type: "typing", ...payload });
+    };
+
     // Meeting transcription: feed renderer audio blobs into the local whisper
     // pipeline, and start/stop capture as the ambient monitor enters/leaves a meeting.
     ipcMain.on("kvm:audio-chunk", (_, b64: string) => {
@@ -524,6 +572,7 @@ function createWindow() {
     // where the agent thinks it is (and when it's in a sensitive area).
     agentBackend.runner.onContext = (ctx) => {
         controlOverlayView.webContents.send("overlay:context", ctx);
+        agentBackend.overlay.emitOverlay({ type: "context", ...(ctx as { app?: string; sensitive?: boolean }) });
     };
 
     // Mirror the agent's "is acting" state onto the control overlay.
@@ -531,9 +580,9 @@ function createWindow() {
         if (event.type === "tool_execution_start") {
             setAgentActing(true);
             const args = (event as any).args ?? {};
-            controlOverlayView.webContents.send("overlay:acting", {
-                action: humanAction(event.toolName, args),
-            });
+            const action = humanAction(event.toolName, args);
+            controlOverlayView.webContents.send("overlay:acting", { action });
+            agentBackend.overlay.emitOverlay({ type: "acting", active: true, action });
             // Drive the on-screen AI cursor for pointer actions.
             if (
                 (event.toolName === "move_mouse" || event.toolName === "click" || event.toolName === "double_click") &&
@@ -541,49 +590,32 @@ function createWindow() {
                 typeof args.y === "number"
             ) {
                 const dims = agentBackend.control.getDimensions();
-                controlOverlayView.webContents.send("overlay:cursor", {
-                    x: args.x,
-                    y: args.y,
+                const cur = {
+                    x: args.x as number,
+                    y: args.y as number,
                     w: dims.width,
                     h: dims.height,
                     kind: event.toolName === "move_mouse" ? "move" : "click",
-                });
+                };
+                controlOverlayView.webContents.send("overlay:cursor", cur);
+                agentBackend.overlay.emitOverlay({ type: "cursor", ...cur });
             }
             // Show what the agent is READING: a labelled scan box for OCR (the key
             // ask) and for cropped/zoom screenshots. Routine full-frame screenshots
             // are skipped (the pulsing scrim already signals "looking").
+            // (type_text drives its own live "overlay:typing" X-ray, so it's not here.)
             const hasRegion = args.region && typeof args.region.x === "number" && typeof args.region.width === "number";
-            const verifyRegion = args.verify_region && typeof args.verify_region.x === "number";
-            if (event.toolName === "ocr" || (event.toolName === "screenshot" && hasRegion) || (event.toolName === "type_text" && verifyRegion)) {
+            if (event.toolName === "ocr" || (event.toolName === "screenshot" && hasRegion)) {
                 const dims = agentBackend.control.getDimensions();
-                const r =
-                    event.toolName === "type_text"
-                        ? args.verify_region
-                        : hasRegion
-                          ? args.region
-                          : { x: 0, y: 0, width: dims.width, height: dims.height };
-                const label =
-                    event.toolName === "ocr"
-                        ? hasRegion
-                            ? "Reading text"
-                            : "Reading screen"
-                        : event.toolName === "type_text"
-                          ? "Checking typing"
-                          : "Zoom in";
-                controlOverlayView.webContents.send("overlay:region", {
-                    x: r.x,
-                    y: r.y,
-                    width: r.width,
-                    height: r.height,
-                    w: dims.width,
-                    h: dims.height,
-                    label,
-                    // Typing + read-back takes longer than a one-shot OCR; hold longer.
-                    hold: event.toolName === "type_text" ? 3500 : 1500,
-                });
+                const r = hasRegion ? args.region : { x: 0, y: 0, width: dims.width, height: dims.height };
+                const label = event.toolName === "ocr" ? (hasRegion ? "Reading text" : "Reading screen") : "Zoom in";
+                const region = { x: r.x, y: r.y, width: r.width, height: r.height, w: dims.width, h: dims.height, label, hold: 1500 };
+                controlOverlayView.webContents.send("overlay:region", region);
+                agentBackend.overlay.emitOverlay({ type: "region", ...region });
             }
         } else if (event.type === "agent_end") {
             setAgentActing(false);
+            agentBackend.overlay.emitOverlay({ type: "acting", active: false });
             // Notify on completion if the user isn't looking at the window.
             if (!win.isFocused() && Notification.isSupported()) {
                 new Notification({ title: "Agent finished", body: "The task is complete." }).show();

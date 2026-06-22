@@ -258,6 +258,80 @@
                     opacity: 0.2;
                 }
             }
+            /* Watched typing — a teal box tracking the field, with a live progress
+               bar. Teal = "machine verification", distinct from amber (observation)
+               and blue (pointer). It morphs colour as it verifies / self-corrects. */
+            #type-box {
+                position: fixed;
+                border: 2px solid #3dd7c8;
+                border-radius: 6px;
+                background: color-mix(in srgb, #3dd7c8 8%, transparent);
+                box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 16px rgba(61, 215, 200, 0.5);
+                pointer-events: none;
+                overflow: hidden;
+                z-index: 4;
+                opacity: 0;
+                transition: opacity 0.18s ease, border-color 0.2s ease;
+            }
+            #type-box.show {
+                opacity: 1;
+            }
+            #type-box.verifying {
+                border-style: dashed;
+                animation: typepulse 1s ease-in-out infinite;
+            }
+            #type-box.verified {
+                border-color: #6cd38a;
+                box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 16px rgba(108, 211, 138, 0.5);
+            }
+            #type-box.correcting {
+                border-color: #ff6b6b;
+                box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 16px rgba(255, 107, 107, 0.55);
+            }
+            @keyframes typepulse {
+                0%,
+                100% {
+                    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 12px rgba(61, 215, 200, 0.4);
+                }
+                50% {
+                    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 22px rgba(61, 215, 200, 0.7);
+                }
+            }
+            #type-box .type-tag {
+                position: absolute;
+                top: 0;
+                left: 0;
+                transform: translateY(-100%);
+                font-size: 10px;
+                font-weight: 700;
+                background: #3dd7c8;
+                color: #062420;
+                border-radius: 5px 5px 5px 0;
+                padding: 1px 6px;
+                white-space: nowrap;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+            }
+            #type-box.verified .type-tag {
+                background: #6cd38a;
+                color: #06240f;
+            }
+            #type-box.correcting .type-tag {
+                background: #ff6b6b;
+                color: #2a0606;
+            }
+            #type-box .pbar {
+                position: absolute;
+                left: 0;
+                bottom: 0;
+                height: 3px;
+                width: 0%;
+                background: #3dd7c8;
+                box-shadow: 0 0 8px 1px rgba(61, 215, 200, 0.9);
+                transition: width 0.12s linear;
+            }
+            #type-box.verified .pbar {
+                background: #6cd38a;
+            }
         </style>
     </head>
     <body>
@@ -360,6 +434,71 @@
                     box.classList.remove("show");
                     setTimeout(() => box.remove(), 240);
                 }, hold);
+            });
+
+            // Watched typing X-ray: one persistent teal box that tracks the field,
+            // fills a progress bar, and flips to verified/correcting in place.
+            let typeBox = null;
+            let typeHide = null;
+            window.ui?.on?.("overlay:typing", (d) => {
+                if (!d || !d.w || !d.h) return;
+                if (!typeBox) {
+                    typeBox = document.createElement("div");
+                    typeBox.id = "type-box";
+                    typeBox.innerHTML = '<div class="type-tag"></div><div class="pbar"></div>';
+                    document.body.appendChild(typeBox);
+                }
+                if (typeHide) {
+                    clearTimeout(typeHide);
+                    typeHide = null;
+                }
+                const tag = typeBox.querySelector(".type-tag");
+                const bar = typeBox.querySelector(".pbar");
+                if (d.region) {
+                    typeBox.style.left = (d.region.x / d.w) * innerWidth + "px";
+                    typeBox.style.top = (d.region.y / d.h) * innerHeight + "px";
+                    typeBox.style.width = Math.max(12, (d.region.width / d.w) * innerWidth) + "px";
+                    typeBox.style.height = Math.max(10, (d.region.height / d.h) * innerHeight) + "px";
+                }
+                typeBox.classList.remove("verifying", "verified", "correcting");
+                typeBox.classList.add("show");
+                switch (d.phase) {
+                    case "start":
+                        tag.textContent = "Typing…";
+                        bar.style.width = "0%";
+                        break;
+                    case "located":
+                    case "progress":
+                        tag.textContent = "Typing…";
+                        if (typeof d.done === "number" && d.total)
+                            bar.style.width = Math.min(100, Math.round((100 * d.done) / d.total)) + "%";
+                        break;
+                    case "verifying":
+                        tag.textContent = "Verifying…";
+                        typeBox.classList.add("verifying");
+                        break;
+                    case "verified":
+                        tag.textContent = "Verified ✓";
+                        typeBox.classList.add("verified");
+                        break;
+                    case "correcting":
+                        tag.textContent =
+                            d.reason === "no-focus"
+                                ? "Not focused ✗"
+                                : d.reason === "layout"
+                                  ? "Layout slip — fixing ✗"
+                                  : "Fixing ✗";
+                        typeBox.classList.add("correcting");
+                        break;
+                    case "done":
+                        tag.textContent = d.ok ? (d.corrected ? "Fixed ✓" : "Verified ✓") : "Check failed";
+                        typeBox.classList.add(d.ok ? "verified" : "correcting");
+                        bar.style.width = "100%";
+                        typeHide = setTimeout(() => {
+                            if (typeBox) typeBox.classList.remove("show");
+                        }, 1500);
+                        break;
+                }
             });
         </script>
     </body>

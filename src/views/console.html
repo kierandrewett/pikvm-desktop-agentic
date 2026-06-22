@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+        />
+        <meta name="theme-color" content="#0a0a0c" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="PiKVM" />
+        <link rel="manifest" href="/_agent/manifest.webmanifest" />
+        <link rel="apple-touch-icon" href="/_agent/icon.png" />
+        <link rel="icon" href="/_agent/icon.png" />
+        <link rel="stylesheet" href="/_agent/console.css" />
+        <title>PiKVM Console</title>
+    </head>
+    <body>
+        <script>
+            try {
+                var t = localStorage.getItem("pikvm-console-theme");
+                if (!t) t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+                document.documentElement.setAttribute("data-theme", t);
+            } catch (e) {}
+        </script>
+
+        <div class="app" id="app">
+            <!-- Live screen (top, resizable) -->
+            <div class="screen" id="screen-pane">
+                <img id="screen" alt="KVM screen" draggable="false" />
+
+                <!-- Agent "X-ray": cursor / look / typing boxes drawn over the screen,
+                     fed by /_agent/api/overlay/stream. pointer-events:none. -->
+                <div class="xray" id="xray">
+                    <div class="ai-cursor" id="ai-cursor"></div>
+                </div>
+
+                <!-- Our own cursor (the OS one is hidden over the screen), styled
+                     like PiKVM's: a translucent blue dot with a light ring. -->
+                <div class="kvm-cursor" id="kvm-cursor"></div>
+
+                <!-- Shown while the agent is driving the target. -->
+                <div class="acting-bar" id="acting-bar">
+                    <span class="acting-dot"></span>
+                    <div class="acting-label">
+                        <b>Agent is in control</b>
+                        <span id="acting-action">working…</span>
+                        <span class="acting-ctx" id="acting-ctx"></span>
+                    </div>
+                    <button class="ibtn" id="act-pause" title="Pause — take control, then resume">❚❚</button>
+                    <button class="ibtn danger" id="act-stop" title="Stop the agent">■ Stop</button>
+                </div>
+
+                <!-- Floating meeting copilot, fed by the ambient SSE. -->
+                <div class="copilot" id="copilot">
+                    <div class="copilot-head">
+                        <span class="copilot-dot"></span><span>Copilot</span>
+                        <span class="grow"></span>
+                        <button class="copilot-x" id="copilot-x" title="Dismiss">✕</button>
+                    </div>
+                    <div class="copilot-body" id="copilot-body"></div>
+                </div>
+
+                <div class="overlay">
+                    <div class="spinner" id="overlay-spin"></div>
+                    <div id="overlay-msg">Connecting to the stream…</div>
+                </div>
+            </div>
+
+            <!-- One thin control bar. Drag the grip/status to resize (smooth). Just
+                 the essentials; everything else lives in the ⋯ menu so it fits. -->
+            <div class="bar" id="bar">
+                <div class="grip" id="grip" title="Drag to resize"></div>
+                <div class="bar-main" id="bar-main">
+                    <span class="dot" id="conn" title="Connection"></span>
+                    <span class="status" id="conn-text">Connecting…</span>
+                    <span class="agent-status" id="agent-status"></span>
+                    <span class="spacer"></span>
+                    <button class="ibtn" data-agent="new" title="New chat" aria-label="New chat">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                    </button>
+                    <button class="ibtn" id="kbd-btn" title="Keys &amp; mouse" aria-label="Controls">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path
+                                d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12" /></svg>
+                    </button>
+                    <button class="ibtn" id="more-btn" title="More" aria-label="More">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                            stroke-linejoin="round"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Overflow menu (anchored to the ⋯ button). -->
+            <div class="more-menu" id="more-menu">
+                <button class="more-item" data-agent="history">History</button>
+                <button class="more-item" data-agent="ambient">Monitor</button>
+                <button class="more-item" data-agent="settings">Settings</button>
+                <button class="more-item" data-agent="copy">Copy conversation</button>
+                <div class="more-sep"></div>
+                <button class="more-item" id="theme-btn">Toggle theme</button>
+                <a class="more-item" id="full-ui" href="/?native=1">Full PiKVM UI ⤢</a>
+            </div>
+
+            <!-- Agent chat (reuses the existing sidebar app). The keys/mouse row
+                 overlays the TOP of the chat when ⌨ is tapped — never the stream,
+                 and no layout reflow. -->
+            <div class="chat">
+                <div class="bar-keys" id="drawer">
+                    <button class="ibtn" data-click="left" title="Left click">L</button>
+                    <button class="ibtn" data-click="middle" title="Middle click">M</button>
+                    <button class="ibtn" data-click="right" title="Right click">R</button>
+                    <button class="ibtn" id="drag-lock" title="Hold left (drag)">⤞</button>
+                    <span class="sep"></span>
+                    <button class="ibtn" data-key="Escape">Esc</button>
+                    <button class="ibtn" data-key="Tab">Tab</button>
+                    <button class="ibtn" data-mod="ControlLeft">Ctrl</button>
+                    <button class="ibtn" data-mod="AltLeft">Alt</button>
+                    <button class="ibtn" data-mod="MetaLeft">Win</button>
+                    <button class="ibtn" data-key="ArrowLeft">←</button>
+                    <button class="ibtn" data-key="ArrowUp">↑</button>
+                    <button class="ibtn" data-key="ArrowDown">↓</button>
+                    <button class="ibtn" data-key="ArrowRight">→</button>
+                    <button class="ibtn" data-key="Backspace">⌫</button>
+                    <button class="ibtn" data-key="Enter">⏎</button>
+                    <button class="ibtn" data-key="Delete">Del</button>
+                    <button class="ibtn" data-key="Home">Home</button>
+                    <button class="ibtn" data-key="End">End</button>
+                    <button class="ibtn" id="cad" title="Ctrl+Alt+Del">C-A-D</button>
+                    <button class="ibtn" data-scroll="up" title="Scroll up">▲</button>
+                    <button class="ibtn" data-scroll="down" title="Scroll down">▼</button>
+                </div>
+                <iframe id="chat-frame" title="Agent"></iframe>
+            </div>
+        </div>
+
+        <!-- Visually-hidden input that drives the soft keyboard / captures keys. -->
+        <input
+            class="kbd"
+            id="kbd"
+            type="text"
+            aria-label="Keyboard input to the remote target"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+        />
+
+        <script src="/_agent/console.js"></script>
+    </body>
+</html>

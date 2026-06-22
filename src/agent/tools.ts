@@ -15,6 +15,7 @@ import type { BackgroundTasks } from "./background";
 import type { InputTracker } from "../input-tracker";
 import type { ScreenshotHistory } from "./screenshot-history";
 import type { SecretsStore } from "../secrets";
+import { runWatchedTyping, type Region as TypingRegion, type WatchedTypingDeps } from "./watched-typing";
 
 function text(t: string) {
     return { type: "text" as const, text: t };
@@ -37,8 +38,49 @@ export function createTools(
         tracker?: InputTracker;
         history?: ScreenshotHistory;
         secrets?: SecretsStore;
+        /** Fast optical read of a cropped field (local OCR) for watched typing. */
+        opticalRead?: (image: { data: string; mimeType: string }) => Promise<string>;
+        /** Stronger read (vision model) to confirm a suspected mismatch. */
+        opticalReadStrong?: (image: { data: string; mimeType: string }) => Promise<string>;
+        /** Persist a learned fact (e.g. the target's keyboard layout). */
+        remember?: (text: string) => void;
     } = {},
 ): AgentTool<any>[] {
+    // Build the dependency bundle the watched-typing orchestrator needs from control.
+    // Per-call code/secret flow through the orchestrator's opts → typeChunk(o).
+    const watchedTypingDeps = (): WatchedTypingDeps => ({
+        typeChunk: (t, o) =>
+            control.typeText(t, {
+                ...(o.signal ? { signal: o.signal } : {}),
+                ...(o.code !== undefined ? { code: o.code } : {}),
+                ...(o.secret ? { secret: o.secret } : {}),
+                ...(o.onProgress ? { onProgress: o.onProgress } : {}),
+            }),
+        pressKey: (c) => {
+            if (c === "Enter" || c === "NumpadEnter") throw new Error("watched typing never presses Enter");
+            return control.pressKey(c);
+        },
+        hotkey: (cs) => {
+            if (cs.includes("Enter") || cs.includes("NumpadEnter")) throw new Error("watched typing never presses Enter");
+            return control.hotkey(cs);
+        },
+        captureGrid: () => (control.captureGrid ? control.captureGrid() : Promise.resolve(null)),
+        cropField: async (r: TypingRegion) => {
+            try {
+                const s = await control.screenshot(r);
+                return { data: s.base64, mimeType: s.mimeType };
+            } catch {
+                return null;
+            }
+        },
+        opticalRead: deps.opticalRead ?? (async () => ""),
+        ...(deps.opticalReadStrong ? { opticalReadStrong: deps.opticalReadStrong } : {}),
+        getLayout: () => control.getLayout(),
+        setLayout: (l) => control.setLayout(l),
+        ...(deps.remember ? { remember: deps.remember } : {}),
+        emit: (ev) => control.onTypingEvent?.(ev),
+        getDimensions: () => control.getDimensions(),
+    });
     const screenshotSchema = Type.Object({
         region: Type.Optional(
             Type.Object(
@@ -133,61 +175,45 @@ export function createTools(
             Type.Boolean({ description: "Type in the background and return immediately with a task id (for long text)." }),
         ),
         verify_region: Type.Optional(
-            { ...RegionSchema, description: "STRONGLY RECOMMENDED: frame-pixel box around the field. After typing, it is OCR'd and read back to you so you can confirm the field actually contains what you typed (caret-at-start, autocorrect and layout mishaps are caught here). A scan box is drawn so the user sees the checked area." } as typeof RegionSchema,
+            { ...RegionSchema, description: "OPTIONAL frame-pixel box around the field. Typing is ALWAYS watched and verified now — it auto-finds the field from the pixels that change while typing. Pass this only when you already know the exact field box (skips auto-locate; the read-back is tighter)." } as typeof RegionSchema,
         ),
     });
-    /** Normalise for a forgiving read-back compare (case/space-insensitive). */
-    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
     const typeText: AgentTool<typeof typeSchema> = {
         name: "type_text",
         label: "Type",
         description:
-            "Type text into the focused field with humanlike timing and self-correcting typos. NEVER emits Enter/newline - typing can never submit a form, send a message, or run a command (press_key('Enter') does that, deliberately). Any newlines in `text` are collapsed to spaces. Final text always matches the (sanitised) input exactly. Set background:true for long text, then use wait_for_task / list_tasks.",
+            "Type text into the focused field with humanlike timing. WATCHED + self-verifying: while typing it tracks the field's changing pixels (so it instantly knows if nothing is focused), reads the field back with vision, and self-corrects mistakes inline — including a wrong keyboard layout (it switches layout and re-types). NEVER emits Enter/newline - typing can never submit a form, send a message, or run a command (press_key('Enter') does that, deliberately). Any newlines in `text` are collapsed to spaces. If it reports the field isn't focused, click the field and try again. Set background:true for long text, then use wait_for_task / list_tasks.",
         parameters: typeSchema,
         async execute(_id, p: Static<typeof typeSchema>, signal): Promise<AgentToolResult<null>> {
-            const codeOpt = typeof p.code === "boolean" ? { code: p.code } : {};
             // HARD GUARDRAIL: typing never presses Enter. Warn the model so it uses
             // an explicit press_key('Enter') or a scratchpad+paste for multi-line.
             const stripped = hasNewline(p.text);
             const note = stripped
                 ? " NOTE: newline(s) in your text were collapsed to spaces and NOT submitted - type_text never presses Enter. Use press_key('Enter') to submit, or a Notepad scratchpad + paste for multi-line text."
                 : "";
+            const intended = stripNewlines(p.text);
+            const region: TypingRegion | undefined =
+                p.verify_region && typeof p.verify_region.x === "number" ? (p.verify_region as TypingRegion) : undefined;
+            const runOpts = {
+                ...(typeof p.code === "boolean" ? { code: p.code } : {}),
+                ...(region ? { verifyRegion: region } : {}),
+                ...(signal ? { signal } : {}),
+            };
+
             if (p.background && deps.background) {
-                const id = deps.background.start(`Type ${p.text.length} chars`, async (report) => {
-                    await control.typeText(p.text, {
-                        ...codeOpt,
-                        ...(signal ? { signal } : {}),
-                        onProgress: (d, t) => report(`${d}/${t} keystrokes`),
-                    });
-                    return `Typed ${p.text.length} characters.`;
+                const id = deps.background.start(`Type ${p.text.length} chars`, async () => {
+                    const res = await runWatchedTyping(intended, runOpts, watchedTypingDeps());
+                    return res.summary;
                 });
                 return { content: [text(`Typing in background as ${id}. Use wait_for_task or list_tasks.${note}`)], details: null };
             }
-            await control.typeText(p.text, { ...codeOpt, ...(signal ? { signal } : {}) });
 
-            // Read the field back so the agent monitors EXACTLY what landed (like a
-            // human glancing up): OCR the field region and compare to what we typed.
-            if (p.verify_region) {
-                const intended = stripNewlines(p.text);
-                let readBack = "";
-                try {
-                    readBack = (await control.ocr(p.verify_region)).trim();
-                } catch {
-                    readBack = "";
-                }
-                const match = norm(readBack) === norm(intended);
-                const contains = norm(readBack).includes(norm(intended));
-                const verdict = match
-                    ? "Read-back MATCHES."
-                    : contains
-                      ? "Read-back CONTAINS your text but has extra content — check the field isn't appended to or pre-filled."
-                      : "Read-back DOES NOT MATCH — the field does not show what you typed (caret may have been at the start, or the layout/autocorrect changed it). Fix it: select all (Ctrl+A) and retype, or clear and try again, then verify before you submit.";
-                return {
-                    content: [text(`Typed the text.${note}\nIntended: "${intended}"\nField now reads (OCR): "${readBack || "(nothing read)"}"\n${verdict}`)],
-                    details: null,
-                };
-            }
-            return { content: [text(`Typed the text.${note}`)], details: null };
+            // Watched typing: type in humanized chunks, watch the field's pixels,
+            // optically verify against intent, and self-correct (layout slips etc.).
+            const res = await runWatchedTyping(intended, runOpts, watchedTypingDeps());
+            let out = `${res.summary}${note}`;
+            if (res.readBack) out += `\nIntended: "${intended}"\nField reads: "${res.readBack}"`;
+            return { content: [text(out)], details: null };
         },
     };
 

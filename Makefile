@@ -2,7 +2,7 @@
 
 package:
 	yarn build
-	electron-packager dist pikvm-desktop \
+	node_modules/.bin/electron-packager dist pikvm-desktop \
 		--platform=linux \
 		--arch=x64 \
 		--out=builds \

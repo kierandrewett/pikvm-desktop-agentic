@@ -2,7 +2,7 @@
   "name": "PiKVM Agent",
   "short_name": "PiKVM",
   "description": "PiKVM with an integrated AI agent — see and drive the target from any device.",
-  "start_url": "/",
+  "start_url": "/_agent/console",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

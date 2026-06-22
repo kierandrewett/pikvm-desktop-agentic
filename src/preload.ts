@@ -148,36 +148,101 @@ contextBridge.exposeInMainWorld("kvm", {
                 }
             };
 
+            const createSpeechGate = (ctx: any, source: any) => {
+                const analyser = ctx.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.2;
+                source.connect(analyser);
+
+                const time = new Uint8Array(analyser.fftSize);
+                const freq = new Uint8Array(analyser.frequencyBinCount);
+                let speechFrames = 0;
+                let activeFrames = 0;
+                let peak = 0;
+
+                const sample = () => {
+                    analyser.getByteTimeDomainData(time);
+                    let sum = 0;
+                    let crossings = 0;
+                    let prev = time[0]! - 128;
+                    for (let i = 0; i < time.length; i++) {
+                        const centered = time[i]! - 128;
+                        const v = centered / 128;
+                        sum += v * v;
+                        peak = Math.max(peak, Math.abs(v));
+                        if (i > 0 && ((prev < 0 && centered >= 0) || (prev >= 0 && centered < 0))) crossings++;
+                        prev = centered;
+                    }
+                    const rms = Math.sqrt(sum / time.length);
+                    if (rms > 0.008) activeFrames++;
+
+                    analyser.getByteFrequencyData(freq);
+                    const nyquist = ctx.sampleRate / 2;
+                    let total = 0;
+                    let voice = 0;
+                    let high = 0;
+                    for (let i = 1; i < freq.length; i++) {
+                        const hz = (i / freq.length) * nyquist;
+                        const v = freq[i]! / 255;
+                        const energy = v * v;
+                        total += energy;
+                        if (hz >= 85 && hz <= 3600) voice += energy;
+                        if (hz >= 4500) high += energy;
+                    }
+                    const voiceRatio = total > 0 ? voice / total : 0;
+                    const highRatio = total > 0 ? high / total : 0;
+                    const zcr = crossings / time.length;
+                    if (rms > 0.012 && zcr > 0.01 && zcr < 0.3 && voiceRatio > 0.3 && highRatio < 0.7) {
+                        speechFrames++;
+                    }
+                };
+
+                const timer = setInterval(sample, 200);
+                sample();
+                return {
+                    stop: () => clearInterval(timer),
+                    meaningful: () => speechFrames >= 5 || (speechFrames >= 3 && activeFrames >= 5 && peak >= 0.06),
+                };
+            };
+
             // Mix whatever sources we have into one mono stream for the recorder.
-            const buildMixed = (remote: any): { stream: any; mic: boolean; remote: boolean } => {
+            const buildMixed = (remote: any): { stream: any; mic: boolean; remote: boolean; gates: any[] } => {
                 const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-                if (!Ctx) return { stream: remote, mic: false, remote: !!remote };
+                if (!Ctx) return { stream: remote, mic: false, remote: !!remote, gates: [{ stop: () => {}, meaningful: () => !!remote }] };
                 const ctx = new Ctx();
                 state.ctx = ctx;
                 const dest = ctx.createMediaStreamDestination();
+                const gates: any[] = [];
                 let mic = false;
                 let rem = false;
                 if (state.micStream && state.micStream.getAudioTracks().length) {
                     try {
-                        ctx.createMediaStreamSource(state.micStream).connect(dest);
+                        const source = ctx.createMediaStreamSource(state.micStream);
+                        source.connect(dest);
+                        gates.push(createSpeechGate(ctx, source));
                         mic = true;
                     } catch {}
                 }
                 if (remote && remote.getAudioTracks().length) {
                     try {
-                        ctx.createMediaStreamSource(remote).connect(dest);
+                        const source = ctx.createMediaStreamSource(remote);
+                        source.connect(dest);
+                        gates.push(createSpeechGate(ctx, source));
                         rem = true;
                     } catch {}
                 }
-                return { stream: dest.stream, mic, remote: rem };
+                return { stream: dest.stream, mic, remote: rem, gates };
             };
 
-            const recordOnce = (mixed: { stream: any; mic: boolean; remote: boolean }) => {
+            const recordOnce = (mixed: { stream: any; mic: boolean; remote: boolean; gates: any[] }) => {
                 let chunks: any[] = [];
                 let rec: any;
                 try {
                     rec = new MediaRecorder(mixed.stream, { mimeType: "audio/webm" });
                 } catch {
+                    try {
+                        mixed.gates.forEach((g: any) => g.stop());
+                    } catch {}
                     try {
                         state.ctx && state.ctx.close();
                         state.ctx = null;
@@ -190,13 +255,18 @@ contextBridge.exposeInMainWorld("kvm", {
                     if (ev.data && ev.data.size) chunks.push(ev.data);
                 };
                 rec.onstop = () => {
+                    let meaningful = true;
+                    try {
+                        meaningful = mixed.gates.length === 0 || mixed.gates.some((g: any) => g.meaningful());
+                        mixed.gates.forEach((g: any) => g.stop());
+                    } catch {}
                     try {
                         state.ctx && state.ctx.close();
                         state.ctx = null;
                     } catch {}
                     const blob = new Blob(chunks, { type: "audio/webm" });
                     chunks = [];
-                    if (blob.size > 2000) {
+                    if (blob.size > 2000 && meaningful) {
                         const fr = new FileReader();
                         fr.onload = () => {
                             const b64 = String(fr.result).split(",")[1];
@@ -221,7 +291,7 @@ contextBridge.exposeInMainWorld("kvm", {
                 const mixed =
                     state.micStream || remote
                         ? buildMixed(remote)
-                        : { stream: null, mic: false, remote: false };
+                        : { stream: null, mic: false, remote: false, gates: [] };
                 if (!mixed.mic && !mixed.remote) {
                     try {
                         state.ctx && state.ctx.close();
@@ -415,7 +485,7 @@ contextBridge.exposeInMainWorld("kvm", {
                 overlay.textContent =
                     "Mouse released. Click to regain control.";
 
-                const kill = (e) => {
+                const kill = (e: Event) => {
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     return false;

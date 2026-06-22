@@ -21,10 +21,11 @@ import { PresenceMonitor } from "./presence";
 import { CodexAuth } from "./agent/auth";
 import { createMcpHttpHandler, type McpDeps } from "./mcp-server";
 import { bridgeAgentEvents } from "./agent/ui-stream";
+import { ChatBroadcast } from "./agent/broadcast";
 import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, COMMANDS } from "./commands";
 import { createPiKvmProxy } from "./proxy";
-import { webAssets } from "./web-assets";
+import { webAssets, DESKTOP_SHELL_COOKIE } from "./web-assets";
 import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
 import type { SettingsStore } from "./settings";
 import type { SecretsStore } from "./secrets";
@@ -33,6 +34,7 @@ import type { NtfyClient } from "./ambient/ntfy";
 import type { Transcriber } from "./ambient/transcriber";
 import type { MeetingLog } from "./ambient/meeting-log";
 import type { AmbientEvent } from "./agent/protocol";
+import type { OverlayBus } from "./overlay-bus";
 
 export interface ServerDeps extends McpDeps {
     runner: AgentRunner;
@@ -43,6 +45,7 @@ export interface ServerDeps extends McpDeps {
     ntfy: NtfyClient;
     transcriber: Transcriber;
     meetingLog: MeetingLog;
+    overlay: OverlayBus;
     openExternal: (url: string) => void;
 }
 
@@ -94,11 +97,27 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
 }
 
 export function startControlServer(deps: ServerDeps, port: number, host = "127.0.0.1"): ReturnType<typeof createServer> {
-    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, transcriber, meetingLog, control, openExternal } = deps;
+    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, transcriber, meetingLog, control, overlay, openExternal } = deps;
     const mcpHandler = createMcpHttpHandler(deps);
     // Reverse proxy to the PiKVM target. Our own surface lives under `/_agent`;
     // everything else is forwarded to the Pi (UI, stream, HID, login).
     const proxy = createPiKvmProxy({ control, htmlInjection: (req) => webAssets.htmlInjection(req) });
+
+    // Live chat broadcast: every agent run is fanned out to ALL connected clients
+    // (web + desktop) via /_agent/api/events, so they all see the conversation in
+    // real time. Additive — the actor's own useChat POST stream is untouched. Each
+    // run is tagged with the initiating client's id so that client ignores its echo.
+    const broadcast = new ChatBroadcast();
+    let runClientId: string | undefined;
+    const hubBridge = bridgeAgentEvents(broadcast.writer() as unknown as Writer);
+    runner.subscribe((event) => {
+        if (event.type === "agent_start") broadcast.send(runClientId ? { type: "begin", clientId: runClientId } : { type: "begin" });
+        hubBridge(event);
+        if (event.type === "agent_end") {
+            broadcast.send({ type: "end" });
+            runClientId = undefined;
+        }
+    });
 
     // Ring buffer of ambient events surfaced to the sidebar feed.
     const ambientEvents: AmbientEvent[] = [];
@@ -165,14 +184,14 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         return new Promise<Verdict>((resolve) => {
             pendingAuth.set(req.id, resolve);
             activeWriter?.write({ type: "data-auth", id: req.id, data: { request: req } });
+            broadcast.send({ type: "data-auth", id: req.id, data: { request: req } });
         });
     });
 
     presence.on("change", (s) => {
-        activeWriter?.write({
-            type: "data-status",
-            data: { kind: "presence", paused: s.paused, text: s.reason ?? "Resumed." },
-        });
+        const chunk = { type: "data-status" as const, data: { kind: "presence" as const, paused: s.paused, text: s.reason ?? "Resumed." } };
+        activeWriter?.write(chunk);
+        broadcast.send(chunk);
     });
 
     const state = (): ServerState => ({
@@ -205,6 +224,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 activeHours: a.activeHours,
                 debug: ambient.getDebug(),
                 transcript: transcriber.getTranscript(),
+                transcriptActive: transcriber.isActive(),
                 transcriptStatus: transcriber.getStatus(),
                 transcriptSegments: transcriber.getSegments(80),
                 suggestions: ambientSuggestions.slice(-6).reverse(),
@@ -341,6 +361,14 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             return json(res, 401, { error: "Unauthorized" });
         }
 
+        // Default experience: the bare root serves OUR console (better on mobile
+        // than the Pi's native UI). The Pi's own UI stays one tap away at
+        // `/?native=1`; the desktop shell (its own native view) is never swapped.
+        const isDesktopShell = (req.headers.cookie ?? "").includes(`${DESKTOP_SHELL_COOKIE}=desktop`);
+        if (req.method === "GET" && path === "/" && url.searchParams.get("native") !== "1" && !isDesktopShell) {
+            if (webAssets.serve("console.html", res)) return;
+        }
+
         // Our surface is `/_agent/*` plus `/mcp` (kept at the root so existing
         // external MCP clients keep working). Everything else is the PiKVM target.
         const isMcp = path === "/mcp";
@@ -369,7 +397,9 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 const submitted = new URLSearchParams(b).get("token") ?? "";
                 if (token && submitted === token) {
                     res.writeHead(302, {
-                        location: "/",
+                        // Land on our own clean console (screen + chat + manual
+                        // control), not the Pi's full UI.
+                        location: "/_agent/console",
                         "set-cookie": `${SESSION_COOKIE}=${sessionValue(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000`,
                     });
                     return res.end();
@@ -378,6 +408,12 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 return res.end();
             });
             return;
+        }
+
+        // The web/mobile console (live screen + manual keyboard/mouse + chat).
+        // `/_agent`, `/_agent/` and `/_agent/console` all land here.
+        if (req.method === "GET" && (path === "/" || path === "/console")) {
+            if (webAssets.serve("console.html", res)) return;
         }
 
         // Static agent assets (the UI bundle), served under `/_agent/...`.
@@ -408,6 +444,52 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
 
         if (path === "/api/state" && req.method === "GET") return json(res, 200, state());
 
+        // Live chat broadcast: all clients see every run in real time (the
+        // conversation chunks + run framing + user messages). A client loads the
+        // transcript snapshot once, then stays live via this stream.
+        if (path === "/api/events" && req.method === "GET") {
+            res.writeHead(200, {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache, no-transform",
+                Connection: "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+            });
+            res.write(": connected\n\n");
+            broadcast.add(res);
+            const ka = setInterval(() => {
+                try {
+                    res.write(": ping\n\n");
+                } catch {
+                    /* closed */
+                }
+            }, 15000);
+            req.on("close", () => clearInterval(ka));
+            req.on("error", () => clearInterval(ka));
+            return;
+        }
+
+        // Agent "X-ray" overlay events (acting / cursor / region / typing / context),
+        // streamed so the console can draw them over the live screen (shared by web
+        // and desktop). Replays the current acting/context state on connect.
+        if (path === "/api/overlay/stream" && req.method === "GET") {
+            res.writeHead(200, {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache, no-transform",
+                Connection: "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+            });
+            res.write(": connected\n\n");
+            const unsub = overlay.subscribe((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
+            const ka = setInterval(() => res.write(": ping\n\n"), 15000);
+            const cleanup = () => {
+                clearInterval(ka);
+                unsub();
+            };
+            req.on("close", cleanup);
+            req.on("error", cleanup);
+            return;
+        }
+
         if (path === "/api/chat" && req.method === "POST") {
             void readBody(req).then((b) => {
                 let body: any;
@@ -418,6 +500,16 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 }
                 const { text, images } = lastUserMessage(body.messages);
                 if (!text && images.length === 0) return json(res, 400, { error: "No user message" });
+                // Tag this run with the sender's id (so it ignores its own echo) and
+                // broadcast the user message so spectating clients show it.
+                runClientId = typeof body.clientId === "string" ? body.clientId : undefined;
+                broadcast.send({
+                    type: "user",
+                    id: `u-${Date.now()}`,
+                    ...(runClientId ? { clientId: runClientId } : {}),
+                    text: text || "",
+                    images: images.map((im) => ({ url: `data:${im.mimeType};base64,${im.data}` })),
+                });
                 streamChat(res, text || "(see attached image)", images);
             });
             return;
@@ -476,6 +568,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                     if (text && String(text).trim()) {
                         // Show the steering message inline in the live timeline.
                         activeWriter?.write({ type: "data-steer", data: { text: String(text) } });
+                        broadcast.send({ type: "data-steer", data: { text: String(text) } });
                         runner.steer(String(text));
                     }
                 } catch {

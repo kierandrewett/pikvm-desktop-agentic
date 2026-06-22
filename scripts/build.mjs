@@ -20,14 +20,16 @@ await build({
         resolve(root, "src/preload-ui.ts"),
         resolve(root, "src/preload-sidebar.ts"),
         resolve(root, "src/preload-copilot.ts"),
+        resolve(root, "src/ambient/transcriber-worker.ts"),
     ],
     outdir: dist,
     platform: "node",
     format: "cjs",
     bundle: true,
-    // nodejs-whisper spawns the whisper.cpp binary it locates via __dirname, so it
-    // can't be bundled — keep it external and resolve from node_modules at runtime.
-    external: ["electron", "nodejs-whisper"],
+    // nodejs-whisper spawns the whisper.cpp binary it locates via __dirname, and
+    // tesseract.js loads its worker/WASM/traineddata from its own package dir — so
+    // neither can be bundled; keep them external and resolve from node_modules.
+    external: ["electron", "nodejs-whisper", "tesseract.js"],
     sourcemap: true,
     logLevel: "info",
 });

@@ -1,95 +1,14 @@
 /**
- * Local speech-to-text for meetings, via whisper.cpp (nodejs-whisper).
+ * Local speech-to-text controller for meetings.
  *
- * The renderer mixes the user's local mic with the PiKVM playback audio and ships
- * complete ~10s WebM blobs; each is converted to 16kHz mono WAV with ffmpeg, then
- * transcribed locally — nothing leaves the machine. Segments accumulate into a
- * rolling transcript the agent and meeting assistant can read.
- *
- * Everything degrades gracefully, but — unlike before — it is no longer SILENT
- * about it: getStatus() reports exactly why there's no text yet (no audio stream,
- * model still downloading, ffmpeg/whisper missing, …) so the UI can stop lying
- * with a permanent "Listening…".
+ * The renderer records speech-gated WebM chunks. This main-process controller
+ * owns transcript state and UI status, while the expensive ffmpeg/whisper work
+ * runs in `transcriber-worker.ts` so Electron stays responsive.
  */
 
-import { spawn, execSync } from "child_process";
-import { writeFile, mkdtemp, rm, readFile } from "fs/promises";
-import { existsSync } from "fs";
-import { tmpdir } from "os";
-import { join, dirname } from "path";
 import { EventEmitter } from "events";
-
-// Resolve at runtime from the CJS bundle (nodejs-whisper is kept external by the
-// build). Direct eval so it captures the module-scoped `require`, and stays valid
-// whether tsc treats this file as ESM or CJS. modelReady() tolerates failure.
-// eslint-disable-next-line no-eval
-const nodeRequire: NodeRequire = eval("require");
-
-/**
- * Find a real `node` binary. nodejs-whisper shells out via shelljs to download
- * the model and run whisper.cpp, but under Electron `process.execPath` is the
- * Electron binary, so shelljs can't find node ("Unable to find a path to the
- * node binary") and every exec fails. We locate a system node and point shelljs
- * at it. Best-effort; returns null if node truly isn't installed.
- */
-function resolveNodePath(): string | null {
-    for (const c of [process.env.NODEJS_WHISPER_NODE, process.env.NODE]) {
-        if (c && existsSync(c)) return c;
-    }
-    try {
-        const cmd = process.platform === "win32" ? "where node" : "command -v node 2>/dev/null";
-        const out = execSync(cmd, { encoding: "utf8", shell: process.platform === "win32" ? undefined : "/bin/sh" })
-            .split(/\r?\n/)[0]
-            ?.trim();
-        if (out && existsSync(out)) return out;
-    } catch {
-        /* not on PATH */
-    }
-    for (const c of ["/usr/local/bin/node", "/usr/bin/node", "/opt/homebrew/bin/node"]) {
-        if (existsSync(c)) return c;
-    }
-    return null;
-}
-
-let shellConfigured = false;
-/** Point shelljs (used by nodejs-whisper) at a real node binary, once. */
-function configureShellForWhisper(): boolean {
-    if (shellConfigured) return true;
-    const node = resolveNodePath();
-    if (!node) return false;
-    try {
-        const sh: any = nodeRequire("shelljs");
-        if (sh?.config) {
-            sh.config.execPath = node;
-            sh.config.fatal = false; // a failed exec must reject, not hard-exit
-            shellConfigured = true;
-            return true;
-        }
-    } catch {
-        /* shelljs (a nodejs-whisper dep) not resolvable — feature unavailable */
-    }
-    return false;
-}
-
-function ffmpeg(args: string[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const p = spawn("ffmpeg", args, { stdio: "ignore" });
-        p.on("error", reject);
-        p.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`))));
-    });
-}
-
-/** whisper.cpp output is "[00:00:00.000 --> 00:00:02.000]  text" lines. */
-function cleanWhisperText(raw: string): string {
-    return raw
-        .split("\n")
-        .map((l) => l.replace(/^\s*\[[^\]]*\]\s*/, "").trim())
-        .filter(Boolean)
-        .filter((l) => !/^\(.*\)$/.test(l)) // drop "(silence)" / "(music)" markers
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-}
+import { join } from "path";
+import { Worker } from "worker_threads";
 
 /** Coarse high-level state for the UI; never just "listening" when it's actually broken. */
 export type TranscriberState =
@@ -121,38 +40,62 @@ export interface TranscriptStatus {
     startedAt: number;
 }
 
+type EngineStatus = {
+    whisper: "unknown" | "ready" | "unavailable";
+    ffmpegMissing: boolean;
+    nodeMissing: boolean;
+    modelReady: boolean;
+    workerError: string | null;
+};
+
+type WorkerOut =
+    | { type: "status"; ffmpegMissing: boolean; nodeMissing: boolean; modelReady: boolean; whisperReady?: boolean }
+    | { type: "segment"; sessionId: number; text: string }
+    | { type: "done"; id: number };
+
 export class Transcriber extends EventEmitter {
     private segments: TranscriptSegment[] = [];
-    private queue: Promise<void> = Promise.resolve();
-    private inFlight = 0;
     private active = false;
     private startedAt = 0;
     private lastSegmentAt = 0;
     private readonly model: string;
-    private whisperFn: ((file: string, opts: any) => Promise<string>) | null | undefined;
-    private ffmpegMissing = false;
-    private nodeMissing = false;
     private capture: { mic: boolean; remote: boolean; error: string | null } = { mic: false, remote: false, error: null };
     private nowFn: () => number;
+    private worker: Worker | null = null;
+    private sessionId = 0;
+    private nextJobId = 1;
+    private pendingJobs = new Set<number>();
+    private engine: EngineStatus = {
+        whisper: "unknown",
+        ffmpegMissing: false,
+        nodeMissing: false,
+        modelReady: true,
+        workerError: null,
+    };
 
     constructor(opts: { model?: string; now?: () => number } = {}) {
         super();
         this.model = opts.model ?? "base.en";
         this.nowFn = opts.now ?? (() => Date.now());
-        void this.checkFfmpeg();
     }
 
     start(): void {
         this.active = true;
         this.startedAt = this.nowFn();
         this.capture = { mic: false, remote: false, error: null };
-        // Warm whisper up front so the first chunk isn't blocked on a cold import
-        // (and so getStatus() can report "downloading-model" before audio arrives).
-        void this.ensureWhisper();
+        this.sessionId++;
+        this.engine.workerError = null;
+        this.postToWorker({ type: "start", sessionId: this.sessionId, model: this.model });
     }
+
     stop(): void {
         this.active = false;
+        this.capture = { mic: false, remote: false, error: null };
+        this.sessionId++;
+        this.pendingJobs.clear();
+        this.worker?.postMessage({ type: "stop", sessionId: this.sessionId });
     }
+
     /**
      * Start/stop capture from a manual UI toggle. Emits "capture" so the window
      * layer can tell the renderer to begin/end recording (the server can't reach
@@ -163,13 +106,16 @@ export class Transcriber extends EventEmitter {
         else this.stop();
         this.emit("capture", on);
     }
+
     isActive(): boolean {
         return this.active;
     }
+
     clear(): void {
         this.segments = [];
         this.lastSegmentAt = 0;
     }
+
     /** Rolling transcript (most recent ~8k chars), clean text for the agent + log. */
     getTranscript(): string {
         return this.segments
@@ -187,18 +133,6 @@ export class Transcriber extends EventEmitter {
         };
     }
 
-    /** Whether the whisper model is present on disk yet (else first run downloads it). */
-    private modelReady(): boolean {
-        try {
-            const pkg = nodeRequire.resolve("nodejs-whisper/package.json");
-            const file = join(dirname(pkg), "cpp", "whisper.cpp", "models", `ggml-${this.model}.bin`);
-            return existsSync(file);
-        } catch {
-            // Can't locate the package layout — don't claim it's downloading.
-            return true;
-        }
-    }
-
     getStatus(): TranscriptStatus {
         const base = {
             mic: this.capture.mic,
@@ -211,108 +145,90 @@ export class Transcriber extends EventEmitter {
         const mk = (state: TranscriberState, detail: string): TranscriptStatus => ({ state, detail, ...base });
 
         if (!this.active) return mk("idle", "Not in a meeting.");
-        if (this.whisperFn === null) return mk("no-whisper", "Speech-to-text engine unavailable (nodejs-whisper failed to load).");
-        if (this.nodeMissing)
+        if (this.engine.workerError) return mk("no-whisper", this.engine.workerError);
+        if (this.engine.whisper === "unavailable") return mk("no-whisper", "Speech-to-text engine unavailable (nodejs-whisper failed to load).");
+        if (this.engine.nodeMissing)
             return mk("no-node", "Speech-to-text needs a Node.js binary on PATH (whisper.cpp shells out to it). Install Node or set NODEJS_WHISPER_NODE.");
-        if (this.ffmpegMissing) return mk("no-ffmpeg", "ffmpeg isn't installed — can't decode meeting audio.");
-        // No point claiming the model is downloading if there's no audio to feed it —
-        // the download is triggered by the first chunk, so surface the audio gap first.
+        if (this.engine.ffmpegMissing) return mk("no-ffmpeg", "ffmpeg isn't installed - can't decode meeting audio.");
         if (this.capture.error) return mk("no-audio", this.capture.error);
         if (!this.capture.mic && !this.capture.remote)
-            return mk("no-audio", "No audio to record — enable PiKVM audio/mic, or check mic permission.");
-        if (this.whisperFn !== undefined && !this.modelReady())
-            return mk("downloading-model", `Downloading the “${this.model}” speech model (first run, ~150 MB)…`);
-        if (this.inFlight > 0) return mk("transcribing", "Transcribing the latest audio…");
+            return mk("no-audio", "No audio to record - enable PiKVM audio/mic, or check mic permission.");
+        if (this.engine.whisper === "ready" && !this.engine.modelReady)
+            return mk("downloading-model", `Downloading the "${this.model}" speech model (first run, ~150 MB)...`);
+        if (this.pendingJobs.size > 0) return mk("transcribing", "Transcribing the latest audio...");
         return mk("listening", this.captureLabel());
     }
 
     private captureLabel(): string {
         const src = [this.capture.mic && "your mic", this.capture.remote && "remote audio"].filter(Boolean).join(" + ");
-        return `Listening to ${src}…`;
+        return `Listening to ${src}...`;
     }
 
     /** Feed one complete audio blob (WebM/Opus from the renderer). */
     pushAudio(buf: Buffer): void {
         if (!this.active || !buf?.length) return;
-        this.inFlight++;
-        this.queue = this.queue
-            .then(() => this.process(buf))
-            .catch(() => {})
-            .finally(() => {
-                this.inFlight--;
-            });
-    }
-
-    private async checkFfmpeg(): Promise<void> {
-        try {
-            await ffmpeg(["-version"]);
-            this.ffmpegMissing = false;
-        } catch {
-            this.ffmpegMissing = true;
-        }
-    }
-
-    private async ensureWhisper(): Promise<((file: string, opts: any) => Promise<string>) | null> {
-        if (this.whisperFn !== undefined) return this.whisperFn;
-        let fn: ((file: string, opts: any) => Promise<string>) | null = null;
-        try {
-            const mod: any = await import("nodejs-whisper");
-            fn = mod.nodewhisper ?? mod.default?.nodewhisper ?? null;
-            // nodejs-whisper shells out via shelljs, which needs a real node binary
-            // (Electron's process.execPath is the Electron binary). Without this the
-            // model download and every transcription fail.
-            if (fn && !configureShellForWhisper()) {
-                this.nodeMissing = true;
-            }
-        } catch {
-            fn = null;
-        }
-        this.whisperFn = fn;
-        return fn;
-    }
-
-    private async process(buf: Buffer): Promise<void> {
-        const whisper = await this.ensureWhisper();
-        if (!whisper) return;
-        const dir = await mkdtemp(join(tmpdir(), "pikvm-stt-"));
-        const webm = join(dir, "chunk.webm");
-        const wav = join(dir, "chunk.wav");
-        try {
-            await writeFile(webm, buf);
-            try {
-                await ffmpeg(["-y", "-i", webm, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav]);
-            } catch (e: any) {
-                if (e?.code === "ENOENT") this.ffmpegMissing = true;
-                throw e;
-            }
-            let out = "";
-            try {
-                out = await whisper(wav, {
-                    modelName: this.model,
-                    autoDownloadModelName: this.model,
-                    whisperOptions: { outputInText: false, outputInSrt: false, outputInVtt: false },
-                });
-            } catch {
-                out = "";
-            }
-            // Some versions write a .wav.txt rather than returning the text.
-            if (!out || !out.trim()) {
-                out = await readFile(`${wav}.txt`, "utf-8").catch(() => "");
-            }
-            const text = cleanWhisperText(out);
-            if (text) {
-                const ts = this.nowFn();
-                this.segments.push({ ts, text });
-                this.lastSegmentAt = ts;
-                this.emit("segment", text);
-            }
-        } finally {
-            await rm(dir, { recursive: true, force: true }).catch(() => {});
+        const id = this.nextJobId++;
+        this.pendingJobs.add(id);
+        if (!this.postToWorker({ type: "audio", id, sessionId: this.sessionId, buffer: buf })) {
+            this.pendingJobs.delete(id);
         }
     }
 
     /** Recent timestamped segments for the UI (most recent `n`). */
     getSegments(n = 80): TranscriptSegment[] {
         return this.segments.slice(-n);
+    }
+
+    private workerPath(): string {
+        return join(__dirname, "ambient", "transcriber-worker.js");
+    }
+
+    private ensureWorker(): Worker | null {
+        if (this.worker) return this.worker;
+        try {
+            const worker = new Worker(this.workerPath());
+            this.worker = worker;
+            this.engine.workerError = null;
+            worker.on("message", (msg: WorkerOut) => this.onWorkerMessage(msg));
+            worker.on("error", (err: Error) => {
+                if (this.worker === worker) this.worker = null;
+                this.pendingJobs.clear();
+                this.engine.workerError = err?.message || "Speech-to-text worker failed.";
+            });
+            worker.on("exit", (code) => {
+                if (this.worker === worker) this.worker = null;
+                this.pendingJobs.clear();
+                if (code !== 0) this.engine.workerError = `Speech-to-text worker exited (${code}).`;
+            });
+            return worker;
+        } catch (e: any) {
+            this.engine.workerError = e?.message || "Speech-to-text worker could not start.";
+            return null;
+        }
+    }
+
+    private postToWorker(msg: { type: "start"; sessionId: number; model: string } | { type: "stop"; sessionId: number } | { type: "audio"; id: number; sessionId: number; buffer: Buffer }): boolean {
+        const worker = this.ensureWorker();
+        if (!worker) return false;
+        worker.postMessage(msg);
+        return true;
+    }
+
+    private onWorkerMessage(msg: WorkerOut): void {
+        if (!msg || typeof msg.type !== "string") return;
+        if (msg.type === "status") {
+            this.engine.ffmpegMissing = msg.ffmpegMissing;
+            this.engine.nodeMissing = msg.nodeMissing;
+            this.engine.modelReady = msg.modelReady;
+            if (typeof msg.whisperReady === "boolean") this.engine.whisper = msg.whisperReady ? "ready" : "unavailable";
+        } else if (msg.type === "done") {
+            this.pendingJobs.delete(msg.id);
+        } else if (msg.type === "segment") {
+            if (!this.active || msg.sessionId !== this.sessionId || !msg.text.trim()) return;
+            const ts = this.nowFn();
+            this.segments.push({ ts, text: msg.text });
+            this.lastSegmentAt = ts;
+            this.emit("segment", msg.text);
+        }
     }
 }

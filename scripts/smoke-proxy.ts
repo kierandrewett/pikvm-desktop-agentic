@@ -3,11 +3,30 @@
 //   esbuild scripts/smoke-proxy.ts --bundle --platform=node --format=cjs --outfile=dist/smoke-proxy.cjs && node dist/smoke-proxy.cjs
 
 import { createServer, type AddressInfo } from "node:http";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { PiKvmControl } from "../src/pikvm-control";
 import { createPiKvmProxy } from "../src/proxy";
 import { webAssets } from "../src/web-assets";
 import { isAuthed, sessionValue, loginPage, SESSION_COOKIE } from "../src/web-auth";
+import { ChatBroadcast } from "../src/agent/broadcast";
+
+/**
+ * Load the pure helpers from the browser console bundle without bundling its DOM
+ * code: console.js returns early when `window` is undefined, exporting only its
+ * pure key-map / coordinate / stream-URL helpers via module.exports.
+ */
+function loadConsolePure(): {
+    charToKey: (ch: string, layout: string) => { code: string; shift: boolean } | null;
+    fracToNorm: (f: number) => number;
+    streamPath: (key: string, ua: string) => string;
+} {
+    const src = readFileSync(resolve(__dirname, "../src/views/console.js"), "utf8");
+    const mod = { exports: {} as Record<string, unknown> };
+    new Function("module", "exports", src)(mod, mod.exports);
+    return mod.exports as ReturnType<typeof loadConsolePure>;
+}
 
 async function listen(server: ReturnType<typeof createServer>): Promise<number> {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -17,13 +36,14 @@ async function listen(server: ReturnType<typeof createServer>): Promise<number> 
 async function main(): Promise<void> {
     // 1. Mock PiKVM target.
     const pi = createServer((req, res) => {
-        if (req.url === "/") {
+        const piPath = new URL(req.url ?? "/", "http://x").pathname;
+        if (piPath === "/") {
             res.writeHead(200, {
                 "content-type": "text/html",
                 "set-cookie": "auth_token=abc; Domain=pi.local; Secure; Path=/",
             });
             res.end("<html><head><title>Pi</title></head><body>PIKVM-UI</body></html>");
-        } else if (req.url === "/x.txt") {
+        } else if (piPath === "/x.txt") {
             res.writeHead(200, { "content-type": "text/plain" });
             res.end("plain-passthrough");
         } else {
@@ -37,9 +57,18 @@ async function main(): Promise<void> {
     const control = new PiKvmControl({ origin: `http://127.0.0.1:${piPort}` });
     const proxy = createPiKvmProxy({ control, htmlInjection: (req) => webAssets.htmlInjection(req) });
     const srv = createServer((req, res) => {
-        let path = new URL(req.url ?? "/", "http://x").pathname;
+        const u = new URL(req.url ?? "/", "http://x");
+        let path = u.pathname;
+        // Mirror server.ts: the bare root serves the console by default; the Pi UI
+        // is at /?native=1; the desktop shell keeps the proxied Pi UI.
+        const isDesktopShell = (req.headers.cookie ?? "").includes("agent_shell=desktop");
+        if (req.method === "GET" && path === "/" && u.searchParams.get("native") !== "1" && !isDesktopShell) {
+            if (webAssets.serve("console.html", res)) return;
+        }
         if (path === "/_agent" || path.startsWith("/_agent/")) {
             path = path.slice("/_agent".length) || "/";
+            // Mirror server.ts: `/_agent`, `/_agent/` and `/_agent/console` -> console.
+            if (req.method === "GET" && (path === "/" || path === "/console") && webAssets.serve("console.html", res)) return;
             if (req.method === "GET" && webAssets.serve(path, res)) return;
             res.writeHead(404);
             res.end("agent-404");
@@ -53,9 +82,15 @@ async function main(): Promise<void> {
     // 3. Assertions.
     const checks: Array<[string, boolean]> = [];
 
-    const htmlRes = await fetch(`${base}/`);
+    // The bare root is now OUR console by default (better on mobile than the Pi UI).
+    const rootRes = await fetch(`${base}/`);
+    const rootBody = await rootRes.text();
+    checks.push(["root / serves the console by default", rootRes.status === 200 && rootBody.includes('id="screen-pane"')]);
+
+    // The Pi's own UI is one tap away at /?native=1 (and still gets our injection).
+    const htmlRes = await fetch(`${base}/?native=1`);
     const html = await htmlRes.text();
-    checks.push(["proxied Pi HTML present", html.includes("PIKVM-UI")]);
+    checks.push(["/?native=1 proxies the Pi HTML", html.includes("PIKVM-UI")]);
     checks.push(["head injection (viewport)", html.includes("data-pikvm-agent")]);
     checks.push(["body injection (FAB)", html.includes("pikvm-agent-fab")]);
     checks.push(["head inject is before </head>", html.indexOf("data-pikvm-agent") < html.indexOf("</head>")]);
@@ -69,9 +104,11 @@ async function main(): Promise<void> {
     checks.push(["non-HTML passthrough", txt === "plain-passthrough"]);
 
     checks.push(["touch.js script injected", html.includes('src="/_agent/touch.js"')]);
+    checks.push(["FAB panel has an in-panel close button", html.includes("pikvm-agent-close")]);
 
-    // Desktop shell (cookie) suppresses the body injection but keeps the viewport.
+    // Desktop shell (cookie) keeps the proxied Pi UI at root, viewport but no FAB.
     const desktopHtml = await (await fetch(`${base}/`, { headers: { cookie: "agent_shell=desktop" } })).text();
+    checks.push(["desktop shell: proxied Pi UI at root", desktopHtml.includes("PIKVM-UI")]);
     checks.push(["desktop shell: no FAB", !desktopHtml.includes("pikvm-agent-fab")]);
     checks.push(["desktop shell: viewport kept", desktopHtml.includes("data-pikvm-agent")]);
 
@@ -80,6 +117,47 @@ async function main(): Promise<void> {
 
     const touch = await fetch(`${base}/_agent/touch.js`);
     checks.push(["/_agent/touch.js served", touch.status === 200 && (await touch.text()).includes("pinch")]);
+
+    // Web/mobile console: page + assets served, and reachable at the clean paths.
+    const consoleHtml = await fetch(`${base}/_agent/console`);
+    const consoleBody = await consoleHtml.text();
+    checks.push([
+        "/_agent/console serves the console page",
+        consoleHtml.status === 200 && consoleBody.includes('id="screen"') && consoleBody.includes("console.js"),
+    ]);
+    checks.push(["console has the chat iframe slot", consoleBody.includes('id="chat-frame"')]);
+    checks.push(["console has the manual key bar", consoleBody.includes('data-key="Enter"') && consoleBody.includes('id="cad"')]);
+    const consoleRoot = await fetch(`${base}/_agent/`);
+    checks.push(["/_agent/ lands on the console", consoleRoot.status === 200 && (await consoleRoot.text()).includes('id="screen-pane"')]);
+    const consoleJs = await fetch(`${base}/_agent/console.js`);
+    const consoleJsBody = await consoleJs.text();
+    checks.push(["console.js embeds the agent chat", consoleJsBody.includes("/_agent/sidebar.html")]);
+    checks.push([
+        "/_agent/console.js served + speaks the HID protocol",
+        consoleJs.status === 200 && consoleJsBody.includes("mouse_move") && consoleJsBody.includes("/api/ws"),
+    ]);
+    checks.push(["console.js streams via /streamer/stream", consoleJsBody.includes("/streamer/stream")]);
+    checks.push(["console.js polls /streamer/state for health/resilience", consoleJsBody.includes("/streamer/state")]);
+    checks.push(["console consolidated bar (status + controls drawer)", consoleBody.includes('id="conn-text"') && consoleBody.includes('id="drawer"')]);
+    const consoleCss = await fetch(`${base}/_agent/console.css`);
+    checks.push([
+        "/_agent/console.css served with a light theme",
+        consoleCss.status === 200 && (await consoleCss.text()).includes('[data-theme="light"]'),
+    ]);
+
+    // Pure input helpers (key map, coordinate maths, stream URL).
+    const cp = loadConsolePure();
+    checks.push(["charToKey: 'a' -> KeyA (unshifted)", cp.charToKey("a", "us")?.code === "KeyA" && cp.charToKey("a", "us")?.shift === false]);
+    checks.push(["charToKey: 'A' -> KeyA + shift", cp.charToKey("A", "us")?.code === "KeyA" && cp.charToKey("A", "us")?.shift === true]);
+    checks.push(["charToKey: US '@' -> Digit2 + shift", cp.charToKey("@", "us")?.code === "Digit2" && cp.charToKey("@", "us")?.shift === true]);
+    checks.push(["charToKey: UK '@' -> Quote + shift", cp.charToKey("@", "uk")?.code === "Quote" && cp.charToKey("@", "uk")?.shift === true]);
+    checks.push(['charToKey: UK \'"\' -> Digit2 + shift', cp.charToKey('"', "uk")?.code === "Digit2" && cp.charToKey('"', "uk")?.shift === true]);
+    checks.push(["charToKey: ' ' -> Space", cp.charToKey(" ", "us")?.code === "Space"]);
+    checks.push(["fracToNorm: 0 -> -32767", cp.fracToNorm(0) === -32767]);
+    checks.push(["fracToNorm: 0.5 -> 0", cp.fracToNorm(0.5) === 0]);
+    checks.push(["fracToNorm: 1 -> 32767", cp.fracToNorm(1) === 32767]);
+    checks.push(["streamPath: iOS quirk", cp.streamPath("k", "iPhone Safari").includes("dual_final_frames=1")]);
+    checks.push(["streamPath: chrome quirk", cp.streamPath("k", "Chrome/120").includes("advance_headers=1")]);
 
     // PWA: manifest + icon + service worker served with the right content-types,
     // and the install metadata injected into proxied pages.
@@ -228,6 +306,22 @@ async function main(): Promise<void> {
     });
     checks.push(["WS non-upgrade response relayed (no hang)", noHang]);
     wss.close();
+
+    // Live chat broadcast hub: fans UI chunks out to all subscribers as SSE.
+    {
+        const hub = new ChatBroadcast();
+        const a: string[] = [];
+        const b: string[] = [];
+        const mk = (sink: string[]) => ({ write: (s: string) => sink.push(s), on: () => {} }) as unknown as Parameters<typeof hub.add>[0];
+        hub.add(mk(a));
+        hub.add(mk(b));
+        hub.send({ type: "begin", clientId: "c1" });
+        hub.writer().write({ type: "text-delta", id: "t0", delta: "hi" });
+        checks.push(["broadcast fans out to all subscribers", a.length === 2 && b.length === 2]);
+        checks.push(["broadcast frames are SSE data lines", a[0].startsWith("data: ") && a[0].endsWith("\n\n")]);
+        checks.push(["broadcast begin chunk carries clientId", JSON.parse(a[0].slice(6)).clientId === "c1"]);
+        checks.push(["broadcast writer adapter emits chunks", JSON.parse(a[1].slice(6)).type === "text-delta"]);
+    }
 
     let ok = true;
     for (const [name, pass] of checks) {

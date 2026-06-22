@@ -32,6 +32,7 @@ import { ScreenshotHistory } from "./screenshot-history";
 import { Scheduler, type Job } from "./scheduler";
 import { MemoryStore, type Memory } from "./memory";
 import { SkillStore } from "./skills";
+import { LocalOcr } from "./local-ocr";
 import type { InputTracker } from "../input-tracker";
 import type { SecretsStore } from "../secrets";
 import { SessionStore, agentMessagesToUi, type SessionMeta } from "./sessions";
@@ -50,6 +51,10 @@ const TITLE_MODEL = "gpt-5.4-mini";
 const CONTEXT_MODEL = "gpt-5.4-mini";
 const CONTEXT_SYSTEM =
     'You identify the foreground application/window on a screen and whether the CURRENT focus is a SENSITIVE area - one where an accidental click or keypress could send/post something or be hard to undo: a chat or message compose box or its Send/Reply button (Microsoft Teams, Slack, Discord, WhatsApp, Outlook/Gmail compose), a social-media post box, a Submit/Post/Pay/Confirm button, a checkout/payment field, or a terminal/command prompt. Normal navigation, reading, menus, file browsers and form fields that only stage input are NOT sensitive. Reply with ONLY compact JSON: {"app":"<short app or window name>","sensitive":true|false,"reason":"<at most 8 words>"}.';
+/** Optical read-back of a cropped text field for watched typing (independent of the
+ *  intended text, so it can't be biased into "confirming" a match). */
+const OPTICAL_READ_SYSTEM =
+    "You are a precise OCR engine. The image is a cropped UI text field. Output ONLY the exact characters currently shown inside that field, verbatim — no quotes, no labels, no commentary. If the field appears empty, output nothing.";
 /** Tools that actuate input on the target (gated harder in sensitive areas). */
 const INPUT_ACTIONS = new Set(["click", "double_click", "drag", "type_text", "type_secret", "press_key", "hotkey"]);
 /** How long a context assessment stays fresh before we re-look. */
@@ -104,9 +109,10 @@ function systemPrompt(goal?: string, memoryCount = 0): string {
         "Type with `type_text` (it already feels human — do not add your own delays). Use `press_key`/`hotkey` for keys and shortcuts.",
         "HARD RULE — TYPING NEVER SUBMITS: `type_text` is for a SINGLE LINE of text and NEVER presses Enter (any newline you pass is collapsed to a space). Pressing Enter could send a chat message, run a command, or confirm a dialog before you have checked it — so submitting is ALWAYS a separate, deliberate `press_key('Enter')` AFTER you have OCR-verified the field. Do not put `\\n` in `type_text`. For multi-line content (a note, an email body, code), open a scratchpad like Notepad, type/build it there, then select-all and copy/paste into the target — never type raw newlines into the real field.",
         "KNOW WHERE THE CARET IS BEFORE TYPING: typing inserts at the current caret, which is NOT always where you think — a field may have existing text with the caret at the start, or text may be selected. Before typing into an existing field, look: `ocr`/zoomed `screenshot` to see the current contents and caret. To append, click at the end (or press End / Ctrl+End) first; to replace, select all (Ctrl+A) then type. If asked to \"finish\" or continue existing text, confirm the caret is at the END first — never assume.",
-        "WATCH WHAT YOU TYPE: pass `verify_region` (a tight box around the field) to `type_text` — it OCRs the field after typing and reads back exactly what landed, so a caret-at-start, an autocorrect, or a layout glitch is caught immediately (and the user sees the checked area highlighted). If the read-back does not match, fix it (Ctrl+A and retype, or clear) and verify again BEFORE you submit.",
+        "WATCH WHAT YOU TYPE: pass `verify_region` (a tight box around the field) to `type_text` — it reads the field back with fast local OCR after typing and SELF-CORRECTS once if needed, clearing the line the safe way (Home, then Delete) before retyping. Trust it: do NOT manually clear-and-retype on top of it. NEVER use Ctrl+A to clear in a terminal (Ctrl+A goes to line-start and you type over the existing text → duplicated commands like `git swgit switch`), and NEVER Ctrl+C to 'clear' a GUI field. If after a type something still looks wrong, take a tight `screenshot` to confirm, then clear with Home followed by Delete (or, in a shell, Ctrl+U) and retype once — don't loop.",
         "PROOFREAD AS YOU TYPE for anything longer than ~4-5 words: do NOT type a long string blind and only check at the end. Break it into chunks of a few words, type each chunk in the BACKGROUND (`type_text` background:true, then `wait_for_task`/`list_tasks` so you stay responsive), and between chunks glance up from the keyboard like a person would — `ocr` what you have written so far, check it matches, fix any mistake (backspace/clear and retype) before typing the next chunk. The longer the text, the more often you should stop and check.",
         "VERIFY BEFORE YOU COMMIT: before you press Enter, click Submit/Send/Save/Run, or otherwise confirm anything you typed into a field, FIRST `ocr` the field to read back exactly what is there (get close — take a cropped `screenshot` zoomed tight on just that field/line so the OCR is accurate, not the whole screen). Compare it character-for-character with what you intended. If it does not match (wrong characters, a mangled symbol from a keyboard-layout mismatch, autocomplete/autocorrect changing it, missing or extra text), fix it — clear the field or backspace and retype — and OCR again. Only press Enter/confirm once the read-back matches. This matters most for commands, paths, URLs, passwords and anything with symbols like ~, /, \\, \", @, #.",
+        "DON'T FIGHT OCR GHOSTS: screenshots and OCR genuinely cannot tell apart look-alike glyphs — l/1/I/|, O/0, S/5, B/8, Z/2, g/9/q, rn/m. If your typed text and the read-back differ ONLY by such characters (e.g. you typed `oel9-linux-build` and it reads `oe19-linux-build`), that is almost certainly a READING artefact, not a typing error — the text on screen is right. Do NOT clear and retype, and do NOT keep re-reading; just proceed (press Enter / run it). Only correct when characters differ in a way OCR could NOT explain (extra/missing words, a wrong symbol from a layout slip, clearly different letters). When genuinely unsure between 'misread' and 'mistyped', zoom in tighter ONCE — never destroy the line on a hunch.",
         "If symbols keep coming out wrong (e.g. ~ types as ¬, \" types as @), the target's keyboard layout does not match what you send. You can fix the target itself: press Win+Space to cycle input layouts, or open the OS keyboard/language settings and set the layout — you are allowed to configure the target system's settings yourself. See the `fix-keyboard-layout` skill, and `remember` which layout this machine uses.",
         "CLICKING HAS SIDE EFFECTS — only click when you have confirmed exactly what is under the pointer (a specific button, link, menu item or field). If you merely want to hover, position, or reveal something, use `move_mouse`, not `click`. When unsure what an element is, screenshot/zoom to confirm before clicking.",
         "To focus or raise a window, click its TASKBAR/DOCK entry or its TITLEBAR — never click a random spot inside the window, which can trigger a control, move a caret, or deselect something. Only click inside a window's content when you are intentionally activating a specific element there.",
@@ -166,6 +172,8 @@ export class AgentRunner {
     private readonly scheduler: Scheduler;
     private readonly background = new BackgroundTasks();
     private readonly screenshots = new ScreenshotHistory();
+    /** In-process OCR for watched typing's fast read-back path. */
+    private readonly localOcr = new LocalOcr();
     private readonly toolsForSub: AgentTool<any>[];
     private readonly subModel: Model<any>;
     private sessionId: string;
@@ -173,6 +181,8 @@ export class AgentRunner {
     constructor(private deps: RunnerDeps) {
         this.model = deps.auth.applyModel(getModel(PROVIDER as any, DEFAULT_MODEL as any));
         this.subModel = deps.auth.applyModel(getModel(PROVIDER as any, SUBAGENT_MODEL as any));
+        // Warm the OCR worker so the first watched-type isn't blocked on a cold start.
+        this.localOcr.warm();
         const dataDir = dirname(deps.sessionsDir);
         this.sessions = new SessionStore(deps.sessionsDir);
         this.memory = new MemoryStore(resolve(dataDir, "agent-memory.json"));
@@ -188,6 +198,23 @@ export class AgentRunner {
             history: this.screenshots,
             ...(deps.inputTracker ? { tracker: deps.inputTracker } : {}),
             ...(deps.secrets ? { secrets: deps.secrets } : {}),
+            // Watched typing reads a cropped field back: fast LOCAL OCR (tesseract.js,
+            // in-process, ~300ms, no Pi load / no network) as the common path, and the
+            // vision model only to confirm a suspected mismatch. Falls back to vision
+            // if local OCR is unavailable (e.g. language data not fetched yet).
+            opticalRead: async (image: { data: string; mimeType: string }) => {
+                const local = await this.localOcr.read(image);
+                if (local !== null) return local;
+                return this.visionRead(image);
+            },
+            opticalReadStrong: (image: { data: string; mimeType: string }) => this.visionRead(image),
+            remember: (text: string) => {
+                try {
+                    this.memory.add(text, ["keyboard-layout"]);
+                } catch {
+                    /* best-effort */
+                }
+            },
         };
 
         // Tools a sub-agent gets: computer-use + cognitive, minus spawn (no recursion).
@@ -587,6 +614,15 @@ export class AgentRunner {
      * (cheap model for triage, a stronger one when it matters). Returns the
      * model's raw text. Never throws (returns "" on failure).
      */
+    /** Read a cropped field with the vision model (watched typing's confirm path). */
+    private visionRead(image: { data: string; mimeType: string }): Promise<string> {
+        return this.quickLook(image, "Transcribe the text shown in this UI field exactly.", {
+            model: "gpt-5.4-mini",
+            thinking: "low",
+            system: OPTICAL_READ_SYSTEM,
+        });
+    }
+
     async quickLook(
         image: { data: string; mimeType: string },
         instruction: string,

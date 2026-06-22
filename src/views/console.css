@@ -1,0 +1,695 @@
+/*
+ * Mobile-first console: live KVM screen on top, agent chat below, with manual
+ * keyboard/mouse control. One slim bar + a toggled controls drawer keep the
+ * chrome minimal so the screen and chat get the space. Pure CSS grid/flex; the
+ * palette mirrors the sidebar (src/sidebar/styles.css) so the panes feel as one.
+ */
+
+:root {
+    color-scheme: dark;
+    --background: #0a0a0c;
+    --foreground: #ededf1;
+    --card: #121216;
+    --muted-foreground: #8a8a95;
+    --secondary: #1a1a20;
+    --accent: #23232b;
+    --border: #26262e;
+    --primary: #5b8cff;
+    --primary-foreground: #ffffff;
+    --danger: #f25555;
+    --warn: #e0a52b;
+    --ok: #46c773;
+}
+
+[data-theme="light"] {
+    color-scheme: light;
+    --background: #eef0f4;
+    --foreground: #17171c;
+    --card: #ffffff;
+    --muted-foreground: #666672;
+    --secondary: #f1f2f6;
+    --accent: #e6e7ee;
+    --border: #dcdde4;
+    --primary: #3b6ef0;
+    --primary-foreground: #ffffff;
+    --danger: #d6453f;
+    --warn: #b9831a;
+    --ok: #2faa5b;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Lock the document so iOS Safari can't rubber-band / scroll the page. */
+html,
+body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+}
+
+/* screen (resizable) / thin control bar / chat. No top bar — the bar in the
+ * middle carries status + actions AND is the drag-to-resize handle. */
+/* Make --sh animatable so the split can transition (intro reveal + fit changes). */
+@property --sh {
+    syntax: "<length>";
+    inherits: false;
+    initial-value: 46vh;
+}
+.app {
+    height: 100vh;
+    height: 100dvh;
+    display: grid;
+    grid-template-rows: clamp(110px, var(--sh, 46vh), 90vh) auto minmax(0, 1fr);
+    transition: --sh 0.55s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+/* Intro: just the stream; the chat is parked below until the conversation loads. */
+.chat {
+    transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.app.booting {
+    transition: none; /* set the tall intro height instantly, not animated */
+}
+.app.booting .chat {
+    transform: translateY(100%);
+}
+
+/* ---- the one control bar (status + actions + resize grip + keys) --------- */
+.bar {
+    display: flex;
+    flex-direction: column;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+}
+.grip {
+    height: 15px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: row-resize;
+    touch-action: none;
+}
+.grip::after {
+    content: "";
+    width: 44px;
+    height: 4px;
+    border-radius: 3px;
+    background: var(--muted-foreground);
+    opacity: 0.5;
+}
+.bar-main {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 40px;
+    padding: 0 max(8px, env(safe-area-inset-right)) 0 max(11px, env(safe-area-inset-left));
+    cursor: row-resize;
+    touch-action: none;
+}
+.bar-main .status {
+    font-size: 12.5px;
+    font-weight: 550;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bar-main .agent-status {
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: none;
+    max-width: 30vw;
+}
+.bar-main .agent-status.busy {
+    color: var(--primary);
+}
+.bar-main .spacer {
+    flex: 1;
+    min-width: 4px;
+}
+.bar-main .ibtn {
+    height: 30px;
+    min-width: 30px;
+    padding: 0 7px;
+}
+.bar-main .sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    flex: none;
+    margin: 0 3px;
+}
+/* The keys/mouse row: one horizontally-scrollable line, hidden until ⌨. */
+/* Keys/mouse row OVERLAYS the TOP of the chat (absolute) so toggling it never
+ * reflows the split AND never covers the stream. One horizontally-scrollable line. */
+.bar-keys {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    z-index: 6;
+    align-items: center;
+    gap: 6px;
+    height: 48px;
+    padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+    background: color-mix(in srgb, var(--card) 90%, transparent);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    touch-action: pan-x;
+}
+.app.keys-open .bar-keys {
+    display: flex;
+}
+.bar-keys::-webkit-scrollbar {
+    display: none;
+}
+.bar-keys .ibtn {
+    height: 36px;
+    flex: none;
+}
+.bar-keys .sep {
+    width: 1px;
+    height: 22px;
+    background: var(--border);
+    flex: none;
+    margin: 0 2px;
+}
+
+/* Overflow menu (positioned by JS near the ⋯ button). */
+.more-menu {
+    position: fixed;
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 200px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+    padding: 5px;
+}
+.more-menu.open {
+    display: flex;
+}
+.more-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--foreground);
+    text-align: left;
+    padding: 10px 11px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    display: block;
+}
+.more-item:active,
+.more-item:hover {
+    background: var(--accent);
+}
+.more-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 6px;
+}
+
+/* While an agent panel is open it covers the whole phone (the embedded chat asks
+ * for this) — collapse the screen + bar so the panel is a true full overlay. */
+.app.chat-full > .screen,
+.app.chat-full > .bar {
+    display: none;
+}
+.app.chat-full {
+    grid-template-rows: minmax(0, 1fr);
+}
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+    flex: none;
+    transition: background 0.2s;
+}
+.dot.ok {
+    background: var(--ok);
+}
+.dot.warn {
+    background: var(--warn);
+}
+.dot.bad {
+    background: var(--danger);
+}
+
+/* Icon / pill buttons */
+.ibtn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--secondary);
+    color: var(--foreground);
+    height: 32px;
+    min-width: 32px;
+    padding: 0 9px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    flex: none;
+    user-select: none;
+    touch-action: manipulation;
+    transition:
+        background 0.12s,
+        border-color 0.12s,
+        transform 0.06s;
+}
+.ibtn:active {
+    transform: scale(0.93);
+    background: var(--accent);
+}
+.ibtn.on {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border-color: var(--primary);
+}
+.ibtn svg {
+    width: 17px;
+    height: 17px;
+}
+.ibtn.link {
+    text-decoration: none;
+    font-size: 16px;
+}
+
+/* ---- screen -------------------------------------------------------------- */
+.screen {
+    position: relative;
+    overflow: hidden;
+    background: #000;
+    touch-action: none;
+    cursor: none; /* hidden in favour of our own PiKVM-style cursor */
+}
+/* PiKVM's cursor: a small translucent blue dot with a light ring. */
+.kvm-cursor {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(91, 144, 187, 0.5);
+    border: 1px solid rgba(232, 232, 232, 0.8);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 5;
+    display: none;
+    will-change: left, top;
+}
+/* The interactive overlays keep a real pointer. */
+.acting-bar .ibtn,
+.copilot-x {
+    cursor: pointer;
+}
+#screen {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    transform-origin: 0 0;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+/* ---- agent X-ray overlay (ported from acting.html, fed by overlay SSE) ---- */
+.xray {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    overflow: hidden;
+}
+/* The exaggerated glowing agent cursor is removed — the live stream already shows
+ * the real remote cursor moving, so the glow was just noise. */
+.ai-cursor,
+.click-burst {
+    display: none !important;
+}
+.click-burst {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2.5px solid #6c8cff;
+    border-radius: 50%;
+    animation: burst 0.55s ease-out forwards;
+}
+@keyframes burst {
+    0% {
+        transform: scale(0.5);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(3.2);
+        opacity: 0;
+    }
+}
+.look-box,
+.type-box {
+    position: absolute;
+    border-radius: 6px;
+    overflow: hidden;
+    opacity: 0;
+    transition:
+        opacity 0.18s ease,
+        border-color 0.2s ease;
+}
+.look-box {
+    border: 2px solid #ffd479;
+    background: color-mix(in srgb, #ffd479 9%, transparent);
+    box-shadow: 0 0 16px rgba(255, 212, 121, 0.5);
+}
+.type-box {
+    border: 2px solid #3dd7c8;
+    background: color-mix(in srgb, #3dd7c8 8%, transparent);
+    box-shadow: 0 0 16px rgba(61, 215, 200, 0.5);
+}
+.look-box.show,
+.type-box.show {
+    opacity: 1;
+}
+.type-box.verifying {
+    border-style: dashed;
+}
+.type-box.verified {
+    border-color: #6cd38a;
+}
+.type-box.correcting {
+    border-color: #ff6b6b;
+}
+.look-tag,
+.type-tag {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translateY(-100%);
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 5px 5px 5px 0;
+    padding: 1px 6px;
+    white-space: nowrap;
+}
+.look-tag {
+    background: #ffd479;
+    color: #1a1407;
+}
+.type-tag {
+    background: #3dd7c8;
+    color: #062420;
+}
+.type-box.verified .type-tag {
+    background: #6cd38a;
+}
+.type-box.correcting .type-tag {
+    background: #ff6b6b;
+    color: #2a0606;
+}
+.scan {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    top: 0;
+    background: rgba(255, 212, 121, 0.9);
+    box-shadow: 0 0 10px 1px rgba(255, 212, 121, 0.9);
+    animation: scan 1s ease-in-out 1;
+}
+@keyframes scan {
+    0% {
+        top: 0;
+        opacity: 0.2;
+    }
+    15% {
+        opacity: 1;
+    }
+    100% {
+        top: 100%;
+        opacity: 0.2;
+    }
+}
+.pbar {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 0%;
+    background: #3dd7c8;
+    box-shadow: 0 0 8px 1px rgba(61, 215, 200, 0.9);
+    transition: width 0.12s linear;
+}
+.type-box.verified .pbar {
+    background: #6cd38a;
+}
+
+/* "Agent is in control" bar + soft scrim while acting. */
+.screen.acting::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 3px #6c8cff, inset 0 0 40px color-mix(in srgb, #6c8cff 30%, transparent);
+    animation: actpulse 2s ease-in-out infinite;
+}
+@keyframes actpulse {
+    0%,
+    100% {
+        box-shadow: inset 0 0 0 3px #6c8cff, inset 0 0 26px color-mix(in srgb, #6c8cff 26%, transparent);
+    }
+    50% {
+        box-shadow: inset 0 0 0 3px #8aa3ff, inset 0 0 54px color-mix(in srgb, #6c8cff 46%, transparent);
+    }
+}
+.acting-bar {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 4;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100% - 20px);
+    background: rgba(15, 15, 20, 0.92);
+    color: #e7e7ee;
+    border: 1px solid #2b2b3a;
+    border-radius: 11px;
+    padding: 7px 8px 7px 12px;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+}
+.screen.acting .acting-bar {
+    display: flex;
+}
+.acting-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6c8cff;
+    flex: none;
+    animation: dotpulse 1.4s infinite;
+}
+@keyframes dotpulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(108, 140, 255, 0.55);
+    }
+    100% {
+        box-shadow: 0 0 0 9px rgba(108, 140, 255, 0);
+    }
+}
+.acting-label {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+    min-width: 0;
+}
+.acting-label b {
+    font-size: 12.5px;
+}
+.acting-label span {
+    font-size: 11px;
+    color: #9a9aa8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 46vw;
+}
+.acting-ctx {
+    display: none;
+}
+.acting-ctx.show {
+    display: inline;
+}
+.acting-ctx.sensitive {
+    color: #ffd479 !important;
+}
+.acting-bar .ibtn.danger {
+    background: #ff4d4d;
+    color: #fff;
+    border-color: #ff4d4d;
+}
+
+/* Floating meeting copilot. */
+.copilot {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 4;
+    width: min(300px, 76vw);
+    max-height: 50%;
+    display: none;
+    flex-direction: column;
+    background: rgba(15, 15, 20, 0.94);
+    color: #e7e7ee;
+    border: 1px solid #2b2b3a;
+    border-radius: 11px;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+.copilot.show {
+    display: flex;
+}
+.copilot-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 8px 7px 11px;
+    font-size: 12px;
+    font-weight: 650;
+    border-bottom: 1px solid #2b2b3a;
+}
+.copilot-head .grow {
+    flex: 1;
+}
+.copilot-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #6cd38a;
+}
+.copilot-x {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: #9a9aa8;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 4px;
+}
+.copilot-body {
+    overflow-y: auto;
+    padding: 8px 11px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    -webkit-overflow-scrolling: touch;
+}
+.copilot-body .sug {
+    padding: 6px 0;
+    border-top: 1px solid #23232b;
+}
+.copilot-body .sug:first-child {
+    border-top: 0;
+}
+
+.screen .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    color: #d6d7df;
+    background: rgba(0, 0, 0, 0.82);
+    font-size: 13.5px;
+    font-weight: 500;
+    text-align: center;
+    padding: 20px;
+}
+.screen.offline .overlay {
+    display: flex;
+}
+.spinner {
+    width: 26px;
+    height: 26px;
+    border: 3px solid rgba(255, 255, 255, 0.22);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+.screen.no-spin .spinner {
+    display: none;
+}
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Visually-hidden input that drives the soft keyboard / captures keys. */
+.kbd {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: 0;
+    padding: 0;
+    font-size: 16px;
+    background: transparent;
+    pointer-events: none;
+}
+
+/* ---- chat ---------------------------------------------------------------- */
+/* iOS sizes iframes to content unless absolutely positioned in a fixed box. */
+.chat {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--background);
+}
+#chat-frame {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+}

@@ -142,3 +142,6 @@ builds/
 
 # PiKVM HAR captures (contain secrets)
 *.har
+# stray artefacts
+eng.traineddata
+package-lock.json

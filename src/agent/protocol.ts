@@ -128,6 +128,8 @@ export interface ServerState {
             triageModel: string;
         };
         transcript: string;
+        /** Whether transcription capture is currently requested/running. */
+        transcriptActive: boolean;
         /** Live transcription status — why there is/isn't text yet, and which sources are tapped. */
         transcriptStatus: {
             state: "idle" | "no-whisper" | "no-node" | "no-ffmpeg" | "downloading-model" | "no-audio" | "listening" | "transcribing";

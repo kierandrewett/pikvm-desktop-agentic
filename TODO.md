@@ -64,6 +64,37 @@ configurable server; auth is simplified to one server token.
 - [x] "Sign out" button in the sidebar Server tab (web clients only, when a token
       is set); navigates the top page to /_agent/logout. Hidden on desktop (loopback)
 
+## Phase 6 - dedicated web/mobile console (screen + chat + manual control)
+Goal: a phone (or any browser) drives the target directly without touching the
+Pi's own UI - the live screen on top, the agent chat below, and full manual
+keyboard/mouse "at will". Reuses the existing proxy wholesale (Pi MJPEG stream +
+HID WebSocket), so no new server surface and nothing re-implemented.
+- [x] `src/views/console.html` + `console.css` - responsive CSS grid (header /
+      screen / control strip / draggable divider / chat). Pure flex/grid layout.
+- [x] light + dark theme (toggle in the header, persisted, follows OS on first
+      run); tokens mirror the sidebar palette; theme propagated to the embedded
+      chat via `?theme=` + postMessage (sidebar.html now honours both)
+- [x] `src/views/console.js` - live MJPEG `<img>` (with reconnect/watchdog) +
+      direct HID WebSocket client speaking the SAME JSON as `pikvm-control.ts`
+      (key / mouse_move(abs) / mouse_button / mouse_wheel)
+- [x] touch model: tap = move+left-click, drag = cursor follows finger,
+      long-press = right-click, two-finger = pinch-zoom/pan, drag-lock for
+      window drags; two quick taps -> two clicks (target OS sees a double-click)
+- [x] keyboard: hidden input drives the mobile soft keyboard; char->keycode map
+      (US + UK overrides) mirrored from `human-typing.ts`; on-screen special-key
+      bar (Esc/Tab/arrows/Ctrl/Alt/Win sticky mods/Ctrl-Alt-Del/...); hardware
+      keyboard captured on desktop when the screen is clicked
+- [x] picks up the server's keyboard layout from `/_agent/api/state`
+- [x] resizable split (drag the divider, persisted) + collapsible chat
+- [x] server: `/_agent`, `/_agent/` and `/_agent/console` serve the console;
+      login + PWA `start_url` now land here (not the Pi's full UI). A "Full PiKVM
+      UI" link still reaches `/`.
+- [x] tests: `yarn smoke:proxy` (console served + pure key/coord/stream helpers)
+      and `yarn smoke:console` (stubbed-DOM behavioural run: tap->mouse JSON,
+      Enter->key JSON, UK '#'->Backslash, theme toggle). tsc clean, build passes.
+- [ ] on-device validation (gesture feel, soft-keyboard quirks per OS, MJPEG
+      stream key acceptance on the real firmware) - needs the user's phone + Pi.
+
 ## Notes / decisions
 - Breaking: agent API moved from `/api/*` to `/_agent/api/*` because PiKVM owns
   `/api/*` and we now proxy it. Moved atomically with the frontend update.
