@@ -48,6 +48,15 @@ const CONTROL_PORT = Number(process.env.PIKVM_CONTROL_PORT) || 25650;
 const SIDEBAR_MIN = 300;
 const SIDEBAR_MAX = 640;
 
+// The unified web console (/_agent/console) is the PRIMARY desktop UI: the main
+// window loads it and the console draws its own titlebar/chrome (via the console
+// preload's `window.desktopConsole`). The legacy native KVM-page + sidebar
+// composition is kept behind PIKVM_NATIVE_UI=1.
+const useConsole = process.env.PIKVM_NATIVE_UI !== "1";
+// Windows whose renderer has the console preload (the main window in console mode
+// + any "open in new window" console). The console-scoped IPC only serves these.
+const consoleWindows = new Set<Electron.BrowserWindow>();
+
 /** A readable phrase for the overlay describing the current agent action. */
 function humanAction(tool: string, args: any): string {
     switch (tool) {
@@ -248,15 +257,18 @@ function openUnifiedConsole() {
     w.on("maximize", emitMax);
     w.on("unmaximize", emitMax);
     w.on("closed", () => {
+        consoleWindows.delete(w);
         unifiedConsoleWin = null;
     });
+    consoleWindows.add(w);
     unifiedConsoleWin = w;
 }
 
-/** Resolve the console window from an IPC sender (only it carries this preload). */
+/** Resolve a console-chromed window from an IPC sender (the main window in console
+ *  mode and any "open in new window" console both carry the console preload). */
 function consoleWinFrom(event: Electron.IpcMainEvent): Electron.BrowserWindow | null {
     const w = BrowserWindow.fromWebContents(event.sender);
-    return w && w === unifiedConsoleWin && !w.isDestroyed() ? w : null;
+    return w && consoleWindows.has(w) && !w.isDestroyed() ? w : null;
 }
 
 // ── Console window IPC (only the frameless console carries preload-console) ──
@@ -269,7 +281,7 @@ ipcMain.on("console:toggle-maximise", (e) => {
 ipcMain.on("console:close", (e) => consoleWinFrom(e)?.close());
 ipcMain.handle("console:is-maximised", (e) => {
     const w = BrowserWindow.fromWebContents(e.sender);
-    return !!w && w === unifiedConsoleWin && !w.isDestroyed() && w.isMaximized();
+    return !!w && consoleWindows.has(w) && !w.isDestroyed() && w.isMaximized();
 });
 
 // Snap the window so the live-screen area renders the native resolution 1:1. The
@@ -372,7 +384,10 @@ function createWindow() {
     const mainView = new WebContentsView({
         webPreferences: {
             contextIsolation: true,
-            preload: resolve(__dirname, "preload.js"),
+            // In console mode the main view IS the unified console, so it carries the
+            // console preload (window.desktopConsole → its own titlebar, native menus,
+            // fit-native). Otherwise the legacy KVM-page preload.
+            preload: resolve(__dirname, useConsole ? "preload-console.js" : "preload.js"),
         },
     });
 
@@ -424,11 +439,6 @@ function createWindow() {
     const PROXY_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
     const desktopProxy = settings.get().desktopUseProxy;
     const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
-    // The unified web console (/_agent/console) is now the PRIMARY desktop UI: the
-    // main view loads it, so the desktop and web/phone share ONE interface with all
-    // the same features (WebRTC, region overlay, audio/mic, agent chat). The native
-    // KVM-web-page composition is kept as a fallback behind PIKVM_NATIVE_UI=1.
-    const useConsole = process.env.PIKVM_NATIVE_UI !== "1";
     const CONSOLE_URL = `${PROXY_ORIGIN}/_agent/console`;
     if (desktopProxy) {
         // Mark this Electron session as the desktop shell so the proxy suppresses
@@ -442,6 +452,19 @@ function createWindow() {
     let sidebarOpen = false;
     let sidebarWidth = settings.get().sidebarWidth;
     let agentActing = false;
+
+    // In console mode the main window IS a console-chromed window: it carries the
+    // console preload, so register it for the console-scoped IPC (window controls,
+    // fit-native, native menus) and mirror its maximise state to the titlebar glyph.
+    if (useConsole) {
+        consoleWindows.add(win);
+        const mirrorMax = () => {
+            if (!win.isDestroyed()) win.webContents.send("console:maximise-change", win.isMaximized());
+        };
+        win.on("maximize", mirrorMax);
+        win.on("unmaximize", mirrorMax);
+        win.on("closed", () => consoleWindows.delete(win));
+    }
 
     win.contentView.addChildView(overlayView);
     win.contentView.addChildView(mainView);
@@ -507,11 +530,14 @@ function createWindow() {
         // not used in console mode — the main view (the console) spans full width.
         const sbW = useConsole ? 0 : sidebarOpen ? sidebarWidth : 0;
 
+        // In console mode the console draws its OWN titlebar, so the main view fills
+        // the whole window (no native titlebar strip reserved).
+        const topY = useConsole ? 0 : TITLEBAR_HEIGHT;
         mainView.setBounds({
             x: 0,
-            y: TITLEBAR_HEIGHT,
+            y: topY,
             width: w! - sbW,
-            height: h! - TITLEBAR_HEIGHT,
+            height: h! - topY,
         });
 
         // Docked right; slides off the right edge when closed.
@@ -1148,9 +1174,15 @@ function createWindow() {
     });
 
     console.log("Loading overlay UI");
-    overlayView.webContents.loadFile(resolve(__dirname, "views", "ui.html"));
-    overlayView.webContents.setIgnoreMenuShortcuts(true);
-    overlayView.webContents.setVisualZoomLevelLimits(1, 1);
+    // Console mode: the console draws its own titlebar/chrome, so the native ui.html
+    // overlay (legacy titlebar + connect screen) is hidden and not loaded.
+    if (useConsole) {
+        overlayView.setVisible(false);
+    } else {
+        overlayView.webContents.loadFile(resolve(__dirname, "views", "ui.html"));
+        overlayView.webContents.setIgnoreMenuShortcuts(true);
+        overlayView.webContents.setVisualZoomLevelLimits(1, 1);
+    }
 
     sendWindowState();
 
