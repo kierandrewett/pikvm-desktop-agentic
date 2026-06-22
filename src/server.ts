@@ -23,7 +23,7 @@ import { createMcpHttpHandler, type McpDeps } from "./mcp-server";
 import { bridgeAgentEvents } from "./agent/ui-stream";
 import { ChatBroadcast } from "./agent/broadcast";
 import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
-import { parseCommand, parseLoopArg, COMMANDS } from "./commands";
+import { parseCommand, parseLoopArg, parsePursueArg, COMMANDS } from "./commands";
 import { createPiKvmProxy } from "./proxy";
 import { webAssets, DESKTOP_SHELL_COOKIE } from "./web-assets";
 import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
@@ -210,6 +210,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             return p.reason ? { paused: p.paused, reason: p.reason } : { paused: p.paused };
         })(),
         ...(runner.getGoal() ? { goal: runner.getGoal()! } : {}),
+        ...(runner.getGoalLoop() ? { goalLoop: runner.getGoalLoop()! } : {}),
         loggedIn: auth.isLoggedIn(),
         streaming: runner.isStreaming(),
         acting: runner.isStreaming(),
@@ -311,6 +312,13 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 if (!task) return status("Usage: /loop [count] <task>");
                 runner.loop(task, count !== undefined ? { count } : {});
                 status(`Looping${count ? ` ${count}×` : ""}: ${task}`, "loop");
+                return;
+            }
+            case "pursue": {
+                const { cap, goal } = parsePursueArg(arg);
+                if (!goal) return status("Usage: /pursue [cap] <goal>");
+                runner.startPursuit(goal, cap !== undefined ? { cap } : {});
+                status(`Pursuing (blind-verified${cap ? `, cap ${cap}` : ""}): ${goal}`, "loop");
                 return;
             }
             case "pause":

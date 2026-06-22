@@ -52,7 +52,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { completions, type CommandSpec } from "../commands";
 import type { AuthRequest } from "../reviewer";
-import type { ServerState, MarkerData } from "../agent/protocol";
+import type { ServerState, MarkerData, GoalLoopState } from "../agent/protocol";
 
 // Our API + assets live under `/_agent`. The desktop sidebar (loaded from a
 // file:// page) gets the origin from its preload; a browser uses same-origin.
@@ -497,6 +497,37 @@ function StatusPill({ state }: { state: ServerState | null }) {
               ? "bg-destructive/20 text-destructive"
               : "bg-muted text-muted-foreground";
     return <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", cls)}>{label}</span>;
+}
+
+/**
+ * Banner for the self-verifying goal loop: shows the goal, the current iteration
+ * out of the cap, and the last blind verdict ("iterating (2/6): <whats missing>"
+ * while running; the pass/fail verdict once finished).
+ */
+function GoalLoopBanner({ loop }: { loop: GoalLoopState }) {
+    const v = loop.lastVerdict;
+    const done = !loop.active;
+    const passed = done && v?.achieved === true;
+    const cls = passed
+        ? "bg-emerald-500/15 text-emerald-300"
+        : done
+          ? "bg-amber-500/15 text-amber-300"
+          : "bg-primary/10 text-foreground";
+    const detail = loop.active
+        ? v
+            ? `iterating (${loop.iteration}/${loop.cap}): ${v.whatsMissing ?? v.reason}`
+            : `working (${loop.iteration}/${loop.cap})…`
+        : passed
+          ? `verified done (${loop.iteration}/${loop.cap}): ${v?.reason ?? ""}`
+          : v?.achieved
+            ? `done: ${v.reason}`
+            : `stopped (${loop.iteration}/${loop.cap}): ${v?.whatsMissing ?? v?.reason ?? "cap reached"}`;
+    return (
+        <div className={cn("border-b px-3 py-1.5 text-xs", cls)}>
+            <span className="font-semibold">{passed ? "✅" : done ? "⏹" : "🔁"} Goal:</span> {loop.goal}
+            <div className="mt-0.5 opacity-90">{detail}</div>
+        </div>
+    );
 }
 
 function ContextMeter({ ctx }: { ctx: { tokens: number; max: number } | undefined }) {
@@ -1944,6 +1975,10 @@ function App() {
                 </div>
             )}
             {serverState?.goal && <div className="border-b bg-primary/10 px-3 py-1.5 text-xs">🎯 {serverState.goal}</div>}
+
+            {/* ── self-verifying goal loop ───────────────────────────────── */}
+            {serverState?.goalLoop && <GoalLoopBanner loop={serverState.goalLoop} />}
+            {/* ──────────────────────────────────────────────────────────── */}
 
             {/* conversation */}
             {convLoading ? (

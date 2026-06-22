@@ -47,6 +47,12 @@ export function createTools(
         getRegions?: () => RegionsResult | null;
         /** Persist a learned fact (e.g. the target's keyboard layout). */
         remember?: (text: string) => void;
+        /**
+         * Kick off a self-verifying goal-pursuit loop on the runner. Provided only
+         * to the MAIN agent (not sub-agents, to avoid nested self-loops). When
+         * absent, the goal tools are not exposed.
+         */
+        pursueGoal?: (goal: string, opts: { criteria?: string; cap?: number }) => void;
     } = {},
 ): AgentTool<any>[] {
     // Build the dependency bundle the watched-typing orchestrator needs from control.
@@ -448,6 +454,49 @@ export function createTools(
                 }
             },
         });
+    }
+
+    // Goal-setting: the agent declares its own checkable objective and pursues it
+    // with blind self-verification (an independent check rules pass/fail each
+    // iteration). Only the main agent gets this — sub-agents must not self-loop.
+    if (deps.pursueGoal) {
+        const pursue = deps.pursueGoal;
+        const goalSchema = Type.Object({
+            goal: Type.String({
+                description:
+                    "A CONCRETE, visibly-checkable objective — something an independent observer could confirm from the screen alone (e.g. 'the file report.txt is open in Notepad showing the three bullet points', not 'help with the report').",
+            }),
+            criteria: Type.Optional(
+                Type.String({ description: "Optional explicit success criteria the blind verifier should weigh." }),
+            ),
+            max_iterations: Type.Optional(
+                Type.Number({ description: "Hard cap on self-verify iterations (default 6, never infinite)." }),
+            ),
+        });
+        const pursueGoal: AgentTool<typeof goalSchema> = {
+            name: "pursue_goal",
+            label: "Pursue goal",
+            description:
+                "Declare a concrete goal and pursue it with BLIND self-verification: you work toward it, then an INDEPENDENT check looks at a fresh screenshot (goal only, not your reasoning) and rules whether it is truly achieved. If not, the gap is fed back and you iterate, until verified done or the cap is hit. Use this when you want to commit to an outcome and keep going until it is genuinely visible on screen. All actions still pass the usual approval gates.",
+            parameters: goalSchema,
+            async execute(_id, p: Static<typeof goalSchema>): Promise<AgentToolResult<null>> {
+                const opts: { criteria?: string; cap?: number } = {};
+                if (typeof p.criteria === "string" && p.criteria.trim()) opts.criteria = p.criteria.trim();
+                if (typeof p.max_iterations === "number") opts.cap = p.max_iterations;
+                // Fire-and-forget: the loop drives its own turns + verification and
+                // streams progress; returning lets this turn end cleanly.
+                pursue(p.goal, opts);
+                return {
+                    content: [
+                        text(
+                            `Pursuing goal with blind self-verification (cap ${opts.cap ?? 6}): "${p.goal}". An independent check will rule pass/fail from the screen after each iteration.`,
+                        ),
+                    ],
+                    details: null,
+                };
+            },
+        };
+        tools.push(pursueGoal);
     }
 
     if (deps.tracker) {

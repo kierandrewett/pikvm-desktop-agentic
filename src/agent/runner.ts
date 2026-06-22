@@ -37,7 +37,7 @@ import { RegionSegmenter, type RegionsResult } from "./regions";
 import type { InputTracker } from "../input-tracker";
 import type { SecretsStore } from "../secrets";
 import { SessionStore, agentMessagesToUi, type SessionMeta } from "./sessions";
-import type { PiKvmUIMessage } from "./protocol";
+import type { GoalLoopState, PiKvmUIMessage } from "./protocol";
 import { decideModelTier, type ModelTier, type TurnSummary } from "./model-router";
 
 registerBuiltInApiProviders();
@@ -163,6 +163,59 @@ function systemPrompt(goal?: string, memoryCount = 0, mcpSkills: string[] = []):
 const SUBAGENT_PROMPT =
     "You are a focused sub-agent. Complete the given task using your tools, then reply with a concise result for the parent agent. Be thorough but brief.";
 
+/* --------------------------- goal-loop plumbing --------------------------- */
+
+/** Default ceiling on self-verified iterations — never run forever. */
+export const DEFAULT_GOAL_LOOP_CAP = 6;
+
+/** Independent ("blind") verdict on whether a goal is met, judged from a fresh
+ *  screenshot alone — never from the agent's own reasoning. */
+export interface GoalVerdict {
+    achieved: boolean;
+    reason: string;
+    /** When not achieved, the concrete gap to feed back to the agent. */
+    whatsMissing?: string;
+}
+
+/** Cheap, terse system prompt for the blind verifier — it ONLY sees the goal and
+ *  the current screen, and must rule pass/fail on the evidence in front of it. */
+export const VERIFIER_SYSTEM =
+    'You are an INDEPENDENT verifier. You are given a GOAL and a single screenshot of a computer screen, and NOTHING about how it was reached. Judge ONLY from what is visibly true on this screen whether the goal is actually achieved right now — do not assume, do not give the benefit of the doubt, do not trust any claim of success. If you cannot SEE clear evidence the goal is met, it is NOT met. Reply with ONLY compact JSON: {"achieved":true|false,"reason":"<at most 20 words, what you see>","whatsMissing":"<if not achieved: the concrete next thing needed, else omit>"}.';
+
+/** Parse the verifier's JSON reply into a verdict. Defaults to NOT achieved when
+ *  the reply is missing/unparseable — a blind verifier never passes on doubt. */
+export function parseVerdict(raw: string): GoalVerdict {
+    try {
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (!m) return { achieved: false, reason: "Verifier returned no JSON." };
+        const j = JSON.parse(m[0]);
+        const achieved = j.achieved === true;
+        const reason = String(j.reason ?? "").slice(0, 200).trim() || (achieved ? "Goal met." : "Goal not met.");
+        const whatsMissing = String(j.whatsMissing ?? "").slice(0, 300).trim();
+        return achieved ? { achieved, reason } : { achieved, reason, ...(whatsMissing ? { whatsMissing } : {}) };
+    } catch {
+        return { achieved: false, reason: "Verifier reply could not be parsed." };
+    }
+}
+
+export type GoalLoopDecision =
+    | { kind: "done"; verdict: GoalVerdict }
+    | { kind: "continue"; feedback: string }
+    | { kind: "capped" };
+
+/**
+ * Pure decision for the self-verifying loop: given the blind verdict, the
+ * iteration just completed and the cap, decide whether to stop (achieved), feed
+ * the gap back and iterate, or stop because the cap is reached. No I/O, fully
+ * testable — this is the heart of the loop and must never spin forever.
+ */
+export function goalLoopStep(verdict: GoalVerdict, iteration: number, cap: number): GoalLoopDecision {
+    if (verdict.achieved) return { kind: "done", verdict };
+    if (iteration >= cap) return { kind: "capped" };
+    const missing = verdict.whatsMissing?.trim() || verdict.reason.trim() || "the goal is not yet visibly met";
+    return { kind: "continue", feedback: missing };
+}
+
 export interface RunnerDeps {
     control: PiKvmControl;
     reviewer: OperationReviewer;
@@ -184,6 +237,8 @@ export class AgentRunner {
     private goal: string | undefined;
     /** Skills named by connected MCP servers (pointed at from the system prompt). */
     private mcpSkills: string[] = [];
+    private goalLoop: GoalLoopState | undefined;
+    private goalLoopAbort: AbortController | undefined;
     private model: Model<any>;
     private modelId = DEFAULT_MODEL;
     /* ----- per-turn model routing (reasoning vs cheap tool-calling) ----- */
@@ -274,12 +329,16 @@ export class AgentRunner {
         });
         this.toolsForSub = [...createTools(deps.control, toolDeps), ...extra.filter((t) => t.name !== "spawn_subagent")];
 
+        // The MAIN agent additionally gets pursue_goal (self-verified loop). Kept
+        // off sub-agents so a sub-task can't kick off its own nested self-loop.
+        const mainToolDeps = { ...toolDeps, pursueGoal: (goal: string, o: { criteria?: string; cap?: number }) => this.startPursuit(goal, o) };
+
         this.agent = new Agent({
             initialState: {
                 systemPrompt: systemPrompt(undefined, this.memory.count(), this.mcpSkills),
                 model: this.model,
                 thinkingLevel: "medium",
-                tools: [...createTools(deps.control, toolDeps), ...extra],
+                tools: [...createTools(deps.control, mainToolDeps), ...extra],
             },
             getApiKey: async () => {
                 try {
@@ -1233,9 +1292,161 @@ export class AgentRunner {
         return this.goal;
     }
 
+    /* ----------------------- self-verifying goal loop ------------------- */
+
+    /** Current goal-loop state (for ServerState), or undefined when idle. */
+    getGoalLoop(): GoalLoopState | undefined {
+        return this.goalLoop;
+    }
+
+    isPursuing(): boolean {
+        return !!this.goalLoop?.active;
+    }
+
+    /** Snapshot the loop state and nudge the UI to re-read it. */
+    private emitGoalLoop(): void {
+        this.onUiChanged?.();
+    }
+
+    /**
+     * Run the BLIND verifier: an independent judgement given ONLY the goal (and
+     * any criteria) plus a FRESH screenshot — never the agent's own reasoning or
+     * transcript. Uses the cheap fast-vision path. Defaults to NOT achieved if it
+     * can't see the screen or parse a verdict, so the loop can't declare victory.
+     */
+    async verifyGoal(goal: string, criteria?: string): Promise<GoalVerdict> {
+        let shot: { base64: string; mimeType: string };
+        try {
+            shot = await this.deps.control.screenshot();
+        } catch {
+            return { achieved: false, reason: "Could not capture the screen to verify." };
+        }
+        const instruction = [
+            `GOAL: ${goal}`,
+            criteria ? `SUCCESS CRITERIA: ${criteria}` : "",
+            "Judge the screenshot now. Output only the JSON verdict.",
+        ]
+            .filter(Boolean)
+            .join("\n");
+        const raw = await this.quickLook(
+            { data: shot.base64, mimeType: shot.mimeType },
+            instruction,
+            { model: CONTEXT_MODEL, system: VERIFIER_SYSTEM, thinking: "low" },
+        );
+        return parseVerdict(raw);
+    }
+
+    /**
+     * Public, fire-and-forget entry point. If called from inside a running turn
+     * (e.g. the `pursue_goal` tool), defer the loop until that turn settles so we
+     * never re-enter `agent.prompt`. Used by both the tool and the /pursue command.
+     */
+    startPursuit(goal: string, opts: { criteria?: string; cap?: number } = {}): void {
+        const begin = () => void this.pursueGoal(goal, opts).catch(() => undefined);
+        if (this.agent.state.isStreaming) {
+            const unsub = this.agent.subscribe((e) => {
+                if (e.type === "agent_end") {
+                    unsub();
+                    if (!this.agent.state.isStreaming) begin();
+                }
+            });
+        } else {
+            begin();
+        }
+    }
+
+    /**
+     * Pursue a self-set goal with blind self-verification: the agent works toward
+     * the goal, then an INDEPENDENT verifier (fresh screenshot + goal only) rules
+     * pass/fail. If not met, the gap is fed back and it iterates — until achieved
+     * or the cap is hit (never infinite). All work flows through the SAME approval
+     * /presence gates as a normal run (it just calls `agent.prompt`), and honours
+     * stop()/abort. Observability via the event stream + getGoalLoop().
+     */
+    async pursueGoal(goal: string, opts: { criteria?: string; cap?: number } = {}): Promise<GoalLoopState> {
+        const trimmed = goal.trim();
+        if (!trimmed) throw new Error("A goal is required to pursue.");
+        // One loop at a time; cancel any prior pursuit first.
+        this.goalLoopAbort?.abort();
+        const cap = Math.max(1, Math.floor(opts.cap ?? DEFAULT_GOAL_LOOP_CAP));
+        const criteria = opts.criteria?.trim() || undefined;
+        const abort = new AbortController();
+        this.goalLoopAbort = abort;
+        // Pin the goal into the system prompt too, so the agent keeps it in view.
+        this.setGoal(criteria ? `${trimmed}\nSuccess criteria: ${criteria}` : trimmed);
+        this.goalLoop = { goal: trimmed, ...(criteria ? { criteria } : {}), iteration: 0, cap, active: true };
+        this.emitGoalLoop();
+
+        const stepPrompt = (iteration: number, feedback?: string): string =>
+            iteration === 1
+                ? [
+                      `Pursue this goal until it is genuinely achieved: ${trimmed}.`,
+                      criteria ? `Success criteria: ${criteria}.` : "",
+                      "Work toward it with your normal careful loop (screenshot, one action, verify). When you believe it is done, stop — an INDEPENDENT verifier will then check the screen blindly, so make sure the result is actually visible on screen, not just claimed.",
+                  ]
+                      .filter(Boolean)
+                      .join(" ")
+                : [
+                      `An independent check of the goal "${trimmed}" found it is NOT done yet.`,
+                      `What is still missing: ${feedback}.`,
+                      "Continue from the current screen state — take a fresh screenshot first, then close that gap. Do not repeat steps that already worked.",
+                  ].join(" ");
+
+        try {
+            for (let iteration = 1; !abort.signal.aborted; iteration++) {
+                this.goalLoop = { ...this.goalLoop!, iteration, active: true };
+                this.emitGoalLoop();
+
+                // 1. Let the agent act toward the goal (gated normally).
+                const feedback = this.goalLoop.lastVerdict?.whatsMissing ?? this.goalLoop.lastVerdict?.reason;
+                try {
+                    await this.runAutonomous("", `Goal iteration ${iteration}/${cap}`, {
+                        trigger: `🎯 Pursuing goal (${iteration}/${cap}): ${trimmed}`,
+                        prompt: stepPrompt(iteration, feedback),
+                    });
+                } catch {
+                    /* a failed turn still gets verified — the screen may have progressed */
+                }
+                if (abort.signal.aborted) break;
+
+                // 2. BLIND verification — independent of the agent's self-assessment.
+                const verdict = await this.verifyGoal(trimmed, criteria);
+                this.goalLoop = { ...this.goalLoop!, iteration, lastVerdict: verdict };
+                this.emitGoalLoop();
+                if (abort.signal.aborted) break;
+
+                // 3. Pure decision: stop (done), iterate (feed gap back), or stop (capped).
+                const decision = goalLoopStep(verdict, iteration, cap);
+                if (decision.kind === "done") {
+                    this.goalLoop = { ...this.goalLoop!, active: false };
+                    this.emitGoalLoop();
+                    break;
+                }
+                if (decision.kind === "capped") {
+                    this.goalLoop = { ...this.goalLoop!, active: false };
+                    this.emitGoalLoop();
+                    break;
+                }
+                // continue → loop again with the gap as feedback (already on lastVerdict).
+            }
+        } finally {
+            if (this.goalLoop?.active) {
+                this.goalLoop = { ...this.goalLoop, active: false };
+                this.emitGoalLoop();
+            }
+            if (this.goalLoopAbort === abort) this.goalLoopAbort = undefined;
+        }
+        return this.goalLoop!;
+    }
+
     stop(): void {
         this.loopController?.stop();
         this.loopController = undefined;
+        this.goalLoopAbort?.abort();
+        if (this.goalLoop?.active) {
+            this.goalLoop = { ...this.goalLoop, active: false };
+            this.emitGoalLoop();
+        }
         this.agent.abort();
     }
 
