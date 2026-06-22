@@ -21,6 +21,15 @@ export interface OverlayRegion {
     height: number;
 }
 
+/** A proactive action the agent offers for the current screen (lock screen → log in). */
+export interface OverlaySuggestion {
+    id: string;
+    title: string;
+    detail?: string;
+    /** Instruction handed to the agent when the user taps it. */
+    task: string;
+}
+
 export type OverlayEvent =
     | { type: "acting"; active: boolean; action?: string }
     | { type: "context"; app?: string; sensitive?: boolean }
@@ -30,6 +39,9 @@ export type OverlayEvent =
     // until the next map arrives (distinct from the transient `region` scan box).
     // w/h are the frame dimensions the region pixels are expressed in.
     | { type: "regions"; regions: OverlayRegion[]; w: number; h: number }
+    // Proactive "suggested actions" for the current screen — a tappable card over
+    // the live view. An empty list clears it.
+    | { type: "suggestions"; items: OverlaySuggestion[] }
     | { type: "typing"; [k: string]: unknown };
 
 export class OverlayBus extends EventEmitter {
@@ -38,11 +50,14 @@ export class OverlayBus extends EventEmitter {
     private context: { app?: string; sensitive?: boolean } | null = null;
     /** Last segmented region map, replayed so a late client draws it immediately. */
     private regions: { type: "regions"; regions: OverlayRegion[]; w: number; h: number } | null = null;
+    /** Current suggestion card, replayed so a late client shows it immediately. */
+    private suggestions: OverlaySuggestion[] = [];
 
     emitOverlay(e: OverlayEvent): void {
         if (e.type === "acting") this.acting = { active: e.active, ...(e.action ? { action: e.action } : {}) };
         if (e.type === "context") this.context = { ...(e.app ? { app: e.app } : {}), ...(e.sensitive ? { sensitive: true } : {}) };
         if (e.type === "regions") this.regions = e;
+        if (e.type === "suggestions") this.suggestions = e.items;
         this.emit("overlay", e);
     }
 
@@ -52,6 +67,7 @@ export class OverlayBus extends EventEmitter {
         fn({ type: "acting", active: this.acting.active, ...(this.acting.action ? { action: this.acting.action } : {}) });
         if (this.context) fn({ type: "context", ...this.context });
         if (this.regions) fn(this.regions);
+        if (this.suggestions.length) fn({ type: "suggestions", items: this.suggestions });
         this.on("overlay", fn);
         return () => this.off("overlay", fn);
     }

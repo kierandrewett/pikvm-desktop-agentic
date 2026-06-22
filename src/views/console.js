@@ -1726,6 +1726,8 @@
             pane.classList.toggle("acting", !!d.active);
             if (d.active && actingAction && d.action) actingAction.textContent = d.action;
             if (!d.active) aiCursor.classList.remove("show");
+            // The agent is driving now — drop any suggestion card immediately.
+            if (d.active && typeof renderSuggestions === "function") renderSuggestions([]);
         }
         function onContext(c) {
             if (!actingCtx) return;
@@ -1752,7 +1754,82 @@
             else if (d.type === "typing") onTyping(d);
             else if (d.type === "acting") onActing(d);
             else if (d.type === "context") onContext(d);
+            else if (d.type === "suggestions") onSuggestions(d);
         };
+
+        /* ---- proactive "suggested actions" card over the live screen ---- */
+        var suggestLayer = null;
+        var lastNotifiedSug = null;
+        function renderSuggestions(items) {
+            if (!suggestLayer) {
+                suggestLayer = document.createElement("div");
+                suggestLayer.className = "suggest-layer";
+                (pane || document.body).appendChild(suggestLayer);
+            }
+            suggestLayer.textContent = "";
+            if (!items || !items.length) {
+                suggestLayer.classList.remove("show");
+                return;
+            }
+            items.forEach(function (it) {
+                var card = document.createElement("div");
+                card.className = "suggest-card";
+                var info = document.createElement("div");
+                info.className = "suggest-info";
+                var t = document.createElement("div");
+                t.className = "suggest-title";
+                t.textContent = "Suggested action";
+                var sub = document.createElement("div");
+                sub.className = "suggest-sub";
+                sub.textContent = it.detail || it.title;
+                info.appendChild(t);
+                info.appendChild(sub);
+                var run = document.createElement("button");
+                run.className = "suggest-run";
+                run.textContent = it.title || "Do it";
+                run.addEventListener("click", function () { runSuggestion(it); });
+                var x = document.createElement("button");
+                x.className = "suggest-x";
+                x.title = "Dismiss";
+                x.textContent = "✕";
+                x.addEventListener("click", function () { dismissSuggestion(it); });
+                card.appendChild(info);
+                card.appendChild(run);
+                card.appendChild(x);
+                suggestLayer.appendChild(card);
+            });
+            suggestLayer.classList.add("show");
+            maybeNotifySuggestion(items[0]);
+        }
+        function onSuggestions(d) { renderSuggestions(d.items || []); }
+        function runSuggestion(it) {
+            fetch("/_agent/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ messages: [{ role: "user", content: [{ type: "text", text: it.task }] }], clientId: "suggest" }),
+            }).catch(function () {});
+            renderSuggestions([]); // optimistic; the agent taking control also clears it server-side
+        }
+        function dismissSuggestion(it) {
+            fetch("/_agent/api/suggestions/dismiss", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: it.id }),
+            }).catch(function () {});
+            renderSuggestions([]);
+        }
+        // Mirror the sidebar's Web-Notification opt-in (same origin → shared toggle).
+        function maybeNotifySuggestion(it) {
+            try {
+                if (!it || it.id === lastNotifiedSug) return;
+                lastNotifiedSug = it.id;
+                if (typeof Notification === "undefined") return;
+                if (localStorage.getItem("pikvm-web-notifs") !== "1" || Notification.permission !== "granted") return;
+                if (document.visibilityState === "visible" && document.hasFocus()) return;
+                var n = new Notification("Suggested: " + (it.title || "action"), { body: it.detail || it.task || "", icon: "/_agent/icon.png", tag: "agent-suggestion" });
+                n.onclick = function () { try { window.focus(); } catch (e) {} n.close(); };
+            } catch (e) {}
+        }
 
         var stopBtn = document.getElementById("act-stop");
         var pauseBtn = document.getElementById("act-pause");

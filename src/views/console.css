@@ -802,6 +802,92 @@ body {
     border-color: #ff4d4d;
 }
 
+/* Proactive "suggested actions" card floating over the live screen. */
+.suggest-layer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 16px;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(8px);
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+}
+.suggest-layer.show {
+    opacity: 1;
+    transform: none;
+}
+.suggest-card {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: min(460px, 88%);
+    padding: 8px 8px 8px 14px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.38);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+}
+.suggest-info {
+    min-width: 0;
+}
+.suggest-title {
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted-foreground);
+}
+.suggest-sub {
+    margin-top: 1px;
+    font-size: 13px;
+    font-weight: 550;
+    color: var(--foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.suggest-run {
+    flex: none;
+    cursor: pointer;
+    border: 0;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 10px;
+}
+.suggest-run:hover {
+    filter: brightness(1.08);
+}
+.suggest-x {
+    flex: none;
+    cursor: pointer;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    line-height: 1;
+}
+.suggest-x:hover {
+    background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
+    color: var(--foreground);
+}
+
 /* Floating meeting copilot. */
 .copilot {
     position: absolute;

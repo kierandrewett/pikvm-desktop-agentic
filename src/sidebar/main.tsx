@@ -1529,8 +1529,13 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 {/* ------------------------------- ambient ------------------------------ */}
                 {tab === "ambient" && (
                     <div className="space-y-3">
-                        <div className="rounded-xl border bg-card/40 p-3">
+                        <div className="space-y-2 rounded-xl border bg-card/40 p-3">
                             <WebNotifyRow />
+                            <Row
+                                label="Suggested actions"
+                                desc="Watch the screen and offer to act — e.g. a lock screen → log in"
+                                control={<Switch checked={amb?.suggest ?? true} onChange={(v) => onPatch({ ambient: { suggest: v } })} />}
+                            />
                         </div>
                         <Row
                             label="Background monitoring"

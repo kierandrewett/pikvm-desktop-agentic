@@ -30,6 +30,7 @@ import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from ".
 import type { SettingsStore } from "./settings";
 import type { SecretsStore } from "./secrets";
 import type { AmbientMonitor } from "./ambient/monitor";
+import type { SuggestionWatcher } from "./ambient/suggestions";
 import type { NtfyClient } from "./ambient/ntfy";
 import type { Transcriber } from "./ambient/transcriber";
 import type { MeetingLog } from "./ambient/meeting-log";
@@ -42,6 +43,7 @@ export interface ServerDeps extends McpDeps {
     settings: SettingsStore;
     secrets: SecretsStore;
     ambient: AmbientMonitor;
+    suggestions: SuggestionWatcher;
     ntfy: NtfyClient;
     transcriber: Transcriber;
     meetingLog: MeetingLog;
@@ -97,7 +99,7 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
 }
 
 export function startControlServer(deps: ServerDeps, port: number, host = "127.0.0.1"): ReturnType<typeof createServer> {
-    const { runner, reviewer, presence, auth, settings, secrets, ambient, ntfy, transcriber, meetingLog, control, overlay, openExternal } = deps;
+    const { runner, reviewer, presence, auth, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, control, overlay, openExternal } = deps;
     const mcpHandler = createMcpHttpHandler(deps);
     // Reverse proxy to the PiKVM target. Our own surface lives under `/_agent`;
     // everything else is forwarded to the Pi (UI, stream, HID, login).
@@ -130,6 +132,12 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     ambient.on("suggestion", (sug: { ts: number; text: string }) => {
         ambientSuggestions.push(sug);
         if (ambientSuggestions.length > 12) ambientSuggestions = ambientSuggestions.slice(-12);
+    });
+
+    // Proactive "suggested actions" → the overlay bus, which floats a tappable card
+    // over the live screen (web + desktop). An empty list clears it.
+    suggestions.on("suggestions", (items: import("./overlay-bus").OverlaySuggestion[]) => {
+        overlay.emitOverlay({ type: "suggestions", items });
     });
 
     // Record meetings to the log (transcript + suggestions + recap) for later review.
@@ -231,6 +239,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             const a = settings.get().ambient;
             return {
                 enabled: a.enabled,
+                suggest: a.suggest,
                 inMeeting: ambient.isInMeeting(),
                 notify: a.notify,
                 meetingAssist: a.meetingAssist,
@@ -717,6 +726,19 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         if (path === "/api/ambient/clear" && req.method === "POST") {
             ambientEvents.length = 0;
             return json(res, 200, state());
+        }
+        // Dismiss a suggested action (hide it until the screen state changes).
+        if (path === "/api/suggestions/dismiss" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                try {
+                    const id = String(JSON.parse(b || "{}").id ?? "");
+                    if (id) suggestions.dismiss(id);
+                } catch {
+                    /* ignore */
+                }
+                json(res, 200, { ok: true });
+            });
+            return;
         }
         // Manual start/stop of meeting transcription, independent of auto-detection.
         if (path === "/api/ambient/transcribe" && req.method === "POST") {

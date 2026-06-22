@@ -49,6 +49,7 @@ import { SecretsStore } from "./secrets";
 import { keyfileSecretCrypto } from "./secret-crypto-keyfile";
 import { NtfyClient } from "./ambient/ntfy";
 import { AmbientMonitor } from "./ambient/monitor";
+import { SuggestionWatcher } from "./ambient/suggestions";
 import { Transcriber } from "./ambient/transcriber";
 import { MeetingLog } from "./ambient/meeting-log";
 
@@ -175,6 +176,17 @@ function main(): void {
     });
     ambient.start();
 
+    // Proactive "suggested actions" watcher (headless: the KVM is always watchable).
+    const suggestions = new SuggestionWatcher({
+        control,
+        isOnKVM: () => true,
+        isBusy: () => runner.isStreaming() || ambient.isInMeeting(),
+        enabled: () => settings.get().ambient.suggest,
+        look: (image, instruction, opts) => runner.quickLook(image, instruction, opts),
+        model: settings.get().ambient.triageModel,
+    });
+    suggestions.start();
+
     // Meeting copilot wiring (same as desktop; the overlay is just absent).
     runner.onMeetingOutput = (kind, text) => {
         if (kind === "suggestion") ambient.pushSuggestion(text);
@@ -237,6 +249,7 @@ function main(): void {
             settings,
             secrets,
             ambient,
+            suggestions,
             ntfy,
             transcriber,
             meetingLog,

@@ -31,6 +31,7 @@ import { SecretsStore } from "./secrets";
 import { electronSecretCrypto } from "./secret-crypto-electron";
 import { NtfyClient } from "./ambient/ntfy";
 import { AmbientMonitor } from "./ambient/monitor";
+import { SuggestionWatcher } from "./ambient/suggestions";
 import { Transcriber } from "./ambient/transcriber";
 import { MeetingLog } from "./ambient/meeting-log";
 
@@ -166,6 +167,18 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     });
     ambient.start();
 
+    // Proactive "suggested actions" watcher — offers to act on what's on screen
+    // (lock screen → log in). Independent of the ambient monitor's master switch.
+    const suggestions = new SuggestionWatcher({
+        control,
+        isOnKVM: () => onKVM,
+        isBusy: () => runner.isStreaming() || ambient.isInMeeting(),
+        enabled: () => settings.get().ambient.suggest,
+        look: (image, instruction, opts) => runner.quickLook(image, instruction, opts),
+        model: settings.get().ambient.triageModel,
+    });
+    suggestions.start();
+
     // The live meeting copilot is a real Pi agent (tools: screen, transcript, web,
     // memory). It briefs + suggests; the monitor only detects the meeting and feeds it.
     runner.onMeetingOutput = (kind, text) => {
@@ -200,7 +213,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
     const overlay = new OverlayBus();
     startControlServer(
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, ntfy, transcriber, meetingLog, overlay, openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
         bindHost,
     );

@@ -153,6 +153,9 @@ function atlasServer(atlas: AtlasSettings): McpServerSettings {
 export interface AmbientSettings {
     /** Master switch for the background monitor. */
     enabled: boolean;
+    /** Proactive "suggested actions" watch (lock screen → log in, etc.). Independent
+     *  of the monitor's master switch — it's about offering to act, not notifying. */
+    suggest: boolean;
     /** Capture/diff cadence in ms. */
     intervalMs: number;
     /** Cheap Pi model used to triage a detected change. */
@@ -172,6 +175,7 @@ export interface AmbientSettings {
 
 const DEFAULT_AMBIENT: AmbientSettings = {
     enabled: false,
+    suggest: true,
     intervalMs: 4000,
     // Cheap vision model for change triage. gpt-5.4-mini is the available "mini"
     // (the Codex sub exposes gpt-5.3-codex-spark / gpt-5.4 / gpt-5.4-mini / gpt-5.5).

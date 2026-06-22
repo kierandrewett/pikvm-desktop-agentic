@@ -143,6 +143,8 @@ export interface ServerState {
     /** Ambient background monitor: config + state + recent events. */
     ambient: {
         enabled: boolean;
+        /** Proactive "suggested actions" watch toggle. */
+        suggest: boolean;
         inMeeting: boolean;
         notify: boolean;
         meetingAssist: boolean;
