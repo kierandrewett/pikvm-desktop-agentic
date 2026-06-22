@@ -112,19 +112,21 @@ function PillSelect({
     onChange,
     title,
     children,
+    className,
 }: {
     value: string;
     onChange: (v: string) => void;
     title: string;
     children: React.ReactNode;
+    className?: string;
 }) {
     return (
-        <div className="relative">
+        <div className={cn("relative min-w-0", className)}>
             <select
                 value={value}
                 title={title}
                 onChange={(e) => onChange(e.target.value)}
-                className="cursor-pointer appearance-none rounded-full border bg-secondary py-1 pl-2.5 pr-6 text-xs text-foreground outline-none transition-colors hover:bg-accent"
+                className="w-full cursor-pointer appearance-none truncate rounded-full border bg-secondary py-1 pl-2.5 pr-6 text-xs text-foreground outline-none transition-colors hover:bg-accent"
             >
                 {children}
             </select>
@@ -2378,6 +2380,7 @@ function App() {
                             <Paperclip className="size-4" />
                         </Button>
                         <PillSelect
+                            className="min-w-[58px] max-w-[132px]"
                             value={serverState?.settings?.modelRouting?.enabled ? "__auto__" : (serverState?.settings?.modelRouting?.reasoningModel ?? serverState?.model ?? "")}
                             title="Model — Auto routes reasoning vs fast per turn"
                             onChange={(m) => {
@@ -2401,7 +2404,7 @@ function App() {
                                 ));
                             })()}
                         </PillSelect>
-                        <PillSelect value={serverState?.policy ?? "risky-only"} title="Review policy" onChange={(p) => post("/api/policy", { policy: p }).then(refreshState)}>
+                        <PillSelect className="shrink-0" value={serverState?.policy ?? "risky-only"} title="Review policy" onChange={(p) => post("/api/policy", { policy: p }).then(refreshState)}>
                             <option value="risky-only">Confirm risky</option>
                             <option value="review-all">Review all</option>
                             <option value="autorun-trusted">Autorun</option>

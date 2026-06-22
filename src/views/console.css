@@ -1076,8 +1076,10 @@ html.desktop-console.native-window-controls .titlebar {
 html.desktop-console .tb-av .wave {
     opacity: 0;
 }
+/* On = a crisp light icon over a subtle "armed" backdrop (NOT a solid blue blob). */
 html.desktop-console .tb-av.on {
-    color: var(--primary);
+    color: var(--foreground);
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
 }
 html.desktop-console .tb-av.on .wave {
     opacity: 1;
@@ -1085,10 +1087,9 @@ html.desktop-console .tb-av.on .wave {
 html.desktop-console .tb-av.warn {
     color: var(--warn);
 }
-/* Live level meter: a real bottom-to-top fill behind the icon. `--vol` (0..1,
- * driven by a Web Audio analyser with VU-style decay in console.js) is the fill
- * height — 0% at the bottom, rising to 100%, falling back smoothly. The round
- * button clips the rectangular fill to its circle. */
+/* Live level meter: a TRANSLUCENT green level rises bottom→top behind the icon
+ * (--vol 0..1, from WebRTC stats with VU decay). Translucent so it reads as a
+ * level, not a filled button; the round button clips it to its circle. */
 html.desktop-console .tb-av {
     position: relative;
     isolation: isolate;
@@ -1102,7 +1103,7 @@ html.desktop-console .tb-av::before {
     bottom: 0;
     height: calc(var(--vol, 0) * 100%);
     z-index: -1;
-    background: linear-gradient(to top, var(--primary), color-mix(in srgb, var(--primary) 45%, transparent));
+    background: linear-gradient(to top, color-mix(in srgb, var(--ok) 72%, transparent), color-mix(in srgb, var(--ok) 18%, transparent));
     transition: height 0.05s linear;
     pointer-events: none;
 }
