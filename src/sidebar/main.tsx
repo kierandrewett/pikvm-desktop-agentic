@@ -2194,8 +2194,13 @@ function App() {
                                     }
                                     if (p.type === "data-steer")
                                         return (
-                                            <div key={i} className="self-end max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-primary/85 px-3.5 py-2 text-[14px] text-primary-foreground">
-                                                {p.data.text}
+                                            <div key={i} className="flex flex-col items-end gap-1 self-end max-w-[85%]">
+                                                <div className="whitespace-pre-wrap break-words rounded-2xl rounded-br-md border border-dashed border-primary/45 bg-primary/10 px-3.5 py-2 text-[14px] text-foreground">
+                                                    {p.data.text}
+                                                </div>
+                                                <span className="flex items-center gap-1 pr-1 text-[10px] font-medium text-muted-foreground">
+                                                    <Clock className="size-2.5" /> Queued · the agent will read this next turn
+                                                </span>
                                             </div>
                                         );
                                     if (p.type === "data-status")
