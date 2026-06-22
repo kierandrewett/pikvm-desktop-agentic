@@ -398,7 +398,10 @@
     var micBtn = document.getElementById("mic-btn");
     var audioPip = document.getElementById("audio-pip");
     var micPip = document.getElementById("mic-pip");
-    var avSep = document.getElementById("av-sep");
+    var hud = document.getElementById("hud");
+    var resToast = document.getElementById("res-toast");
+    var resToastMain = document.getElementById("res-toast-main");
+    var resToastAv = document.getElementById("res-toast-av");
 
     function janusWsUrl() {
         return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/janus/ws";
@@ -453,11 +456,45 @@
     }
 
     function revealAvToggles(on) {
-        [audioBtn, micBtn, avSep].forEach(function (el) {
-            if (!el) return;
-            if (on) el.removeAttribute("hidden");
-            else el.setAttribute("hidden", "");
-        });
+        // The HUD (top-left audio/mic) only makes sense with a WebRTC session.
+        if (hud) hud.classList.toggle("show", !!on);
+        if (!on) {
+            // MJPEG has no audio: reset the toggles so the state can't read stale.
+            audioOn = false;
+            micOn = false;
+            paintToggle(audioBtn, audioPip, false, false);
+            paintToggle(micBtn, micPip, false, false);
+        }
+    }
+
+    // A small toast over the top of the stream when the resolution/source changes.
+    var lastResKey = "";
+    var resToastTimer = null;
+    function avSummary() {
+        var bits = [];
+        if (audioOn) bits.push("🔊");
+        if (micOn) bits.push("🎙");
+        return bits.join(" ");
+    }
+    function refreshResToastAv() {
+        if (resToastAv) resToastAv.textContent = avSummary();
+    }
+    function showResToast(force) {
+        if (!resToast) return;
+        var w = geomW();
+        var h = geomH();
+        if (w <= 16 || h <= 9) return; // no real frame yet
+        var src = webrtcActive ? "HD · WebRTC" : "MJPEG";
+        var key = w + "x" + h + "/" + src;
+        if (!force && key === lastResKey) return; // only on a real change
+        lastResKey = key;
+        if (resToastMain) resToastMain.textContent = w + " × " + h + "  ·  " + src;
+        refreshResToastAv();
+        resToast.classList.add("show");
+        if (resToastTimer) clearTimeout(resToastTimer);
+        resToastTimer = setTimeout(function () {
+            resToast.classList.remove("show");
+        }, 2600);
     }
 
     var stream = null;
@@ -532,6 +569,7 @@
             }
             stream.setAudio(audioOn);
             paintToggle(audioBtn, audioPip, audioOn, false);
+            showResToast(true); // flash confirmation with the new A/M state
         });
     }
     if (micBtn) {
@@ -542,6 +580,7 @@
                 micOn = false;
                 stream.setMic(false);
                 paintToggle(micBtn, micPip, false, false);
+                showResToast(true);
                 return;
             }
             // Mic needs a permission grant; the wrapper's createAnswer will call
@@ -566,6 +605,7 @@
                     // Mic implies an audio session; make sure audio is requested too.
                     stream.setMic(true);
                     paintToggle(micBtn, micPip, true, false);
+                    showResToast(true);
                 })
                 .catch(function () {
                     paintToggle(micBtn, micPip, false, true, "Denied");
@@ -1067,10 +1107,19 @@
         var w = pane.clientWidth || window.innerWidth;
         app.style.setProperty("--sh", clampH(Math.round((w * nh) / nw)) + "px");
     }
-    img.addEventListener("load", fitAspect);
+    img.addEventListener("load", function () {
+        fitAspect();
+        showResToast();
+    });
     // The video reports its size asynchronously once the first frame decodes.
-    vid.addEventListener("loadedmetadata", fitAspect);
-    vid.addEventListener("resize", fitAspect);
+    vid.addEventListener("loadedmetadata", function () {
+        fitAspect();
+        showResToast();
+    });
+    vid.addEventListener("resize", function () {
+        fitAspect();
+        showResToast();
+    });
     window.addEventListener("resize", fitAspect);
     window.addEventListener("orientationchange", function () {
         setTimeout(fitAspect, 250);
