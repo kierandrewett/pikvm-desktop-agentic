@@ -198,6 +198,12 @@
             wheel: function (dx, dy) {
                 send({ event_type: "mouse_wheel", event: { delta: { x: dx, y: dy } } });
             },
+            /** A RELATIVE mouse nudge — wakes a sleeping/no-signal display where an
+             *  absolute position report alone often won't. Routed to the Pi's relative
+             *  mouse endpoint (a no-op if the Pi is absolute-only). */
+            relative: function (dx, dy) {
+                send({ event_type: "mouse_relative", event: { delta: { x: Math.round(dx), y: Math.round(dy) }, squash: true } });
+            },
             /** The target's current Caps Lock state (from its keyboard LED). */
             capsOn: function () {
                 return targetCaps;
@@ -1023,6 +1029,8 @@
     // we send absolute moves, so trackpad mode works with the default (absolute)
     // PiKVM mouse — no Pi-side relative-mouse configuration required.
     var vcur = { x: 0, y: 0 };
+    var lastMoveX = 0,
+        lastMoveY = 0; // last mouse client pos, for the no-signal relative wake nudge
     // Coalesce moves to ONE HID send per animation frame. Sending on every
     // pointermove (up to ~120/s) floods the WebSocket and makes the cursor stutter;
     // batching to ~60fps with the latest position is smooth (what PiKVM does too).
@@ -1169,6 +1177,17 @@
             if (e.pointerType === "mouse") {
                 moveTo(e.clientX, e.clientY);
                 paintCursor(e.clientX, e.clientY);
+                // When the target isn't showing a live picture (asleep / no signal), an
+                // absolute position report alone often won't wake it — mirror the actual
+                // movement as a clamped RELATIVE nudge, which reliably does. Gated to
+                // non-live so it never doubles the cursor when there's a real signal.
+                if (streamState !== "live" && (!window.desktopConsole || windowFocused)) {
+                    var dx = e.clientX - lastMoveX;
+                    var dy = e.clientY - lastMoveY;
+                    if (dx || dy) hid.relative(Math.max(-30, Math.min(30, dx)), Math.max(-30, Math.min(30, dy)));
+                }
+                lastMoveX = e.clientX;
+                lastMoveY = e.clientY;
                 return;
             }
 
