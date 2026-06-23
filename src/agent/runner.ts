@@ -1361,12 +1361,18 @@ export class AgentRunner {
      * Never prompts; Claude Code's own terminal prompt is the user-facing approval.
      */
     // ---- KVM control lease: only ONE agent session may drive the KVM (hands) at a time.
-    // Eyes (screenshot/ocr/get_regions) are read-only and never gated. The holder is the
-    // session id passed by the permcheck hook (PIKVM_SESSION_ID). Auto-released when the
-    // session exits (releaseKvmLease) or after KVM_LEASE_IDLE_MS without a hands action.
+    // Eyes (screenshot/ocr/get_regions) are read-only and never gated — any session may LOOK
+    // anytime. Control is acquired on the first hands action and HELD for the session's life
+    // (refreshed on every MCP call, so thinking/observing never drops it — no mid-think
+    // takeover). Released only on session exit (releaseKvmLease) or a long abandonment
+    // backstop (zero MCP activity for KVM_LEASE_BACKSTOP_MS — crash safety).
     private kvmLeaseHolder: string | null = null;
     private kvmLeaseAt = 0;
-    private static readonly KVM_LEASE_IDLE_MS = 90_000;
+    private static readonly KVM_LEASE_BACKSTOP_MS = 10 * 60_000;
+
+    private kvmLeaseStale(now: number): boolean {
+        return !this.kvmLeaseHolder || now - this.kvmLeaseAt > AgentRunner.KVM_LEASE_BACKSTOP_MS;
+    }
 
     /** Free the KVM lease when a session ends (called from main on PTY exit). */
     releaseKvmLease(session: string): void {
@@ -1378,22 +1384,41 @@ export class AgentRunner {
 
     /** Which session currently holds the KVM (for diagnostics / UI). */
     kvmLeaseOwner(): string | null {
-        if (this.kvmLeaseHolder && Date.now() - this.kvmLeaseAt > AgentRunner.KVM_LEASE_IDLE_MS) this.kvmLeaseHolder = null;
+        if (this.kvmLeaseStale(Date.now())) this.kvmLeaseHolder = null;
         return this.kvmLeaseHolder;
+    }
+
+    /** Keep the holder's lease alive on ANY activity (eyes included), so a session that is
+     *  looking/thinking between actions never lapses into the abandonment backstop. */
+    touchKvmLease(session?: string): void {
+        if (session && this.kvmLeaseHolder === session) this.kvmLeaseAt = Date.now();
+    }
+
+    /**
+     * Acquire (or re-affirm) the KVM control lease for a hands action. Returns ok:false if a
+     * DIFFERENT session holds it (and hasn't been abandoned). Shared by the Claude permcheck
+     * hook (assessMcpOp) and the MCP server gate (codex/opencode, which have no hook) — so
+     * one lease covers every agent. A session-less caller (legacy/no id) is never blocked.
+     */
+    acquireKvmLease(session?: string): { ok: boolean; reason?: string } {
+        if (!session) return { ok: true };
+        const now = Date.now();
+        if (this.kvmLeaseHolder && this.kvmLeaseHolder !== session && !this.kvmLeaseStale(now)) {
+            return { ok: false, reason: `Another agent session (${this.kvmLeaseHolder}) is controlling the KVM. Only one session drives it at a time — wait for it to finish or close that tab.` };
+        }
+        this.kvmLeaseHolder = session;
+        this.kvmLeaseAt = now;
+        return { ok: true };
     }
 
     async assessMcpOp(tool: string, args: Record<string, unknown>, session?: string): Promise<{ decision: "allow" | "ask" | "deny"; reason?: string }> {
         const op: Operation = { tool, args, source: "mcp" };
         // Control lease: a hands action from a session that isn't the lease holder is denied
         // while another live session holds it. The first hands action acquires the lease.
-        const isHands = INPUT_ACTIONS.has(tool) || (tool === "press_key" && true) || tool === "scroll";
-        if (isHands && session) {
-            const now = Date.now();
-            if (this.kvmLeaseHolder && this.kvmLeaseHolder !== session && now - this.kvmLeaseAt <= AgentRunner.KVM_LEASE_IDLE_MS) {
-                return { decision: "deny", reason: `Another agent session (${this.kvmLeaseHolder}) is currently controlling the KVM. Only one session may drive it at a time.` };
-            }
-            this.kvmLeaseHolder = session;
-            this.kvmLeaseAt = now;
+        const isHands = INPUT_ACTIONS.has(tool) || tool === "press_key" || tool === "scroll";
+        if (isHands) {
+            const lease = this.acquireKvmLease(session);
+            if (!lease.ok) return { decision: "deny", ...(lease.reason ? { reason: lease.reason } : {}) };
         }
         // A submit keypress (Enter) carries the command it would run — the most recent
         // typed line (MCP type_text feeds the input tracker via onAgentInput), so a

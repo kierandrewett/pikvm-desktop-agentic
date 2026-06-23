@@ -20,6 +20,8 @@ export interface ClaudeTerminalOpts {
     env?: Record<string, string>;
     /** Override the claude binary (else CLAUDE_BIN → ~/.local/bin/claude → PATH). */
     bin?: string;
+    /** Launch args (e.g. codex's per-session MCP override). Default: none. */
+    args?: string[];
     cols?: number;
     rows?: number;
 }
@@ -48,7 +50,7 @@ export class ClaudeTerminal {
         if (this.proc) return { ok: true };
         const bin = resolveClaudeBin(this.opts.bin);
         try {
-            this.proc = pty.spawn(bin, [], {
+            this.proc = pty.spawn(bin, this.opts.args ?? [], {
                 name: "xterm-256color",
                 cols: this.cols,
                 rows: this.rows,

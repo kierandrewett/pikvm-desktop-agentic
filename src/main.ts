@@ -31,6 +31,7 @@ import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
 import { ClaudeTerminal } from "./claude-pty";
 import { writeClaudeConfig } from "./claude-config";
+import { buildAgentSpec, writeOpencodeConfig, type AgentKind } from "./agents";
 import { SecretsStore } from "./secrets";
 import { electronSecretCrypto } from "./secret-crypto-electron";
 import { NtfyClient } from "./ambient/ntfy";
@@ -229,7 +230,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     startControlServer(
         // ...runner.visionDeps() supplies getRegions/opticalRead/opticalReadStrong/remember
         // so the MCP server (Claude Code's eyes) shares the agent's OCR/region/typing brain.
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, ...runner.visionDeps(), openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, ...runner.visionDeps(), acquireKvmControl: (s) => runner.acquireKvmLease(s), touchKvmControl: (s) => runner.touchKvmLease(s), openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
         bindHost,
     );
@@ -803,14 +804,28 @@ function createWindow() {
     // Spawn (or no-op if already running) the session's PTY. Called from BOTH the renderer's
     // terminal:start AND main's did-finish-load for "main", so the agent starts even if the
     // renderer JS is throttled (hidden/occluded view at launch) — the prior "doesn't start".
-    const startSession = (id: string, via: string): { ok: boolean; reason?: string } => {
+    const startSession = (id: string, via: string, agent: AgentKind = "claude"): { ok: boolean; reason?: string } => {
         const existing = sessions.get(id);
         if (existing && existing.running) return { ok: true };
-        ensureVaultConfig();
+        const vaultPath = settings.get().atlas.vaultPath;
+        // Per-agent MCP wiring: claude uses .mcp.json + the guardrail hook; opencode reads
+        // a per-session opencode.json; codex gets the MCP injected via -c in its launch args.
+        // codex/opencode have no hook, so the MCP server enforces the KVM lease (per-session URL).
+        if (agent === "claude") ensureVaultConfig();
+        else if (agent === "opencode") {
+            try {
+                writeOpencodeConfig(vaultPath, CONTROL_PORT, id);
+            } catch (e) {
+                console.error("[agent] failed to write opencode config:", e);
+            }
+        }
+        const spec = buildAgentSpec(agent, { sessionId: id, port: CONTROL_PORT });
         const term =
             existing ??
             new ClaudeTerminal({
-                cwd: settings.get().atlas.vaultPath,
+                cwd: vaultPath,
+                bin: spec.bin,
+                args: spec.args,
                 env: {
                     PIKVM_PERMCHECK_URL: `http://127.0.0.1:${CONTROL_PORT}/_agent/api/permcheck`,
                     PIKVM_SESSION_ID: id,
@@ -832,7 +847,10 @@ function createWindow() {
         console.log(`[terminal:start] session ${id} ->`, JSON.stringify(r));
         return r;
     };
-    ipcMain.handle("terminal:start", (_e, id: unknown) => startSession(typeof id === "string" && id ? id : "main", "renderer"));
+    ipcMain.handle("terminal:start", (_e, id: unknown, agent: unknown) => {
+        const a: AgentKind = agent === "codex" || agent === "opencode" ? agent : "claude";
+        return startSession(typeof id === "string" && id ? id : "main", "renderer", a);
+    });
     terminalView.webContents.on("did-finish-load", () => startSession("main", "did-finish-load"));
     ipcMain.on("terminal:input", (_e, id: string, data: string) => sessions.get(id)?.write(data));
     ipcMain.on("terminal:resize", (_e, id: string, cols: number, rows: number) => sessions.get(id)?.resize(cols, rows));

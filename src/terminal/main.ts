@@ -7,8 +7,9 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 
+type AgentKind = "claude" | "codex" | "opencode";
 type DesktopTerminal = {
-    start: (id: string) => Promise<{ ok: boolean; reason?: string }>;
+    start: (id: string, agent?: AgentKind) => Promise<{ ok: boolean; reason?: string }>;
     write: (id: string, data: string) => void;
     resize: (id: string, cols: number, rows: number) => void;
     kill: (id: string) => void;
@@ -116,6 +117,7 @@ if (!dt) {
     // ---- sessions ---------------------------------------------------------------------
     type Session = {
         id: string;
+        agent: AgentKind;
         term: Terminal;
         fit: FitAddon;
         el: HTMLDivElement;
@@ -123,6 +125,7 @@ if (!dt) {
         label: HTMLSpanElement;
         exited: boolean;
     };
+    const AGENT_LABELS: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
     const sessions = new Map<string, Session>();
     let active: string | null = null;
     let counter = 0;
@@ -195,12 +198,12 @@ if (!dt) {
     const launch = (s: Session): void => {
         s.exited = false;
         paintTabs();
-        s.term.write("\x1b[90mStarting Claude Code…\x1b[0m\r\n");
-        void dtt.start(s.id).then((r) => {
+        s.term.write(`\x1b[90mStarting ${AGENT_LABELS[s.agent]}…\x1b[0m\r\n`);
+        void dtt.start(s.id, s.agent).then((r) => {
             if (!r?.ok) {
                 s.exited = true;
                 paintTabs();
-                s.term.write(`\r\n\x1b[31mFailed to start Claude Code: ${r?.reason ?? "unknown"}\x1b[0m\r\n\x1b[90mPress Enter to retry.\x1b[0m\r\n`);
+                s.term.write(`\r\n\x1b[31mFailed to start ${AGENT_LABELS[s.agent]}: ${r?.reason ?? "unknown"}\x1b[0m\r\n\x1b[90mPress Enter to retry.\x1b[0m\r\n`);
             }
             if (s.id === active) syncActive();
             s.term.focus();
@@ -218,13 +221,12 @@ if (!dt) {
         if (active === id) {
             const next = sessions.keys().next().value as string | undefined;
             if (next) setActive(next);
-            else newSession(); // never leave zero tabs
+            else openAgent("claude"); // never leave zero tabs
         }
     };
 
-    function newSession(forceId?: string): Session {
+    function newSession(agent: AgentKind, forceId?: string): Session {
         const id = forceId ?? "tab" + ++counter;
-        if (!forceId) counter = Math.max(counter, 0);
         const n = sessions.size + 1;
         const { term, fit } = makeTerm();
 
@@ -235,18 +237,19 @@ if (!dt) {
 
         const tab = document.createElement("div");
         tab.className = "tab";
+        tab.dataset.agent = agent;
         const dot = document.createElement("span");
         dot.className = "dot";
         const label = document.createElement("span");
         label.className = "label";
-        label.textContent = "Agent " + n;
+        label.textContent = AGENT_LABELS[agent] + " " + n;
         const close = document.createElement("span");
         close.className = "close";
         close.textContent = "✕";
         tab.append(dot, label, close);
         tabsEl.insertBefore(tab, newTabBtn);
 
-        const s: Session = { id, term, fit, el, tab, label, exited: false };
+        const s: Session = { id, agent, term, fit, el, tab, label, exited: false };
         sessions.set(id, s);
 
         tab.addEventListener("mousedown", (e) => {
@@ -276,14 +279,43 @@ if (!dt) {
         if (!s) return;
         s.exited = true;
         paintTabs();
-        s.term.write(`\r\n\x1b[90m[Claude Code exited (code ${info.code}) — press Enter to restart]\x1b[0m\r\n`);
+        s.term.write(`\r\n\x1b[90m[${AGENT_LABELS[s.agent]} exited (code ${info.code}) — press Enter to restart]\x1b[0m\r\n`);
     });
 
-    newTabBtn.addEventListener("click", () => {
-        const s = newSession();
+    const openAgent = (agent: AgentKind): void => {
+        const s = newSession(agent);
         setActive(s.id);
         launch(s);
+    };
+
+    // The + button opens a small picker so each tab can be a different agent.
+    let picker: HTMLDivElement | null = null;
+    const closePicker = (): void => {
+        picker?.remove();
+        picker = null;
+    };
+    newTabBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (picker) return closePicker();
+        picker = document.createElement("div");
+        picker.className = "agent-picker";
+        (["claude", "codex", "opencode"] as AgentKind[]).forEach((a) => {
+            const it = document.createElement("div");
+            it.className = "agent-item";
+            it.dataset.agent = a;
+            it.textContent = AGENT_LABELS[a];
+            it.addEventListener("click", () => {
+                closePicker();
+                openAgent(a);
+            });
+            picker!.appendChild(it);
+        });
+        const r = newTabBtn.getBoundingClientRect();
+        picker.style.left = Math.round(r.left) + "px";
+        picker.style.top = Math.round(r.bottom + 4) + "px";
+        document.body.appendChild(picker);
     });
+    document.addEventListener("click", closePicker);
     // One observer on the container (not per-session); rAF-debounced so fit()'s own layout
     // nudge doesn't re-trigger it into a loop.
     new ResizeObserver(scheduleSync).observe(termsEl);
@@ -296,9 +328,9 @@ if (!dt) {
         setTimeout(scheduleSync, 60);
     });
 
-    // The primary tab is "main" — main's did-finish-load safety net targets that id, so it
-    // starts even if this script is throttled. We create the tab + listeners, then launch.
-    const first = newSession("main");
+    // The primary tab is "main" (Claude) — main's did-finish-load safety net targets that id,
+    // so it starts even if this script is throttled. We create the tab + listeners, then launch.
+    const first = newSession("claude", "main");
     setActive("main");
     launch(first);
 }

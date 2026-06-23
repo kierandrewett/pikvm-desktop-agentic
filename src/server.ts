@@ -561,7 +561,9 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
 
         // Our surface is `/_agent/*` plus `/mcp` (kept at the root so existing
         // external MCP clients keep working). Everything else is the PiKVM target.
-        const isMcp = path === "/mcp";
+        // `/mcp` and `/mcp/<sessionId>` (the session id lets the server enforce the
+        // single-controller KVM lease for agents without a permission hook).
+        const isMcp = path === "/mcp" || path.startsWith("/mcp/");
         if (!isMcp && path !== "/_agent" && !path.startsWith("/_agent/")) {
             void proxy.handleHttp(req, res);
             return;
@@ -618,8 +620,9 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             return res.end();
         }
 
-        if (path === "/mcp") {
+        if (path === "/mcp" || path.startsWith("/mcp/")) {
             if (req.method !== "POST") return json(res, 405, { error: "Use POST" });
+            const session = path.startsWith("/mcp/") ? decodeURIComponent(path.slice("/mcp/".length)) || undefined : undefined;
             void readBody(req).then((b) => {
                 let parsed: unknown;
                 try {
@@ -627,7 +630,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 } catch {
                     return json(res, 400, { error: "Invalid JSON" });
                 }
-                return mcpHandler(req, res, parsed);
+                return mcpHandler(req, res, parsed, session);
             });
             return;
         }

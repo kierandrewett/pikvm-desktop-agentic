@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer } from "electron";
 // per-tab PTYs in the main process: keystrokes out, CLI output in, plus resize. Every
 // call carries a session id so multiple tabs (each its own `claude`) can run at once.
 contextBridge.exposeInMainWorld("desktopTerminal", {
-    start: (id: string): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke("terminal:start", id),
+    start: (id: string, agent?: string): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke("terminal:start", id, agent),
     write: (id: string, data: string): void => ipcRenderer.send("terminal:input", id, data),
     resize: (id: string, cols: number, rows: number): void => ipcRenderer.send("terminal:resize", id, cols, rows),
     kill: (id: string): void => ipcRenderer.send("terminal:kill", id),

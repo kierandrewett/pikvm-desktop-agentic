@@ -14,7 +14,12 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
+
+// Per-request session id (from the /mcp/<id> path), threaded to the tool handlers so the
+// KVM control lease can be enforced for agents (codex/opencode) that have no permission hook.
+const sessionCtx = new AsyncLocalStorage<{ session: string | undefined }>();
 import type { IncomingMessage, ServerResponse } from "http";
 import type { PiKvmControl, MouseButton } from "./pikvm-control";
 import type { OperationReviewer } from "./reviewer";
@@ -36,6 +41,12 @@ export interface McpDeps {
     opticalReadStrong?: (image: { data: string; mimeType: string }) => Promise<string>;
     /** Persist a learned fact (e.g. the target's keyboard layout). */
     remember?: (text: string) => void;
+    /** KVM control lease: acquire/affirm for a hands action; ok:false if another session
+     *  holds it. Enforced here for agents without a Claude-style hook (codex/opencode). */
+    acquireKvmControl?: (session: string | undefined) => { ok: boolean; reason?: string };
+    /** Refresh the holder's lease on read-only activity, so an agent looking/thinking
+     *  between actions doesn't lapse into the abandonment backstop and lose control. */
+    touchKvmControl?: (session: string | undefined) => void;
 }
 
 const region = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
@@ -87,8 +98,16 @@ export function createMcpServer(deps: McpDeps): McpServer {
         getDimensions: () => deps.control.getDimensions(),
     });
 
-    // Presence (DND) gate only — approval is Claude Code's job (via the permcheck hook).
-    const yieldToPresence = () => deps.presence.waitUntilAllowed();
+    // Gate for every hands action: wait out presence (DND), then enforce the single-controller
+    // KVM lease for the calling session (codex/opencode have no permission hook, so this is
+    // their guardrail; for Claude the hook also enforces it — belt and suspenders).
+    const yieldToPresence = async (): Promise<void> => {
+        await deps.presence.waitUntilAllowed();
+        const lease = deps.acquireKvmControl?.(sessionCtx.getStore()?.session);
+        if (lease && !lease.ok) throw new Error(lease.reason || "Another agent session is controlling the KVM.");
+    };
+    // Read-only tools call this so the holder keeps control while it looks/thinks.
+    const touchLease = () => deps.touchKvmControl?.(sessionCtx.getStore()?.session);
     const ok = (text: string): any => ({ content: [{ type: "text", text }] });
 
     server.registerTool(
@@ -98,6 +117,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
             inputSchema: { region: region.optional() },
         },
         async ({ region: r }): Promise<any> => {
+            touchLease();
             const shot = await deps.control.screenshot(r);
             return {
                 content: [
@@ -112,6 +132,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         "ocr",
         { description: "Read on-screen text via the target's built-in OCR, optionally within a region. Faster/cheaper than reading a screenshot for plain text.", inputSchema: { region: region.optional() } },
         async ({ region: r }): Promise<any> => {
+            touchLease();
             const out = await deps.control.ocr(r);
             return ok(out.trim() ? out : "(no text found)");
         },
@@ -121,6 +142,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
         "get_regions",
         { description: "List the salient UI regions of the current screen — label, kind (taskbar/window/terminal/browser/emulator/panel/dialog/menu), and a full-frame bounding box. Use it to know WHERE you are and to find a window before clicking/cropping.", inputSchema: {} },
         async (): Promise<any> => {
+            touchLease();
             const res = deps.getRegions();
             if (!res || !res.regions.length) return ok("No screen regions available yet — take a screenshot first, then try again.");
             const lines = res.regions.map((r) => `• ${r.label} [${r.kind}] — x=${r.bbox.x}, y=${r.bbox.y}, ${r.bbox.width}x${r.bbox.height}`);
@@ -255,7 +277,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
  * single local client (Claude Code in the embedded terminal).
  */
 export function createMcpHttpHandler(deps: McpDeps) {
-    return async (req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> => {
+    return async (req: IncomingMessage, res: ServerResponse, body: unknown, session?: string): Promise<void> => {
         const server = createMcpServer(deps);
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined } as any);
         res.on("close", () => {
@@ -263,6 +285,7 @@ export function createMcpHttpHandler(deps: McpDeps) {
             void server.close();
         });
         await server.connect(transport as any);
-        await transport.handleRequest(req, res, body);
+        // Run inside the session context so the tool gate can read the calling session id.
+        await sessionCtx.run({ session }, () => transport.handleRequest(req, res, body));
     };
 }
