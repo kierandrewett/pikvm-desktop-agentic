@@ -316,7 +316,7 @@
         streamUp = true;
         retryMs = 800;
         if (streamWatchdog) clearTimeout(streamWatchdog);
-        if (!serverDown) setState("live");
+        if (!serverDown && !blankFrame) setState("live");
     });
     img.addEventListener("error", function () {
         if (mjpegPaused) return;
@@ -345,8 +345,8 @@
                 if (wasDown) {
                     streamKey = Math.random().toString(16).slice(2) + Date.now().toString(16);
                     loadStream();
-                } else if (!online && streamUp) {
-                    setState("nosignal");
+                } else if ((!online || blankFrame) && streamUp) {
+                    if (streamState !== "nosignal") setState("nosignal");
                 } else if (online && streamUp && streamState !== "live") {
                     setState("live");
                 }
@@ -367,6 +367,68 @@
     setState("connecting");
     loadStream();
     setInterval(pollHealth, 2500);
+
+    /* ---- visual "no signal" detection ----
+     * The streamer can report a source as online while the target is putting out a
+     * completely blank picture (a solid colour / black). Sample a tiny canvas off the
+     * live frame; if it stays uniform for a moment, show "No signal" anyway. */
+    var blankCtx = null;
+    try {
+        var blankCanvas = document.createElement("canvas");
+        blankCanvas.width = 40;
+        blankCanvas.height = 24;
+        blankCtx = blankCanvas.getContext("2d", { willReadFrequently: true });
+    } catch (e) {}
+    var blankSince = 0;
+    var blankFrame = false;
+    function reevalStreamState() {
+        if (mjpegPaused && !webrtcActive) return; // WebRTC owns status while live-MJPEG is suspended
+        if (blankFrame && streamUp) setState("nosignal");
+        else if (streamUp && !serverDown) setState("live");
+    }
+    function sampleBlank() {
+        if (!blankCtx) return;
+        var useVid = webrtcActive && webrtcSwapped;
+        if (!streamUp && !useVid) return;
+        var srcEl = useVid ? vid : img;
+        var w = useVid ? vid.videoWidth : img.naturalWidth;
+        var h = useVid ? vid.videoHeight : img.naturalHeight;
+        if (!w || !h) return;
+        var uniform;
+        try {
+            blankCtx.drawImage(srcEl, 0, 0, 40, 24);
+            var px = blankCtx.getImageData(0, 0, 40, 24).data;
+            var n = 40 * 24,
+                sum = 0,
+                sumsq = 0;
+            for (var i = 0; i < n; i++) {
+                var o = i * 4;
+                var l = (px[o] + px[o + 1] + px[o + 2]) / 3;
+                sum += l;
+                sumsq += l * l;
+            }
+            var mean = sum / n;
+            var variance = sumsq / n - mean * mean;
+            uniform = variance < 6; // near-uniform: a solid colour (incl. black) = no real picture
+        } catch (e) {
+            return; // draw/read failed — don't guess
+        }
+        var now = nowMs();
+        if (uniform) {
+            if (!blankSince) blankSince = now;
+            if (now - blankSince > 2500 && !blankFrame) {
+                blankFrame = true;
+                reevalStreamState();
+            }
+        } else {
+            blankSince = 0;
+            if (blankFrame) {
+                blankFrame = false;
+                reevalStreamState();
+            }
+        }
+    }
+    setInterval(sampleBlank, 1500);
 
     // Recover promptly when the phone wakes / regains network.
     document.addEventListener("visibilitychange", function () {

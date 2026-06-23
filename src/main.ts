@@ -7,6 +7,7 @@ import {
     screen,
     dialog,
     nativeTheme,
+    nativeImage,
     session,
     Notification,
     clipboard,
@@ -795,6 +796,31 @@ function createWindow() {
     };
     } // end if (!useConsole) — console mode uses the Pi snapshot for clean frames
 
+    // In console mode capturePage would grab our OWN UI (the streaming chat panel,
+    // titlebar meters) and swamp a KVM change-detector with chrome noise — so the
+    // ambient monitor + suggestion watcher get their cheap fingerprint from the same
+    // clean Pi snapshot the agent sees. A 16x16 grayscale is plenty for change gating.
+    if (agentBackend && useConsole) {
+        const backend = agentBackend;
+        backend.control.captureFingerprint = async () => {
+            try {
+                const shot = await backend.control.screenshot();
+                const img = nativeImage.createFromBuffer(shot.data);
+                if (!img.getSize().width) return null;
+                const small = img.resize({ width: 16, height: 16, quality: "good" });
+                const bmp = small.toBitmap(); // BGRA, 16*16*4 bytes
+                const fp = new Uint8Array(256);
+                for (let i = 0; i < 256; i++) {
+                    const o = i * 4;
+                    fp[i] = ((bmp[o]! + bmp[o + 1]! + bmp[o + 2]!) / 3) | 0;
+                }
+                return fp;
+            } catch {
+                return null;
+            }
+        };
+    }
+
     // All of the local-backend wiring below (overlays, transcription, copilot, agent
     // control) is skipped in thin-client mode — the remote console owns it.
     if (agentBackend) {
@@ -1075,7 +1101,10 @@ function createWindow() {
     function sendWindowState() {
         let onKVM = false;
         try {
-            onKVM = new URL(wc.getURL()).pathname.startsWith("/kvm");
+            const p = new URL(wc.getURL()).pathname;
+            // The unified console (default) always shows the live KVM screen; the
+            // legacy native UI only does on its /kvm page.
+            onKVM = useConsole ? p.startsWith("/_agent/console") : p.startsWith("/kvm");
         } catch {
             /* not a real URL yet */
         }
