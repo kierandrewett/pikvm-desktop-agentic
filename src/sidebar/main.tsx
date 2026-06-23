@@ -2146,6 +2146,11 @@ function App() {
                 showActivity(c.data?.text ?? null);
                 return;
             }
+            // An approval request — the dialog renders from polled state (works even
+            // while our own run's stream is blocked on it), so refresh NOW for an instant
+            // prompt instead of waiting for the next 3s poll. Don't return: spectated runs
+            // still append it via apply() below.
+            if (c.type === "data-auth") void refreshState();
             if (!active || !spec) return;
             apply(c);
             flush();
@@ -2189,6 +2194,12 @@ function App() {
     // run is live and just emitted it), so stale prompts from a reloaded transcript
     // don't reappear when you re-open the sidebar.
     const pendingAuth = useMemo<AuthRequest | null>(() => {
+        // PRIMARY source: the server's live pending requests (from /api/state). These are
+        // present even when our own run's message stream is paused waiting on this exact
+        // decision — which is why the prompt used to only appear after Stop.
+        const live = (serverState?.pendingAuths ?? []).filter((r) => !decided.has(r.id));
+        if (live.length) return live[live.length - 1]!;
+        // Fallback: scan the message parts (covers the instant before the next poll lands).
         let candidate: AuthRequest | null = null;
         outer: for (let mi = messages.length - 1; mi >= 0; mi--) {
             const parts = (messages[mi] as any).parts ?? [];
@@ -2200,11 +2211,8 @@ function App() {
             }
         }
         if (!candidate || decided.has(candidate.id)) return null;
-        // Show ONLY if the server is genuinely still blocked on this exact request.
-        // (Don't fall back to "is streaming" — that resurfaces a stale prompt the
-        // moment a new run starts.)
         return (serverState?.pendingAuthIds ?? []).includes(candidate.id) ? candidate : null;
-    }, [messages, decided, serverState?.pendingAuthIds]);
+    }, [messages, decided, serverState?.pendingAuths, serverState?.pendingAuthIds]);
 
     // Browser-notify when the agent newly needs authorization, or hits an error.
     const notifiedAuth = useRef<string | null>(null);

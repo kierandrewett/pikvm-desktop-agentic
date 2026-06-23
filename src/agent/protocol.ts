@@ -140,6 +140,9 @@ export interface ServerState {
     uiVersion: number;
     /** Auth request ids the server is currently blocked on (awaiting a decision). */
     pendingAuthIds: string[];
+    /** The FULL pending auth requests — so the UI can render the approval dialog from
+     *  polled state even while the message stream is paused waiting on that decision. */
+    pendingAuths: AuthRequest[];
     /** Ambient background monitor: config + state + recent events. */
     ambient: {
         enabled: boolean;

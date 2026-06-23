@@ -16,7 +16,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { createUIMessageStream, pipeUIMessageStreamToResponse } from "ai";
 import { AgentRunner } from "./agent/runner";
-import { OperationReviewer, AUTONOMY_LABELS, type Verdict } from "./reviewer";
+import { OperationReviewer, AUTONOMY_LABELS, type Verdict, type AuthRequest } from "./reviewer";
 import { PresenceMonitor } from "./presence";
 import { CodexAuth } from "./agent/auth";
 import { createMcpHttpHandler, type McpDeps } from "./mcp-server";
@@ -296,9 +296,26 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
 
     // Pending authorization prompts awaiting an /api/approve response.
     const pendingAuth = new Map<string, (v: Verdict) => void>();
+    // The FULL request objects, exposed in /api/state so the UI can render the auth
+    // dialog from the polled state — NOT from the message stream, which is paused while
+    // the agent blocks on the gate (that deadlock is why the prompt only appeared after
+    // Stop: the agent waits for approval ⇄ the stream that carries the prompt is stalled).
+    const pendingAuthReqs = new Map<string, AuthRequest>();
+    const clearPendingAuths = () => {
+        for (const resolve of pendingAuth.values()) {
+            try {
+                resolve({ decision: "deny" });
+            } catch {
+                /* ignore */
+            }
+        }
+        pendingAuth.clear();
+        pendingAuthReqs.clear();
+    };
     reviewer.setPrompter((req) => {
         return new Promise<Verdict>((resolve) => {
             pendingAuth.set(req.id, resolve);
+            pendingAuthReqs.set(req.id, req as AuthRequest);
             authShownAt.set(req.id, Date.now());
             metrics.record("auth_shown", { id: req.id, op: (req as { op?: unknown }).op, reason: (req as { reason?: string }).reason });
             debugLog.log("auth-request", { id: req.id, op: (req as { op?: unknown }).op, reason: (req as { reason?: string }).reason });
@@ -338,6 +355,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         context: runner.contextInfo(),
         uiVersion,
         pendingAuthIds: Array.from(pendingAuth.keys()),
+        pendingAuths: Array.from(pendingAuthReqs.values()),
         ambient: (() => {
             const a = settings.get().ambient;
             return {
@@ -701,6 +719,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 const resolve = pendingAuth.get(body.id);
                 if (!resolve) return json(res, 404, { error: "Unknown or expired prompt" });
                 pendingAuth.delete(body.id);
+                pendingAuthReqs.delete(body.id);
                 debugLog.log("auth-decision", { id: body.id, decision: body.decision });
                 {
                     const shown = authShownAt.get(body.id);
@@ -749,6 +768,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         if (path === "/api/stop" && req.method === "POST") {
             metrics.record("user_action", { action: "stop", wasRunning: runner.isStreaming() });
             runner.stop();
+            clearPendingAuths(); // a stopped run shouldn't leave a dangling approval prompt
             overlay.emitOverlay({ type: "acting", active: false });
             return json(res, 200, state());
         }
