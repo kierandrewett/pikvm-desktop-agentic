@@ -138,7 +138,8 @@ if (!dt) {
             scrollback: 8000,
             drawBoldTextInBrightColors: true,
             allowProposedApi: true,
-            theme: { background: "#0a0a0c", foreground: "#e6e6ea", cursor: "#8ab4ff", selectionBackground: "#2a3550" },
+            // Matches the app's design tokens (console.css).
+            theme: { background: "#0a0a0c", foreground: "#ededf1", cursor: "#5b8cff", cursorAccent: "#0a0a0c", selectionBackground: "#2c3354" },
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
