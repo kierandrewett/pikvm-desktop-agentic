@@ -47,7 +47,14 @@ export interface McpDeps {
     /** Refresh the holder's lease on read-only activity, so an agent looking/thinking
      *  between actions doesn't lapse into the abandonment backstop and lose control. */
     touchKvmControl?: (session: string | undefined) => void;
+    /** Full guardrail assessment (dangerous-command + sensitive-area + lease) for a hands op
+     *  from a hook-less agent (codex/opencode). Claude gets this via its PreToolUse hook; for
+     *  the others the MCP server runs it so dangerous ops are detected + hard-denied too. */
+    assessOp?: (tool: string, args: Record<string, unknown>, session: string) => Promise<{ decision: "allow" | "ask" | "deny"; reason?: string }>;
 }
+
+// Tools that move the mouse / type — the ones that need the dangerous-op guardrail.
+const HANDS_TOOLS = new Set(["move_mouse", "click", "double_click", "drag", "type_text", "type_secret", "press_key", "hotkey", "scroll"]);
 
 const region = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
 
@@ -278,6 +285,25 @@ export function createMcpServer(deps: McpDeps): McpServer {
  */
 export function createMcpHttpHandler(deps: McpDeps) {
     return async (req: IncomingMessage, res: ServerResponse, body: unknown, session?: string): Promise<void> => {
+        // Guardrail for hook-less agents (codex/opencode reach us at /mcp/<session>): run the
+        // full dangerous-command + sensitive-area assessment on a hands tools/call and
+        // hard-deny "deny" verdicts before the tool runs. Claude uses /mcp (no session) and is
+        // gated by its PreToolUse hook instead, so it skips this path.
+        if (session && deps.assessOp && body && typeof body === "object" && !Array.isArray(body)) {
+            const b = body as { id?: unknown; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+            if (b.method === "tools/call" && b.params?.name && HANDS_TOOLS.has(b.params.name)) {
+                try {
+                    const v = await deps.assessOp(b.params.name, b.params.arguments ?? {}, session);
+                    if (v.decision === "deny") {
+                        res.writeHead(200, { "content-type": "application/json" });
+                        res.end(JSON.stringify({ jsonrpc: "2.0", id: b.id ?? null, result: { content: [{ type: "text", text: v.reason || "Blocked by the PiKVM guardrail." }], isError: true } }));
+                        return;
+                    }
+                } catch {
+                    /* assessment failure must not block a legitimate op — fall through */
+                }
+            }
+        }
         const server = createMcpServer(deps);
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined } as any);
         res.on("close", () => {

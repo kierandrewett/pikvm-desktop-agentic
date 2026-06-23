@@ -293,7 +293,7 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     startControlServer(
         // ...runner.visionDeps() supplies getRegions/opticalRead/opticalReadStrong/remember
         // so the MCP server (Claude Code's eyes) shares the agent's OCR/region/typing brain.
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, terminalSessions, ...runner.visionDeps(), acquireKvmControl: (s) => runner.acquireKvmLease(s), touchKvmControl: (s) => runner.touchKvmLease(s), openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, terminalSessions, ...runner.visionDeps(), acquireKvmControl: (s) => runner.acquireKvmLease(s), touchKvmControl: (s) => runner.touchKvmLease(s), assessOp: (tool, args, s) => runner.assessMcpOp(tool, args, s), openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
         bindHost,
     );
