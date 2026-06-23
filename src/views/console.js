@@ -95,6 +95,7 @@
         // so we can fall back safely on setups that don't report LEDs.
         var targetCaps = false;
         var capsKnown = false;
+        var capsCorrecting = false; // guards the auto-off toggle from looping
 
         function url() {
             return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/api/ws";
@@ -129,9 +130,10 @@
                 } catch (e) {}
             };
             ws.onmessage = function (ev) {
-                // Read the target's keyboard LED state (caps lock) so we can type the
-                // correct case regardless of the target's lock state. Format varies by
-                // kvmd version — probe the likely paths defensively.
+                // Watch the target's caps-lock LED. We type letter case from the HOST's
+                // e.key (synchronous, race-free), which is only correct when the TARGET's
+                // caps is OFF — so if its LED ever shows ON, toggle it back off once.
+                // Format varies by kvmd version — probe the likely paths defensively.
                 try {
                     var d = JSON.parse(ev.data);
                     var ed = d && d.event;
@@ -139,6 +141,16 @@
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
                         capsKnown = true;
+                        if (leds.caps && open && !capsCorrecting && !agentActing) {
+                            capsCorrecting = true;
+                            raw({ event_type: "key", event: { key: "CapsLock", state: true } });
+                            setTimeout(function () {
+                                raw({ event_type: "key", event: { key: "CapsLock", state: false } });
+                            }, 12);
+                            setTimeout(function () {
+                                capsCorrecting = false;
+                            }, 500);
+                        }
                     }
                 } catch (e) {}
             };
@@ -216,19 +228,36 @@
     function armedList() {
         return Object.keys(armed);
     }
+    /* ---- serialized key sender ----
+     * Each chord is queued and sent to COMPLETION (modifiers + key down, a brief hold,
+     * then up) before the next begins — so fast typing never interleaves modifiers
+     * (which would flip a letter's case or drop it). ~13ms/key ⇒ ~75 keys/s, well above
+     * any human burst, so it stays crystal-smooth AND correct. */
+    var keyQ = [];
+    var keyBusy = false;
+    var KEY_HOLD = 11;
+    var KEY_GAP = 2;
     function sendChord(mods, codeName, shift) {
-        mods = (mods || []).slice();
-        if (shift) mods.push("ShiftLeft");
-        mods.forEach(function (m) {
-            hid.key(m, true);
-        });
-        hid.key(codeName, true);
+        var m = (mods || []).slice();
+        if (shift) m.push("ShiftLeft");
+        keyQ.push({ mods: m, code: codeName });
+        if (keyQ.length > 600) keyQ.shift(); // never let a runaway queue grow unbounded
+        if (!keyBusy) drainKeys();
+    }
+    function drainKeys() {
+        if (!keyQ.length) {
+            keyBusy = false;
+            return;
+        }
+        keyBusy = true;
+        var op = keyQ.shift();
+        for (var i = 0; i < op.mods.length; i++) hid.key(op.mods[i], true);
+        hid.key(op.code, true);
         setTimeout(function () {
-            hid.key(codeName, false);
-            mods.reverse().forEach(function (m) {
-                hid.key(m, false);
-            });
-        }, 25);
+            hid.key(op.code, false);
+            for (var j = op.mods.length - 1; j >= 0; j--) hid.key(op.mods[j], false);
+            setTimeout(drainKeys, KEY_GAP);
+        }, KEY_HOLD);
     }
     /** A bare key (with any armed sticky modifiers). */
     function sendCode(codeName) {
@@ -241,22 +270,6 @@
         if (!k) return;
         sendChord(armedList(), k.code, k.shift);
         clearArmed();
-    }
-    /** A printable from a physical-key event, made caps-lock-correct: for a LETTER we
-     *  XOR the desired case against the TARGET's real caps state, so it comes out right
-     *  whether or not the target's Caps Lock is engaged. Non-letters are caps-neutral. */
-    function sendPrintable(e) {
-        var ch = e.key;
-        if (/^[A-Za-z]$/.test(ch)) {
-            var k = charToKey(ch, layout);
-            if (!k) return;
-            var wantUpper = ch >= "A" && ch <= "Z";
-            var caps = hid.capsKnown() ? hid.capsOn() : false;
-            sendChord(armedList(), k.code, wantUpper !== caps);
-            clearArmed();
-        } else {
-            sendChar(ch);
-        }
     }
     function modsFromEvent(e) {
         var m = [];
@@ -2152,13 +2165,12 @@
             var code = e.code;
             if (!code) return;
             if (/^(Control|Alt|Meta|Shift)(Left|Right)?$/.test(code)) return; // bare modifier rides the chord
-            // Caps Lock: only forward it to the target if the Pi reports the caps LED
-            // (so we can keep our model + the target's case logic in sync). When the Pi
-            // doesn't report LEDs, suppress it and keep the target's caps OFF — letter
-            // case is produced via Shift, which only works on a caps-off target.
+            // Caps Lock: NEVER forward it. We hold the target's Caps Lock OFF (the LED
+            // watcher turns it off if it drifts on) and produce letter case purely from
+            // the HOST's e.key via Shift — synchronous and exact, so a fast caps toggle
+            // can't race a laggy target LED. The host's own caps still flips e.key's case.
             if (code === "CapsLock") {
                 e.preventDefault();
-                if (hid.capsKnown() && dedupe(code)) sendChord([], "CapsLock", false);
                 return;
             }
             var mods = modsFromEvent(e).concat(armedList());
@@ -2175,11 +2187,11 @@
                 clearArmed();
                 return;
             }
-            // Printable: send the produced character (respects the host keyboard layout
-            // and the TARGET's caps-lock state for letters).
+            // Printable: send the produced character (e.key already reflects the host's
+            // Shift + Caps Lock, so the case is correct on the caps-off target).
             if (e.key && e.key.length === 1) {
                 e.preventDefault();
-                sendPrintable(e);
+                sendChar(e.key);
             } else if (dedupe(code)) {
                 e.preventDefault();
                 sendChord(mods, code, e.shiftKey);
