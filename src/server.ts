@@ -27,6 +27,7 @@ import { parseCommand, parseLoopArg, parsePursueArg, COMMANDS } from "./commands
 import { createPiKvmProxy } from "./proxy";
 import { MouseJiggler } from "./mouse-jiggler";
 import { DebugLog } from "./debug-log";
+import { Metrics } from "./metrics";
 import { join } from "node:path";
 import { webAssets, DESKTOP_SHELL_COOKIE } from "./web-assets";
 import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
@@ -154,6 +155,65 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         debugLog.log(t, event as Record<string, unknown>);
     });
 
+    // Structured, outcome-focused metrics (see src/metrics.ts) — the suggestion funnel,
+    // run lifecycle + outcomes, per-tool latency, auth decisions and user actions, all
+    // greedily, with on-disk frames, so a future LLM can reason over real usage.
+    const metrics = new Metrics(join(settings.dir(), "metrics"));
+    const suggestionShownAt = new Map<string, number>();
+    const authShownAt = new Map<string, number>();
+    const toolStart = new Map<string, number>();
+    // Context for the run that is about to start (set by /api/chat; autonomous runs leave it null).
+    let nextRunMeta: { trigger: string; task: string; suggestion?: { id: string; title: string } } | null = null;
+    let run: { startedAt: number; trigger: string; task: string; tools: string[]; errors: number; suggestion?: { id: string; title: string } } | null = null;
+    runner.subscribe((event) => {
+        const e = event as { type?: string; toolName?: string; toolCallId?: string; id?: string; result?: { isError?: boolean; summary?: string }; output?: { isError?: boolean; summary?: string } };
+        switch (e.type) {
+            case "agent_start": {
+                run = { startedAt: Date.now(), trigger: nextRunMeta?.trigger ?? "autonomous", task: nextRunMeta?.task ?? "", tools: [], errors: 0, ...(nextRunMeta?.suggestion ? { suggestion: nextRunMeta.suggestion } : {}) };
+                nextRunMeta = null;
+                metrics.record("run_started", { trigger: run.trigger, task: run.task, ...(run.suggestion ? { suggestionId: run.suggestion.id, suggestionTitle: run.suggestion.title } : {}) });
+                break;
+            }
+            case "tool_execution_start": {
+                const id = e.toolCallId ?? e.id ?? String(e.toolName);
+                toolStart.set(id, Date.now());
+                if (run && e.toolName) run.tools.push(e.toolName);
+                break;
+            }
+            case "tool_execution_end": {
+                const id = e.toolCallId ?? e.id ?? String(e.toolName);
+                const t0 = toolStart.get(id);
+                toolStart.delete(id);
+                const out = e.result ?? e.output ?? {};
+                const isError = !!out.isError;
+                if (isError && run) run.errors++;
+                metrics.record("tool", { tool: e.toolName, latencyMs: t0 ? Date.now() - t0 : null, isError, ...(out.summary ? { summary: String(out.summary).slice(0, 200) } : {}) });
+                break;
+            }
+            case "agent_end": {
+                if (!run) break;
+                const r = run;
+                run = null;
+                const durationMs = Date.now() - r.startedAt;
+                const success = r.errors === 0;
+                const toolCounts = r.tools.reduce<Record<string, number>>((m, t) => ((m[t] = (m[t] || 0) + 1), m), {});
+                metrics.record("run_ended", { trigger: r.trigger, task: r.task, durationMs, toolCount: r.tools.length, toolCounts, success, errors: r.errors });
+                if (r.suggestion) {
+                    const sug = r.suggestion;
+                    // Capture the END-STATE frame so the suggestion's OUTCOME is reviewable.
+                    void control
+                        .screenshot()
+                        .then((s) => {
+                            const frame = metrics.saveFrame(s.data, "outcome");
+                            metrics.record("suggestion_outcome", { suggestionId: sug.id, suggestionTitle: sug.title, success, durationMs, toolCount: r.tools.length, ...(frame ? { frame } : {}) });
+                        })
+                        .catch(() => metrics.record("suggestion_outcome", { suggestionId: sug.id, suggestionTitle: sug.title, success, durationMs, toolCount: r.tools.length }));
+                }
+                break;
+            }
+        }
+    });
+
     // Ring buffer of ambient events surfaced to the sidebar feed.
     const ambientEvents: AmbientEvent[] = [];
     ambient.on("event", (e: AmbientEvent) => {
@@ -170,7 +230,13 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     // Proactive "suggested actions" → the overlay bus, which floats a tappable card
     // over the live screen (web + desktop). An empty list clears it.
     suggestions.on("suggestions", (items: import("./overlay-bus").OverlaySuggestion[]) => {
-        if (items.length) debugLog.log("suggestion", { items });
+        if (items.length) {
+            const it = items[0]!;
+            suggestionShownAt.set(it.id, Date.now());
+            const frame = metrics.saveFrame(suggestions.lastFrame(), "suggestion");
+            metrics.record("suggestion_shown", { suggestionId: it.id, title: it.title, ...(it.detail ? { detail: it.detail } : {}), task: it.task, ...(frame ? { frame } : {}) });
+            debugLog.log("suggestion", { items });
+        }
         overlay.emitOverlay({ type: "suggestions", items });
     });
 
@@ -233,6 +299,8 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     reviewer.setPrompter((req) => {
         return new Promise<Verdict>((resolve) => {
             pendingAuth.set(req.id, resolve);
+            authShownAt.set(req.id, Date.now());
+            metrics.record("auth_shown", { id: req.id, op: (req as { op?: unknown }).op, reason: (req as { reason?: string }).reason });
             debugLog.log("auth-request", { id: req.id, op: (req as { op?: unknown }).op, reason: (req as { reason?: string }).reason });
             activeWriter?.write({ type: "data-auth", id: req.id, data: { request: req } });
             broadcast.send({ type: "data-auth", id: req.id, data: { request: req } });
@@ -599,6 +667,14 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 // is explicit consent) skips per-action approval prompts for this run.
                 if (body.trusted === true) runner.setAutoApproveRun(true);
                 debugLog.log("user", { text, trusted: body.trusted === true, clientId: body.clientId, images: images.length });
+                // Metrics: tag the run that's about to start, and (for a tapped suggestion)
+                // record the click with the time-to-click since it was shown.
+                const sugId = typeof body.suggestionId === "string" ? body.suggestionId : undefined;
+                nextRunMeta = { trigger: sugId ? "suggestion" : "user", task: text || "", ...(sugId ? { suggestion: { id: sugId, title: String(body.suggestionTitle ?? "") } } : {}) };
+                if (sugId) {
+                    const shownAt = suggestionShownAt.get(sugId);
+                    metrics.record("suggestion_tapped", { suggestionId: sugId, title: String(body.suggestionTitle ?? ""), msToClick: shownAt ? Date.now() - shownAt : null, task: text || "" });
+                }
                 // Tag this run with the sender's id (so it ignores its own echo) and
                 // broadcast the user message so spectating clients show it.
                 runClientId = typeof body.clientId === "string" ? body.clientId : undefined;
@@ -626,6 +702,11 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 if (!resolve) return json(res, 404, { error: "Unknown or expired prompt" });
                 pendingAuth.delete(body.id);
                 debugLog.log("auth-decision", { id: body.id, decision: body.decision });
+                {
+                    const shown = authShownAt.get(body.id);
+                    authShownAt.delete(body.id);
+                    metrics.record("auth_decision", { id: body.id, decision: body.decision, msToDecide: shown ? Date.now() - shown : null });
+                }
                 resolve({
                     decision: body.decision,
                     ...(body.text ? { text: body.text } : {}),
@@ -666,6 +747,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         }
 
         if (path === "/api/stop" && req.method === "POST") {
+            metrics.record("user_action", { action: "stop", wasRunning: runner.isStreaming() });
             runner.stop();
             overlay.emitOverlay({ type: "acting", active: false });
             return json(res, 200, state());
@@ -678,6 +760,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                         // Show the steering message inline in the live timeline.
                         activeWriter?.write({ type: "data-steer", data: { text: String(text) } });
                         broadcast.send({ type: "data-steer", data: { text: String(text) } });
+                        metrics.record("user_action", { action: "steer", text: String(text).slice(0, 200) });
                         runner.steer(String(text));
                     }
                 } catch {
@@ -688,6 +771,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             return;
         }
         if (path === "/api/pause" && req.method === "POST") {
+            metrics.record("user_action", { action: "pause" });
             runner.pauseForUser();
             return json(res, 200, state());
         }

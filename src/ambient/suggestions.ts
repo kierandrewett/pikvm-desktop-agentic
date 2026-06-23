@@ -99,6 +99,9 @@ export class SuggestionWatcher extends EventEmitter {
     private busy = false;
     private lastLookAt = 0;
     private current: Suggestion | null = null;
+    /** The JPEG the most recent suggestion was derived from (for metrics: "what was on
+     *  screen when it was offered"). */
+    private lastShot: Buffer | undefined;
     /** Titles the user dismissed for the CURRENT screen state (reset on a new state). */
     private dismissed = new Set<string>();
 
@@ -127,6 +130,11 @@ export class SuggestionWatcher extends EventEmitter {
     /** The suggestion currently shown (for replay to a freshly-connected client). */
     currentSuggestions(): Suggestion[] {
         return this.current ? [this.current] : [];
+    }
+
+    /** The frame the current suggestion was derived from (for metrics). */
+    lastFrame(): Buffer | undefined {
+        return this.lastShot;
     }
 
     /** Hide a suggestion and don't re-offer it until the screen state changes. */
@@ -197,6 +205,7 @@ export class SuggestionWatcher extends EventEmitter {
             );
             const parsed = parseSuggestion(raw);
             if (parsed && !this.dismissed.has(parsed.title)) {
+                this.lastShot = shot.data; // keep the frame for metrics ("what was on screen")
                 this.setCurrent({ id: nextId(), ...parsed });
             } else {
                 this.setCurrent(null);
