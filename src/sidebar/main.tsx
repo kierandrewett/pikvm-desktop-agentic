@@ -1484,6 +1484,13 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         </div>
                         <div className="border-t pt-3">
                             <Row
+                                label="Mouse jiggler"
+                                desc="Nudge the cursor every ~60s of inactivity to keep the target awake (restores the exact position)"
+                                control={<Switch checked={s?.jiggler ?? true} onChange={(v) => onPatch({ jiggler: v })} />}
+                            />
+                        </div>
+                        <div className="border-t pt-3">
+                            <Row
                                 label="Smart model routing"
                                 desc="Use a capable model for thinking, a cheap/fast one for routine clicks &amp; typing"
                                 control={

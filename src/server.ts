@@ -25,6 +25,7 @@ import { ChatBroadcast } from "./agent/broadcast";
 import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, parsePursueArg, COMMANDS } from "./commands";
 import { createPiKvmProxy } from "./proxy";
+import { MouseJiggler } from "./mouse-jiggler";
 import { webAssets, DESKTOP_SHELL_COOKIE } from "./web-assets";
 import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
 import type { SettingsStore } from "./settings";
@@ -103,7 +104,22 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     const mcpHandler = createMcpHttpHandler(deps);
     // Reverse proxy to the PiKVM target. Our own surface lives under `/_agent`;
     // everything else is forwarded to the Pi (UI, stream, HID, login).
-    const proxy = createPiKvmProxy({ control, htmlInjection: (req) => webAssets.htmlInjection(req) });
+    // Idle mouse-jiggler: keeps the target awake when nobody's driving. It tracks the
+    // user's cursor off the proxied HID socket (onHidActivity) and the agent's via the
+    // control core, restores the exact position, and holds agent ops while it nudges.
+    const jiggler = new MouseJiggler({
+        control,
+        enabled: () => settings.get().jiggler,
+        isAgentBusy: () => runner.isStreaming(),
+    });
+    jiggler.start();
+    runner.gateBarrier = () => jiggler.waitIfJiggling();
+
+    const proxy = createPiKvmProxy({
+        control,
+        htmlInjection: (req) => webAssets.htmlInjection(req),
+        onHidActivity: (pos) => jiggler.noteUserActivity(pos),
+    });
 
     // Live chat broadcast: every agent run is fanned out to ALL connected clients
     // (web + desktop) via /_agent/api/events, so they all see the conversation in
@@ -271,6 +287,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             return {
                 humanize: s.humanize,
                 pauseOnPresence: s.pauseOnPresence,
+                jiggler: s.jiggler,
                 wpm: s.wpm,
                 keyboardLayout: s.keyboardLayout,
                 bindHost: s.bindHost,

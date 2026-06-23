@@ -424,6 +424,10 @@ export class AgentRunner {
         this.autoApproveRun = on;
     }
 
+    /** Optional barrier the gate awaits before each tool call (e.g. the mouse-jiggler
+     *  holding agent ops while it nudges the cursor). */
+    gateBarrier: (() => Promise<void>) | undefined;
+
     /**
      * Add extra tools at runtime (the Atlas vault MCP tools connect asynchronously
      * after the agent is built). Available to the main agent and to sub-agents.
@@ -1329,6 +1333,15 @@ export class AgentRunner {
             await this.deps.presence.waitUntilAllowed(signal);
         } catch {
             return { block: true, reason: "Aborted while paused for user presence." };
+        }
+        // Hold while the idle mouse-jiggler is nudging the cursor, so an agent move
+        // can't race the jiggle (and the jiggle restores the exact pre-jiggle spot).
+        if (this.gateBarrier) {
+            try {
+                await this.gateBarrier();
+            } catch {
+                /* never block an op on the barrier failing */
+            }
         }
         // A user-tapped suggestion ("Log in") is explicit consent to run immediately —
         // don't stop it on per-action authorization prompts (which only surface in the

@@ -23,6 +23,9 @@ export interface AppSettings {
     humanize: number;
     /** Whether the agent auto-pauses when the PiKVM mic/audio is active. */
     pauseOnPresence: boolean;
+    /** Idle mouse-jiggler: nudge the cursor every ~60s of inactivity to keep the
+     *  target awake (restores the exact position; pauses agent ops while jiggling). */
+    jiggler: boolean;
     /** Baseline typing WPM the random persona centers on. */
     wpm: number;
     /** Target keyboard layout (the agent sends physical key codes; this sets glyphs). */
@@ -198,6 +201,7 @@ const DEFAULTS: AppSettings = {
     autonomy: 3,
     humanize: 1,
     pauseOnPresence: true,
+    jiggler: true,
     wpm: 95,
     keyboardLayout: "us",
     sidebarWidth: 440,

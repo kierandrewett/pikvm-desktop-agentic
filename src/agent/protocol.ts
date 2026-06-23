@@ -190,6 +190,7 @@ export interface ServerState {
     settings: {
         humanize: number;
         pauseOnPresence: boolean;
+        jiggler: boolean;
         wpm: number;
         keyboardLayout: "us" | "uk";
         bindHost: string;

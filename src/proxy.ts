@@ -27,6 +27,64 @@ export interface ProxyDeps {
      * sidebar) can suppress the body injection.
      */
     htmlInjection: (req: IncomingMessage) => { head: string; body: string };
+    /**
+     * Observe user HID activity on the proxied input WebSocket (/api/ws). Called for
+     * every client→Pi input frame; `pos` carries the HID-normalized cursor coords for
+     * a mouse_move (else null). Used by the idle mouse-jiggler to know when the user
+     * is active and where the cursor actually is.
+     */
+    onHidActivity?: (pos: { x: number; y: number } | null) => void;
+}
+
+/**
+ * Parse client→server WebSocket frames (always masked) off the HID socket, calling
+ * `onActivity` for each input frame. Buffers across TCP segment boundaries; for a
+ * mouse_move it extracts the absolute cursor position. Best-effort and defensive —
+ * it never throws into the socket pipeline.
+ */
+function makeHidTap(onActivity: (pos: { x: number; y: number } | null) => void): (chunk: Buffer) => void {
+    let buf: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    return (chunk: Buffer) => {
+        try {
+            buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+            while (buf.length >= 2) {
+                const opcode = buf[0]! & 0x0f;
+                const masked = (buf[1]! & 0x80) !== 0;
+                let len = buf[1]! & 0x7f;
+                let off = 2;
+                if (len === 126) {
+                    if (buf.length < 4) break;
+                    len = buf.readUInt16BE(2);
+                    off = 4;
+                } else if (len === 127) {
+                    if (buf.length < 10) break;
+                    len = Number(buf.readBigUInt64BE(2));
+                    off = 10;
+                }
+                const maskLen = masked ? 4 : 0;
+                if (buf.length < off + maskLen + len) break; // frame not fully arrived yet
+                const maskKey = masked ? buf.subarray(off, off + 4) : null;
+                const payload = buf.subarray(off + maskLen, off + maskLen + len);
+                buf = buf.subarray(off + maskLen + len);
+                if (opcode !== 0x1 && opcode !== 0x2) continue; // skip ping/pong/close control frames
+                if (maskKey) for (let i = 0; i < payload.length; i++) payload[i]! ^= maskKey[i & 3]!;
+                let pos: { x: number; y: number } | null = null;
+                try {
+                    const txt = payload.toString("utf8");
+                    if (txt.indexOf("mouse_move") >= 0) {
+                        const to = JSON.parse(txt)?.event?.to;
+                        if (to && typeof to.x === "number" && typeof to.y === "number") pos = { x: to.x, y: to.y };
+                    }
+                } catch {
+                    /* not JSON we care about */
+                }
+                onActivity(pos);
+            }
+            if (buf.length > 1 << 20) buf = Buffer.alloc(0); // safety cap (not a real WS stream)
+        } catch {
+            /* never disturb the proxied socket */
+        }
+    };
 }
 
 /** Rewrite a Set-Cookie so it binds to OUR origin, not the Pi's. */
@@ -182,6 +240,11 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             proxySocket.on("close", cleanup);
             clientSocket.on("error", cleanup);
             clientSocket.on("close", cleanup);
+            // Observe user HID input (mouse/keys) on the input WebSocket for the idle
+            // jiggler — a passive 'data' listener; the pipe still forwards every byte.
+            if (deps.onHidActivity && typeof req.url === "string" && req.url.startsWith("/api/ws")) {
+                clientSocket.on("data", makeHidTap(deps.onHidActivity));
+            }
             proxySocket.pipe(clientSocket);
             clientSocket.pipe(proxySocket);
         });

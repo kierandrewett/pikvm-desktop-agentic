@@ -1023,9 +1023,9 @@
     pane.addEventListener(
         "pointerdown",
         function (e) {
-            // Taps on the overlaid UI (keys row, acting bar, copilot) are NOT KVM
-            // input — let those handle their own clicks.
-            if (e.target && e.target.closest && e.target.closest(".bar-keys, .acting-bar, .copilot")) return;
+            // Taps on the overlaid UI (keys row, acting bar, copilot, suggestion card)
+            // are NOT KVM input — let those handle their own clicks.
+            if (e.target && e.target.closest && e.target.closest(".bar-keys, .acting-bar, .copilot, .suggest-card")) return;
             pane.setPointerCapture(e.pointerId);
             pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
