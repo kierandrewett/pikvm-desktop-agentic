@@ -113,17 +113,33 @@ const ATLAS_WRITE_TOOLS = new Set([
 ]);
 const ATLAS_REINDEX_TOOL = "atlas_health";
 
-/** Flatten an MCP tool result into plain text for the agent. */
+// A single huge tool result (e.g. a whole Atlas page dumped in) swamps the model —
+// it can return an EMPTY turn, which the loop reads as "nothing left to do" and stops
+// (looks like the agent gave up). Cap the text so that can't happen; ~16k chars is
+// ~4k tokens, plenty of context while leaving the model room to keep working.
+const MCP_RESULT_CAP = 16000;
+
+/** Flatten an MCP tool result into plain text for the agent (size-capped). */
 function resultText(res: any): string {
     const content = res?.content;
+    let text: string;
     if (Array.isArray(content)) {
-        const text = content
+        const joined = content
             .filter((c: any) => c?.type === "text")
             .map((c: any) => c.text)
             .join("\n");
-        if (text) return text;
+        text = joined || (typeof content === "string" ? content : JSON.stringify(res ?? {}));
+    } else {
+        text = typeof content === "string" ? content : JSON.stringify(res ?? {});
     }
-    return typeof content === "string" ? content : JSON.stringify(res ?? {});
+    if (text.length > MCP_RESULT_CAP) {
+        const dropped = text.length - MCP_RESULT_CAP;
+        text =
+            text.slice(0, MCP_RESULT_CAP) +
+            `\n\n…[truncated ${dropped} more characters — the result was very large]. ` +
+            `Don't request the whole thing again; narrow the query, ask for a specific section/page, or search for the exact term you need.`;
+    }
+    return text;
 }
 
 /** Build the transport for a server config, or null if the config is incomplete.
