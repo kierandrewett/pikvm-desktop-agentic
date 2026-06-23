@@ -8,7 +8,7 @@
  * into the agent path, and image/blob payloads are stripped so lines stay small.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFile, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 /** Recursively trim a value for logging: drop base64/data-URLs and cap long strings
@@ -50,13 +50,36 @@ export class DebugLog {
         return join(this.dir, `agent-${day}.jsonl`);
     }
 
+    // Buffer lines and flush asynchronously, so logging never does synchronous disk
+    // I/O on the agent/event-loop hot path (this fires on every agent event).
+    private buf = "";
+    private timer: NodeJS.Timeout | null = null;
+
     /** Append one timestamped record. `kind` groups records (user, tool, auth, …). */
     log(kind: string, data?: Record<string, unknown>): void {
         try {
             const rec = { ts: new Date().toISOString(), kind, ...(data ? (sanitize(data) as Record<string, unknown>) : {}) };
-            appendFileSync(this.file(), JSON.stringify(rec) + "\n");
+            this.buf += JSON.stringify(rec) + "\n";
+            if (this.buf.length > 64 * 1024) this.flush();
+            else if (!this.timer) {
+                this.timer = setTimeout(() => this.flush(), 800);
+                if (this.timer.unref) this.timer.unref();
+            }
         } catch {
             /* logging must never disturb the agent */
         }
+    }
+
+    private flush(): void {
+        if (this.timer) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+        const data = this.buf;
+        this.buf = "";
+        if (!data) return;
+        appendFile(this.file(), data, () => {
+            /* best-effort async write */
+        });
     }
 }

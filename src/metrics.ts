@@ -8,7 +8,7 @@
  * JPEGs saved beside it (referenced by path) so "what was on screen" is reviewable.
  */
 
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFile, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export class Metrics {
@@ -45,13 +45,35 @@ export class Metrics {
         }
     }
 
+    // Buffer + async flush so recording never blocks the event loop on the hot path.
+    private buf = "";
+    private timer: NodeJS.Timeout | null = null;
+
     /** Append one timestamped, structured metric record. */
     record(kind: string, data?: Record<string, unknown>): void {
         try {
             const rec = { ts: new Date().toISOString(), kind, ...(data ?? {}) };
-            appendFileSync(this.file(), JSON.stringify(rec) + "\n");
+            this.buf += JSON.stringify(rec) + "\n";
+            if (this.buf.length > 64 * 1024) this.flush();
+            else if (!this.timer) {
+                this.timer = setTimeout(() => this.flush(), 800);
+                if (this.timer.unref) this.timer.unref();
+            }
         } catch {
             /* metrics must never disturb the agent */
         }
+    }
+
+    private flush(): void {
+        if (this.timer) {
+            clearTimeout(this.timer);
+            this.timer = null;
+        }
+        const data = this.buf;
+        this.buf = "";
+        if (!data) return;
+        appendFile(this.file(), data, () => {
+            /* best-effort async write */
+        });
     }
 }

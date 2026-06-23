@@ -245,7 +245,7 @@ function ShotImage({ src, w, h, markers, onOpen }: { src: string; w: number; h: 
 
 /** A screenshot (or a run of adjacent ones) that collapses once superseded —
  *  only the most recent stays expanded, like the reasoning block. */
-function ScreenshotBlock({
+const ScreenshotBlock = memo(function ScreenshotBlock({
     shots,
     markerMap,
     isLatest,
@@ -288,7 +288,7 @@ function ScreenshotBlock({
             )}
         </div>
     );
-}
+});
 
 function ScreenshotCarousel({ shots, markerMap, onOpen }: { shots: any[]; markerMap: Record<string, MarkerData[]>; onOpen: (s: string) => void }) {
     const [idx, setIdx] = useState(shots.length - 1);
@@ -1969,10 +1969,18 @@ function App() {
         (window as any).ui?.on?.("copy-conversation", copyConversation);
     }, []);
 
+    const lastStateJson = useRef("");
     const refreshState = () =>
         fetch(BASE + "/api/state")
             .then((r) => r.json())
-            .then(setServerState)
+            .then((s) => {
+                // Skip the re-render when the polled state is byte-identical to the last
+                // one — an idle session shouldn't re-render the whole conversation every 3s.
+                const j = JSON.stringify(s);
+                if (j === lastStateJson.current) return;
+                lastStateJson.current = j;
+                setServerState(s);
+            })
             .catch(() => {});
 
     useEffect(() => {
