@@ -1797,20 +1797,20 @@
 
         var cur = { x: 0, y: 0 };
         var tgt = { x: 0, y: 0 };
-        var raf = null;
+        var lerpRaf = null; // NOT named `raf` — that would shadow the outer rAF polyfill scheduleRegions uses
         function lerp() {
             cur.x += (tgt.x - cur.x) * 0.18;
             cur.y += (tgt.y - cur.y) * 0.18;
             aiCursor.style.left = cur.x + "px";
             aiCursor.style.top = cur.y + "px";
-            raf = Math.abs(tgt.x - cur.x) > 0.4 || Math.abs(tgt.y - cur.y) > 0.4 ? requestAnimationFrame(lerp) : null;
+            lerpRaf = Math.abs(tgt.x - cur.x) > 0.4 || Math.abs(tgt.y - cur.y) > 0.4 ? requestAnimationFrame(lerp) : null;
         }
         function onCursor(d) {
             if (!d.w || !d.h) return;
             var p = pt(d.x / d.w, d.y / d.h);
             tgt = p;
             aiCursor.classList.add("show");
-            if (!raf) raf = requestAnimationFrame(lerp);
+            if (!lerpRaf) lerpRaf = requestAnimationFrame(lerp);
             if (d.kind === "click" || d.kind === "double_click") {
                 var b = document.createElement("div");
                 b.className = "click-burst";

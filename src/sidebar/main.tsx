@@ -2165,10 +2165,13 @@ function App() {
     }, [serverState?.uiVersion, status]);
 
     // Free the pixels of all but the most recent screenshots so the renderer (and the
-    // persisted transcript) stay bounded. No-ops once trimmed, so it can't loop.
+    // persisted transcript) stay bounded. Only call setMessages when something actually
+    // changed — calling it unconditionally loops forever (useChat's setMessages doesn't
+    // bail on an identical array the way plain useState does → React #185).
     useEffect(() => {
-        setMessages((prev: any[]) => pruneUiScreens(prev));
-    }, [messages, setMessages]);
+        const pruned = pruneUiScreens(messages as any[]);
+        if (pruned !== messages) setMessages(pruned as any);
+    }, [messages]);
 
     // Persist the transcript shortly after each change settles, so it survives restarts.
     useEffect(() => {
