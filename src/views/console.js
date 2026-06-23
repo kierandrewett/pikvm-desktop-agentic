@@ -943,6 +943,12 @@
     var kvmCursor = document.getElementById("kvm-cursor");
     function paintCursor(clientX, clientY) {
         if (!kvmCursor) return;
+        // Background desktop window: the cursor isn't driving the target, so don't
+        // paint the blob (a passing pointer must not leave a ghost cursor).
+        if (window.desktopConsole && !windowFocused) {
+            kvmCursor.style.display = "none";
+            return;
+        }
         var pr = pane.getBoundingClientRect();
         kvmCursor.style.left = clientX - pr.left + "px";
         kvmCursor.style.top = clientY - pr.top + "px";
@@ -1973,6 +1979,8 @@
         });
         window.addEventListener("blur", function () {
             windowFocused = false;
+            // Drop the simulated cursor blob the moment we lose focus.
+            if (kvmCursor) kvmCursor.style.display = "none";
         });
 
         // Desktop keyboard: forward PHYSICAL keystrokes straight to the KVM. The agent
