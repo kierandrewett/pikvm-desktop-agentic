@@ -4,12 +4,11 @@
  * When neither the user nor the agent has touched the mouse/keyboard for a while,
  * nudge the cursor a hair and put it back so the target machine doesn't sleep / lock
  * / show a screensaver. It:
- *   - tracks the LAST cursor position from BOTH the agent (control core) and the user
- *     (parsed off the HID WebSocket in the proxy) so it can restore EXACTLY where the
- *     cursor was before the jiggle;
+ *   - nudges with RELATIVE mouse deltas (+d then −d) so the cursor nets back to
+ *     exactly where it was — no need to know its absolute position;
  *   - locks out agent operations while it jiggles (the runner's gate awaits us), and
  *     unlocks the instant it's done;
- *   - never jiggles while the agent is actually working.
+ *   - never jiggles while the agent is working or the user is active.
  */
 
 import type { PiKvmControl } from "./pikvm-control";
@@ -32,11 +31,10 @@ export class MouseJiggler {
     private jiggleDone: Promise<void> = Promise.resolve();
     private resolveJiggle: (() => void) | null = null;
     private lastUserActivity = 0;
-    private lastUserPos: { x: number; y: number } | null = null;
 
     private readonly IDLE_MS = 60_000; // jiggle after this much inactivity
     private readonly CHECK_MS = 10_000; // how often we check
-    private readonly DELTA_NORM = 1200; // nudge size in HID units (±32767 full span)
+    private readonly NUDGE = 10; // relative nudge size (sent then undone)
 
     constructor(private readonly deps: JigglerDeps) {}
 
@@ -50,11 +48,9 @@ export class MouseJiggler {
         this.timer = undefined;
     }
 
-    /** Fed by the proxy's HID tap on any user input — `pos` is set for a mouse_move
-     *  (HID-normalized ±32767, the same units the agent uses). */
-    noteUserActivity(pos: { x: number; y: number } | null): void {
+    /** Fed by the proxy's HID tap on any user input. */
+    noteUserActivity(): void {
         this.lastUserActivity = Date.now();
-        if (pos) this.lastUserPos = pos;
     }
 
     isJiggling(): boolean {
@@ -68,11 +64,6 @@ export class MouseJiggler {
     private lastActivity(): number {
         return Math.max(this.lastUserActivity, this.deps.control.lastInputAt());
     }
-    /** Where the cursor actually is now: whichever of user / agent moved it last. */
-    private currentPos(): { x: number; y: number } {
-        if (this.lastUserPos && this.lastUserActivity >= this.deps.control.lastInputAt()) return this.lastUserPos;
-        return this.deps.control.currentMouseNorm();
-    }
 
     private async tick(): Promise<void> {
         if (this.jiggling || !this.deps.enabled() || this.deps.isAgentBusy()) return;
@@ -84,12 +75,11 @@ export class MouseJiggler {
         this.jiggling = true;
         this.jiggleDone = new Promise((r) => (this.resolveJiggle = r));
         try {
-            const pos = this.currentPos();
-            // Nudge toward whichever side has room, then land exactly back on `pos`.
-            const dx = pos.x + this.DELTA_NORM <= 32767 ? this.DELTA_NORM : -this.DELTA_NORM;
-            await this.deps.control.moveInstantNorm(pos.x + dx, pos.y);
+            // Relative nudge then its exact inverse — nets to zero displacement, so the
+            // cursor ends precisely where it started without knowing where that is.
+            await this.deps.control.mouseRelative(this.NUDGE, 0);
             await sleep(160);
-            await this.deps.control.moveInstantNorm(pos.x, pos.y); // restore to the original spot
+            await this.deps.control.mouseRelative(-this.NUDGE, 0);
         } catch {
             /* best-effort — the jiggle must never disturb anything */
         } finally {

@@ -418,6 +418,11 @@ body {
     touch-action: none;
     cursor: none; /* hidden in favour of our own PiKVM-style cursor */
 }
+/* Background desktop window: we don't drive the KVM, so show the real OS cursor
+   instead of the (now-hidden) blob. */
+html.desktop-console.win-blur .screen {
+    cursor: default;
+}
 /* PiKVM's cursor: a small translucent blue dot with a light ring. */
 .kvm-cursor {
     position: absolute;

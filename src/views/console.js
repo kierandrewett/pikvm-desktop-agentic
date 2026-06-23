@@ -2079,11 +2079,15 @@
         // window must not let a passing cursor drive the remote pointer.
         window.addEventListener("focus", function () {
             windowFocused = true;
+            document.documentElement.classList.remove("win-blur");
         });
         window.addEventListener("blur", function () {
             windowFocused = false;
-            // Drop the simulated cursor blob the moment we lose focus.
+            // Drop the simulated cursor blob and restore the real OS cursor over the
+            // screen (which is normally hidden in favour of the blob), so a background
+            // window shows a normal pointer instead of nothing.
             if (kvmCursor) kvmCursor.style.display = "none";
+            document.documentElement.classList.add("win-blur");
         });
 
         // Desktop keyboard: forward PHYSICAL keystrokes straight to the KVM. The agent

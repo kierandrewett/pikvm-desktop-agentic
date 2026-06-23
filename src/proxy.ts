@@ -28,21 +28,20 @@ export interface ProxyDeps {
      */
     htmlInjection: (req: IncomingMessage) => { head: string; body: string };
     /**
-     * Observe user HID activity on the proxied input WebSocket (/api/ws). Called for
-     * every client→Pi input frame; `pos` carries the HID-normalized cursor coords for
-     * a mouse_move (else null). Used by the idle mouse-jiggler to know when the user
-     * is active and where the cursor actually is.
+     * Signalled on user HID input over the proxied input WebSocket (/api/ws) — so the
+     * idle mouse-jiggler knows the user is active and holds off. (A relative jiggle
+     * needs no cursor position, so we only detect activity, not coordinates.)
      */
-    onHidActivity?: (pos: { x: number; y: number } | null) => void;
+    onHidActivity?: () => void;
 }
 
 /**
- * Parse client→server WebSocket frames (always masked) off the HID socket, calling
- * `onActivity` for each input frame. Buffers across TCP segment boundaries; for a
- * mouse_move it extracts the absolute cursor position. Best-effort and defensive —
- * it never throws into the socket pipeline.
+ * Detect user input frames on the (always-masked) client→server HID socket and call
+ * `onActivity`. We only need to know that a real input frame went by, so this just
+ * parses frame headers — no unmasking / JSON. Buffers across TCP segment boundaries;
+ * defensive — never throws into the socket pipeline.
  */
-function makeHidTap(onActivity: (pos: { x: number; y: number } | null) => void): (chunk: Buffer) => void {
+function makeHidTap(onActivity: () => void): (chunk: Buffer) => void {
     let buf: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     return (chunk: Buffer) => {
         try {
@@ -61,24 +60,10 @@ function makeHidTap(onActivity: (pos: { x: number; y: number } | null) => void):
                     len = Number(buf.readBigUInt64BE(2));
                     off = 10;
                 }
-                const maskLen = masked ? 4 : 0;
-                if (buf.length < off + maskLen + len) break; // frame not fully arrived yet
-                const maskKey = masked ? buf.subarray(off, off + 4) : null;
-                const payload = buf.subarray(off + maskLen, off + maskLen + len);
-                buf = buf.subarray(off + maskLen + len);
-                if (opcode !== 0x1 && opcode !== 0x2) continue; // skip ping/pong/close control frames
-                if (maskKey) for (let i = 0; i < payload.length; i++) payload[i]! ^= maskKey[i & 3]!;
-                let pos: { x: number; y: number } | null = null;
-                try {
-                    const txt = payload.toString("utf8");
-                    if (txt.indexOf("mouse_move") >= 0) {
-                        const to = JSON.parse(txt)?.event?.to;
-                        if (to && typeof to.x === "number" && typeof to.y === "number") pos = { x: to.x, y: to.y };
-                    }
-                } catch {
-                    /* not JSON we care about */
-                }
-                onActivity(pos);
+                const frameLen = off + (masked ? 4 : 0) + len;
+                if (buf.length < frameLen) break; // frame not fully arrived yet
+                buf = buf.subarray(frameLen);
+                if (opcode === 0x1 || opcode === 0x2) onActivity(); // a real input frame (not ping/pong/close)
             }
             if (buf.length > 1 << 20) buf = Buffer.alloc(0); // safety cap (not a real WS stream)
         } catch {

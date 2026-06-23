@@ -341,17 +341,11 @@ export class PiKvmControl {
     lastInputAt(): number {
         return this.lastInputTs;
     }
-    /** The agent's last commanded cursor position (HID-normalized ±32767). */
-    currentMouseNorm(): { x: number; y: number } {
-        return { x: this.mouse.x, y: this.mouse.y };
-    }
-    /** Move the cursor instantly to a HID-normalized position (used by the jiggler,
-     *  which already works in HID units and must land exactly to restore position). */
-    async moveInstantNorm(x: number, y: number): Promise<void> {
-        const cx = this.clampNorm(x);
-        const cy = this.clampNorm(y);
-        await this.sendMove(cx, cy);
-        this.mouse = { x: cx, y: cy };
+    /** A RELATIVE mouse nudge (delta in HID units). The idle jiggler sends +d then −d
+     *  so the cursor nets back to exactly where it was — no need to know its absolute
+     *  position. (PiKVM's relative-mouse endpoint; a no-op if the Pi is absolute-only.) */
+    async mouseRelative(dx: number, dy: number): Promise<void> {
+        await this.send("mouse_relative", { delta: { x: Math.round(dx), y: Math.round(dy) }, squash: true });
     }
 
     /* -------------------------------------------------------------- *

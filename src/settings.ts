@@ -6,7 +6,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import type { ReviewPolicy } from "./reviewer";
 
 export interface AppSettings {
@@ -216,6 +216,11 @@ const DEFAULTS: AppSettings = {
 
 export class SettingsStore {
     private data: AppSettings;
+
+    /** Directory the settings (and sibling stores/logs) live in. */
+    dir(): string {
+        return dirname(this.path);
+    }
 
     constructor(private readonly path: string) {
         this.data = { ...DEFAULTS };

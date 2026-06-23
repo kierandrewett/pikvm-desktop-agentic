@@ -26,6 +26,8 @@ import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, parsePursueArg, COMMANDS } from "./commands";
 import { createPiKvmProxy } from "./proxy";
 import { MouseJiggler } from "./mouse-jiggler";
+import { DebugLog } from "./debug-log";
+import { join } from "node:path";
 import { webAssets, DESKTOP_SHELL_COOKIE } from "./web-assets";
 import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
 import type { SettingsStore } from "./settings";
@@ -118,7 +120,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     const proxy = createPiKvmProxy({
         control,
         htmlInjection: (req) => webAssets.htmlInjection(req),
-        onHidActivity: (pos) => jiggler.noteUserActivity(pos),
+        onHidActivity: () => jiggler.noteUserActivity(),
     });
 
     // Live chat broadcast: every agent run is fanned out to ALL connected clients
@@ -137,6 +139,21 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         }
     });
 
+    // Persistent, timestamped conversation + debug log — one JSONL file per day under
+    // <data>/logs/. Captures every agent event (turns, tool calls + I/O, thinking,
+    // errors), plus user prompts, authorization decisions and suggestions below, so a
+    // whole session can be replayed and studied to debug + improve the agent.
+    const debugLog = new DebugLog(join(settings.dir(), "logs"));
+    runner.subscribe((event) => {
+        const ev = event as { type?: string; assistantMessageEvent?: { type?: string } };
+        const t = ev.type;
+        if (typeof t !== "string") return;
+        // Skip per-token streaming deltas (message_start/_end keep the full text).
+        if (t.includes("delta") || t.includes("chunk")) return;
+        if (t === "message_update" && ev.assistantMessageEvent?.type === "text_delta") return;
+        debugLog.log(t, event as Record<string, unknown>);
+    });
+
     // Ring buffer of ambient events surfaced to the sidebar feed.
     const ambientEvents: AmbientEvent[] = [];
     ambient.on("event", (e: AmbientEvent) => {
@@ -153,6 +170,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     // Proactive "suggested actions" → the overlay bus, which floats a tappable card
     // over the live screen (web + desktop). An empty list clears it.
     suggestions.on("suggestions", (items: import("./overlay-bus").OverlaySuggestion[]) => {
+        if (items.length) debugLog.log("suggestion", { items });
         overlay.emitOverlay({ type: "suggestions", items });
     });
 
@@ -215,6 +233,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     reviewer.setPrompter((req) => {
         return new Promise<Verdict>((resolve) => {
             pendingAuth.set(req.id, resolve);
+            debugLog.log("auth-request", { id: req.id, op: (req as { op?: unknown }).op, reason: (req as { reason?: string }).reason });
             activeWriter?.write({ type: "data-auth", id: req.id, data: { request: req } });
             broadcast.send({ type: "data-auth", id: req.id, data: { request: req } });
         });
@@ -579,6 +598,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 // A pre-authorized run (e.g. a user-tapped "suggested action" — the tap
                 // is explicit consent) skips per-action approval prompts for this run.
                 if (body.trusted === true) runner.setAutoApproveRun(true);
+                debugLog.log("user", { text, trusted: body.trusted === true, clientId: body.clientId, images: images.length });
                 // Tag this run with the sender's id (so it ignores its own echo) and
                 // broadcast the user message so spectating clients show it.
                 runClientId = typeof body.clientId === "string" ? body.clientId : undefined;
@@ -605,6 +625,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 const resolve = pendingAuth.get(body.id);
                 if (!resolve) return json(res, 404, { error: "Unknown or expired prompt" });
                 pendingAuth.delete(body.id);
+                debugLog.log("auth-decision", { id: body.id, decision: body.decision });
                 resolve({
                     decision: body.decision,
                     ...(body.text ? { text: body.text } : {}),
