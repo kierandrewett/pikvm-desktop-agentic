@@ -40,9 +40,10 @@ export interface SessionInfo {
 
 /** Frames the server pushes to clients. */
 type ServerMsg =
-    | { t: "sessions"; sessions: SessionInfo[]; cols: number; rows: number }
+    | { t: "sessions"; sessions: SessionInfo[]; cols: number; rows: number; control: string | null }
     | { t: "data"; id: string; data: string }
     | { t: "exit"; id: string; code: number }
+    | { t: "control"; owner: string | null }
     | { t: "image"; reqId: number; dataUrl: string | null };
 
 /** Frames clients send. */
@@ -76,8 +77,17 @@ export class TerminalSessions {
     private counter = 0;
     private cols = 120;
     private rows = 30;
+    private controlOwner: string | null = null;
 
     constructor(private deps: TerminalSessionsDeps) {}
+
+    /** Update the KVM control holder (from the runner lease) and tell every client live, so
+     *  the UI can badge whichever tab is currently driving the machine. */
+    setControlOwner(owner: string | null): void {
+        if (this.controlOwner === owner) return;
+        this.controlOwner = owner;
+        this.broadcast({ t: "control", owner });
+    }
 
     list(): SessionInfo[] {
         return [...this.sessions.values()].map((s) => ({ id: s.id, agent: s.agent, title: s.title, exited: s.exited }));
@@ -86,7 +96,7 @@ export class TerminalSessions {
     /** Subscribe a client; immediately sends the tab list + replays each session's buffer. */
     subscribe(send: Sub): () => void {
         this.subs.add(send);
-        send({ t: "sessions", sessions: this.list(), cols: this.cols, rows: this.rows });
+        send({ t: "sessions", sessions: this.list(), cols: this.cols, rows: this.rows, control: this.controlOwner });
         for (const s of this.sessions.values()) {
             const data = s.buffer.join("");
             if (data) send({ t: "data", id: s.id, data });
@@ -105,7 +115,7 @@ export class TerminalSessions {
     }
 
     private sendSessions(): void {
-        this.broadcast({ t: "sessions", sessions: this.list(), cols: this.cols, rows: this.rows });
+        this.broadcast({ t: "sessions", sessions: this.list(), cols: this.cols, rows: this.rows, control: this.controlOwner });
     }
 
     private append(s: Session, data: string): void {

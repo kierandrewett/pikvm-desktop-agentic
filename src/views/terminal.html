@@ -81,6 +81,20 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
+            /* "Controls the KVM" badge — shown only on the tab that holds the control lease. */
+            .tab .ctrl {
+                display: none;
+                flex: none;
+                font-size: 11px;
+                line-height: 1;
+                color: var(--primary);
+            }
+            .tab.controlling .ctrl {
+                display: inline;
+            }
+            .tab.controlling {
+                box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
+            }
             .tab .dot {
                 width: 6px;
                 height: 6px;

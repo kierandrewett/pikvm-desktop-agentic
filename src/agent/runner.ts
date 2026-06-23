@@ -1368,7 +1368,19 @@ export class AgentRunner {
     // backstop (zero MCP activity for KVM_LEASE_BACKSTOP_MS — crash safety).
     private kvmLeaseHolder: string | null = null;
     private kvmLeaseAt = 0;
+    private onLeaseChange?: (owner: string | null) => void;
     private static readonly KVM_LEASE_BACKSTOP_MS = 10 * 60_000;
+
+    /** Notified whenever the KVM control holder changes (for the live UI indicator). */
+    setOnKvmLeaseChange(cb: (owner: string | null) => void): void {
+        this.onLeaseChange = cb;
+    }
+    private setLeaseHolder(holder: string | null, at: number): void {
+        const changed = this.kvmLeaseHolder !== holder;
+        this.kvmLeaseHolder = holder;
+        this.kvmLeaseAt = at;
+        if (changed) this.onLeaseChange?.(holder);
+    }
 
     private kvmLeaseStale(now: number): boolean {
         return !this.kvmLeaseHolder || now - this.kvmLeaseAt > AgentRunner.KVM_LEASE_BACKSTOP_MS;
@@ -1376,15 +1388,12 @@ export class AgentRunner {
 
     /** Free the KVM lease when a session ends (called from main on PTY exit). */
     releaseKvmLease(session: string): void {
-        if (this.kvmLeaseHolder === session) {
-            this.kvmLeaseHolder = null;
-            this.kvmLeaseAt = 0;
-        }
+        if (this.kvmLeaseHolder === session) this.setLeaseHolder(null, 0);
     }
 
     /** Which session currently holds the KVM (for diagnostics / UI). */
     kvmLeaseOwner(): string | null {
-        if (this.kvmLeaseStale(Date.now())) this.kvmLeaseHolder = null;
+        if (this.kvmLeaseStale(Date.now())) this.setLeaseHolder(null, 0);
         return this.kvmLeaseHolder;
     }
 
@@ -1406,8 +1415,7 @@ export class AgentRunner {
         if (this.kvmLeaseHolder && this.kvmLeaseHolder !== session && !this.kvmLeaseStale(now)) {
             return { ok: false, reason: `Another agent session (${this.kvmLeaseHolder}) is controlling the KVM. Only one session drives it at a time — wait for it to finish or close that tab.` };
         }
-        this.kvmLeaseHolder = session;
-        this.kvmLeaseAt = now;
+        this.setLeaseHolder(session, now);
         return { ok: true };
     }
 

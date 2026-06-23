@@ -15,9 +15,10 @@ interface SessionInfo {
     exited: boolean;
 }
 type ServerMsg =
-    | { t: "sessions"; sessions: SessionInfo[]; cols: number; rows: number }
+    | { t: "sessions"; sessions: SessionInfo[]; cols: number; rows: number; control: string | null }
     | { t: "data"; id: string; data: string }
     | { t: "exit"; id: string; code: number }
+    | { t: "control"; owner: string | null }
     | { t: "image"; reqId: number; dataUrl: string | null };
 
 const AGENT_LABELS: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
@@ -144,6 +145,7 @@ interface View {
 }
 const views = new Map<string, View>();
 let active: string | null = null;
+let controlOwner: string | null = null; // which session currently drives the KVM
 
 const makeTerm = (): { term: Terminal; fit: FitAddon } => {
     const term = new Terminal({
@@ -167,6 +169,7 @@ const paintTabs = (): void => {
     for (const v of views.values()) {
         v.tab.classList.toggle("active", v.id === active);
         v.tab.classList.toggle("exited", v.exited);
+        v.tab.classList.toggle("controlling", v.id === controlOwner);
     }
 };
 
@@ -197,10 +200,14 @@ const createView = (info: SessionInfo): View => {
     const label = document.createElement("span");
     label.className = "label";
     label.textContent = info.title;
+    const ctrl = document.createElement("span");
+    ctrl.className = "ctrl";
+    ctrl.title = "This agent currently controls the KVM (mouse/keyboard)";
+    ctrl.textContent = "⌖";
     const close = document.createElement("span");
     close.className = "close";
     close.textContent = "✕";
-    tab.append(dot, label, close);
+    tab.append(dot, label, ctrl, close);
     tabsEl.insertBefore(tab, newTabBtn);
 
     const v: View = { id: info.id, agent: info.agent, term, fit, el, tab, label, exited: info.exited };
@@ -318,7 +325,12 @@ const onMessage = (msg: ServerMsg): void => {
     switch (msg.t) {
         case "sessions":
             applyAuthSize(msg.cols, msg.rows);
+            controlOwner = msg.control;
             reconcile(msg.sessions);
+            break;
+        case "control":
+            controlOwner = msg.owner;
+            paintTabs();
             break;
         case "data":
             views.get(msg.id)?.term.write(msg.data);

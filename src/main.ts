@@ -287,6 +287,8 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
             if (/^https?:\/\//i.test(u)) void shell.openExternal(u);
         },
     });
+    // Live-badge the tab that currently holds KVM control in every client.
+    runner.setOnKvmLeaseChange((owner) => terminalSessions.setControlOwner(owner));
 
     startControlServer(
         // ...runner.visionDeps() supplies getRegions/opticalRead/opticalReadStrong/remember
