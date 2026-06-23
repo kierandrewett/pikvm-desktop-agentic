@@ -337,32 +337,6 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         broadcast.send({ type: "data-activity", data: a });
     };
 
-    // Live "Thinking…" indicator: the model often spends several seconds inferring
-    // before it emits any text or calls a tool (the "Thought for N seconds" you only see
-    // AFTER the fact). Surface it in the moment so the user is never left guessing whether
-    // it's working or stuck. Shown from a turn's start until its first output / tool / end.
-    let thinking = false;
-    const setThinking = (on: boolean) => {
-        if (on === thinking) return;
-        thinking = on;
-        broadcast.send({ type: "data-activity", data: on ? { text: "Thinking…", phase: "reviewing" } : { text: null } });
-    };
-    runner.subscribe((event) => {
-        const e = event as { type?: string; assistantMessageEvent?: { type?: string } };
-        switch (e.type) {
-            case "message_start":
-                setThinking(true);
-                break;
-            case "message_update":
-                if (e.assistantMessageEvent?.type === "text_delta") setThinking(false); // tokens flowing now
-                break;
-            case "tool_execution_start":
-            case "agent_end":
-                setThinking(false);
-                break;
-        }
-    });
-
     const state = (): ServerState => ({
         policy: reviewer.getPolicy(),
         autonomy: reviewer.getAutonomy(),
