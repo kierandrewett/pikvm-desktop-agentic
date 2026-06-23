@@ -124,8 +124,12 @@
                         return;
                     }
                     if (jsep) {
-                        var tracks = [{ type: "video", capture: allowAudio && allowCam, recv: true, add: true }];
-                        if (allowAudio) tracks.push({ type: "audio", capture: allowMic, recv: true, add: true });
+                        // Match upstream PiKVM exactly: ONE audio track whose direction is
+                        // set per-flag — capture (mic→target) gated on mic, recv (target→
+                        // speaker) gated on audio — and added when EITHER is on (so mic
+                        // works even with the speaker off, and both work together).
+                        var tracks = [{ type: "video", capture: allowCam, recv: true, add: true }];
+                        if (allowAudio || allowMic) tracks.push({ type: "audio", capture: allowMic, recv: allowAudio, add: true });
                         handle.createAnswer({
                             jsep: jsep,
                             tracks: tracks,
