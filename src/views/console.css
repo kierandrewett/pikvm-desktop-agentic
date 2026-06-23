@@ -894,6 +894,21 @@ body {
     background: color-mix(in srgb, var(--muted-foreground) 16%, transparent);
     color: var(--foreground);
 }
+.suggest-spin {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0 9px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--primary) 28%, transparent);
+    border-top-color: var(--primary);
+    animation: suggest-spin 0.7s linear infinite;
+}
+@keyframes suggest-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
 
 /* Floating meeting copilot. */
 .copilot {

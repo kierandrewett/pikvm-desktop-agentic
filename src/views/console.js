@@ -1910,6 +1910,7 @@
             }
             suggestLayer.textContent = "";
             if (!items || !items.length) {
+                suggestRunning = false;
                 suggestLayer.classList.remove("show");
                 return;
             }
@@ -1943,14 +1944,53 @@
             suggestLayer.classList.add("show");
             maybeNotifySuggestion(items[0]);
         }
-        function onSuggestions(d) { renderSuggestions(d.items || []); }
+        function onSuggestions(d) {
+            // Don't stomp the "Running…" card we show after a tap with a fresh
+            // suggestion until the agent has actually taken over (onActing clears it).
+            if (suggestRunning) return;
+            renderSuggestions(d.items || []);
+        }
+        var suggestRunning = false;
         function runSuggestion(it) {
+            // Immediate feedback — swap the card to a working state so the tap clearly
+            // did something (the agent's real progress shows in the panel + KVM border).
+            showSuggestionRunning(it);
             fetch("/_agent/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: [{ role: "user", content: [{ type: "text", text: it.task }] }], clientId: "suggest" }),
+                // AI-SDK UIMessage shape: parts[], NOT content[] (the server reads parts).
+                body: JSON.stringify({ messages: [{ role: "user", parts: [{ type: "text", text: it.task }] }], clientId: "suggest" }),
             }).catch(function () {});
-            renderSuggestions([]); // optimistic; the agent taking control also clears it server-side
+        }
+        function showSuggestionRunning(it) {
+            if (!suggestLayer) return;
+            suggestRunning = true;
+            suggestLayer.textContent = "";
+            var card = document.createElement("div");
+            card.className = "suggest-card";
+            var info = document.createElement("div");
+            info.className = "suggest-info";
+            var t = document.createElement("div");
+            t.className = "suggest-title";
+            t.textContent = "Running";
+            var sub = document.createElement("div");
+            sub.className = "suggest-sub";
+            sub.textContent = it.title;
+            info.appendChild(t);
+            info.appendChild(sub);
+            var spin = document.createElement("div");
+            spin.className = "suggest-spin";
+            card.appendChild(info);
+            card.appendChild(spin);
+            suggestLayer.appendChild(card);
+            suggestLayer.classList.add("show");
+            // Safety: if the agent never visibly takes over, clear after a while.
+            setTimeout(function () {
+                if (suggestRunning) {
+                    suggestRunning = false;
+                    renderSuggestions([]);
+                }
+            }, 12000);
         }
         function dismissSuggestion(it) {
             fetch("/_agent/api/suggestions/dismiss", {
