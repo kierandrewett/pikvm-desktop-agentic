@@ -30,7 +30,7 @@ import { OverlayBus } from "./overlay-bus";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
 import { ClaudeTerminal } from "./claude-pty";
-import { writeClaudeConfig } from "./claude-config";
+import { writeClaudeConfig, writeAgentsMd } from "./claude-config";
 import { writeOpencodeConfig } from "./agents";
 import { TerminalSessions } from "./terminal-server";
 import { SecretsStore } from "./secrets";
@@ -261,8 +261,10 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
                     writeClaudeConfig({ vaultPath, port: CONTROL_PORT, hookPath: extractHook() });
                     claudeCfgWritten = true;
                 }
-            } else if (agent === "opencode") {
-                writeOpencodeConfig(vaultPath, CONTROL_PORT, sessionId);
+            } else {
+                // codex/opencode read AGENTS.md for the same operating manual Claude gets.
+                writeAgentsMd(vaultPath);
+                if (agent === "opencode") writeOpencodeConfig(vaultPath, CONTROL_PORT, sessionId);
             }
         },
         onSessionExit: (id) => runner.releaseKvmLease(id),
@@ -629,13 +631,13 @@ function createWindow() {
         },
     });
 
-    // The embedded Claude Code terminal (the agent). Its own WebContentsView so the
-    // xterm renderer can talk to the main-process PTY over IPC; positioned over the
-    // console's agent-panel region (the console reports the rect). Never throttled.
+    // The embedded shared terminal (the agent). Its own WebContentsView, loaded over HTTP
+    // from our backend so it's same-origin with the /_agent/terminal WebSocket it drives —
+    // the SAME page mobile loads. Positioned over the console's agent-panel region. Never
+    // throttled. No preload: it's a plain web client, no IPC.
     const terminalView = new WebContentsView({
         webPreferences: {
             contextIsolation: true,
-            preload: resolve(__dirname, "preload-terminal.js"),
             backgroundThrottling: false,
         },
     });

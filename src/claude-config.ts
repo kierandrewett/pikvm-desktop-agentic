@@ -41,6 +41,17 @@ running in the vault folder — use it for notes, context, and any files you pro
   that's expected. Prefer to draft, then submit. Do not try to bypass it.
 - OCR can't always tell look-alike glyphs apart (l/1/I, O/0, S/5). If a read-back differs from
   what you typed ONLY by such characters, it's a reading artefact — proceed, don't retype.
+
+## Sharing the machine with other agents
+- Other agent tabs (Claude/Codex/opencode) may be open. Only ONE may DRIVE (mouse/keyboard)
+  at a time — a control lease. Looking (\`screenshot\`/\`ocr\`/\`get_regions\`) is always free.
+- Your first hands action takes the lease and you keep it while you work. If a tool is denied
+  with "another session is controlling the KVM", another agent holds it — wait, or have the
+  user close that tab. Don't fight it.
+
+## Goal
+- You have FULL agency over this machine. Plan, verify with screenshots, and complete the
+  user's task end-to-end. When unsure what's on screen, screenshot + get_regions before acting.
 `;
 
 export function writeClaudeConfig(opts: ClaudeConfigOpts): void {
@@ -85,16 +96,31 @@ export function writeClaudeConfig(opts: ClaudeConfigOpts): void {
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 
     // CLAUDE.md — operating instructions in a MARKED section so we never clobber a user's
-    // existing vault CLAUDE.md; we add or refresh just our block.
+    // existing vault CLAUDE.md; we add or refresh just our block. (Claude Code reads CLAUDE.md.)
+    writeMarkedDoc(join(vaultPath, "CLAUDE.md"), CLAUDE_MD);
+}
+
+/** Add/refresh OUR block inside a markdown doc without clobbering the user's content. */
+function writeMarkedDoc(path: string, body: string): void {
     const START = "<!-- PIKVM:START -->";
     const END = "<!-- PIKVM:END -->";
-    const block = `${START}\n${CLAUDE_MD}${END}\n`;
-    const mdPath = join(vaultPath, "CLAUDE.md");
-    let md = existsSync(mdPath) ? readFileSync(mdPath, "utf8") : "";
+    const block = `${START}\n${body}${END}\n`;
+    let md = existsSync(path) ? readFileSync(path, "utf8") : "";
     if (md.includes(START) && md.includes(END)) {
         md = md.replace(new RegExp(`${START}[\\s\\S]*?${END}\\n?`), block);
     } else {
         md = md ? `${md.trimEnd()}\n\n${block}` : block;
     }
-    writeFileSync(mdPath, md);
+    writeFileSync(path, md);
+}
+
+/**
+ * Codex and opencode read AGENTS.md from the project root (the vault) for project
+ * instructions. Give them the SAME operating manual Claude gets via CLAUDE.md, so every
+ * agent drives the KVM the same way. The pikvm MCP itself is wired per-agent elsewhere
+ * (codex via -c launch arg, opencode via opencode.json).
+ */
+export function writeAgentsMd(vaultPath: string): void {
+    mkdirSync(vaultPath, { recursive: true });
+    writeMarkedDoc(join(vaultPath, "AGENTS.md"), CLAUDE_MD);
 }
