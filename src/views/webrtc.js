@@ -202,11 +202,21 @@
                 video.srcObject = null;
             }
         }
-        function rewatch() {
-            if (handle) {
-                sendStop();
-                sendWatch();
-            }
+        var restartTimer = null;
+        function restart() {
+            // PiKVM's fix for flaky audio/mic toggles: don't re-watch in-session (that
+            // races the PeerConnection teardown against the new offer — the hit-or-miss
+            // behaviour where a second toggle was needed). Tear the whole Janus session
+            // DOWN and bring it back UP fresh with the new flags. Show MJPEG during the
+            // brief reconnect, then WebRTC re-activates on the new session. Rapid toggles
+            // coalesce so only the final state is brought up.
+            onActive(false); // → console falls back to MJPEG for the reconnect (no black frame)
+            destroy();
+            if (restartTimer) clearTimeout(restartTimer);
+            restartTimer = setTimeout(function () {
+                restartTimer = null;
+                if (!stopped) ensure();
+            }, 200);
         }
 
         return {
@@ -219,16 +229,20 @@
             },
             stop: function () {
                 stopped = true;
+                if (restartTimer) {
+                    clearTimeout(restartTimer);
+                    restartTimer = null;
+                }
                 sendStop();
                 destroy();
             },
             setAudio: function (on) {
                 allowAudio = !!on;
-                rewatch();
+                if (janus || handle) restart();
             },
             setMic: function (on) {
                 allowMic = !!on;
-                rewatch();
+                if (janus || handle) restart();
             },
             hasVideo: function () {
                 return !!(video.srcObject && video.srcObject.getVideoTracks().length);
