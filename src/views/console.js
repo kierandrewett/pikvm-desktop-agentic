@@ -2352,18 +2352,23 @@
 
         // Block KVM mouse movement while the window is NOT focused — a background
         // window must not let a passing cursor drive the remote pointer.
-        window.addEventListener("focus", function () {
-            windowFocused = true;
-            document.documentElement.classList.remove("win-blur");
-        });
-        window.addEventListener("blur", function () {
-            windowFocused = false;
+        function applyWinFocus(focused) {
+            windowFocused = focused;
+            document.documentElement.classList.toggle("win-blur", !focused);
             // Drop the simulated cursor blob and restore the real OS cursor over the
-            // screen (which is normally hidden in favour of the blob), so a background
-            // window shows a normal pointer instead of nothing.
-            if (kvmCursor) kvmCursor.style.display = "none";
-            document.documentElement.classList.add("win-blur");
-        });
+            // screen, so an unfocused window shows a normal pointer instead of nothing.
+            if (!focused && kvmCursor) kvmCursor.style.display = "none";
+        }
+        if (window.desktopConsole && window.desktopConsole.onWindowFocus) {
+            // Desktop: focus comes from the MAIN process (true window focus). A focused
+            // terminal child view steals the console renderer's focus but NOT the window's,
+            // so the KVM mouse keeps working as long as the whole window is focused.
+            window.desktopConsole.onWindowFocus(applyWinFocus);
+        } else {
+            // Web/mobile: the document's own focus/blur is the window focus.
+            window.addEventListener("focus", function () { applyWinFocus(true); });
+            window.addEventListener("blur", function () { applyWinFocus(false); });
+        }
 
         // Desktop keyboard: forward PHYSICAL keystrokes straight to the KVM. The agent
         // chat is an iframe, so when it has focus the parent document never sees the
@@ -2514,6 +2519,16 @@
         var tbMic = document.getElementById("tb-mic");
         if (tbAudio) tbAudio.addEventListener("click", function () { var b = document.getElementById("audio-btn"); if (b) b.click(); });
         if (tbMic) tbMic.addEventListener("click", function () { var b = document.getElementById("mic-btn"); if (b) b.click(); });
+
+        // Titlebar Settings (models / MCP / secrets / behaviour) + Monitor (ambient) open in
+        // their own windows. Visible buttons so they're discoverable (not just in the ⋯ menu).
+        function openPanelWin(id) {
+            if (window.desktopConsole && window.desktopConsole.openAgentPanel) window.desktopConsole.openAgentPanel(id);
+        }
+        var tbSettings = document.getElementById("tb-settings");
+        if (tbSettings) tbSettings.addEventListener("click", function () { openPanelWin("settings"); });
+        var tbMonitor = document.getElementById("tb-monitor");
+        if (tbMonitor) tbMonitor.addEventListener("click", function () { openPanelWin("ambient"); });
 
         /* ---- NATIVE context menu (replaces the HTML .more-menu) ----
          * The same actions the web ⋯ menu offers, plus the WebRTC Audio/Mic

@@ -72,6 +72,9 @@ export interface DesktopConsoleApi {
     runTask(task: string): void;
     /** Open Settings / Monitor / History in their own window (terminal mode). */
     openAgentPanel(id: "settings" | "ambient" | "history"): void;
+    /** True WINDOW focus (from the main process), so the KVM mouse tracks window focus —
+     *  not the console view's focus, which a focused terminal child view would steal. */
+    onWindowFocus(cb: (focused: boolean) => void): () => void;
 }
 
 const api: DesktopConsoleApi = {
@@ -106,6 +109,11 @@ const api: DesktopConsoleApi = {
     runTask: (task: string) => ipcRenderer.send("console:run-task", task),
     // Settings / Monitor / History open in their own window in terminal mode.
     openAgentPanel: (id) => ipcRenderer.send("console:open-agent-panel", id),
+    onWindowFocus: (cb) => {
+        const listener = (_e: unknown, focused: boolean) => cb(!!focused);
+        ipcRenderer.on("kvm:input-enabled", listener);
+        return () => ipcRenderer.removeListener("kvm:input-enabled", listener);
+    },
 };
 
 contextBridge.exposeInMainWorld("desktopConsole", api);
