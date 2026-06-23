@@ -98,6 +98,18 @@ export class SecretsStore {
         this.save();
     }
 
+    /** Update only the usage hint/note, leaving the stored value untouched. */
+    setHint(name: string, hint: string): void {
+        const key = name.trim();
+        this.data = this.load();
+        const e = this.data[key];
+        if (!e) return;
+        const trimmed = hint.trim();
+        if (trimmed) e.hint = trimmed;
+        else delete e.hint;
+        this.save();
+    }
+
     /** Returns the decrypted value — used only to type it, never returned to the model. */
     get(name: string): string | undefined {
         const e = this.data[name];

@@ -24,6 +24,9 @@ import {
     ChevronRight,
     Copy,
     Download,
+    Eye,
+    EyeOff,
+    Pencil,
     History,
     Clock,
     Globe,
@@ -986,6 +989,87 @@ function WebNotifyRow() {
     return <Row label="Browser notifications" desc={desc} control={<Switch checked={on && perm === "granted"} disabled={!supported || perm === "denied"} onChange={toggle} />} />;
 }
 
+/** One saved secret: reveal/hide the value, edit the value + note inline, or delete.
+ *  The value is fetched on demand from /api/secrets/reveal (never in the state poll). */
+function SecretRow({ name, hint, onChanged }: { name: string; hint?: string; onChanged: () => void }) {
+    const [shown, setShown] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [val, setVal] = useState("");
+    const [note, setNote] = useState(hint ?? "");
+    const [busy, setBusy] = useState(false);
+
+    const fetchValue = async (): Promise<string> => {
+        try {
+            const r = await fetch(BASE + "/api/secrets/reveal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+            const j = await r.json();
+            return typeof j.value === "string" ? j.value : "";
+        } catch {
+            return "";
+        }
+    };
+    const toggleReveal = async () => {
+        if (shown) {
+            setShown(false);
+            return;
+        }
+        setBusy(true);
+        setVal(await fetchValue());
+        setBusy(false);
+        setShown(true);
+    };
+    const startEdit = async () => {
+        setBusy(true);
+        setVal(await fetchValue()); // reveal so the value can be edited
+        setNote(hint ?? "");
+        setBusy(false);
+        setShown(true);
+        setEditing(true);
+    };
+    const save = async () => {
+        await post("/api/secrets", { name, value: val, hint: note });
+        setEditing(false);
+        onChanged();
+    };
+
+    if (editing) {
+        return (
+            <div className="space-y-1.5 rounded-lg border bg-card/60 px-2.5 py-2 text-xs">
+                <div className="flex items-center gap-1.5 text-[12px] font-medium">
+                    <Lock className="size-3.5 shrink-0 text-muted-foreground" /> {name}
+                </div>
+                <input value={val} onChange={(e) => setVal(e.target.value)} placeholder="Value" className="w-full rounded-md border bg-background px-2 py-1 font-mono text-[12px] outline-none focus:border-ring/50" />
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note — when to use it" className="w-full rounded-md border bg-background px-2 py-1 text-[12px] outline-none focus:border-ring/50" onKeyDown={(e) => { if (e.key === "Enter") void save(); }} />
+                <div className="flex items-center justify-between pt-0.5">
+                    <button className="text-[11px] text-muted-foreground hover:text-destructive" onClick={() => void post("/api/secrets/delete", { name }).then(onChanged)}>Delete</button>
+                    <div className="flex gap-1.5">
+                        <button className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setEditing(false)}>Cancel</button>
+                        <Button size="sm" className="h-7" onClick={() => void save()}>Save</Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+    return (
+        <div className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-2 text-xs">
+            <Lock className="size-3.5 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px]">{name}</div>
+                {hint && <div className="truncate text-[10px] text-muted-foreground">{hint}</div>}
+            </div>
+            <span className="max-w-[110px] truncate font-mono text-muted-foreground">{busy ? "…" : shown ? val || "(empty)" : "••••••"}</span>
+            <button className="text-muted-foreground hover:text-foreground" title={shown ? "Hide" : "Reveal value"} onClick={() => void toggleReveal()}>
+                {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+            </button>
+            <button className="text-muted-foreground hover:text-foreground" title="Edit secret" onClick={() => void startEdit()}>
+                <Pencil className="size-3.5" />
+            </button>
+            <button className="text-muted-foreground hover:text-destructive" title="Delete secret" onClick={() => void post("/api/secrets/delete", { name }).then(onChanged)}>
+                <X className="size-3.5" />
+            </button>
+        </div>
+    );
+}
+
 /* =============================== MCP servers ============================== */
 /* NEW SECTION. A generic editor for the agent's MCP-server registry. Each entry
    is a stdio process (command/args/env) or an http endpoint (url/headers); the
@@ -1624,17 +1708,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                         {secretItems.length > 0 && (
                             <div className="flex flex-col gap-1">
                                 {secretItems.map((it) => (
-                                    <div key={it.name} className="flex items-center gap-2 rounded-lg border bg-card/60 px-2.5 py-2 text-xs">
-                                        <Lock className="size-3.5 shrink-0 text-muted-foreground" />
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate text-[13px]">{it.name}</div>
-                                            {it.hint && <div className="truncate text-[10px] text-muted-foreground">{it.hint}</div>}
-                                        </div>
-                                        <span className="font-mono text-muted-foreground">••••••</span>
-                                        <button className="text-muted-foreground hover:text-destructive" title="Delete secret" onClick={() => post("/api/secrets/delete", { name: it.name }).then(() => onPatch({}))}>
-                                            <X className="size-3.5" />
-                                        </button>
-                                    </div>
+                                    <SecretRow key={it.name} name={it.name} {...(it.hint ? { hint: it.hint } : {})} onChanged={() => onPatch({})} />
                                 ))}
                             </div>
                         )}

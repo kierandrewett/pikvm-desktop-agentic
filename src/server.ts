@@ -751,12 +751,32 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             void readBody(req).then((b) => {
                 try {
                     const { name, value, hint } = JSON.parse(b || "{}");
-                    if (typeof name === "string" && name.trim() && typeof value === "string")
-                        secrets.set(name, value, typeof hint === "string" ? hint : undefined);
+                    if (typeof name === "string" && name.trim()) {
+                        if (typeof value === "string" && value.length) secrets.set(name, value, typeof hint === "string" ? hint : undefined);
+                        else if (typeof hint === "string") secrets.setHint(name, hint); // edit the note without touching the value
+                    }
                 } catch {
                     /* ignore */
                 }
                 return json(res, 200, state());
+            });
+            return;
+        }
+        // Reveal a secret's value to the USER's own settings UI (never to the agent's
+        // context). Gated by the same access control as the rest of the API.
+        if (path === "/api/secrets/reveal" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                let value: string | undefined;
+                try {
+                    const { name } = JSON.parse(b || "{}");
+                    if (typeof name === "string") {
+                        value = secrets.get(name);
+                        debugLog.log("secret-reveal", { name }); // log the access, not the value
+                    }
+                } catch {
+                    /* ignore */
+                }
+                return json(res, 200, { value: value ?? null });
             });
             return;
         }
