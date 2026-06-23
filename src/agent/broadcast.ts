@@ -38,6 +38,19 @@ export class ChatBroadcast {
         const line = `data: ${JSON.stringify(chunk)}\n\n`;
         for (const res of this.clients) {
             try {
+                // A slow / half-dead client (sleeping browser, dropped network) that
+                // isn't draining must NOT back up an unbounded socket buffer — these
+                // carry base64 screenshots, so it balloons fast. Cut it loose once its
+                // unsent buffer crosses ~16MB; it reconnects cleanly when it's back.
+                if (res.writableLength > 16 * 1024 * 1024) {
+                    this.clients.delete(res);
+                    try {
+                        res.destroy();
+                    } catch {
+                        /* ignore */
+                    }
+                    continue;
+                }
                 res.write(line);
             } catch {
                 /* a dead socket is cleaned up by its close handler */

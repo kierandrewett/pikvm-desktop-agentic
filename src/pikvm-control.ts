@@ -185,6 +185,25 @@ export class PiKvmControl {
     }
 
     async screenshot(region?: Region): Promise<Screenshot> {
+        const shot = await this.captureScreenshot(region);
+        // Cache full frames so the many background watchers (jiggler / ambient /
+        // suggestion / context / region) can share ONE Pi snapshot instead of each
+        // fetching + re-encoding their own. The AGENT calls screenshot() directly, so
+        // it always gets a fresh frame; only cachedScreenshot() reads the cache.
+        if (!region) this.lastFull = { shot, at: Date.now() };
+        return shot;
+    }
+
+    private lastFull: { shot: Screenshot; at: number } | null = null;
+
+    /** A recent full-frame screenshot if one was taken within `maxAgeMs`, else a fresh
+     *  one. For BACKGROUND consumers only — never on the agent's own observe path. */
+    async cachedScreenshot(maxAgeMs = 800): Promise<Screenshot> {
+        if (this.lastFull && Date.now() - this.lastFull.at <= maxAgeMs) return this.lastFull.shot;
+        return this.screenshot();
+    }
+
+    private async captureScreenshot(region?: Region): Promise<Screenshot> {
         // Preferred path: grab the already-rendered live frame — no Pi load.
         if (this.captureScreen) {
             try {
@@ -194,7 +213,6 @@ export class PiKvmControl {
                 /* fall through to the snapshot endpoint */
             }
         }
-
 
         const res = await axios.get(`${this.httpBase()}/api/streamer/snapshot`, {
             responseType: "arraybuffer",

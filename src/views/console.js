@@ -450,6 +450,9 @@
     }
     function sampleBlank() {
         if (!blankCtx) return;
+        // The getImageData readback is expensive — skip it entirely while the window
+        // is hidden (the user isn't looking at "no signal" anyway).
+        if (typeof document !== "undefined" && document.hidden) return;
         var useVid = webrtcActive && webrtcSwapped;
         if (!streamUp && !useVid) return;
         var srcEl = useVid ? vid : img;
@@ -797,6 +800,14 @@
             setVol([document.getElementById("tb-audio"), audioBtn, document.getElementById("tb-mic"), micBtn], 0);
             spkShown = micShown = spkTarget = micTarget = 0;
             return; // loop stops; activateWebrtc restarts it
+        }
+        // Nothing to meter (both off) or the window's hidden — drop to a cheap 2fps
+        // heartbeat instead of burning 60fps + getStats; it resumes full rate the
+        // moment audio/mic is on and the window is visible again.
+        if ((!audioOn && !micOn) || (typeof document !== "undefined" && document.hidden)) {
+            setVol([document.getElementById("tb-audio"), audioBtn, document.getElementById("tb-mic"), micBtn], 0);
+            meterRaf = setTimeout(meterTick, 500);
+            return;
         }
         var t = nowMs();
         if (!lastPollTs || t - lastPollTs > 90) {

@@ -179,7 +179,47 @@ function PillSelect({
 /* ------------------------------- custom parts ----------------------------- */
 
 /** The image + its markers, sized to its natural dimensions (never stretched). */
+// Keep only the most recent N screenshots' pixels in renderer memory — each base64
+// JPEG is ~100-500KB, so an unbounded transcript balloons the renderer to GBs. Older
+// ones keep their metadata (size, markers) but drop `data.src`; they render as a light
+// placeholder and the disk transcript stays small too. Returns the SAME array when
+// there's nothing to free (so the driving effect can't loop).
+const KEEP_UI_SHOTS = 8;
+function pruneUiScreens(msgs: any[]): any[] {
+    const shots: Array<[number, number]> = [];
+    for (let mi = 0; mi < msgs.length; mi++) {
+        const parts = (msgs[mi] as { parts?: any[] })?.parts;
+        if (!Array.isArray(parts)) continue;
+        for (let pi = 0; pi < parts.length; pi++) {
+            const p = parts[pi];
+            if (p?.type === "data-screenshot" && p.data?.src) shots.push([mi, pi]);
+        }
+    }
+    if (shots.length <= KEEP_UI_SHOTS) return msgs;
+    const drop = shots.slice(0, shots.length - KEEP_UI_SHOTS);
+    const next = msgs.slice();
+    const cloned = new Set<number>();
+    for (const [mi, pi] of drop) {
+        if (!cloned.has(mi)) {
+            next[mi] = { ...next[mi], parts: (next[mi] as { parts: any[] }).parts.slice() };
+            cloned.add(mi);
+        }
+        const p = (next[mi] as { parts: any[] }).parts[pi];
+        (next[mi] as { parts: any[] }).parts[pi] = { ...p, data: { ...p.data, src: "" } };
+    }
+    return next;
+}
+
 function ShotImage({ src, w, h, markers, onOpen }: { src: string; w: number; h: number; markers: MarkerData[]; onOpen: (s: string) => void }) {
+    // Older screenshots have their pixels freed (src cleared) to keep renderer memory
+    // bounded — show a light placeholder instead of a broken image.
+    if (!src) {
+        return (
+            <div className="flex h-[120px] w-full items-center justify-center rounded-md border border-dashed text-[11px] text-muted-foreground">
+                <Camera className="mr-1.5 size-3.5" /> {w}×{h} · image freed
+            </div>
+        );
+    }
     return (
         <div className="relative inline-block cursor-zoom-in" onClick={() => onOpen(src)}>
             <img src={src} alt="screen" className="block max-h-[440px] max-w-full rounded-md" />
@@ -227,7 +267,7 @@ function ScreenshotBlock({
                 onClick={() => setOpen(true)}
                 className="flex items-center gap-2 self-start rounded-lg border bg-card/60 py-1 pl-1 pr-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent/50"
             >
-                <img src={last.src} alt="" className="size-8 rounded object-cover" />
+                {last.src ? <img src={last.src} alt="" className="size-8 rounded object-cover" /> : <span className="flex size-8 items-center justify-center rounded bg-muted/40"><Camera className="size-3.5" /></span>}
                 <Camera className="size-3.5" />
                 <span>{label}</span>
                 <ChevronRight className="size-3.5" />
@@ -2115,6 +2155,12 @@ function App() {
             if (status !== "streaming" && status !== "submitted") void loadTranscript();
         }
     }, [serverState?.uiVersion, status]);
+
+    // Free the pixels of all but the most recent screenshots so the renderer (and the
+    // persisted transcript) stay bounded. No-ops once trimmed, so it can't loop.
+    useEffect(() => {
+        setMessages((prev: any[]) => pruneUiScreens(prev));
+    }, [messages, setMessages]);
 
     // Persist the transcript shortly after each change settles, so it survives restarts.
     useEffect(() => {

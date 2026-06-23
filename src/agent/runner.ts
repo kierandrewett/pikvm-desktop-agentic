@@ -1217,7 +1217,7 @@ export class AgentRunner {
             try {
                 const grid = this.deps.control.captureGrid ? await this.deps.control.captureGrid() : null;
                 if (!this.regions.shouldRecompute(grid)) return;
-                const shot = await this.deps.control.screenshot();
+                const shot = await this.deps.control.cachedScreenshot(); // reuse the agent's just-taken frame
                 const result = await this.regions.maybeRecompute(
                     { image: { data: shot.base64, mimeType: shot.mimeType }, width: shot.width, height: shot.height },
                     grid,
@@ -1254,7 +1254,7 @@ export class AgentRunner {
         if (this.sensInflight) return this.sensInflight;
         this.sensInflight = (async () => {
             try {
-                const shot = await this.deps.control.screenshot();
+                const shot = await this.deps.control.cachedScreenshot(); // share the recent frame
                 const raw = await this.quickLook(
                     { data: shot.base64, mimeType: shot.mimeType },
                     "Classify the current screen now. Output only the JSON.",

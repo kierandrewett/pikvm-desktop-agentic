@@ -197,7 +197,7 @@ export class SuggestionWatcher extends EventEmitter {
 
         this.busy = true;
         try {
-            const shot = await this.deps.control.screenshot();
+            const shot = await this.deps.control.cachedScreenshot(); // reuse the frame the gate just looked at
             const raw = await this.deps.look(
                 { data: shot.base64, mimeType: shot.mimeType },
                 "Decide if there's one helpful, safe action to offer for this screen. Output only the JSON.",

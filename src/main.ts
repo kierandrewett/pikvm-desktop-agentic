@@ -804,7 +804,10 @@ function createWindow() {
         const backend = agentBackend;
         backend.control.captureFingerprint = async () => {
             try {
-                const shot = await backend.control.screenshot();
+                // Reuse a very recent frame (≤700ms) so the fingerprint shares the Pi
+                // snapshot with whatever else just looked — but short enough that the
+                // change-detector still sees a fresh frame each watcher tick (≥1.5s).
+                const shot = await backend.control.cachedScreenshot(700);
                 const img = nativeImage.createFromBuffer(shot.data);
                 if (!img.getSize().width) return null;
                 const small = img.resize({ width: 16, height: 16, quality: "good" });
