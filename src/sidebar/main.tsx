@@ -1810,6 +1810,9 @@ function App() {
     // Ephemeral "agent is doing an internal step" label (e.g. "Checking the screen…").
     // Auto-clears as a safety in case the explicit clear event is missed.
     const [liveActivity, setLiveActivity] = useState<string | null>(null);
+    // A run is live on the hub (any client) — drives the Stop button instantly,
+    // before the 3s state poll catches up. Cleared on the SSE "end".
+    const [externalBusy, setExternalBusy] = useState(false);
     const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const showActivity = (text: string | null) => {
         if (activityTimer.current) clearTimeout(activityTimer.current);
@@ -1983,6 +1986,7 @@ function App() {
             if (c.type === "begin") {
                 active = c.clientId !== CLIENT_ID; // our own run is handled by useChat
                 spec = active ? { id: `spec-${Date.now()}`, role: "assistant", parts: [] } : null;
+                setExternalBusy(true); // a run is live (any client) — show Stop instantly
                 return;
             }
             if (c.type === "user") {
@@ -2007,6 +2011,7 @@ function App() {
             if (c.type === "end") {
                 active = false;
                 spec = null;
+                setExternalBusy(false);
                 showActivity(null); // a finished run clears any lingering internal-step chip
                 // On desktop the main process already fires a native "finished"
                 // notification, so only the web path notifies here.
@@ -2120,7 +2125,9 @@ function App() {
         void post("/api/steer", { text: t });
     };
 
-    const isBusy = () => status === "streaming" || status === "submitted";
+    // "Busy" = our own chat is streaming OR the SERVER says the agent is running (a
+    // suggestion-tapped / autonomous / other-client run) — so Stop + steer show then too.
+    const isBusy = () => status === "streaming" || status === "submitted" || externalBusy || !!serverState?.streaming;
     const submit = () => (isBusy() ? steer() : send());
     const newChat = () => void post("/api/sessions/new").then(() => { setMessages([]); refreshState(); });
     const resume = (id: string) =>
@@ -2174,7 +2181,7 @@ function App() {
     }, []);
 
     const comps: CommandSpec[] = useMemo(() => completions(input), [input]);
-    const busy = status === "streaming" || status === "submitted";
+    const busy = status === "streaming" || status === "submitted" || externalBusy || !!serverState?.streaming;
     const empty = messages.length === 0;
     const lastAssistantId = useMemo(() => [...messages].reverse().find((m: any) => m.role === "assistant")?.id, [messages]);
 

@@ -76,6 +76,9 @@
     if (typeof module !== "undefined" && module.exports) module.exports = pure;
     if (typeof window === "undefined") return; // node test: stop before DOM wiring
 
+    // True while the agent is driving the target — user HID input is dropped then.
+    var agentActing = false;
+
     /* ----------------------------------------------------------------- *
      * HID WebSocket client — same protocol as src/pikvm-control.ts
      * ----------------------------------------------------------------- */
@@ -87,6 +90,11 @@
         var queue = [];
         var onStatus = null;
         var retry = null;
+        // The TARGET's real Caps Lock state, read from the Pi's keyboard LED reports
+        // (the ground truth). `capsKnown` stays false until the Pi actually sends one,
+        // so we can fall back safely on setups that don't report LEDs.
+        var targetCaps = false;
+        var capsKnown = false;
 
         function url() {
             return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/api/ws";
@@ -120,7 +128,20 @@
                     ws.close();
                 } catch (e) {}
             };
-            ws.onmessage = function () {}; // drain state pings; we don't need them
+            ws.onmessage = function (ev) {
+                // Read the target's keyboard LED state (caps lock) so we can type the
+                // correct case regardless of the target's lock state. Format varies by
+                // kvmd version — probe the likely paths defensively.
+                try {
+                    var d = JSON.parse(ev.data);
+                    var ed = d && d.event;
+                    var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
+                    if (leds && typeof leds.caps === "boolean") {
+                        targetCaps = leds.caps;
+                        capsKnown = true;
+                    }
+                } catch (e) {}
+            };
         }
         function schedule() {
             if (retry) return;
@@ -135,6 +156,10 @@
             } catch (e) {}
         }
         function send(obj) {
+            // While the AGENT is in control, the user must NOT be able to drive the
+            // target — drop all user HID input (mouse/keys) at the source. The agent's
+            // own input goes through the server-side control core, not this socket.
+            if (agentActing) return;
             if (open && ws && ws.readyState === 1) raw(obj);
             else {
                 if (queue.length < 256) queue.push(obj);
@@ -160,6 +185,14 @@
             },
             wheel: function (dx, dy) {
                 send({ event_type: "mouse_wheel", event: { delta: { x: dx, y: dy } } });
+            },
+            /** The target's current Caps Lock state (from its keyboard LED). */
+            capsOn: function () {
+                return targetCaps;
+            },
+            /** Whether the Pi actually reports the caps LED (so we can trust capsOn). */
+            capsKnown: function () {
+                return capsKnown;
             },
         };
     })();
@@ -208,6 +241,22 @@
         if (!k) return;
         sendChord(armedList(), k.code, k.shift);
         clearArmed();
+    }
+    /** A printable from a physical-key event, made caps-lock-correct: for a LETTER we
+     *  XOR the desired case against the TARGET's real caps state, so it comes out right
+     *  whether or not the target's Caps Lock is engaged. Non-letters are caps-neutral. */
+    function sendPrintable(e) {
+        var ch = e.key;
+        if (/^[A-Za-z]$/.test(ch)) {
+            var k = charToKey(ch, layout);
+            if (!k) return;
+            var wantUpper = ch >= "A" && ch <= "Z";
+            var caps = hid.capsKnown() ? hid.capsOn() : false;
+            sendChord(armedList(), k.code, wantUpper !== caps);
+            clearArmed();
+        } else {
+            sendChar(ch);
+        }
     }
     function modsFromEvent(e) {
         var m = [];
@@ -1865,9 +1914,11 @@
             }
         }
         function onActing(d) {
+            agentActing = !!d.active; // gate user HID input (hid.send drops while true)
             pane.classList.toggle("acting", !!d.active);
             if (d.active && actingAction && d.action) actingAction.textContent = d.action;
             if (!d.active) aiCursor.classList.remove("show");
+            if (d.active && kvmCursor) kvmCursor.style.display = "none"; // hide the user blob while the agent drives
             // The agent is driving now — drop any suggestion card immediately.
             if (d.active && typeof renderSuggestions === "function") renderSuggestions([]);
         }
@@ -2101,6 +2152,15 @@
             var code = e.code;
             if (!code) return;
             if (/^(Control|Alt|Meta|Shift)(Left|Right)?$/.test(code)) return; // bare modifier rides the chord
+            // Caps Lock: only forward it to the target if the Pi reports the caps LED
+            // (so we can keep our model + the target's case logic in sync). When the Pi
+            // doesn't report LEDs, suppress it and keep the target's caps OFF — letter
+            // case is produced via Shift, which only works on a caps-off target.
+            if (code === "CapsLock") {
+                e.preventDefault();
+                if (hid.capsKnown() && dedupe(code)) sendChord([], "CapsLock", false);
+                return;
+            }
             var mods = modsFromEvent(e).concat(armedList());
             var ctl = CONTROL_KEYS[code] || CONTROL_KEYS[e.key] || (/^F\d{1,2}$/.test(code) ? code : null);
             if (ctl) {
@@ -2115,11 +2175,11 @@
                 clearArmed();
                 return;
             }
-            // Printable: send the produced character (respects the host keyboard layout).
+            // Printable: send the produced character (respects the host keyboard layout
+            // and the TARGET's caps-lock state for letters).
             if (e.key && e.key.length === 1) {
                 e.preventDefault();
-                sendChar(e.key);
-                clearArmed();
+                sendPrintable(e);
             } else if (dedupe(code)) {
                 e.preventDefault();
                 sendChord(mods, code, e.shiftKey);
