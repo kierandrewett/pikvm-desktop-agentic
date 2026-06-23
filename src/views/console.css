@@ -553,6 +553,13 @@ body {
 .hidden {
     display: none !important;
 }
+/* WebRTC video that's decoding but not yet confirmed playing: rendered (so Safari
+ * actually decodes it and fires "playing") but transparent, so the MJPEG <img>
+ * underneath stays visible — no black flash on spin-up, and a stalled stream never
+ * blanks the picture. Swapped to opaque (and the <img> hidden) once it's playing. */
+#screen-video.warming {
+    opacity: 0;
+}
 /* ---- agent X-ray overlay (ported from acting.html, fed by overlay SSE) ---- */
 .xray {
     position: absolute;

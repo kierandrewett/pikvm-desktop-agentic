@@ -407,42 +407,116 @@
         return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/janus/ws";
     }
 
-    // Switch the visible picture to WebRTC: show <video>, hide <img>, suspend MJPEG.
+    var isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent || "");
+    var webrtcSwapped = false; // have we actually hidden the MJPEG <img> for the video?
+    var gestureUnmuteArmed = false;
+    var playWatchdog = null; // reverts to MJPEG if the <video> never starts playing
+
+    // A WebRTC track arrived. Show the <video> and start it MUTED — Safari/iOS refuse
+    // to autoplay an unmuted MediaStream without a user gesture (and would pause the
+    // moment it gained an unmuted audio track), so the picture must never wait on
+    // audio permission. We do NOT hide the MJPEG <img> here: that swap waits for the
+    // <video>'s "playing" event (onVidPlaying), so the fallback stays up until frames
+    // are genuinely decoding and a silent WebRTC failure never leaves a blank screen.
     function activateWebrtc() {
         if (webrtcActive) return;
         webrtcActive = true;
-        mjpegPaused = true;
-        if (streamWatchdog) {
-            clearTimeout(streamWatchdog);
-            streamWatchdog = null;
-        }
         if (reconnectTimer) {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
         }
         vid.classList.remove("hidden");
-        img.classList.add("hidden");
-        img.removeAttribute("src"); // release the Pi's MJPEG connection
+        vid.classList.add("warming"); // decoding but transparent until "playing" — MJPEG shows through
         applyXform(); // make sure the video carries the current zoom/pan
-        setState("live");
-        if (connText) connText.textContent = "Live · HD";
-        // Audio/mic become available now there's a WebRTC session. Re-apply the
-        // user's desired audio mute state (it survives the re-watch) and play.
-        vid.muted = !audioOn;
-        if (audioOn) vid.play().catch(function () {});
+        vid.muted = true; // ALWAYS muted to start (Safari autoplay); audio re-applied on play
+        var p = vid.play();
+        if (p && p.catch) p.catch(function () {}); // muted play() is allowed everywhere
         revealAvToggles(true);
-        // Light up the speaker meter once the audio track lands (retry a couple of times).
         startMeters();
-        fitAspect();
+        // The visible <video> must stay rendered to actually decode (Safari won't
+        // play a display:none video), so a stream that connects but never produces
+        // frames would otherwise sit black over the MJPEG. Bail back to MJPEG if no
+        // "playing" lands shortly.
+        if (playWatchdog) clearTimeout(playWatchdog);
+        playWatchdog = setTimeout(function () {
+            playWatchdog = null;
+            if (webrtcActive && !webrtcSwapped) fallbackToMjpeg();
+        }, 6000);
+    }
+
+    // The video is really playing frames now — safe to retire the MJPEG fallback.
+    function onVidPlaying() {
+        if (!webrtcActive) return;
+        if (!webrtcSwapped) {
+            webrtcSwapped = true;
+            mjpegPaused = true;
+            if (playWatchdog) {
+                clearTimeout(playWatchdog);
+                playWatchdog = null;
+            }
+            if (streamWatchdog) {
+                clearTimeout(streamWatchdog);
+                streamWatchdog = null;
+            }
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+            vid.classList.remove("warming"); // confirmed playing — reveal the video
+            img.classList.add("hidden");
+            img.removeAttribute("src"); // release the Pi's MJPEG connection only now
+            applyXform();
+            setState("live");
+            if (connText) connText.textContent = "Live · HD";
+            fitAspect();
+        }
+        // Honour the audio preference now it's playing. Chrome unmutes immediately;
+        // Safari would pause an un-gestured unmute, so there we wait for the user's
+        // next tap (they're driving a KVM — a click/keypress comes fast).
+        if (audioOn && vid.muted) {
+            if (isSafari) armGestureUnmute();
+            else tryUnmuteVid();
+        }
+    }
+    vid.addEventListener("playing", onVidPlaying);
+
+    // Unmute without losing the picture: if the browser blocks it (no gesture), keep
+    // the muted picture playing and unmute on the next user interaction instead.
+    function tryUnmuteVid() {
+        vid.muted = false;
+        var p = vid.play();
+        if (p && p.catch)
+            p.catch(function () {
+                vid.muted = true;
+                var q = vid.play();
+                if (q && q.catch) q.catch(function () {});
+                armGestureUnmute();
+            });
+    }
+    function armGestureUnmute() {
+        if (gestureUnmuteArmed) return;
+        gestureUnmuteArmed = true;
+        var h = function () {
+            document.removeEventListener("pointerdown", h, true);
+            gestureUnmuteArmed = false;
+            if (audioOn && webrtcActive && vid.muted) tryUnmuteVid();
+        };
+        document.addEventListener("pointerdown", h, true);
     }
 
     // Fall back to MJPEG: show <img>, hide <video>, resume the MJPEG pipeline.
     function fallbackToMjpeg() {
         var was = webrtcActive;
         webrtcActive = false;
+        webrtcSwapped = false;
+        if (playWatchdog) {
+            clearTimeout(playWatchdog);
+            playWatchdog = null;
+        }
         mjpegPaused = false;
         revealAvToggles(false); // the meter loop sees !webrtcActive next tick and clears
         vid.classList.add("hidden");
+        vid.classList.remove("warming");
         img.classList.remove("hidden");
         try {
             if (vid.srcObject) {

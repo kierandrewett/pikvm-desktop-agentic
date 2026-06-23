@@ -184,6 +184,9 @@ async function main(): Promise<void> {
                     (opts.video as any).videoHeight = 720;
                     (opts.video as any)._hasVideo = true;
                     opts.onActive(true);
+                    // The <video> begins decoding frames → fires "playing", which is
+                    // what now drives the <img>→<video> swap (Safari-safe lifecycle).
+                    (opts.video as any).emit?.("playing");
                 }, 0);
             },
             stop() {
