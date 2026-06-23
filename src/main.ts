@@ -31,7 +31,8 @@ import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
 import { ClaudeTerminal } from "./claude-pty";
 import { writeClaudeConfig } from "./claude-config";
-import { buildAgentSpec, writeOpencodeConfig, type AgentKind } from "./agents";
+import { writeOpencodeConfig } from "./agents";
+import { TerminalSessions } from "./terminal-server";
 import { SecretsStore } from "./secrets";
 import { electronSecretCrypto } from "./secret-crypto-electron";
 import { NtfyClient } from "./ambient/ntfy";
@@ -227,15 +228,73 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     // phone with a dev build, without flipping the setting the installed app shares).
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
     const overlay = new OverlayBus();
+
+    // ---- Server-hosted terminal sessions — the agent PTYs live here and stream to ALL
+    // devices over the /_agent/terminal WebSocket (desktop + mobile see the same tabs). ----
+    const extractHook = (): string => {
+        const hookSrc = resolve(__dirname, "claude-runtime", "permission-hook.mjs");
+        try {
+            const unpacked = resolve(app.getPath("userData"), "claude-permission-hook.mjs");
+            copyFileSync(hookSrc, unpacked);
+            return unpacked;
+        } catch {
+            return hookSrc;
+        }
+    };
+    let claudeCfgWritten = false;
+    const resolveVaultPath = (p: string): string => {
+        const clean = p.replace(/:\d+(?::\d+)?$/, "");
+        if (clean.startsWith("~/")) return resolve(app.getPath("home"), clean.slice(2));
+        return isAbsolute(clean) ? clean : resolve(settings.get().atlas.vaultPath, clean);
+    };
+    const IMG_MIME: Record<string, string> = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".svg": "image/svg+xml",
+    };
+    const terminalSessions = new TerminalSessions({
+        vaultPath: () => settings.get().atlas.vaultPath,
+        port: CONTROL_PORT,
+        prepareAgent: (agent, sessionId) => {
+            const vaultPath = settings.get().atlas.vaultPath;
+            if (agent === "claude") {
+                if (!claudeCfgWritten) {
+                    writeClaudeConfig({ vaultPath, port: CONTROL_PORT, hookPath: extractHook() });
+                    claudeCfgWritten = true;
+                }
+            } else if (agent === "opencode") {
+                writeOpencodeConfig(vaultPath, CONTROL_PORT, sessionId);
+            }
+        },
+        onSessionExit: (id) => runner.releaseKvmLease(id),
+        resolveImage: (p) => {
+            try {
+                const abs = resolveVaultPath(p);
+                const mime = IMG_MIME[extname(abs).toLowerCase()];
+                if (!mime || !existsSync(abs)) return null;
+                if (statSync(abs).size > 12 * 1024 * 1024) return null;
+                return `data:${mime};base64,${readFileSync(abs).toString("base64")}`;
+            } catch {
+                return null;
+            }
+        },
+        openPath: (p) => {
+            const abs = resolveVaultPath(p);
+            if (existsSync(abs)) void shell.openPath(abs);
+        },
+        openExternal: (u) => {
+            if (/^https?:\/\//i.test(u)) void shell.openExternal(u);
+        },
+    });
+
     startControlServer(
         // ...runner.visionDeps() supplies getRegions/opticalRead/opticalReadStrong/remember
         // so the MCP server (Claude Code's eyes) shares the agent's OCR/region/typing brain.
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, ...runner.visionDeps(), acquireKvmControl: (s) => runner.acquireKvmLease(s), touchKvmControl: (s) => runner.touchKvmLease(s), openExternal: (u) => void shell.openExternal(u) },
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, terminalSessions, ...runner.visionDeps(), acquireKvmControl: (s) => runner.acquireKvmLease(s), touchKvmControl: (s) => runner.touchKvmLease(s), openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
         bindHost,
     );
     console.log(`Agent backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*)`);
-    return { control, reviewer, presence, auth, runner, ambient, transcriber, settings, overlay, setOnKVM: (b: boolean) => { onKVM = b; } };
+    return { control, reviewer, presence, auth, runner, ambient, transcriber, settings, overlay, terminalSessions, setOnKVM: (b: boolean) => { onKVM = b; } };
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -759,144 +818,34 @@ function createWindow() {
 
     sidebarView.webContents.loadFile(resolve(__dirname, "views", "sidebar.html"));
     controlOverlayView.webContents.loadFile(resolve(__dirname, "views", "acting.html"));
-    terminalView.webContents.loadFile(resolve(__dirname, "views", "terminal.html"));
-    // Diagnostics: surface the terminal renderer's console + any load failure to the main
-    // log, so a blank/non-starting terminal panel is debuggable without devtools.
+    // The terminal renderer is loaded over HTTP (once the backend is up, below) so it's
+    // same-origin with the /_agent/terminal WebSocket it connects to — the SAME page the
+    // mobile/web console loads, so every device shares the server-hosted sessions.
     terminalView.webContents.on("console-message", (_e, level, message, line, src) => {
         console.log(`[term-renderer:${level}] ${message} (${src}:${line})`);
     });
     terminalView.webContents.on("did-fail-load", (_e, code, desc, url) => {
         console.error(`[term-renderer] did-fail-load ${code} ${desc} ${url}`);
+        // The backend may not have bound yet on first paint — retry the load shortly.
+        if (!terminalView.webContents.isDestroyed())
+            setTimeout(() => {
+                if (!terminalView.webContents.isDestroyed())
+                    void terminalView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`);
+            }, 500);
     });
     terminalView.webContents.on("render-process-gone", (_e, details) => {
         console.error(`[term-renderer] render-process-gone`, details);
     });
-    terminalView.webContents.on("did-finish-load", () => console.log("[term-renderer] did-finish-load"));
 
-    // ---- Claude Code terminals (the agent) — one PTY per tab/session ---------------
-    // Each tab is an independent `claude` process in the vault. They share the MCP server
-    // + guardrail hook, but only ONE may drive the KVM at a time (the control lease, keyed
-    // by PIKVM_SESSION_ID, enforced in /api/permcheck). "main" is the always-present first
-    // tab; additional tabs get renderer-generated ids.
-    const sessions = new Map<string, ClaudeTerminal>();
-    let activeSession = "main";
-    let vaultConfigWritten = false;
-    const ensureVaultConfig = (): void => {
-        if (vaultConfigWritten) return;
-        try {
-            // The hook ships inside app.asar; Claude Code (an external process) can't reliably
-            // run a script from an asar path, so extract it to a real unpacked file first.
-            const hookSrc = resolve(__dirname, "claude-runtime", "permission-hook.mjs");
-            let hookPath = hookSrc;
-            try {
-                const unpacked = resolve(app.getPath("userData"), "claude-permission-hook.mjs");
-                copyFileSync(hookSrc, unpacked);
-                hookPath = unpacked;
-            } catch {
-                /* dev mode (already unpacked) or copy failed — fall back to the source path */
-            }
-            writeClaudeConfig({ vaultPath: settings.get().atlas.vaultPath, port: CONTROL_PORT, hookPath });
-            vaultConfigWritten = true;
-        } catch (e) {
-            console.error("[claude] failed to write vault config:", e);
-        }
-    };
-    // Spawn (or no-op if already running) the session's PTY. Called from BOTH the renderer's
-    // terminal:start AND main's did-finish-load for "main", so the agent starts even if the
-    // renderer JS is throttled (hidden/occluded view at launch) — the prior "doesn't start".
-    const startSession = (id: string, via: string, agent: AgentKind = "claude"): { ok: boolean; reason?: string } => {
-        const existing = sessions.get(id);
-        if (existing && existing.running) return { ok: true };
-        const vaultPath = settings.get().atlas.vaultPath;
-        // Per-agent MCP wiring: claude uses .mcp.json + the guardrail hook; opencode reads
-        // a per-session opencode.json; codex gets the MCP injected via -c in its launch args.
-        // codex/opencode have no hook, so the MCP server enforces the KVM lease (per-session URL).
-        if (agent === "claude") ensureVaultConfig();
-        else if (agent === "opencode") {
-            try {
-                writeOpencodeConfig(vaultPath, CONTROL_PORT, id);
-            } catch (e) {
-                console.error("[agent] failed to write opencode config:", e);
-            }
-        }
-        const spec = buildAgentSpec(agent, { sessionId: id, port: CONTROL_PORT });
-        const term =
-            existing ??
-            new ClaudeTerminal({
-                cwd: vaultPath,
-                bin: spec.bin,
-                args: spec.args,
-                env: {
-                    PIKVM_PERMCHECK_URL: `http://127.0.0.1:${CONTROL_PORT}/_agent/api/permcheck`,
-                    PIKVM_SESSION_ID: id,
-                },
-            });
-        if (!existing) {
-            term.onData((d) => {
-                if (!terminalView.webContents.isDestroyed()) terminalView.webContents.send("terminal:data", id, d);
-            });
-            term.onExit((info) => {
-                sessions.delete(id);
-                agentBackend?.runner.releaseKvmLease(id); // free the KVM if this session held the lease
-                if (!terminalView.webContents.isDestroyed()) terminalView.webContents.send("terminal:exit", id, info);
-            });
-            sessions.set(id, term);
-        }
-        console.log(`[terminal:start] session ${id} via ${via}`);
-        const r = term.start();
-        console.log(`[terminal:start] session ${id} ->`, JSON.stringify(r));
-        return r;
-    };
-    ipcMain.handle("terminal:start", (_e, id: unknown, agent: unknown) => {
-        const a: AgentKind = agent === "codex" || agent === "opencode" ? agent : "claude";
-        return startSession(typeof id === "string" && id ? id : "main", "renderer", a);
-    });
-    terminalView.webContents.on("did-finish-load", () => startSession("main", "did-finish-load"));
-    ipcMain.on("terminal:input", (_e, id: string, data: string) => sessions.get(id)?.write(data));
-    ipcMain.on("terminal:resize", (_e, id: string, cols: number, rows: number) => sessions.get(id)?.resize(cols, rows));
-    ipcMain.on("terminal:kill", (_e, id: string) => sessions.get(id)?.kill());
-    ipcMain.on("terminal:set-active", (_e, id: string) => {
-        if (typeof id === "string" && id) activeSession = id;
-    });
-    // Ctrl/Cmd+click in the terminal: open URLs in the browser, file paths in the OS.
-    // Paths are resolved against the vault cwd; a :line:col suffix is stripped.
-    const resolveVaultPath = (p: string): string => {
-        const clean = p.replace(/:\d+(?::\d+)?$/, "");
-        if (clean.startsWith("~/")) return resolve(app.getPath("home"), clean.slice(2));
-        return isAbsolute(clean) ? clean : resolve(settings.get().atlas.vaultPath, clean);
-    };
-    ipcMain.on("terminal:open-link", (_, url: unknown) => {
-        if (typeof url === "string" && /^https?:\/\//i.test(url)) void shell.openExternal(url);
-    });
-    ipcMain.on("terminal:open-path", (_, p: unknown) => {
-        if (typeof p !== "string" || !p.trim()) return;
-        const abs = resolveVaultPath(p);
-        if (existsSync(abs)) void shell.openPath(abs);
-    });
-    const IMG_MIME: Record<string, string> = {
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".svg": "image/svg+xml",
-    };
-    ipcMain.handle("terminal:read-image", (_, p: unknown): string | null => {
-        try {
-            if (typeof p !== "string" || !p.trim()) return null;
-            const abs = resolveVaultPath(p);
-            const mime = IMG_MIME[extname(abs).toLowerCase()];
-            if (!mime || !existsSync(abs)) return null;
-            if (statSync(abs).size > 12 * 1024 * 1024) return null; // don't inline huge files
-            return `data:${mime};base64,${readFileSync(abs).toString("base64")}`;
-        } catch {
-            return null;
-        }
-    });
-    // A tapped suggestion (or any external task) → type it into the active session.
+    // A tapped suggestion (or any external task) → type it into the primary session.
     ipcMain.on("console:run-task", (_, task: unknown) => {
-        if (typeof task === "string" && task.trim()) sessions.get(activeSession)?.submitLine(task.trim());
+        if (typeof task === "string" && task.trim() && agentBackend)
+            agentBackend.terminalSessions.submitLine(agentBackend.terminalSessions.primaryId(), task.trim());
     });
-    // The console reports where its agent-panel content sits (window pixels); we float
-    // the terminal view there. Empty/zero → hide it (panel collapsed).
+    // The console reports where its agent-panel content sits (window pixels); we float the
+    // terminal view there. Empty/zero → hide it (panel collapsed). The renderer re-fits on
+    // its own resize events when these bounds change.
     let termRectSeen = false;
-    let lastTermBounds = "";
     ipcMain.on("console:terminal-rect", (_, r: { x?: number; y?: number; width?: number; height?: number }) => {
         const x = Math.round(Number(r?.x) || 0);
         const y = Math.round(Number(r?.y) || 0);
@@ -904,24 +853,13 @@ function createWindow() {
         const height = Math.round(Number(r?.height) || 0);
         if (width > 1 && height > 1) {
             if (!termRectSeen) { console.log(`[console:terminal-rect] first show ${width}x${height} @${x},${y}`); termRectSeen = true; }
-            const wasHidden = !terminalView.getVisible();
             terminalView.setVisible(true);
             terminalView.setBounds({ x, y, width, height });
-            // Re-fit the xterm when the view first shows or actually changes size — the
-            // initial fit may have run while hidden (zero-sized), leaving it at 120×30.
-            const key = `${width}x${height}`;
-            if (wasHidden || key !== lastTermBounds) {
-                lastTermBounds = key;
-                if (!terminalView.webContents.isDestroyed()) terminalView.webContents.send("terminal:relayout");
-            }
         } else {
             terminalView.setVisible(false);
         }
     });
-    win.on("closed", () => {
-        for (const s of sessions.values()) s.kill();
-        sessions.clear();
-    });
+    win.on("closed", () => agentBackend?.terminalSessions.killAll());
 
     // Right-click editing menus everywhere; the sidebar also offers "Copy conversation".
     attachContextMenu(mainView.webContents);
@@ -962,6 +900,10 @@ function createWindow() {
     // we're a thin client pointing at a remote console, where the remote owns all of
     // that. `agentBackend` is then null and every binding below is guarded/skipped.
     const agentBackend = remoteConsole ? null : startAgentBackend(origin, settings, inputTracker);
+
+    // Now that the backend is listening, load the shared terminal renderer over HTTP so it's
+    // same-origin with its /_agent/terminal WebSocket (the desktop view and mobile both use it).
+    void terminalView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`);
 
     // Agent screenshots come from the already-rendered live view (capturePage),
     // NOT the PiKVM snapshot endpoint — so they put no load on the Pi and never

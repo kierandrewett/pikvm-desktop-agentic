@@ -1866,11 +1866,10 @@
         setInterval(reportTermRect, 1000); // fallback for layout changes we don't observe
         setTimeout(reportTermRect, 150);
     } else {
-        // WEB / MOBILE: no PTY in a browser — keep the existing chat UI.
-        chatFrame.src = "/_agent/sidebar.html?embed=" + EMBED_PARAM + "&theme=" + encodeURIComponent(currentTheme());
-        chatFrame.addEventListener("load", function () {
-            applyTheme(currentTheme());
-        });
+        // WEB / MOBILE: load the SAME shared terminal as desktop. The PTYs are hosted on the
+        // server; this page connects to the /_agent/terminal WebSocket and sees the same tabs
+        // + live output as every other device (full control). No native view needed here.
+        chatFrame.src = "/_agent/terminal.html";
     }
 
     /* ---- pick up the server's keyboard layout (so symbols map right) ---- */

@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     checks.push(["/_agent/ lands on the console", consoleRoot.status === 200 && (await consoleRoot.text()).includes('id="screen-pane"')]);
     const consoleJs = await fetch(`${base}/_agent/console.js`);
     const consoleJsBody = await consoleJs.text();
-    checks.push(["console.js embeds the agent chat", consoleJsBody.includes("/_agent/sidebar.html")]);
+    checks.push(["console.js embeds the shared terminal", consoleJsBody.includes("/_agent/terminal.html")]);
     checks.push([
         "/_agent/console.js served + speaks the HID protocol",
         consoleJs.status === 200 && consoleJsBody.includes("mouse_move") && consoleJsBody.includes("/api/ws"),

@@ -26,6 +26,8 @@ import { isStaleUiSave } from "./agent/session-sync";
 import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, parsePursueArg, COMMANDS } from "./commands";
 import { createPiKvmProxy } from "./proxy";
+import { WebSocketServer } from "ws";
+import type { TerminalSessions, ClientMsg } from "./terminal-server";
 import { MouseJiggler } from "./mouse-jiggler";
 import { DebugLog } from "./debug-log";
 import { Metrics } from "./metrics";
@@ -54,6 +56,8 @@ export interface ServerDeps extends McpDeps {
     meetingLog: MeetingLog;
     overlay: OverlayBus;
     openExternal: (url: string) => void;
+    /** Server-hosted terminal sessions, streamed to all devices over /_agent/terminal. */
+    terminalSessions?: TerminalSessions;
 }
 
 type Writer = Parameters<NonNullable<Parameters<typeof createUIMessageStream<PiKvmUIMessage>>[0]["execute"]>>[0]["writer"];
@@ -1161,12 +1165,42 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         json(res, 404, { error: "Not found" });
     });
 
+    // The shared terminal lives on a WebSocket: every device subscribes and drives the same
+    // server-hosted Claude Code sessions. Handled here; everything else proxies to PiKVM.
+    const termWss = new WebSocketServer({ noServer: true });
+    termWss.on("connection", (ws) => {
+        const sessions = deps.terminalSessions;
+        if (!sessions) return ws.close();
+        sessions.ensurePrimary();
+        const send = (msg: unknown) => {
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+        };
+        const unsub = sessions.subscribe(send);
+        ws.on("message", (raw) => {
+            let msg: ClientMsg;
+            try {
+                msg = JSON.parse(raw.toString());
+            } catch {
+                return;
+            }
+            sessions.handle(msg, send);
+        });
+        ws.on("close", unsub);
+        ws.on("error", unsub);
+    });
+
     // PiKVM uses WebSockets for HID and stream-info; proxy every upgrade to it
     // (subject to the same token gate as HTTP).
     server.on("upgrade", (req, socket, head) => {
         const token = settings.get().accessToken;
         if (token && !isLoopback(req) && !isAuthed(req, token)) {
             socket.destroy();
+            return;
+        }
+        // Our shared-terminal channel (mounted at /_agent/terminal and the bare /terminal).
+        const upgradePath = (req.url || "").split("?")[0];
+        if (upgradePath === "/_agent/terminal" || upgradePath === "/terminal") {
+            termWss.handleUpgrade(req, socket, head, (ws) => termWss.emit("connection", ws, req));
             return;
         }
         void proxy.handleUpgrade(req, socket, head);
