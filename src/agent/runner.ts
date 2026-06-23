@@ -410,10 +410,18 @@ export class AgentRunner {
         // Auto-save the transcript whenever a run finishes.
         this.agent.subscribe((e) => {
             if (e.type === "agent_end") {
+                this.autoApproveRun = false; // pre-authorization is per-run only
                 this.persist();
                 this.maybeRetitle();
             }
         });
+    }
+
+    /** When set, the current run's tool calls skip the authorization gate (a
+     *  user-tapped suggestion is explicit consent). Auto-cleared on agent_end. */
+    private autoApproveRun = false;
+    setAutoApproveRun(on: boolean): void {
+        this.autoApproveRun = on;
     }
 
     /**
@@ -1322,6 +1330,10 @@ export class AgentRunner {
         } catch {
             return { block: true, reason: "Aborted while paused for user presence." };
         }
+        // A user-tapped suggestion ("Log in") is explicit consent to run immediately —
+        // don't stop it on per-action authorization prompts (which only surface in the
+        // sidebar and would silently freeze the run). Presence is still honoured above.
+        if (this.autoApproveRun) return undefined;
         // 2. Authorization.
         const argRec = (args as Record<string, unknown>) ?? {};
         const op: Operation = { tool, args: argRec, source: "agent" };

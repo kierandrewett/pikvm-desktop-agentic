@@ -559,6 +559,9 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 }
                 const { text, images } = lastUserMessage(body.messages);
                 if (!text && images.length === 0) return json(res, 400, { error: "No user message" });
+                // A pre-authorized run (e.g. a user-tapped "suggested action" — the tap
+                // is explicit consent) skips per-action approval prompts for this run.
+                if (body.trusted === true) runner.setAutoApproveRun(true);
                 // Tag this run with the sender's id (so it ignores its own echo) and
                 // broadcast the user message so spectating clients show it.
                 runClientId = typeof body.clientId === "string" ? body.clientId : undefined;
@@ -590,6 +593,14 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                     ...(body.text ? { text: body.text } : {}),
                     ...(body.rememberKind ? { rememberKind: true } : {}),
                 });
+                // Deny = STOP. A denied action halts the whole run and hands control
+                // back so the user decides what's next — don't let the agent keep
+                // trying other actions. Clear the acting overlay immediately so the
+                // KVM "Agent is in control" panel and the chat agree on one state.
+                if (body.decision === "deny") {
+                    runner.stop();
+                    overlay.emitOverlay({ type: "acting", active: false });
+                }
                 return json(res, 200, { ok: true });
             });
             return;
@@ -618,6 +629,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
 
         if (path === "/api/stop" && req.method === "POST") {
             runner.stop();
+            overlay.emitOverlay({ type: "acting", active: false });
             return json(res, 200, state());
         }
         if (path === "/api/steer" && req.method === "POST") {

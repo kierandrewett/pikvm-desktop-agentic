@@ -332,7 +332,26 @@ export class PiKvmControl {
 
     private async send(event: string, payload: unknown): Promise<void> {
         await this.connect();
+        this.lastInputTs = Date.now();
         this.ws!.send(JSON.stringify({ event_type: event, event: payload }));
+    }
+
+    /** When the agent last sent any HID input (ms epoch) — for the idle jiggler. */
+    private lastInputTs = 0;
+    lastInputAt(): number {
+        return this.lastInputTs;
+    }
+    /** The agent's last commanded cursor position (HID-normalized ±32767). */
+    currentMouseNorm(): { x: number; y: number } {
+        return { x: this.mouse.x, y: this.mouse.y };
+    }
+    /** Move the cursor instantly to a HID-normalized position (used by the jiggler,
+     *  which already works in HID units and must land exactly to restore position). */
+    async moveInstantNorm(x: number, y: number): Promise<void> {
+        const cx = this.clampNorm(x);
+        const cy = this.clampNorm(y);
+        await this.sendMove(cx, cy);
+        this.mouse = { x: cx, y: cy };
     }
 
     /* -------------------------------------------------------------- *

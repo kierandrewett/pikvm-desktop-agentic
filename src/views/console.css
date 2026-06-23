@@ -746,7 +746,9 @@ body {
     top: 12px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 4;
+    /* Above the "no signal" scrim (z-index 5) so Stop/Pause stay clickable even
+       when the target shows no picture mid-run. */
+    z-index: 11;
     display: none;
     align-items: center;
     gap: 10px;
@@ -987,6 +989,9 @@ body {
     font-weight: 500;
     text-align: center;
     padding: 20px;
+    /* Purely informational — never swallow clicks meant for the agent controls /
+       suggestion card floating above it. */
+    pointer-events: none;
 }
 .screen.offline .overlay {
     display: flex;

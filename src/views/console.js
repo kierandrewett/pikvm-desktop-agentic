@@ -1959,7 +1959,8 @@
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 // AI-SDK UIMessage shape: parts[], NOT content[] (the server reads parts).
-                body: JSON.stringify({ messages: [{ role: "user", parts: [{ type: "text", text: it.task }] }], clientId: "suggest" }),
+                // trusted:true — the tap is consent, so the run won't stop for approval.
+                body: JSON.stringify({ messages: [{ role: "user", parts: [{ type: "text", text: it.task }] }], clientId: "suggest", trusted: true }),
             }).catch(function () {});
         }
         function showSuggestionRunning(it) {
