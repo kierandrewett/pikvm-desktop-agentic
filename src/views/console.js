@@ -1837,6 +1837,16 @@
         // the stream (letterbox + zoom/pan) on every reflow, like the other boxes.
         var regionsLayer = null;
         var lastRegions = null;
+        var regionBoxes = []; // reused {box, tag} pool — no DOM churn on pan/zoom/resize
+        var regionsRaf = 0;
+        function scheduleRegions() {
+            // Coalesce the many transform/resize callbacks into ONE repaint per frame.
+            if (!regionsRaf)
+                regionsRaf = raf(function () {
+                    regionsRaf = 0;
+                    renderRegions();
+                });
+        }
         function renderRegions() {
             if (!lastRegions || !lastRegions.w || !lastRegions.h) return;
             if (!regionsLayer) {
@@ -1845,22 +1855,32 @@
                 xray.appendChild(regionsLayer);
             }
             var b = contentBox();
-            regionsLayer.textContent = "";
             var rs = lastRegions.regions || [];
+            // Rebuild the pool only when the region COUNT changes; otherwise reuse the
+            // divs and just reposition (no createElement/appendChild on every reflow).
+            if (regionBoxes.length !== rs.length) {
+                regionsLayer.textContent = "";
+                regionBoxes = [];
+                for (var k = 0; k < rs.length; k++) {
+                    var nb = document.createElement("div");
+                    nb.className = "region-box";
+                    var nt = document.createElement("div");
+                    nt.className = "region-tag";
+                    nb.appendChild(nt);
+                    regionsLayer.appendChild(nb);
+                    regionBoxes.push({ box: nb, tag: nt });
+                }
+            }
             for (var i = 0; i < rs.length; i++) {
                 var r = rs[i];
                 var p = pt(r.x / lastRegions.w, r.y / lastRegions.h);
-                var box = document.createElement("div");
-                box.className = "region-box";
-                box.style.left = p.x + "px";
-                box.style.top = p.y + "px";
-                box.style.width = Math.max(8, (r.width / lastRegions.w) * b.width) + "px";
-                box.style.height = Math.max(8, (r.height / lastRegions.h) * b.height) + "px";
-                var tag = document.createElement("div");
-                tag.className = "region-tag";
-                tag.textContent = (r.label || "Region") + (r.kind ? " · " + r.kind : "");
-                box.appendChild(tag);
-                regionsLayer.appendChild(box);
+                var bx = regionBoxes[i];
+                bx.box.style.left = p.x + "px";
+                bx.box.style.top = p.y + "px";
+                bx.box.style.width = Math.max(8, (r.width / lastRegions.w) * b.width) + "px";
+                bx.box.style.height = Math.max(8, (r.height / lastRegions.h) * b.height) + "px";
+                var label = (r.label || "Region") + (r.kind ? " · " + r.kind : "");
+                if (bx.tag.textContent !== label) bx.tag.textContent = label;
             }
         }
         function onRegions(d) {
@@ -1868,6 +1888,7 @@
             // An empty map (sent when the agent hands control back) clears the boxes.
             if (!d.regions || !d.regions.length) {
                 lastRegions = null;
+                regionBoxes = [];
                 if (regionsLayer) regionsLayer.textContent = "";
                 return;
             }
@@ -1875,9 +1896,10 @@
             lastRegions = d;
             renderRegions();
         }
-        // Keep the persistent region boxes glued to the stream as it zooms/pans/resizes.
-        onXform = renderRegions;
-        window.addEventListener("resize", renderRegions);
+        // Keep the persistent region boxes glued to the stream as it zooms/pans/resizes
+        // — coalesced to one repaint per frame.
+        onXform = scheduleRegions;
+        window.addEventListener("resize", scheduleRegions);
 
         var typeBox = null;
         var typeHide = null;
