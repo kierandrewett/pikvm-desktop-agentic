@@ -58,6 +58,25 @@ function resolveNodePath(): string | null {
     return null;
 }
 
+// whisper.cpp's prebuilt libs (libwhisper/libggml*.so) carry RUNPATHs baked at
+// compile time pointing at the build machine's node_modules — wrong once the app is
+// installed elsewhere (e.g. /usr/lib/…). Put the libs' actual dir on LD_LIBRARY_PATH
+// so the spawned whisper-cli always finds its siblings, RUNPATH notwithstanding. The
+// spawn inherits this process's env, so setting it here is enough.
+function ensureWhisperLibPath(): void {
+    try {
+        const pkg = nodeRequire.resolve("nodejs-whisper/package.json");
+        const buildDir = join(dirname(pkg), "cpp", "whisper.cpp", "build");
+        const libDirs = [join(buildDir, "src"), join(buildDir, "ggml", "src"), join(buildDir, "bin")].filter((d) => existsSync(d));
+        if (!libDirs.length) return;
+        const cur = process.env.LD_LIBRARY_PATH ? process.env.LD_LIBRARY_PATH.split(":") : [];
+        const merged = [...libDirs, ...cur].filter((d, i, a) => d && a.indexOf(d) === i);
+        process.env.LD_LIBRARY_PATH = merged.join(":");
+    } catch {
+        /* package not resolvable — ensureWhisper() will report no-whisper */
+    }
+}
+
 function configureShellForWhisper(): boolean {
     if (shellConfigured) return true;
     const node = resolveNodePath();
@@ -67,6 +86,7 @@ function configureShellForWhisper(): boolean {
         if (sh?.config) {
             sh.config.execPath = node;
             sh.config.fatal = false;
+            ensureWhisperLibPath();
             shellConfigured = true;
             return true;
         }

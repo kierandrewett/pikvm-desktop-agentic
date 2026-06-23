@@ -55,6 +55,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { completions, type CommandSpec } from "../commands";
 import type { AuthRequest } from "../reviewer";
+import { pickPendingAuth, pruneDecided } from "../agent/auth-ui";
 import type { ServerState, MarkerData, GoalLoopState } from "../agent/protocol";
 
 // Our API + assets live under `/_agent`. The desktop sidebar (loaded from a
@@ -64,6 +65,12 @@ const BASE = `${AGENT_ORIGIN}/_agent`;
 // Stable per-tab id so the live broadcast can tell our own run's echo from runs
 // started by other clients (web/desktop) or autonomously.
 const CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+// Date helpers that never render "Invalid Date" — a missing/zero/NaN timestamp
+// (e.g. a segment or meeting record that hasn't been stamped yet) falls back to "—".
+const fmtTime = (t: number, opts?: Intl.DateTimeFormatOptions) =>
+    Number.isFinite(t) && t > 0 ? new Date(t).toLocaleTimeString([], opts ?? { hour: "2-digit", minute: "2-digit" }) : "—";
+const fmtDateTime = (t: number, opts?: Intl.DateTimeFormatOptions) =>
+    Number.isFinite(t) && t > 0 ? new Date(t).toLocaleString([], opts ?? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
 // The desktop shell injects __AGENT_ORIGIN__ via its preload and is loopback-
 // exempt (never gated), so "Sign out" is meaningless there - only web clients
 // hold a session cookie to clear.
@@ -355,6 +362,7 @@ const TOOL_ICONS: Record<string, any> = {
 
 function toolLabel(name: string, input: any): string {
     const i = input ?? {};
+    const clip = (s: any, n = 60) => `${String(s ?? "").slice(0, n)}${String(s ?? "").length > n ? "…" : ""}`;
     switch (name) {
         case "screenshot":
             return "Took a screenshot";
@@ -365,15 +373,56 @@ function toolLabel(name: string, input: any): string {
         case "double_click":
             return typeof i.x === "number" ? `Double-clicked (${i.x}, ${i.y})` : "Double-clicked";
         case "type_text":
-            return `Typed “${String(i.text ?? "").slice(0, 32)}${String(i.text ?? "").length > 32 ? "…" : ""}”`;
+            return `Typed “${clip(i.text, 32)}”`;
         case "press_key":
             return `Pressed ${i.key}`;
         case "hotkey":
             return `Pressed ${(i.codes ?? []).join("+")}`;
         case "scroll":
             return "Scrolled";
+        case "request_approval":
+            return i.action ? `Approval: ${clip(i.action, 80)}` : "Requested your approval";
+        case "ocr":
+            return "Read on-screen text";
+        case "drag":
+            return "Dragged";
+        case "get_regions":
+            return "Mapped the screen";
         default:
-            return name;
+            return name.replace(/_/g, " ");
+    }
+}
+
+/** Present-tense "what's happening right now" line for a tool still in flight — so the
+ *  in-progress card explains itself instead of a blank "Working…". Crucially, an
+ *  approval gate says it's waiting on YOU (not the agent), since that's the hold-up. */
+function toolRunningHint(name: string, input: any): string {
+    const i = input ?? {};
+    switch (name) {
+        case "request_approval":
+            return i.action ? `Waiting for you to approve: ${String(i.action).slice(0, 56)}${String(i.action).length > 56 ? "…" : ""}` : "Waiting for your approval";
+        case "screenshot":
+            return "Capturing the screen…";
+        case "ocr":
+            return "Reading on-screen text…";
+        case "click":
+        case "double_click":
+            return "Clicking…";
+        case "move_mouse":
+            return "Moving the mouse…";
+        case "drag":
+            return "Dragging…";
+        case "type_text":
+            return "Typing…";
+        case "press_key":
+        case "hotkey":
+            return "Pressing keys…";
+        case "scroll":
+            return "Scrolling…";
+        case "get_regions":
+            return "Mapping the screen…";
+        default:
+            return `Running ${name.replace(/_/g, " ")}…`;
     }
 }
 
@@ -410,18 +459,29 @@ const ToolCall = memo(function ToolCall({ name, state, input, output }: { name: 
     const Icon = TOOL_ICONS[name] ?? Activity;
     const label = toolLabel(name, input);
 
-    // In progress: prominent, raised — front and centre.
+    // In progress: prominent, raised — front and centre. An approval gate is styled
+    // amber ("waiting on YOU"), everything else primary ("agent working"), and the
+    // subtitle says exactly what's happening rather than a generic "Working…".
     if (running) {
+        const waitingOnUser = name === "request_approval";
+        const hint = toolRunningHint(name, input);
         return (
-            <div className="flex items-center gap-2.5 rounded-xl border border-primary/40 bg-primary/[0.06] px-3 py-2.5 shadow-sm shadow-primary/10 ring-1 ring-primary/10">
-                <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <div
+                className={cn(
+                    "flex items-center gap-2.5 rounded-xl border px-3 py-2.5 shadow-sm ring-1",
+                    waitingOnUser
+                        ? "border-amber-500/50 bg-amber-500/[0.08] shadow-amber-500/10 ring-amber-500/15"
+                        : "border-primary/40 bg-primary/[0.06] shadow-primary/10 ring-primary/10",
+                )}
+            >
+                <div className={cn("flex size-7 shrink-0 items-center justify-center rounded-lg", waitingOnUser ? "bg-amber-500/15 text-amber-500" : "bg-primary/15 text-primary")}>
                     <Icon className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">
                     <div className="truncate text-[13.5px] font-medium leading-tight text-foreground">{label}</div>
-                    <div className="text-[11px] text-primary">Working…</div>
+                    <div className={cn("text-[11px]", waitingOnUser ? "text-amber-500" : "text-primary")}>{hint}</div>
                 </div>
-                <Loader size={15} className="shrink-0 text-primary" />
+                <Loader size={15} className={cn("shrink-0", waitingOnUser ? "text-amber-500" : "text-primary")} />
             </div>
         );
     }
@@ -676,7 +736,7 @@ const TRACE_COLOR: Record<string, string> = {
 function AmbientPanel({ state, onClose, onRefresh }: { state: ServerState | null; onClose: () => void; onRefresh: () => void }) {
     const amb = state?.ambient;
     const events = amb?.events ?? [];
-    const fmt = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const fmt = (t: number) => fmtTime(t);
     // Live trace of the monitor's decisions (SSE).
     const [trace, setTrace] = useState<{ ts: number; level: string; text: string }[]>([]);
     const traceRef = useRef<HTMLDivElement>(null);
@@ -696,7 +756,7 @@ function AmbientPanel({ state, onClose, onRefresh }: { state: ServerState | null
         const el = traceRef.current;
         if (el) el.scrollTop = el.scrollHeight;
     }, [trace]);
-    const fmtSec = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const fmtSec = (t: number) => fmtTime(t, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     // Past meetings log.
     const [meetings, setMeetings] = useState<any[]>([]);
     const [openMeeting, setOpenMeeting] = useState<any | null>(null);
@@ -881,7 +941,7 @@ function AmbientPanel({ state, onClose, onRefresh }: { state: ServerState | null
                                 <div className="min-w-0 flex-1">
                                     <div className="truncate text-[13px]">{m.title}</div>
                                     <div className="text-[10px] text-muted-foreground">
-                                        {new Date(m.startTs).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · {m.suggestionCount} note{m.suggestionCount === 1 ? "" : "s"}
+                                        {fmtDateTime(m.startTs)} · {m.suggestionCount} note{m.suggestionCount === 1 ? "" : "s"}
                                         {m.hasTranscript ? " · transcript" : ""}
                                     </div>
                                 </div>
@@ -899,7 +959,7 @@ function AmbientPanel({ state, onClose, onRefresh }: { state: ServerState | null
                         </button>
                         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{openMeeting.title}</span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">
-                            {new Date(openMeeting.startTs).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            {fmtDateTime(openMeeting.startTs)}
                         </span>
                     </div>
                     <div className="flex-1 space-y-3 overflow-auto p-3">
@@ -930,7 +990,7 @@ function AmbientPanel({ state, onClose, onRefresh }: { state: ServerState | null
 
 function ActivityPanel({ state, onClose }: { state: ServerState | null; onClose: () => void }) {
     const log = (state?.log ?? []).slice().reverse();
-    const fmt = (t: number) => new Date(t).toLocaleTimeString();
+    const fmt = (t: number) => fmtTime(t, {});
     return (
         <Modal onClose={onClose}>
             <div className="flex items-center justify-between border-b p-3 font-semibold">
@@ -1667,6 +1727,11 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 desc="Watch the screen and offer to act — e.g. a lock screen → log in"
                                 control={<Switch checked={amb?.suggest ?? true} onChange={(v) => onPatch({ ambient: { suggest: v } })} />}
                             />
+                            <Row
+                                label="Auto-transcribe audio"
+                                desc="Local whisper — auto-starts whenever the target has audio; stays on this machine"
+                                control={<Switch checked={amb?.transcribe ?? false} onChange={(v) => onPatch({ ambient: { transcribe: v } })} />}
+                            />
                         </div>
                         <Row
                             label="Background monitoring"
@@ -1678,7 +1743,6 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 <div className="space-y-2 rounded-xl border bg-card/40 p-3">
                                     <Row label="Push notifications" desc="ntfy alerts for emails, messages, meetings" control={<Switch checked={amb?.notify ?? true} onChange={(v) => onPatch({ ambient: { notify: v } })} />} />
                                     <Row label="Meeting assistant" desc="Brief you when a call starts" control={<Switch checked={amb?.meetingAssist ?? true} onChange={(v) => onPatch({ ambient: { meetingAssist: v } })} />} />
-                                    <Row label="Transcribe meetings" desc="Local whisper — stays on this machine" control={<Switch checked={amb?.transcribe ?? false} onChange={(v) => onPatch({ ambient: { transcribe: v } })} />} />
                                 </div>
 
                                 {amb?.notify && (
@@ -1927,6 +1991,10 @@ function App() {
     // A run is live on the hub (any client) — drives the Stop button instantly,
     // before the 3s state poll catches up. Cleared on the SSE "end".
     const [externalBusy, setExternalBusy] = useState(false);
+    // Set the instant Stop is pressed: forces the UI to idle immediately, overriding the
+    // lagging serverState.streaming / externalBusy, so control returns NOW. Cleared once
+    // the server confirms it stopped, or when a fresh run is started.
+    const [forceIdle, setForceIdle] = useState(false);
     const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const showActivity = (text: string | null) => {
         if (activityTimer.current) clearTimeout(activityTimer.current);
@@ -1935,7 +2003,13 @@ function App() {
     };
     const [input, setInput] = useState("");
     const [lightbox, setLightbox] = useState<string | null>(null);
-    const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history" | "ambient">("none");
+    // A ?panel= hint opens straight to a panel — the desktop console uses this to pop a
+    // dedicated Settings / Monitor window now that the chat itself is the Claude terminal.
+    const initialPanel = (() => {
+        const p = new URLSearchParams(location.search).get("panel");
+        return p === "settings" || p === "history" || p === "ambient" || p === "activity" ? p : "none";
+    })();
+    const [panel, setPanel] = useState<"none" | "activity" | "settings" | "history" | "ambient">(initialPanel);
     const [historyQuery, setHistoryQuery] = useState("");
     const [images, setImages] = useState<{ url: string; mediaType: string }[]>([]);
     const fileInput = useRef<HTMLInputElement>(null);
@@ -1970,10 +2044,19 @@ function App() {
     }, []);
 
     const lastStateJson = useRef("");
-    const refreshState = () =>
-        fetch(BASE + "/api/state")
+    // Polls fire from several places (interval, visibility, the data-auth SSE) and can be
+    // in flight concurrently; responses arrive out of order. Discard any response older
+    // than one we've already applied, so a stale /api/state can't resurrect a resolved
+    // approval prompt or hide a live one.
+    const stateReqSeq = useRef(0);
+    const stateAppliedSeq = useRef(0);
+    const refreshState = () => {
+        const myReq = ++stateReqSeq.current;
+        return fetch(BASE + "/api/state")
             .then((r) => r.json())
             .then((s) => {
+                if (myReq < stateAppliedSeq.current) return; // a newer poll already landed
+                stateAppliedSeq.current = myReq;
                 // Skip the re-render when the polled state is byte-identical to the last
                 // one — an idle session shouldn't re-render the whole conversation every 3s.
                 const j = JSON.stringify(s);
@@ -1982,16 +2065,21 @@ function App() {
                 setServerState(s);
             })
             .catch(() => {});
+    };
 
     useEffect(() => {
         refreshState();
-        // Poll less aggressively, and not at all while the tab is hidden — each
-        // poll re-renders the whole conversation, so this matters for perf.
+        // Poll every 3s. We DON'T skip when document.hidden: in the desktop console the
+        // sidebar view is frequently unfocused/occluded while you watch the KVM — and
+        // that's exactly when the agent hits an approval gate. Skipping then meant the
+        // approval dialog never appeared until you clicked Stop. The byte-identical dedup
+        // (lastStateJson) keeps an idle session from re-rendering, so polling-while-hidden
+        // is cheap. (backgroundThrottling:false on the view keeps this timer alive too.)
         const id = setInterval(() => {
-            if (!document.hidden) refreshState();
+            void refreshState();
         }, 3000);
         const onVis = () => {
-            if (!document.hidden) refreshState();
+            if (!document.hidden) void refreshState();
         };
         document.addEventListener("visibilitychange", onVis);
         return () => {
@@ -2024,11 +2112,33 @@ function App() {
 
     // Restore the current session's transcript (with screenshots) on load.
     const [convLoading, setConvLoading] = useState(true);
+    // True while we're spectating a live run (between begin/end on /api/events). The
+    // persisted snapshot doesn't include an in-flight exchange, so while one is live we
+    // must NOT let a (re)load clobber the live messages we've rebuilt from the stream —
+    // we merge them on top of the snapshot instead. Order-independent, so the snapshot
+    // fetch racing the stream can't drop or duplicate anything.
+    const liveActiveRef = useRef(false);
+    // Held true briefly across a session switch (new chat / resume) so a trailing
+    // debounced persist of the previous transcript can't land in the new session.
+    const suppressPersist = useRef(false);
+    // The in-flight "new chat" session-switch promise; send() awaits it so a pasted
+    // prompt runs in the NEW session, not the one we just left.
+    const newChatPending = useRef<Promise<unknown> | null>(null);
     const loadTranscript = () =>
         fetch(BASE + "/api/sessions/current")
             .then((r) => r.json())
             .then((d) => {
-                if (Array.isArray(d.messages)) setMessages(d.messages);
+                if (!Array.isArray(d.messages)) return;
+                const base = d.messages as any[];
+                if (!liveActiveRef.current) {
+                    setMessages(base);
+                    return;
+                }
+                setMessages((prev: any[]) => {
+                    const baseIds = new Set(base.map((m) => m.id));
+                    const liveExtras = prev.filter((m) => !baseIds.has(m.id)); // current prompt + in-flight reply
+                    return [...base, ...liveExtras];
+                });
             })
             .catch(() => {})
             .finally(() => setConvLoading(false));
@@ -2107,7 +2217,10 @@ function App() {
             }
             if (c.type === "begin") {
                 active = c.clientId !== CLIENT_ID; // our own run is handled by useChat
-                spec = active ? { id: `spec-${Date.now()}`, role: "assistant", parts: [] } : null;
+                liveActiveRef.current = active;
+                // Stable id from the server → replays/reconnects update ONE message
+                // (flush() finds it by id) instead of stacking duplicates.
+                spec = active ? { id: c.messageId || `spec-${Date.now()}`, role: "assistant", parts: [] } : null;
                 setExternalBusy(true); // a run is live (any client) — show Stop instantly
                 return;
             }
@@ -2132,6 +2245,7 @@ function App() {
             }
             if (c.type === "end") {
                 active = false;
+                liveActiveRef.current = false;
                 spec = null;
                 setExternalBusy(false);
                 showActivity(null); // a finished run clears any lingering internal-step chip
@@ -2179,40 +2293,74 @@ function App() {
     }, [messages]);
 
     // Persist the transcript shortly after each change settles, so it survives restarts.
+    // Skip while spectating a live run: those messages are rebuilt from the stream (the
+    // in-flight reply carries a transient live- id) and the run's OWNER persists the
+    // canonical transcript — a spectator writing its half-built copy would just fight it.
     useEffect(() => {
-        if (status === "streaming" || status === "submitted" || messages.length === 0) return;
-        const t = setTimeout(() => void post("/api/sessions/ui", { messages }), 800);
+        if (suppressPersist.current || status === "streaming" || status === "submitted" || messages.length === 0 || liveActiveRef.current) return;
+        // Tag with the session these messages belong to (captured now, at render time).
+        // The server drops the save if it has since switched sessions — so a trailing
+        // persist can't bleed the old transcript into a freshly-created chat.
+        const sessionId = serverState?.sessionId;
+        const t = setTimeout(() => void post("/api/sessions/ui", { messages, sessionId }), 800);
         return () => clearTimeout(t);
     }, [messages, status]);
 
     const decide = (id: string, verdict: any) => {
         setDecided((s) => new Set(s).add(id));
+        // INSTANT FEEDBACK: flip the matching request_approval tool card from its spinning
+        // "Waiting for you to approve…" to done the moment you click, so it's obvious the
+        // decision registered and the agent is moving on (instead of a card that keeps
+        // spinning while the post-approval turn runs). The server's tool-output catches up.
+        const done = verdict?.decision === "allow" ? "Approved by you — proceeding" : "Declined by you";
+        setMessages((prev: any[]) =>
+            prev.map((m) => {
+                const parts = m.parts ?? [];
+                let changed = false;
+                const np = parts.map((p: any) => {
+                    const name = p.toolName ?? (typeof p.type === "string" && p.type.startsWith("tool-") ? p.type.slice(5) : "");
+                    if (name === "request_approval" && p.state && p.state !== "output-available") {
+                        changed = true;
+                        return { ...p, state: "output-available", output: { summary: done, isError: verdict?.decision === "deny" } };
+                    }
+                    return p;
+                });
+                return changed ? { ...m, parts: np } : m;
+            }),
+        );
         void post("/api/approve", { id, ...verdict });
     };
+    // Keep `decided` to ONLY ids the server still lists as pending — i.e. ones we just
+    // approved whose resolution hasn't polled back yet. Without this, a decided id lingers
+    // forever; combined with a reused id it made a fresh request look already-handled,
+    // hiding its approve buttons and hanging the agent. (Server ids are now unique too —
+    // this is the belt to that braces, and bounds the set.)
+    useEffect(() => {
+        setDecided((prev) => pruneDecided(prev, serverState?.pendingAuthIds ?? []) as Set<string>);
+    }, [serverState?.pendingAuthIds]);
     // The most recent still-undecided authorization request — floated above the
     // composer. Only show it if the server is actually still blocked on it (or a
     // run is live and just emitted it), so stale prompts from a reloaded transcript
     // don't reappear when you re-open the sidebar.
     const pendingAuth = useMemo<AuthRequest | null>(() => {
-        // PRIMARY source: the server's live pending requests (from /api/state). These are
-        // present even when our own run's message stream is paused waiting on this exact
-        // decision — which is why the prompt used to only appear after Stop.
-        const live = (serverState?.pendingAuths ?? []).filter((r) => !decided.has(r.id));
-        if (live.length) return live[live.length - 1]!;
-        // Fallback: scan the message parts (covers the instant before the next poll lands).
-        let candidate: AuthRequest | null = null;
-        outer: for (let mi = messages.length - 1; mi >= 0; mi--) {
-            const parts = (messages[mi] as any).parts ?? [];
-            for (let pi = parts.length - 1; pi >= 0; pi--) {
-                if (parts[pi].type === "data-auth") {
-                    candidate = parts[pi].data.request as AuthRequest;
-                    break outer;
-                }
+        // All auth requests in the stream, oldest → newest (fallback for the instant
+        // before the next state poll lands). pickPendingAuth (shared, tested) decides
+        // which — if any — prompt to surface, preferring the server's live pending list.
+        const messageAuths: AuthRequest[] = [];
+        for (const m of messages) {
+            for (const p of ((m as any).parts ?? [])) {
+                if (p.type === "data-auth") messageAuths.push(p.data.request as AuthRequest);
             }
         }
-        if (!candidate || decided.has(candidate.id)) return null;
-        return (serverState?.pendingAuthIds ?? []).includes(candidate.id) ? candidate : null;
-    }, [messages, decided, serverState?.pendingAuths, serverState?.pendingAuthIds]);
+        const busyNow = status === "streaming" || status === "submitted" || externalBusy || !!serverState?.streaming;
+        return pickPendingAuth({
+            pendingAuths: serverState?.pendingAuths ?? [],
+            pendingAuthIds: serverState?.pendingAuthIds ?? [],
+            decided,
+            messageAuths,
+            busy: busyNow,
+        });
+    }, [messages, decided, serverState?.pendingAuths, serverState?.pendingAuthIds, status, externalBusy, serverState?.streaming]);
 
     // Browser-notify when the agent newly needs authorization, or hits an error.
     const notifiedAuth = useRef<string | null>(null);
@@ -2240,18 +2388,31 @@ function App() {
         }
     };
 
-    const send = (text = input) => {
+    const send = async (text = input) => {
         const t = text.trim();
         if (!t && images.length === 0) return;
         const files = images.map((im) => ({ type: "file" as const, mediaType: im.mediaType, url: im.url }));
         setInput("");
         setImages([]);
+        setForceIdle(false); // a new run — drop any post-Stop idle override
+        // If a "new chat" session switch is still in flight, WAIT for it — otherwise this
+        // prompt races ahead and runs in the previous session (the "+ then it goes back to
+        // the old chat" bug). The switch is fast; this just orders the two requests.
+        if (newChatPending.current) {
+            try { await newChatPending.current; } catch { /* proceed regardless */ }
+        }
         void sendMessage({ text: t, ...(files.length ? { files } : {}) });
     };
 
-    // Stop the agent for real — abort the run on the server, not just the client stream.
+    // Stop = the user's escape route. It must return control INSTANTLY — never wait on
+    // the backend to unwind (an in-flight model call can take tens of seconds). So we
+    // optimistically force the UI to idle right now (forceIdle), abort our own stream,
+    // and fire /api/stop; the server's confirmation just reconciles afterwards.
     const stopAll = () => {
-        stop();
+        setForceIdle(true);
+        setExternalBusy(false);
+        showActivity(null);
+        stop(); // abort our own useChat POST stream immediately
         void post("/api/stop");
     };
 
@@ -2261,16 +2422,76 @@ function App() {
         const t = text.trim();
         if (!t) return;
         setInput("");
+        setForceIdle(false);
         void post("/api/steer", { text: t });
     };
 
     // "Busy" = our own chat is streaming OR the SERVER says the agent is running (a
     // suggestion-tapped / autonomous / other-client run) — so Stop + steer show then too.
-    const isBusy = () => status === "streaming" || status === "submitted" || externalBusy || !!serverState?.streaming;
+    // Once the server confirms it's no longer streaming, drop the optimistic override.
+    // (A fresh send/steer clears it explicitly — see those handlers — so a new run isn't
+    // hidden by it; we deliberately DON'T key off `status` here, since the just-aborted
+    // run can still read "streaming" for a tick and would clear the override too early.)
+    useEffect(() => {
+        if (forceIdle && !serverState?.streaming) setForceIdle(false);
+    }, [serverState?.streaming, forceIdle]);
+    // Watchdog: a spectated run that never emits `end` (hard SSE drop / crash) would leave
+    // liveActiveRef stuck true forever — blocking this client's persistence and making every
+    // loadTranscript merge stale messages. If the server reports NOT streaming for ~2 ticks
+    // while we still think a live run is on, force-clear (and the stuck externalBusy too).
+    // The 2-tick delay avoids the brief post-`begin` window where the poll hasn't caught up.
+    const serverStateRef = useRef(serverState);
+    serverStateRef.current = serverState;
+    const liveIdleTicks = useRef(0);
+    useEffect(() => {
+        const id = setInterval(() => {
+            const st = serverStateRef.current;
+            if (liveActiveRef.current && st && !st.streaming) {
+                if (++liveIdleTicks.current >= 2) {
+                    liveActiveRef.current = false;
+                    liveIdleTicks.current = 0;
+                    setExternalBusy(false);
+                }
+            } else {
+                liveIdleTicks.current = 0;
+            }
+        }, 3500);
+        return () => clearInterval(id);
+    }, []);
+    const isBusy = () => !forceIdle && (status === "streaming" || status === "submitted" || externalBusy || !!serverState?.streaming);
     const submit = () => (isBusy() ? steer() : send());
-    const newChat = () => void post("/api/sessions/new").then(() => { setMessages([]); refreshState(); });
-    const resume = (id: string) =>
-        void post("/api/sessions/resume", { id }).then((r) => r.json()).then((d) => { setMessages(d.messages ?? []); refreshState(); setPanel("none"); });
+    // New chat. Clear FIRST (synchronously) so any pending debounced persist of the OLD
+    // transcript is cancelled before the server switches sessions — otherwise that save
+    // lands in the fresh session and a reload "restores" the previous conversation.
+    // suppressPersist holds off saves across the switch as belt-and-braces.
+    const newChat = () => {
+        suppressPersist.current = true;
+        liveActiveRef.current = false;
+        setForceIdle(false);
+        setMessages([]);
+        const p = post("/api/sessions/new").then(async (r) => {
+            setMessages([]);
+            await refreshState();
+            setTimeout(() => { suppressPersist.current = false; }, 600);
+            return r;
+        });
+        // send() awaits this so a pasted prompt can't run in the old session.
+        newChatPending.current = p;
+        void p.finally(() => { if (newChatPending.current === p) newChatPending.current = null; });
+    };
+    const resume = (id: string) => {
+        // Same guard as newChat: don't let a trailing persist of the current transcript
+        // land in the session we're switching TO.
+        suppressPersist.current = true;
+        liveActiveRef.current = false;
+        setForceIdle(false);
+        void post("/api/sessions/resume", { id }).then((r) => r.json()).then((d) => {
+            setMessages(d.messages ?? []);
+            refreshState();
+            setPanel("none");
+            setTimeout(() => { suppressPersist.current = false; }, 600);
+        });
+    };
     const del = (id: string) => void post("/api/sessions/delete", { id }).then(refreshState);
 
     useEffect(() => {
@@ -2320,7 +2541,7 @@ function App() {
     }, []);
 
     const comps: CommandSpec[] = useMemo(() => completions(input), [input]);
-    const busy = status === "streaming" || status === "submitted" || externalBusy || !!serverState?.streaming;
+    const busy = !forceIdle && (status === "streaming" || status === "submitted" || externalBusy || !!serverState?.streaming);
     const empty = messages.length === 0;
     const lastAssistantId = useMemo(() => [...messages].reverse().find((m: any) => m.role === "assistant")?.id, [messages]);
 
@@ -2567,7 +2788,10 @@ function App() {
                                         return <div key={i} className="text-xs italic text-muted-foreground">{p.data.text}</div>;
                                     if (p.type === "data-auth") {
                                         const req: AuthRequest = p.data.request;
-                                        const livePending = (serverState?.pendingAuthIds ?? []).includes(req.id);
+                                        // "Still awaiting" if the server lists it pending OR a run is live (poll may
+                                        // be frozen mid-run). Matches pickPendingAuth so the inline status and the
+                                        // floated card never disagree.
+                                        const livePending = (serverState?.pendingAuthIds ?? []).includes(req.id) || busy;
                                         if (decided.has(req.id) || !livePending)
                                             return (
                                                 <div key={i} className="flex items-center gap-1.5 text-[11px] italic text-muted-foreground">

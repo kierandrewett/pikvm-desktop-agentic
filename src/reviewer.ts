@@ -246,13 +246,17 @@ export function autonomyThreshold(level: AutonomyLevel): (risk: CommandRisk) => 
     };
 }
 
+// Module-level so it's monotonic for the WHOLE process — survives a Reviewer being
+// recreated (new session, etc.). A per-instance counter reset to 0 each time, which is
+// how `op_1` came back and collided with a client's remembered decision → silent hang.
+let GLOBAL_OP_SEQ = 0;
+
 export class OperationReviewer extends EventEmitter {
     private policy: ReviewPolicy = "risky-only";
     private autonomy: AutonomyLevel = 3;
     private prompter: Prompter | undefined;
     private alwaysAllow = new Set<string>();
     private readonly log: LogEntry[] = [];
-    private seq = 0;
 
     setPolicy(p: ReviewPolicy): void {
         this.policy = p;
@@ -368,6 +372,21 @@ export class OperationReviewer extends EventEmitter {
     }
 
     /**
+     * Non-blocking classification for an EXTERNAL permission layer (Claude Code's own
+     * terminal prompts, via the PreToolUse hook → /api/permcheck). Same brain as
+     * review() — policy, autonomy dial, always-allow, dangerous-command + sensitive-area
+     * detection — but returns the decision instead of prompting. "ask" → Claude Code
+     * shows its prompt; "allow" → auto-run. (We never hard-"deny" here: a clearly-stated
+     * dangerous op still gets an "ask" so the user can consciously approve it.)
+     */
+    assess(op: Operation): { decision: "allow" | "ask" | "deny"; reason?: string; risky: boolean } {
+        const { risky, reason, commandRisk } = this.classify(op);
+        const kind = this.kindOf(op);
+        const needsPrompt = this.shouldPrompt(op, risky, kind, commandRisk);
+        return { decision: needsPrompt ? "ask" : "allow", risky, ...(reason ? { reason } : {}) };
+    }
+
+    /**
      * Review an operation. Resolves to a verdict the caller enforces:
      *  - allow    : run it
      *  - deny     : block; surface `reason` to the agent
@@ -384,7 +403,13 @@ export class OperationReviewer extends EventEmitter {
             return { decision: "allow" };
         }
 
-        const id = `op_${++this.seq}`;
+        // Globally unique — NEVER reused across runs/sessions/restarts. A reused id
+        // (the old per-instance `op_${seq}` reset to op_1) collided with a client's
+        // still-remembered "decided" id from a prior run, so the new request looked
+        // already-approved → the approve UI never showed and the agent hung forever.
+        // Module-level counter + a time suffix → unique within a process AND across
+        // restarts (a fresh process starts seconds later, so Date.now differs).
+        const id = `op_${++GLOBAL_OP_SEQ}_${Date.now().toString(36)}`;
         const req: AuthRequest = { id, op, risky, kind, ...(reason ? { reason } : {}) };
 
         if (!this.prompter) {

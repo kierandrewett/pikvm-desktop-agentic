@@ -6,6 +6,13 @@ import { resolve } from "path";
 
 const root = resolve(import.meta.dirname, "..");
 
+// whisper.cpp's prebuilt .so/binaries carry RPATHs pointing at their compile-time
+// build dir, which rpmbuild's check-rpaths treats as fatal (invalid + empty runpath).
+// They're a non-issue for our shipping model (bundled native libs that load their
+// own siblings), so tell rpmbuild to allow them rather than fail the whole package.
+// 0x1F = every check-rpaths bit (standard|invalid|...|empty). Inherited by rpmbuild.
+process.env.QA_RPATHS = "0x001F";
+
 await installer({
     src: resolve(root, "builds/pikvm-desktop-linux-x64/"),
     dest: resolve(root, "builds/rpm/"),

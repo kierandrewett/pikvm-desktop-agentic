@@ -254,6 +254,7 @@ function main(): void {
             transcriber,
             meetingLog,
             overlay,
+            ...runner.visionDeps(), // getRegions/opticalRead/opticalReadStrong/remember for the MCP server
             // No desktop shell to hand an OAuth URL to — print it so the operator
             // can open it manually on the headless host.
             openExternal: (u) => console.log(`[auth] open this URL to continue:\n  ${u}`),

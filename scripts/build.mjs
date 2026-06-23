@@ -21,6 +21,7 @@ await build({
         resolve(root, "src/preload-sidebar.ts"),
         resolve(root, "src/preload-copilot.ts"),
         resolve(root, "src/preload-console.ts"),
+        resolve(root, "src/preload-terminal.ts"),
         resolve(root, "src/ambient/transcriber-worker.ts"),
     ],
     outdir: dist,
@@ -30,7 +31,8 @@ await build({
     // nodejs-whisper spawns the whisper.cpp binary it locates via __dirname, and
     // tesseract.js loads its worker/WASM/traineddata from its own package dir — so
     // neither can be bundled; keep them external and resolve from node_modules.
-    external: ["electron", "nodejs-whisper", "tesseract.js"],
+    // @lydell/node-pty is a prebuilt native (.node) addon — must resolve at runtime.
+    external: ["electron", "nodejs-whisper", "tesseract.js", "@lydell/node-pty"],
     sourcemap: true,
     logLevel: "info",
 });
@@ -72,6 +74,22 @@ await build({
     sourcemap: true,
     logLevel: "info",
 });
+
+// 3a. Claude Code terminal renderer (xterm.js) → dist/views/terminal.js, beside its
+//     HTML. Plus the xterm stylesheet it needs.
+await build({
+    entryPoints: [resolve(root, "src/terminal/main.ts")],
+    outfile: resolve(dist, "views/terminal.js"),
+    platform: "browser",
+    format: "iife",
+    bundle: true,
+    define: { "process.env.NODE_ENV": '"production"' },
+    sourcemap: true,
+    logLevel: "info",
+});
+cpSync(resolve(root, "node_modules/@xterm/xterm/css/xterm.css"), resolve(dist, "views/xterm.css"));
+// The PreToolUse guardrail hook ships as a plain script the spawned claude runs.
+cpSync(resolve(root, "src/claude-runtime"), resolve(dist, "claude-runtime"), { recursive: true });
 
 // 3b. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
 //     statically-served) console dynamically imports as /_agent/haptics.js.

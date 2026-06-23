@@ -9,4 +9,5 @@ package:
 		--overwrite \
 		--executable-name=pikvm-desktop \
 		--icon=src/assets/icon
+	node scripts/copy-runtime-deps.mjs
 	node scripts/make-rpm.mjs

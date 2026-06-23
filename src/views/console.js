@@ -833,6 +833,100 @@
     function startMeters() {
         if (!meterRaf) meterRaf = raf(meterTick);
     }
+
+    // ---- transcription capture --------------------------------------------------
+    // When the server says transcription is wanted (the "transcribe" setting), record
+    // the live WebRTC audio in short COMPLETE webm files and POST each to the server,
+    // which feeds them into the local whisper pipeline. We tap the remote audio TRACK
+    // directly via MediaRecorder — NO AudioContext, so it can't grab/switch the OS
+    // output device (the bug that haunted the meter) and works regardless of whether
+    // the user has the speaker muted. Discrete ~8s recordings (not timeslice fragments)
+    // because a mid-stream webm chunk isn't independently decodable. This is what makes
+    // transcription work in the console; the legacy native-UI capture path doesn't run.
+    var txWanted = false; // server: transcription requested
+    var txRec = null; // active MediaRecorder, or null between cycles
+    var txTimer = 0;
+    function txAudioTrack() {
+        if (!webrtcActive || !vid.srcObject || !vid.srcObject.getAudioTracks) return null;
+        var a = vid.srcObject.getAudioTracks();
+        return a && a.length ? a[0] : null;
+    }
+    function txRecordOnce() {
+        txTimer = 0;
+        var track = txWanted ? txAudioTrack() : null;
+        if (!track || typeof MediaRecorder === "undefined") {
+            txRec = null;
+            return;
+        }
+        var ms, rec;
+        try {
+            ms = new MediaStream([track]);
+        } catch (e) {
+            txRec = null;
+            return;
+        }
+        try {
+            rec = new MediaRecorder(ms, { mimeType: "audio/webm" });
+        } catch (e) {
+            try {
+                rec = new MediaRecorder(ms);
+            } catch (e2) {
+                txRec = null;
+                return;
+            }
+        }
+        txRec = rec;
+        var chunks = [];
+        rec.ondataavailable = function (ev) {
+            if (ev.data && ev.data.size) chunks.push(ev.data);
+        };
+        rec.onstop = function () {
+            var blob = new Blob(chunks, { type: "audio/webm" });
+            chunks = [];
+            if (blob.size > 2000) {
+                var fr = new FileReader();
+                fr.onload = function () {
+                    var b64 = String(fr.result).split(",")[1] || "";
+                    fetch("/_agent/api/transcribe/audio", {
+                        method: "POST",
+                        headers: { "Content-Type": "text/plain" },
+                        body: b64,
+                    }).catch(function () {});
+                };
+                fr.readAsDataURL(blob);
+            }
+            // Keep cycling while still wanted and audio is present; otherwise idle until
+            // txEval restarts us (audio returning, or the toggle flipping back on).
+            if (txWanted && txAudioTrack()) txTimer = setTimeout(txRecordOnce, 60);
+            else txRec = null;
+        };
+        try {
+            rec.start();
+        } catch (e) {
+            txRec = null;
+            return;
+        }
+        setTimeout(function () {
+            try {
+                if (rec.state !== "inactive") rec.stop();
+            } catch (e) {}
+        }, 8000);
+    }
+    function txEval() {
+        var want = txWanted && !!txAudioTrack();
+        if (want && !txRec) txRecordOnce();
+        else if (!want && txRec) {
+            try {
+                if (txRec.state !== "inactive") txRec.stop();
+            } catch (e) {}
+        }
+    }
+    // Audio can appear after the toggle (stream connects later) or come and go; a light
+    // poll restarts capture when the track returns. The recorder itself is the load —
+    // this is just a cheap presence check, and it no-ops entirely when not wanted.
+    setInterval(function () {
+        if (txWanted && !txRec && txAudioTrack()) txRecordOnce();
+    }, 4000);
     function paintToggle(btn, pip, on, warn, label) {
         if (!btn || !pip) return;
         btn.classList.toggle("on", on);
@@ -1574,11 +1668,13 @@
         var cresizing = false;
         var cStartX = 0;
         var cStartW = 0;
+        var cLastW = 0;
         chatResize.addEventListener("pointerdown", function (e) {
             cresizing = true;
             cStartX = e.clientX;
             var chatEl = document.querySelector(".chat");
-            cStartW = chatEl ? chatEl.offsetWidth : 380;
+            cStartW = chatEl ? chatEl.offsetWidth : 460;
+            cLastW = cStartW;
             app.classList.add("col-resizing");
             try {
                 chatResize.setPointerCapture(e.pointerId);
@@ -1587,11 +1683,19 @@
         });
         chatResize.addEventListener("pointermove", function (e) {
             if (!cresizing) return;
-            // Dragging the LEFT edge left widens the panel.
+            // Dragging the LEFT edge left widens the panel. To PRESERVE the KVM surface
+            // size, grow/shrink the WINDOW by the same delta: main's setContentSize is
+            // top-left anchored, so the screen on the left keeps its exact pixels while
+            // the window's right edge moves. (Window-position moves are unreliable on
+            // Wayland, so we grow the frame instead of sliding it.)
             var want = cStartW + (cStartX - e.clientX);
-            var max = Math.max(280, window.innerWidth - 360);
-            want = Math.max(280, Math.min(max, want));
-            app.style.setProperty("--chat-w", Math.round(want) + "px");
+            want = Math.round(Math.max(320, Math.min(900, want)));
+            var dw = want - cLastW;
+            if (dw !== 0) {
+                app.style.setProperty("--chat-w", want + "px");
+                if (window.desktopConsole && window.desktopConsole.resizeBy) window.desktopConsole.resizeBy(dw, 0);
+                cLastW = want;
+            }
         });
         function cresizeEnd() {
             cresizing = false;
@@ -1729,10 +1833,45 @@
     // Inside the native desktop console the agent panel keeps its own header
     // (?embed=desktop); on web/mobile it is the headerless merged-bar embed (?embed=1).
     var EMBED_PARAM = window.desktopConsole ? "desktop" : "1";
-    chatFrame.src = "/_agent/sidebar.html?embed=" + EMBED_PARAM + "&theme=" + encodeURIComponent(currentTheme());
-    chatFrame.addEventListener("load", function () {
-        applyTheme(currentTheme());
-    });
+    if (window.desktopConsole && window.desktopConsole.reportTerminalRect) {
+        // DESKTOP: the agent panel is the embedded Claude Code terminal — a native
+        // WebContentsView floated by main over this panel's content area. We don't load
+        // the old chat here; we just report where the panel content sits so main can
+        // position the terminal there (and hide it when the panel is collapsed).
+        chatFrame.src = "about:blank";
+        // The chat-specific header controls (new chat / history / copy conversation) and
+        // the old agent-status text don't apply to the Claude Code terminal — hide them.
+        ["new", "history", "copy"].forEach(function (a) {
+            document.querySelectorAll('[data-agent="' + a + '"]').forEach(function (el) {
+                el.style.display = "none";
+            });
+        });
+        var asEl = document.getElementById("agent-status");
+        if (asEl) asEl.style.display = "none";
+        var reportTermRect = function () {
+            try {
+                var shown = typeof panelShown === "function" ? panelShown() : true;
+                if (!shown) {
+                    window.desktopConsole.reportTerminalRect({ x: 0, y: 0, width: 0, height: 0 });
+                    return;
+                }
+                var r = chatFrame.getBoundingClientRect();
+                window.desktopConsole.reportTerminalRect({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
+            } catch (e) {}
+        };
+        window.addEventListener("resize", reportTermRect);
+        try {
+            new ResizeObserver(reportTermRect).observe(chatFrame);
+        } catch (e) {}
+        setInterval(reportTermRect, 1000); // fallback for layout changes we don't observe
+        setTimeout(reportTermRect, 150);
+    } else {
+        // WEB / MOBILE: no PTY in a browser — keep the existing chat UI.
+        chatFrame.src = "/_agent/sidebar.html?embed=" + EMBED_PARAM + "&theme=" + encodeURIComponent(currentTheme());
+        chatFrame.addEventListener("load", function () {
+            applyTheme(currentTheme());
+        });
+    }
 
     /* ---- pick up the server's keyboard layout (so symbols map right) ---- */
     fetch("/_agent/api/state")
@@ -2071,12 +2210,15 @@
             // Immediate feedback — swap the card to a working state so the tap clearly
             // did something (the agent's real progress shows in the panel + KVM border).
             showSuggestionRunning(it);
+            // DESKTOP: type the task into the live Claude Code terminal session.
+            if (window.desktopConsole && window.desktopConsole.runTask) {
+                window.desktopConsole.runTask(it.task);
+                return;
+            }
+            // WEB / MOBILE fallback: the legacy chat agent endpoint.
             fetch("/_agent/api/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                // AI-SDK UIMessage shape: parts[], NOT content[] (the server reads parts).
-                // trusted:true — the tap is consent, so the run won't stop for approval.
-                // suggestionId/Title let the server's metrics tie the click → run → outcome.
                 body: JSON.stringify({ messages: [{ role: "user", parts: [{ type: "text", text: it.task }] }], clientId: "suggest", trusted: true, suggestionId: it.id, suggestionTitle: it.title }),
             }).catch(function () {});
         }
@@ -2134,38 +2276,54 @@
         var stopBtn = document.getElementById("act-stop");
         var pauseBtn = document.getElementById("act-pause");
         if (stopBtn) stopBtn.addEventListener("click", function () {
+            // Instant escape: release agent control of the KVM locally RIGHT NOW so the
+            // user gets the keyboard/mouse back without waiting for the server's
+            // acting:false to round-trip over SSE. The POST then actually halts the run.
+            try {
+                onActing({ active: false });
+            } catch (e) {
+                agentActing = false;
+            }
             fetch("/_agent/api/stop", { method: "POST" }).catch(function () {});
         });
         if (pauseBtn) pauseBtn.addEventListener("click", function () {
             fetch("/_agent/api/pause", { method: "POST" }).catch(function () {});
         });
 
-        // Floating meeting copilot, fed by the existing ambient SSE.
+        // Ambient SSE: drives the in-page meeting copilot AND transcription capture.
+        // The in-page #copilot is the WEB/MOBILE copilot only — on the desktop the
+        // native floating "Meeting copilot" window owns suggestions, so showing this one
+        // too is the "two copilots" duplicate. We still keep the SSE open on desktop
+        // because the transcribe signal rides it; we just don't pop the in-page card.
         var copilot = document.getElementById("copilot");
         var copilotBody = document.getElementById("copilot-body");
         var copilotX = document.getElementById("copilot-x");
-        if (copilot && copilotBody) {
-            if (copilotX) copilotX.addEventListener("click", function () {
-                copilot.classList.remove("show");
-            });
-            var aes = new EventSource("/_agent/api/ambient/stream");
-            aes.onmessage = function (ev) {
-                var d;
-                try {
-                    d = JSON.parse(ev.data);
-                } catch (e) {
-                    return;
-                }
-                if (d.level === "suggestion" && d.text) {
-                    copilot.classList.add("show");
-                    var s = document.createElement("div");
-                    s.className = "sug";
-                    s.textContent = d.text;
-                    copilotBody.insertBefore(s, copilotBody.firstChild);
-                    while (copilotBody.children.length > 8) copilotBody.removeChild(copilotBody.lastChild);
-                }
-            };
-        }
+        var showInPageCopilot = !!(copilot && copilotBody) && !window.desktopConsole;
+        if (copilotX) copilotX.addEventListener("click", function () {
+            if (copilot) copilot.classList.remove("show");
+        });
+        var aes = new EventSource("/_agent/api/ambient/stream");
+        aes.onmessage = function (ev) {
+            var d;
+            try {
+                d = JSON.parse(ev.data);
+            } catch (e) {
+                return;
+            }
+            if (d.level === "transcribe") {
+                txWanted = !!d.on;
+                txEval();
+                return;
+            }
+            if (d.level === "suggestion" && d.text && showInPageCopilot) {
+                copilot.classList.add("show");
+                var s = document.createElement("div");
+                s.className = "sug";
+                s.textContent = d.text;
+                copilotBody.insertBefore(s, copilotBody.firstChild);
+                while (copilotBody.children.length > 8) copilotBody.removeChild(copilotBody.lastChild);
+            }
+        };
     }
 
     // Keep the picture from being zoomed by the browser's own pinch.
@@ -2368,13 +2526,22 @@
             // The toggles are unhidden by revealAvToggles() once WebRTC is live.
             return !!(audioBtnEl && !audioBtnEl.hidden);
         }
+        // Terminal mode (desktop): the "chat" is the Claude Code terminal, which keeps its
+        // own history — so History / Copy-conversation don't apply; Monitor + Settings open
+        // in their own windows.
+        var isTerminalMode = !!(window.desktopConsole && window.desktopConsole.reportTerminalRect);
         function buildMenu() {
-            var items = [
-                { id: "history", label: "History" },
-                { id: "ambient", label: "Monitor" },
-                { id: "settings", label: "Settings" },
-                { id: "copy", label: "Copy conversation" },
-            ];
+            var items = isTerminalMode
+                ? [
+                      { id: "ambient", label: "Monitor" },
+                      { id: "settings", label: "Settings" },
+                  ]
+                : [
+                      { id: "history", label: "History" },
+                      { id: "ambient", label: "Monitor" },
+                      { id: "settings", label: "Settings" },
+                      { id: "copy", label: "Copy conversation" },
+                  ];
             if (avAvailable()) {
                 items.push({ type: "separator" });
                 items.push({ id: "audio", label: "Audio output", type: "checkbox", checked: audioOn });
@@ -2397,7 +2564,13 @@
                 case "history":
                 case "ambient":
                 case "settings":
-                    try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: id }, "*"); } catch (e) {}
+                    // Terminal mode: open the panel in its own window. Web/legacy: drive the
+                    // embedded chat iframe as before.
+                    if (isTerminalMode && window.desktopConsole.openAgentPanel) {
+                        window.desktopConsole.openAgentPanel(id);
+                    } else {
+                        try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: id }, "*"); } catch (e) {}
+                    }
                     break;
                 case "copy":
                     try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: "copy" }, "*"); } catch (e) {}

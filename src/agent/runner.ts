@@ -271,6 +271,23 @@ export interface RunnerDeps {
     getMeetings?: () => { title: string; startTs: number; endTs: number; suggestions: { text: string }[]; transcript: string }[];
 }
 
+/** How many fallback attempts to make after a transient provider error. */
+const MAX_FALLBACK_ATTEMPTS = 4;
+
+/**
+ * Retryable provider failures — overload / 503 / 429 / timeouts / transient network.
+ * Auth, quota and bad-request errors are deliberately NOT transient (retrying or
+ * switching models won't help), so we leave those surfaced for the user to fix.
+ */
+export function isTransientModelError(raw: string): boolean {
+    const r = (raw || "").toLowerCase();
+    if (/unauthor|invalid api key|authentication|\b401\b|insufficient|quota|billing|payment|invalid_request|\b400\b/.test(r)) return false;
+    // Match 5xx/429 only when they read like a STATUS code (next to status/http/error/code
+    // words), not any stray 3-digit number in the message body.
+    const statusCode = /(?:status|http|code|error)[^\d]{0,10}(?:429|5\d\d)\b|\b(?:429|5\d\d)[^\d]{0,10}(?:error|status|server|unavailable|overload)/.test(r);
+    return statusCode || /overload|server_is_overloaded|service_unavailable|unavailable|temporar|try again|rate.?limit|timeout|timed out|etimedout|econnreset|socket hang|network error|fetch failed/.test(r);
+}
+
 export class AgentRunner {
     readonly agent: Agent;
     private goal: string | undefined;
@@ -345,27 +362,10 @@ export class AgentRunner {
             history: this.screenshots,
             ...(deps.inputTracker ? { tracker: deps.inputTracker } : {}),
             ...(deps.secrets ? { secrets: deps.secrets } : {}),
-            // Watched typing reads a cropped field back: fast LOCAL OCR (tesseract.js,
-            // in-process, ~300ms, no Pi load / no network) as the common path, and the
-            // vision model only to confirm a suspected mismatch. Falls back to vision
-            // if local OCR is unavailable (e.g. language data not fetched yet).
-            opticalRead: async (image: { data: string; mimeType: string }) => {
-                const local = await this.localOcr.read(image);
-                if (local !== null) return local;
-                return this.visionRead(image);
-            },
-            opticalReadStrong: (image: { data: string; mimeType: string }) => this.visionRead(image),
-            // Spatial map of the screen (LLM-segmented, change-gated) so the agent
-            // can reason about WHERE it is - host taskbar vs inside the AVD vs a
-            // terminal. Returns the cached regions; never blocks on a model call.
-            getRegions: () => this.regions.getRegions(),
-            remember: (text: string) => {
-                try {
-                    this.memory.add(text, ["keyboard-layout"]);
-                } catch {
-                    /* best-effort */
-                }
-            },
+            // OCR read-back, screen-region map and layout memory — shared with the MCP
+            // server (Claude Code's eyes) so its typing self-corrects exactly like the
+            // agent's did. See visionDeps().
+            ...this.visionDeps(),
         };
 
         // Tools a sub-agent gets: computer-use + cognitive, minus spawn (no recursion).
@@ -536,6 +536,7 @@ export class AgentRunner {
         });
 
         try {
+            this.stopped = false; // a fresh autonomous run lifts any prior hard-stop barrier
             await this.agent.prompt(opts?.prompt ?? `[Scheduled task: ${label}] ${task}`);
         } catch {
             /* ignore */
@@ -624,7 +625,9 @@ export class AgentRunner {
      * resolved (so the loop keeps its current model rather than breaking).
      */
     private routeNextTurnModel(): Model<any> | undefined {
-        if (!this.routingEnabled) return undefined;
+        // While recovering from a provider error we've pinned a fallback model on the
+        // agent state; routing would override it back to the failing reasoning model.
+        if (!this.routingEnabled || this.recovering) return undefined;
         const tier = decideModelTier(this.summariseLastTurn());
         this.lastTier = tier;
         const id = formatSpec(tier === "fast" ? this.fastSpec : this.reasoningSpec);
@@ -1207,6 +1210,29 @@ export class AgentRunner {
     }
 
     /**
+     * Vision/typing helpers shared by the embedded agent's tools AND the MCP server
+     * (Claude Code's eyes): cached region map, OCR read-back (fast local tesseract.js,
+     * vision model only to confirm a mismatch) and layout memory. Stays on the harness.
+     */
+    visionDeps() {
+        return {
+            getRegions: () => this.regions.getRegions(),
+            opticalRead: async (image: { data: string; mimeType: string }) => {
+                const local = await this.localOcr.read(image);
+                return local !== null ? local : this.visionRead(image);
+            },
+            opticalReadStrong: (image: { data: string; mimeType: string }) => this.visionRead(image),
+            remember: (text: string) => {
+                try {
+                    this.memory.add(text, ["keyboard-layout"]);
+                } catch {
+                    /* best-effort */
+                }
+            },
+        };
+    }
+
+    /**
      * Opportunistically re-segment the screen into labelled regions, but ONLY when
      * the cheap grid diff says the layout shifted materially (a new window, an app
      * switch, a resize) - a stable screen costs ~zero model calls. Fire-and-forget:
@@ -1327,8 +1353,73 @@ export class AgentRunner {
         void this.assessContext();
     }
 
+    /**
+     * Permission classification for an MCP tool call (Claude Code), used by /api/permcheck
+     * → the PreToolUse hook. Runs the SAME guardrail brain the agent's gate uses — the
+     * sensitive-area vision check for input actions, and the dangerous-command check for a
+     * submit keypress — then reviewer.assess(). Returns {decision: allow|ask|deny, reason}.
+     * Never prompts; Claude Code's own terminal prompt is the user-facing approval.
+     */
+    // ---- KVM control lease: only ONE agent session may drive the KVM (hands) at a time.
+    // Eyes (screenshot/ocr/get_regions) are read-only and never gated. The holder is the
+    // session id passed by the permcheck hook (PIKVM_SESSION_ID). Auto-released when the
+    // session exits (releaseKvmLease) or after KVM_LEASE_IDLE_MS without a hands action.
+    private kvmLeaseHolder: string | null = null;
+    private kvmLeaseAt = 0;
+    private static readonly KVM_LEASE_IDLE_MS = 90_000;
+
+    /** Free the KVM lease when a session ends (called from main on PTY exit). */
+    releaseKvmLease(session: string): void {
+        if (this.kvmLeaseHolder === session) {
+            this.kvmLeaseHolder = null;
+            this.kvmLeaseAt = 0;
+        }
+    }
+
+    /** Which session currently holds the KVM (for diagnostics / UI). */
+    kvmLeaseOwner(): string | null {
+        if (this.kvmLeaseHolder && Date.now() - this.kvmLeaseAt > AgentRunner.KVM_LEASE_IDLE_MS) this.kvmLeaseHolder = null;
+        return this.kvmLeaseHolder;
+    }
+
+    async assessMcpOp(tool: string, args: Record<string, unknown>, session?: string): Promise<{ decision: "allow" | "ask" | "deny"; reason?: string }> {
+        const op: Operation = { tool, args, source: "mcp" };
+        // Control lease: a hands action from a session that isn't the lease holder is denied
+        // while another live session holds it. The first hands action acquires the lease.
+        const isHands = INPUT_ACTIONS.has(tool) || (tool === "press_key" && true) || tool === "scroll";
+        if (isHands && session) {
+            const now = Date.now();
+            if (this.kvmLeaseHolder && this.kvmLeaseHolder !== session && now - this.kvmLeaseAt <= AgentRunner.KVM_LEASE_IDLE_MS) {
+                return { decision: "deny", reason: `Another agent session (${this.kvmLeaseHolder}) is currently controlling the KVM. Only one session may drive it at a time.` };
+            }
+            this.kvmLeaseHolder = session;
+            this.kvmLeaseAt = now;
+        }
+        // A submit keypress (Enter) carries the command it would run — the most recent
+        // typed line (MCP type_text feeds the input tracker via onAgentInput), so a
+        // `rm -rf …` followed by Enter is classified as the dangerous command it is.
+        if (tool === "press_key" && SUBMIT_KEYS.has(String(args.key ?? args.code ?? ""))) {
+            const typed = (this.deps.inputTracker?.typedText(200) ?? "").trim();
+            const lastLine = typed.split(/[\r\n]/).pop()?.trim();
+            if (lastLine) op.commandText = lastLine;
+        }
+        // Sensitive-area vision check (chat box / Send button / terminal) for input actions.
+        if (INPUT_ACTIONS.has(tool) && needsSensitiveCheck(tool, args)) {
+            try {
+                const ctx = await this.sensitiveContext();
+                if (ctx?.sensitive) op.sensitive = { reason: ctx.reason || "sensitive area", ...(ctx.app ? { app: ctx.app } : {}) };
+            } catch {
+                /* detection is best-effort; never block on it failing */
+            }
+        }
+        return this.deps.reviewer.assess(op);
+    }
+
     /** Presence + reviewer gate for every agent tool call. */
     private async gate(tool: string, args: unknown, signal?: AbortSignal) {
+        // 0. Hard stop. The user pressed Stop — block instantly, before presence/barriers,
+        //    so no queued tool call slips through while the model turn is still unwinding.
+        if (this.stopped || signal?.aborted) return { block: true, reason: "Stopped by the user." };
         // 1. Yield while the user is present (mic/audio active).
         try {
             await this.deps.presence.waitUntilAllowed(signal);
@@ -1379,7 +1470,16 @@ export class AgentRunner {
             }
         }
         const verdict = await this.deps.reviewer.review(op);
-        if (verdict.decision === "allow") return undefined;
+        if (verdict.decision === "allow") {
+            // When the user ALLOWS an explicit `request_approval`, that's consent for the
+            // agent to carry out that action — so let the rest of THIS run proceed WITHOUT
+            // re-prompting on every click/keystroke of the follow-through (still pausing for
+            // presence + Stop). Otherwise each edit in a "sensitive" app (Teams/Planner)
+            // would re-prompt and the agent would appear to stall after you said yes —
+            // exactly the "it won't continue working" worry. Cleared on agent_end.
+            if (tool === "request_approval") this.autoApproveRun = true;
+            return undefined;
+        }
         if (verdict.decision === "redirect") {
             const note = verdict.text?.trim();
             if (note) this.agent.steer({ role: "user", content: note, timestamp: Date.now() });
@@ -1396,14 +1496,138 @@ export class AgentRunner {
         return this.agent.state.isStreaming;
     }
 
+    /** True from the moment Stop is pressed until the next run starts — see `gate`. */
+    private stopped = false;
+    /** True only while recoverFromError is driving fallback retries (suppresses routing). */
+    private recovering = false;
+
     /** Start (or queue, if running) a task, optionally with attached images. */
     async run(task: string, images?: ImageContent[]): Promise<void> {
         this.pausedForUser = false;
+        this.stopped = false; // a fresh task lifts the hard-stop barrier
         if (this.agent.state.isStreaming) {
             this.agent.followUp({ role: "user", content: task, timestamp: Date.now() });
             return;
         }
         await this.agent.prompt(task, images && images.length ? images : undefined);
+        await this.recoverFromError();
+    }
+
+    /**
+     * If the run died on a TRANSIENT provider error (codex overloaded / 503 / rate-limit /
+     * timeout), retry it on a fallback chain so a flaky provider doesn't kill the task. We
+     * stay inside run() — the /api/chat stream is held open for its whole duration — so the
+     * fallback's output streams to the user normally instead of vanishing into "idle".
+     */
+    private async recoverFromError(): Promise<void> {
+        let err = this.trailingError();
+        if (!err || !isTransientModelError(err)) return; // success, or a non-retryable error (left surfaced)
+        const firstError = err;
+        // Suppress per-turn routing for the duration: otherwise prepareNextTurn's router
+        // would immediately route the continued turn straight back to the (failing)
+        // reasoning model, silently undoing the fallback swap. See routeNextTurnModel.
+        this.recovering = true;
+        try {
+            const chain = this.fallbackChain();
+            for (let i = 0; i < chain.length && i < MAX_FALLBACK_ATTEMPTS; i++) {
+                if (this.stopped) break;
+                err = this.trailingError();
+                if (!err) return; // a retry SUCCEEDED → the error turn is gone; done
+                if (!isTransientModelError(err)) return; // became a hard error → leave it recorded + surfaced
+                // continue() refuses a transcript that ends on an assistant message. Pop the
+                // errored turn only if that leaves a clean (user/toolResult) tail; otherwise
+                // leave it in place (so it's still persisted + surfaced) and stop.
+                if (!this.popTrailingErrorIfSafe()) break;
+                this.agent.state.model = chain[i]!.model;
+                await this.sleep(700 * (i + 1)); // brief backoff — overloads usually clear fast
+                if (this.stopped) break;
+                try {
+                    await this.agent.continue();
+                } catch {
+                    // continue refused/threw and we already popped the error → re-record it so
+                    // the persisted transcript shows the failure instead of silence, then stop.
+                    this.appendErrorRecord(firstError);
+                    break;
+                }
+            }
+            // Exhausted every fallback and the run still has no assistant turn (we popped the
+            // last error and the final continue produced nothing): record the failure.
+            if (this.trailingError() == null && !this.lastMessageIsAssistant()) {
+                this.appendErrorRecord(firstError);
+            }
+        } catch {
+            /* recovery must never throw out of run() */
+        } finally {
+            this.recovering = false;
+            this.agent.state.model = this.model; // restore the user's chosen model for the next run
+        }
+    }
+
+    /** Whether the transcript currently ends on an assistant message. */
+    private lastMessageIsAssistant(): boolean {
+        const msgs = this.agent.state.messages as any[];
+        return msgs[msgs.length - 1]?.role === "assistant";
+    }
+
+    /** Pop a trailing errored assistant turn ONLY if doing so leaves a tail continue() accepts
+     *  (user/toolResult). Returns false (without popping) when it wouldn't — so the error stays
+     *  recorded and we don't drive continue() into a throw. */
+    private popTrailingErrorIfSafe(): boolean {
+        const msgs = this.agent.state.messages as any[];
+        const last = msgs[msgs.length - 1];
+        if (!(last?.role === "assistant" && last.stopReason === "error")) return false;
+        const prev = msgs[msgs.length - 2];
+        if (prev && prev.role !== "user" && prev.role !== "toolResult") return false; // unsafe tail
+        this.agent.state.messages = msgs.slice(0, -1) as any;
+        return true;
+    }
+
+    /** Append a minimal errored assistant turn so a failure survives in the persisted transcript. */
+    private appendErrorRecord(message: string): void {
+        const msgs = this.agent.state.messages as any[];
+        if (msgs[msgs.length - 1]?.stopReason === "error") return; // already recorded
+        msgs.push({ role: "assistant", content: [], stopReason: "error", errorMessage: message, timestamp: Date.now() } as any);
+    }
+
+    /** The errorMessage of the trailing errored assistant turn, or null if the last turn was fine. */
+    private trailingError(): string | null {
+        const msgs = this.agent.state.messages as any[];
+        for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i];
+            if (m?.role === "toolResult") continue; // skip trailing tool results
+            if (m?.role === "assistant") return m.stopReason === "error" ? String(m.errorMessage ?? "error") : null;
+            return null; // ends on a user/other message → no error
+        }
+        return null;
+    }
+
+    /**
+     * Ordered models to try after the primary fails: the current model first (a transient
+     * overload usually clears in a second or two), then the fast tier, then every other
+     * READY vision-capable model — a DIFFERENT provider first, since "codex is down" is the
+     * whole reason this exists. Deduped by spec; unreachable specs are skipped.
+     */
+    private fallbackChain(): { spec: string; model: Model<any> }[] {
+        const out: { spec: string; model: Model<any> }[] = [];
+        const seen = new Set<string>();
+        const add = (specStr: string) => {
+            if (!specStr || seen.has(specStr)) return;
+            const m = this.resolveSpec(parseSpecOrDefault(specStr, formatSpec(this.reasoningSpec)));
+            if (!m) return;
+            seen.add(specStr);
+            out.push({ spec: specStr, model: m });
+        };
+        add(formatSpec(this.reasoningSpec)); // 1. retry the current model
+        add(formatSpec(this.fastSpec)); // 2. the fast tier (often a different model)
+        const failed = this.reasoningSpec.provider;
+        const ready = this.availableProviderModels().filter((p) => p.ready);
+        ready.sort((a, b) => Number(a.id === failed) - Number(b.id === failed)); // other providers first
+        for (const p of ready) for (const s of p.models) add(s);
+        return out;
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise((r) => setTimeout(r, ms));
     }
 
     /* --------------------------- pause / handoff ------------------------- */
@@ -1609,6 +1833,7 @@ export class AgentRunner {
     }
 
     stop(): void {
+        this.stopped = true; // gate blocks immediately; cleared when the next run starts
         this.loopController?.stop();
         this.loopController = undefined;
         this.goalLoopAbort?.abort();
@@ -1754,6 +1979,7 @@ export class AgentRunner {
             while (!stopped && (opts.count === undefined || iterations < opts.count)) {
                 iterations++;
                 try {
+                    this.stopped = false; // each loop iteration lifts any prior hard-stop barrier
                     await this.agent.prompt(task);
                 } catch {
                     break;

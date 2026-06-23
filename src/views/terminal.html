@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Agent</title>
+        <link rel="stylesheet" href="xterm.css" />
+        <style>
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+                background: #0a0a0c;
+                color: #e6e6ea;
+                font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            }
+            body {
+                display: flex;
+                flex-direction: column;
+            }
+            /* ---- tab bar ---- */
+            #tabs {
+                display: flex;
+                align-items: stretch;
+                gap: 4px;
+                height: 34px;
+                min-height: 34px;
+                padding: 4px 6px 0 6px;
+                box-sizing: border-box;
+                overflow-x: auto;
+                overflow-y: hidden;
+                scrollbar-width: none;
+            }
+            #tabs::-webkit-scrollbar {
+                display: none;
+            }
+            .tab {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 0 8px 0 11px;
+                height: 30px;
+                max-width: 180px;
+                border-radius: 8px 8px 0 0;
+                background: #141419;
+                color: #9aa0ad;
+                font-size: 12px;
+                cursor: pointer;
+                user-select: none;
+                white-space: nowrap;
+                border: 1px solid transparent;
+                border-bottom: none;
+            }
+            .tab:hover {
+                color: #cdd2db;
+            }
+            .tab.active {
+                background: #0a0a0c;
+                color: #e6e6ea;
+                border-color: #232533;
+            }
+            .tab .label {
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .tab .dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #3a8a55;
+                flex: none;
+            }
+            .tab.exited .dot {
+                background: #6a6f7a;
+            }
+            .tab .close {
+                width: 16px;
+                height: 16px;
+                line-height: 14px;
+                text-align: center;
+                border-radius: 4px;
+                color: #7a808c;
+                flex: none;
+            }
+            .tab .close:hover {
+                background: #2a2d3a;
+                color: #e6e6ea;
+            }
+            #new-tab {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 28px;
+                height: 30px;
+                border-radius: 8px;
+                background: transparent;
+                color: #9aa0ad;
+                border: none;
+                font-size: 18px;
+                cursor: pointer;
+            }
+            #new-tab:hover {
+                background: #141419;
+                color: #e6e6ea;
+            }
+            /* ---- terminals ---- */
+            #terms {
+                position: relative;
+                flex: 1;
+                min-height: 0;
+            }
+            .term {
+                position: absolute;
+                inset: 0;
+                /* No right padding: let the (thin) scrollbar sit at the very edge instead of
+                   floating in a gap. Left padding keeps text off the window border. */
+                padding: 6px 0 6px 10px;
+                box-sizing: border-box;
+                display: none;
+            }
+            .term.active {
+                display: block;
+            }
+            /* NOTE: do NOT set the standard scrollbar-width/scrollbar-color here — when those
+               are present Chromium ignores the ::-webkit-scrollbar rules below (chunky default
+               scrollbar instead of our slim one). */
+            .xterm .xterm-viewport {
+                background: transparent !important;
+            }
+            .xterm .xterm-viewport::-webkit-scrollbar {
+                width: 8px;
+            }
+            /* No stepper up/down arrow buttons (some GTK themes draw them otherwise). */
+            .xterm .xterm-viewport::-webkit-scrollbar-button {
+                display: none;
+                width: 0;
+                height: 0;
+            }
+            .xterm .xterm-viewport::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+                background: #2a3550;
+                border-radius: 8px;
+                border: 2px solid transparent;
+                background-clip: padding-box;
+            }
+            .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+                background: #3a4a6a;
+                background-clip: padding-box;
+            }
+            .xterm .xterm-viewport::-webkit-scrollbar-corner {
+                background: transparent;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="tabs"><button id="new-tab" title="New Claude session">+</button></div>
+        <div id="terms"></div>
+        <script src="terminal.js"></script>
+    </body>
+</html>

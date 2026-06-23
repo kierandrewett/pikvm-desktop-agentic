@@ -28,6 +28,24 @@ function textFrom(result: any): string {
         .join(" ");
 }
 
+/** Turn a raw model/provider error into a short, honest, actionable line. */
+export function friendlyAgentError(raw: string): string {
+    const r = raw.toLowerCase();
+    if (r.includes("overload") || r.includes("server_is_overloaded") || r.includes("service_unavailable") || /\b503\b/.test(r))
+        return "⚠️ The model provider is overloaded right now — your task didn't run. It’ll auto-retry; if it keeps failing, send again in a moment.";
+    if (r.includes("rate") && r.includes("limit"))
+        return "⚠️ Rate-limited by the model provider — your task didn't run. It’ll auto-retry shortly.";
+    if (r.includes("timeout") || r.includes("timed out") || r.includes("etimedout"))
+        return "⚠️ The model provider timed out — your task didn't run. It’ll auto-retry; send again if it persists.";
+    if (r.includes("401") || r.includes("unauthor") || r.includes("invalid api key") || r.includes("authentication"))
+        return "⚠️ The model provider rejected the credentials — check the API key/login in Settings → Providers.";
+    if (r.includes("insufficient") || r.includes("quota") || r.includes("billing") || r.includes("payment"))
+        return "⚠️ The model provider reports no remaining quota/credit — check billing for the provider.";
+    // Fall back to the raw message (trimmed) so the user still sees SOMETHING, not silence.
+    const short = raw.replace(/\s+/g, " ").trim().slice(0, 240);
+    return `⚠️ The model provider returned an error — your task didn't run${short ? `: ${short}` : "."}`;
+}
+
 /**
  * Wire a writer to an agent-event stream. Returns a listener to pass to
  * `runner.subscribe(...)`. The caller is responsible for resolving the
@@ -92,6 +110,30 @@ export function bridgeAgentEvents(writer: Writer): (event: AgentEvent) => void {
                 } else if (e.type === "text_end") {
                     endText();
                 }
+                return;
+            }
+            case "message_end": {
+                // A turn that ended in an error (most commonly a provider 503 / overload /
+                // rate-limit) MUST be shown — otherwise the run just goes "idle" and looks
+                // like the agent gave up. Surface a plain-English status into the transcript.
+                endText();
+                // Close out any dangling thinking stream so the NEXT run (this hub bridge is
+                // long-lived) can't append onto stale reasoning text.
+                thinkId = undefined;
+                thinkText = "";
+                const m: any = (event as any).message;
+                if (m?.stopReason === "error") {
+                    writer.write({ type: "data-status", data: { kind: "info", text: friendlyAgentError(String(m.errorMessage ?? "")) } });
+                }
+                return;
+            }
+            case "agent_start": {
+                // Fresh run on a long-lived bridge → drop any per-run carry-over so a new
+                // run's first marker/thinking can't bind to the previous run's screenshot.
+                endText();
+                thinkId = undefined;
+                thinkText = "";
+                lastScreenshotId = undefined;
                 return;
             }
             case "tool_execution_start": {

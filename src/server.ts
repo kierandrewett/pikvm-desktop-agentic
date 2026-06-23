@@ -22,6 +22,7 @@ import { CodexAuth } from "./agent/auth";
 import { createMcpHttpHandler, type McpDeps } from "./mcp-server";
 import { bridgeAgentEvents } from "./agent/ui-stream";
 import { ChatBroadcast } from "./agent/broadcast";
+import { isStaleUiSave } from "./agent/session-sync";
 import type { PiKvmUIMessage, ServerState } from "./agent/protocol";
 import { parseCommand, parseLoopArg, parsePursueArg, COMMANDS } from "./commands";
 import { createPiKvmProxy } from "./proxy";
@@ -131,8 +132,15 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     const broadcast = new ChatBroadcast();
     let runClientId: string | undefined;
     const hubBridge = bridgeAgentEvents(broadcast.writer() as unknown as Writer);
+    let runSeq = 0;
     runner.subscribe((event) => {
-        if (event.type === "agent_start") broadcast.send(runClientId ? { type: "begin", clientId: runClientId } : { type: "begin" });
+        if (event.type === "agent_start") {
+            // Stable id for the assistant message this run produces. Carried in `begin`
+            // (and the replay) so every client — first-join, mid-run, or reconnect —
+            // reconciles to ONE message instead of duplicating it.
+            const messageId = `live-${++runSeq}-${Date.now()}`;
+            broadcast.send({ type: "begin", messageId, ...(runClientId ? { clientId: runClientId } : {}) });
+        }
         hubBridge(event);
         if (event.type === "agent_end") {
             broadcast.send({ type: "end" });
@@ -282,9 +290,10 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     // Bumped whenever an autonomous (scheduled) run updates the saved transcript,
     // so an idle sidebar knows to reload and show the flow.
     let uiVersion = 0;
-    runner.onUiChanged = () => {
+    const bumpUi = () => {
         uiVersion++;
     };
+    runner.onUiChanged = bumpUi;
 
     // Apply the persisted per-turn model-routing config on startup. main.ts already
     // calls runner.setModel(settings.model) (the reasoning tier); this layers the
@@ -625,6 +634,25 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
 
         if (path === "/api/state" && req.method === "GET") return json(res, 200, state());
 
+        // GUARDRAIL for Claude Code: its PreToolUse hook posts {tool, args} here before
+        // an MCP pikvm action runs. We classify it (sensitive-area vision check + dangerous
+        // command + autonomy dial) and return allow | ask | deny, which the hook maps to
+        // Claude Code's own permission decision (auto-run / in-terminal prompt / block).
+        if (path === "/api/permcheck" && req.method === "POST") {
+            void readBody(req).then(async (b) => {
+                try {
+                    const { tool, args, session } = JSON.parse(b || "{}");
+                    const bare = String(tool || "").replace(/^mcp__[a-z0-9-]+__/i, ""); // mcp__pikvm__click → click
+                    const result = await runner.assessMcpOp(bare, (args ?? {}) as Record<string, unknown>, session ? String(session) : undefined);
+                    return json(res, 200, result);
+                } catch {
+                    return json(res, 200, { decision: "ask", reason: "permission check failed — confirm manually" });
+                }
+            });
+            return;
+        }
+
+
         // Live chat broadcast: all clients see every run in real time (the
         // conversation chunks + run framing + user messages). A client loads the
         // transcript snapshot once, then stays live via this stream.
@@ -737,6 +765,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 // KVM "Agent is in control" panel and the chat agree on one state.
                 if (body.decision === "deny") {
                     runner.stop();
+                    clearPendingAuths(); // also free ANY other gate parked concurrently (e.g. an MCP-driven one)
                     overlay.emitOverlay({ type: "acting", active: false });
                 }
                 return json(res, 200, { ok: true });
@@ -824,6 +853,12 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 if (patch.modelRouting) {
                     const mr = next.modelRouting;
                     runner.setRouterModels({ enabled: mr.enabled, reasoningModel: mr.reasoningModel, fastModel: mr.fastModel, subagentModel: mr.subagentModel });
+                }
+                // The "transcribe" toggle is the master capture-intent switch: turning it
+                // on starts the transcriber and emits "capture", which both the native UI
+                // (IPC) and the console (ambient-SSE relay) act on to begin recording audio.
+                if (typeof patch?.ambient?.transcribe === "boolean") {
+                    transcriber.setCapturing(next.ambient.transcribe);
                 }
                 return json(res, 200, state());
             });
@@ -929,6 +964,26 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             });
             return;
         }
+        // Audio ingest from the console's own capture (web + desktop). The console
+        // records the live WebRTC audio in short complete-webm chunks and POSTs the
+        // base64 here; we feed them straight into the whisper pipeline. Only accepted
+        // while capture is actually requested (transcriber active) — a stray POST after
+        // the toggle is off is ignored. This is what makes transcription work in the
+        // console, where the legacy native-UI audio capture path doesn't run.
+        if (path === "/api/transcribe/audio" && req.method === "POST") {
+            void readBody(req).then((b) => {
+                if (transcriber.isActive() && b) {
+                    transcriber.setCaptureStatus({ remote: true, mic: false, error: null });
+                    try {
+                        transcriber.pushAudio(Buffer.from(b, "base64"));
+                    } catch {
+                        /* ignore malformed chunk */
+                    }
+                }
+                res.writeHead(204).end();
+            });
+            return;
+        }
         // Past meetings log.
         if (path === "/api/meetings" && req.method === "GET") return json(res, 200, { meetings: meetingLog.list() });
         if (path === "/api/meetings/get" && req.method === "POST") {
@@ -964,10 +1019,16 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             const onEvent = (e: AmbientEvent) => send({ ts: e.ts, level: "event", text: `${e.kind}: ${e.title}` });
             const onSeg = (text: string) => send({ ts: Date.now(), level: "transcript", text });
             const onSug = (sug: { ts: number; text: string }) => send({ ts: sug.ts, level: "suggestion", text: sug.text });
+            // Tell the console whether to capture-and-POST its audio. Emitted on every
+            // capture toggle, plus once on connect for the current state (so a console
+            // that opens after transcription was enabled starts recording).
+            const onCap = (on: boolean) => send({ level: "transcribe", on });
             ambient.on("trace", onTrace);
             ambient.on("event", onEvent);
             ambient.on("suggestion", onSug);
             transcriber.on("segment", onSeg);
+            transcriber.on("capture", onCap);
+            send({ level: "transcribe", on: settings.get().ambient.transcribe });
             const ka = setInterval(() => res.write(": ping\n\n"), 15000);
             const cleanup = () => {
                 clearInterval(ka);
@@ -975,6 +1036,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 ambient.off("event", onEvent);
                 ambient.off("suggestion", onSug);
                 transcriber.off("segment", onSeg);
+                transcriber.off("capture", onCap);
             };
             req.on("close", cleanup);
             req.on("error", cleanup);
@@ -1026,8 +1088,19 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         if (path === "/api/sessions/ui" && req.method === "POST") {
             void readBody(req).then((b) => {
                 try {
-                    const { messages } = JSON.parse(b || "{}");
-                    if (Array.isArray(messages)) runner.saveUiMessages(messages);
+                    const { messages, sessionId } = JSON.parse(b || "{}");
+                    // Reject a save tagged for a session we've already switched away from —
+                    // otherwise a trailing persist of the PREVIOUS chat lands in the new one
+                    // (the "+ new chat then it shows the old conversation" bug).
+                    if (Array.isArray(messages) && !isStaleUiSave(sessionId, runner.currentSessionId())) {
+                        runner.saveUiMessages(messages);
+                        // The client that owns a run persists the transcript after it
+                        // settles. Notify OTHER clients to reload — a spectator (e.g. a
+                        // phone that joined mid-run) has no other way to get the finished
+                        // conversation, since saveUiMessages alone doesn't bump uiVersion.
+                        // Gated on >1 client so a lone client never reloads its own save.
+                        if (broadcast.count() > 1) bumpUi();
+                    }
                 } catch {
                     /* ignore */
                 }
@@ -1037,7 +1110,8 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         }
 
         if (path === "/api/sessions/new" && req.method === "POST") {
-            runner.newSession();
+            runner.newSession(); // stops the current run internally…
+            clearPendingAuths(); // …so free any approval gate it left parked
             return json(res, 200, { ...state(), messages: [] });
         }
 
@@ -1045,6 +1119,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             void readBody(req).then((b) => {
                 const { id } = JSON.parse(b || "{}");
                 const messages = id ? runner.resumeSession(id) : [];
+                clearPendingAuths();
                 return json(res, 200, { ...state(), messages });
             });
             return;

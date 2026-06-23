@@ -14,9 +14,10 @@ import {
     Menu,
     Rectangle,
 } from "electron";
-import { readFileSync, existsSync, writeFileSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, statSync } from "fs";
+import { copyFileSync } from "node:fs";
 import { url } from "inspector/promises";
-import { resolve } from "path";
+import { resolve, isAbsolute, extname } from "path";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
 import { OperationReviewer } from "./reviewer";
@@ -28,6 +29,8 @@ import { startControlServer } from "./server";
 import { OverlayBus } from "./overlay-bus";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
+import { ClaudeTerminal } from "./claude-pty";
+import { writeClaudeConfig } from "./claude-config";
 import { SecretsStore } from "./secrets";
 import { electronSecretCrypto } from "./secret-crypto-electron";
 import { NtfyClient } from "./ambient/ntfy";
@@ -43,6 +46,16 @@ const appIconPath = resolve(__dirname, "assets/icon.png");
 // panel. Without this, Linux falls back to the package name
 // ("pikvm-desktop-agentic") and a generic icon.
 app.setName("PiKVM Desktop");
+
+// CRITICAL — must be set BEFORE app is ready. When the agent acts, the transparent
+// "agent in control" overlay sits over the console, so Chromium treats the console
+// renderer as OCCLUDED and freezes its background timers — including the sidebar's
+// /api/state poll. That's why an approval prompt never appeared until you pressed Stop
+// (which hides the overlay and wakes the renderer, firing the poll). webPreferences
+// backgroundThrottling:false does NOT cover occlusion on Linux/X11; these switches do.
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
 /** Port for the local control server (MCP + sidebar chat bridge). Overridable via
  *  PIKVM_CONTROL_PORT so a dev build can run alongside an installed instance. */
@@ -214,7 +227,9 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
     const overlay = new OverlayBus();
     startControlServer(
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, openExternal: (u) => void shell.openExternal(u) },
+        // ...runner.visionDeps() supplies getRegions/opticalRead/opticalReadStrong/remember
+        // so the MCP server (Claude Code's eyes) shares the agent's OCR/region/typing brain.
+        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, ...runner.visionDeps(), openExternal: (u) => void shell.openExternal(u) },
         CONTROL_PORT,
         bindHost,
     );
@@ -394,6 +409,32 @@ ipcMain.on("console:resize-by", (e, opts: { dw?: number; dh?: number }) => {
     w.setContentSize(Math.max(480, Math.min(area.width, cw + dw)), Math.max(360, Math.min(area.height, ch + dh)));
 });
 
+// Settings / Monitor / History now live in their own windows: the desktop console's
+// "chat" is the Claude terminal, so these reuse the agent sidebar opened straight to the
+// requested panel (?panel=). One window per panel, reused if already open.
+const agentPanelWins = new Map<string, Electron.BrowserWindow>();
+ipcMain.on("console:open-agent-panel", (_e, id: unknown) => {
+    const panel = id === "settings" || id === "ambient" || id === "history" ? id : null;
+    if (!panel) return;
+    const existing = agentPanelWins.get(panel);
+    if (existing && !existing.isDestroyed()) {
+        existing.show();
+        existing.focus();
+        return;
+    }
+    const title = panel === "settings" ? "Settings" : panel === "ambient" ? "Monitor" : "History";
+    const w = new BrowserWindow({
+        width: panel === "settings" ? 940 : 780,
+        height: 820,
+        title,
+        backgroundColor: "#0a0a0c",
+        autoHideMenuBar: true,
+    });
+    agentPanelWins.set(panel, w);
+    w.on("closed", () => agentPanelWins.delete(panel));
+    void w.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/sidebar.html?embed=1&panel=${panel}`);
+});
+
 // Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.
 ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: number; y: number } }) => {
     const w = consoleWinFrom(e);
@@ -486,6 +527,9 @@ function createWindow() {
             // console preload (window.desktopConsole → its own titlebar, native menus,
             // fit-native). Otherwise the legacy KVM-page preload.
             preload: resolve(__dirname, useConsole ? "preload-console.js" : "preload.js"),
+            // The console runs the live agent overlay SSE + transcription capture timers;
+            // don't let Chromium throttle them when the window is unfocused.
+            backgroundThrottling: false,
         },
     });
     // Dark view background so there is no white paint before the console CSS applies.
@@ -517,8 +561,26 @@ function createWindow() {
         webPreferences: {
             contextIsolation: true,
             preload: resolve(__dirname, "preload-sidebar.js"),
+            // CRITICAL: never throttle this view's timers when it's unfocused/occluded
+            // (e.g. while you're watching the KVM during a run). Chromium otherwise drops
+            // its setInterval to ~1/min, freezing the /api/state poll — so an approval
+            // prompt wouldn't appear until you clicked into the sidebar (or pressed Stop).
+            backgroundThrottling: false,
         },
     });
+
+    // The embedded Claude Code terminal (the agent). Its own WebContentsView so the
+    // xterm renderer can talk to the main-process PTY over IPC; positioned over the
+    // console's agent-panel region (the console reports the rect). Never throttled.
+    const terminalView = new WebContentsView({
+        webPreferences: {
+            contextIsolation: true,
+            preload: resolve(__dirname, "preload-terminal.js"),
+            backgroundThrottling: false,
+        },
+    });
+    terminalView.setBackgroundColor("#0a0a0c");
+    terminalView.setVisible(false);
 
     // Transparent overlay over the KVM, shown while the agent is controlling the
     // target — gives the user a big "stop & take control" button (Claude-style).
@@ -596,6 +658,7 @@ function createWindow() {
     // Control overlay above the KVM; sidebar above that; copilot floats on top.
     win.contentView.addChildView(controlOverlayView);
     win.contentView.addChildView(sidebarView);
+    win.contentView.addChildView(terminalView);
     win.contentView.addChildView(copilotView);
     copilotView.webContents.loadFile(resolve(__dirname, "views", "copilot.html"));
 
@@ -695,6 +758,152 @@ function createWindow() {
 
     sidebarView.webContents.loadFile(resolve(__dirname, "views", "sidebar.html"));
     controlOverlayView.webContents.loadFile(resolve(__dirname, "views", "acting.html"));
+    terminalView.webContents.loadFile(resolve(__dirname, "views", "terminal.html"));
+    // Diagnostics: surface the terminal renderer's console + any load failure to the main
+    // log, so a blank/non-starting terminal panel is debuggable without devtools.
+    terminalView.webContents.on("console-message", (_e, level, message, line, src) => {
+        console.log(`[term-renderer:${level}] ${message} (${src}:${line})`);
+    });
+    terminalView.webContents.on("did-fail-load", (_e, code, desc, url) => {
+        console.error(`[term-renderer] did-fail-load ${code} ${desc} ${url}`);
+    });
+    terminalView.webContents.on("render-process-gone", (_e, details) => {
+        console.error(`[term-renderer] render-process-gone`, details);
+    });
+    terminalView.webContents.on("did-finish-load", () => console.log("[term-renderer] did-finish-load"));
+
+    // ---- Claude Code terminals (the agent) — one PTY per tab/session ---------------
+    // Each tab is an independent `claude` process in the vault. They share the MCP server
+    // + guardrail hook, but only ONE may drive the KVM at a time (the control lease, keyed
+    // by PIKVM_SESSION_ID, enforced in /api/permcheck). "main" is the always-present first
+    // tab; additional tabs get renderer-generated ids.
+    const sessions = new Map<string, ClaudeTerminal>();
+    let activeSession = "main";
+    let vaultConfigWritten = false;
+    const ensureVaultConfig = (): void => {
+        if (vaultConfigWritten) return;
+        try {
+            // The hook ships inside app.asar; Claude Code (an external process) can't reliably
+            // run a script from an asar path, so extract it to a real unpacked file first.
+            const hookSrc = resolve(__dirname, "claude-runtime", "permission-hook.mjs");
+            let hookPath = hookSrc;
+            try {
+                const unpacked = resolve(app.getPath("userData"), "claude-permission-hook.mjs");
+                copyFileSync(hookSrc, unpacked);
+                hookPath = unpacked;
+            } catch {
+                /* dev mode (already unpacked) or copy failed — fall back to the source path */
+            }
+            writeClaudeConfig({ vaultPath: settings.get().atlas.vaultPath, port: CONTROL_PORT, hookPath });
+            vaultConfigWritten = true;
+        } catch (e) {
+            console.error("[claude] failed to write vault config:", e);
+        }
+    };
+    // Spawn (or no-op if already running) the session's PTY. Called from BOTH the renderer's
+    // terminal:start AND main's did-finish-load for "main", so the agent starts even if the
+    // renderer JS is throttled (hidden/occluded view at launch) — the prior "doesn't start".
+    const startSession = (id: string, via: string): { ok: boolean; reason?: string } => {
+        const existing = sessions.get(id);
+        if (existing && existing.running) return { ok: true };
+        ensureVaultConfig();
+        const term =
+            existing ??
+            new ClaudeTerminal({
+                cwd: settings.get().atlas.vaultPath,
+                env: {
+                    PIKVM_PERMCHECK_URL: `http://127.0.0.1:${CONTROL_PORT}/_agent/api/permcheck`,
+                    PIKVM_SESSION_ID: id,
+                },
+            });
+        if (!existing) {
+            term.onData((d) => {
+                if (!terminalView.webContents.isDestroyed()) terminalView.webContents.send("terminal:data", id, d);
+            });
+            term.onExit((info) => {
+                sessions.delete(id);
+                agentBackend?.runner.releaseKvmLease(id); // free the KVM if this session held the lease
+                if (!terminalView.webContents.isDestroyed()) terminalView.webContents.send("terminal:exit", id, info);
+            });
+            sessions.set(id, term);
+        }
+        console.log(`[terminal:start] session ${id} via ${via}`);
+        const r = term.start();
+        console.log(`[terminal:start] session ${id} ->`, JSON.stringify(r));
+        return r;
+    };
+    ipcMain.handle("terminal:start", (_e, id: unknown) => startSession(typeof id === "string" && id ? id : "main", "renderer"));
+    terminalView.webContents.on("did-finish-load", () => startSession("main", "did-finish-load"));
+    ipcMain.on("terminal:input", (_e, id: string, data: string) => sessions.get(id)?.write(data));
+    ipcMain.on("terminal:resize", (_e, id: string, cols: number, rows: number) => sessions.get(id)?.resize(cols, rows));
+    ipcMain.on("terminal:kill", (_e, id: string) => sessions.get(id)?.kill());
+    ipcMain.on("terminal:set-active", (_e, id: string) => {
+        if (typeof id === "string" && id) activeSession = id;
+    });
+    // Ctrl/Cmd+click in the terminal: open URLs in the browser, file paths in the OS.
+    // Paths are resolved against the vault cwd; a :line:col suffix is stripped.
+    const resolveVaultPath = (p: string): string => {
+        const clean = p.replace(/:\d+(?::\d+)?$/, "");
+        if (clean.startsWith("~/")) return resolve(app.getPath("home"), clean.slice(2));
+        return isAbsolute(clean) ? clean : resolve(settings.get().atlas.vaultPath, clean);
+    };
+    ipcMain.on("terminal:open-link", (_, url: unknown) => {
+        if (typeof url === "string" && /^https?:\/\//i.test(url)) void shell.openExternal(url);
+    });
+    ipcMain.on("terminal:open-path", (_, p: unknown) => {
+        if (typeof p !== "string" || !p.trim()) return;
+        const abs = resolveVaultPath(p);
+        if (existsSync(abs)) void shell.openPath(abs);
+    });
+    const IMG_MIME: Record<string, string> = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".svg": "image/svg+xml",
+    };
+    ipcMain.handle("terminal:read-image", (_, p: unknown): string | null => {
+        try {
+            if (typeof p !== "string" || !p.trim()) return null;
+            const abs = resolveVaultPath(p);
+            const mime = IMG_MIME[extname(abs).toLowerCase()];
+            if (!mime || !existsSync(abs)) return null;
+            if (statSync(abs).size > 12 * 1024 * 1024) return null; // don't inline huge files
+            return `data:${mime};base64,${readFileSync(abs).toString("base64")}`;
+        } catch {
+            return null;
+        }
+    });
+    // A tapped suggestion (or any external task) → type it into the active session.
+    ipcMain.on("console:run-task", (_, task: unknown) => {
+        if (typeof task === "string" && task.trim()) sessions.get(activeSession)?.submitLine(task.trim());
+    });
+    // The console reports where its agent-panel content sits (window pixels); we float
+    // the terminal view there. Empty/zero → hide it (panel collapsed).
+    let termRectSeen = false;
+    let lastTermBounds = "";
+    ipcMain.on("console:terminal-rect", (_, r: { x?: number; y?: number; width?: number; height?: number }) => {
+        const x = Math.round(Number(r?.x) || 0);
+        const y = Math.round(Number(r?.y) || 0);
+        const width = Math.round(Number(r?.width) || 0);
+        const height = Math.round(Number(r?.height) || 0);
+        if (width > 1 && height > 1) {
+            if (!termRectSeen) { console.log(`[console:terminal-rect] first show ${width}x${height} @${x},${y}`); termRectSeen = true; }
+            const wasHidden = !terminalView.getVisible();
+            terminalView.setVisible(true);
+            terminalView.setBounds({ x, y, width, height });
+            // Re-fit the xterm when the view first shows or actually changes size — the
+            // initial fit may have run while hidden (zero-sized), leaving it at 120×30.
+            const key = `${width}x${height}`;
+            if (wasHidden || key !== lastTermBounds) {
+                lastTermBounds = key;
+                if (!terminalView.webContents.isDestroyed()) terminalView.webContents.send("terminal:relayout");
+            }
+        } else {
+            terminalView.setVisible(false);
+        }
+    });
+    win.on("closed", () => {
+        for (const s of sessions.values()) s.kill();
+        sessions.clear();
+    });
 
     // Right-click editing menus everywhere; the sidebar also offers "Copy conversation".
     attachContextMenu(mainView.webContents);
@@ -878,6 +1087,15 @@ function createWindow() {
             }, 30000);
         }
     });
+
+    // Auto-transcribe: the "transcribe" setting is the master capture-intent switch.
+    // Flipping it on drives transcriber.setCapturing(true) (in the server's settings
+    // handler), which emits the "capture" event wired above — so BOTH the legacy native
+    // UI (kvm:transcribe-start IPC) and the web/desktop console (the relayed ambient-SSE
+    // "transcribe" event) begin recording the target's audio whenever it's present.
+    // Whisper only emits segments for actual speech, so an idle/silent stream is cheap.
+    // (No presence/audioActive gating here: in console mode — the default — that signal
+    // comes from the legacy preload, which doesn't run, so it's always false.)
 
     // Surface the recognised app + sensitivity onto the overlay so the user sees
     // where the agent thinks it is (and when it's in a sensitive area).
