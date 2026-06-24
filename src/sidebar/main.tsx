@@ -1497,18 +1497,6 @@ function ModelsTab({ state, inputCls, onPatch }: { state: ServerState | null; in
 function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null; onClose: () => void; onPatch: (p: any) => void }) {
     const s = state?.settings;
     const hv = s?.humanize ?? 1;
-    const autonomy = Math.max(0, Math.min(5, state?.autonomy ?? 3)) as 0 | 1 | 2 | 3 | 4 | 5;
-    // British-English copy for each rung of the autonomy dial (kept in sync with
-    // AUTONOMY_LABELS in reviewer.ts; defined locally so the server-only reviewer
-    // module is never pulled into the browser bundle).
-    const AUTONOMY_LABELS: Record<0 | 1 | 2 | 3 | 4 | 5, { label: string; description: string }> = {
-        0: { label: "Ask first", description: "Prompt before almost every action — maximum caution." },
-        1: { label: "Cautious", description: "Auto-run only plainly safe, read-only commands." },
-        2: { label: "Measured", description: "Auto-run safe commands; pause on anything unfamiliar." },
-        3: { label: "Balanced", description: "Auto-run safe and routine actions; prompt for risky or outward-facing ones." },
-        4: { label: "Trusting", description: "Auto-run most things; prompt only for risky or outward-facing actions." },
-        5: { label: "Hands-off", description: "Prompt only for genuinely dangerous or outward-facing actions." },
-    };
     const secretItems = state?.secrets?.items ?? [];
     const [secName, setSecName] = useState("");
     const [secVal, setSecVal] = useState("");
@@ -1523,7 +1511,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
         });
     };
     const amb = state?.ambient;
-    const [tab, setTab] = useState<"behaviour" | "models" | "mcp" | "ambient" | "secrets" | "server">("behaviour");
+    const [tab, setTab] = useState<"behaviour" | "mcp" | "ambient" | "secrets" | "server">("behaviour");
     // Desktop-only: where THIS desktop app loads the console from (asked of the parent
     // console window over postMessage, since the desktop config lives in the shell).
     const [desktopOrigin, setDesktopOrigin] = useState<{ origin: string; isLocal: boolean; envLocked: boolean; pikvmOrigin: string } | null>(null);
@@ -1566,7 +1554,6 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
     const inputCls = "w-full rounded-lg border bg-background px-2.5 py-1.5 text-[13px] outline-none transition-colors focus:border-ring/60";
     const tabs: { id: typeof tab; label: string; icon: any }[] = [
         { id: "behaviour", label: "Behaviour", icon: Keyboard },
-        { id: "models", label: "Models", icon: Sparkles },
         { id: "ambient", label: "Ambient", icon: Radar },
         { id: "mcp", label: "MCP", icon: Plug },
         { id: "secrets", label: "Secrets", icon: Lock },
@@ -1603,23 +1590,27 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 {/* ------------------------------ behaviour ----------------------------- */}
                 {tab === "behaviour" && (
                     <div className="space-y-5">
+                        <p className="text-[12px] leading-snug text-muted-foreground">
+                            How the agents drive the target machine. Dangerous and sensitive actions are always guarded
+                            (asked or blocked) regardless of these settings.
+                        </p>
                         <div>
-                            <div className="mb-1.5 flex items-baseline justify-between">
-                                <span className="text-[13px] font-medium">Autonomy</span>
-                                <span className="text-[11px] text-muted-foreground">{AUTONOMY_LABELS[autonomy]?.label ?? "Balanced"}</span>
-                            </div>
-                            <input
-                                type="range"
-                                min={0}
-                                max={5}
-                                step={1}
-                                value={autonomy}
-                                className="w-full accent-primary"
-                                onChange={(e) => onPatch({ autonomy: parseInt(e.target.value, 10) })}
-                            />
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                                {AUTONOMY_LABELS[autonomy]?.description ?? ""} Dangerous and outward-facing actions always ask first.
+                            <div className="mb-1 text-[13px] font-medium">Agent workspace</div>
+                            <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+                                The folder the terminal agents (Claude&nbsp;Code / Codex / opencode) run in — their cwd,
+                                notes, and generated files live here. New sessions use this immediately; restart to move
+                                existing ones.
                             </p>
+                            <input
+                                type="text"
+                                placeholder="~/Documents/Atlas/…"
+                                defaultValue={s?.atlas?.vaultPath ?? ""}
+                                onBlur={(e) => {
+                                    const v = e.target.value.trim();
+                                    if (v && v !== (s?.atlas?.vaultPath ?? "")) onPatch({ atlas: { vaultPath: v } });
+                                }}
+                                className={cn(inputCls, "font-mono text-[12px]")}
+                            />
                         </div>
                         <div className="border-t pt-3">
                             <div className="mb-1.5 flex items-baseline justify-between">
@@ -1673,24 +1664,6 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                                 control={<Switch checked={s?.jiggler ?? true} onChange={(v) => onPatch({ jiggler: v })} />}
                             />
                         </div>
-                        <div className="border-t pt-3">
-                            <Row
-                                label="Smart model routing"
-                                desc="Use a capable model for thinking, a cheap/fast one for routine clicks &amp; typing"
-                                control={
-                                    <Switch
-                                        checked={s?.modelRouting?.enabled ?? true}
-                                        onChange={(v) => post("/api/settings", { modelRouting: { enabled: v } }).then(() => onPatch({}))}
-                                    />
-                                }
-                            />
-                            <button
-                                onClick={() => setTab("models")}
-                                className="mt-2 flex w-full items-center gap-1.5 rounded-lg border bg-card/60 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-                            >
-                                <Sparkles className="size-3.5" /> Choose providers &amp; per-role models in the <b className="text-foreground">Models</b> tab →
-                            </button>
-                        </div>
                         {(state?.schedules ?? []).length > 0 && (
                             <div className="border-t pt-3">
                                 <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1715,7 +1688,6 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 )}
 
                 {/* ----------------------------- models / providers --------------------- */}
-                {tab === "models" && <ModelsTab state={state} inputCls={inputCls} onPatch={onPatch} />}
 
                 {/* ------------------------------- ambient ------------------------------ */}
                 {tab === "ambient" && (

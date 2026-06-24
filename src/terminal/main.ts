@@ -264,6 +264,10 @@ const reconcile = (sessions: SessionInfo[]): void => {
         seen.add(info.id);
         let v = views.get(info.id);
         if (!v) v = createView(info);
+        // A restart (exited → running) begins a fresh screen on the server (its buffer was
+        // cleared). Reset the terminal so the new session doesn't stack underneath the dead
+        // one's exit/resume output.
+        if (v.exited && !info.exited) v.term.reset();
         v.label.textContent = info.title;
         v.exited = info.exited;
     }
