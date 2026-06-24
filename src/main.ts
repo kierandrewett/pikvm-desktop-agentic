@@ -840,6 +840,13 @@ function createWindow() {
     terminalView.webContents.on("render-process-gone", (_e, details) => {
         console.error(`[term-renderer] render-process-gone`, details);
     });
+    // Never page-zoom the terminal (it breaks the xterm layout); the renderer maps Ctrl+/-/0
+    // to font size instead. Lock the Electron zoom level as a backstop.
+    terminalView.webContents.on("zoom-changed", () => terminalView.webContents.setZoomLevel(0));
+    terminalView.webContents.on("did-finish-load", () => {
+        terminalView.webContents.setZoomLevel(0);
+        terminalView.webContents.setVisualZoomLevelLimits(1, 1);
+    });
 
     // A tapped suggestion (or any external task) → type it into the primary session.
     ipcMain.on("console:run-task", (_, task: unknown) => {

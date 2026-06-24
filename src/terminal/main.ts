@@ -147,10 +147,12 @@ const views = new Map<string, View>();
 let active: string | null = null;
 let controlOwner: string | null = null; // which session currently drives the KVM
 
+const DEFAULT_FONT_SIZE = 13;
+let fontSize = DEFAULT_FONT_SIZE;
 const makeTerm = (): { term: Terminal; fit: FitAddon } => {
     const term = new Terminal({
         fontFamily: 'monospace, "Noto Sans Mono", "DejaVu Sans Mono"',
-        fontSize: 13,
+        fontSize,
         lineHeight: 1.0,
         letterSpacing: 0,
         cursorBlink: true,
@@ -220,6 +222,15 @@ const createView = (info: SessionInfo): View => {
     close.addEventListener("click", (e) => {
         e.stopPropagation();
         send({ t: "close", id: info.id });
+    });
+    // Ctrl+Backspace → delete the previous WORD (xterm otherwise sends a plain DEL, deleting
+    // one char). ESC+DEL is readline's backward-kill-word, which the agents' input honours.
+    term.attachCustomKeyEventHandler((e) => {
+        if (e.type === "keydown" && e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "Backspace" || e.code === "Backspace")) {
+            if (!v.exited) send({ t: "input", id: info.id, data: "\x1b\x7f" });
+            return false; // we handled it; don't let xterm send a plain backspace
+        }
+        return true;
     });
     // Keystrokes → server PTY; once exited, Enter asks the server to restart it.
     term.onData((d) => {
@@ -313,6 +324,42 @@ newTabBtn.addEventListener("click", (e) => {
     document.body.appendChild(picker);
 });
 document.addEventListener("click", closePicker);
+
+// Ctrl/Cmd +/-/0 must NOT page-zoom (that breaks the xterm layout). Map them to the
+// terminal FONT SIZE instead — a real, layout-safe zoom that re-fits cleanly.
+const applyFontSize = (next: number): void => {
+    fontSize = Math.max(8, Math.min(28, Math.round(next)));
+    for (const v of views.values()) v.term.options.fontSize = fontSize;
+    proposeSize();
+};
+window.addEventListener(
+    "keydown",
+    (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+        if (e.key === "+" || e.key === "=") {
+            e.preventDefault();
+            applyFontSize(fontSize + 1);
+        } else if (e.key === "-" || e.key === "_") {
+            e.preventDefault();
+            applyFontSize(fontSize - 1);
+        } else if (e.key === "0") {
+            e.preventDefault();
+            applyFontSize(DEFAULT_FONT_SIZE);
+        }
+    },
+    true, // capture, so we beat any default zoom handling
+);
+// Block wheel-zoom (Ctrl+scroll) too — same layout-breakage.
+window.addEventListener(
+    "wheel",
+    (e) => {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            applyFontSize(fontSize + (e.deltaY < 0 ? 1 : -1));
+        }
+    },
+    { passive: false, capture: true },
+);
 
 new ResizeObserver(proposeSize).observe(termsEl);
 window.addEventListener("resize", proposeSize);
