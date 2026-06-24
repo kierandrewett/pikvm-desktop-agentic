@@ -54,18 +54,30 @@ const stub: any = {
     secrets: { list: () => [{ name: "vpn", hint: "the corp VPN password" }], names: () => ["vpn"], get: (n: string) => (n === "vpn" ? "s3cr3t" : undefined) },
     getRegions: () => ({ regions: [{ label: "Terminal", kind: "terminal", bbox: { x: 0, y: 0, width: 800, height: 600 } }], width: 1400, height: 788, at: 0 }),
     opticalRead: async () => "hello world",
+    // Per-session KVM lease + dangerous-op guardrail (the codex/opencode path, keyed by the
+    // /mcp/<session> URL). A click at the sentinel x=666 is a "dangerous" verdict.
+    acquireKvmControl: (s?: string) => (!s || !leaseHolder || leaseHolder === s ? ((leaseHolder = s ?? null), { ok: true }) : { ok: false, reason: `held by ${leaseHolder}` }),
+    releaseKvmControl: (s?: string) => { if (leaseHolder === s) leaseHolder = null; },
+    assessOp: async (tool: string, args: any, s: string) => {
+        if (tool === "click" && args?.x === 666) return { decision: "deny", reason: "dangerous op blocked" };
+        return stub.acquireKvmControl(s).ok ? { decision: "allow" } : { decision: "deny", reason: "held by another session" };
+    },
 };
+let leaseHolder: string | null = null;
 
 const handler = createMcpHttpHandler(stub);
 const server = http.createServer((req, res) => {
     let b = "";
     req.on("data", (c) => (b += c));
-    req.on("end", () => void handler(req, res, b ? JSON.parse(b) : undefined));
+    req.on("end", () => {
+        const m = (req.url || "").match(/^\/mcp\/(.+)$/);
+        void handler(req, res, b ? JSON.parse(b) : undefined, m ? decodeURIComponent(m[1]) : undefined);
+    });
 });
 
 const PORT = 25779;
-function rpc(method: string, params: unknown, id: number) {
-    return fetch(`http://127.0.0.1:${PORT}/`, {
+function rpc(method: string, params: unknown, id: number, session?: string) {
+    return fetch(`http://127.0.0.1:${PORT}/${session ? `mcp/${session}` : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
         body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
@@ -111,6 +123,27 @@ server.listen(PORT, "127.0.0.1", async () => {
 
         const miss = text(await call("type_secret", { name: "nope" }));
         check("type_secret on a missing name is handled", miss.toLowerCase().includes("no secret"));
+
+        // ---- per-session guardrail + KVM lease (the codex/opencode path: /mcp/<session>) ----
+        const callS = (session: string, name: string, args: unknown, id = 200) => rpc("tools/call", { name, arguments: args }, id, session);
+        await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } }, 50, "agentA");
+
+        calls.length = 0;
+        leaseHolder = null;
+        const dangerous = text(await callS("agentA", "click", { x: 666, y: 1 }));
+        check("hook-less hands op: dangerous verdict hard-denied before it acts", dangerous.includes("dangerous op blocked") && dangerous.includes('"isError":true') && !calls.some((c) => c.fn === "click"), dangerous.slice(0, 140));
+
+        calls.length = 0;
+        leaseHolder = null;
+        await callS("agentA", "click", { x: 5, y: 5 });
+        check("agentA acquires control + clicks", calls.some((c) => c.fn === "click") && leaseHolder === "agentA");
+        const denied = text(await callS("agentB", "click", { x: 7, y: 7 }, 201));
+        check("agentB denied the KVM while agentA holds control", denied.includes('"isError":true') && denied.toLowerCase().includes("held"), denied.slice(0, 140));
+
+        stub.releaseKvmControl("agentA");
+        calls.length = 0;
+        await callS("agentB", "click", { x: 9, y: 9 }, 202);
+        check("after release, agentB takes control", calls.some((c) => c.fn === "click") && leaseHolder === "agentB");
     } catch (e: any) {
         check("no exceptions", false, e.message);
     } finally {
