@@ -74,6 +74,7 @@ const BUFFER_CAP = 256 * 1024; // bytes of recent output replayed to new clients
 export class TerminalSessions {
     private sessions = new Map<string, Session>();
     private subs = new Set<Sub>();
+    private subSizes = new Map<Sub, { cols: number; rows: number }>();
     private counter = 0;
     private cols = 120;
     private rows = 30;
@@ -96,12 +97,19 @@ export class TerminalSessions {
     /** Subscribe a client; immediately sends the tab list + replays each session's buffer. */
     subscribe(send: Sub): () => void {
         this.subs.add(send);
+        // Track this client's viewport for the shared-size calc. A non-constraining default
+        // (huge) until it reports, so a just-connected client doesn't shrink everyone.
+        this.subSizes.set(send, { cols: 9999, rows: 9999 });
         send({ t: "sessions", sessions: this.list(), cols: this.cols, rows: this.rows, control: this.controlOwner });
         for (const s of this.sessions.values()) {
             const data = s.buffer.join("");
             if (data) send({ t: "data", id: s.id, data });
         }
-        return () => this.subs.delete(send);
+        return () => {
+            this.subs.delete(send);
+            this.subSizes.delete(send);
+            this.recomputeSize(); // a client left — the PTY may be able to grow again
+        };
     }
 
     private broadcast(msg: ServerMsg): void {
@@ -173,13 +181,30 @@ export class TerminalSessions {
         if (!this.sessions.has("main")) this.create("claude", "main");
     }
 
-    private resize(cols: number, rows: number): void {
-        const c = Math.max(2, Math.floor(cols) || this.cols);
-        const r = Math.max(2, Math.floor(rows) || this.rows);
-        if (c === this.cols && r === this.rows) return;
-        this.cols = c;
-        this.rows = r;
-        for (const s of this.sessions.values()) s.term.resize(c, r);
+    /** A client proposed a viewport size. The shared PTY is sized to the SMALLEST connected
+     *  client (tmux-style) so no device gets its output truncated. */
+    private resize(cols: number, rows: number, send: Sub): void {
+        const c = Math.max(2, Math.floor(cols) || 0);
+        const r = Math.max(2, Math.floor(rows) || 0);
+        if (!c || !r) return;
+        this.subSizes.set(send, { cols: c, rows: r });
+        this.recomputeSize();
+    }
+
+    private recomputeSize(): void {
+        let cols = 0;
+        let rows = 0;
+        for (const sz of this.subSizes.values()) {
+            cols = cols ? Math.min(cols, sz.cols) : sz.cols;
+            rows = rows ? Math.min(rows, sz.rows) : sz.rows;
+        }
+        if (!cols || !rows) return; // no real proposals yet — keep the current size
+        cols = Math.max(20, Math.min(cols, 500));
+        rows = Math.max(5, Math.min(rows, 200));
+        if (cols === this.cols && rows === this.rows) return;
+        this.cols = cols;
+        this.rows = rows;
+        for (const s of this.sessions.values()) s.term.resize(cols, rows);
         this.sendSessions();
     }
 
@@ -193,7 +218,7 @@ export class TerminalSessions {
                 this.sessions.get(msg.id)?.term.write(msg.data);
                 break;
             case "resize":
-                this.resize(msg.cols, msg.rows);
+                this.resize(msg.cols, msg.rows, send);
                 break;
             case "close": {
                 const s = this.sessions.get(msg.id);
