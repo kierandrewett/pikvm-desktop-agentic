@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PiKVM Desktop — Settings</title>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; height: 100%; }
+        body {
+            background: #0a0a0c;
+            color: #e6e6ea;
+            font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            padding: 18px 20px;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        h1 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: #f2f2f6; }
+        label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #9a9aa6; margin: 14px 0 5px; }
+        input[type="text"], select {
+            width: 100%; padding: 8px 9px; border-radius: 7px;
+            border: 1px solid #2a2a32; background: #131318; color: #e6e6ea;
+            font: inherit; outline: none;
+        }
+        input[type="text"]:focus, select:focus { border-color: #4c6ef5; }
+        input[type="text"]:disabled { opacity: .5; }
+        .hint { font-size: 11px; color: #6e6e7a; margin-top: 5px; }
+        .row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+        .row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #4c6ef5; }
+        .row label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 13px; color: #e6e6ea; }
+        .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+        button {
+            padding: 8px 16px; border-radius: 7px; border: 1px solid #2a2a32;
+            background: #1b1b22; color: #e6e6ea; font: inherit; cursor: pointer;
+        }
+        button:hover { background: #24242c; }
+        button.primary { background: #4c6ef5; border-color: #4c6ef5; color: #fff; }
+        button.primary:hover { background: #5b7bf7; }
+        .note { font-size: 11px; color: #6e6e7a; margin-top: 14px; }
+    </style>
+</head>
+<body>
+    <h1>Settings</h1>
+
+    <label for="pikvm-url">PiKVM connection</label>
+    <input id="pikvm-url" type="text" placeholder="https://user:password@pikvm/" autocomplete="off" spellcheck="false" />
+    <div class="hint">The PiKVM URL the app connects to. Credentials may be included in the URL.</div>
+
+    <label for="layout">Keyboard layout</label>
+    <select id="layout">
+        <option value="us">US (QWERTY)</option>
+        <option value="uk">UK (QWERTY)</option>
+    </select>
+
+    <div class="row">
+        <input id="jiggler" type="checkbox" />
+        <label for="jiggler">Idle mouse jiggler (nudge the cursor to keep the target awake)</label>
+    </div>
+
+    <div class="note">Saving relaunches the app so the connection and layout take effect.</div>
+
+    <div class="actions">
+        <button id="cancel" type="button">Cancel</button>
+        <button id="save" type="button" class="primary">Save &amp; restart</button>
+    </div>
+
+    <script>
+        (function () {
+            var S = window.pikvmSettings;
+            var urlEl = document.getElementById("pikvm-url");
+            var layoutEl = document.getElementById("layout");
+            var jigglerEl = document.getElementById("jiggler");
+            var saveEl = document.getElementById("save");
+            var cancelEl = document.getElementById("cancel");
+
+            var data = (S && S.read()) || { pikvmUrl: "", keyboardLayout: "us", jiggler: true, envLocked: false };
+            urlEl.value = data.pikvmUrl || "";
+            layoutEl.value = data.keyboardLayout === "uk" ? "uk" : "us";
+            jigglerEl.checked = !!data.jiggler;
+
+            saveEl.addEventListener("click", function () {
+                if (!S) return;
+                S.save({
+                    pikvmUrl: urlEl.value.trim(),
+                    keyboardLayout: layoutEl.value === "uk" ? "uk" : "us",
+                    jiggler: jigglerEl.checked,
+                });
+            });
+            cancelEl.addEventListener("click", function () { if (S) S.cancel(); });
+            // Enter in the URL field saves; Esc cancels.
+            document.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") saveEl.click();
+                else if (e.key === "Escape") cancelEl.click();
+            });
+            urlEl.focus();
+        })();
+    </script>
+</body>
+</html>

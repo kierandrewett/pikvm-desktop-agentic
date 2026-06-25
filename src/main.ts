@@ -279,6 +279,78 @@ ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: num
     );
 });
 
+// ── Settings window ──────────────────────────────────────────────────────────
+// The console's gear (and the native menu's "Settings") send console:open-agent-panel.
+// In the slim app there is no agent panel; open a small native Settings window with
+// the only things a PiKVM client needs: connection URL, keyboard layout, jiggler.
+const settingsFilePath = () => resolve(app.getPath("userData"), "agent-settings.json");
+let settingsWin: Electron.BrowserWindow | null = null;
+
+function openSettingsWindow() {
+    if (settingsWin && !settingsWin.isDestroyed()) {
+        settingsWin.focus();
+        return;
+    }
+    settingsWin = new BrowserWindow({
+        width: 460,
+        height: 360,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        center: true,
+        darkTheme: true,
+        title: "PiKVM Desktop — Settings",
+        backgroundColor: "#0a0a0c",
+        autoHideMenuBar: true,
+        show: false,
+        webPreferences: {
+            contextIsolation: true,
+            preload: resolve(__dirname, "preload-settings.js"),
+        },
+    });
+    settingsWin.removeMenu();
+    void settingsWin.loadFile(resolve(__dirname, "views", "settings-console.html"));
+    settingsWin.once("ready-to-show", () => settingsWin?.show());
+    settingsWin.on("closed", () => {
+        settingsWin = null;
+    });
+}
+
+ipcMain.on("console:open-agent-panel", () => openSettingsWindow());
+
+// Read current settings for the form (origin lives in the desktop config; layout +
+// jiggler in the SettingsStore file).
+ipcMain.on("settings:read", (e) => {
+    let pikvmUrl = "";
+    try {
+        pikvmUrl = loadConfig().origin || "";
+    } catch {
+        /* no config yet */
+    }
+    const s = new SettingsStore(settingsFilePath()).get();
+    e.returnValue = {
+        pikvmUrl,
+        keyboardLayout: s.keyboardLayout,
+        jiggler: s.jiggler,
+        envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN,
+    };
+});
+
+// Persist settings and relaunch so the new origin/layout apply cleanly (mirrors the
+// existing console:set-pikvm-origin behaviour).
+ipcMain.on("settings:save", (_e, v: { pikvmUrl?: unknown; keyboardLayout?: unknown; jiggler?: unknown }) => {
+    const layout = v?.keyboardLayout === "uk" ? "uk" : "us";
+    new SettingsStore(settingsFilePath()).patch({ keyboardLayout: layout, jiggler: !!v?.jiggler });
+    const cfg = loadConfig();
+    const url = typeof v?.pikvmUrl === "string" ? v.pikvmUrl.trim().replace(/\/$/, "") : "";
+    if (url) cfg.origin = url;
+    saveConfig(cfg);
+    app.relaunch();
+    app.exit(0);
+});
+
+ipcMain.on("settings:cancel", (e) => BrowserWindow.fromWebContents(e.sender)?.close());
+
 /** Standard editing context menu (cut/copy/paste/select all) for a view. */
 function attachContextMenu(wc: Electron.WebContents) {
     wc.on("context-menu", (_e, params) => {
