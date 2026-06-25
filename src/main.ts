@@ -454,6 +454,19 @@ function createWindow() {
     terminalView.setBackgroundColor("#0a0a0c");
     terminalView.setVisible(false);
 
+    // Second panel view: the native Agent panel (the pikvm-agent daemon front-end).
+    // It floats over the SAME panel rect as the terminal; the [Terminal|Agent] tabs
+    // in the console choose which one is visible. Like the terminal it's a plain web
+    // client loaded over HTTP (no preload) and never throttled.
+    const agentView = new WebContentsView({
+        webPreferences: {
+            contextIsolation: true,
+            backgroundThrottling: false,
+        },
+    });
+    agentView.setBackgroundColor("#0a0a0c");
+    agentView.setVisible(false);
+
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
 
     // Opt-in: load the KVM view through our own proxy instead of the Pi directly,
@@ -502,6 +515,7 @@ function createWindow() {
     win.contentView.addChildView(overlayView);
     win.contentView.addChildView(mainView);
     win.contentView.addChildView(terminalView);
+    win.contentView.addChildView(agentView);
 
     const layout = () => {
         const [w, h] = win.getContentSize();
@@ -589,6 +603,26 @@ function createWindow() {
         terminalFitTimer = setTimeout(run, 80);
     };
 
+    // Agent panel view: same retry-on-fail + open-links-externally guards as the
+    // terminal (the backend may not have bound yet on first paint).
+    agentView.webContents.on("did-fail-load", (_e, code, desc, url) => {
+        console.error(`[agent-renderer] did-fail-load ${code} ${desc} ${url}`);
+        if (!agentView.webContents.isDestroyed())
+            setTimeout(() => {
+                if (!agentView.webContents.isDestroyed())
+                    void agentView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/agent.html`);
+            }, 500);
+    });
+    agentView.webContents.setWindowOpenHandler(({ url }) => {
+        openTerminalUrlExternally(url);
+        return { action: "deny" };
+    });
+    agentView.webContents.on("will-navigate", (e, url) => {
+        if (url.startsWith(`http://127.0.0.1:${CONTROL_PORT}/_agent/`)) return;
+        e.preventDefault();
+        openTerminalUrlExternally(url);
+    });
+
     // Any external task → type it into the primary terminal session.
     ipcMain.on("console:run-task", (_, task: unknown) => {
         if (typeof task === "string" && task.trim() && backend)
@@ -598,19 +632,40 @@ function createWindow() {
     // terminal view there. Empty/zero → hide it (panel collapsed). The renderer re-fits on
     // its own resize events when these bounds change.
     let termRectSeen = false;
+    // Both panel views overlay the SAME reported rect; `activeTab` (set by the
+    // [Terminal|Agent] tabs) picks which is visible. A zero rect (panel collapsed)
+    // hides both.
+    let activeTab: "terminal" | "agent" = "terminal";
+    let lastPanelRect = { x: 0, y: 0, width: 0, height: 0 };
+    const applyPanelViews = () => {
+        const { x, y, width, height } = lastPanelRect;
+        const visible = width > 1 && height > 1;
+        const showTerminal = visible && activeTab === "terminal";
+        const showAgent = visible && activeTab === "agent";
+        terminalView.setVisible(showTerminal);
+        agentView.setVisible(showAgent);
+        if (showTerminal) {
+            terminalView.setBounds({ x, y, width, height });
+            requestTerminalFit();
+        }
+        if (showAgent) agentView.setBounds({ x, y, width, height });
+    };
     ipcMain.on("console:terminal-rect", (_, r: { x?: number; y?: number; width?: number; height?: number }) => {
         const x = Math.round(Number(r?.x) || 0);
         const y = Math.round(Number(r?.y) || 0);
         const width = Math.round(Number(r?.width) || 0);
         const height = Math.round(Number(r?.height) || 0);
-        if (width > 1 && height > 1) {
-            if (!termRectSeen) { console.log(`[console:terminal-rect] first show ${width}x${height} @${x},${y}`); termRectSeen = true; }
-            terminalView.setVisible(true);
-            terminalView.setBounds({ x, y, width, height });
-            requestTerminalFit();
-        } else {
-            terminalView.setVisible(false);
+        lastPanelRect = { x, y, width, height };
+        if (width > 1 && height > 1 && !termRectSeen) {
+            console.log(`[console:terminal-rect] first show ${width}x${height} @${x},${y}`);
+            termRectSeen = true;
         }
+        applyPanelViews();
+    });
+    // The console's [Terminal|Agent] tab switch.
+    ipcMain.on("console:panel-tab", (_, tab: unknown) => {
+        activeTab = tab === "agent" ? "agent" : "terminal";
+        applyPanelViews();
     });
     win.on("closed", () => {
         backend?.terminalSessions.killAll();
@@ -650,6 +705,7 @@ function createWindow() {
     // Now that the backend is listening, load the shared terminal renderer over HTTP so it's
     // same-origin with its /_agent/terminal WebSocket (the desktop view and mobile both use it).
     void terminalView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`);
+    void agentView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/agent.html`);
 
     ipcMain.on("open-external", (_, url: string) => {
         if (typeof url === "string" && /^https?:\/\//.test(url)) void shell.openExternal(url);

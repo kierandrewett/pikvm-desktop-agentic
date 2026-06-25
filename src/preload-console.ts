@@ -69,6 +69,8 @@ export interface DesktopConsoleApi {
     /** Persist the PiKVM URL the local backend connects to, and relaunch. */
     setPikvmOrigin(url: string): void;
     reportTerminalRect(rect: { x: number; y: number; width: number; height: number }): void;
+    /** Pick which native view floats over the panel rect: the terminal or the Agent panel. */
+    setPanelTab(tab: "terminal" | "agent"): void;
     runTask(task: string): void;
     /** Open Settings / Monitor / History in their own window (terminal mode). */
     openAgentPanel(id: "settings" | "ambient" | "history"): void;
@@ -105,6 +107,7 @@ const api: DesktopConsoleApi = {
     // Tell main where the agent-panel content sits, so it floats the Claude Code
     // terminal view there. Pass width/height 0 when the panel is collapsed.
     reportTerminalRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:terminal-rect", rect),
+    setPanelTab: (tab) => ipcRenderer.send("console:panel-tab", tab),
     // Hand a task (e.g. a tapped suggestion) to the live Claude Code session.
     runTask: (task: string) => ipcRenderer.send("console:run-task", task),
     // Settings / Monitor / History open in their own window in terminal mode.
