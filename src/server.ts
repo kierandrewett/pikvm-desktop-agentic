@@ -15,6 +15,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import type { PiKvmControl } from "./pikvm-control";
 import { createPiKvmProxy } from "./proxy";
+import { createDaemonProxy } from "./daemon-proxy";
 import { WebSocketServer } from "ws";
 import type { TerminalSessions, ClientMsg } from "./terminal-server";
 import { MouseJiggler } from "./mouse-jiggler";
@@ -67,6 +68,9 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         onHidActivity: () => jiggler.noteUserActivity(),
     });
 
+    // The native Agent panel reaches the pikvm-agent daemon's HTTP API through here.
+    const daemonProxy = createDaemonProxy({ origin: deps.daemonOrigin ?? "http://127.0.0.1:47615" });
+
     /** Thin server state: just what the web/desktop console reads (the PiKVM
      *  keyboard layout, the jiggler toggle). No agent surface. */
     const state = () => {
@@ -110,6 +114,14 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         }
         // Strip the namespace so the existing route table matches unchanged.
         path = path.slice("/_agent".length) || "/";
+
+        // The pikvm-agent daemon is reverse-proxied under /_agent/daemon/* so the
+        // same-origin Agent panel can reach its API (sessions/frames/approvals) with
+        // no CORS. All methods + binary frames stream straight through.
+        if (path === "/daemon" || path.startsWith("/daemon/")) {
+            daemonProxy.handleHttp(req, res);
+            return;
+        }
 
         // Auth pages (only meaningful when a token is configured).
         if (path === "/login" && req.method === "GET") {
