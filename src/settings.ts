@@ -26,6 +26,10 @@ export interface AppSettings {
     /** Opt-in: the desktop KVM view loads through our proxy instead of the Pi
      *  directly (one rendering path with the web client). Off by default. */
     desktopUseProxy: boolean;
+    /** Base URL of the pikvm-agent daemon the Agent panel talks to (proxied at
+     *  /_agent/daemon/*). Defaults to http://127.0.0.1:47615; env PIKVM_AGENT_DAEMON
+     *  overrides. The app does NOT spawn the daemon — it's a separate process. */
+    daemonUrl?: string;
     /** Working directory for terminal sessions. */
     atlas: AtlasSettings;
 }

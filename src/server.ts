@@ -29,6 +29,9 @@ export interface ServerDeps {
     settings: SettingsStore;
     /** Server-hosted terminal sessions, streamed to all devices over /_agent/terminal. */
     terminalSessions?: TerminalSessions;
+    /** Base URL of the pikvm-agent daemon, reverse-proxied at /_agent/daemon/* so the
+     *  same-origin Agent panel can reach its HTTP API without CORS. */
+    daemonOrigin?: string;
 }
 
 function json(res: ServerResponse, status: number, body: unknown) {

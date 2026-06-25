@@ -128,8 +128,10 @@ function startProxyAndTerminal(origin: string, settings: SettingsStore) {
         },
     });
 
-    startControlServer({ control, settings, terminalSessions }, CONTROL_PORT, bindHost);
-    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*)`);
+    // The pikvm-agent daemon (separate process) the Agent panel proxies to.
+    const daemonOrigin = (process.env.PIKVM_AGENT_DAEMON || settings.get().daemonUrl || "http://127.0.0.1:47615").replace(/\/$/, "");
+    startControlServer({ control, settings, terminalSessions, daemonOrigin }, CONTROL_PORT, bindHost);
+    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
     return { control, settings, terminalSessions };
 }
 
