@@ -878,99 +878,6 @@
         if (!meterRaf) meterRaf = raf(meterTick);
     }
 
-    // ---- transcription capture --------------------------------------------------
-    // When the server says transcription is wanted (the "transcribe" setting), record
-    // the live WebRTC audio in short COMPLETE webm files and POST each to the server,
-    // which feeds them into the local whisper pipeline. We tap the remote audio TRACK
-    // directly via MediaRecorder — NO AudioContext, so it can't grab/switch the OS
-    // output device (the bug that haunted the meter) and works regardless of whether
-    // the user has the speaker muted. Discrete ~8s recordings (not timeslice fragments)
-    // because a mid-stream webm chunk isn't independently decodable. This is what makes
-    // transcription work in the console; the legacy native-UI capture path doesn't run.
-    var txWanted = false; // server: transcription requested
-    var txRec = null; // active MediaRecorder, or null between cycles
-    var txTimer = 0;
-    function txAudioTrack() {
-        if (!webrtcActive || !vid.srcObject || !vid.srcObject.getAudioTracks) return null;
-        var a = vid.srcObject.getAudioTracks();
-        return a && a.length ? a[0] : null;
-    }
-    function txRecordOnce() {
-        txTimer = 0;
-        var track = txWanted ? txAudioTrack() : null;
-        if (!track || typeof MediaRecorder === "undefined") {
-            txRec = null;
-            return;
-        }
-        var ms, rec;
-        try {
-            ms = new MediaStream([track]);
-        } catch (e) {
-            txRec = null;
-            return;
-        }
-        try {
-            rec = new MediaRecorder(ms, { mimeType: "audio/webm" });
-        } catch (e) {
-            try {
-                rec = new MediaRecorder(ms);
-            } catch (e2) {
-                txRec = null;
-                return;
-            }
-        }
-        txRec = rec;
-        var chunks = [];
-        rec.ondataavailable = function (ev) {
-            if (ev.data && ev.data.size) chunks.push(ev.data);
-        };
-        rec.onstop = function () {
-            var blob = new Blob(chunks, { type: "audio/webm" });
-            chunks = [];
-            if (blob.size > 2000) {
-                var fr = new FileReader();
-                fr.onload = function () {
-                    var b64 = String(fr.result).split(",")[1] || "";
-                    fetch("/_agent/api/transcribe/audio", {
-                        method: "POST",
-                        headers: { "Content-Type": "text/plain" },
-                        body: b64,
-                    }).catch(function () {});
-                };
-                fr.readAsDataURL(blob);
-            }
-            // Keep cycling while still wanted and audio is present; otherwise idle until
-            // txEval restarts us (audio returning, or the toggle flipping back on).
-            if (txWanted && txAudioTrack()) txTimer = setTimeout(txRecordOnce, 60);
-            else txRec = null;
-        };
-        try {
-            rec.start();
-        } catch (e) {
-            txRec = null;
-            return;
-        }
-        setTimeout(function () {
-            try {
-                if (rec.state !== "inactive") rec.stop();
-            } catch (e) {}
-        }, 8000);
-    }
-    function txEval() {
-        var want = txWanted && !!txAudioTrack();
-        if (want && !txRec) txRecordOnce();
-        else if (!want && txRec) {
-            try {
-                if (txRec.state !== "inactive") txRec.stop();
-            } catch (e) {}
-        }
-    }
-    // Audio can appear after the toggle (stream connects later) or come and go; a light
-    // poll restarts capture when the track returns. The recorder itself is the load —
-    // this is just a cheap presence check, and it no-ops entirely when not wanted.
-    setInterval(function () {
-        if (txWanted && !txRec && txAudioTrack()) txRecordOnce();
-    }, 4000);
     function paintToggle(btn, pip, on, warn, label) {
         if (!btn || !pip) return;
         btn.classList.toggle("on", on);
@@ -1775,7 +1682,7 @@
         chatResize.addEventListener("pointercancel", cresizeEnd);
     }
 
-    /* ---- merged bar: drive the embedded agent + show its status ---- */
+    /* ---- merged bar: drive the embedded terminal (e.g. "new tab") ---- */
     document.querySelectorAll("[data-agent]").forEach(function (btn) {
         btn.addEventListener("click", function () {
             try {
@@ -1783,18 +1690,11 @@
             } catch (e) {}
         });
     });
-    var agentStatusEl = document.getElementById("agent-status");
     window.addEventListener("message", function (e) {
         var d = e.data;
         if (!d) return;
-        if (d.type === "agent-status" && agentStatusEl) {
-            agentStatusEl.textContent = "· " + (d.text || "Idle");
-            agentStatusEl.classList.toggle("busy", !!d.busy);
-        } else if (d.type === "chat-fullscreen") {
-            // The embedded agent opened a panel — expand the chat to cover the phone.
-            app.classList.toggle("chat-full", !!d.on);
-        } else if (d.type === "chat-ready") {
-            reveal(); // conversation loaded — slide the chat in
+        if (d.type === "chat-ready") {
+            reveal(); // terminal loaded — slide the panel in
             sendDesktopOrigin();
         } else if (d.type === "desktop-origin-request") {
             // The embedded settings (re)opened and wants the current origin config.
@@ -1909,15 +1809,11 @@
         // the old chat here; we just report where the panel content sits so main can
         // position the terminal there (and hide it when the panel is collapsed).
         chatFrame.src = "about:blank";
-        // Chat-specific header controls (new chat / history / copy conversation) and
-        // the old status text don't apply to the shared terminal — hide them.
-        ["new", "history", "copy"].forEach(function (a) {
-            document.querySelectorAll('[data-agent="' + a + '"]').forEach(function (el) {
-                el.style.display = "none";
-            });
+        // The "new tab" button drives the embedded terminal iframe on web/mobile; on
+        // desktop the terminal is a native child view, so hide it here.
+        document.querySelectorAll('[data-agent="new"]').forEach(function (el) {
+            el.style.display = "none";
         });
-        var asEl = document.getElementById("agent-status");
-        if (asEl) asEl.style.display = "none";
         var reportTermRect = function () {
             try {
                 var shown = typeof panelShown === "function" ? panelShown() : true;
@@ -1961,495 +1857,9 @@
         hint.textContent = isTouch ? "Trackpad" : "Pointer";
     }
 
-    /* ---- agent X-ray overlay + meeting copilot (fed by SSE) ----
-     * Renders the same cursor / look / typing / acting / context the desktop's
-     * native overlay shows, mapped onto the live screen (incl. zoom/pan), plus the
-     * floating copilot. Guarded so the node test (no EventSource) skips it. */
-    if (typeof EventSource !== "undefined") {
-        setupOverlays();
-    }
-    function setupOverlays() {
-        var xray = document.getElementById("xray");
-        var aiCursor = document.getElementById("ai-cursor");
-        var actingAction = document.getElementById("acting-action");
-        var actingCtx = document.getElementById("acting-ctx");
-        if (!xray || !aiCursor) return;
-
-        // Frame fraction (0..1) -> pane-relative px on the screen content (tracks
-        // the object-fit letterbox AND the current zoom/pan transform).
-        function contentBox() {
-            var r = streamEl().getBoundingClientRect();
-            var nw = geomW();
-            var nh = geomH();
-            var elemAR = r.width / r.height;
-            var natAR = nw / nh;
-            var cw, ch, ox, oy;
-            if (elemAR > natAR) {
-                ch = r.height;
-                cw = ch * natAR;
-                ox = (r.width - cw) / 2;
-                oy = 0;
-            } else {
-                cw = r.width;
-                ch = cw / natAR;
-                ox = 0;
-                oy = (r.height - ch) / 2;
-            }
-            var pr = pane.getBoundingClientRect();
-            return { left: r.left + ox - pr.left, top: r.top + oy - pr.top, width: cw, height: ch };
-        }
-        function pt(fx, fy) {
-            var b = contentBox();
-            return { x: b.left + fx * b.width, y: b.top + fy * b.height };
-        }
-
-        var cur = { x: 0, y: 0 };
-        var tgt = { x: 0, y: 0 };
-        var lerpRaf = null; // NOT named `raf` — that would shadow the outer rAF polyfill scheduleRegions uses
-        function lerp() {
-            cur.x += (tgt.x - cur.x) * 0.18;
-            cur.y += (tgt.y - cur.y) * 0.18;
-            aiCursor.style.left = cur.x + "px";
-            aiCursor.style.top = cur.y + "px";
-            lerpRaf = Math.abs(tgt.x - cur.x) > 0.4 || Math.abs(tgt.y - cur.y) > 0.4 ? requestAnimationFrame(lerp) : null;
-        }
-        function onCursor(d) {
-            if (!d.w || !d.h) return;
-            var p = pt(d.x / d.w, d.y / d.h);
-            tgt = p;
-            aiCursor.classList.add("show");
-            if (!lerpRaf) lerpRaf = requestAnimationFrame(lerp);
-            if (d.kind === "click" || d.kind === "double_click") {
-                var b = document.createElement("div");
-                b.className = "click-burst";
-                b.style.left = p.x + "px";
-                b.style.top = p.y + "px";
-                xray.appendChild(b);
-                setTimeout(function () {
-                    b.remove();
-                }, 600);
-            }
-        }
-        var mousePathTimer = null;
-        function pathData(points) {
-            return points
-                .map(function (p, i) {
-                    return (i === 0 ? "M" : "L") + p.x.toFixed(1) + " " + p.y.toFixed(1);
-                })
-                .join(" ");
-        }
-        function onMousePath(d) {
-            if (!d.w || !d.h || !Array.isArray(d.points) || d.points.length < 2) return;
-            var old = xray.querySelector(".mouse-path-svg");
-            if (old) old.remove();
-            if (mousePathTimer) clearTimeout(mousePathTimer);
-            var pts = d.points.map(function (p) {
-                return pt(p.x / d.w, p.y / d.h);
-            });
-            var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svg.setAttribute("class", "mouse-path-svg");
-            svg.setAttribute("viewBox", "0 0 " + (xray.clientWidth || pane.clientWidth || 1) + " " + (xray.clientHeight || pane.clientHeight || 1));
-            var straight = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            straight.setAttribute("class", "mouse-path-straight");
-            straight.setAttribute("d", pathData([pts[0], pts[pts.length - 1]]));
-            var wind = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            wind.setAttribute("class", "mouse-path-wind");
-            wind.setAttribute("d", pathData(pts));
-            svg.appendChild(straight);
-            svg.appendChild(wind);
-            xray.appendChild(svg);
-            mousePathTimer = setTimeout(function () {
-                svg.remove();
-            }, 1900);
-        }
-        function onRegion(d) {
-            if (!d.w || !d.h) return;
-            var b = contentBox();
-            var p = pt(d.x / d.w, d.y / d.h);
-            var box = document.createElement("div");
-            box.className = "look-box";
-            box.style.left = p.x + "px";
-            box.style.top = p.y + "px";
-            box.style.width = Math.max(10, (d.width / d.w) * b.width) + "px";
-            box.style.height = Math.max(10, (d.height / d.h) * b.height) + "px";
-            var tag = document.createElement("div");
-            tag.className = "look-tag";
-            tag.textContent = d.label || "Looking";
-            box.appendChild(tag);
-            var scan = document.createElement("div");
-            scan.className = "scan";
-            box.appendChild(scan);
-            xray.appendChild(box);
-            requestAnimationFrame(function () {
-                box.classList.add("show");
-            });
-            setTimeout(function () {
-                box.classList.remove("show");
-                setTimeout(function () {
-                    box.remove();
-                }, 240);
-            }, d.hold || 1500);
-        }
-        // LLM-segmented region map: persistent, thin labelled rectangles for the
-        // salient regions (windows, taskbar, AVD, terminal…), redrawn whenever a
-        // fresh map arrives. Held in their own layer so they can be re-scaled with
-        // the stream (letterbox + zoom/pan) on every reflow, like the other boxes.
-        var regionsLayer = null;
-        var lastRegions = null;
-        var regionBoxes = []; // reused {box, tag} pool — no DOM churn on pan/zoom/resize
-        var regionsRaf = 0;
-        function scheduleRegions() {
-            // Coalesce the many transform/resize callbacks into ONE repaint per frame.
-            if (!regionsRaf)
-                regionsRaf = raf(function () {
-                    regionsRaf = 0;
-                    renderRegions();
-                });
-        }
-        function renderRegions() {
-            if (!lastRegions || !lastRegions.w || !lastRegions.h) return;
-            if (!regionsLayer) {
-                regionsLayer = document.createElement("div");
-                regionsLayer.className = "region-layer";
-                xray.appendChild(regionsLayer);
-            }
-            var b = contentBox();
-            var rs = lastRegions.regions || [];
-            // Rebuild the pool only when the region COUNT changes; otherwise reuse the
-            // divs and just reposition (no createElement/appendChild on every reflow).
-            if (regionBoxes.length !== rs.length) {
-                regionsLayer.textContent = "";
-                regionBoxes = [];
-                for (var k = 0; k < rs.length; k++) {
-                    var nb = document.createElement("div");
-                    nb.className = "region-box";
-                    var nt = document.createElement("div");
-                    nt.className = "region-tag";
-                    nb.appendChild(nt);
-                    regionsLayer.appendChild(nb);
-                    regionBoxes.push({ box: nb, tag: nt });
-                }
-            }
-            for (var i = 0; i < rs.length; i++) {
-                var r = rs[i];
-                var p = pt(r.x / lastRegions.w, r.y / lastRegions.h);
-                var bx = regionBoxes[i];
-                bx.box.style.left = p.x + "px";
-                bx.box.style.top = p.y + "px";
-                bx.box.style.width = Math.max(8, (r.width / lastRegions.w) * b.width) + "px";
-                bx.box.style.height = Math.max(8, (r.height / lastRegions.h) * b.height) + "px";
-                var label = (r.label || "Region") + (r.kind ? " · " + r.kind : "");
-                if (bx.tag.textContent !== label) bx.tag.textContent = label;
-            }
-        }
-        function onRegions(d) {
-            if (!d) return;
-            // An empty map (sent when the agent hands control back) clears the boxes.
-            if (!d.regions || !d.regions.length) {
-                lastRegions = null;
-                regionBoxes = [];
-                if (regionsLayer) regionsLayer.textContent = "";
-                return;
-            }
-            if (!d.w || !d.h) return;
-            lastRegions = d;
-            renderRegions();
-        }
-        clearRegionMapForManualInput = function () {
-            lastRegions = null;
-            regionBoxes = [];
-            if (regionsLayer) regionsLayer.textContent = "";
-        };
-        // Keep the persistent region boxes glued to the stream as it zooms/pans/resizes
-        // — coalesced to one repaint per frame.
-        onXform = scheduleRegions;
-        window.addEventListener("resize", scheduleRegions);
-
-        var typeBox = null;
-        var typeHide = null;
-        function onTyping(d) {
-            if (!d.w || !d.h) return;
-            if (!typeBox) {
-                typeBox = document.createElement("div");
-                typeBox.className = "type-box";
-                typeBox.innerHTML = '<div class="type-tag"></div><div class="pbar"></div>';
-                xray.appendChild(typeBox);
-            }
-            if (typeHide) {
-                clearTimeout(typeHide);
-                typeHide = null;
-            }
-            var tag = typeBox.querySelector(".type-tag");
-            var bar = typeBox.querySelector(".pbar");
-            if (d.region) {
-                var b = contentBox();
-                var p = pt(d.region.x / d.w, d.region.y / d.h);
-                typeBox.style.left = p.x + "px";
-                typeBox.style.top = p.y + "px";
-                typeBox.style.width = Math.max(12, (d.region.width / d.w) * b.width) + "px";
-                typeBox.style.height = Math.max(10, (d.region.height / d.h) * b.height) + "px";
-            }
-            typeBox.classList.remove("verifying", "verified", "correcting");
-            typeBox.classList.add("show");
-            switch (d.phase) {
-                case "start":
-                    tag.textContent = "Typing…";
-                    bar.style.width = "0%";
-                    break;
-                case "located":
-                case "progress":
-                    tag.textContent = "Typing…";
-                    if (typeof d.done === "number" && d.total) bar.style.width = Math.min(100, Math.round((100 * d.done) / d.total)) + "%";
-                    break;
-                case "verifying":
-                    tag.textContent = "Verifying…";
-                    typeBox.classList.add("verifying");
-                    break;
-                case "verified":
-                    tag.textContent = "Verified ✓";
-                    typeBox.classList.add("verified");
-                    break;
-                case "correcting":
-                    tag.textContent = d.reason === "no-focus" ? "Not focused ✗" : d.reason === "layout" ? "Layout slip — fixing ✗" : "Fixing ✗";
-                    typeBox.classList.add("correcting");
-                    break;
-                case "done":
-                    tag.textContent = d.ok ? (d.corrected ? "Fixed ✓" : "Verified ✓") : "Check failed";
-                    typeBox.classList.add(d.ok ? "verified" : "correcting");
-                    bar.style.width = "100%";
-                    typeHide = setTimeout(function () {
-                        if (typeBox) typeBox.classList.remove("show");
-                    }, 1500);
-                    break;
-            }
-        }
-        function onActing(d) {
-            if (d.active) {
-                Object.keys(heldMouseButtons).forEach(function (b) {
-                    hid.button(b, false);
-                    delete heldMouseButtons[b];
-                });
-                if (pressing) hid.button("left", false);
-                pressing = false;
-                pts.clear();
-                startPt = null;
-                twoStart = null;
-                moved = false;
-                dragLock = false;
-                scrollAcc = 0;
-                cancelLongPress();
-                keyQ = [];
-                clearArmed();
-                if (dragBtn) dragBtn.classList.remove("on");
-            }
-            agentActing = !!d.active; // gate user HID input (hid.send drops while true)
-            pane.classList.toggle("acting", !!d.active);
-            if (d.active && actingAction && d.action) actingAction.textContent = d.action;
-            if (!d.active) aiCursor.classList.remove("show");
-            if (d.active && kvmCursor) kvmCursor.style.display = "none"; // hide the user blob while the agent drives
-            // The agent is driving now — drop any suggestion card immediately.
-            if (d.active && typeof renderSuggestions === "function") renderSuggestions([]);
-        }
-        function onContext(c) {
-            if (!actingCtx) return;
-            if (!c || !c.app) {
-                actingCtx.classList.remove("show");
-                return;
-            }
-            actingCtx.classList.add("show");
-            actingCtx.classList.toggle("sensitive", !!c.sensitive);
-            actingCtx.textContent = "· " + (c.sensitive ? c.app + " — sensitive, needs approval" : c.app);
-        }
-
-        var es = new EventSource("/_agent/api/overlay/stream");
-        es.onmessage = function (ev) {
-            var d;
-            try {
-                d = JSON.parse(ev.data);
-            } catch (e) {
-                return;
-            }
-            if (d.type === "cursor") onCursor(d);
-            else if (d.type === "mouse_path") onMousePath(d);
-            else if (d.type === "region") onRegion(d);
-            else if (d.type === "regions") onRegions(d);
-            else if (d.type === "typing") onTyping(d);
-            else if (d.type === "acting") onActing(d);
-            else if (d.type === "context") onContext(d);
-            else if (d.type === "suggestions") onSuggestions(d);
-        };
-
-        /* ---- proactive "suggested actions" card over the live screen ---- */
-        var suggestLayer = null;
-        var lastNotifiedSug = null;
-        function renderSuggestions(items) {
-            if (!suggestLayer) {
-                suggestLayer = document.createElement("div");
-                suggestLayer.className = "suggest-layer";
-                (pane || document.body).appendChild(suggestLayer);
-            }
-            suggestLayer.textContent = "";
-            if (!items || !items.length) {
-                suggestRunning = false;
-                suggestLayer.classList.remove("show");
-                return;
-            }
-            items.forEach(function (it) {
-                var card = document.createElement("div");
-                card.className = "suggest-card";
-                var info = document.createElement("div");
-                info.className = "suggest-info";
-                var t = document.createElement("div");
-                t.className = "suggest-title";
-                t.textContent = "Suggested action";
-                var sub = document.createElement("div");
-                sub.className = "suggest-sub";
-                sub.textContent = it.detail || it.title;
-                info.appendChild(t);
-                info.appendChild(sub);
-                var run = document.createElement("button");
-                run.className = "suggest-run";
-                run.textContent = it.title || "Do it";
-                run.addEventListener("click", function () { runSuggestion(it); });
-                var x = document.createElement("button");
-                x.className = "suggest-x";
-                x.title = "Dismiss";
-                x.textContent = "✕";
-                x.addEventListener("click", function () { dismissSuggestion(it); });
-                card.appendChild(info);
-                card.appendChild(run);
-                card.appendChild(x);
-                suggestLayer.appendChild(card);
-            });
-            suggestLayer.classList.add("show");
-            maybeNotifySuggestion(items[0]);
-        }
-        function onSuggestions(d) {
-            // Don't stomp the "Running…" card we show after a tap with a fresh
-            // suggestion until the agent has actually taken over (onActing clears it).
-            if (suggestRunning) return;
-            renderSuggestions(d.items || []);
-        }
-        var suggestRunning = false;
-        function runSuggestion(it) {
-            // Immediate feedback — swap the card to a working state so the tap clearly
-            // did something (the agent's real progress shows in the panel + KVM border).
-            showSuggestionRunning(it);
-            // DESKTOP: type the task into the live terminal session.
-            if (window.desktopConsole && window.desktopConsole.runTask) {
-                window.desktopConsole.runTask(it.task);
-                return;
-            }
-            // WEB / MOBILE fallback: the legacy chat agent endpoint.
-            fetch("/_agent/api/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: [{ role: "user", parts: [{ type: "text", text: it.task }] }], clientId: "suggest", trusted: true, suggestionId: it.id, suggestionTitle: it.title }),
-            }).catch(function () {});
-        }
-        function showSuggestionRunning(it) {
-            if (!suggestLayer) return;
-            suggestRunning = true;
-            suggestLayer.textContent = "";
-            var card = document.createElement("div");
-            card.className = "suggest-card";
-            var info = document.createElement("div");
-            info.className = "suggest-info";
-            var t = document.createElement("div");
-            t.className = "suggest-title";
-            t.textContent = "Running";
-            var sub = document.createElement("div");
-            sub.className = "suggest-sub";
-            sub.textContent = it.title;
-            info.appendChild(t);
-            info.appendChild(sub);
-            var spin = document.createElement("div");
-            spin.className = "suggest-spin";
-            card.appendChild(info);
-            card.appendChild(spin);
-            suggestLayer.appendChild(card);
-            suggestLayer.classList.add("show");
-            // Safety: if the agent never visibly takes over, clear after a while.
-            setTimeout(function () {
-                if (suggestRunning) {
-                    suggestRunning = false;
-                    renderSuggestions([]);
-                }
-            }, 12000);
-        }
-        function dismissSuggestion(it) {
-            fetch("/_agent/api/suggestions/dismiss", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: it.id }),
-            }).catch(function () {});
-            renderSuggestions([]);
-        }
-        // Mirror the sidebar's Web-Notification opt-in (same origin → shared toggle).
-        function maybeNotifySuggestion(it) {
-            try {
-                if (!it || it.id === lastNotifiedSug) return;
-                lastNotifiedSug = it.id;
-                if (typeof Notification === "undefined") return;
-                if (localStorage.getItem("pikvm-web-notifs") !== "1" || Notification.permission !== "granted") return;
-                if (document.visibilityState === "visible" && document.hasFocus()) return;
-                var n = new Notification("Suggested: " + (it.title || "action"), { body: it.detail || it.task || "", icon: "/_agent/icon.png", tag: "agent-suggestion" });
-                n.onclick = function () { try { window.focus(); } catch (e) {} n.close(); };
-            } catch (e) {}
-        }
-
-        var stopBtn = document.getElementById("act-stop");
-        var pauseBtn = document.getElementById("act-pause");
-        if (stopBtn) stopBtn.addEventListener("click", function () {
-            // Instant escape: release agent control of the KVM locally RIGHT NOW so the
-            // user gets the keyboard/mouse back without waiting for the server's
-            // acting:false to round-trip over SSE. The POST then actually halts the run.
-            try {
-                onActing({ active: false });
-            } catch (e) {
-                agentActing = false;
-            }
-            fetch("/_agent/api/stop", { method: "POST" }).catch(function () {});
-        });
-        if (pauseBtn) pauseBtn.addEventListener("click", function () {
-            fetch("/_agent/api/pause", { method: "POST" }).catch(function () {});
-        });
-
-        // Ambient SSE: drives the in-page meeting copilot AND transcription capture.
-        // The in-page #copilot is the WEB/MOBILE copilot only — on the desktop the
-        // native floating "Meeting copilot" window owns suggestions, so showing this one
-        // too is the "two copilots" duplicate. We still keep the SSE open on desktop
-        // because the transcribe signal rides it; we just don't pop the in-page card.
-        var copilot = document.getElementById("copilot");
-        var copilotBody = document.getElementById("copilot-body");
-        var copilotX = document.getElementById("copilot-x");
-        var showInPageCopilot = !!(copilot && copilotBody) && !window.desktopConsole;
-        if (copilotX) copilotX.addEventListener("click", function () {
-            if (copilot) copilot.classList.remove("show");
-        });
-        var aes = new EventSource("/_agent/api/ambient/stream");
-        aes.onmessage = function (ev) {
-            var d;
-            try {
-                d = JSON.parse(ev.data);
-            } catch (e) {
-                return;
-            }
-            if (d.level === "transcribe") {
-                txWanted = !!d.on;
-                txEval();
-                return;
-            }
-            if (d.level === "suggestion" && d.text && showInPageCopilot) {
-                copilot.classList.add("show");
-                var s = document.createElement("div");
-                s.className = "sug";
-                s.textContent = d.text;
-                copilotBody.insertBefore(s, copilotBody.firstChild);
-                while (copilotBody.children.length > 8) copilotBody.removeChild(copilotBody.lastChild);
-            }
-        };
-    }
+    // The agent X-ray overlay, meeting copilot, suggestion cards and the overlay/
+    // ambient SSE streams were removed with the in-app agent. `clearRegionMapForManualInput`
+    // and `onXform` keep their safe no-op/null defaults declared above.
 
     // Keep the picture from being zoomed by the browser's own pinch.
     document.addEventListener("gesturestart", function (e) {
@@ -2662,15 +2072,13 @@
         if (tbAudio) tbAudio.addEventListener("click", function () { var b = document.getElementById("audio-btn"); if (b) b.click(); });
         if (tbMic) tbMic.addEventListener("click", function () { var b = document.getElementById("mic-btn"); if (b) b.click(); });
 
-        // Titlebar Settings (models / MCP / secrets / behaviour) + Monitor (ambient) open in
-        // their own windows. Visible buttons so they're discoverable (not just in the ⋯ menu).
+        // Titlebar Settings opens in its own window. Visible button so it's
+        // discoverable (not just in the ⋯ menu).
         function openPanelWin(id) {
             if (window.desktopConsole && window.desktopConsole.openAgentPanel) window.desktopConsole.openAgentPanel(id);
         }
         var tbSettings = document.getElementById("tb-settings");
         if (tbSettings) tbSettings.addEventListener("click", function () { openPanelWin("settings"); });
-        var tbMonitor = document.getElementById("tb-monitor");
-        if (tbMonitor) tbMonitor.addEventListener("click", function () { openPanelWin("ambient"); });
 
         /* ---- NATIVE context menu (replaces the HTML .more-menu) ----
          * The same actions the web ⋯ menu offers, plus the WebRTC Audio/Mic
@@ -2684,18 +2092,16 @@
             return !!(audioBtnEl && !audioBtnEl.hidden);
         }
         // Terminal mode (desktop): the "chat" is the shared shell terminal, which keeps its
-        // own history — so History / Copy-conversation don't apply; Monitor + Settings open
-        // in their own windows.
+        // own history — so History / Copy-conversation don't apply; Settings opens in its
+        // own window.
         var isTerminalMode = !!(window.desktopConsole && window.desktopConsole.reportTerminalRect);
         function buildMenu() {
             var items = isTerminalMode
                 ? [
-                      { id: "ambient", label: "Monitor" },
                       { id: "settings", label: "Settings" },
                   ]
                 : [
                       { id: "history", label: "History" },
-                      { id: "ambient", label: "Monitor" },
                       { id: "settings", label: "Settings" },
                       { id: "copy", label: "Copy conversation" },
                   ];
@@ -2719,7 +2125,6 @@
             }
             switch (id) {
                 case "history":
-                case "ambient":
                 case "settings":
                     // Terminal mode: open the panel in its own window. Web/legacy: drive the
                     // embedded chat iframe as before.

@@ -61,12 +61,8 @@
                 <button class="tb-btn" id="tb-fit" title="Fit to native resolution" aria-label="Fit to native resolution">
                     <span class="tb-ico" style="--icon: url(/_agent/native.svg)"></span>
                 </button>
-                <!-- Monitor (ambient) + Settings (models / MCP / secrets / behaviour) — open in their own windows. -->
-                <button class="tb-btn" id="tb-monitor" title="Monitor (ambient)" aria-label="Monitor">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
-                </button>
-                <button class="tb-btn" id="tb-settings" title="Settings (models, MCP, secrets)" aria-label="Settings">
+                <!-- Settings (connection / origin) — opens in its own window. -->
+                <button class="tb-btn" id="tb-settings" title="Settings" aria-label="Settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
                 </button>
@@ -95,12 +91,6 @@
                      the Audio toggle unmutes the remote audio track. -->
                 <video id="screen-video" class="hidden" autoplay playsinline muted></video>
 
-                <!-- Agent "X-ray": cursor / look / typing boxes drawn over the screen,
-                     fed by /_agent/api/overlay/stream. pointer-events:none. -->
-                <div class="xray" id="xray">
-                    <div class="ai-cursor" id="ai-cursor"></div>
-                </div>
-
                 <!-- Our own cursor (the OS one is hidden over the screen), styled
                      like PiKVM's: a translucent blue dot with a light ring. -->
                 <div class="kvm-cursor" id="kvm-cursor"></div>
@@ -111,28 +101,6 @@
                 <div class="res-toast" id="res-toast">
                     <span id="res-toast-main">—</span>
                     <span class="res-toast-av" id="res-toast-av"></span>
-                </div>
-
-                <!-- Shown while automation is driving the target. -->
-                <div class="acting-bar" id="acting-bar">
-                    <span class="acting-dot"></span>
-                    <div class="acting-label">
-                        <b>Automation is in control</b>
-                        <span id="acting-action">working…</span>
-                        <span class="acting-ctx" id="acting-ctx"></span>
-                    </div>
-                    <button class="ibtn" id="act-pause" title="Pause — take control, then resume">❚❚</button>
-                    <button class="ibtn danger" id="act-stop" title="Stop automation">■ Stop</button>
-                </div>
-
-                <!-- Floating meeting copilot, fed by the ambient SSE. -->
-                <div class="copilot" id="copilot">
-                    <div class="copilot-head">
-                        <span class="copilot-dot"></span><span>Copilot</span>
-                        <span class="grow"></span>
-                        <button class="copilot-x" id="copilot-x" title="Dismiss">✕</button>
-                    </div>
-                    <div class="copilot-body" id="copilot-body"></div>
                 </div>
 
                 <div class="overlay">
@@ -148,7 +116,6 @@
                 <div class="bar-main" id="bar-main">
                     <span class="dot" id="conn" title="Connection"></span>
                     <span class="status" id="conn-text">Connecting…</span>
-                    <span class="agent-status" id="agent-status"></span>
                     <span class="spacer"></span>
                     <button class="ibtn" data-agent="new" title="New terminal tab" aria-label="New terminal tab">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -168,11 +135,6 @@
 
             <!-- Overflow menu (anchored to the ⋯ button). -->
             <div class="more-menu" id="more-menu">
-                <button class="more-item" data-agent="history">History</button>
-                <button class="more-item" data-agent="ambient">Monitor</button>
-                <button class="more-item" data-agent="settings">Settings</button>
-                <button class="more-item" data-agent="copy">Copy conversation</button>
-                <div class="more-sep"></div>
                 <!-- WebRTC audio/mic. Hidden until the WebRTC path is live (MJPEG has
                      no audio); off by default. Toggling these never closes the menu. -->
                 <button class="more-item toggle" id="audio-btn" hidden>
