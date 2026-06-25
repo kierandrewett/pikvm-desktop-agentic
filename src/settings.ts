@@ -1,37 +1,24 @@
 /**
- * Persisted app settings (model, review policy, humanize intensity, presence
- * behaviour, sidebar width). Stored as JSON in the app's userData and applied
- * on startup so preferences survive restarts.
+ * Persisted app settings (humanize intensity, keyboard layout, jiggler, server
+ * bind/auth, sidebar width, terminal working dir). Stored as JSON in the app's
+ * userData and applied on startup so preferences survive restarts.
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { homedir } from "node:os";
 import { resolve, dirname } from "node:path";
-import type { ReviewPolicy } from "./reviewer";
 
 export interface AppSettings {
-    model: string;
-    policy: ReviewPolicy;
-    /**
-     * Autonomy dial (0–5). 0 = maximum caution (prompt for almost everything);
-     * 5 = maximum autonomy (prompt only for dangerous / outward-facing actions).
-     * 3 is the balanced default. Tunes how eagerly inherently-safe commands run
-     * without an approval prompt — see the reviewer's command classifier.
-     */
-    autonomy: number;
     /** Typing humanity 0..1 (0 = no typos, full cadence; 1 = full human). */
     humanize: number;
-    /** Whether the agent auto-pauses when the PiKVM mic/audio is active. */
-    pauseOnPresence: boolean;
     /** Idle mouse-jiggler: nudge the cursor every ~60s of inactivity to keep the
-     *  target awake (restores the exact position; pauses agent ops while jiggling). */
+     *  target awake (restores the exact position). */
     jiggler: boolean;
     /** Baseline typing WPM the random persona centers on. */
     wpm: number;
-    /** Target keyboard layout (the agent sends physical key codes; this sets glyphs). */
+    /** Target keyboard layout (sets glyphs for the physical key codes sent). */
     keyboardLayout: "us" | "uk";
     sidebarWidth: number;
-    goal?: string;
     /** Host the control server + proxy binds to. "0.0.0.0" exposes it on the LAN. */
     bindHost: string;
     /** Single access token gating the server when set. Empty = open (loopback dev). */
@@ -39,168 +26,21 @@ export interface AppSettings {
     /** Opt-in: the desktop KVM view loads through our proxy instead of the Pi
      *  directly (one rendering path with the web client). Off by default. */
     desktopUseProxy: boolean;
-    /** Ambient background screen/meeting monitor. */
-    ambient: AmbientSettings;
-    /** Atlas markdown memory vault (via the Atlas MCP server). KEPT for back-compat
-     *  (older configs + the legacy Settings UI); migrated into `mcpServers` on load. */
+    /** Working directory for terminal sessions. */
     atlas: AtlasSettings;
-    /** Dynamic per-turn model switching (reasoning vs cheap tool-calling). */
-    modelRouting: ModelRoutingSettings;
-    /** Configured MCP servers whose tools the agent gains at startup. */
-    mcpServers: McpServerSettings[];
-}
-
-/**
- * Per-role model selection. Each model is named as a `provider/model` spec (e.g.
- * `codex/gpt-5.5`, `moonshotai/kimi-k2.6`), so different roles can run on
- * different providers. Bare model ids saved by older builds (`gpt-5.5`) are
- * migrated to `codex/<id>` on load, preserving today's behaviour.
- */
-export interface ModelRoutingSettings {
-    /** Route each turn dynamically. When off, every turn uses `reasoningModel`. */
-    enabled: boolean;
-    /** Capable model for thinking/reasoning/problem-solving turns (`provider/model`). */
-    reasoningModel: string;
-    /**
-     * Cheap/fast model for routine, mechanical tool-driving turns (`provider/model`).
-     * MUST be vision-capable (the loop sends screenshots) — a text-only choice is
-     * rejected at runtime and the reasoning model is used instead.
-     */
-    fastModel: string;
-    /** Model sub-agents use for focused side-tasks (`provider/model`). */
-    subagentModel: string;
-}
-
-const DEFAULT_MODEL_ROUTING: ModelRoutingSettings = {
-    enabled: true,
-    reasoningModel: "codex/gpt-5.5",
-    fastModel: "codex/gpt-5.4-mini",
-    subagentModel: "codex/gpt-5.5",
-};
-
-/**
- * Migrate a model field to the `provider/model` form. A value already containing
- * a "/" is left as-is; a bare id (legacy) is assumed to be a codex model and
- * prefixed with `codex/`, preserving the pre-multi-provider behaviour exactly.
- */
-function migrateModelSpec(value: unknown, fallback: string): string {
-    if (typeof value !== "string" || !value.trim()) return fallback;
-    const v = value.trim();
-    return v.includes("/") ? v : `codex/${v}`;
-}
-
-/** Apply spec migration to a (possibly legacy) saved modelRouting object. */
-function migrateModelRouting(saved: Partial<ModelRoutingSettings> | undefined): ModelRoutingSettings {
-    return {
-        enabled: typeof saved?.enabled === "boolean" ? saved.enabled : DEFAULT_MODEL_ROUTING.enabled,
-        reasoningModel: migrateModelSpec(saved?.reasoningModel, DEFAULT_MODEL_ROUTING.reasoningModel),
-        fastModel: migrateModelSpec(saved?.fastModel, DEFAULT_MODEL_ROUTING.fastModel),
-        subagentModel: migrateModelSpec(saved?.subagentModel, DEFAULT_MODEL_ROUTING.subagentModel),
-    };
 }
 
 export interface AtlasSettings {
-    /** Use the Atlas vault for memory (markdown via the Atlas MCP server). */
-    enabled: boolean;
-    /** Path to the built `atlas` binary. */
-    binPath: string;
-    /** Path to the vault directory. */
+    /** Path to the working directory (cwd for terminal sessions). */
     vaultPath: string;
 }
 
-/**
- * One MCP server entry. Either stdio (a local process: command/args/env) or http
- * (a URL with optional headers). Mirrors `McpServerConfig` in agent/mcp-servers.ts
- * but lives here so settings stay self-contained (no agent import in the renderer).
- */
-export interface McpServerSettings {
-    id: string;
-    name: string;
-    enabled: boolean;
-    transport: "stdio" | "http";
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-    url?: string;
-    headers?: Record<string, string>;
-    /** Keep tool names verbatim (no `<id>_` prefix). Used by the Atlas default. */
-    rawToolNames?: boolean;
-    /** Optional skill name documenting how to use this server. */
-    skill?: string;
-}
-
 const DEFAULT_ATLAS: AtlasSettings = {
-    enabled: true,
-    binPath: resolve(homedir(), "dev/atlas-2/atlas-app-v16/target/release/atlas"),
     vaultPath: resolve(homedir(), "Documents/Atlas/Capgemini"),
 };
 
-/** The id of the built-in Atlas server entry (so we can find/migrate it). */
-export const ATLAS_SERVER_ID = "atlas";
-
-/** Build the default Atlas MCP server entry from the (legacy) Atlas settings, so
- *  Atlas keeps working with zero user action — it is now just one configured server. */
-function atlasServer(atlas: AtlasSettings): McpServerSettings {
-    return {
-        id: ATLAS_SERVER_ID,
-        name: "Atlas memory vault",
-        enabled: atlas.enabled,
-        transport: "stdio",
-        command: atlas.binPath,
-        args: ["mcp", atlas.vaultPath],
-        rawToolNames: true,
-        skill: "atlas-vault",
-    };
-}
-
-export interface AmbientSettings {
-    /** Master switch for the background monitor. */
-    enabled: boolean;
-    /** Proactive "suggested actions" watch (lock screen → log in, etc.). Independent
-     *  of the monitor's master switch — it's about offering to act, not notifying. */
-    suggest: boolean;
-    /** Capture/diff cadence in ms. */
-    intervalMs: number;
-    /** Cheap Pi model used to triage a detected change. */
-    triageModel: string;
-    /** Stronger model used when intelligence matters (meeting brief, etc). */
-    smartModel: string;
-    /** Send a push (ntfy) for important events. */
-    notify: boolean;
-    /** Run the meeting assistant (brief + suggestions) when a meeting is detected. */
-    meetingAssist: boolean;
-    /** Transcribe meeting audio locally (whisper.cpp) while a meeting is active. */
-    transcribe: boolean;
-    /** Only run the monitor within these hours (24h "HH:MM"); supports overnight windows. */
-    activeHours: { enabled: boolean; start: string; end: string };
-    ntfy: { baseUrl: string; topic: string; activeCheckUrl: string };
-}
-
-const DEFAULT_AMBIENT: AmbientSettings = {
-    enabled: false,
-    suggest: true,
-    intervalMs: 4000,
-    // Cheap vision model for change triage. gpt-5.4-mini is the available "mini"
-    // (the Codex sub exposes gpt-5.3-codex-spark / gpt-5.4 / gpt-5.4-mini / gpt-5.5).
-    triageModel: "gpt-5.4-mini",
-    smartModel: "gpt-5.5",
-    notify: true,
-    meetingAssist: true,
-    transcribe: false,
-    activeHours: { enabled: false, start: "09:00", end: "18:00" },
-    ntfy: {
-        baseUrl: "https://ntfy.drewett.dev",
-        topic: "claude",
-        activeCheckUrl: "https://is-kieran.drewett.dev/active?format=text",
-    },
-};
-
 const DEFAULTS: AppSettings = {
-    model: "gpt-5.5",
-    policy: "risky-only",
-    autonomy: 3,
     humanize: 1,
-    pauseOnPresence: true,
     jiggler: true,
     wpm: 95,
     keyboardLayout: "us",
@@ -208,10 +48,7 @@ const DEFAULTS: AppSettings = {
     bindHost: "127.0.0.1",
     accessToken: "",
     desktopUseProxy: false,
-    ambient: DEFAULT_AMBIENT,
     atlas: DEFAULT_ATLAS,
-    modelRouting: DEFAULT_MODEL_ROUTING,
-    mcpServers: [atlasServer(DEFAULT_ATLAS)],
 };
 
 export class SettingsStore {
@@ -231,28 +68,8 @@ export class SettingsStore {
                     ...DEFAULTS,
                     ...saved,
                     // Deep-merge nested config so new defaults survive partial saves.
-                    ambient: {
-                        ...DEFAULT_AMBIENT,
-                        ...(saved.ambient ?? {}),
-                        ntfy: { ...DEFAULT_AMBIENT.ntfy, ...(saved.ambient?.ntfy ?? {}) },
-                        activeHours: { ...DEFAULT_AMBIENT.activeHours, ...(saved.ambient?.activeHours ?? {}) },
-                    },
                     atlas: { ...DEFAULT_ATLAS, ...(saved.atlas ?? {}) },
-                    // Migrate legacy bare model ids (`gpt-5.5`) to `codex/gpt-5.5`.
-                    modelRouting: migrateModelRouting(saved.modelRouting),
-                    mcpServers: Array.isArray(saved.mcpServers) ? (saved.mcpServers as McpServerSettings[]) : [],
                 };
-                // Migrate the never-valid early default model id off saved configs.
-                if (this.data.ambient.triageModel === "gpt-5.5-mini") {
-                    this.data.ambient.triageModel = DEFAULT_AMBIENT.triageModel;
-                }
-                // Migrate the legacy hardwired Atlas connection into the generic
-                // mcpServers registry, so Atlas keeps working with zero user action.
-                // (Configs predating mcpServers only have `atlas`.) We keep the saved
-                // Atlas paths/enabled but reshape them as a normal server entry.
-                if (!this.data.mcpServers.some((m) => m.id === ATLAS_SERVER_ID)) {
-                    this.data.mcpServers = [atlasServer(this.data.atlas), ...this.data.mcpServers];
-                }
             } catch {
                 /* keep defaults */
             }
@@ -264,27 +81,8 @@ export class SettingsStore {
     }
 
     patch(partial: Partial<AppSettings>): AppSettings {
-        const ambient = partial.ambient
-            ? {
-                  ...this.data.ambient,
-                  ...partial.ambient,
-                  ntfy: { ...this.data.ambient.ntfy, ...(partial.ambient.ntfy ?? {}) },
-                  activeHours: { ...this.data.ambient.activeHours, ...(partial.ambient.activeHours ?? {}) },
-              }
-            : this.data.ambient;
         const atlas = partial.atlas ? { ...this.data.atlas, ...partial.atlas } : this.data.atlas;
-        const modelRouting = partial.modelRouting ? { ...this.data.modelRouting, ...partial.modelRouting } : this.data.modelRouting;
-        // mcpServers is replaced wholesale (the UI sends the full edited list); if
-        // the Atlas legacy block was patched, keep the Atlas server entry in sync.
-        let mcpServers = partial.mcpServers ?? this.data.mcpServers;
-        if (partial.atlas && !partial.mcpServers) {
-            mcpServers = mcpServers.map((m) =>
-                m.id === ATLAS_SERVER_ID
-                    ? { ...m, enabled: atlas.enabled, command: atlas.binPath, args: ["mcp", atlas.vaultPath] }
-                    : m,
-            );
-        }
-        this.data = { ...this.data, ...partial, ambient, atlas, modelRouting, mcpServers };
+        this.data = { ...this.data, ...partial, atlas };
         try {
             writeFileSync(this.path, JSON.stringify(this.data, null, 2));
         } catch {

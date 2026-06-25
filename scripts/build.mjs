@@ -1,9 +1,7 @@
-// Dual esbuild: Node (Electron main + preloads) and browser (React sidebar),
-// plus a Tailwind pass for the AI Elements sidebar styles.
+// Dual esbuild: Node (Electron main + preloads) and the browser terminal renderer.
 import { build } from "esbuild";
 import { rmSync, cpSync, mkdirSync } from "fs";
 import { resolve } from "path";
-import { execFileSync } from "child_process";
 
 const root = resolve(import.meta.dirname, "..");
 const dist = resolve(root, "dist");
@@ -18,10 +16,7 @@ await build({
         resolve(root, "src/main.ts"),
         resolve(root, "src/preload.ts"),
         resolve(root, "src/preload-ui.ts"),
-        resolve(root, "src/preload-sidebar.ts"),
-        resolve(root, "src/preload-copilot.ts"),
         resolve(root, "src/preload-console.ts"),
-        resolve(root, "src/ambient/transcriber-worker.ts"),
     ],
     outdir: dist,
     platform: "node",
@@ -36,45 +31,13 @@ await build({
     logLevel: "info",
 });
 
-// 1b. Headless server bundle: the same control server + runner + proxy, started
-//     by src/server-main.ts with plain-Node (non-Electron) implementations. Run
-//     with `node dist/server-main.js`. `electron` stays external (it's never
-//     reached in the headless path, but a stray transitive import must not be
-//     bundled); `sharp` and `nodejs-whisper` are native/__dirname-bound, so they
-//     resolve from node_modules at runtime too.
-await build({
-    entryPoints: [resolve(root, "src/server-main.ts")],
-    outfile: resolve(dist, "server-main.js"),
-    platform: "node",
-    format: "cjs",
-    bundle: true,
-    external: ["electron", "nodejs-whisper", "sharp", "tesseract.js"],
-    sourcemap: true,
-    logLevel: "info",
-});
-
 // 2. Static assets and views.
 cpSync(resolve(root, "package.json"), resolve(dist, "package.json"));
 cpSync(resolve(root, "src/static"), resolve(dist, "static"), { recursive: true });
 cpSync(resolve(root, "src/views"), resolve(dist, "views"), { recursive: true });
 cpSync(resolve(root, "src/assets"), resolve(dist, "assets"), { recursive: true });
 
-// 3. Browser bundle: the React sidebar, beside its HTML in dist/views.
-await build({
-    entryPoints: [resolve(root, "src/sidebar/main.tsx")],
-    outfile: resolve(dist, "views/sidebar.js"),
-    platform: "browser",
-    format: "iife",
-    bundle: true,
-    jsx: "automatic",
-    alias: { "@": resolve(root, "src/sidebar") },
-    define: { "process.env.NODE_ENV": '"production"' },
-    loader: { ".ts": "tsx" },
-    sourcemap: true,
-    logLevel: "info",
-});
-
-// 3a. Claude Code terminal renderer (xterm.js) → dist/views/terminal.js, beside its
+// 3a. Terminal renderer (xterm.js) → dist/views/terminal.js, beside its
 //     HTML. Plus the xterm stylesheet it needs.
 await build({
     entryPoints: [resolve(root, "src/terminal/main.ts")],
@@ -88,9 +51,6 @@ await build({
 });
 cpSync(resolve(root, "node_modules/@xterm/xterm/css/xterm.css"), resolve(dist, "views/xterm.css"));
 // The PreToolUse guardrail hook ships as a plain script the spawned claude runs.
-cpSync(resolve(root, "src/claude-runtime"), resolve(dist, "claude-runtime"), { recursive: true });
-// Vendored high-quality document "scanner" (Python) the capture_document MCP tool spawns.
-cpSync(resolve(root, "tools/doc-capture"), resolve(dist, "doc-capture"), { recursive: true });
 
 // 3b. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
 //     statically-served) console dynamically imports as /_agent/haptics.js.
@@ -104,19 +64,5 @@ await build({
     sourcemap: false,
     logLevel: "info",
 });
-
-// 4. Tailwind: compile the AI Elements / shadcn styles for the sidebar.
-execFileSync(
-    "npx",
-    [
-        "@tailwindcss/cli",
-        "-i",
-        resolve(root, "src/sidebar/styles.css"),
-        "-o",
-        resolve(dist, "views/sidebar.css"),
-        "--minify",
-    ],
-    { stdio: "inherit", cwd: root },
-);
 
 console.log("build complete");

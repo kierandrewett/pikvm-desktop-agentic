@@ -11,19 +11,19 @@
  */
 import { PtyTerminal } from "./claude-pty";
 import { basename, delimiter, join } from "node:path";
-import { buildAgentSpec, mcpUrlFor, type AgentKind } from "./agents";
 
-const DEFAULT_KIND: AgentKind = "shell";
+/** The sessions are plain login shells now (no agent kinds). */
+type SessionKind = "shell";
+
+const DEFAULT_KIND: SessionKind = "shell";
 
 export interface TerminalSessionsDeps {
     /** The vault folder (cwd for every terminal session). */
     vaultPath: () => string;
-    /** CONTROL_PORT — for the per-session MCP URL + the permcheck hook URL. */
+    /** CONTROL_PORT — for the permcheck hook URL. */
     port: number;
-    /** Prepare project-local config/wrappers before spawning the PTY. */
-    prepareAgent: (agent: AgentKind, sessionId: string) => void;
-    /** Per-app-session MCP token, scoped to this terminal environment. */
-    mcpToken?: () => string;
+    /** Prepare project-local config/wrappers before spawning the PTY (no-op now). */
+    prepareAgent: (agent: SessionKind, sessionId: string) => void;
     /** Called when a session's PTY exits (e.g. release its KVM control lease). */
     onSessionExit?: (sessionId: string) => void;
     /** Read an image file (resolved against the vault) → data URL, host-side. */
@@ -35,7 +35,7 @@ export interface TerminalSessionsDeps {
 
 export interface SessionInfo {
     id: string;
-    agent: AgentKind;
+    agent: SessionKind;
     title: string;
     exited: boolean;
 }
@@ -50,7 +50,7 @@ type ServerMsg =
 
 /** Frames clients send. */
 export type ClientMsg =
-    | { t: "create"; agent?: AgentKind }
+    | { t: "create"; agent?: SessionKind }
     | { t: "input"; id: string; data: string }
     | { t: "resize"; cols: number; rows: number }
     | { t: "close"; id: string }
@@ -63,7 +63,7 @@ type Sub = (msg: ServerMsg) => void;
 
 interface Session {
     id: string;
-    agent: AgentKind;
+    agent: SessionKind;
     title: string;
     term: PtyTerminal;
     buffer: string[];
@@ -137,7 +137,7 @@ export class TerminalSessions {
     }
 
     /** Spawn a new session, or re-spawn an exited one with the same id (keeping its tab). */
-    create(agent: AgentKind = DEFAULT_KIND, forceId?: string): string {
+    create(agent: SessionKind = DEFAULT_KIND, forceId?: string): string {
         const id = forceId ?? "s" + ++this.counter;
         const existing = this.sessions.get(id);
         if (existing && existing.term.running) return id;
@@ -146,16 +146,18 @@ export class TerminalSessions {
         } catch (e) {
             console.error("[terminal] prepareAgent failed:", e);
         }
-        const mcpToken = this.deps.mcpToken?.();
-        const spec = buildAgentSpec(agent, { sessionId: id, port: this.deps.port, ...(mcpToken ? { mcpToken } : {}) });
-        const fallbackTitle = agent === "shell" ? basename(spec.bin || "shell") : spec.label;
+        // A plain interactive login shell (no agent / MCP wiring).
+        const bin = process.env.SHELL || "/bin/bash";
+        const args = ["-l"];
+        const label = "shell";
+        const fallbackTitle = basename(bin || label);
         const cwd = this.deps.vaultPath();
         const originalPath = process.env.PATH ?? "";
         const localBin = join(cwd, ".pikvm", "bin");
         const term = new PtyTerminal({
             cwd,
-            bin: spec.bin,
-            args: spec.args,
+            bin,
+            args,
             cols: this.cols,
             rows: this.rows,
             env: {
@@ -164,7 +166,6 @@ export class TerminalSessions {
                 PIKVM_WORKSPACE: cwd,
                 PIKVM_PERMCHECK_URL: `http://127.0.0.1:${this.deps.port}/_agent/api/permcheck`,
                 PIKVM_SESSION_ID: id,
-                ...(mcpToken ? { PIKVM_MCP_TOKEN: mcpToken, PIKVM_MCP_URL: mcpUrlFor(this.deps.port, id, mcpToken) } : {}),
             },
         });
         const s: Session = existing
