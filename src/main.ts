@@ -17,6 +17,7 @@ import { electronImageOps } from "./image-ops-electron";
 import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TerminalSessions } from "./terminal-server";
+import { DaemonManager } from "./daemon-manager";
 
 const staticPath = resolve(__dirname, "static");
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -56,6 +57,17 @@ const consoleWcToWin = new Map<number, Electron.BrowserWindow>();
 // frameless so the console draws its own controls (GTK-style on Linux).
 const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
     process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 13, y: 10 } } : { frame: false };
+
+/** Resolve the command that launches the pikvm-agent daemon. Preference: the explicit
+ *  setting → env PIKVM_AGENT_DAEMON_CMD → the dev venv binary → `pikvm-agent` on PATH. */
+function resolveDaemonCommand(configured?: string): { command: string; args: string[] } {
+    const venvBin = resolve(app.getPath("home"), "dev/pikvm-agent/.venv/bin/pikvm-agent");
+    const candidates = [configured, process.env.PIKVM_AGENT_DAEMON_CMD, venvBin].filter(Boolean) as string[];
+    for (const c of candidates) {
+        if (existsSync(c)) return { command: c, args: ["daemon"] };
+    }
+    return { command: "pikvm-agent", args: ["daemon"] }; // rely on PATH
+}
 
 /** Start the PiKVM backend: the control core (for the reverse proxy's target), the
  *  shared terminal sessions, and the control server that hosts the proxy + terminal
@@ -132,7 +144,13 @@ function startProxyAndTerminal(origin: string, settings: SettingsStore) {
     const daemonOrigin = (process.env.PIKVM_AGENT_DAEMON || settings.get().daemonUrl || "http://127.0.0.1:47615").replace(/\/$/, "");
     startControlServer({ control, settings, terminalSessions, daemonOrigin }, CONTROL_PORT, bindHost);
     console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
-    return { control, settings, terminalSessions };
+
+    // The app owns the daemon's lifecycle (the Agent panel is its front-end): spawn it
+    // on startup, stop it on quit. Adopts an already-running daemon instead of double-spawning.
+    const { command, args } = resolveDaemonCommand(settings.get().daemonCmd);
+    const daemon = new DaemonManager({ origin: daemonOrigin, command, args, log: (l) => console.log(l) });
+    void daemon.start();
+    return { control, settings, terminalSessions, daemon };
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -669,6 +687,7 @@ function createWindow() {
     });
     win.on("closed", () => {
         backend?.terminalSessions.killAll();
+        backend?.daemon.stop();
     });
 
     // Right-click editing menus on the main + overlay views.

@@ -28,8 +28,12 @@ export interface AppSettings {
     desktopUseProxy: boolean;
     /** Base URL of the pikvm-agent daemon the Agent panel talks to (proxied at
      *  /_agent/daemon/*). Defaults to http://127.0.0.1:47615; env PIKVM_AGENT_DAEMON
-     *  overrides. The app does NOT spawn the daemon — it's a separate process. */
+     *  overrides. */
     daemonUrl?: string;
+    /** Executable that launches the pikvm-agent daemon (run with `daemon`). The app
+     *  spawns + manages it for the Agent panel. Empty → auto-resolve (env
+     *  PIKVM_AGENT_DAEMON_CMD → ~/dev/pikvm-agent/.venv/bin/pikvm-agent → PATH). */
+    daemonCmd?: string;
     /** Working directory for terminal sessions. */
     atlas: AtlasSettings;
 }
