@@ -20,7 +20,7 @@ const src = join(root, "node_modules");
 const dest = join(root, "builds/pikvm-desktop-linux-x64/resources/app/node_modules");
 
 // The bundle's externals (see build.mjs). Their transitive deps come along below.
-const ROOTS = ["nodejs-whisper", "tesseract.js", "sharp", "@lydell/node-pty"];
+const ROOTS = ["@lydell/node-pty"];
 
 if (!existsSync(join(root, "builds/pikvm-desktop-linux-x64"))) {
     console.error("copy-runtime-deps: packaged app not found — run electron-packager first.");
