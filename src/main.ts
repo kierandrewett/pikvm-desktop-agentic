@@ -7,41 +7,16 @@ import {
     screen,
     dialog,
     nativeTheme,
-    nativeImage,
     session,
-    Notification,
-    clipboard,
     Menu,
-    Rectangle,
 } from "electron";
-import { readFileSync, existsSync, writeFileSync, statSync, mkdirSync } from "fs";
-import { copyFileSync } from "node:fs";
-import { url } from "inspector/promises";
+import { readFileSync, existsSync, writeFileSync, statSync } from "fs";
 import { resolve, isAbsolute, extname } from "path";
-import { randomBytes } from "node:crypto";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
-import { OperationReviewer } from "./reviewer";
-import { PresenceMonitor } from "./presence";
-import { CodexAuth } from "./agent/auth";
-import { AgentRunner } from "./agent/runner";
-import { connectMcpServers } from "./agent/mcp-servers";
 import { startControlServer } from "./server";
-import { createCaptureDocument } from "./doc-capture";
-import { OverlayBus } from "./overlay-bus";
 import { SettingsStore } from "./settings";
-import { InputTracker } from "./input-tracker";
-import { writeClaudeConfig, writeAgentsMd } from "./claude-config";
-import { writeLocalAgentWrappers, writeOpencodeConfig } from "./agents";
 import { TerminalSessions } from "./terminal-server";
-import { AgentDaemon } from "./agent-daemon";
-import { SecretsStore } from "./secrets";
-import { electronSecretCrypto } from "./secret-crypto-electron";
-import { NtfyClient } from "./ambient/ntfy";
-import { AmbientMonitor } from "./ambient/monitor";
-import { SuggestionWatcher } from "./ambient/suggestions";
-import { Transcriber } from "./ambient/transcriber";
-import { MeetingLog } from "./ambient/meeting-log";
 
 const staticPath = resolve(__dirname, "static");
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -82,39 +57,15 @@ const consoleWcToWin = new Map<number, Electron.BrowserWindow>();
 const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
     process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 13, y: 10 } } : { frame: false };
 
-/** A readable phrase for the overlay describing the current agent action. */
-function humanAction(tool: string, args: any): string {
-    switch (tool) {
-        case "type_text":
-            return `typing "${String(args?.text ?? "").slice(0, 40)}"…`;
-        case "move_mouse":
-            return "moving the mouse…";
-        case "click":
-            return "clicking…";
-        case "double_click":
-            return "double-clicking…";
-        case "press_key":
-            return `pressing ${args?.key ?? "a key"}…`;
-        case "hotkey":
-            return `pressing ${(args?.codes ?? []).join("+")}…`;
-        case "scroll":
-            return "scrolling…";
-        case "screenshot":
-            return "looking at the screen…";
-        case "get_regions":
-            return "mapping the screen…";
-        default:
-            return "performing actions…";
-    }
-}
-
-/** Start the agentic backend (control core, reviewer, presence, agent, servers). */
-function startAgentBackend(origin: string, settings: SettingsStore, inputTracker: InputTracker) {
+/** Start the PiKVM backend: the control core (for the reverse proxy's target), the
+ *  shared terminal sessions, and the control server that hosts the proxy + terminal
+ *  WebSocket + static console assets. Returns what the window wiring needs. */
+function startProxyAndTerminal(origin: string, settings: SettingsStore) {
     const control = new PiKvmControl(
         {
             origin,
-            // Reuse the logged-in PiKVM web session so the agent's snapshot/HID
-            // requests are authorized even when credentials aren't in the URL.
+            // Reuse the logged-in PiKVM web session so proxied requests are authorized
+            // even when credentials aren't in the URL.
             getCookie: async () => {
                 try {
                     const cookies = await session.defaultSession.cookies.get({ name: "auth_token" });
@@ -126,188 +77,40 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
         },
         electronImageOps,
     );
-    // Feed the agent's own keystrokes into the unified input tracker.
-    control.onAgentInput = (info) => {
-        if (info.text) inputTracker.appendText("agent", info.text);
-        else if (info.key) inputTracker.applyKey("agent", info.key);
-    };
-    const reviewer = new OperationReviewer();
-    const presence = new PresenceMonitor();
-    presence.start();
-    const auth = new CodexAuth(resolve(app.getPath("userData"), "pi-credentials.json"));
-    auth.load();
-    // Desktop encrypts secrets with the OS keychain (Electron safeStorage); the
-    // headless server uses a keyfile instead (see secret-crypto-*.ts).
-    const secrets = new SecretsStore(resolve(app.getPath("userData"), "agent-secrets.json"), electronSecretCrypto);
-    // Spawn the PiKVM Agent Python daemon in the background (the transactional
-    // runtime the pikvm MCP server forwards to). Forward the logged-in PiKVM
-    // session + OpenRouter key as env so it needs no separate auth. Gated by a
-    // setting (defaults on); skipped automatically if the daemon dir is absent.
-    if ((settings.get() as { agentDaemon?: { enabled?: boolean } })?.agentDaemon?.enabled ?? true) {
-        agentDaemon = new AgentDaemon();
-        void agentDaemon.start(async () => {
-            const target = control.captureTarget();
-            const env: Record<string, string | undefined> = {
-                PIKVM_BASE_URL: `${target.scheme}://${target.host}`,
-                PIKVM_USER: target.user,
-                PIKVM_PASSWORD: target.password,
-                OPENROUTER_API_KEY: secrets.get("provider_key_openrouter"),
-            };
-            try {
-                const cookies = await session.defaultSession.cookies.get({ name: "auth_token" });
-                if (cookies[0]?.value) env.PIKVM_TOKEN = cookies[0].value;
-            } catch {
-                /* cookie unavailable — user/pass or the daemon's own .env covers it */
-            }
-            return env;
-        });
-    }
-    // ntfy push (token from the secrets vault) — created before the runner so the
-    // agent's notify_user tool can use it.
-    const ntfy = new NtfyClient({
-        config: () => settings.get().ambient.ntfy,
-        getToken: () => secrets.get("ntfy_token"),
-    });
-    const transcriber = new Transcriber();
-    const meetingLog = new MeetingLog(resolve(app.getPath("userData"), "agent-meetings.json"));
-    const runner = new AgentRunner({
-        control,
-        reviewer,
-        presence,
-        auth,
-        sessionsDir: resolve(app.getPath("userData"), "agent-sessions"),
-        inputTracker,
-        secrets,
-        notify: (message, opts) => ntfy.notify(message, opts),
-        getTranscript: () => transcriber.getTranscript(),
-        getMeetings: () => meetingLog.recent(8),
-    });
 
-    // Connect every configured MCP server (Atlas is now just one entry). Best
-    // effort and async: a server that fails to connect is skipped, never blocking
-    // startup, and the agent still runs with JSON memory if none come up.
-    void connectMcpServers(settings.get().mcpServers).then((registry) => {
-        if (registry.tools.length) runner.addTools(registry.tools);
-        // Hook: every `remember` (and recap save) write-throughs into any connected
-        // Atlas-style vault, so saving a fact and updating the knowledgebase are one.
-        runner.setMemoryMirror((m) => void registry.remember(m.text, m.tags, m.id));
-        // Let the agent know which servers ship a usage skill (e.g. Atlas → atlas-vault).
-        if (registry.skills.length) runner.setMcpSkills(registry.skills);
-    });
-
-    // Ambient background monitor.
-    let onKVM = false;
-    const ambient = new AmbientMonitor({
-        control,
-        presence,
-        ntfy,
-        settings: () => settings.get().ambient,
-        isOnKVM: () => onKVM,
-        quickLook: (image, instruction, opts) => runner.quickLook(image, instruction, opts),
-        getTranscript: () => transcriber.getTranscript(),
-    });
-    ambient.start();
-
-    // Proactive "suggested actions" watcher — offers to act on what's on screen
-    // (lock screen → log in). Independent of the ambient monitor's master switch.
-    const suggestions = new SuggestionWatcher({
-        control,
-        isOnKVM: () => onKVM,
-        isBusy: () => runner.isStreaming() || ambient.isInMeeting(),
-        enabled: () => settings.get().ambient.suggest,
-        look: (image, instruction, opts) => runner.quickLook(image, instruction, opts),
-        model: settings.get().ambient.triageModel,
-    });
-    suggestions.start();
-
-    // The live meeting copilot is a real Pi agent (tools: screen, transcript, web,
-    // memory). It briefs + suggests; the monitor only detects the meeting and feeds it.
-    runner.onMeetingOutput = (kind, text) => {
-        if (kind === "suggestion") ambient.pushSuggestion(text);
-        else ambient.pushTrace(text, "activity");
-    };
-    ambient.on("event", (e: { kind: string }) => {
-        if (e.kind === "meeting-start") {
-            if (settings.get().ambient.meetingAssist) runner.startMeeting();
-        } else if (e.kind === "meeting-end") {
-            runner.endMeeting(); // final recap + remember action items, then tear down
-        }
-    });
-    // Feed each new transcript chunk to the copilot agent (it accumulates + self-throttles).
-    transcriber.on("segment", (text: string) => runner.meetingObserve(text));
-
-    // Apply persisted preferences.
+    // Apply persisted preferences that the proxy/control core honours.
     const s = settings.get();
-    runner.setModel(s.model);
-    reviewer.setPolicy(s.policy);
-    reviewer.setAutonomy(s.autonomy);
-    control.setHumanize(s.humanize);
-    control.setWpm(s.wpm);
     control.setLayout(s.keyboardLayout, { source: "auto" }); // let the Pi's hid_keymaps refine this saved default
-    presence.setEnabled(s.pauseOnPresence);
-    if (s.goal) runner.setGoal(s.goal);
 
     // Bind to the LAN only when the user opts in (so a phone/browser can reach
-    // the proxy); default to loopback. Auth gating lands in a later phase.
+    // the proxy); default to loopback.
     // PIKVM_BIND_HOST overrides the persisted setting (e.g. 0.0.0.0 to test from a
     // phone with a dev build, without flipping the setting the installed app shares).
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
-    const overlay = new OverlayBus();
 
-    // ---- Server-hosted terminal sessions — the agent PTYs live here and stream to ALL
+    // ---- Server-hosted terminal sessions — the PTYs live here and stream to ALL
     // devices over the /_agent/terminal WebSocket (desktop + mobile see the same tabs). ----
-    const extractHook = (): string => {
-        const hookSrc = resolve(__dirname, "claude-runtime", "permission-hook.mjs");
-        try {
-            const unpacked = resolve(app.getPath("userData"), "claude-permission-hook.mjs");
-            copyFileSync(hookSrc, unpacked);
-            return unpacked;
-        } catch {
-            return hookSrc;
-        }
+    const vaultPath = (): string => {
+        const p = settings.get().atlas?.vaultPath;
+        return p && p.trim() ? p : app.getPath("home");
     };
-    const mcpToken = randomBytes(24).toString("base64url");
-    let claudeCfgWritten = false;
-    const prepareLocalAgentEnvironment = (vaultPath: string) => {
-        mkdirSync(vaultPath, { recursive: true });
-        writeClaudeConfig({ vaultPath, port: CONTROL_PORT, hookPath: extractHook(), mcpToken, mcpServers: settings.get().mcpServers });
-        writeAgentsMd(vaultPath);
-        writeLocalAgentWrappers(vaultPath, CONTROL_PORT, mcpToken, settings.get().mcpServers);
-        claudeCfgWritten = true;
-    };
-    const resolveVaultPath = (p: string): string => {
-        const clean = p.replace(/:\d+(?::\d+)?$/, "");
-        if (clean.startsWith("~/")) return resolve(app.getPath("home"), clean.slice(2));
-        return isAbsolute(clean) ? clean : resolve(settings.get().atlas.vaultPath, clean);
+    const resolvePath = (p: string): string => {
+        if (p.startsWith("~/")) return resolve(app.getPath("home"), p.slice(2));
+        return isAbsolute(p) ? p : resolve(vaultPath(), p);
     };
     const IMG_MIME: Record<string, string> = {
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".svg": "image/svg+xml",
     };
     const terminalSessions = new TerminalSessions({
-        vaultPath: () => settings.get().atlas.vaultPath,
+        vaultPath,
         port: CONTROL_PORT,
-        prepareAgent: (agent, sessionId) => {
-            const vaultPath = settings.get().atlas.vaultPath;
-            if (agent === "shell") {
-                prepareLocalAgentEnvironment(vaultPath);
-                return;
-            }
-            if (agent === "claude") {
-                if (!claudeCfgWritten) {
-                    prepareLocalAgentEnvironment(vaultPath);
-                }
-            } else {
-                // codex/opencode read AGENTS.md for the same operating manual Claude gets.
-                writeAgentsMd(vaultPath);
-                if (agent === "opencode") writeOpencodeConfig(vaultPath, CONTROL_PORT, sessionId, mcpToken);
-            }
+        prepareAgent: () => {
+            /* plain shell terminal — no agent environment to prepare */
         },
-        mcpToken: () => mcpToken,
-        onSessionExit: (id) => runner.releaseKvmLease(id),
         resolveImage: (p) => {
             try {
-                const abs = resolveVaultPath(p);
+                const abs = resolvePath(p);
                 const mime = IMG_MIME[extname(abs).toLowerCase()];
                 if (!mime || !existsSync(abs)) return null;
                 if (statSync(abs).size > 12 * 1024 * 1024) return null;
@@ -317,25 +120,17 @@ function startAgentBackend(origin: string, settings: SettingsStore, inputTracker
             }
         },
         openPath: (p) => {
-            const abs = resolveVaultPath(p);
+            const abs = resolvePath(p);
             if (existsSync(abs)) void shell.openPath(abs);
         },
         openExternal: (u) => {
             if (/^https?:\/\//i.test(u)) void shell.openExternal(u);
         },
     });
-    // Live-badge the tab that currently holds KVM control in every client.
-    runner.setOnKvmLeaseChange((owner) => terminalSessions.setControlOwner(owner));
 
-    startControlServer(
-        // ...runner.visionDeps() supplies getRegions/opticalRead/opticalReadStrong/remember
-        // so the MCP server (Claude Code's eyes) shares the agent's OCR/region/typing brain.
-        { control, reviewer, presence, auth, runner, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, overlay, terminalSessions, mcpToken, ...runner.visionDeps(), onFullScreenshot: () => { runner.maybeSegmentRegions(); runner.maybeAssessContext(); }, acquireKvmControl: (s) => runner.acquireKvmLease(s), touchKvmControl: (s) => runner.touchKvmLease(s), assessOp: (tool, args, s) => runner.assessMcpOp(tool, args, s), openExternal: (u) => void shell.openExternal(u), captureDocument: createCaptureDocument({ python: process.env.PIKVM_DOCCAPTURE_PYTHON || "python3", script: resolve(__dirname, "doc-capture", "capture.py"), target: () => control.captureTarget(), outBase: process.env.PIKVM_DOCCAPTURE_OUT || resolve(app.getPath("userData"), "doc-captures") }) },
-        CONTROL_PORT,
-        bindHost,
-    );
-    console.log(`Agent backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*)`);
-    return { control, reviewer, presence, auth, runner, ambient, transcriber, settings, overlay, terminalSessions, setOnKVM: (b: boolean) => { onKVM = b; } };
+    startControlServer({ control, settings, terminalSessions }, CONTROL_PORT, bindHost);
+    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*)`);
+    return { control, settings, terminalSessions };
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -349,94 +144,6 @@ function loadConfig() {
 }
 function saveConfig(cfg: any) {
     writeFileSync(configPath, JSON.stringify(cfg, null, 2));
-}
-
-/** The unified web console as a desktop window — a thin client over the local API.
- *  This is the same `/_agent/console` UI the phone and browser use; rendering it in
- *  an Electron window proves the decoupled, hostable-anywhere path WITHOUT disturbing
- *  the native KVM+sidebar composition (which keeps driving the agent's screen capture).
- *  Singleton: re-invoking focuses the existing window. */
-// The PiKVM Agent Python daemon (transactional computer-use runtime), spawned on
-// startup and killed on quit. Module-scoped so the quit/relaunch paths can reach it.
-let agentDaemon: AgentDaemon | null = null;
-
-let agentConsoleWin: Electron.BrowserWindow | null = null;
-/** Open the PiKVM Agent daemon's web console (live frame, event feed, approvals). */
-function openAgentDaemonConsole() {
-    if (agentConsoleWin && !agentConsoleWin.isDestroyed()) {
-        agentConsoleWin.focus();
-        return;
-    }
-    const w = new BrowserWindow({
-        width: 1200,
-        height: 820,
-        minWidth: 720,
-        minHeight: 480,
-        darkTheme: true,
-        icon: appIconPath,
-        title: "PiKVM Agent",
-        backgroundColor: "#11141a",
-        autoHideMenuBar: true,
-        show: false,
-        webPreferences: { contextIsolation: true }, // plain web page; no preload needed
-    });
-    agentConsoleWin = w;
-    w.once("ready-to-show", () => {
-        if (!w.isDestroyed()) w.show();
-    });
-    w.on("closed", () => {
-        agentConsoleWin = null;
-    });
-    void w.loadURL("http://127.0.0.1:47615/");
-}
-
-let unifiedConsoleWin: Electron.BrowserWindow | null = null;
-function openUnifiedConsole() {
-    if (unifiedConsoleWin && !unifiedConsoleWin.isDestroyed()) {
-        unifiedConsoleWin.focus();
-        return;
-    }
-    // Frameless + a dedicated preload: the console draws its OWN titlebar/window
-    // controls (see src/views/console.{html,css,js}) and gets `window.desktopConsole`
-    // for window mechanics, fit-native and native menus. The page still talks to the
-    // backend over plain HTTP/WS/SSE for everything else. The same `/_agent/console`
-    // URL is served to phones/browsers; the renderer keys ALL of its desktop chrome
-    // off the presence of `window.desktopConsole`, so the web/mobile path is untouched.
-    const w = new BrowserWindow({
-        width: 1100,
-        height: 800,
-        minWidth: 720,
-        minHeight: 480,
-        ...consoleFrameOpts,
-        darkTheme: true,
-        icon: appIconPath,
-        title: "PiKVM — Unified Console",
-        backgroundColor: "#0a0a0c",
-        autoHideMenuBar: true,
-        show: false, // revealed on ready-to-show, so no white flash
-        webPreferences: {
-            contextIsolation: true,
-            preload: resolve(__dirname, "preload-console.js"),
-        },
-    });
-    w.once("ready-to-show", () => {
-        if (!w.isDestroyed()) w.show();
-    });
-    void w.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/console`);
-    // Mirror maximise/unmaximise back to the renderer so its maximise/restore glyph
-    // stays correct (e.g. a double-click on the OS edge or a snap gesture).
-    const emitMax = () => {
-        if (!w.isDestroyed()) w.webContents.send("console:maximise-change", w.isMaximized());
-    };
-    w.on("maximize", emitMax);
-    w.on("unmaximize", emitMax);
-    const wcId = w.webContents.id;
-    w.on("closed", () => {
-        consoleWcToWin.delete(wcId);
-        unifiedConsoleWin = null;
-    });
-    consoleWcToWin.set(wcId, w);
-    unifiedConsoleWin = w;
 }
 
 /** Resolve a console-chromed window from an IPC sender (the main window in console
@@ -478,7 +185,6 @@ ipcMain.on("console:set-pikvm-origin", (e, url: unknown) => {
     const cfg = loadConfig();
     cfg.origin = u;
     saveConfig(cfg);
-    agentDaemon?.kill();
     app.relaunch();
     app.exit(0);
 });
@@ -490,7 +196,6 @@ ipcMain.on("console:set-origin", (e, origin: unknown) => {
     if (o && o !== `http://127.0.0.1:${CONTROL_PORT}`) cfg.consoleOrigin = o;
     else delete cfg.consoleOrigin;
     saveConfig(cfg);
-    agentDaemon?.kill();
     app.relaunch();
     app.exit(0);
 });
@@ -546,32 +251,6 @@ ipcMain.on("console:resize-by", (e, opts: { dw?: number; dh?: number }) => {
     w.setContentSize(Math.max(480, Math.min(area.width, cw + dw)), Math.max(360, Math.min(area.height, ch + dh)));
 });
 
-// Settings / Monitor / History now live in their own windows: the desktop console's
-// "chat" is the Claude terminal, so these reuse the agent sidebar opened straight to the
-// requested panel (?panel=). One window per panel, reused if already open.
-const agentPanelWins = new Map<string, Electron.BrowserWindow>();
-ipcMain.on("console:open-agent-panel", (_e, id: unknown) => {
-    const panel = id === "settings" || id === "ambient" || id === "history" ? id : null;
-    if (!panel) return;
-    const existing = agentPanelWins.get(panel);
-    if (existing && !existing.isDestroyed()) {
-        existing.show();
-        existing.focus();
-        return;
-    }
-    const title = panel === "settings" ? "Settings" : panel === "ambient" ? "Monitor" : "History";
-    const w = new BrowserWindow({
-        width: panel === "settings" ? 940 : 780,
-        height: 820,
-        title,
-        backgroundColor: "#0a0a0c",
-        autoHideMenuBar: true,
-    });
-    agentPanelWins.set(panel, w);
-    w.on("closed", () => agentPanelWins.delete(panel));
-    void w.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/sidebar.html?embed=1&panel=${panel}`);
-});
-
 // Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.
 ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: number; y: number } }) => {
     const w = consoleWinFrom(e);
@@ -601,7 +280,7 @@ ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: num
 });
 
 /** Standard editing context menu (cut/copy/paste/select all) for a view. */
-function attachContextMenu(wc: Electron.WebContents, opts: { conversation?: boolean } = {}) {
+function attachContextMenu(wc: Electron.WebContents) {
     wc.on("context-menu", (_e, params) => {
         const f = params.editFlags;
         const template: Electron.MenuItemConstructorOptions[] = [];
@@ -616,14 +295,7 @@ function attachContextMenu(wc: Electron.WebContents, opts: { conversation?: bool
         } else if (params.selectionText) {
             template.push({ role: "copy" }, { role: "selectAll" });
         }
-        if (opts.conversation) {
-            if (template.length) template.push({ type: "separator" });
-            template.push({ label: "Copy conversation", click: () => wc.send("copy-conversation") });
-        }
-        // Always offer the unified web console, so it's reachable from any view.
-        if (template.length) template.push({ type: "separator" });
-        template.push({ label: "Open unified console (web)", click: () => openUnifiedConsole() });
-        template.push({ label: "Open PiKVM Agent console", click: () => openAgentDaemonConsole() });
+        if (!template.length) return;
         Menu.buildFromTemplate(template).popup();
     });
 }
@@ -695,21 +367,9 @@ function createWindow() {
         },
     });
 
-    const sidebarView = new WebContentsView({
-        webPreferences: {
-            contextIsolation: true,
-            preload: resolve(__dirname, "preload-sidebar.js"),
-            // CRITICAL: never throttle this view's timers when it's unfocused/occluded
-            // (e.g. while you're watching the KVM during a run). Chromium otherwise drops
-            // its setInterval to ~1/min, freezing the /api/state poll — so an approval
-            // prompt wouldn't appear until you clicked into the sidebar (or pressed Stop).
-            backgroundThrottling: false,
-        },
-    });
-
-    // The embedded shared terminal (the agent). Its own WebContentsView, loaded over HTTP
-    // from our backend so it's same-origin with the /_agent/terminal WebSocket it drives —
-    // the SAME page mobile loads. Positioned over the console's agent-panel region. Never
+    // The embedded shared terminal. Its own WebContentsView, loaded over HTTP from our
+    // backend so it's same-origin with the /_agent/terminal WebSocket it drives — the
+    // SAME page mobile loads. Positioned over the console's terminal-panel region. Never
     // throttled. No preload: it's a plain web client, no IPC.
     const terminalView = new WebContentsView({
         webPreferences: {
@@ -719,31 +379,6 @@ function createWindow() {
     });
     terminalView.setBackgroundColor("#0a0a0c");
     terminalView.setVisible(false);
-
-    // Transparent overlay over the KVM, shown while the agent is controlling the
-    // target — gives the user a big "stop & take control" button (Claude-style).
-    const controlOverlayView = new WebContentsView({
-        webPreferences: {
-            contextIsolation: true,
-            preload: resolve(__dirname, "preload-sidebar.js"),
-        },
-    });
-    controlOverlayView.setBackgroundColor("#00000000");
-    controlOverlayView.setVisible(false);
-
-    // Floating, draggable meeting-copilot overlay over the KVM surface.
-    const copilotView = new WebContentsView({
-        webPreferences: {
-            contextIsolation: true,
-            preload: resolve(__dirname, "preload-copilot.js"),
-        },
-    });
-    copilotView.setBackgroundColor("#00000000");
-    copilotView.setVisible(false);
-    const copilotBounds = { x: 80, y: TITLEBAR_HEIGHT + 24, width: 340, height: 220 };
-    let copilotVisible = false;
-    let copilotPlaced = false; // becomes true after first auto-placement; then we keep the user's position
-    let copilotHideTimer: NodeJS.Timeout | null = null;
 
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
 
@@ -773,7 +408,6 @@ function createWindow() {
     let canCloseByButton = false;
     let sidebarOpen = false;
     let sidebarWidth = settings.get().sidebarWidth;
-    let agentActing = false;
 
     // In console mode the main window IS a console-chromed window: it carries the
     // console preload, so register it for the console-scoped IPC (window controls,
@@ -793,68 +427,14 @@ function createWindow() {
 
     win.contentView.addChildView(overlayView);
     win.contentView.addChildView(mainView);
-    // Control overlay above the KVM; sidebar above that; copilot floats on top.
-    win.contentView.addChildView(controlOverlayView);
-    win.contentView.addChildView(sidebarView);
     win.contentView.addChildView(terminalView);
-    win.contentView.addChildView(copilotView);
-    copilotView.webContents.loadFile(resolve(__dirname, "views", "copilot.html"));
-
-    const clampCopilot = () => {
-        const [w, h] = win.getContentSize();
-        copilotBounds.width = Math.min(copilotBounds.width, w!);
-        copilotBounds.height = Math.min(copilotBounds.height, Math.max(80, h! - TITLEBAR_HEIGHT));
-        copilotBounds.x = Math.max(0, Math.min(copilotBounds.x, w! - copilotBounds.width));
-        copilotBounds.y = Math.max(TITLEBAR_HEIGHT, Math.min(copilotBounds.y, h! - copilotBounds.height));
-        copilotView.setBounds(copilotBounds);
-    };
-    const showCopilot = () => {
-        // Only auto-place the first time; afterwards keep wherever the user dragged it.
-        if (!copilotPlaced) {
-            const [w] = win.getContentSize();
-            const sbW = sidebarOpen ? sidebarWidth : 0;
-            copilotBounds.x = Math.max(12, w! - sbW - copilotBounds.width - 20); // top-right, clear of the sidebar
-            copilotBounds.y = TITLEBAR_HEIGHT + 24;
-            copilotPlaced = true;
-        }
-        clampCopilot();
-        copilotView.setVisible(true);
-        copilotVisible = true;
-    };
-    const hideCopilot = () => {
-        copilotView.setVisible(false);
-        copilotVisible = false;
-    };
-
-    ipcMain.on("copilot:drag", (_, { dx, dy }: { dx: number; dy: number }) => {
-        copilotBounds.x += dx;
-        copilotBounds.y += dy;
-        clampCopilot();
-    });
-    ipcMain.on("copilot:resize", (_, { height }: { height: number }) => {
-        copilotBounds.height = Math.max(60, Math.min(640, Math.round(height)));
-        clampCopilot();
-    });
-    ipcMain.on("copilot:close", () => {
-        hideCopilot();
-    });
-
-    const setAgentActing = (acting: boolean) => {
-        if (acting === agentActing) return;
-        agentActing = acting;
-        // In console mode the console draws its own "agent in control" overlay (via
-        // the overlay SSE), so the native transparent overlay view stays hidden.
-        if (!useConsole) controlOverlayView.setVisible(acting);
-        if (!useConsole) mainView.webContents.send("kvm:input-enabled", win.isFocused() && !acting);
-        if (acting) layout();
-    };
 
     const layout = () => {
         const [w, h] = win.getContentSize();
         console.log(`Layout: ${w}x${h}`);
 
-        // The console hosts its own agent chat panel, so the native sidebar view is
-        // not used in console mode — the main view (the console) spans full width.
+        // The console hosts its own terminal panel, so the native sidebar is not used
+        // in console mode — the main view (the console) spans full width.
         const sbW = useConsole ? 0 : sidebarOpen ? sidebarWidth : 0;
 
         // The console draws its OWN titlebar, so the main view fills the whole window.
@@ -866,14 +446,6 @@ function createWindow() {
             height: h! - topY,
         });
 
-        // Docked right; slides off the right edge when closed.
-        sidebarView.setBounds({
-            x: w! - sbW,
-            y: TITLEBAR_HEIGHT,
-            width: sidebarWidth,
-            height: h! - TITLEBAR_HEIGHT,
-        });
-
         overlayView.setBounds({
             x: 0,
             y: 0,
@@ -881,22 +453,9 @@ function createWindow() {
             height: h!,
         });
 
-        // Control overlay tracks the KVM area exactly.
-        controlOverlayView.setBounds({
-            x: 0,
-            y: TITLEBAR_HEIGHT,
-            width: w! - sbW,
-            height: h! - TITLEBAR_HEIGHT,
-        });
-
-        // Keep the floating copilot within the (possibly resized) window.
-        if (copilotVisible) clampCopilot();
-
         mainView.webContents.send("window:resize", mainView.getBounds());
     };
 
-    sidebarView.webContents.loadFile(resolve(__dirname, "views", "sidebar.html"));
-    controlOverlayView.webContents.loadFile(resolve(__dirname, "views", "acting.html"));
     // The terminal renderer is loaded over HTTP (once the backend is up, below) so it's
     // same-origin with the /_agent/terminal WebSocket it connects to — the SAME page the
     // mobile/web console loads, so every device shares the server-hosted sessions.
@@ -956,12 +515,12 @@ function createWindow() {
         terminalFitTimer = setTimeout(run, 80);
     };
 
-    // A tapped suggestion (or any external task) → type it into the primary session.
+    // Any external task → type it into the primary terminal session.
     ipcMain.on("console:run-task", (_, task: unknown) => {
-        if (typeof task === "string" && task.trim() && agentBackend)
-            agentBackend.terminalSessions.submitLine(agentBackend.terminalSessions.primaryId(), task.trim());
+        if (typeof task === "string" && task.trim() && backend)
+            backend.terminalSessions.submitLine(backend.terminalSessions.primaryId(), task.trim());
     });
-    // The console reports where its agent-panel content sits (window pixels); we float the
+    // The console reports where its terminal-panel content sits (window pixels); we float the
     // terminal view there. Empty/zero → hide it (panel collapsed). The renderer re-fits on
     // its own resize events when these bounds change.
     let termRectSeen = false;
@@ -980,14 +539,12 @@ function createWindow() {
         }
     });
     win.on("closed", () => {
-        agentBackend?.terminalSessions.killAll();
-        agentDaemon?.kill();
+        backend?.terminalSessions.killAll();
     });
 
-    // Right-click editing menus everywhere; the sidebar also offers "Copy conversation".
+    // Right-click editing menus on the main + overlay views.
     attachContextMenu(mainView.webContents);
     attachContextMenu(overlayView.webContents);
-    attachContextMenu(sidebarView.webContents, { conversation: true });
 
     ipcMain.on("sidebar:toggle", () => {
         sidebarOpen = !sidebarOpen;
@@ -1011,294 +568,18 @@ function createWindow() {
         layout();
     });
 
-    // Unified input tracker (agent + the user's own keystrokes on the KVM page).
-    const inputTracker = new InputTracker();
-    let clearKvmRegionsForUserInput = () => {};
-    ipcMain.on("kvm:user-input", (_, data) => {
-        if (!data) return;
-        if (data.type === "key" && typeof data.key === "string") inputTracker.applyKey("user", data.key);
-        else if (data.type === "mouse") inputTracker.mouse("user", `button ${data.button ?? 0}`);
-        clearKvmRegionsForUserInput();
-    });
-
-    // Start the agentic backend (control core + agent + MCP/chat server) — UNLESS
-    // we're a thin client pointing at a remote console, where the remote owns all of
-    // that. `agentBackend` is then null and every binding below is guarded/skipped.
-    const agentBackend = remoteConsole ? null : startAgentBackend(origin, settings, inputTracker);
+    // Start the local backend (PiKVM control core for the proxy + the shared
+    // terminal + the control server) — UNLESS we're a thin client pointing at a
+    // remote console, where the remote host owns the proxy + terminal.
+    const backend = remoteConsole ? null : startProxyAndTerminal(origin, settings);
 
     // Now that the backend is listening, load the shared terminal renderer over HTTP so it's
     // same-origin with its /_agent/terminal WebSocket (the desktop view and mobile both use it).
     void terminalView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`);
 
-    // Agent screenshots come from the already-rendered live view (capturePage),
-    // NOT the PiKVM snapshot endpoint — so they put no load on the Pi and never
-    // stall the live stream the user is watching. This zero-load path only works
-    // when the main view IS the KVM picture; with the unified console as the main
-    // view, capturePage would grab our own UI, so we leave these unset and the
-    // control core falls back to the Pi snapshot (clean frames, like headless mode).
-    if (agentBackend && !useConsole) {
-    agentBackend.control.captureScreen = async () => {
-        try {
-            const img = await mainView.webContents.capturePage();
-            const sz = img.getSize();
-            if (!sz.width || !sz.height) return null;
-            return { data: img.toJPEG(80), width: sz.width, height: sz.height };
-        } catch {
-            return null;
-        }
-    };
-
-    // Cheap 16x16 grayscale fingerprint for the ambient monitor's change detector
-    // (no decode lib, no LLM — just a perceptual diff between consecutive frames).
-    agentBackend.control.captureFingerprint = async () => {
-        try {
-            const img = await mainView.webContents.capturePage();
-            if (!img.getSize().width) return null;
-            const small = img.resize({ width: 16, height: 16, quality: "good" });
-            const bmp = small.toBitmap(); // BGRA, 16*16*4 bytes
-            const fp = new Uint8Array(256);
-            for (let i = 0; i < 256; i++) {
-                const o = i * 4;
-                fp[i] = ((bmp[o]! + bmp[o + 1]! + bmp[o + 2]!) / 3) | 0;
-            }
-            return fp;
-        } catch {
-            return null;
-        }
-    };
-
-    // Dense grayscale grid (96x54) for watched typing: diffing it before/after a
-    // chunk localises the field (the pixels that change while typing) and catches
-    // "keystrokes aren't landing". Same cheap capturePage path as the fingerprint.
-    agentBackend.control.captureGrid = async () => {
-        try {
-            const img = await mainView.webContents.capturePage();
-            if (!img.getSize().width) return null;
-            const cols = 96;
-            const rows = 54;
-            const small = img.resize({ width: cols, height: rows, quality: "good" });
-            const bmp = small.toBitmap(); // BGRA
-            const cells = new Uint8Array(cols * rows);
-            for (let i = 0; i < cells.length; i++) {
-                const o = i * 4;
-                cells[i] = ((bmp[o]! + bmp[o + 1]! + bmp[o + 2]!) / 3) | 0;
-            }
-            return { cols, rows, cells };
-        } catch {
-            return null;
-        }
-    };
-    } // end if (!useConsole) — console mode uses the Pi snapshot for clean frames
-
-    // In console mode capturePage would grab our OWN UI (the streaming chat panel,
-    // titlebar meters) and swamp a KVM change-detector with chrome noise — so the
-    // ambient monitor + suggestion watcher get their cheap fingerprint from the same
-    // clean Pi snapshot the agent sees. A 16x16 grayscale is plenty for change gating.
-    if (agentBackend && useConsole) {
-        const backend = agentBackend;
-        backend.control.captureFingerprint = async () => {
-            try {
-                // Reuse a very recent frame (≤700ms) so the fingerprint shares the Pi
-                // snapshot with whatever else just looked — but short enough that the
-                // change-detector still sees a fresh frame each watcher tick (≥1.5s).
-                const shot = await backend.control.cachedScreenshot(700);
-                const img = nativeImage.createFromBuffer(shot.data);
-                if (!img.getSize().width) return null;
-                const small = img.resize({ width: 16, height: 16, quality: "good" });
-                const bmp = small.toBitmap(); // BGRA, 16*16*4 bytes
-                const fp = new Uint8Array(256);
-                for (let i = 0; i < 256; i++) {
-                    const o = i * 4;
-                    fp[i] = ((bmp[o]! + bmp[o + 1]! + bmp[o + 2]!) / 3) | 0;
-                }
-                return fp;
-            } catch {
-                return null;
-            }
-        };
-    }
-
-    // All of the local-backend wiring below (overlays, transcription, copilot, agent
-    // control) is skipped in thin-client mode — the remote console owns it.
-    if (agentBackend) {
-    // Watched-typing events → the on-screen X-ray overlay (teal typing box).
-    agentBackend.control.onTypingEvent = (ev) => {
-        const dims = agentBackend.control.getDimensions();
-        const payload = { ...ev, w: dims.width, h: dims.height };
-        controlOverlayView.webContents.send("overlay:typing", payload);
-        agentBackend.overlay.emitOverlay({ type: "typing", ...payload });
-    };
-    agentBackend.control.onMousePath = (payload) => {
-        controlOverlayView.webContents.send("overlay:mouse-path", payload);
-        agentBackend.overlay.emitOverlay({ type: "mouse_path", ...payload });
-    };
-
-    // Meeting transcription: feed renderer audio blobs into the local whisper
-    // pipeline, and start/stop capture as the ambient monitor enters/leaves a meeting.
-    ipcMain.on("kvm:audio-chunk", (_, b64: string) => {
-        try {
-            agentBackend.transcriber.pushAudio(Buffer.from(b64, "base64"));
-        } catch {
-            /* ignore malformed chunk */
-        }
-    });
-    // The renderer reports which audio sources it tapped (mic / remote) so the
-    // transcriber's status can explain a stuck "Listening…".
-    ipcMain.on("kvm:audio-status", (_, s: { mic?: boolean; remote?: boolean; error?: string | null }) => {
-        agentBackend.transcriber.setCaptureStatus(s ?? {});
-    });
-    // Manual transcription toggle (server endpoint) → drive renderer capture.
-    agentBackend.transcriber.on("capture", (on: boolean) => {
-        mainView.webContents.send(on ? "kvm:transcribe-start" : "kvm:transcribe-stop");
-    });
-    agentBackend.ambient.on("event", (e: { kind: string }) => {
-        if (e.kind === "meeting-start") {
-            if (copilotHideTimer) {
-                clearTimeout(copilotHideTimer);
-                copilotHideTimer = null;
-            }
-            // Fresh transcript per meeting — don't let the prior meeting bleed in.
-            agentBackend.transcriber.clear();
-            if (agentBackend.settings.get().ambient.transcribe) {
-                agentBackend.transcriber.start();
-                mainView.webContents.send("kvm:transcribe-start");
-            }
-            // Pop the floating copilot over the KVM.
-            if (agentBackend.settings.get().ambient.meetingAssist) showCopilot();
-        } else if (e.kind === "meeting-end") {
-            agentBackend.transcriber.stop();
-            mainView.webContents.send("kvm:transcribe-stop");
-            // Keep the copilot up briefly so the end-of-meeting recap lands.
-            if (copilotHideTimer) clearTimeout(copilotHideTimer);
-            copilotHideTimer = setTimeout(() => {
-                hideCopilot();
-                copilotHideTimer = null;
-            }, 30000);
-        }
-    });
-
-    // Auto-transcribe: the "transcribe" setting is the master capture-intent switch.
-    // Flipping it on drives transcriber.setCapturing(true) (in the server's settings
-    // handler), which emits the "capture" event wired above — so BOTH the legacy native
-    // UI (kvm:transcribe-start IPC) and the web/desktop console (the relayed ambient-SSE
-    // "transcribe" event) begin recording the target's audio whenever it's present.
-    // Whisper only emits segments for actual speech, so an idle/silent stream is cheap.
-    // (No presence/audioActive gating here: in console mode — the default — that signal
-    // comes from the legacy preload, which doesn't run, so it's always false.)
-
-    // Surface the recognised app + sensitivity onto the overlay so the user sees
-    // where the agent thinks it is (and when it's in a sensitive area).
-    agentBackend.runner.onContext = (ctx) => {
-        controlOverlayView.webContents.send("overlay:context", ctx);
-        agentBackend.overlay.emitOverlay({ type: "context", ...(ctx as { app?: string; sensitive?: boolean }) });
-    };
-
-    // LLM-segmented screen regions → labelled boxes on the console (and native)
-    // overlay. The map is change-gated in the runner, so this fires only when the
-    // layout actually shifts; here we just fan the result out to every client.
-    agentBackend.runner.onRegions = (result) => {
-        const payload = {
-            regions: result.regions.map((r) => ({ label: r.label, kind: r.kind, x: r.bbox.x, y: r.bbox.y, width: r.bbox.width, height: r.bbox.height })),
-            w: result.width,
-            h: result.height,
-        };
-        controlOverlayView.webContents.send("overlay:regions", payload);
-        agentBackend.overlay.emitOverlay({ type: "regions", ...payload });
-    };
-
-    // The region map belongs to the agent's run: it's segmented while the agent is
-    // driving and is meaningless (stale) the moment it hands control back. Wipe the
-    // boxes from every client whenever the agent stops/finishes/is paused.
-    const clearRegions = () => {
-        const empty = { regions: [], w: 0, h: 0 };
-        controlOverlayView.webContents.send("overlay:regions", empty);
-        agentBackend.overlay.emitOverlay({ type: "regions", ...empty });
-    };
-    clearKvmRegionsForUserInput = clearRegions;
-
-    // Mirror the agent's "is acting" state onto the control overlay.
-    agentBackend.runner.subscribe((event) => {
-        // After a full-frame screenshot the screen is settled and freshly captured —
-        // the ideal, cheap moment to (re)segment regions (the runner's grid gate then
-        // decides whether a model call is actually warranted). Never blocks the loop.
-        if (event.type === "tool_execution_end" && event.toolName === "screenshot") {
-            const args = (event as any).args ?? {};
-            const hasRegion = args.region && typeof args.region.x === "number";
-            if (!hasRegion) {
-                agentBackend.runner.maybeSegmentRegions();
-                // Warm the sensitive-focus assessment off the same fresh frame so the
-                // next text-entry/click reads a warm cache instead of blocking on a
-                // serial vision round-trip (overlaps with the agent's next think).
-                agentBackend.runner.maybeAssessContext();
-            }
-        }
-        if (event.type === "tool_execution_start") {
-            setAgentActing(true);
-            const args = (event as any).args ?? {};
-            const action = humanAction(event.toolName, args);
-            controlOverlayView.webContents.send("overlay:acting", { action });
-            agentBackend.overlay.emitOverlay({ type: "acting", active: true, action });
-            // Drive the on-screen AI cursor for pointer actions.
-            if (
-                (event.toolName === "move_mouse" || event.toolName === "click" || event.toolName === "double_click") &&
-                typeof args.x === "number" &&
-                typeof args.y === "number"
-            ) {
-                const dims = agentBackend.control.getDimensions();
-                const cur = {
-                    x: args.x as number,
-                    y: args.y as number,
-                    w: dims.width,
-                    h: dims.height,
-                    kind: event.toolName === "move_mouse" ? "move" : "click",
-                };
-                controlOverlayView.webContents.send("overlay:cursor", cur);
-                agentBackend.overlay.emitOverlay({ type: "cursor", ...cur });
-            }
-            // Show what the agent is READING: a labelled scan box for OCR (the key
-            // ask) and for cropped/zoom screenshots. Routine full-frame screenshots
-            // are skipped (the pulsing scrim already signals "looking").
-            // (type_text drives its own live "overlay:typing" X-ray, so it's not here.)
-            const hasRegion = args.region && typeof args.region.x === "number" && typeof args.region.width === "number";
-            if (event.toolName === "ocr" || (event.toolName === "screenshot" && hasRegion)) {
-                const dims = agentBackend.control.getDimensions();
-                const r = hasRegion ? args.region : { x: 0, y: 0, width: dims.width, height: dims.height };
-                const label = event.toolName === "ocr" ? (hasRegion ? "Reading text" : "Reading screen") : "Zoom in";
-                const region = { x: r.x, y: r.y, width: r.width, height: r.height, w: dims.width, h: dims.height, label, hold: 1500 };
-                controlOverlayView.webContents.send("overlay:region", region);
-                agentBackend.overlay.emitOverlay({ type: "region", ...region });
-            }
-        } else if (event.type === "agent_end") {
-            setAgentActing(false);
-            agentBackend.overlay.emitOverlay({ type: "acting", active: false });
-            clearRegions(); // agent handed control back — drop its stale region map
-            // Notify on completion if the user isn't looking at the window.
-            if (!win.isFocused() && Notification.isSupported()) {
-                new Notification({ title: "Agent finished", body: "The task is complete." }).show();
-            }
-        }
-    });
-
-    ipcMain.on("agent:stop", () => {
-        console.log("Emergency stop from overlay");
-        agentBackend.runner.stop();
-        setAgentActing(false);
-        clearRegions();
-    });
-
-    ipcMain.on("agent:pause", () => {
-        console.log("Pause — handing control to user");
-        agentBackend.runner.pauseForUser();
-        setAgentActing(false);
-        clearRegions();
-    });
-    } // end if (agentBackend) — local-backend wiring
-
     ipcMain.on("open-external", (_, url: string) => {
         if (typeof url === "string" && /^https?:\/\//.test(url)) void shell.openExternal(url);
     });
-    // Open the unified web console in its own desktop window (thin client over the API).
-    ipcMain.on("open-unified-console", () => openUnifiedConsole());
 
     win.on("resize", layout);
     layout();
@@ -1433,9 +714,6 @@ function createWindow() {
 
         overlayView.webContents.send("window:state", state);
         mainView.webContents.send("window:state", state);
-        sidebarView.webContents.send("window:state", state);
-        // Let the ambient monitor know whether the screen is actually visible.
-        agentBackend?.setOnKVM(onKVM);
     }
 
     let canMaximize = win.isMaximizable();
@@ -1480,11 +758,10 @@ function createWindow() {
 
             lastStreamData = null;
 
-            // Left the KVM screen — collapse the agent sidebar so it isn't
-            // stranded open without its (now-hidden) toggle button.
+            // Left the KVM screen — collapse the sidebar so it isn't stranded open
+            // without its (now-hidden) toggle button.
             if (sidebarOpen) {
                 sidebarOpen = false;
-                controlOverlayView.setVisible(false);
             }
 
             if (
@@ -1598,14 +875,8 @@ function createWindow() {
                 }, 100);
             }
 
-            // Drive the presence / do-not-disturb gate off the PiKVM's own
-            // mic/audio transmission state.
-            agentBackend?.presence.setMediaState({
-                audio: !!data.isTransmittingAudio,
-                mic: !!data.isTransmittingMicrophone,
-            });
-            // Native resolution for OCR coordinate scaling.
-            if (data.width && data.height) agentBackend?.control.setNativeDims(data.width, data.height);
+            // Track the native stream resolution on the control core.
+            if (data.width && data.height) backend?.control.setNativeDims(data.width, data.height);
 
             mainView.webContents.send("kvm:media-transmission", {
                 isTransmittingAudio: data.isTransmittingAudio,
@@ -1632,7 +903,7 @@ function createWindow() {
     win.on("focus", () => {
         isFocused = true;
         // Re-enable forwarding input to the remote now that we're focused.
-        mainView.webContents.send("kvm:input-enabled", !agentActing);
+        mainView.webContents.send("kvm:input-enabled", true);
         sendWindowState();
     });
     win.on("blur", () => {
@@ -1733,7 +1004,6 @@ function createWindow() {
                             const cfg = loadConfig();
                             delete cfg.consoleOrigin; // back to local
                             saveConfig(cfg);
-                            agentDaemon?.kill();
                             app.relaunch();
                             app.exit(0);
                         } else if (r.response === 2) {
@@ -1808,11 +1078,6 @@ function createWindow() {
         allowedPermissions.has(permission)
     );
 
-    // Reliable clipboard for the sidebar (navigator.clipboard can be flaky in views).
-    ipcMain.on("clipboard:write", (_, contentText: string) => {
-        if (typeof contentText === "string") clipboard.writeText(contentText);
-    });
-
     if (
         process.env.NODE_ENV === "development" ||
         process.env.DEVTOOLS === "1"
@@ -1823,8 +1088,6 @@ function createWindow() {
 
     mainView.webContents.focus();
 }
-
-app.on("before-quit", () => agentDaemon?.kill());
 
 app.whenReady().then(() => {
     console.log("Electron ready");
