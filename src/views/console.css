@@ -616,6 +616,39 @@ html.desktop-console.win-blur .screen {
     display: block;
 }
 
+/* Agent-backend readiness pill in the titlebar (desktop only — fed by the daemon
+ * /status proxy). Colour = overall: green ready, amber starting/degraded, red down. */
+.backend-status {
+    display: none;
+}
+html.desktop-console .backend-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 9px 0 7px;
+    margin-left: 4px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    font-size: 11px;
+    color: var(--muted-foreground);
+    -webkit-app-region: no-drag;
+    cursor: default;
+    user-select: none;
+}
+.backend-status .bs-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+    flex: none;
+}
+.backend-status[data-state="ready"] .bs-dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.backend-status[data-state="starting"] .bs-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+.backend-status[data-state="down"] .bs-dot { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
+.backend-status[data-state="ready"] { color: var(--foreground); }
+
 /* [Terminal | Agent] tab strip — desktop-console only (web/mobile have no native
  * views to switch, so the terminal iframe just fills the panel as before). */
 .panel-tabs {

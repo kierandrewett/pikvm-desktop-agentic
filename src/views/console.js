@@ -1845,6 +1845,42 @@
             });
             window.desktopConsole.setPanelTab("terminal"); // default on load
         }
+
+        // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
+        // colour the titlebar dot. Tooltip enumerates each dependency the daemon needs.
+        var bsEl = document.getElementById("backend-status");
+        var bsText = document.getElementById("bs-text");
+        if (bsEl) {
+            var setBackend = function (state, label, tip) {
+                bsEl.dataset.state = state;
+                if (bsText) bsText.textContent = label;
+                bsEl.title = tip;
+            };
+            var pollBackend = function () {
+                fetch("/_agent/daemon/status", { cache: "no-store" })
+                    .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
+                    .then(function (s) {
+                        var d = s.dependencies || {};
+                        var parts = ["Daemon: ready"];
+                        parts.push("PiKVM: " + (d.pikvm && d.pikvm.reachable ? "reachable" : "unreachable"));
+                        if (d.omniparser && d.omniparser.enabled)
+                            parts.push("Vision: " + (d.omniparser.reachable ? "ready" : "loading…"));
+                        if (d.operator)
+                            parts.push("LLM: " + (d.operator.configured ? d.operator.provider : "no API key"));
+                        if (d.ocr)
+                            parts.push("OCR: " + d.ocr.provider + (d.ocr.available ? "" : " (missing)"));
+                        var ready = !!s.ok;
+                        setBackend(ready ? "ready" : "starting",
+                                   ready ? "Backend ready" : "Backend starting",
+                                   "Agent backend — " + parts.join("  ·  "));
+                    })
+                    .catch(function () {
+                        setBackend("down", "Backend down", "Agent daemon unreachable (starting or not running)");
+                    });
+            };
+            pollBackend();
+            setInterval(pollBackend, 5000);
+        }
     } else {
         // WEB / MOBILE: load the SAME shared terminal as desktop. The PTYs are hosted on the
         // server; this page connects to the /_agent/terminal WebSocket and sees the same tabs
