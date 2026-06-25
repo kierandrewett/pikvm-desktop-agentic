@@ -2684,19 +2684,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xterm/addon-fit@npm:^0.10.0":
-  version: 0.10.0
-  resolution: "@xterm/addon-fit@npm:0.10.0"
-  peerDependencies:
-    "@xterm/xterm": ^5.0.0
-  checksum: 10c0/76926120fc940376afef2cb68b15aec2a99fc628b6e3cc84f2bcb1682ca9b87f982b3c10ff206faf4ebc5b410467b81a7b5e83be37b4ac386586f472e4fa1c61
+"@xterm/addon-fit@npm:^0.11":
+  version: 0.11.0
+  resolution: "@xterm/addon-fit@npm:0.11.0"
+  checksum: 10c0/c0ce94f7e877d07e7197d15d041cc629ce2e853016400aadddc9810838ea8a26e836f87f325eba36df88c03feb72d9f13cd8c3bb41ee31e701f1058edb8553c3
   languageName: node
   linkType: hard
 
-"@xterm/xterm@npm:^5.5.0":
-  version: 5.5.0
-  resolution: "@xterm/xterm@npm:5.5.0"
-  checksum: 10c0/358801feece58617d777b2783bec68dac1f52f736da3b0317f71a34f4e25431fb0b1920244f678b8d673f797145b4858c2a5ccb463a4a6df7c10c9093f1c9267
+"@xterm/xterm@npm:6.1.0-beta.287":
+  version: 6.1.0-beta.287
+  resolution: "@xterm/xterm@npm:6.1.0-beta.287"
+  checksum: 10c0/cc35ea3fce7c6fb4d2da886560a5d74e93272767ffbbab5cd3b7a509da6beac11a46276805c7a51d3fcdade272d7d7a23d3fd8c1432bb2f95ad856f930eca0d8
   languageName: node
   linkType: hard
 
@@ -7639,8 +7637,8 @@ __metadata:
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
     "@types/ws": "npm:^8.18.1"
-    "@xterm/addon-fit": "npm:^0.10.0"
-    "@xterm/xterm": "npm:^5.5.0"
+    "@xterm/addon-fit": "npm:^0.11"
+    "@xterm/xterm": "npm:6.1.0-beta.287"
     ai: "npm:^6.0.207"
     axios: "npm:^1.13.2"
     class-variance-authority: "npm:^0.7.1"

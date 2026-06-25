@@ -42,6 +42,7 @@ import { CodexAuth } from "./agent/auth";
 import { AgentRunner } from "./agent/runner";
 import { connectAtlas } from "./agent/atlas-mcp";
 import { startControlServer } from "./server";
+import { createCaptureDocument } from "./doc-capture";
 import { OverlayBus } from "./overlay-bus";
 import { SettingsStore } from "./settings";
 import { InputTracker } from "./input-tracker";
@@ -207,7 +208,7 @@ function main(): void {
     reviewer.setPolicy(s.policy);
     control.setHumanize(s.humanize);
     control.setWpm(s.wpm);
-    control.setLayout(s.keyboardLayout);
+    control.setLayout(s.keyboardLayout, { source: "auto" }); // let the Pi's hid_keymaps refine this saved default
     presence.setEnabled(s.pauseOnPresence);
     if (s.goal) runner.setGoal(s.goal);
 
@@ -218,6 +219,9 @@ function main(): void {
     control.onTypingEvent = (ev) => {
         const dims = control.getDimensions();
         overlay.emitOverlay({ type: "typing", ...ev, w: dims.width, h: dims.height });
+    };
+    control.onMousePath = (payload) => {
+        overlay.emitOverlay({ type: "mouse_path", ...payload });
     };
     runner.onContext = (ctx) => {
         overlay.emitOverlay({ type: "context", ...(ctx as { app?: string; sensitive?: boolean }) });
@@ -255,9 +259,16 @@ function main(): void {
             meetingLog,
             overlay,
             ...runner.visionDeps(), // getRegions/opticalRead/opticalReadStrong/remember for the MCP server
+            onFullScreenshot: () => runner.maybeSegmentRegions(),
             // No desktop shell to hand an OAuth URL to — print it so the operator
             // can open it manually on the headless host.
             openExternal: (u) => console.log(`[auth] open this URL to continue:\n  ${u}`),
+            captureDocument: createCaptureDocument({
+                python: process.env.PIKVM_DOCCAPTURE_PYTHON || "python3",
+                script: resolve(__dirname, "doc-capture", "capture.py"),
+                target: () => control.captureTarget(),
+                outBase: process.env.PIKVM_DOCCAPTURE_OUT || resolve(dir, "doc-captures"),
+            }),
         },
         port,
         bindHost,

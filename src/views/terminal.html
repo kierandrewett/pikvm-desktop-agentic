@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Agent</title>
+        <title>Terminal</title>
         <link rel="stylesheet" href="xterm.css" />
         <style>
             /* Design tokens mirrored from console.css so the terminal matches the app. */
@@ -24,6 +24,7 @@
             body {
                 height: 100%;
                 margin: 0;
+                overflow: hidden;
                 background: var(--background);
                 color: var(--foreground);
                 font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -31,17 +32,19 @@
             body {
                 display: flex;
                 flex-direction: column;
+                min-width: 0;
+                min-height: 0;
             }
             /* ---- tab bar ---- */
             #tabs {
                 display: flex;
                 align-items: center;
-                gap: 2px;
-                height: 38px;
-                min-height: 38px;
-                padding: 0 6px;
+                gap: 4px;
+                height: 36px;
+                min-height: 36px;
+                padding: 0 8px;
                 box-sizing: border-box;
-                background: var(--card);
+                background: color-mix(in srgb, var(--card) 94%, #000);
                 border-bottom: 1px solid var(--border);
                 overflow-x: auto;
                 overflow-y: hidden;
@@ -51,72 +54,78 @@
                 display: none;
             }
             .tab {
+                position: relative;
                 display: flex;
                 align-items: center;
                 gap: 8px;
-                padding: 0 7px 0 11px;
                 height: 28px;
-                max-width: 170px;
-                border-radius: var(--radius);
+                min-width: 72px;
+                max-width: 210px;
+                padding: 0 6px 0 9px;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                background: transparent;
                 color: var(--muted-foreground);
-                font-size: 12.5px;
+                font-size: 12px;
+                font-weight: 550;
                 cursor: default;
                 user-select: none;
                 white-space: nowrap;
-                box-shadow: inset 0 0 0 1px transparent;
                 transition:
                     background 0.12s,
+                    border-color 0.12s,
                     color 0.12s;
             }
             .tab:hover {
-                background: var(--secondary);
+                background: color-mix(in srgb, var(--secondary) 78%, transparent);
                 color: var(--foreground);
             }
             .tab.active {
-                background: var(--background);
+                background: var(--secondary);
+                border-color: color-mix(in srgb, var(--border) 84%, var(--foreground));
                 color: var(--foreground);
-                box-shadow: inset 0 0 0 1px var(--border);
             }
             .tab .label {
+                flex: 1;
+                min-width: 0;
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            /* "Controls the KVM" badge — shown only on the tab that holds the control lease. */
+            /* Shown only on the tab that holds the KVM control lease. */
             .tab .ctrl {
                 display: none;
                 flex: none;
-                font-size: 11px;
+                font-size: 10px;
+                font-weight: 700;
                 line-height: 1;
                 color: var(--primary);
+                text-transform: uppercase;
             }
             .tab.controlling .ctrl {
                 display: inline;
             }
             .tab.controlling {
-                box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
-            }
-            .tab .dot {
-                width: 6px;
-                height: 6px;
-                border-radius: 50%;
-                background: var(--ok);
-                flex: none;
-                box-shadow: 0 0 6px -1px var(--ok);
-            }
-            .tab.exited .dot {
-                background: var(--muted-foreground);
-                box-shadow: none;
+                border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
             }
             .tab .close {
-                width: 17px;
-                height: 17px;
-                line-height: 15px;
-                text-align: center;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 18px;
+                height: 18px;
                 font-size: 13px;
                 border-radius: 5px;
                 color: var(--muted-foreground);
                 flex: none;
-                opacity: 0.65;
+                opacity: 0;
+                transition:
+                    background 0.12s,
+                    color 0.12s,
+                    opacity 0.12s;
+            }
+            .tab:hover .close,
+            .tab.active .close {
+                opacity: 0.72;
             }
             .tab .close:hover {
                 background: var(--accent);
@@ -127,10 +136,10 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                width: 26px;
-                height: 26px;
-                margin-left: 2px;
-                border-radius: var(--radius);
+                width: 30px;
+                height: 28px;
+                margin: 0 0 0 2px;
+                border-radius: 6px;
                 background: transparent;
                 color: var(--muted-foreground);
                 border: none;
@@ -143,70 +152,39 @@
                 background: var(--secondary);
                 color: var(--foreground);
             }
-            /* ---- agent picker (the + menu) ---- */
-            .agent-picker {
-                position: fixed;
-                z-index: 9999;
-                min-width: 140px;
-                padding: 4px;
-                background: var(--card);
-                border: 1px solid var(--border);
-                border-radius: 9px;
-                box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
-            }
-            .agent-item {
-                padding: 7px 10px;
-                border-radius: 6px;
-                font-size: 13px;
-                color: var(--foreground);
-                cursor: default;
-            }
-            .agent-item:hover {
-                background: var(--secondary);
-            }
-            .agent-item::before {
-                content: "";
-                display: inline-block;
-                width: 7px;
-                height: 7px;
-                border-radius: 50%;
-                margin-right: 8px;
-                vertical-align: middle;
-                background: var(--muted-foreground);
-            }
-            .agent-item[data-agent="claude"]::before {
-                background: #d98a5b;
-            }
-            .agent-item[data-agent="codex"]::before {
-                background: var(--ok);
-            }
-            .agent-item[data-agent="opencode"]::before {
-                background: var(--primary);
-            }
             /* ---- terminals ---- */
             #terms {
                 position: relative;
                 flex: 1;
                 min-height: 0;
+                overflow: hidden;
             }
             .term {
                 position: absolute;
                 inset: 0;
                 /* No right padding: the slim scrollbar sits at the edge, not in a gap. */
-                padding: 8px 2px 6px 12px;
+                padding: 10px 3px 8px 12px;
                 box-sizing: border-box;
                 display: none;
+                overflow: hidden;
             }
             .term.active {
                 display: block;
             }
-            /* NOTE: do NOT set standard scrollbar-width/scrollbar-color here — when present,
-               Chromium ignores the ::-webkit-scrollbar rules and draws a chunky default bar. */
+            .term .xterm {
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+            }
             .xterm .xterm-viewport {
                 background: transparent !important;
+                overflow-x: hidden !important;
+                overflow-y: auto !important;
+                scrollbar-width: thin;
+                scrollbar-color: color-mix(in srgb, var(--accent) 82%, transparent) transparent;
             }
             .xterm .xterm-viewport::-webkit-scrollbar {
-                width: 9px;
+                width: 8px;
             }
             .xterm .xterm-viewport::-webkit-scrollbar-button {
                 display: none;
@@ -232,7 +210,7 @@
         </style>
     </head>
     <body>
-        <div id="tabs"><button id="new-tab" title="New Claude session">+</button></div>
+        <div id="tabs"><button id="new-tab" title="New shell" aria-label="New shell">+</button></div>
         <div id="terms"></div>
         <script src="terminal.js"></script>
     </body>

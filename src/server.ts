@@ -56,6 +56,8 @@ export interface ServerDeps extends McpDeps {
     meetingLog: MeetingLog;
     overlay: OverlayBus;
     openExternal: (url: string) => void;
+    /** If set, every MCP request must present this token in the URL or x-pikvm-mcp-token. */
+    mcpToken?: string;
     /** Server-hosted terminal sessions, streamed to all devices over /_agent/terminal. */
     terminalSessions?: TerminalSessions;
 }
@@ -75,6 +77,13 @@ function json(res: ServerResponse, status: number, body: unknown) {
     const data = JSON.stringify(body);
     res.writeHead(status, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(data);
+}
+
+function mcpTokenOk(req: IncomingMessage, url: URL, expected?: string): boolean {
+    if (!expected) return true;
+    const queryToken = url.searchParams.get("pikvm_mcp_token") ?? url.searchParams.get("token") ?? "";
+    const headerToken = typeof req.headers["x-pikvm-mcp-token"] === "string" ? req.headers["x-pikvm-mcp-token"] : "";
+    return queryToken === expected || headerToken === expected;
 }
 
 export interface ImagePart {
@@ -109,9 +118,6 @@ function lastUserMessage(messages: PiKvmUIMessage[] | undefined): { text: string
 
 export function startControlServer(deps: ServerDeps, port: number, host = "127.0.0.1"): ReturnType<typeof createServer> {
     const { runner, reviewer, presence, auth, settings, secrets, ambient, suggestions, ntfy, transcriber, meetingLog, control, overlay, openExternal } = deps;
-    const mcpHandler = createMcpHttpHandler(deps);
-    // Reverse proxy to the PiKVM target. Our own surface lives under `/_agent`;
-    // everything else is forwarded to the Pi (UI, stream, HID, login).
     // Idle mouse-jiggler: keeps the target awake when nobody's driving. It tracks the
     // user's cursor off the proxied HID socket (onHidActivity) and the agent's via the
     // control core, restores the exact position, and holds agent ops while it nudges.
@@ -122,6 +128,23 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     });
     jiggler.start();
     runner.gateBarrier = () => jiggler.waitIfJiggling();
+    // Pause the idle jiggler while a document capture drives the scroll itself, so its
+    // nudges can't corrupt the scroll registration.
+    const mcpHandler = createMcpHttpHandler(
+        deps.captureDocument
+            ? {
+                  ...deps,
+                  captureDocument: async (o) => {
+                      jiggler.stop();
+                      try {
+                          return await deps.captureDocument!(o);
+                      } finally {
+                          jiggler.start();
+                      }
+                  },
+              }
+            : deps,
+    );
 
     const proxy = createPiKvmProxy({
         control,
@@ -619,12 +642,13 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             res.writeHead(204, {
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
-                "Access-Control-Allow-Headers": "content-type, mcp-session-id, mcp-protocol-version",
+                "Access-Control-Allow-Headers": "content-type, mcp-session-id, mcp-protocol-version, x-pikvm-mcp-token",
             });
             return res.end();
         }
 
         if (path === "/mcp" || path.startsWith("/mcp/")) {
+            if (!mcpTokenOk(req, url, deps.mcpToken)) return json(res, 401, { error: "Unauthorized MCP client" });
             if (req.method !== "POST") return json(res, 405, { error: "Use POST" });
             const session = path.startsWith("/mcp/") ? decodeURIComponent(path.slice("/mcp/".length)) || undefined : undefined;
             void readBody(req).then((b) => {
@@ -769,7 +793,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 // Deny = STOP. A denied action halts the whole run and hands control
                 // back so the user decides what's next — don't let the agent keep
                 // trying other actions. Clear the acting overlay immediately so the
-                // KVM "Agent is in control" panel and the chat agree on one state.
+                // KVM automation-control panel and the chat agree on one state.
                 if (body.decision === "deny") {
                     runner.stop();
                     clearPendingAuths(); // also free ANY other gate parked concurrently (e.g. an MCP-driven one)

@@ -21,6 +21,13 @@ export interface OverlayRegion {
     height: number;
 }
 
+/** One frame-space sample from the generated mouse trajectory. */
+export interface OverlayMousePoint {
+    x: number;
+    y: number;
+    t?: number;
+}
+
 /** A proactive action the agent offers for the current screen (lock screen → log in). */
 export interface OverlaySuggestion {
     id: string;
@@ -34,6 +41,7 @@ export type OverlayEvent =
     | { type: "acting"; active: boolean; action?: string }
     | { type: "context"; app?: string; sensitive?: boolean }
     | { type: "cursor"; x: number; y: number; w: number; h: number; kind: string }
+    | { type: "mouse_path"; points: OverlayMousePoint[]; w: number; h: number }
     | { type: "region"; x: number; y: number; width: number; height: number; w: number; h: number; label: string; hold?: number }
     // The LLM-segmented map of the whole screen: labelled, persistent boxes drawn
     // until the next map arrives (distinct from the transient `region` scan box).

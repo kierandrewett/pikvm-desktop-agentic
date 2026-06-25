@@ -21,7 +21,7 @@ export const COMMANDS: CommandSpec[] = [
     { name: "pursue", arg: "[cap] <goal>", summary: "Pursue a goal with blind self-verification, iterating until done (or N tries)." },
     { name: "pause", summary: "Pause automation (manual do-not-disturb)." },
     { name: "resume", summary: "Resume automation." },
-    { name: "stop", summary: "Stop the agent / loop." },
+    { name: "stop", summary: "Stop automation / loop." },
     { name: "clear", summary: "Clear the conversation transcript." },
     { name: "retry", summary: "Retry the last task." },
     { name: "screenshot", summary: "Capture the screen into the log." },

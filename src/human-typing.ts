@@ -468,12 +468,17 @@ export function planTyping(text: string, opts: TypingOptions = {}): KeyStroke[] 
     const persona = opts.persona ?? createPersona(opts.seed, opts.wpm && opts.wpm > 0 ? opts.wpm : undefined);
     const seed = opts.seed ?? ((persona.wpm * 7919 + Math.floor(persona.skill * 1e6)) | 0);
     const rng = makeRng(seed);
+    const codeMode = opts.code ?? looksLikeCode(text);
     const planner = new Planner(rng, persona, {
-        code: opts.code ?? looksLikeCode(text),
+        code: codeMode,
         intensity: clamp01(opts.intensity ?? 1),
         layout: opts.layout ?? "us",
     });
-    return applyCapsLock(planner.plan(text).strokes, makeRng((seed ^ 0x9e3779b1) >>> 0), persona);
+    const strokes = planner.plan(text).strokes;
+    // CapsLock is stateful and remote HID targets can ignore, delay or desync it.
+    // For exact input (commands/code/passwords), hold Shift per letter instead.
+    if (codeMode || (opts.intensity ?? 1) <= 0) return strokes;
+    return applyCapsLock(strokes, makeRng((seed ^ 0x9e3779b1) >>> 0), persona);
 }
 
 const isUpperLetter = (s: KeyStroke) => s.shift && /^Key[A-Z]$/.test(s.code);

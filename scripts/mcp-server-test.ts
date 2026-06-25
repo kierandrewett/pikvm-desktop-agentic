@@ -25,6 +25,7 @@ const rec = (fn: string) => (...args: unknown[]) => {
     return Promise.resolve();
 };
 const presenceCalls: string[] = [];
+let regionsReady = false;
 const stub: any = {
     control: {
         screenshot: (...a: unknown[]) => {
@@ -43,17 +44,39 @@ const stub: any = {
         pressKey: rec("pressKey"),
         hotkey: rec("hotkey"),
         scroll: rec("scroll"),
+        keyDown: rec("keyDown"),
+        keyUp: rec("keyUp"),
+        printText: rec("printText"),
+        getCapsLock: () => undefined,
         getLayout: () => "us",
         setLayout: () => {},
         getDimensions: () => ({ width: 1400, height: 788 }),
         captureGrid: () => Promise.resolve(null),
         onTypingEvent: () => {},
+        releaseHeldHotkeys: () => Promise.resolve(false), // look-path Alt+Tab release (no-op in the stub)
+        waitUntilSettled: () => Promise.resolve({ ready: true, stillAnimating: false, waitedMs: 0 }),
+        isHidOnline: () => hidOnline, // test-controllable HID-liveness signal
+        // Screen-freshness + region monitors (test-controllable).
+        markAgentLook: () => Promise.resolve(),
+        lookFreshness: () => Promise.resolve({ hasBaseline: true, ageMs: 1000, delta: screenStale ? 0.3 : 0.001, changed: screenStale }),
+        watchRegion: (label: string) => (watches.add(label), Promise.resolve(true)),
+        unwatchRegion: (label: string) => watches.delete(label),
+        listWatches: () => [...watches],
+        changedWatches: () => Promise.resolve(reportWatchChange ? [{ label: "AVD", delta: 0.4 }] : []),
+        drainWatchNotices: () => (reportWatchChange ? ['"AVD" (Δ40%)'] : []),
     },
     reviewer: { review: async () => ({ decision: "allow" }), assess: () => ({ decision: "allow", risky: false }) },
     presence: { waitUntilAllowed: () => (presenceCalls.push("yield"), Promise.resolve()) },
     secrets: { list: () => [{ name: "vpn", hint: "the corp VPN password" }], names: () => ["vpn"], get: (n: string) => (n === "vpn" ? "s3cr3t" : undefined) },
-    getRegions: () => ({ regions: [{ label: "Terminal", kind: "terminal", bbox: { x: 0, y: 0, width: 800, height: 600 } }], width: 1400, height: 788, at: 0 }),
+    getRegions: () =>
+        regionsReady
+            ? { regions: [{ label: "Terminal", kind: "terminal", bbox: { x: 0, y: 0, width: 800, height: 600 } }], width: 1400, height: 788, at: 0 }
+            : null,
+    onFullScreenshot: () => {
+        regionsReady = true;
+    },
     opticalRead: async () => "hello world",
+    captureDocument: async (o: any) => ({ ok: true, outDir: "/out/cap-1", transcript: "--- page 1 ---\nHELLO DOC", pdfPath: "/out/cap-1/Doc.pdf", pageCount: 3, mode: o?.mode }),
     // Per-session KVM lease + dangerous-op guardrail (the codex/opencode path, keyed by the
     // /mcp/<session> URL). A click at the sentinel x=666 is a "dangerous" verdict.
     acquireKvmControl: (s?: string) => (!s || !leaseHolder || leaseHolder === s ? ((leaseHolder = s ?? null), { ok: true }) : { ok: false, reason: `held by ${leaseHolder}` }),
@@ -64,6 +87,10 @@ const stub: any = {
     },
 };
 let leaseHolder: string | null = null;
+let hidOnline: boolean | undefined; // undefined = unknown (allow); false = detached (block)
+let screenStale = false; // when true, lookFreshness reports the screen changed under the agent
+let reportWatchChange = false; // when true, changedWatches reports a watched region changed
+const watches = new Set<string>();
 
 const handler = createMcpHttpHandler(stub);
 const server = http.createServer((req, res) => {
@@ -90,19 +117,32 @@ server.listen(PORT, "127.0.0.1", async () => {
         await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } }, 1);
 
         const tools = [...(await rpc("tools/list", {}, 2)).matchAll(/"name":"([a-z_]+)"/g)].map((m) => m[1]);
-        const want = ["screenshot", "ocr", "get_regions", "move_mouse", "click", "double_click", "drag", "type_text", "press_key", "hotkey", "scroll", "list_secrets", "type_secret"];
+        const want = ["screenshot", "ocr", "get_regions", "move_mouse", "click", "double_click", "drag", "type_text", "type_text_at", "press_key", "hotkey", "scroll", "list_secrets", "type_secret", "zoom", "wait", "wait_until_settled", "watch_region", "unwatch_region", "capture_document", "paste_text"];
         check(`lists all ${want.length} eyes+hands tools`, want.every((t) => tools.includes(t)), { got: tools });
 
         const call = (name: string, args: unknown) => rpc("tools/call", { name, arguments: args }, 100);
 
+        const gr0 = text(await call("get_regions", {}));
+        check("get_regions asks for a screenshot before cache is warm", gr0.includes("take a screenshot first"), gr0);
+
         const ss = text(await call("screenshot", {}));
         check("screenshot returns an image + dims", ss.includes('"image"') && ss.includes("1400x788"), ss.slice(0, 120));
+        check("full screenshot triggers region refresh hook", regionsReady === true);
 
         const o = text(await call("ocr", {}));
         check("ocr returns the read text", o.includes("hello world"));
 
         const gr = text(await call("get_regions", {}));
         check("get_regions lists labelled regions", gr.includes("Terminal") && gr.includes("terminal"));
+
+        calls.length = 0;
+        const blindType = text(await call("type_text", { text: "hello world" }));
+        check("type_text without visible verify_region is refused", blindType.includes("Before typing") && !calls.some((c) => c.fn === "typeText"), blindType.slice(0, 160));
+
+        calls.length = 0;
+        const fieldRegion = { x: 20, y: 30, width: 220, height: 32 };
+        const typed = text(await call("type_text", { text: "hello world", verify_region: fieldRegion }));
+        check("type_text with visible verify_region types", calls.some((c) => c.fn === "typeText" && c.args[0] === "hello world") && typed.includes("verified"), { calls, typed });
 
         calls.length = 0;
         presenceCalls.length = 0;
@@ -115,7 +155,109 @@ server.listen(PORT, "127.0.0.1", async () => {
         check("click moves then right-clicks", calls.some((c) => c.fn === "moveMouse") && calls.some((c) => c.fn === "click" && c.args[0] === "right"), calls);
 
         calls.length = 0;
-        const ts = text(await call("type_secret", { name: "vpn" }));
+        const clamped = text(await call("click", { x: 99999, y: 5 }));
+        check(
+            "click clamps an out-of-bounds coord + reports it",
+            clamped.includes("clamped") && calls.some((c) => c.fn === "moveMouse" && c.args[0] === 1399 && c.args[1] === 5),
+            { clamped, calls },
+        );
+
+        // Phase 5: modifier-held click holds the modifier across the click, then releases.
+        calls.length = 0;
+        await call("click", { x: 10, y: 20, modifier: "shift" });
+        const ki = calls.findIndex((c) => c.fn === "keyDown" && c.args[0] === "ShiftLeft");
+        const ci = calls.findIndex((c) => c.fn === "click");
+        const ui = calls.findIndex((c) => c.fn === "keyUp" && c.args[0] === "ShiftLeft");
+        check("shift-click: keyDown(Shift) → click → keyUp(Shift) in order", ki >= 0 && ci > ki && ui > ci, calls);
+
+        // Phase 5: scroll anchors to (x,y) by moving there first.
+        calls.length = 0;
+        await call("scroll", { dy: -3, x: 400, y: 300 });
+        check("scroll anchored: moves to (x,y) then scrolls", calls.some((c) => c.fn === "moveMouse" && c.args[0] === 400) && calls.some((c) => c.fn === "scroll"), calls);
+
+        // scroll via direction+amount (the shape models reach for) → real wheel delta, not a no-op.
+        calls.length = 0;
+        await call("scroll", { direction: "up", amount: 5 });
+        const su = calls.find((c) => c.fn === "scroll");
+        check("scroll direction:'up' amount:5 → wheel (0, +5)", !!su && su.args[0] === 0 && su.args[1] === 5, su);
+        calls.length = 0;
+        await call("scroll", { direction: "down" });
+        const sd = calls.find((c) => c.fn === "scroll");
+        check("scroll direction:'down' default amount → wheel dy -3", !!sd && sd.args[1] === -3, sd);
+        calls.length = 0;
+        await call("scroll", {});
+        const sb = calls.find((c) => c.fn === "scroll");
+        check("bare scroll() is never a silent (0,0) no-op", !!sb && !(sb.args[0] === 0 && sb.args[1] === 0), sb);
+
+        // Phase 5: zoom returns a full-res image crop (read-only).
+        const zoomed = text(await call("zoom", { region: { x: 0, y: 0, width: 200, height: 100 } }));
+        check("zoom returns an image (read-only crop)", zoomed.includes('"image"') && zoomed.toLowerCase().includes("full-frame coordinates"), zoomed.slice(0, 120));
+
+        // Phase 5: wait_until_settled invokes the control settle gate.
+        const settled = text(await call("wait_until_settled", { timeout_ms: 500 }));
+        check("wait_until_settled reports settled", settled.toLowerCase().includes("settled"), settled);
+
+        // Phase 5: type_text_at focuses (click) then types — one round-trip, never submits.
+        calls.length = 0;
+        const typedAt = text(await call("type_text_at", { x: 50, y: 60, text: "hello", code: false }));
+        const clickIdx = calls.findIndex((c) => c.fn === "click");
+        const typeIdx = calls.findIndex((c) => c.fn === "typeText" && c.args[0] === "hello");
+        check("type_text_at clicks to focus then types", clickIdx >= 0 && typeIdx > clickIdx, { calls, typedAt });
+        check("type_text_at never pressed Enter", !calls.some((c) => c.fn === "pressKey" && c.args[0] === "Enter"));
+
+        // paste_text: print each line, Shift+Enter between (chat-safe), never a trailing submit.
+        calls.length = 0;
+        const pasted = text(await call("paste_text", { text: "line one\nline two\nline three", verify_region: { x: 20, y: 30, width: 400, height: 80 } }));
+        const printCalls = calls.filter((c) => c.fn === "printText");
+        const shiftEnter = calls.filter((c) => c.fn === "hotkey" && Array.isArray(c.args[0]) && (c.args[0] as string[]).includes("ShiftLeft") && (c.args[0] as string[]).includes("Enter"));
+        check("paste_text prints each line", printCalls.length === 3, printCalls);
+        check("paste_text inserts Shift+Enter between lines (2) and never a trailing Enter", shiftEnter.length === 2 && !calls.some((c) => c.fn === "pressKey" && c.args[0] === "Enter"), { se: shiftEnter.length, calls });
+        check("paste_text returns the post-paste screenshot", pasted.includes('"image"'), pasted.slice(0, 120));
+
+        // Phase 7: a detached HID blocks hands actions with a clear error; unknown allows.
+        hidOnline = false;
+        const detached = text(await call("click", { x: 5, y: 5 }));
+        check("detached HID blocks click with a clear error", detached.toLowerCase().includes("not attached"), detached);
+        hidOnline = true;
+        calls.length = 0;
+        await call("click", { x: 5, y: 5 });
+        check("HID online → click proceeds", calls.some((c) => c.fn === "click"), calls);
+        hidOnline = undefined; // restore unknown=allow for any later checks
+
+        // Screen-freshness: a screen that changed under the agent refuses the action and
+        // hands back the current screenshot (the AVD/popup-occlusion bug).
+        screenStale = true;
+        calls.length = 0;
+        const staleClick = text(await call("click", { x: 100, y: 100 }));
+        check("stale screen refuses the action + returns a fresh screenshot", staleClick.includes("Did NOT") && staleClick.includes('"image"') && !calls.some((c) => c.fn === "click"), staleClick.slice(0, 160));
+        screenStale = false;
+
+        // Auto-screenshot-after-action: a hands tool now returns the post-action screen.
+        calls.length = 0;
+        const afterClick = text(await call("click", { x: 100, y: 100 }));
+        check("action result carries the post-action screenshot", afterClick.includes('"image"') && calls.some((c) => c.fn === "click"), afterClick.slice(0, 120));
+
+        // Region monitor: watch_region registers; a change is announced on the next look.
+        const watchSet = text(await call("watch_region", { label: "AVD", region: { x: 0, y: 0, width: 300, height: 200 } }));
+        check("watch_region registers a monitor", watchSet.toLowerCase().includes("watching") && watches.has("AVD"), watchSet);
+        reportWatchChange = true;
+        const lookWithChange = text(await call("screenshot", {}));
+        check("a changed watched region is announced on a look", lookWithChange.includes("Watched region") && lookWithChange.includes("AVD"), lookWithChange.slice(0, 200));
+        reportWatchChange = false;
+        const unwatched = text(await call("unwatch_region", { label: "AVD" }));
+        check("unwatch_region removes the monitor", unwatched.toLowerCase().includes("stopped") && !watches.has("AVD"), unwatched);
+
+        // capture_document returns the OCR transcript + artifact paths.
+        const cap = text(await call("capture_document", {}));
+        check("capture_document returns transcript + pdf path + page count", cap.includes("HELLO DOC") && cap.includes("/out/cap-1/Doc.pdf") && cap.includes("3 page"), cap.slice(0, 200));
+
+        calls.length = 0;
+        const blindSecret = text(await call("type_secret", { name: "vpn" }));
+        check("type_secret without visible verify_region is refused", blindSecret.includes("Before typing") && !calls.some((c) => c.fn === "typeText"), blindSecret.slice(0, 160));
+
+        calls.length = 0;
+        const visibleField = { x: 10, y: 20, width: 180, height: 28 };
+        const ts = text(await call("type_secret", { name: "vpn", verify_region: visibleField }));
         check("type_secret types the looked-up value, hides it", calls.some((c) => c.fn === "typeText" && c.args[0] === "s3cr3t") && ts.includes("value hidden") && !ts.includes("s3cr3t"), ts.slice(0, 120));
 
         const ls = text(await call("list_secrets", {}));

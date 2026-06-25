@@ -7,7 +7,9 @@
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { resolve } from "path";
+import { buildCodexMcpConfigArgs } from "../src/agents";
 import { namespaceTool, makeTransport, type McpServerConfig } from "../src/agent/mcp-servers";
+import { buildClaudeMcpServers } from "../src/claude-config";
 import { SettingsStore, ATLAS_SERVER_ID } from "../src/settings";
 
 let failed = 0;
@@ -80,6 +82,35 @@ try {
     const list = store.get().mcpServers;
     check("custom http server persists", list.some((m) => m.id === "gh" && m.transport === "http"));
     check("Atlas still present after adding a custom server", list.some((m) => m.id === ATLAS_SERVER_ID));
+
+    // 5. Claude's project .mcp.json is generated from the same Settings registry.
+    const claudeServers = buildClaudeMcpServers(
+        [
+            { id: "atlas", name: "Atlas", enabled: true, transport: "stdio", command: "/opt/atlas", args: ["mcp", "/vault"], rawToolNames: true, skill: "atlas-vault" },
+            { id: "disabled", name: "Disabled", enabled: false, transport: "stdio", command: "/bin/false" },
+            { id: "web api", name: "Web API", enabled: true, transport: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer test" } },
+            { id: "empty", name: "Empty", enabled: true, transport: "stdio", command: "" },
+        ],
+        "http://127.0.0.1:25650/_agent/mcp?pikvm_mcp_token=secret",
+    ) as Record<string, any>;
+    check("Claude config always includes private pikvm", claudeServers.pikvm?.url?.includes("pikvm_mcp_token=secret"), claudeServers);
+    check("Claude config includes enabled Atlas from Settings",
+        claudeServers.atlas?.command === "/opt/atlas" && claudeServers.atlas?.args?.join(" ") === "mcp /vault", claudeServers.atlas);
+    check("Claude config omits app-only Atlas fields",
+        !("rawToolNames" in claudeServers.atlas) && !("skill" in claudeServers.atlas), claudeServers.atlas);
+    check("Claude config skips disabled and incomplete entries",
+        !claudeServers.disabled && !claudeServers.empty, claudeServers);
+    check("Claude config sanitises ids and keeps http headers",
+        claudeServers["web-api"]?.type === "http" && claudeServers["web-api"]?.headers?.Authorization === "Bearer test", claudeServers["web-api"]);
+
+    const codexArgs = buildCodexMcpConfigArgs([
+        { id: "atlas", name: "Atlas", enabled: true, transport: "stdio", command: "/opt/atlas", args: ["mcp", "/vault"] },
+        { id: "off", name: "Off", enabled: false, transport: "stdio", command: "/bin/false" },
+    ]);
+    check("Codex config maps Settings Atlas to the atlas-mw server id",
+        codexArgs.includes('mcp_servers.atlas-mw.command="/opt/atlas"') &&
+            codexArgs.includes('mcp_servers.atlas-mw.args=["mcp","/vault"]'), codexArgs);
+    check("Codex config skips disabled entries", !codexArgs.some((arg) => arg.includes("off")), codexArgs);
 } finally {
     rmSync(dir, { recursive: true, force: true });
 }

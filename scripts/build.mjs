@@ -89,6 +89,8 @@ await build({
 cpSync(resolve(root, "node_modules/@xterm/xterm/css/xterm.css"), resolve(dist, "views/xterm.css"));
 // The PreToolUse guardrail hook ships as a plain script the spawned claude runs.
 cpSync(resolve(root, "src/claude-runtime"), resolve(dist, "claude-runtime"), { recursive: true });
+// Vendored high-quality document "scanner" (Python) the capture_document MCP tool spawns.
+cpSync(resolve(root, "tools/doc-capture"), resolve(dist, "doc-capture"), { recursive: true });
 
 // 3b. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
 //     statically-served) console dynamically imports as /_agent/haptics.js.

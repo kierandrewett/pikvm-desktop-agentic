@@ -598,6 +598,43 @@ html.desktop-console.win-blur .screen {
         opacity: 0;
     }
 }
+.mouse-path-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+    overflow: visible;
+    opacity: 0;
+    animation: mousepathfade 1.8s ease-out forwards;
+}
+.mouse-path-straight {
+    fill: none;
+    stroke: rgba(255, 99, 82, 0.82);
+    stroke-width: 1.6;
+    stroke-dasharray: 8 7;
+}
+.mouse-path-wind {
+    fill: none;
+    stroke: rgba(167, 139, 250, 0.96);
+    stroke-width: 2.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.72));
+}
+@keyframes mousepathfade {
+    0% {
+        opacity: 0;
+    }
+    12%,
+    72% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
 .look-box,
 .type-box {
     position: absolute;
@@ -727,7 +764,7 @@ html.desktop-console.win-blur .screen {
     text-overflow: ellipsis;
 }
 
-/* "Agent is in control" bar + soft scrim while acting. */
+/* Automation-control bar + soft scrim while acting. */
 .screen.acting::after {
     content: "";
     position: absolute;
@@ -1258,7 +1295,7 @@ html.desktop-console .tb-close:hover {
     background: var(--danger);
     color: #fff;
 }
-/* The panel toggle reads "active" while the agent panel is shown. */
+/* The panel toggle reads "active" while the terminal panel is shown. */
 html.desktop-console .tb-btn.active {
     color: var(--primary);
 }
@@ -1270,7 +1307,7 @@ html.desktop-console .app {
     flex: 1;
     min-height: 0;
     height: auto;
-    /* Screen takes the remainder; the agent panel is a fixed, user-RESIZABLE width
+    /* Screen takes the remainder; the terminal panel is a fixed, user-RESIZABLE width
      * (--chat-w). This MUST match what fit-native assumes (window = screen + panel). */
     grid-template-columns: minmax(0, 1fr) var(--chat-w, 460px);
     grid-template-rows: minmax(0, 1fr);
@@ -1289,6 +1326,44 @@ html.desktop-console .chat {
     min-height: 0;
     border-left: 1px solid var(--border);
 }
+html.desktop-console .chat-resize {
+    display: block;
+    position: absolute;
+    left: -5px;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    cursor: col-resize;
+    z-index: 8;
+    -webkit-app-region: no-drag;
+}
+html.desktop-console .chat-resize::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+}
+html.desktop-console .chat-resize::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: max(14px, 3vh);
+    bottom: max(14px, 3vh);
+    width: 3px;
+    border-radius: 999px;
+    background: transparent;
+    transition:
+        background 0.12s,
+        box-shadow 0.12s;
+}
+html.desktop-console .chat-resize:hover::after,
+html.desktop-console .app.col-resizing .chat-resize::after {
+    background: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
 /* No bottom status bar over/under the screen in desktop mode — the titlebar
  * carries the chrome and nothing should cover the clickable surface. */
 html.desktop-console .bar {
@@ -1306,7 +1381,7 @@ html.desktop-console .app.chat-full > .screen {
     display: block;
 }
 
-/* Collapse the agent panel: the screen takes the full width, the chat column
+/* Collapse the terminal panel: the screen takes the full width, the chat column
  * folds to zero. */
 html.desktop-console .app.panel-collapsed {
     grid-template-columns: minmax(0, 1fr) 0;

@@ -1198,7 +1198,68 @@ function stringifyKeyVals(rec: Record<string, string> | undefined): string {
         .join("\n");
 }
 
-function McpServersTab({ servers, inputCls, onPatch }: { servers: McpServer[]; inputCls: string; onPatch: (p: any) => void }) {
+function copySnippet(text: string): void {
+    const ui = (window as unknown as { ui?: { copy?: (text: string) => void } }).ui;
+    if (ui?.copy) ui.copy(text);
+    else void navigator.clipboard?.writeText(text).catch(() => {});
+}
+
+function McpSnippet({ label, value }: { label: string; value: string }) {
+    const [copied, setCopied] = useState(false);
+    const onCopy = () => {
+        copySnippet(value);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+    };
+    return (
+        <div className="rounded-lg border bg-background/60">
+            <div className="flex items-center justify-between gap-2 border-b px-2.5 py-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+                <button
+                    type="button"
+                    title={copied ? "Copied" : `Copy ${label}`}
+                    className={cn("rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", copied && "text-emerald-600")}
+                    onClick={onCopy}
+                >
+                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                </button>
+            </div>
+            <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all px-2.5 py-2 font-mono text-[10.5px] leading-relaxed text-foreground/90">
+                {value}
+            </pre>
+        </div>
+    );
+}
+
+function PikvmMcpClientSetup({ vaultPath }: { vaultPath: string }) {
+    return (
+        <div className="space-y-2.5 rounded-xl border bg-card/50 p-3">
+            <div className="flex items-start gap-2">
+                <Globe className="mt-0.5 size-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium">Local Claude/Codex environment</div>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                        This terminal workspace is prepared with PiKVM context and a private MCP token. Run clients from here; global MCP
+                        clients are not configured.
+                    </p>
+                </div>
+            </div>
+            <div className="rounded-lg border bg-background/50 px-2.5 py-2 text-[10.5px] leading-snug text-muted-foreground">
+                Workspace: <code className="break-all text-foreground">{vaultPath || "terminal workspace"}</code>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                <McpSnippet label="Claude" value="claude" />
+                <McpSnippet label="Codex" value="codex" />
+            </div>
+            <p className="rounded-lg border bg-background/40 px-2.5 py-2 text-[10.5px] leading-snug text-muted-foreground">
+                Generated locally: <code>.mcp.json</code>, <code>.claude/settings.json</code>, <code>CLAUDE.md</code>,
+                <code>AGENTS.md</code>, and <code>.pikvm/bin/codex</code>. The MCP URL includes a per-app-session token.
+            </p>
+        </div>
+    );
+}
+
+function McpServersTab({ servers, inputCls, vaultPath, onPatch }: { servers: McpServer[]; inputCls: string; vaultPath: string; onPatch: (p: any) => void }) {
     // Edit the list locally, then push the whole array on every change so the
     // server persists it. The list re-renders from server state after each patch.
     const save = (next: McpServer[]) => onPatch({ mcpServers: next });
@@ -1214,13 +1275,14 @@ function McpServersTab({ servers, inputCls, onPatch }: { servers: McpServer[]; i
     };
     return (
         <div className="space-y-3">
+            <PikvmMcpClientSetup vaultPath={vaultPath} />
             <p className="text-[12px] leading-snug text-muted-foreground">
-                Connect MCP servers to give the agent extra tools. Each server is a local process (stdio) or a URL (http). Atlas (the
-                memory vault) is just one server here. Changes connect on the next restart.
+                Connect extra MCP servers to this app. Each server is a local process (stdio) or a URL (http). Atlas (the memory vault)
+                is just one server here. Changes connect on the next restart.
             </p>
             {servers.length === 0 && (
                 <p className="rounded-xl border border-dashed p-4 text-center text-[12px] leading-relaxed text-muted-foreground">
-                    No MCP servers configured. Add one to extend the agent's tools.
+                    No extra MCP servers configured.
                 </p>
             )}
             {servers.map((m) => (
@@ -1591,15 +1653,14 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 {tab === "behaviour" && (
                     <div className="space-y-5">
                         <p className="text-[12px] leading-snug text-muted-foreground">
-                            How the agents drive the target machine. Dangerous and sensitive actions are always guarded
+                            How automation drives the target machine. Dangerous and sensitive actions are always guarded
                             (asked or blocked) regardless of these settings.
                         </p>
                         <div>
-                            <div className="mb-1 text-[13px] font-medium">Agent workspace</div>
+                            <div className="mb-1 text-[13px] font-medium">Terminal workspace</div>
                             <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-                                The folder the terminal agents (Claude&nbsp;Code / Codex / opencode) run in — their cwd,
-                                notes, and generated files live here. New sessions use this immediately; restart to move
-                                existing ones.
+                                The folder terminal sessions run in. Notes and generated files live here. New sessions use
+                                this immediately; restart to move existing ones.
                             </p>
                             <input
                                 type="text"
@@ -1771,7 +1832,7 @@ function SettingsPanel({ state, onClose, onPatch }: { state: ServerState | null;
                 {/* NEW SECTION — generic, config-driven MCP server registry. Atlas is just
                     one entry here. Add any stdio (command/args/env) or http (url/headers)
                     MCP server; its tools become the agent's tools at the next restart. */}
-                {tab === "mcp" && <McpServersTab servers={s?.mcpServers ?? []} inputCls={inputCls} onPatch={onPatch} />}
+                {tab === "mcp" && <McpServersTab servers={s?.mcpServers ?? []} inputCls={inputCls} vaultPath={s?.atlas?.vaultPath ?? ""} onPatch={onPatch} />}
 
                 {/* ------------------------------- secrets ------------------------------ */}
                 {tab === "secrets" && (
@@ -2964,7 +3025,7 @@ function App() {
                             );
                         })()}
                         {busy && (
-                            <Button size="icon" variant="ghost" className="size-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10" onClick={stopAll} title="Stop the agent">
+                            <Button size="icon" variant="ghost" className="size-8 shrink-0 rounded-full text-destructive hover:bg-destructive/10" onClick={stopAll} title="Stop automation">
                                 <Square className="size-3.5 fill-current" />
                             </Button>
                         )}

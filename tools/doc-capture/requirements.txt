@@ -1,0 +1,7 @@
+Pillow>=10.0
+requests>=2.31
+numpy>=1.24
+scikit-image>=0.22  # scan mode: sub-pixel frame registration
+urllib3>=2.0
+pytesseract>=0.3.10  # optional, only needed for --ocr
+pypdf>=4.0           # optional, only needed for --pdf

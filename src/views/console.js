@@ -78,6 +78,17 @@
 
     // True while the agent is driving the target — user HID input is dropped then.
     var agentActing = false;
+    var clearRegionMapForManualInput = function () {};
+    function noteManualKvmInput() {
+        if (!agentActing) clearRegionMapForManualInput();
+    }
+    function blockKvmInput(e) {
+        if (!agentActing) return false;
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
+        if (e && e.stopPropagation) e.stopPropagation();
+        return true;
+    }
 
     /* ----------------------------------------------------------------- *
      * HID WebSocket client — same protocol as src/pikvm-control.ts
@@ -171,7 +182,13 @@
             // While the AGENT is in control, the user must NOT be able to drive the
             // target — drop all user HID input (mouse/keys) at the source. The agent's
             // own input goes through the server-side control core, not this socket.
-            if (agentActing) return;
+            if (agentActing) {
+                // Release events are allowed through so a button/key held just before
+                // automation starts cannot get stuck down on the target.
+                var ev = obj && obj.event;
+                var release = ev && ev.state === false && (obj.event_type === "key" || obj.event_type === "mouse_button");
+                if (!release) return;
+            }
             if (open && ws && ws.readyState === 1) raw(obj);
             else {
                 if (queue.length < 256) queue.push(obj);
@@ -244,6 +261,7 @@
     var KEY_HOLD = 11;
     var KEY_GAP = 2;
     function sendChord(mods, codeName, shift) {
+        if (agentActing) return;
         var m = (mods || []).slice();
         if (shift) m.push("ShiftLeft");
         keyQ.push({ mods: m, code: codeName });
@@ -318,6 +336,28 @@
     var connText = document.getElementById("conn-text");
     var kbd = document.getElementById("kbd");
     var chatFrame = document.getElementById("chat-frame");
+    var TERM_W_KEY = "pikvm-terminal-panel-width";
+    function clampPanelWidth(w) {
+        return Math.round(Math.max(320, Math.min(900, Number(w) || 460)));
+    }
+    function readPanelWidth() {
+        try {
+            var raw = localStorage.getItem(TERM_W_KEY);
+            return raw ? clampPanelWidth(parseInt(raw, 10)) : 0;
+        } catch (e) {
+            return 0;
+        }
+    }
+    function savePanelWidth(w) {
+        try {
+            localStorage.setItem(TERM_W_KEY, String(clampPanelWidth(w)));
+        } catch (e) {}
+    }
+    function applyPanelWidth(w) {
+        var next = clampPanelWidth(w);
+        app.style.setProperty("--chat-w", next + "px");
+        return next;
+    }
 
     /* ---- connection / stream resilience ----
      * A small state machine drives the status chip + overlay and an exponential
@@ -602,6 +642,7 @@
             setState("live");
             if (connText) connText.textContent = "Live · HD";
             fitAspect();
+            showResToast();
         }
         // Honour the audio preference now it's playing. Chrome unmutes immediately;
         // Safari would pause an un-gestured unmute, so there we wait for the user's
@@ -689,6 +730,7 @@
     // A small toast over the top of the stream when the resolution/source changes.
     var lastResKey = "";
     var resToastTimer = null;
+    var onStreamResolutionChange = function () {};
     function avSummary() {
         var bits = [];
         if (audioOn) bits.push("🔊");
@@ -699,14 +741,16 @@
         if (resToastAv) resToastAv.textContent = avSummary();
     }
     function showResToast(force) {
-        if (!resToast) return;
         var w = geomW();
         var h = geomH();
         if (w <= 16 || h <= 9) return; // no real frame yet
         var src = webrtcActive ? "HD · WebRTC" : "MJPEG";
         var key = w + "x" + h + "/" + src;
-        if (!force && key === lastResKey) return; // only on a real change
+        var changed = key !== lastResKey;
+        if (!force && !changed) return; // only on a real change
         lastResKey = key;
+        if (changed) onStreamResolutionChange(key);
+        if (!resToast) return;
         if (resToastMain) resToastMain.textContent = w + " × " + h + "  ·  " + src;
         refreshResToastAv();
         resToast.classList.add("show");
@@ -1116,6 +1160,7 @@
     var lastTapUp = 0;
     var twoStart = null; // {t, moved} for two-finger tap = right click
     var scrollAcc = 0;
+    var heldMouseButtons = {};
     var MOVE_SLOP = 8;
     var SENS = 0.9; // trackpad sensitivity (finger px -> cursor travel)
 
@@ -1201,6 +1246,7 @@
             // Taps on the overlaid UI (keys row, acting bar, copilot, suggestion card)
             // are NOT KVM input — let those handle their own clicks.
             if (e.target && e.target.closest && e.target.closest(".bar-keys, .acting-bar, .copilot, .suggest-card")) return;
+            if (blockKvmInput(e)) return;
             pane.setPointerCapture(e.pointerId);
             pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -1214,6 +1260,7 @@
                     pts.delete(e.pointerId);
                     return;
                 }
+                noteManualKvmInput();
                 // Real buttons, absolute move. In the native desktop window the global
                 // keydown handler captures keys; elsewhere focus the hidden input so
                 // typing (and the soft keyboard) goes to the target. Either way, blur
@@ -1226,9 +1273,11 @@
                 var b = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
                 moveTo(e.clientX, e.clientY, true);
                 paintCursor(e.clientX, e.clientY);
+                heldMouseButtons[b] = true;
                 hid.button(b, true);
                 return;
             }
+            noteManualKvmInput();
 
             if (pts.size === 2) {
                 cancelLongPress();
@@ -1265,6 +1314,7 @@
     pane.addEventListener(
         "pointermove",
         function (e) {
+            if (blockKvmInput(e)) return;
             // Desktop mouse: the remote cursor follows the pointer ABSOLUTELY — on
             // plain hover too, not only while a button is held (gating on "is the
             // pointer down" made it behave like a relative trackpad).
@@ -1336,6 +1386,7 @@
         if (e.pointerType === "mouse") {
             var b = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
             hid.button(b, false);
+            delete heldMouseButtons[b];
             return;
         }
         cancelLongPress();
@@ -1373,6 +1424,8 @@
     pane.addEventListener(
         "wheel",
         function (e) {
+            if (blockKvmInput(e)) return;
+            noteManualKvmInput();
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
                 zoomAround(e.clientX, e.clientY, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
@@ -1408,6 +1461,8 @@
         return true;
     }
     kbd.addEventListener("keydown", function (e) {
+        if (blockKvmInput(e)) return;
+        noteManualKvmInput();
         var ctrlAltMeta = e.ctrlKey || e.altKey || e.metaKey;
         var ctl = CONTROL_KEYS[e.code] || CONTROL_KEYS[e.key];
         if (/^F\d{1,2}$/.test(e.code)) ctl = e.code;
@@ -1425,6 +1480,8 @@
         }
     });
     kbd.addEventListener("beforeinput", function (e) {
+        if (blockKvmInput(e)) return;
+        noteManualKvmInput();
         if (e.inputType === "insertText" && e.data) {
             for (var i = 0; i < e.data.length; i++) sendChar(e.data[i]);
             e.preventDefault();
@@ -1448,6 +1505,8 @@
     }
     document.querySelectorAll("[data-key]").forEach(function (btn) {
         btn.addEventListener("click", function () {
+            if (agentActing) return;
+            noteManualKvmInput();
             sendCode(btn.getAttribute("data-key"));
             refocusKbd();
         });
@@ -1456,6 +1515,8 @@
         var codeName = btn.getAttribute("data-mod");
         var lastTap = 0;
         btn.addEventListener("click", function () {
+            if (agentActing) return;
+            noteManualKvmInput();
             var now = Date.now();
             if (armed[codeName]) {
                 if (now - lastTap < 350 && !modLock[codeName]) {
@@ -1475,6 +1536,8 @@
     });
     document.querySelectorAll("[data-click]").forEach(function (btn) {
         btn.addEventListener("click", function () {
+            if (agentActing) return;
+            noteManualKvmInput();
             var b = btn.getAttribute("data-click");
             hid.button(b, true);
             setTimeout(function () {
@@ -1484,14 +1547,20 @@
     });
     document.querySelectorAll("[data-scroll]").forEach(function (btn) {
         btn.addEventListener("click", function () {
+            if (agentActing) return;
+            noteManualKvmInput();
             hid.wheel(0, btn.getAttribute("data-scroll") === "up" ? 2 : -2);
         });
     });
     document.getElementById("cad").addEventListener("click", function () {
+        if (agentActing) return;
+        noteManualKvmInput();
         sendChord(["ControlLeft", "AltLeft"], "Delete", false);
     });
     var dragBtn = document.getElementById("drag-lock");
     dragBtn.addEventListener("click", function () {
+        if (agentActing) return;
+        noteManualKvmInput();
         dragLock = !dragLock;
         dragBtn.classList.toggle("on", dragLock);
     });
@@ -1661,7 +1730,7 @@
         el.addEventListener("pointercancel", resizeEnd);
     });
 
-    /* ---- desktop: drag the agent panel's left edge to resize its WIDTH (--chat-w).
+    /* ---- desktop: drag the terminal panel's left edge to resize its WIDTH (--chat-w).
      * Works regardless of the screen size (incl. after "fit to native resolution"). */
     var chatResize = document.getElementById("chat-resize");
     if (chatResize) {
@@ -1689,10 +1758,10 @@
             // the window's right edge moves. (Window-position moves are unreliable on
             // Wayland, so we grow the frame instead of sliding it.)
             var want = cStartW + (cStartX - e.clientX);
-            want = Math.round(Math.max(320, Math.min(900, want)));
+            want = clampPanelWidth(want);
             var dw = want - cLastW;
             if (dw !== 0) {
-                app.style.setProperty("--chat-w", want + "px");
+                applyPanelWidth(want);
                 if (window.desktopConsole && window.desktopConsole.resizeBy) window.desktopConsole.resizeBy(dw, 0);
                 cLastW = want;
             }
@@ -1700,6 +1769,7 @@
         function cresizeEnd() {
             cresizing = false;
             app.classList.remove("col-resizing");
+            savePanelWidth(cLastW);
         }
         chatResize.addEventListener("pointerup", cresizeEnd);
         chatResize.addEventListener("pointercancel", cresizeEnd);
@@ -1830,17 +1900,17 @@
     } catch (e) {}
     // First paint of the embedded chat should match; pass the theme on its URL and
     // re-assert on load (in case it booted before the message handler attached).
-    // Inside the native desktop console the agent panel keeps its own header
+    // Inside the native desktop console the terminal panel is a native child view
     // (?embed=desktop); on web/mobile it is the headerless merged-bar embed (?embed=1).
     var EMBED_PARAM = window.desktopConsole ? "desktop" : "1";
     if (window.desktopConsole && window.desktopConsole.reportTerminalRect) {
-        // DESKTOP: the agent panel is the embedded Claude Code terminal — a native
+        // DESKTOP: the terminal panel is the embedded shell terminal - a native
         // WebContentsView floated by main over this panel's content area. We don't load
         // the old chat here; we just report where the panel content sits so main can
         // position the terminal there (and hide it when the panel is collapsed).
         chatFrame.src = "about:blank";
-        // The chat-specific header controls (new chat / history / copy conversation) and
-        // the old agent-status text don't apply to the Claude Code terminal — hide them.
+        // Chat-specific header controls (new chat / history / copy conversation) and
+        // the old status text don't apply to the shared terminal — hide them.
         ["new", "history", "copy"].forEach(function (a) {
             document.querySelectorAll('[data-agent="' + a + '"]').forEach(function (el) {
                 el.style.display = "none";
@@ -1960,6 +2030,38 @@
                 }, 600);
             }
         }
+        var mousePathTimer = null;
+        function pathData(points) {
+            return points
+                .map(function (p, i) {
+                    return (i === 0 ? "M" : "L") + p.x.toFixed(1) + " " + p.y.toFixed(1);
+                })
+                .join(" ");
+        }
+        function onMousePath(d) {
+            if (!d.w || !d.h || !Array.isArray(d.points) || d.points.length < 2) return;
+            var old = xray.querySelector(".mouse-path-svg");
+            if (old) old.remove();
+            if (mousePathTimer) clearTimeout(mousePathTimer);
+            var pts = d.points.map(function (p) {
+                return pt(p.x / d.w, p.y / d.h);
+            });
+            var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.setAttribute("class", "mouse-path-svg");
+            svg.setAttribute("viewBox", "0 0 " + (xray.clientWidth || pane.clientWidth || 1) + " " + (xray.clientHeight || pane.clientHeight || 1));
+            var straight = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            straight.setAttribute("class", "mouse-path-straight");
+            straight.setAttribute("d", pathData([pts[0], pts[pts.length - 1]]));
+            var wind = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            wind.setAttribute("class", "mouse-path-wind");
+            wind.setAttribute("d", pathData(pts));
+            svg.appendChild(straight);
+            svg.appendChild(wind);
+            xray.appendChild(svg);
+            mousePathTimer = setTimeout(function () {
+                svg.remove();
+            }, 1900);
+        }
         function onRegion(d) {
             if (!d.w || !d.h) return;
             var b = contentBox();
@@ -2053,6 +2155,11 @@
             lastRegions = d;
             renderRegions();
         }
+        clearRegionMapForManualInput = function () {
+            lastRegions = null;
+            regionBoxes = [];
+            if (regionsLayer) regionsLayer.textContent = "";
+        };
         // Keep the persistent region boxes glued to the stream as it zooms/pans/resizes
         // — coalesced to one repaint per frame.
         onXform = scheduleRegions;
@@ -2117,6 +2224,24 @@
             }
         }
         function onActing(d) {
+            if (d.active) {
+                Object.keys(heldMouseButtons).forEach(function (b) {
+                    hid.button(b, false);
+                    delete heldMouseButtons[b];
+                });
+                if (pressing) hid.button("left", false);
+                pressing = false;
+                pts.clear();
+                startPt = null;
+                twoStart = null;
+                moved = false;
+                dragLock = false;
+                scrollAcc = 0;
+                cancelLongPress();
+                keyQ = [];
+                clearArmed();
+                if (dragBtn) dragBtn.classList.remove("on");
+            }
             agentActing = !!d.active; // gate user HID input (hid.send drops while true)
             pane.classList.toggle("acting", !!d.active);
             if (d.active && actingAction && d.action) actingAction.textContent = d.action;
@@ -2145,6 +2270,7 @@
                 return;
             }
             if (d.type === "cursor") onCursor(d);
+            else if (d.type === "mouse_path") onMousePath(d);
             else if (d.type === "region") onRegion(d);
             else if (d.type === "regions") onRegions(d);
             else if (d.type === "typing") onTyping(d);
@@ -2209,7 +2335,7 @@
             // Immediate feedback — swap the card to a working state so the tap clearly
             // did something (the agent's real progress shows in the panel + KVM border).
             showSuggestionRunning(it);
-            // DESKTOP: type the task into the live Claude Code terminal session.
+            // DESKTOP: type the task into the live terminal session.
             if (window.desktopConsole && window.desktopConsole.runTask) {
                 window.desktopConsole.runTask(it.task);
                 return;
@@ -2343,6 +2469,8 @@
         if (!dc) return; // web/mobile: nothing below runs
 
         var TITLEBAR_H = 38; // keep in sync with .titlebar height in console.css
+        var savedPanelW = readPanelWidth();
+        if (savedPanelW) applyPanelWidth(savedPanelW);
         document.documentElement.classList.add("desktop-console");
         // Platform → window-control style (GNOME/Adwaita on Linux, native traffic
         // lights on macOS so we hide our own, Windows keeps the default custom set).
@@ -2376,6 +2504,8 @@
             if (!windowFocused) return;
             var t = e.target;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+            if (blockKvmInput(e)) return;
+            noteManualKvmInput();
             if (e.isComposing) return;
             var code = e.code;
             if (!code) return;
@@ -2453,7 +2583,7 @@
             });
         }
 
-        /* ---- agent panel collapse (titlebar-left toggle) ---- */
+        /* ---- terminal panel collapse (titlebar-left toggle) ---- */
         var tbPanel = document.getElementById("tb-panel");
         function panelShown() {
             return !app.classList.contains("panel-collapsed");
@@ -2461,18 +2591,20 @@
         function paintPanelToggle() {
             if (tbPanel) tbPanel.classList.toggle("active", panelShown());
         }
-        var lastPanelW = 380;
+        var lastPanelW = savedPanelW || 460;
         function setPanel(show) {
             if (show === panelShown()) return;
             if (!show) {
                 // Collapsing: remember the panel's width, then SHRINK the window by it
                 // so the KVM screen keeps its exact size (window loses the panel column).
                 var chat = document.querySelector(".chat");
-                lastPanelW = chat ? Math.round(chat.getBoundingClientRect().width) : lastPanelW;
+                lastPanelW = chat ? clampPanelWidth(Math.round(chat.getBoundingClientRect().width)) : lastPanelW;
+                savePanelWidth(lastPanelW);
                 app.classList.add("panel-collapsed");
                 if (dc.resizeBy) dc.resizeBy(-lastPanelW, 0);
             } else {
                 // Expanding: GROW the window by the panel width first, then show it.
+                applyPanelWidth(lastPanelW);
                 app.classList.remove("panel-collapsed");
                 if (dc.resizeBy) dc.resizeBy(lastPanelW, 0);
             }
@@ -2500,6 +2632,17 @@
             });
             return true;
         }
+        var nativeFitTimer = null;
+        var lastNativeFitKey = "";
+        onStreamResolutionChange = function (key) {
+            if (!key || key === lastNativeFitKey) return;
+            lastNativeFitKey = key;
+            if (nativeFitTimer) clearTimeout(nativeFitTimer);
+            nativeFitTimer = setTimeout(function () {
+                nativeFitTimer = null;
+                fitNativeNow();
+            }, 0);
+        };
         var tbFit = document.getElementById("tb-fit");
         if (tbFit) tbFit.addEventListener("click", fitNativeNow);
 
@@ -2540,7 +2683,7 @@
             // The toggles are unhidden by revealAvToggles() once WebRTC is live.
             return !!(audioBtnEl && !audioBtnEl.hidden);
         }
-        // Terminal mode (desktop): the "chat" is the Claude Code terminal, which keeps its
+        // Terminal mode (desktop): the "chat" is the shared shell terminal, which keeps its
         // own history — so History / Copy-conversation don't apply; Monitor + Settings open
         // in their own windows.
         var isTerminalMode = !!(window.desktopConsole && window.desktopConsole.reportTerminalRect);
@@ -2562,7 +2705,7 @@
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
             }
             items.push({ type: "separator" });
-            items.push({ id: "panel", label: panelShown() ? "Hide agent panel" : "Show agent panel" });
+            items.push({ id: "panel", label: panelShown() ? "Hide terminal panel" : "Show terminal panel" });
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "theme", label: "Toggle theme" });
             items.push({ type: "separator" });

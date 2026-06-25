@@ -1,16 +1,16 @@
 /**
- * Renderer for the shared Claude Code terminal (xterm.js). A pure WebSocket client of the
- * server-hosted sessions (/_agent/terminal) — the SAME code runs in the desktop
+ * Renderer for the shared terminal (xterm.js). A pure WebSocket client of the
+ * server-hosted sessions (/_agent/terminal) - the SAME code runs in the desktop
  * WebContentsView and the mobile/web console, so every device sees the same tabs + live
  * output and can drive them. The PTYs live on the server; this just renders + relays input.
  */
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 
-type AgentKind = "claude" | "codex" | "opencode";
+type SessionKind = "shell";
 interface SessionInfo {
     id: string;
-    agent: AgentKind;
+    agent: SessionKind;
     title: string;
     exited: boolean;
 }
@@ -21,11 +21,15 @@ type ServerMsg =
     | { t: "control"; owner: string | null }
     | { t: "image"; reqId: number; dataUrl: string | null };
 
-const AGENT_LABELS: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
-
 const tabsEl = document.getElementById("tabs")!;
 const termsEl = document.getElementById("terms")!;
 const newTabBtn = document.getElementById("new-tab")!;
+
+try {
+    window.parent?.postMessage({ type: "chat-ready" }, "*");
+} catch {
+    /* top-level terminal; nothing to notify */
+}
 
 // ---- WebSocket transport ---------------------------------------------------------------
 const wsUrl = (() => {
@@ -118,9 +122,8 @@ const attachLinks = (term: Terminal): void => {
                     text: f.text,
                     range: { start: { x: f.index + 1, y: bufferLineNumber }, end: { x: f.index + f.length, y: bufferLineNumber } },
                     activate(event: MouseEvent) {
-                        if (!(event.ctrlKey || event.metaKey)) return;
                         if (f.kind === "url") send({ t: "openLink", url: f.text });
-                        else send({ t: "openPath", path: f.text });
+                        else if (event.ctrlKey || event.metaKey) send({ t: "openPath", path: f.text });
                     },
                     hover(event: MouseEvent) {
                         if (f.kind === "path" && IMG_RE.test(f.text)) showPreview(f.text, event);
@@ -135,7 +138,6 @@ const attachLinks = (term: Terminal): void => {
 // ---- views (one per server session) ----------------------------------------------------
 interface View {
     id: string;
-    agent: AgentKind;
     term: Terminal;
     fit: FitAddon;
     el: HTMLDivElement;
@@ -146,19 +148,29 @@ interface View {
 const views = new Map<string, View>();
 let active: string | null = null;
 let controlOwner: string | null = null; // which session currently drives the KVM
+let activateNextCreated = false;
+let activateNextCreatedUntil = 0;
+let knownIdsBeforeCreate = new Set<string>();
 
 const DEFAULT_FONT_SIZE = 13;
 let fontSize = DEFAULT_FONT_SIZE;
 const makeTerm = (): { term: Terminal; fit: FitAddon } => {
     const term = new Terminal({
-        fontFamily: 'monospace, "Noto Sans Mono", "DejaVu Sans Mono"',
+        fontFamily: 'ui-monospace, "SFMono-Regular", "Cascadia Mono", "Noto Sans Mono", "DejaVu Sans Mono", monospace',
         fontSize,
-        lineHeight: 1.0,
+        lineHeight: 1.12,
         letterSpacing: 0,
         cursorBlink: true,
         scrollback: 8000,
         drawBoldTextInBrightColors: true,
         allowProposedApi: true,
+        // Enable the Kitty keyboard protocol (xterm.js 6.1+). xterm now ANSWERS Claude
+        // Code's keyboard-protocol probe (killing the ~1s timeout that delayed backspace
+        // after Shift+Enter) and lets it turn on enhanced reporting, so Shift+Enter,
+        // Ctrl+Enter and multiline editing are disambiguated natively — exactly as they
+        // are in Claude Code's "normal" (Kitty-capable) terminal. We no longer hand-encode
+        // Shift+Enter; xterm emits the right CSI-u (when negotiated) or legacy bytes.
+        vtExtensions: { kittyKeyboard: true },
         theme: { background: "#0a0a0c", foreground: "#ededf1", cursor: "#5b8cff", cursorAccent: "#0a0a0c", selectionBackground: "#2c3354" },
     });
     const fit = new FitAddon();
@@ -181,9 +193,8 @@ const setActive = (id: string): void => {
     active = id;
     for (const o of views.values()) o.el.classList.toggle("active", o.id === id);
     paintTabs();
-    v.term.resize(authCols, authRows);
     v.term.focus();
-    proposeSize();
+    fitAndProposeSize();
 };
 
 const createView = (info: SessionInfo): View => {
@@ -197,22 +208,21 @@ const createView = (info: SessionInfo): View => {
     const tab = document.createElement("div");
     tab.className = "tab";
     tab.dataset.agent = info.agent;
-    const dot = document.createElement("span");
-    dot.className = "dot";
     const label = document.createElement("span");
     label.className = "label";
     label.textContent = info.title;
+    label.title = info.title;
     const ctrl = document.createElement("span");
     ctrl.className = "ctrl";
-    ctrl.title = "This agent currently controls the KVM (mouse/keyboard)";
-    ctrl.textContent = "⌖";
+    ctrl.title = "This terminal currently controls the KVM mouse/keyboard";
+    ctrl.textContent = "ctl";
     const close = document.createElement("span");
     close.className = "close";
     close.textContent = "✕";
-    tab.append(dot, label, ctrl, close);
+    tab.append(label, ctrl, close);
     tabsEl.insertBefore(tab, newTabBtn);
 
-    const v: View = { id: info.id, agent: info.agent, term, fit, el, tab, label, exited: info.exited };
+    const v: View = { id: info.id, term, fit, el, tab, label, exited: info.exited };
     views.set(info.id, v);
 
     tab.addEventListener("mousedown", (e) => {
@@ -223,13 +233,18 @@ const createView = (info: SessionInfo): View => {
         e.stopPropagation();
         send({ t: "close", id: info.id });
     });
-    // Ctrl+Backspace → delete the previous WORD (xterm otherwise sends a plain DEL, deleting
-    // one char). ESC+DEL is readline's backward-kill-word, which the agents' input honours.
     term.attachCustomKeyEventHandler((e) => {
-        if (e.type === "keydown" && e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "Backspace" || e.code === "Backspace")) {
+        if (e.type !== "keydown") return true;
+        // Ctrl+Backspace → delete the previous WORD (xterm otherwise sends a plain DEL,
+        // deleting one char). ESC+DEL is readline's backward-kill-word.
+        if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "Backspace" || e.code === "Backspace")) {
             if (!v.exited) send({ t: "input", id: info.id, data: "\x1b\x7f" });
             return false; // we handled it; don't let xterm send a plain backspace
         }
+        // Shift+Enter is now handled natively by xterm.js's Kitty keyboard protocol
+        // (vtExtensions.kittyKeyboard) — xterm emits the disambiguated CSI-u sequence when
+        // Claude Code has enabled enhanced reporting, or a plain "\r" otherwise. No
+        // hand-encoding here (which would have sent CSI-u even to non-Kitty programs).
         return true;
     });
     // Keystrokes → server PTY; once exited, Enter asks the server to restart it.
@@ -260,19 +275,28 @@ const removeView = (id: string): void => {
 // Reconcile local views with the server's session list.
 const reconcile = (sessions: SessionInfo[]): void => {
     const seen = new Set<string>();
+    let requestedNewId: string | null = null;
     for (const info of sessions) {
         seen.add(info.id);
         let v = views.get(info.id);
-        if (!v) v = createView(info);
+        if (!v) {
+            v = createView(info);
+            if (activateNextCreated && Date.now() <= activateNextCreatedUntil && !knownIdsBeforeCreate.has(info.id)) requestedNewId = info.id;
+        }
         // A restart (exited → running) begins a fresh screen on the server (its buffer was
         // cleared). Reset the terminal so the new session doesn't stack underneath the dead
         // one's exit/resume output.
         if (v.exited && !info.exited) v.term.reset();
         v.label.textContent = info.title;
+        v.label.title = info.title;
         v.exited = info.exited;
     }
     for (const id of [...views.keys()]) if (!seen.has(id)) removeView(id);
-    if (!active || !views.has(active)) {
+    if (requestedNewId) {
+        activateNextCreated = false;
+        knownIdsBeforeCreate.clear();
+        setActive(requestedNewId);
+    } else if (!active || !views.has(active)) {
         const first = views.keys().next().value as string | undefined;
         if (first) setActive(first);
     }
@@ -288,7 +312,7 @@ const applyAuthSize = (cols: number, rows: number): void => {
     }
 };
 let sizeQueued = false;
-const proposeSize = (): void => {
+const fitAndProposeSize = (): void => {
     if (sizeQueued) return;
     sizeQueued = true;
     requestAnimationFrame(() => {
@@ -296,45 +320,35 @@ const proposeSize = (): void => {
         const v = active ? views.get(active) : null;
         if (!v) return;
         const dims = v.fit.proposeDimensions();
-        if (dims && dims.cols && dims.rows) send({ t: "resize", cols: dims.cols, rows: dims.rows });
+        if (!dims || !dims.cols || !dims.rows) return;
+        if (v.term.cols !== dims.cols || v.term.rows !== dims.rows) v.term.resize(dims.cols, dims.rows);
+        send({ t: "resize", cols: dims.cols, rows: dims.rows });
     });
 };
 
-// ---- + picker --------------------------------------------------------------------------
-let picker: HTMLDivElement | null = null;
-const closePicker = (): void => {
-    picker?.remove();
-    picker = null;
+const requestNewSession = (): void => {
+    activateNextCreated = true;
+    activateNextCreatedUntil = Date.now() + 5000;
+    knownIdsBeforeCreate = new Set(views.keys());
+    send({ t: "create" });
 };
+
 newTabBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (picker) return closePicker();
-    picker = document.createElement("div");
-    picker.className = "agent-picker";
-    (["claude", "codex", "opencode"] as AgentKind[]).forEach((a) => {
-        const it = document.createElement("div");
-        it.className = "agent-item";
-        it.dataset.agent = a;
-        it.textContent = AGENT_LABELS[a];
-        it.addEventListener("click", () => {
-            closePicker();
-            send({ t: "create", agent: a });
-        });
-        picker!.appendChild(it);
-    });
-    const r = newTabBtn.getBoundingClientRect();
-    picker.style.left = Math.round(r.left) + "px";
-    picker.style.top = Math.round(r.bottom + 4) + "px";
-    document.body.appendChild(picker);
+    requestNewSession();
 });
-document.addEventListener("click", closePicker);
+window.addEventListener("message", (e) => {
+    const d = e.data;
+    if (d && d.type === "agent-action" && d.action === "new") requestNewSession();
+    else if (d && d.type === "terminal-fit") fitAndProposeSize();
+});
 
 // Ctrl/Cmd +/-/0 must NOT page-zoom (that breaks the xterm layout). Map them to the
 // terminal FONT SIZE instead — a real, layout-safe zoom that re-fits cleanly.
 const applyFontSize = (next: number): void => {
     fontSize = Math.max(8, Math.min(28, Math.round(next)));
     for (const v of views.values()) v.term.options.fontSize = fontSize;
-    proposeSize();
+    fitAndProposeSize();
 };
 window.addEventListener(
     "keydown",
@@ -365,10 +379,11 @@ window.addEventListener(
     { passive: false, capture: true },
 );
 
-new ResizeObserver(proposeSize).observe(termsEl);
-window.addEventListener("resize", proposeSize);
+new ResizeObserver(fitAndProposeSize).observe(termsEl);
+window.addEventListener("resize", fitAndProposeSize);
+(window as unknown as { __pikvmTerminalFit?: () => void }).__pikvmTerminalFit = fitAndProposeSize;
 document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) proposeSize();
+    if (!document.hidden) fitAndProposeSize();
 });
 
 // ---- connect (with auto-reconnect) ------------------------------------------------------
@@ -391,7 +406,7 @@ const onMessage = (msg: ServerMsg): void => {
             if (v) {
                 v.exited = true;
                 paintTabs();
-                v.term.write(`\r\n\x1b[90m[${AGENT_LABELS[v.agent]} exited (code ${msg.code}) — press Enter to restart]\x1b[0m\r\n`);
+                v.term.write(`\r\n\x1b[90m[Shell exited (code ${msg.code}) - press Enter to restart]\x1b[0m\r\n`);
             }
             break;
         }
@@ -412,7 +427,7 @@ const connect = (): void => {
     ws.onopen = () => {
         // On (re)connect, clear existing terms so the server's replayed buffer redraws clean.
         for (const v of views.values()) v.term.reset();
-        proposeSize();
+        fitAndProposeSize();
     };
     ws.onmessage = (ev) => {
         try {

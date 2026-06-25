@@ -1,6 +1,6 @@
 /**
- * Server-hosted terminal sessions — the Claude Code (and codex/opencode) PTYs live HERE,
- * in the backend, not in any one client. Every connected device (desktop WebContentsView,
+ * Server-hosted terminal sessions. PTYs live in the backend, not in any one client.
+ * Every connected device (desktop WebContentsView,
  * mobile/web console) subscribes over the /_agent/terminal WebSocket and sees the SAME
  * tabs + live output, and can drive them (shared-tmux model). Whoever hosts the server owns
  * the sessions; they persist as long as the host runs.
@@ -9,19 +9,21 @@
  * replayed. PTY size is authoritative on the server (last client resize wins) so all clients
  * render the same grid.
  */
-import { ClaudeTerminal } from "./claude-pty";
-import { buildAgentSpec, AGENT_LABELS, type AgentKind } from "./agents";
+import { PtyTerminal } from "./claude-pty";
+import { basename, delimiter, join } from "node:path";
+import { buildAgentSpec, mcpUrlFor, type AgentKind } from "./agents";
 
-const isAgent = (a: unknown): a is AgentKind => a === "claude" || a === "codex" || a === "opencode";
+const DEFAULT_KIND: AgentKind = "shell";
 
 export interface TerminalSessionsDeps {
-    /** The vault folder (cwd for every agent). */
+    /** The vault folder (cwd for every terminal session). */
     vaultPath: () => string;
     /** CONTROL_PORT — for the per-session MCP URL + the permcheck hook URL. */
     port: number;
-    /** Write the agent's config for this session BEFORE it spawns (claude .mcp.json+hook,
-     *  opencode opencode.json; codex needs none — it's injected via launch args). */
+    /** Prepare project-local config/wrappers before spawning the PTY. */
     prepareAgent: (agent: AgentKind, sessionId: string) => void;
+    /** Per-app-session MCP token, scoped to this terminal environment. */
+    mcpToken?: () => string;
     /** Called when a session's PTY exits (e.g. release its KVM control lease). */
     onSessionExit?: (sessionId: string) => void;
     /** Read an image file (resolved against the vault) → data URL, host-side. */
@@ -63,7 +65,7 @@ interface Session {
     id: string;
     agent: AgentKind;
     title: string;
-    term: ClaudeTerminal;
+    term: PtyTerminal;
     buffer: string[];
     bufLen: number;
     exited: boolean;
@@ -135,7 +137,7 @@ export class TerminalSessions {
     }
 
     /** Spawn a new session, or re-spawn an exited one with the same id (keeping its tab). */
-    create(agent: AgentKind = "claude", forceId?: string): string {
+    create(agent: AgentKind = DEFAULT_KIND, forceId?: string): string {
         const id = forceId ?? "s" + ++this.counter;
         const existing = this.sessions.get(id);
         if (existing && existing.term.running) return id;
@@ -144,25 +146,38 @@ export class TerminalSessions {
         } catch (e) {
             console.error("[terminal] prepareAgent failed:", e);
         }
-        const spec = buildAgentSpec(agent, { sessionId: id, port: this.deps.port });
-        const n = existing ? 0 : [...this.sessions.values()].filter((s) => s.agent === agent).length + 1;
-        const term = new ClaudeTerminal({
-            cwd: this.deps.vaultPath(),
+        const mcpToken = this.deps.mcpToken?.();
+        const spec = buildAgentSpec(agent, { sessionId: id, port: this.deps.port, ...(mcpToken ? { mcpToken } : {}) });
+        const fallbackTitle = agent === "shell" ? basename(spec.bin || "shell") : spec.label;
+        const cwd = this.deps.vaultPath();
+        const originalPath = process.env.PATH ?? "";
+        const localBin = join(cwd, ".pikvm", "bin");
+        const term = new PtyTerminal({
+            cwd,
             bin: spec.bin,
             args: spec.args,
             cols: this.cols,
             rows: this.rows,
             env: {
+                PATH: `${localBin}${delimiter}${originalPath}`,
+                PIKVM_ORIGINAL_PATH: originalPath,
+                PIKVM_WORKSPACE: cwd,
                 PIKVM_PERMCHECK_URL: `http://127.0.0.1:${this.deps.port}/_agent/api/permcheck`,
                 PIKVM_SESSION_ID: id,
+                ...(mcpToken ? { PIKVM_MCP_TOKEN: mcpToken, PIKVM_MCP_URL: mcpUrlFor(this.deps.port, id, mcpToken) } : {}),
             },
         });
         const s: Session = existing
-            ? Object.assign(existing, { term, agent, exited: false, buffer: [], bufLen: 0 })
-            : { id, agent, title: `${AGENT_LABELS[agent]} ${n}`, term, buffer: [], bufLen: 0, exited: false };
+            ? Object.assign(existing, { term, agent, title: fallbackTitle, exited: false, buffer: [], bufLen: 0 })
+            : { id, agent, title: fallbackTitle, term, buffer: [], bufLen: 0, exited: false };
         term.onData((d) => {
             this.append(s, d);
             this.broadcast({ t: "data", id, data: d });
+        });
+        term.onTitle((title) => {
+            if (s.title === title) return;
+            s.title = title;
+            this.sendSessions();
         });
         term.onExit((info) => {
             s.exited = true; // keep the tab so clients can restart it
@@ -176,9 +191,9 @@ export class TerminalSessions {
         return id;
     }
 
-    /** Ensure the always-present primary tab exists (called on first client / boot). */
+    /** Ensure the always-present primary shell tab exists (called on first client / boot). */
     ensurePrimary(): void {
-        if (!this.sessions.has("main")) this.create("claude", "main");
+        if (!this.sessions.has("main")) this.create(DEFAULT_KIND, "main");
     }
 
     /** A client proposed a viewport size. The shared PTY is sized to the SMALLEST connected
@@ -212,7 +227,7 @@ export class TerminalSessions {
     handle(msg: ClientMsg, send: Sub): void {
         switch (msg.t) {
             case "create":
-                this.create(isAgent(msg.agent) ? msg.agent : "claude");
+                this.create(DEFAULT_KIND);
                 break;
             case "input":
                 this.sessions.get(msg.id)?.term.write(msg.data);
@@ -232,7 +247,7 @@ export class TerminalSessions {
             case "restart": {
                 const s = this.sessions.get(msg.id);
                 if (s && !s.term.running) this.create(s.agent, msg.id);
-                else if (!s) this.create("claude", msg.id);
+                else if (!s) this.create(DEFAULT_KIND, msg.id);
                 break;
             }
             case "openPath":

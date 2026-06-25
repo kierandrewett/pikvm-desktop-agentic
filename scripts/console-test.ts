@@ -130,8 +130,19 @@ async function main(): Promise<void> {
         "audio-pip",
         "mic-pip",
         "av-sep",
+        "titlebar",
+        "tb-panel",
+        "tb-fit",
+        "tb-audio",
+        "tb-mic",
+        "tb-settings",
+        "tb-monitor",
+        "more-btn",
     ])
         ids[id] = makeEl();
+    const chatEl = makeEl();
+    chatEl.offsetWidth = 460;
+    chatEl.getBoundingClientRect = () => ({ left: 1000, top: 0, width: 460, height: 600 });
     // The screen <img> reports its native resolution (used by the coordinate maths).
     (ids["screen"] as any).naturalWidth = 1000;
     (ids["screen"] as any).naturalHeight = 600;
@@ -147,7 +158,7 @@ async function main(): Promise<void> {
     const doc = {
         documentElement,
         getElementById: (id: string) => ids[id] ?? null,
-        querySelector: (sel: string) => (sel.includes("theme-color") ? metaTheme : null),
+        querySelector: (sel: string) => (sel === ".chat" ? chatEl : sel.includes("theme-color") ? metaTheme : null),
         querySelectorAll: (_sel: string) => [] as StubEl[],
         addEventListener: (_t: string, _fn: any) => {},
     };
@@ -173,7 +184,22 @@ async function main(): Promise<void> {
     // track on the next tick (so we can assert the <img>→<video> swap + fallback).
     let janusOpts: any = null;
     const janusCalls: string[] = [];
+    const fitNativeCalls: any[] = [];
     const win: any = { innerWidth: 1200, innerHeight: 800, addEventListener: () => {}, RTCPeerConnection: function () {} };
+    win.matchMedia = () => ({ matches: true });
+    win.desktopConsole = {
+        platform: "linux",
+        reportTerminalRect() {},
+        resizeBy() {},
+        fitNative(opts: any) {
+            fitNativeCalls.push(opts);
+        },
+        isMaximised: () => false,
+        onMaximiseChange() {},
+        onMenuCommand() {},
+        popupMenu() {},
+        openAgentPanel() {},
+    };
     win.JanusStream = (opts: any) => {
         janusOpts = opts;
         return {
@@ -249,6 +275,20 @@ async function main(): Promise<void> {
     checks.push(["WebRTC live: <video> shown, <img> hidden", !ids["screen-video"]!.classList.contains("hidden") && ids["screen"]!.classList.contains("hidden")]);
     checks.push(["WebRTC live: MJPEG <img> src released", !ids["screen"]!.src]);
     checks.push(["WebRTC live: audio/mic toggles revealed", ids["audio-btn"]!.getAttribute("hidden") == null && ids["mic-btn"]!.getAttribute("hidden") == null]);
+    checks.push([
+        "Desktop native-fit runs after first WebRTC resolution",
+        fitNativeCalls.some((c) => c.width === 1280 && c.height === 720 && c.agentPanelWidth === 460),
+    ]);
+    const fitCountBeforeResolutionChange = fitNativeCalls.length;
+    (ids["screen-video"] as any).videoWidth = 1920;
+    (ids["screen-video"] as any).videoHeight = 1080;
+    (ids["screen-video"] as any).emit?.("resize");
+    await new Promise((r) => setTimeout(r, 20));
+    const lastFit = fitNativeCalls[fitNativeCalls.length - 1];
+    checks.push([
+        "Desktop native-fit reruns when WebRTC resolution changes",
+        fitNativeCalls.length > fitCountBeforeResolutionChange && lastFit?.width === 1920 && lastFit?.height === 1080 && lastFit?.agentPanelWidth === 460,
+    ]);
 
     const pane = ids["screen-pane"]!;
 

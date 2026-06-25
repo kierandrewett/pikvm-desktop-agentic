@@ -1,7 +1,7 @@
 {
-  "name": "PiKVM Agent",
+  "name": "PiKVM Console",
   "short_name": "PiKVM",
-  "description": "PiKVM with an integrated AI agent — see and drive the target from any device.",
+  "description": "PiKVM console with a shared terminal for the target workflow.",
   "start_url": "/_agent/console",
   "scope": "/",
   "display": "standalone",

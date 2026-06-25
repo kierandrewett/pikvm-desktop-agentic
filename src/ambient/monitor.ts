@@ -17,6 +17,7 @@
  */
 
 import { EventEmitter } from "events";
+import { fpDiff, fpVariance, FP_MOVE, FP_SETTLE, FP_MEANINGFUL } from "./fingerprint";
 import type { PiKvmControl } from "../pikvm-control";
 import type { PresenceMonitor } from "../presence";
 import type { AmbientEvent } from "../agent/protocol";
@@ -79,24 +80,7 @@ function parseTriage(raw: string): { kind: AmbientEvent["kind"]; important: bool
     }
 }
 
-/** Spread of a fingerprint; near-zero ⇒ a blank/solid/"no signal" screen. */
-function fpVariance(a: Uint8Array): number {
-    if (!a.length) return 0;
-    let mean = 0;
-    for (let i = 0; i < a.length; i++) mean += a[i]!;
-    mean /= a.length;
-    let v = 0;
-    for (let i = 0; i < a.length; i++) v += (a[i]! - mean) ** 2;
-    return Math.sqrt(v / a.length);
-}
-
-function fpDiff(a: Uint8Array, b: Uint8Array): number {
-    const n = Math.min(a.length, b.length);
-    if (!n) return 1;
-    let sum = 0;
-    for (let i = 0; i < n; i++) sum += Math.abs(a[i]! - b[i]!);
-    return sum / n / 255; // 0..1 mean absolute difference
-}
+// fpDiff / fpVariance now live in ./fingerprint (shared with the control settle-gate).
 
 let counter = 0;
 const nextId = () => `amb${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -133,10 +117,11 @@ export class AmbientMonitor extends EventEmitter {
     private lastStepDiff = 0;
     private lastBaseDiff = 0;
 
-    // Diff thresholds (mean abs diff of the tiny fingerprint, 0..1).
-    private readonly MOVE = 0.04; // above this the screen is actively changing
-    private readonly SETTLE = 0.015; // below this it has settled
-    private readonly MEANINGFUL = 0.05; // settled frame must differ this much from baseline
+    // Diff thresholds (mean abs diff of the tiny fingerprint, 0..1) — shared with the
+    // control settle-gate so both stay calibrated together (see ./fingerprint).
+    private readonly MOVE = FP_MOVE; // above this the screen is actively changing
+    private readonly SETTLE = FP_SETTLE; // below this it has settled
+    private readonly MEANINGFUL = FP_MEANINGFUL; // settled frame must differ this much from baseline
     private readonly TRIAGE_COOLDOWN_MS = 8000;
     private readonly MEETING_SUSTAIN_MS = 10000;
     private readonly MEETING_CLEAR_MS = 20000;
@@ -187,6 +172,11 @@ export class AmbientMonitor extends EventEmitter {
     private async tick(): Promise<void> {
         const s = this.deps.settings();
         if (!s.enabled || this.busy) return;
+
+        // Region monitors (watch_region) are a real BACKGROUND task: check every tick,
+        // even while otherwise idle/in a meeting, and ALERT when a watched area changes
+        // (a VM/app finishing loading, a dialog appearing). Cheap when nothing is watched.
+        await this.checkWatches();
 
         // Meeting detection always runs while enabled — a meeting is worth helping
         // with whenever it happens, regardless of the active-hours window. The live
@@ -239,6 +229,17 @@ export class AmbientMonitor extends EventEmitter {
                 this.trace(`screen changed (Δ=${dBase.toFixed(3)}) → triaging with ${s.triageModel}…`, "change");
                 await this.triage(s);
             }
+        }
+    }
+
+    /** Background region-watch check: alert the harness (ambient event + trace) when a
+     *  region the agent registered via watch_region changes. The agent-facing notice is
+     *  enqueued by changedWatches() and surfaced on its next tool result. */
+    private async checkWatches(): Promise<void> {
+        const changed = (await this.deps.control.changedWatches?.().catch(() => [])) ?? [];
+        for (const c of changed) {
+            this.trace(`watched region "${c.label}" changed (Δ=${c.delta.toFixed(2)})`, "change");
+            this.emitEvent({ id: nextId(), ts: Date.now(), kind: "content-change", title: `Watched region changed: ${c.label}`, important: false, notified: false });
         }
     }
 

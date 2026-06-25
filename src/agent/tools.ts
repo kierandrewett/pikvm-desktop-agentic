@@ -9,13 +9,13 @@
 
 import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { PiKvmControl, MouseButton } from "../pikvm-control";
+import { isAltTabPeekHotkey, type PiKvmControl, type MouseButton } from "../pikvm-control";
 import { hasNewline, stripNewlines } from "../human-typing";
 import type { BackgroundTasks } from "./background";
 import type { InputTracker } from "../input-tracker";
 import type { ScreenshotHistory } from "./screenshot-history";
 import type { SecretsStore } from "../secrets";
-import { runWatchedTyping, type Region as TypingRegion, type WatchedTypingDeps } from "./watched-typing";
+import { runWatchedTyping, visibleTypingRegionIssue, type Region as TypingRegion, type WatchedTypingDeps } from "./watched-typing";
 import type { RegionsResult } from "./regions";
 
 function text(t: string) {
@@ -55,6 +55,13 @@ export function createTools(
         pursueGoal?: (goal: string, opts: { criteria?: string; cap?: number }) => void;
     } = {},
 ): AgentTool<any>[] {
+    const releaseHeldAfterLook = async () =>
+        (await control.releaseHeldHotkeys("after look").catch(() => false)) ? "\nReleased held Alt+Tab after this look." : "";
+    const hotkeyMessage = (codes: string[]) =>
+        isAltTabPeekHotkey(codes)
+            ? "Alt+Tab switcher is open. Alt is being held so screenshot/ocr/get_regions can inspect all open apps; it will release after that look, or before the next mouse/keyboard action."
+            : `Pressed ${codes.join("+")}.`;
+
     // Build the dependency bundle the watched-typing orchestrator needs from control.
     // Per-call code/secret flow through the orchestrator's opts → typeChunk(o).
     const watchedTypingDeps = (): WatchedTypingDeps => ({
@@ -89,6 +96,9 @@ export function createTools(
         ...(deps.remember ? { remember: deps.remember } : {}),
         emit: (ev) => control.onTypingEvent?.(ev),
         getDimensions: () => control.getDimensions(),
+        printText: (t) => control.printText(t),
+        wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+        capsLockOn: () => control.getCapsLock(),
     });
     const screenshotSchema = Type.Object({
         region: Type.Optional(
@@ -113,13 +123,20 @@ export function createTools(
             "Capture the current target screen, optionally cropped to a region to zoom in. ALWAYS call this before acting and after actions to verify results. Coordinates for other tools are in the pixels of the FULL frame.",
         parameters: screenshotSchema,
         async execute(_id, p: Static<typeof screenshotSchema>): Promise<AgentToolResult<{ width: number; height: number }>> {
-            const shot = await control.screenshot(p.region);
+            let shot: Awaited<ReturnType<PiKvmControl["screenshot"]>>;
+            try {
+                shot = await control.screenshot(p.region);
+            } catch (e) {
+                await releaseHeldAfterLook();
+                throw e;
+            }
             const sid = deps.history?.add({ base64: shot.base64, mimeType: shot.mimeType, width: shot.width, height: shot.height });
             const label = p.region ? `Cropped region ${shot.width}x${shot.height} px.` : `Screen is ${shot.width}x${shot.height} px.`;
+            const releaseNote = await releaseHeldAfterLook();
             return {
                 content: [
                     { type: "image", data: shot.base64, mimeType: shot.mimeType },
-                    text(sid ? `${label} (id: ${sid})` : label),
+                    text(sid ? `${label} (id: ${sid})${releaseNote}` : `${label}${releaseNote}`),
                 ],
                 details: { width: shot.width, height: shot.height },
             };
@@ -184,14 +201,14 @@ export function createTools(
             Type.Boolean({ description: "Type in the background and return immediately with a task id (for long text)." }),
         ),
         verify_region: Type.Optional(
-            { ...RegionSchema, description: "OPTIONAL frame-pixel box around the field. Typing is ALWAYS watched and verified now — it auto-finds the field from the pixels that change while typing. Pass this only when you already know the exact field box (skips auto-locate; the read-back is tighter)." } as typeof RegionSchema,
+            { ...RegionSchema, description: "REQUIRED frame-pixel box around the visible text box/text area/terminal input line from the latest screenshot/get_regions. Do not type until this target is visible on screen, clicked/focused, and passed here." } as typeof RegionSchema,
         ),
     });
     const typeText: AgentTool<typeof typeSchema> = {
         name: "type_text",
         label: "Type",
         description:
-            "Type text into the focused field with humanlike timing. WATCHED + self-verifying: while typing it tracks the field's changing pixels (so it instantly knows if nothing is focused), reads the field back with vision, and self-corrects mistakes inline — including a wrong keyboard layout (it switches layout and re-types). NEVER emits Enter/newline - typing can never submit a form, send a message, or run a command (press_key('Enter') does that, deliberately). Any newlines in `text` are collapsed to spaces. If it reports the field isn't focused, click the field and try again. Set background:true for long text, then use wait_for_task / list_tasks.",
+            "Type text into the focused, VISIBLE field with humanlike timing. Before using this, screenshot/get_regions, confirm the target text box/text area/terminal input line is on screen, click/focus it, then pass its visible box as verify_region. WATCHED + self-verifying: while typing it tracks the field's changing pixels, reads the field back with vision, and self-corrects mistakes inline — including a wrong keyboard layout. NEVER emits Enter/newline - typing can never submit a form, send a message, or run a command (press_key('Enter') does that, deliberately). Any newlines in `text` are collapsed to spaces. If it reports the field isn't focused, STOP retrying type_text: screenshot/get_regions, click inside the target field or otherwise focus it, verify the caret/focus, then call type_text once. Set background:true for long text, then use wait_for_task / list_tasks.",
         parameters: typeSchema,
         async execute(_id, p: Static<typeof typeSchema>, signal): Promise<AgentToolResult<null>> {
             // HARD GUARDRAIL: typing never presses Enter. Warn the model so it uses
@@ -203,6 +220,10 @@ export function createTools(
             const intended = stripNewlines(p.text);
             const region: TypingRegion | undefined =
                 p.verify_region && typeof p.verify_region.x === "number" ? (p.verify_region as TypingRegion) : undefined;
+            const regionIssue = visibleTypingRegionIssue(region, control.getDimensions());
+            if (regionIssue) {
+                return { content: [text(regionIssue)], details: null };
+            }
             const runOpts = {
                 ...(typeof p.code === "boolean" ? { code: p.code } : {}),
                 ...(region ? { verifyRegion: region } : {}),
@@ -248,11 +269,12 @@ export function createTools(
     const hotkey: AgentTool<typeof hotkeySchema> = {
         name: "hotkey",
         label: "Hotkey",
-        description: "Press a chord of keys together (modifiers + key), then release.",
+        description:
+            "Press a chord of keys together (modifiers + key), then release. Alt+Tab is a peek chord: Alt stays held so you can screenshot/ocr/get_regions the app switcher, then releases after that look.",
         parameters: hotkeySchema,
         async execute(_id, p: Static<typeof hotkeySchema>): Promise<AgentToolResult<null>> {
             await control.hotkey(p.codes);
-            return { content: [text(`Pressed ${p.codes.join("+")}.`)], details: null };
+            return { content: [text(hotkeyMessage(p.codes))], details: null };
         },
     };
 
@@ -299,8 +321,15 @@ export function createTools(
             "Read on-screen text precisely using PiKVM's built-in OCR. Pass a region (frame pixels) to read a specific window/area — much more reliable than guessing from a screenshot.",
         parameters: ocrSchema,
         async execute(_id, p: Static<typeof ocrSchema>): Promise<AgentToolResult<null>> {
-            const out = await control.ocr(p.region);
-            return { content: [text(out || "(no text recognised)")], details: null };
+            let out: string;
+            try {
+                out = await control.ocr(p.region);
+            } catch (e) {
+                await releaseHeldAfterLook();
+                throw e;
+            }
+            const releaseNote = await releaseHeldAfterLook();
+            return { content: [text(`${out || "(no text recognised)"}${releaseNote}`)], details: null };
         },
     };
 
@@ -338,8 +367,9 @@ export function createTools(
             parameters: emptySchema,
             async execute(): Promise<AgentToolResult<null>> {
                 const result = getRegions();
+                const releaseNote = await releaseHeldAfterLook();
                 if (!result || !result.regions.length) {
-                    return { content: [text("No screen regions are available yet — take a screenshot first, then try again.")], details: null };
+                    return { content: [text(`No screen regions are available yet — take a screenshot first, then try again.${releaseNote}`)], details: null };
                 }
                 const lines = result.regions.map((r) => {
                     const b = r.bbox;
@@ -347,7 +377,7 @@ export function createTools(
                 });
                 const header = `Screen regions (frame ${result.width}×${result.height} px, origin top-left):`;
                 const hint = "\n\nZoom into any of these with screenshot({ region: { x, y, width, height } }) using its box above.";
-                return { content: [text(`${header}\n${lines.join("\n")}${hint}`)], details: null };
+                return { content: [text(`${header}\n${lines.join("\n")}${hint}${releaseNote}`)], details: null };
             },
         };
         tools.push(regionsTool);
@@ -371,12 +401,15 @@ export function createTools(
         };
         const secretSchema = Type.Object({
             name: Type.String({ description: "The exact name of a saved secret (see list_secrets)." }),
+            verify_region: Type.Optional(
+                { ...RegionSchema, description: "REQUIRED frame-pixel box around the visible password/secret field from the latest screenshot/get_regions. Click/focus the field first; the secret value stays hidden." } as typeof RegionSchema,
+            ),
         });
         const typeSecret: AgentTool<typeof secretSchema> = {
             name: "type_secret",
             label: "Type secret",
             description:
-                "Type a saved secret (e.g. a password) into the currently focused field WITHOUT seeing its value. Focus the field first. The value never enters your context or the activity log. Press Enter / click separately if needed.",
+                "Type a saved secret (e.g. a password) into the currently focused, VISIBLE field WITHOUT seeing its value. Before using this, screenshot/get_regions, confirm the password/secret field is on screen, click/focus it, then pass its visible box as verify_region. The value never enters your context or the activity log. Press Enter / click separately if needed.",
             parameters: secretSchema,
             async execute(_id, p: Static<typeof secretSchema>, signal): Promise<AgentToolResult<null>> {
                 const value = secrets.get(p.name);
@@ -386,6 +419,11 @@ export function createTools(
                         content: [text(`No secret named "${p.name}". Available: ${names.length ? names.join(", ") : "(none)"}.`)],
                         details: null,
                     };
+                }
+                const region = p.verify_region && typeof p.verify_region.x === "number" ? (p.verify_region as TypingRegion) : undefined;
+                const regionIssue = visibleTypingRegionIssue(region, control.getDimensions());
+                if (regionIssue) {
+                    return { content: [text(regionIssue)], details: null };
                 }
                 // intensity 0: type precisely (no self-correcting typos — the field is masked, a
                 // human can't see to fix mistakes). secret: keeps it out of the activity tracker.

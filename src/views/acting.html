@@ -204,6 +204,43 @@
                     opacity: 0;
                 }
             }
+            .mouse-path-svg {
+                position: fixed;
+                inset: 0;
+                width: 100vw;
+                height: 100vh;
+                pointer-events: none;
+                z-index: 3;
+                overflow: visible;
+                opacity: 0;
+                animation: mousepathfade 1.8s ease-out forwards;
+            }
+            .mouse-path-straight {
+                fill: none;
+                stroke: rgba(255, 99, 82, 0.82);
+                stroke-width: 1.6;
+                stroke-dasharray: 8 7;
+            }
+            .mouse-path-wind {
+                fill: none;
+                stroke: rgba(167, 139, 250, 0.96);
+                stroke-width: 2.8;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.72));
+            }
+            @keyframes mousepathfade {
+                0% {
+                    opacity: 0;
+                }
+                12%,
+                72% {
+                    opacity: 1;
+                }
+                100% {
+                    opacity: 0;
+                }
+            }
             /* "What the agent is looking at" — a labelled, scanning region box,
                in amber so it reads as observation (distinct from the blue cursor). */
             .look-box {
@@ -371,14 +408,14 @@
             <div id="bar">
                 <div id="dot"></div>
                 <div id="label">
-                    <b>Agent is in control</b>
+                    <b>Automation is in control</b>
                     <span id="action">performing actions…</span>
                     <span id="context"></span>
                 </div>
                 <button id="pause" title="Pause — take control temporarily, then resume">
                     ❚❚ Pause
                 </button>
-                <button id="stop" title="Stop the agent and take back control (Esc)">
+                <button id="stop" title="Stop automation and take back control (Esc)">
                     <span class="sq"></span> Stop &amp; take control
                 </button>
             </div>
@@ -436,6 +473,36 @@
                     setTimeout(() => b.remove(), 600);
                 }
             });
+            let mousePathTimer = null;
+            function pathData(points) {
+                return points
+                    .map((p, i) => {
+                        const cmd = i === 0 ? "M" : "L";
+                        return `${cmd}${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
+                    })
+                    .join(" ");
+            }
+            function drawMousePath(d) {
+                if (!d || !d.w || !d.h || !Array.isArray(d.points) || d.points.length < 2) return;
+                const old = document.querySelector(".mouse-path-svg");
+                if (old) old.remove();
+                if (mousePathTimer) clearTimeout(mousePathTimer);
+                const pts = d.points.map((p) => ({ x: (p.x / d.w) * innerWidth, y: (p.y / d.h) * innerHeight }));
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.setAttribute("class", "mouse-path-svg");
+                svg.setAttribute("viewBox", `0 0 ${innerWidth} ${innerHeight}`);
+                const straight = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                straight.setAttribute("class", "mouse-path-straight");
+                straight.setAttribute("d", pathData([pts[0], pts[pts.length - 1]]));
+                const wind = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                wind.setAttribute("class", "mouse-path-wind");
+                wind.setAttribute("d", pathData(pts));
+                svg.appendChild(straight);
+                svg.appendChild(wind);
+                document.body.appendChild(svg);
+                mousePathTimer = setTimeout(() => svg.remove(), 1900);
+            }
+            window.ui?.on?.("overlay:mouse-path", drawMousePath);
 
             // Region the agent is reading/looking at — draw a labelled scan box so
             // the user sees exactly what the agent is focused on.
