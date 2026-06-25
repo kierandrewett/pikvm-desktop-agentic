@@ -154,6 +154,12 @@
             <div class="chat">
                 <!-- Drag the terminal panel's left edge to resize it (desktop only). -->
                 <div class="chat-resize" id="chat-resize" title="Drag to resize the terminal panel"></div>
+                <!-- Desktop-only: switch the floated native view between the shell and the
+                     Agent panel. Hidden on web/mobile (no native views to toggle). -->
+                <div class="panel-tabs" id="panel-tabs">
+                    <button type="button" data-tab="terminal" class="active">Terminal</button>
+                    <button type="button" data-tab="agent">Agent</button>
+                </div>
                 <div class="bar-keys" id="drawer">
                     <button class="ibtn" data-click="left" title="Left click">L</button>
                     <button class="ibtn" data-click="middle" title="Middle click">M</button>

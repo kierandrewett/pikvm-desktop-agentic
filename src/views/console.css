@@ -616,6 +616,55 @@ html.desktop-console.win-blur .screen {
     display: block;
 }
 
+/* [Terminal | Agent] tab strip — desktop-console only (web/mobile have no native
+ * views to switch, so the terminal iframe just fills the panel as before). */
+.panel-tabs {
+    display: none;
+}
+html.desktop-console .panel-tabs {
+    display: flex;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    z-index: 9;
+    gap: 3px;
+    padding: 5px 8px 0;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: no-drag;
+}
+html.desktop-console .panel-tabs button {
+    flex: 1;
+    height: 27px;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 7px 7px 0 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+html.desktop-console .panel-tabs button:hover {
+    background: color-mix(in srgb, var(--card) 70%, transparent);
+    color: var(--foreground);
+}
+html.desktop-console .panel-tabs button.active {
+    background: var(--card);
+    color: var(--foreground);
+}
+/* The native terminal/agent views float over #chat-frame's rect, so reserve the
+ * tab strip's height by pushing the frame (and the keys drawer) down below it. */
+html.desktop-console #chat-frame {
+    top: 32px;
+    height: calc(100% - 32px);
+}
+html.desktop-console .bar-keys {
+    top: 32px;
+}
+
 /* ===========================================================================
  * NATIVE DESKTOP CONSOLE — EVERYTHING below is gated behind `html.desktop-console`
  * ===========================================================================

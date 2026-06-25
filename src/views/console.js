@@ -1831,6 +1831,20 @@
         } catch (e) {}
         setInterval(reportTermRect, 1000); // fallback for layout changes we don't observe
         setTimeout(reportTermRect, 150);
+
+        // [Terminal | Agent] tabs: tell main which native view to float over this panel.
+        var panelTabs = document.getElementById("panel-tabs");
+        if (panelTabs && window.desktopConsole.setPanelTab) {
+            var tabBtns = panelTabs.querySelectorAll("[data-tab]");
+            tabBtns.forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    var tab = btn.getAttribute("data-tab");
+                    tabBtns.forEach(function (b) { b.classList.toggle("active", b === btn); });
+                    window.desktopConsole.setPanelTab(tab);
+                });
+            });
+            window.desktopConsole.setPanelTab("terminal"); // default on load
+        }
     } else {
         // WEB / MOBILE: load the SAME shared terminal as desktop. The PTYs are hosted on the
         // server; this page connects to the /_agent/terminal WebSocket and sees the same tabs
