@@ -1128,12 +1128,34 @@
     // the window is in the background. Updated by focus/blur listeners (desktop only);
     // stays true on web/mobile where there is no real window-focus concept.
     var windowFocused = true;
+    // Tell the agent daemon where the USER just moved the cursor (norm ±32767), so its
+    // tracked position follows manual live-view moves — kvmd doesn't broadcast position, so
+    // this is the only way it can observe them. Debounced + best-effort; desktop-only (where
+    // the daemon proxy exists) and never while the agent itself is driving.
+    var reportCursor = (function () {
+        var pending = null, timer = null;
+        return function (nx, ny) {
+            if (agentActing || !window.desktopConsole) return;
+            pending = { x: Math.round(nx), y: Math.round(ny) };
+            if (timer) return;
+            timer = setTimeout(function () {
+                timer = null;
+                var p = pending; pending = null;
+                if (!p) return;
+                fetch("/_agent/daemon/cursor", {
+                    method: "POST", headers: { "content-type": "application/json" },
+                    body: JSON.stringify(p), keepalive: true,
+                }).catch(function () {});
+            }, 180);
+        };
+    })();
     function flushMove() {
         moveRaf = 0;
         if (!moveDirty) return;
         moveDirty = false;
         if (window.desktopConsole && !windowFocused) return; // background window: don't move the KVM cursor
         hid.move(Math.round(vcur.x), Math.round(vcur.y));
+        reportCursor(vcur.x, vcur.y);
     }
     function queueMove() {
         moveDirty = true;
