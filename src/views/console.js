@@ -107,6 +107,14 @@
         var targetCaps = false;
         var capsKnown = false;
         var capsCorrecting = false; // guards the auto-off toggle from looping
+        // Target mouse pointer mode, read from the Pi's hid events. This client always
+        // drives the cursor with ABSOLUTE moves, so a Pi stuck in relative mode makes the
+        // pointer un-trackable — we auto-switch it to absolute when the user's mouse
+        // enters the surface (see ensureAbsolute). null = unknown until the first hid event.
+        var mouseAbsolute = null; // true | false | null
+        var mouseOutputs = []; // available outputs, e.g. ["usb","usb_rel"]
+        var absSwitchAt = 0; // last switch attempt (ms) — throttle while it applies
+        var absSwitchBusy = false;
 
         function url() {
             return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/api/ws";
@@ -162,6 +170,16 @@
                                 capsCorrecting = false;
                             }, 500);
                         }
+                    }
+                    // Track the target's mouse mode (hid events carry it as a delta, so only
+                    // overwrite the fields actually present in this message).
+                    var mouse = ed && ed.mouse;
+                    if (mouse) {
+                        if (typeof mouse.absolute === "boolean") mouseAbsolute = mouse.absolute;
+                        if (mouse.outputs && Array.isArray(mouse.outputs.available)) mouseOutputs = mouse.outputs.available;
+                        // Fall back to the active-output name when 'absolute' isn't reported.
+                        if (mouseAbsolute === null && mouse.outputs && typeof mouse.outputs.active === "string")
+                            mouseAbsolute = mouse.outputs.active === "usb";
                     }
                 } catch (e) {}
             };
@@ -220,6 +238,29 @@
              *  mouse endpoint (a no-op if the Pi is absolute-only). */
             relative: function (dx, dy) {
                 send({ event_type: "mouse_relative", event: { delta: { x: Math.round(dx), y: Math.round(dy) }, squash: true } });
+            },
+            /** The target's pointer mode, or null if not yet known. */
+            isRelative: function () {
+                return mouseAbsolute === false;
+            },
+            /** Switch the Pi to ABSOLUTE pointer mode if it's currently relative and an
+             *  absolute output ("usb") is available. This client always sends absolute
+             *  moves, so a relative-mode Pi can't track the cursor — call this when the
+             *  user's mouse enters the surface to recover it. Idempotent + throttled: a
+             *  no-op once the Pi reports absolute, and at most one POST per few seconds
+             *  while the change applies (a fresh hid event then flips mouseAbsolute true). */
+            ensureAbsolute: function () {
+                if (mouseAbsolute !== false) return; // unknown or already absolute
+                if (mouseOutputs.indexOf("usb") < 0) return; // no absolute output to switch to
+                var now = Date.now();
+                if (absSwitchBusy || now - absSwitchAt < 3000) return;
+                absSwitchAt = now;
+                absSwitchBusy = true;
+                fetch("/api/hid/set_params?mouse_output=usb", { method: "POST", cache: "no-store" })
+                    .catch(function () {})
+                    .then(function () {
+                        absSwitchBusy = false;
+                    });
             },
             /** The target's current Caps Lock state (from its keyboard LED). */
             capsOn: function () {
@@ -1146,6 +1187,12 @@
     pane.addEventListener("pointerleave", function (e) {
         if (e.pointerType === "mouse" && kvmCursor) kvmCursor.style.display = "none";
     });
+    // When the user's mouse enters the live surface, make sure the target is in ABSOLUTE
+    // pointer mode — this client drives the cursor with absolute moves, so a Pi stuck in
+    // relative can't track it. ensureAbsolute is a throttled no-op once it's absolute.
+    pane.addEventListener("pointerenter", function (e) {
+        if (e.pointerType === "mouse") hid.ensureAbsolute();
+    });
 
     pane.addEventListener(
         "pointerdown",
@@ -1226,6 +1273,7 @@
             // plain hover too, not only while a button is held (gating on "is the
             // pointer down" made it behave like a relative trackpad).
             if (e.pointerType === "mouse") {
+                hid.ensureAbsolute(); // recover absolute mode if the Pi reports relative (throttled no-op otherwise)
                 moveTo(e.clientX, e.clientY);
                 paintCursor(e.clientX, e.clientY);
                 // When the target isn't showing a live picture (asleep / no signal), an
