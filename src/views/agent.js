@@ -240,6 +240,23 @@
         });
     });
 
+    // Emergency brake — halt every session at once, no agent involved. No confirm:
+    // in an emergency you want it instant. The daemon refuses further actions + drops
+    // held HID once this lands.
+    var panicBtn = document.getElementById("panic-stop");
+    if (panicBtn) {
+        panicBtn.addEventListener("click", function () {
+            panicBtn.classList.add("armed");
+            api("/panic-stop", { method: "POST" })
+                .catch(function () { /* daemon down → nothing to stop */ })
+                .finally(function () {
+                    setTimeout(function () { panicBtn.classList.remove("armed"); }, 600);
+                    refreshSessions();
+                    refreshDetail();
+                });
+        });
+    }
+
     function resolveApproval(type) {
         var id = state.selectedId;
         var aid = el.approval.dataset.id;

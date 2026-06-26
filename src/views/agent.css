@@ -34,8 +34,16 @@ body {
 .offline code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; }
 
 /* New-task bar */
-.bar { padding: 10px 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
-.new-task { display: flex; gap: 8px; }
+.bar { padding: 10px 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto; display: flex; gap: 8px; align-items: center; }
+.new-task { display: flex; gap: 8px; flex: 1; min-width: 0; }
+/* Emergency stop — always visible, unmistakably the brake. */
+button.panic {
+    flex: 0 0 auto; background: var(--danger); border-color: var(--danger);
+    color: #fff; font-weight: 700; letter-spacing: 0.04em;
+}
+button.panic:hover { background: #ff5b5b; }
+button.panic:active { transform: translateY(1px); }
+button.panic.armed { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 30%, transparent); }
 .new-task input {
     flex: 1; min-width: 0; padding: 8px 10px; border-radius: 7px;
     border: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit; outline: none;

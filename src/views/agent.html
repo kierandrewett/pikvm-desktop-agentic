@@ -18,6 +18,8 @@
             <input id="task-input" type="text" placeholder="Describe a task for the agent…" spellcheck="false" />
             <button id="task-start" type="submit">Start</button>
         </form>
+        <!-- Emergency brake — always visible, halts every session immediately. -->
+        <button id="panic-stop" type="button" class="panic" title="Emergency stop — halt all agent sessions immediately">■ STOP</button>
     </header>
 
     <section id="sessions" class="sessions" aria-label="Sessions">
