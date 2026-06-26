@@ -155,12 +155,16 @@
         el.aAction.textContent = JSON.stringify(req.proposed_action || {}, null, 2);
     }
 
-    function updateFrame(id) {
+    function updateFrame(id, frameId) {
         if (!id) return;
-        // Cache-bust so each poll fetches the freshest JPEG; hide on 404/no-frame.
+        // Only re-download the JPEG when the frame actually changed (frame_id advances on
+        // each real capture). Polling on its own no longer re-fetches the same image — the
+        // status poll is read-only and doesn't capture, so the frame is stable while idle.
+        if (frameId == null || frameId === state.lastFrameId) return;
+        state.lastFrameId = frameId;
         el.dFrame.onerror = function () { el.dFrame.style.display = "none"; el.dFrameEmpty.style.display = "flex"; };
         el.dFrame.onload = function () { el.dFrame.style.display = "block"; el.dFrameEmpty.style.display = "none"; };
-        el.dFrame.src = DAEMON + "/sessions/" + id + "/frame?t=" + Date.now();
+        el.dFrame.src = DAEMON + "/sessions/" + id + "/frame?f=" + frameId;
     }
 
     // ---- data flow -------------------------------------------------------------
@@ -182,7 +186,7 @@
             var snap = await api("/sessions/" + id);
             setOffline(false);
             renderDetail(snap);
-            updateFrame(id);
+            updateFrame(id, snap.frame_id);
         } catch (e) {
             if (e.status === 502) setOffline(true);
             else if (e.status === 404) { state.selectedId = null; el.detail.hidden = true; }
@@ -195,6 +199,7 @@
 
     function select(id) {
         state.selectedId = id;
+        state.lastFrameId = null; // force the frame to refresh for the newly-selected session
         renderSessions();
         refreshDetail();
     }
