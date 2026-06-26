@@ -36,6 +36,13 @@
             </div>
         </div>
 
+        <!-- What the agent is doing RIGHT NOW (plain language, derived from status + trace). -->
+        <div id="d-activity" class="activity">
+            <span class="activity-spin" id="d-activity-spin" hidden></span>
+            <span class="activity-icon" id="d-activity-icon"></span>
+            <span class="activity-text" id="d-activity-text">…</span>
+        </div>
+
         <div id="d-error" class="error-box" hidden></div>
 
         <div class="frame-wrap">
@@ -63,7 +70,7 @@
         </div>
 
         <div class="trace">
-            <div class="trace-title">Trace</div>
+            <div class="trace-title">Activity log</div>
             <ol id="d-trace" class="trace-list"></ol>
         </div>
     </section>

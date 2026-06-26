@@ -1,24 +1,31 @@
 /*
  * Native Agent panel — front-end for the pikvm-agent daemon.
  *
- * Served from the app's own origin and talks to the daemon through the same-origin
- * reverse proxy at /_agent/daemon/* (so no CORS, and the access token still gates
- * it remotely). The daemon has no SSE/WebSocket, so we POLL: every POLL_MS we
- * refresh the session list and, if one is selected, its state + frame + trace +
- * approvals. When the proxy reports the daemon is down (502) we surface an offline
- * banner and keep retrying.
+ * Served from the app's own origin; talks to the daemon through the same-origin
+ * reverse proxy at /_agent/daemon/*. The daemon has no SSE/WebSocket, so we POLL.
+ *
+ * Responsiveness: clicking a session renders instantly from the cached list entry,
+ * then fetches detail + trace + approvals IN PARALLEL (not three serial round-trips).
+ * The status GET is read-only on the daemon, so polling is cheap.
+ *
+ * Legibility: the raw trace event kinds (observe / decision / executed …) are
+ * translated into plain language, and a "current activity" line says what the agent
+ * is doing right now.
  */
 (function () {
     "use strict";
 
     var DAEMON = "/_agent/daemon";
-    var POLL_MS = 1500;
+    var POLL_MS = 1200;
 
     var state = {
         sessions: [],
         selectedId: null,
         offline: false,
-        busy: false, // a continue/abort/approval POST is in flight
+        busy: false,        // a continue/abort/approval POST is in flight
+        lastFrameId: null,
+        ticking: false,     // guards overlapping poll cycles
+        tickN: 0,
     };
 
     var el = {
@@ -37,6 +44,10 @@
         dFrameEmpty: document.getElementById("d-frame-empty"),
         dContinue: document.getElementById("d-continue"),
         dAbort: document.getElementById("d-abort"),
+        activity: document.getElementById("d-activity"),
+        activitySpin: document.getElementById("d-activity-spin"),
+        activityIcon: document.getElementById("d-activity-icon"),
+        activityText: document.getElementById("d-activity-text"),
         approval: document.getElementById("approval"),
         aRisk: document.getElementById("a-risk"),
         aReason: document.getElementById("a-reason"),
@@ -53,10 +64,7 @@
         var text = await r.text();
         if (!r.ok) {
             var msg = "HTTP " + r.status;
-            try {
-                var j = JSON.parse(text);
-                msg = j.detail || j.error || msg;
-            } catch (e) { /* not json */ }
+            try { var j = JSON.parse(text); msg = j.detail || j.error || msg; } catch (e) { /* not json */ }
             var err = new Error(msg);
             err.status = r.status;
             throw err;
@@ -70,78 +78,179 @@
         el.offline.hidden = !off;
     }
 
-    // ---- rendering -------------------------------------------------------------
+    // ---- status helpers --------------------------------------------------------
     function statusClass(s) {
         if (s === "running") return "running";
         if (s === "needs_approval") return "needs_approval";
+        if (s === "paused") return "paused";
         if (s === "done") return "done";
         if (s === "failed") return "failed";
         return "";
     }
+    function statusLabel(s) {
+        if (s === "needs_approval") return "needs approval";
+        return s || "—";
+    }
 
+    // ---- sessions list ---------------------------------------------------------
     function renderSessions() {
         var list = state.sessions;
         el.sessionsEmpty.hidden = list.length > 0;
         el.sessionsList.innerHTML = "";
         list.forEach(function (s) {
+            var live = s.live_status || s.status;
             var li = document.createElement("li");
             if (s.id === state.selectedId) li.className = "active";
-            var live = s.live_status || s.status;
             var dot = document.createElement("span");
             dot.className = "dot " + statusClass(live);
+            if (live === "running") dot.classList.add("pulse");
             var task = document.createElement("span");
             task.className = "s-task";
             task.textContent = s.task || "(no task)";
+            task.title = s.task || "";
             var id = document.createElement("span");
             id.className = "s-id";
-            id.textContent = (s.id || "").replace(/^s_/, "");
-            li.appendChild(dot);
-            li.appendChild(task);
-            li.appendChild(id);
+            id.textContent = (s.id || "").replace(/^s_/, "").slice(0, 6);
+            li.appendChild(dot); li.appendChild(task); li.appendChild(id);
             li.addEventListener("click", function () { select(s.id); });
             el.sessionsList.appendChild(li);
         });
     }
 
-    function renderDetail(snap) {
-        if (!snap) { el.detail.hidden = true; return; }
+    // ---- detail header / current activity -------------------------------------
+    function renderHead(snap) {
         el.detail.hidden = false;
         el.dTask.textContent = snap.task || "(no task)";
         var status = snap.status || "—";
-        el.dStatus.textContent = status;
+        el.dStatus.textContent = statusLabel(status);
+        el.dStatus.className = "badge " + statusClass(status);
         var bits = [];
-        if (typeof snap.step === "number") bits.push("step " + snap.step);
+        if (typeof snap.step === "number" && snap.step > 0) bits.push("step " + snap.step);
         if (typeof snap.frame_id === "number") bits.push("frame " + snap.frame_id);
-        if (typeof snap.world_version === "number") bits.push("wv " + snap.world_version);
         el.dSteps.textContent = bits.join(" · ");
         if (snap.error) { el.dError.hidden = false; el.dError.textContent = snap.error; }
         else el.dError.hidden = true;
-        // Continue only makes sense while there's more to do.
         var terminal = status === "done" || status === "failed";
         el.dContinue.disabled = state.busy || terminal;
+        el.dContinue.textContent = status === "paused" ? "Continue ▸" : "Continue";
         el.dAbort.disabled = state.busy || terminal;
+    }
+
+    // Plain-language "what is it doing right now", from status + the latest trace.
+    function renderActivity(snap, trace) {
+        var status = snap && snap.status;
+        var spin = false, icon = "•", text = "…", cls = "";
+        if (status === "needs_approval") {
+            icon = "⏳"; text = "Waiting for your approval"; cls = "warn";
+        } else if (status === "paused") {
+            icon = "⏸"; text = "Paused — press Continue to keep going"; cls = "muted";
+        } else if (status === "done") {
+            icon = "✓"; text = "Task complete"; cls = "ok";
+        } else if (status === "failed") {
+            icon = "✕"; text = "Failed" + (snap.error ? " — " + snap.error : ""); cls = "err";
+        } else if (status === "running") {
+            spin = true; cls = "run";
+            var last = trace && trace.length ? trace[trace.length - 1] : null;
+            var decision = latestOf(trace, "decision");
+            if (last && last.kind === "operator_error") {
+                icon = "⚠"; text = "Model hiccup — retrying…"; cls = "warn"; spin = true;
+            } else if (decision && decision.intent) {
+                icon = "🧠"; text = "Working on: " + decision.intent;
+            } else {
+                icon = "👁"; text = "Looking at the screen…";
+            }
+        } else {
+            text = status ? String(status) : "…";
+        }
+        el.activitySpin.hidden = !spin;
+        el.activityIcon.hidden = spin;
+        el.activityIcon.textContent = icon;
+        el.activityText.textContent = text;
+        el.activity.className = "activity " + cls;
+    }
+
+    function latestOf(trace, kind) {
+        if (!trace) return null;
+        for (var i = trace.length - 1; i >= 0; i--) if (trace[i].kind === kind) return trace[i];
+        return null;
+    }
+
+    // ---- activity log (human-readable trace) ----------------------------------
+    // Map a raw trace event to {icon, text, cls}. Returns null to hide it.
+    function describe(e) {
+        var k = e.kind;
+        switch (k) {
+            case "session_start": return { icon: "▶", text: "Task started", cls: "" };
+            case "observe": return { icon: "·", text: "Observed the screen", cls: "dim" };
+            case "parse_skipped": return null; // pure noise
+            case "decision":
+                var acts = Array.isArray(e.actions) && e.actions.length ? "  [" + e.actions.join(", ") + "]" : "";
+                return { icon: "🧠", text: "Plan: " + (e.intent || "(no intent)") + acts, cls: "plan" };
+            case "executed":
+                var failed = e.status && /fail|block/i.test(e.status);
+                var ran = Array.isArray(e.actions) && e.actions.length ? e.actions.join(", ") : "action";
+                return { icon: failed ? "✗" : "✓", text: "Ran " + ran + (e.status ? " (" + e.status + ")" : ""), cls: failed ? "err" : "ok" };
+            case "execute_refused": return { icon: "⛔", text: "Refused: " + (e.reason || ""), cls: "warn" };
+            case "execute_deferred": return { icon: "⏸", text: "Deferred (time budget)", cls: "dim" };
+            case "approval_required": return { icon: "⏳", text: "Needs approval: " + (e.reason || ""), cls: "warn" };
+            case "policy_block": return { icon: "⛔", text: "Blocked by policy: " + (e.reason || ""), cls: "warn" };
+            case "operator_error": return { icon: "⚠", text: "Model error: " + (e.error || ""), cls: "err" };
+            case "budget_pause": return { icon: "⏸", text: "Paused (step budget reached)", cls: "dim" };
+            case "max_steps_exhausted": return { icon: "⚠", text: "Hit the step limit", cls: "err" };
+            case "recover": return { icon: "↺", text: "Recovering" + (e.mode ? " (" + e.mode + ")" : ""), cls: "warn" };
+            case "abort": return { icon: "✕", text: "Aborted" + (e.reason ? ": " + e.reason : ""), cls: "err" };
+            case "panic_stop": return { icon: "■", text: "EMERGENCY STOP", cls: "err" };
+            default:
+                var hint = e.reason || e.detail || e.message || e.status || "";
+                return { icon: "·", text: k + (hint ? ": " + String(hint).slice(0, 80) : ""), cls: "dim" };
+        }
+    }
+
+    function hhmmss(t) {
+        return (t || "").replace("T", " ").replace(/\..*$/, "").slice(11);
     }
 
     function renderTrace(entries) {
         el.trace.innerHTML = "";
-        (entries || []).slice().reverse().forEach(function (e) {
-            var li = document.createElement("li");
-            var t = document.createElement("time");
-            t.textContent = (e.t || "").replace("T", " ").replace(/\..*$/, "").slice(11);
-            var k = document.createElement("span");
-            k.className = "tk";
-            k.textContent = e.kind || "?";
-            li.appendChild(t);
-            li.appendChild(k);
-            // Append a short hint of any human-readable field.
-            var hint = e.reason || e.detail || e.message || e.status || "";
-            if (hint) {
-                var h = document.createElement("span");
-                h.textContent = String(hint).slice(0, 80);
-                li.appendChild(h);
+        var items = entries || [];
+        // Collapse runs of consecutive low-signal "observe" entries into one line.
+        var rows = [];
+        items.forEach(function (e) {
+            var d = describe(e);
+            if (!d) return;
+            var prev = rows[rows.length - 1];
+            if (e.kind === "observe" && prev && prev.kind === "observe") {
+                prev.count++; prev.t = e.t;
+                return;
             }
+            rows.push({ kind: e.kind, d: d, t: e.t, count: 1 });
+        });
+        rows.slice().reverse().forEach(function (r) {
+            var li = document.createElement("li");
+            li.className = "ev " + (r.d.cls || "");
+            var ic = document.createElement("span"); ic.className = "ev-ic"; ic.textContent = r.d.icon;
+            var tx = document.createElement("span"); ic.setAttribute("aria-hidden", "true");
+            tx.className = "ev-tx";
+            tx.textContent = r.d.text + (r.count > 1 ? "  ×" + r.count : "");
+            var tm = document.createElement("time"); tm.textContent = hhmmss(r.t);
+            li.appendChild(ic); li.appendChild(tx); li.appendChild(tm);
             el.trace.appendChild(li);
         });
+        if (!rows.length) {
+            var li2 = document.createElement("li");
+            li2.className = "ev dim";
+            li2.textContent = "No activity yet.";
+            el.trace.appendChild(li2);
+        }
+    }
+
+    function updateFrame(id, frameId) {
+        if (!id) return;
+        if (frameId == null || frameId === state.lastFrameId) return;
+        state.lastFrameId = frameId;
+        el.dFrame.onerror = function () { el.dFrame.style.display = "none"; el.dFrameEmpty.style.display = "flex"; };
+        el.dFrame.onload = function () { el.dFrame.style.display = "block"; el.dFrameEmpty.style.display = "none"; };
+        el.dFrame.src = DAEMON + "/sessions/" + id + "/frame?f=" + frameId;
     }
 
     function renderApproval(approvals) {
@@ -153,18 +262,6 @@
         el.aRisk.textContent = req.risk || "review";
         el.aReason.textContent = req.reason || "";
         el.aAction.textContent = JSON.stringify(req.proposed_action || {}, null, 2);
-    }
-
-    function updateFrame(id, frameId) {
-        if (!id) return;
-        // Only re-download the JPEG when the frame actually changed (frame_id advances on
-        // each real capture). Polling on its own no longer re-fetches the same image — the
-        // status poll is read-only and doesn't capture, so the frame is stable while idle.
-        if (frameId == null || frameId === state.lastFrameId) return;
-        state.lastFrameId = frameId;
-        el.dFrame.onerror = function () { el.dFrame.style.display = "none"; el.dFrameEmpty.style.display = "flex"; };
-        el.dFrame.onload = function () { el.dFrame.style.display = "block"; el.dFrameEmpty.style.display = "none"; };
-        el.dFrame.src = DAEMON + "/sessions/" + id + "/frame?f=" + frameId;
     }
 
     // ---- data flow -------------------------------------------------------------
@@ -182,25 +279,46 @@
     async function refreshDetail() {
         var id = state.selectedId;
         if (!id) { el.detail.hidden = true; return; }
-        try {
-            var snap = await api("/sessions/" + id);
-            setOffline(false);
-            renderDetail(snap);
-            updateFrame(id, snap.frame_id);
-        } catch (e) {
-            if (e.status === 502) setOffline(true);
-            else if (e.status === 404) { state.selectedId = null; el.detail.hidden = true; }
+        // Fetch the three detail pieces IN PARALLEL (was three serial round-trips).
+        var res = await Promise.allSettled([
+            api("/sessions/" + id),
+            api("/sessions/" + id + "/trace"),
+            api("/sessions/" + id + "/approvals"),
+        ]);
+        if (state.selectedId !== id) return; // selection changed mid-flight
+        var snapR = res[0], traceR = res[1], apprR = res[2];
+        if (snapR.status === "rejected") {
+            var err = snapR.reason || {};
+            if (err.status === 502) setOffline(true);
+            else if (err.status === 404) { state.selectedId = null; el.detail.hidden = true; }
             return;
         }
-        // Approvals + trace are best-effort (don't blank the view on a hiccup).
-        try { renderApproval(await api("/sessions/" + id + "/approvals")); } catch (e) { /* keep last */ }
-        try { renderTrace(await api("/sessions/" + id + "/trace")); } catch (e) { /* keep last */ }
+        setOffline(false);
+        var snap = snapR.value;
+        var trace = traceR.status === "fulfilled" && Array.isArray(traceR.value) ? traceR.value : [];
+        renderHead(snap);
+        renderActivity(snap, trace);
+        updateFrame(id, snap.frame_id);
+        if (traceR.status === "fulfilled") renderTrace(trace);
+        if (apprR.status === "fulfilled") renderApproval(apprR.value);
     }
 
     function select(id) {
+        if (state.selectedId === id) return;
         state.selectedId = id;
-        state.lastFrameId = null; // force the frame to refresh for the newly-selected session
+        state.lastFrameId = null;
         renderSessions();
+        // INSTANT: paint from the cached list entry so the panel switches with no wait,
+        // then fill in detail/trace/frame from the network.
+        var cached = state.sessions.filter(function (s) { return s.id === id; })[0];
+        if (cached) {
+            renderHead({ task: cached.task, status: cached.live_status || cached.status, error: "" });
+            renderActivity({ status: cached.live_status || cached.status }, []);
+        } else {
+            el.detail.hidden = false;
+        }
+        el.trace.innerHTML = "";
+        el.approval.hidden = true;
         refreshDetail();
     }
 
@@ -210,7 +328,7 @@
         el.dContinue.disabled = el.dAbort.disabled = true;
         try { await fn(); }
         catch (e) { if (e.status === 502) setOffline(true); else if (el.dError) { el.dError.hidden = false; el.dError.textContent = e.message; } }
-        finally { state.busy = false; await refreshDetail(); await refreshSessions(); }
+        finally { state.busy = false; await refreshDetail(); refreshSessions(); }
     }
 
     // ---- actions ---------------------------------------------------------------
@@ -245,9 +363,7 @@
         });
     });
 
-    // Emergency brake — halt every session at once, no agent involved. No confirm:
-    // in an emergency you want it instant. The daemon refuses further actions + drops
-    // held HID once this lands.
+    // Emergency brake — halt every session at once, no agent involved. No confirm.
     var panicBtn = document.getElementById("panic-stop");
     if (panicBtn) {
         panicBtn.addEventListener("click", function () {
@@ -256,8 +372,7 @@
                 .catch(function () { /* daemon down → nothing to stop */ })
                 .finally(function () {
                     setTimeout(function () { panicBtn.classList.remove("armed"); }, 600);
-                    refreshSessions();
-                    refreshDetail();
+                    refreshSessions(); refreshDetail();
                 });
         });
     }
@@ -279,10 +394,19 @@
     el.aReject.addEventListener("click", function () { resolveApproval("reject"); });
 
     // ---- poll loop -------------------------------------------------------------
+    // One non-overlapping cycle. Detail (cheap, read-only) refreshes every tick;
+    // the session list every 2nd tick.
     async function tick() {
-        await refreshSessions();
-        await refreshDetail();
+        if (state.ticking) return;
+        state.ticking = true;
+        try {
+            state.tickN++;
+            if (state.tickN % 2 === 1) await refreshSessions();
+            if (state.selectedId) await refreshDetail();
+        } finally {
+            state.ticking = false;
+        }
     }
-    tick();
+    refreshSessions().then(tick);
     setInterval(tick, POLL_MS);
 })();
