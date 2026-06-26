@@ -560,6 +560,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@xterm/addon-webgl@npm:0.20.0-beta.286":
+  version: 0.20.0-beta.286
+  resolution: "@xterm/addon-webgl@npm:0.20.0-beta.286"
+  peerDependencies:
+    "@xterm/xterm": ^6.1.0-beta.287
+  checksum: 10c0/55c81decd99d1a6b6ba327873e2839214df857a11176ffd0ed7837f897f3a59839925cc36fbabe14cd40224e527b07b22c8c3adf00584c018445914417bf24eb
+  languageName: node
+  linkType: hard
+
 "@xterm/xterm@npm:6.1.0-beta.287":
   version: 6.1.0-beta.287
   resolution: "@xterm/xterm@npm:6.1.0-beta.287"
@@ -2789,6 +2798,7 @@ __metadata:
     "@types/node": "npm:^25.0.3"
     "@types/ws": "npm:^8.18.1"
     "@xterm/addon-fit": "npm:^0.11"
+    "@xterm/addon-webgl": "npm:0.20.0-beta.286"
     "@xterm/xterm": "npm:6.1.0-beta.287"
     axios: "npm:^1.13.2"
     electron: "npm:^39.2.7"

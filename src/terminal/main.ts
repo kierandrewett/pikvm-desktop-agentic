@@ -6,6 +6,7 @@
  */
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 
 type SessionKind = "shell";
 interface SessionInfo {
@@ -227,6 +228,14 @@ const createView = (info: SessionInfo): View => {
     el.className = "term";
     termsEl.appendChild(el);
     term.open(el);
+    // GPU renderer for crisp glyphs + fast scrolling. Loaded AFTER open() and defensively:
+    // a version mismatch or unavailable WebGL just leaves the DOM renderer (which is fine),
+    // and a lost GPU context disposes the addon so it falls back instead of going blank.
+    try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => { try { webgl.dispose(); } catch { /* already gone */ } });
+        term.loadAddon(webgl);
+    } catch { /* WebGL unavailable / addon-core mismatch — DOM renderer renders fine */ }
     term.resize(authCols, authRows);
 
     const tab = document.createElement("div");
