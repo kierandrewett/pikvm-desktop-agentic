@@ -152,13 +152,37 @@ let activateNextCreated = false;
 let activateNextCreatedUntil = 0;
 let knownIdsBeforeCreate = new Set<string>();
 
+// System clipboard. Prefer the Electron bridge exposed by the terminal preload (works in
+// the sandboxed WebContentsView regardless of permission prompts); fall back to the async
+// Clipboard API on plain web / mobile.
+const sysClipboard = {
+    write(text: string): void {
+        if (!text) return;
+        const b = (window as unknown as { termClipboard?: { writeText(t: string): void } }).termClipboard;
+        if (b?.writeText) {
+            try { b.writeText(text); return; } catch { /* fall through */ }
+        }
+        void navigator.clipboard?.writeText(text).catch(() => {});
+    },
+    async read(): Promise<string> {
+        const b = (window as unknown as { termClipboard?: { readText(): string } }).termClipboard;
+        if (b?.readText) {
+            try { return String(b.readText() ?? ""); } catch { /* fall through */ }
+        }
+        try { return (await navigator.clipboard?.readText()) ?? ""; } catch { return ""; }
+    },
+};
+
 const DEFAULT_FONT_SIZE = 13;
 let fontSize = DEFAULT_FONT_SIZE;
 const makeTerm = (): { term: Terminal; fit: FitAddon } => {
     const term = new Terminal({
         fontFamily: 'ui-monospace, "SFMono-Regular", "Cascadia Mono", "Noto Sans Mono", "DejaVu Sans Mono", monospace',
         fontSize,
-        lineHeight: 1.12,
+        // 1.0 so block (█▀▄░) and box-drawing (│─┌┐└┘) characters TILE seamlessly — any
+        // line-height > 1 leaves vertical gaps that shred TUI borders/logos (opencode,
+        // Claude Code) into a striped mess.
+        lineHeight: 1.0,
         letterSpacing: 0,
         cursorBlink: true,
         scrollback: 8000,
@@ -233,8 +257,35 @@ const createView = (info: SessionInfo): View => {
         e.stopPropagation();
         send({ t: "close", id: info.id });
     });
+    const pasteFromClipboard = (): void => {
+        void sysClipboard.read().then((t) => { if (t && !v.exited) v.term.paste(t); });
+    };
+    // Right-click pastes (common terminal convention).
+    el.addEventListener("contextmenu", (ev) => { ev.preventDefault(); pasteFromClipboard(); });
+
     term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
+        // ── Copy / paste (Ctrl+C is left alone as SIGINT; use Ctrl+Shift+C to copy) ──
+        const key = e.key.toLowerCase();
+        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (key === "c" || e.code === "KeyC")) {
+            const sel = term.getSelection();
+            if (sel) sysClipboard.write(sel);
+            return false;
+        }
+        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (key === "v" || e.code === "KeyV")) {
+            pasteFromClipboard();
+            return false;
+        }
+        // Ctrl+Insert = copy, Shift+Insert = paste (the other common bindings).
+        if (e.key === "Insert" && e.ctrlKey && !e.shiftKey) {
+            const sel = term.getSelection();
+            if (sel) sysClipboard.write(sel);
+            return false;
+        }
+        if (e.key === "Insert" && e.shiftKey && !e.ctrlKey) {
+            pasteFromClipboard();
+            return false;
+        }
         // Ctrl+Backspace → delete the previous WORD (xterm otherwise sends a plain DEL,
         // deleting one char). ESC+DEL is readline's backward-kill-word.
         if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "Backspace" || e.code === "Backspace")) {

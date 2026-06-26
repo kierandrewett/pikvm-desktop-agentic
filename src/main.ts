@@ -462,11 +462,12 @@ function createWindow() {
     // The embedded shared terminal. Its own WebContentsView, loaded over HTTP from our
     // backend so it's same-origin with the /_agent/terminal WebSocket it drives — the
     // SAME page mobile loads. Positioned over the console's terminal-panel region. Never
-    // throttled. No preload: it's a plain web client, no IPC.
+    // throttled. Carries a tiny clipboard-only preload so copy/paste works (otherwise no IPC).
     const terminalView = new WebContentsView({
         webPreferences: {
             contextIsolation: true,
             backgroundThrottling: false,
+            preload: resolve(__dirname, "preload-terminal.js"),
         },
     });
     terminalView.setBackgroundColor("#0a0a0c");
