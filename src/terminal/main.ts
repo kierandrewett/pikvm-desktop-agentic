@@ -179,10 +179,10 @@ const makeTerm = (): { term: Terminal; fit: FitAddon } => {
     const term = new Terminal({
         fontFamily: 'ui-monospace, "SFMono-Regular", "Cascadia Mono", "Noto Sans Mono", "DejaVu Sans Mono", monospace',
         fontSize,
-        // 1.0 so block (█▀▄░) and box-drawing (│─┌┐└┘) characters TILE seamlessly — any
-        // line-height > 1 leaves vertical gaps that shred TUI borders/logos (opencode,
-        // Claude Code) into a striped mess.
-        lineHeight: 1.0,
+        // NOTE: lineHeight 1.0 made xterm's DOM renderer go BLANK for full-screen TUIs like
+        // opencode (a beta quirk). 1.12 renders (block/box chars get faint gaps, but visible
+        // beats blank). Crisp tiling needs the WebGL renderer on a matched addon/core pair.
+        lineHeight: 1.12,
         letterSpacing: 0,
         cursorBlink: true,
         scrollback: 8000,
