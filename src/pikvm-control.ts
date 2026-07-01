@@ -716,6 +716,26 @@ export class PiKvmControl {
         await this.send("mouse_relative", { delta: { x: Math.round(dx), y: Math.round(dy) }, squash: true });
     }
 
+    /** A tiny keep-awake nudge that lands the cursor back exactly where it started,
+     *  using whichever HID mode the target is actually in. In RELATIVE mode we send a
+     *  delta and its inverse. In ABSOLUTE mode (the common USB-HID default, where
+     *  mouse_relative is silently ignored) we jog a hair off the last-known position
+     *  and move straight back — this is what the old relative-only jiggler missed, so
+     *  absolute targets never got woken and kept sleeping. */
+    async mouseNudge(delta = 10): Promise<void> {
+        const d = Math.round(delta);
+        if (this.getMouseMode() === "relative") {
+            await this.mouseRelative(d, 0);
+            await new Promise((r) => setTimeout(r, 160));
+            await this.mouseRelative(-d, 0);
+            return;
+        }
+        const { x, y } = this.mouse;
+        await this.sendMove(this.clampNorm(x + d), y);
+        await new Promise((r) => setTimeout(r, 160));
+        await this.sendMove(x, y);
+    }
+
     /* -------------------------------------------------------------- *
      * Keyboard
      * -------------------------------------------------------------- */

@@ -4,18 +4,15 @@
  * When neither the user nor the agent has touched the mouse/keyboard for a while,
  * nudge the cursor a hair and put it back so the target machine doesn't sleep / lock
  * / show a screensaver. It:
- *   - nudges with RELATIVE mouse deltas (+d then −d) so the cursor nets back to
- *     exactly where it was — no need to know its absolute position;
+ *   - nudges via control.mouseNudge, which nets back to exactly where the cursor
+ *     was using whichever HID mode the target is in (relative deltas, or a hair of
+ *     absolute movement when the Pi is absolute-only — the common default);
  *   - locks out agent operations while it jiggles (the runner's gate awaits us), and
  *     unlocks the instant it's done;
  *   - never jiggles while the agent is working or the user is active.
  */
 
 import type { PiKvmControl } from "./pikvm-control";
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((r) => setTimeout(r, ms));
-}
 
 export interface JigglerDeps {
     control: PiKvmControl;
@@ -75,11 +72,11 @@ export class MouseJiggler {
         this.jiggling = true;
         this.jiggleDone = new Promise((r) => (this.resolveJiggle = r));
         try {
-            // Relative nudge then its exact inverse — nets to zero displacement, so the
-            // cursor ends precisely where it started without knowing where that is.
-            await this.deps.control.mouseRelative(this.NUDGE, 0);
-            await sleep(160);
-            await this.deps.control.mouseRelative(-this.NUDGE, 0);
+            // Mode-aware nudge that nets to zero displacement: relative deltas when the
+            // Pi is relative, a hair of absolute movement (off the last-known position,
+            // then straight back) when it's absolute. A plain relative nudge is silently
+            // ignored in absolute mode — the default — so the target would keep sleeping.
+            await this.deps.control.mouseNudge(this.NUDGE);
         } catch {
             /* best-effort — the jiggle must never disturb anything */
         } finally {
