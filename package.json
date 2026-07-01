@@ -1,7 +1,7 @@
 {
     "name": "pikvm-desktop-agentic",
     "description": "PiKVM desktop client — live view (video/keyboard/mouse/audio/mic) with a terminal sidebar",
-    "version": "1.12.2",
+    "version": "1.12.3",
     "main": "main.js",
     "repository": "https://github.com/kierandrewett/pikvm-desktop-agentic",
     "author": "kierandrewett <kieran@drewett.dev>",
