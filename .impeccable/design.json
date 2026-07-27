@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-27T14:25:00+01:00",
+  "title": "Design System: PiKVM Desktop",
+  "extensions": {
+    "colorMeta": {
+      "operator-black": {
+        "role": "neutral",
+        "displayName": "Operator Black",
+        "canonical": "#0A0A0C",
+        "tonalRamp": ["#08080A", "#0A0A0C", "#121216", "#1A1A20", "#23232B", "#55555F", "#A7A7AF", "#F1F1F4"]
+      },
+      "high-signal-blue": {
+        "role": "primary",
+        "displayName": "High-signal Blue",
+        "canonical": "#5B8CFF",
+        "tonalRamp": ["#071A49", "#102D70", "#1F489C", "#3565CB", "#5B8CFF", "#83A8FF", "#B4CAFF", "#EAF0FF"]
+      },
+      "evidence-green": {
+        "role": "semantic",
+        "displayName": "Evidence Green",
+        "canonical": "#46C773",
+        "tonalRamp": ["#092A16", "#124523", "#1E6535", "#2D8E4C", "#46C773", "#75D995", "#AFE9C2", "#ECFAF1"]
+      },
+      "caution-amber": {
+        "role": "semantic",
+        "displayName": "Caution Amber",
+        "canonical": "#E0A52B",
+        "tonalRamp": ["#302006", "#543809", "#79510D", "#A87517", "#E0A52B", "#ECC45D", "#F5DFA2", "#FFF8E8"]
+      },
+      "destructive-red": {
+        "role": "semantic",
+        "displayName": "Destructive Red",
+        "canonical": "#F25555",
+        "tonalRamp": ["#370909", "#5C1111", "#861D1D", "#B73232", "#F25555", "#F78787", "#FBBABA", "#FFF0F0"]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Empty-state and sheet titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Tasks, effects, and section anchors."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Conversation and explanations."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Status, tabs, metadata, and compact controls."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-menu",
+        "value": "0 8px 24px rgba(0,0,0,0.32)",
+        "purpose": "Menus and popovers only."
+      },
+      {
+        "name": "modal-focus",
+        "value": "0 12px 34px rgba(0,0,0,0.45)",
+        "purpose": "Blocking dialogs only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-state",
+        "value": "cubic-bezier(0.2,0.7,0.3,1)",
+        "purpose": "Short state and pane transitions; disabled for reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "desktop-workspace",
+        "value": "900px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single commitment action in the current context.",
+      "html": "<button class=\"ds-btn-primary\">Continue</button>",
+      "css": ".ds-btn-primary{height:32px;padding:0 12px;border:0;border-radius:6px;background:#5B8CFF;color:#fff;font:600 12px/1.35 system-ui,sans-serif;transition:background .12s ease-out}.ds-btn-primary:hover{background:#6E99FF}.ds-btn-primary:focus-visible{outline:0;box-shadow:0 0 0 3px color-mix(in srgb,#5B8CFF 28%,transparent)}"
+    },
+    {
+      "name": "Quiet Action",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "A secondary or toolbar action.",
+      "html": "<button class=\"ds-btn-quiet\">Computer</button>",
+      "css": ".ds-btn-quiet{height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:#EDEDF1;font:550 12px/1.35 system-ui,sans-serif;transition:background .12s ease-out}.ds-btn-quiet:hover{background:#1A1A20}.ds-btn-quiet:focus-visible{outline:0;box-shadow:0 0 0 3px color-mix(in srgb,#5B8CFF 28%,transparent)}"
+    },
+    {
+      "name": "Task Composer",
+      "kind": "input",
+      "refersTo": "composer",
+      "description": "The primary instruction surface.",
+      "html": "<label class=\"ds-composer\"><span class=\"ds-sr\">Task message</span><textarea placeholder=\"Ask the computer to do something\"></textarea><button aria-label=\"Send message\">↑</button></label>",
+      "css": ".ds-composer{display:flex;align-items:flex-end;gap:8px;padding:8px;border:1px solid #26262E;border-radius:12px;background:#121216;color:#EDEDF1}.ds-composer:focus-within{box-shadow:0 0 0 3px color-mix(in srgb,#5B8CFF 22%,transparent)}.ds-composer textarea{min-height:40px;flex:1;resize:none;border:0;outline:0;background:transparent;color:inherit;font:400 14px/1.55 system-ui,sans-serif}.ds-composer button{width:28px;height:28px;border:0;border-radius:999px;background:#5B8CFF;color:#fff}.ds-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}"
+    },
+    {
+      "name": "Verified Status",
+      "kind": "chip",
+      "refersTo": "status-pill",
+      "description": "Colour-independent evidence state.",
+      "html": "<span class=\"ds-status\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m5 12 4 4L19 6\"/></svg>Verified</span>",
+      "css": ".ds-status{display:inline-flex;height:22px;align-items:center;gap:6px;padding:0 9px;border-radius:999px;background:#121216;color:#EDEDF1;font:550 12px/1.35 system-ui,sans-serif}.ds-status svg{width:14px;height:14px;fill:none;stroke:#46C773;stroke-width:2.2}"
+    },
+    {
+      "name": "Computer Action",
+      "kind": "custom",
+      "description": "Compact effect-first computer activity.",
+      "html": "<button class=\"ds-action\"><span class=\"ds-action-icon\">↖</span><span><strong>Click “Continue”</strong><small>Target preview available</small></span><span class=\"ds-action-state\">Verified</span></button>",
+      "css": ".ds-action{display:grid;width:100%;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:#EDEDF1;text-align:left}.ds-action:hover{background:#1A1A20}.ds-action:focus-visible{outline:0;box-shadow:0 0 0 3px color-mix(in srgb,#5B8CFF 22%,transparent)}.ds-action-icon{display:grid;width:28px;height:28px;place-items:center;border-radius:6px;background:#23232B}.ds-action strong,.ds-action small{display:block}.ds-action strong{font:600 14px/1.4 system-ui,sans-serif}.ds-action small{margin-top:2px;color:#8A8A95;font:400 12px/1.35 system-ui,sans-serif}.ds-action-state{color:#46C773;font:550 12px/1.35 system-ui,sans-serif}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Operator's Desk",
+    "overview": "PiKVM Desktop should feel like the desk of a careful expert: the conversation is open in front of them, the computer they are operating is within sight, and the few controls they may need are exactly where their hand expects them. Chat is the primary surface; computer state and tools are supporting context.",
+    "keyCharacteristics": [
+      "Conversation-first hierarchy with a collapsible computer preview.",
+      "Compact native desktop chrome and generous space for task content.",
+      "Effects shown through target crops, exact text, and evidence—not coordinates.",
+      "Restrained neutral surfaces with colour reserved for action and truth.",
+      "Keyboard-complete interaction, visible focus, reduced motion, and 200% scaling."
+    ],
+    "rules": [
+      {
+        "name": "The Scarce Colour Rule",
+        "body": "High-signal blue occupies no more than ten percent of a normal workspace. Semantic colour never acts alone.",
+        "section": "colors"
+      },
+      {
+        "name": "The Read-Once Rule",
+        "body": "User-facing effects use plain language at body or title size. Raw tool names and identifiers never dominate.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-by-Default Rule",
+        "body": "A shadow must explain layering or focus. It may not decorate a resting card.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do make chat the control surface and keep the current computer visible as supporting context.",
+      "Do show effects with target crops, before/after frames, exact text, and independent evidence.",
+      "Do keep controls at least 32px high with a visible focus-visible state.",
+      "Do use evidence green, caution amber, and destructive red together with words and icons.",
+      "Do honour prefers-reduced-motion and keep the product usable at 200% scale."
+    ],
+    "donts": [
+      "Don't present a verbose developer console as the user-facing harness.",
+      "Don't build a NOC dashboard full of panels, telemetry cards, and unexplained coordinates.",
+      "Don't use a terminal-themed interface that treats logs as visibility.",
+      "Don't ship a generic chatbot that hides tool execution or shows only a spinner.",
+      "Don't use a hidden operator whose decisions and screen state cannot be inspected.",
+      "Don't recreate production-ready chat, tool-call, dialog, or form primitives.",
+      "Don't add decorative motion, gratuitous glass effects, or AI control centre styling."
+    ]
+  }
+}
