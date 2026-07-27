@@ -4,6 +4,12 @@ import WebSocket from "ws";
 
 const port = Number(process.env.PIKVM_CDP_PORT || "9223");
 const reloadMatch = process.env.PIKVM_CDP_RELOAD_MATCH || "";
+const collectGarbage = process.env.PIKVM_CDP_COLLECT_GARBAGE === "1";
+const clickMatch = process.env.PIKVM_CDP_CLICK_MATCH || "";
+const clickLabel = process.env.PIKVM_CDP_CLICK_LABEL || "";
+const fillMatch = process.env.PIKVM_CDP_FILL_MATCH || "";
+const fillSelector = process.env.PIKVM_CDP_FILL_SELECTOR || "";
+const fillValue = process.env.PIKVM_CDP_FILL_VALUE || "";
 const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((res) => {
     if (!res.ok) throw new Error(`CDP target discovery returned ${res.status}`);
     return res.json();
@@ -38,11 +44,79 @@ async function inspectTarget(target) {
             await call("Page.reload", { ignoreCache: true });
             await new Promise((resolve) => setTimeout(resolve, 750));
         }
+        if (
+            fillSelector &&
+            fillMatch &&
+            target.url.includes(fillMatch)
+        ) {
+            const filled = await call("Runtime.evaluate", {
+                expression: `(() => {
+                    const element = document.querySelector(
+                        ${JSON.stringify(fillSelector)}
+                    );
+                    if (
+                        !(element instanceof HTMLInputElement) &&
+                        !(element instanceof HTMLTextAreaElement)
+                    ) return false;
+                    const prototype = element instanceof HTMLTextAreaElement
+                        ? HTMLTextAreaElement.prototype
+                        : HTMLInputElement.prototype;
+                    const setter = Object.getOwnPropertyDescriptor(
+                        prototype,
+                        "value",
+                    )?.set;
+                    setter?.call(element, ${JSON.stringify(fillValue)});
+                    element.dispatchEvent(new Event("input", { bubbles: true }));
+                    element.dispatchEvent(new Event("change", { bubbles: true }));
+                    return true;
+                })()`,
+                returnByValue: true,
+            });
+            if (filled.result?.value !== true) {
+                throw new Error(
+                    `No editable field matching ${JSON.stringify(fillSelector)} in ${target.url}`,
+                );
+            }
+        }
+        if (
+            clickLabel &&
+            clickMatch &&
+            target.url.includes(clickMatch)
+        ) {
+            const clicked = await call("Runtime.evaluate", {
+                expression: `(() => {
+                    const label = ${JSON.stringify(clickLabel)};
+                    const element = [...document.querySelectorAll("button")]
+                        .find((candidate) => {
+                            const candidateLabel = (
+                                candidate.getAttribute("aria-label") ||
+                                candidate.textContent ||
+                                candidate.getAttribute("title") ||
+                                ""
+                            ).trim().replace(/\\s+/g, " ");
+                            return candidateLabel === label;
+                        });
+                    if (!element) return false;
+                    element.click();
+                    return true;
+                })()`,
+                returnByValue: true,
+            });
+            if (clicked.result?.value !== true) {
+                throw new Error(
+                    `No button with aria-label ${JSON.stringify(clickLabel)} in ${target.url}`,
+                );
+            }
+            await new Promise((resolve) => setTimeout(resolve, 350));
+        }
         const evaluated = await call("Runtime.evaluate", {
             expression,
             returnByValue: true,
             awaitPromise: true,
         });
+        if (collectGarbage) {
+            await call("HeapProfiler.collectGarbage");
+        }
         const metrics = await call("Performance.getMetrics");
         return { evaluated, metrics };
     } finally {
@@ -75,7 +149,9 @@ const expression = `(() => {
                 return style.display !== "none" && style.visibility !== "hidden";
             })
             .map((element) =>
-                (element.getAttribute("aria-label") ||
+                (element.labels?.[0]?.textContent ||
+                    element.getAttribute("aria-label") ||
+                    element.getAttribute("placeholder") ||
                     element.textContent ||
                     element.getAttribute("title") ||
                     "").trim().replace(/\\s+/g, " ").slice(0, 120)
@@ -83,6 +159,8 @@ const expression = `(() => {
             .filter(Boolean)
             .slice(0, 80);
     const app = document.querySelector("#app");
+    const navigation = performance.getEntriesByType("navigation")[0];
+    const resources = performance.getEntriesByType("resource");
     return {
         title: document.title,
         url: location.href,
@@ -165,6 +243,32 @@ const expression = `(() => {
                     fontSize: style.fontSize,
                 };
             })(),
+        },
+        loading: {
+            navigation: navigation
+                ? {
+                    responseEnd: Math.round(navigation.responseEnd * 100) / 100,
+                    domContentLoaded: Math.round(navigation.domContentLoadedEventEnd * 100) / 100,
+                    load: Math.round(navigation.loadEventEnd * 100) / 100,
+                    duration: Math.round(navigation.duration * 100) / 100,
+                    transferSize: navigation.transferSize,
+                    decodedBodySize: navigation.decodedBodySize,
+                }
+                : null,
+            resources: {
+                count: resources.length,
+                transferSize: resources.reduce(
+                    (total, entry) => total + (entry.transferSize || 0),
+                    0,
+                ),
+                decodedBodySize: resources.reduce(
+                    (total, entry) => total + (entry.decodedBodySize || 0),
+                    0,
+                ),
+                javascript: resources
+                    .filter((entry) => entry.name.endsWith(".js"))
+                    .map((entry) => new URL(entry.name).pathname.split("/").pop()),
+            },
         },
         bodyText: (document.body?.innerText || "")
             .trim()
