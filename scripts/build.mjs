@@ -19,6 +19,7 @@ await build({
         resolve(root, "src/preload-console.ts"),
         resolve(root, "src/preload-settings.ts"),
         resolve(root, "src/preload-terminal.ts"),
+        resolve(root, "src/mcp-launcher.ts"),
     ],
     outdir: dist,
     platform: "node",

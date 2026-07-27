@@ -9,6 +9,7 @@
     "scripts": {
         "start": "electron dist",
         "build": "node scripts/build.mjs",
+        "test": "node scripts/test.mjs",
         "package:linux": "make package",
         "postinstall": "patch-package"
     },

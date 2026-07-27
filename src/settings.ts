@@ -34,6 +34,11 @@ export interface AppSettings {
      *  spawns + manages it for the Agent panel. Empty → auto-resolve (env
      *  PIKVM_AGENT_DAEMON_CMD → ~/dev/pikvm-agent/.venv/bin/pikvm-agent → PATH). */
     daemonCmd?: string;
+    /** Executable that launches the first-party operator harness. Empty →
+     *  PIKVM_HARNESS_CMD, then the daemon executable, then auto-resolution. */
+    harnessCmd?: string;
+    /** Secret-free BYO-provider harness YAML. Empty → harness.yaml beside settings. */
+    harnessConfig?: string;
     /** Working directory for terminal sessions. */
     atlas: AtlasSettings;
 }

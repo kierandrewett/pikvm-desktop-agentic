@@ -1902,7 +1902,7 @@
         setInterval(reportTermRect, 1000); // fallback for layout changes we don't observe
         setTimeout(reportTermRect, 150);
 
-        // [Terminal | Agent] tabs: tell main which native view to float over this panel.
+        // [Chat | Terminal] tabs: tell main which native view to float over this panel.
         var panelTabs = document.getElementById("panel-tabs");
         if (panelTabs && window.desktopConsole.setPanelTab) {
             var tabBtns = panelTabs.querySelectorAll("[data-tab]");
@@ -1942,10 +1942,10 @@
                         var ready = !!s.ok;
                         setBackend(ready ? "ready" : "starting",
                                    ready ? "Backend ready" : "Backend starting",
-                                   "Agent backend — " + parts.join("  ·  "));
+                                   "Computer backend — " + parts.join("  ·  "));
                     })
                     .catch(function () {
-                        setBackend("down", "Backend down", "Agent daemon unreachable (starting or not running)");
+                        setBackend("down", "Backend down", "Computer daemon unreachable (starting or not running)");
                     });
             };
             pollBackend();
@@ -2113,7 +2113,7 @@
             });
         }
 
-        /* ---- terminal panel collapse (titlebar-left toggle) ---- */
+        /* ---- computer-chat panel collapse (titlebar-left toggle) ---- */
         var tbPanel = document.getElementById("tb-panel");
         function panelShown() {
             return !app.classList.contains("panel-collapsed");
@@ -2231,7 +2231,7 @@
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
             }
             items.push({ type: "separator" });
-            items.push({ id: "panel", label: panelShown() ? "Hide terminal panel" : "Show terminal panel" });
+            items.push({ id: "panel", label: panelShown() ? "Hide computer chat" : "Show computer chat" });
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "theme", label: "Toggle theme" });
             items.push({ type: "separator" });

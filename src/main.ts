@@ -17,7 +17,10 @@ import { electronImageOps } from "./image-ops-electron";
 import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TerminalSessions } from "./terminal-server";
-import { DaemonManager } from "./daemon-manager";
+import { ManagedService } from "./service-manager";
+import { HarnessManager } from "./harness-manager";
+import { withHarnessAuthorization } from "./harness-runtime";
+import { HarnessViewLifecycle } from "./harness-view-lifecycle";
 
 const staticPath = resolve(__dirname, "static");
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -67,6 +70,28 @@ function resolveDaemonCommand(configured?: string): { command: string; args: str
         if (existsSync(c)) return { command: c, args: ["daemon"] };
     }
     return { command: "pikvm-agent", args: ["daemon"] }; // rely on PATH
+}
+
+/** Resolve the same pikvm-agent installation for the first-party harness. */
+function resolveHarnessCommand(configured?: string): string {
+    const venvBin = resolve(app.getPath("home"), "dev/pikvm-agent/.venv/bin/pikvm-agent");
+    const candidates = [
+        configured,
+        process.env.PIKVM_HARNESS_CMD,
+        process.env.PIKVM_AGENT_DAEMON_CMD,
+        venvBin,
+    ].filter(Boolean) as string[];
+    for (const candidate of candidates) {
+        if (existsSync(candidate)) return candidate;
+    }
+    return "pikvm-agent";
+}
+
+function resolvedHarnessOrigin(): string {
+    return (process.env.PIKVM_HARNESS_ORIGIN || "http://127.0.0.1:47616").replace(
+        /\/$/,
+        "",
+    );
 }
 
 /** Start the PiKVM backend: the control core (for the reverse proxy's target), the
@@ -148,9 +173,51 @@ function startProxyAndTerminal(origin: string, settings: SettingsStore) {
     // The app owns the daemon's lifecycle (the Agent panel is its front-end): spawn it
     // on startup, stop it on quit. Adopts an already-running daemon instead of double-spawning.
     const { command, args } = resolveDaemonCommand(settings.get().daemonCmd);
-    const daemon = new DaemonManager({ origin: daemonOrigin, command, args, log: (l) => console.log(l) });
-    void daemon.start();
-    return { control, settings, terminalSessions, daemon };
+    const daemon = new ManagedService({
+        name: "daemon",
+        origin: daemonOrigin,
+        healthPath: "/healthz",
+        command,
+        args,
+        log: (line) => console.log(line),
+    });
+
+    // The chat workspace is a separate, authenticated local service. Its YAML
+    // contains provider names/routes only; all three credentials are random,
+    // per-session values owned by this desktop process.
+    const harnessOrigin = resolvedHarnessOrigin();
+    const configuredHarnessPath =
+        process.env.PIKVM_HARNESS_CONFIG || settings.get().harnessConfig;
+    const harnessConfig = configuredHarnessPath
+        ? isAbsolute(configuredHarnessPath)
+            ? configuredHarnessPath
+            : resolve(settings.dir(), configuredHarnessPath)
+        : resolve(settings.dir(), "harness.yaml");
+    const harness = new HarnessManager({
+        origin: harnessOrigin,
+        daemonOrigin,
+        command: resolveHarnessCommand(settings.get().harnessCmd),
+        configPath: harnessConfig,
+        runtimePath:
+            process.env.PIKVM_HARNESS_RUNTIME ||
+            resolve(settings.dir(), "harness-runtime.json"),
+        cwd: settings.dir(),
+        log: (line) => console.log(line),
+    });
+    const harnessReady = daemon
+        .start()
+        .then(() => harness.start());
+    void harnessReady.catch((error) =>
+            console.error(`[harness] startup failed: ${String(error)}`),
+        );
+    return {
+        control,
+        settings,
+        terminalSessions,
+        daemon,
+        harness,
+        harnessReady,
+    };
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -473,20 +540,24 @@ function createWindow() {
     terminalView.setBackgroundColor("#0a0a0c");
     terminalView.setVisible(false);
 
-    // Second panel view: the native Agent panel (the pikvm-agent daemon front-end).
-    // It floats over the SAME panel rect as the terminal; the [Terminal|Agent] tabs
-    // in the console choose which one is visible. Like the terminal it's a plain web
-    // client loaded over HTTP (no preload) and never throttled.
+    // Second panel view: the first-party chat harness. It floats over the SAME
+    // panel rect as the terminal; the [Terminal|Chat] tabs choose which is visible.
+    // Its isolated session lets main inject the operator credential without ever
+    // exposing that credential to page JavaScript.
     const agentView = new WebContentsView({
         webPreferences: {
             contextIsolation: true,
             backgroundThrottling: false,
+            partition: "pikvm-harness",
         },
     });
     agentView.setBackgroundColor("#0a0a0c");
     agentView.setVisible(false);
 
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
+    const HARNESS_ORIGIN = resolvedHarnessOrigin();
+    const HARNESS_URL = `${HARNESS_ORIGIN}/app/`;
+    const harnessViewLifecycle = new HarnessViewLifecycle(HARNESS_URL);
 
     // Opt-in: load the KVM view through our own proxy instead of the Pi directly,
     // so the desktop shares the web client's rendering path. Off by default; needs
@@ -622,22 +693,26 @@ function createWindow() {
         terminalFitTimer = setTimeout(run, 80);
     };
 
-    // Agent panel view: same retry-on-fail + open-links-externally guards as the
-    // terminal (the backend may not have bound yet on first paint).
+    // Chat harness view: same retry-on-fail + external-link guards as the terminal.
+    // The harness may still be bootstrapping its secret-free provider config.
+    const loadHarness = () => {
+        if (agentView.webContents.isDestroyed()) return;
+        harnessViewLifecycle.beginLoad();
+        void agentView.webContents.loadURL(HARNESS_URL);
+    };
     agentView.webContents.on("did-fail-load", (_e, code, desc, url) => {
-        console.error(`[agent-renderer] did-fail-load ${code} ${desc} ${url}`);
-        if (!agentView.webContents.isDestroyed())
-            setTimeout(() => {
-                if (!agentView.webContents.isDestroyed())
-                    void agentView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/agent.html`);
-            }, 500);
+        console.error(`[harness-renderer] did-fail-load ${code} ${desc} ${url}`);
+        harnessViewLifecycle.failed();
+        if (!agentView.webContents.isDestroyed()) {
+            harnessViewLifecycle.scheduleRetry(loadHarness);
+        }
     });
     agentView.webContents.setWindowOpenHandler(({ url }) => {
         openTerminalUrlExternally(url);
         return { action: "deny" };
     });
     agentView.webContents.on("will-navigate", (e, url) => {
-        if (url.startsWith(`http://127.0.0.1:${CONTROL_PORT}/_agent/`)) return;
+        if (url.startsWith(`${HARNESS_ORIGIN}/`)) return;
         e.preventDefault();
         openTerminalUrlExternally(url);
     });
@@ -654,7 +729,7 @@ function createWindow() {
     // Both panel views overlay the SAME reported rect; `activeTab` (set by the
     // [Terminal|Agent] tabs) picks which is visible. A zero rect (panel collapsed)
     // hides both.
-    let activeTab: "terminal" | "agent" = "terminal";
+    let activeTab: "terminal" | "agent" = "agent";
     let lastPanelRect = { x: 0, y: 0, width: 0, height: 0 };
     const applyPanelViews = () => {
         const { x, y, width, height } = lastPanelRect;
@@ -687,7 +762,9 @@ function createWindow() {
         applyPanelViews();
     });
     win.on("closed", () => {
+        harnessViewLifecycle.stop();
         backend?.terminalSessions.killAll();
+        backend?.harness.stop();
         backend?.daemon.stop();
     });
 
@@ -722,10 +799,56 @@ function createWindow() {
     // remote console, where the remote host owns the proxy + terminal.
     const backend = remoteConsole ? null : startProxyAndTerminal(origin, settings);
 
+    if (backend) {
+        // The React workspace still uses its normal token-auth client, but only
+        // sees a non-secret sentinel. Electron replaces that header inside this
+        // isolated session, keeping approval authority out of renderer storage.
+        agentView.webContents.session.webRequest.onBeforeSendHeaders(
+            { urls: [`${HARNESS_ORIGIN}/api/*`] },
+            (details, callback) => {
+                callback({
+                    requestHeaders: withHarnessAuthorization(
+                        details.requestHeaders,
+                        backend.harness.accessToken,
+                    ),
+                });
+            },
+        );
+        agentView.webContents.on("did-finish-load", () => {
+            harnessViewLifecycle.loaded();
+            if (
+                !harnessViewLifecycle.shouldBootstrapAuth(
+                    agentView.webContents.getURL(),
+                )
+            ) {
+                return;
+            }
+            void agentView.webContents
+                .executeJavaScript(
+                    `(() => {
+                        const key = "pikvm-harness-token";
+                        sessionStorage.setItem(key, "desktop-managed");
+                        location.reload();
+                        return true;
+                    })()`,
+                    true,
+                )
+                .catch((error) =>
+                    console.error(
+                        `[harness-renderer] could not bootstrap managed auth: ${String(error)}`,
+                    ),
+                );
+        });
+    }
+
     // Now that the backend is listening, load the shared terminal renderer over HTTP so it's
     // same-origin with its /_agent/terminal WebSocket (the desktop view and mobile both use it).
     void terminalView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`);
-    void agentView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/agent.html`);
+    if (backend) {
+        void backend.harnessReady.then(loadHarness).catch(() => {
+            // startProxyAndTerminal already logs the actionable startup error.
+        });
+    }
 
     ipcMain.on("open-external", (_, url: string) => {
         if (typeof url === "string" && /^https?:\/\//.test(url)) void shell.openExternal(url);

@@ -35,13 +35,13 @@
              buttons opt out with -webkit-app-region:no-drag (set in CSS). -->
         <div class="titlebar" id="titlebar" aria-hidden="true">
             <div class="tb-left">
-                <button class="tb-btn" id="tb-panel" title="Toggle terminal panel" aria-label="Toggle terminal panel">
+                <button class="tb-btn" id="tb-panel" title="Toggle computer chat" aria-label="Toggle computer chat">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m8 9 3 3-3 3M13 15h4" /></svg>
                 </button>
-                <!-- Agent backend readiness (daemon + OmniParser + PiKVM + LLM + OCR).
+                <!-- Computer backend readiness (daemon + OmniParser + PiKVM + OCR).
                      Polls the daemon's /status via the proxy; tooltip lists each. -->
-                <div class="backend-status" id="backend-status" data-state="unknown" title="Agent backend">
+                <div class="backend-status" id="backend-status" data-state="unknown" title="Computer backend">
                     <span class="bs-dot"></span>
                     <span class="bs-text" id="bs-text">Backend…</span>
                 </div>
@@ -160,11 +160,11 @@
             <div class="chat">
                 <!-- Drag the terminal panel's left edge to resize it (desktop only). -->
                 <div class="chat-resize" id="chat-resize" title="Drag to resize the terminal panel"></div>
-                <!-- Desktop-only: switch the floated native view between the shell and the
-                     Agent panel. Hidden on web/mobile (no native views to toggle). -->
+                <!-- Desktop-only: the assistant-ui chat is primary; the shared shell
+                     remains available as a secondary tool. -->
                 <div class="panel-tabs" id="panel-tabs">
-                    <button type="button" data-tab="terminal" class="active">Terminal</button>
-                    <button type="button" data-tab="agent">Agent</button>
+                    <button type="button" data-tab="agent" class="active">Chat</button>
+                    <button type="button" data-tab="terminal">Terminal</button>
                 </div>
                 <div class="bar-keys" id="drawer">
                     <button class="ibtn" data-click="left" title="Left click">L</button>
