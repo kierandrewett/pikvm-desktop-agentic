@@ -21,3 +21,12 @@ test("desktop keeps chat primary while the computer preview is collapsible", () 
     assert.match(html, /aria-label="Hide computer preview"/);
     assert.match(js, /pikvm-chat-workspace-width-v2/);
 });
+
+test("desktop keeps healthy status and workspace switching quiet and accessible", () => {
+    assert.doesNotMatch(js, /Backend ready/);
+    assert.match(html, /role="status" aria-live="polite"/);
+    assert.match(html, /role="tablist" aria-label="Workspace"/);
+    assert.match(html, /role="tab" aria-selected="true" data-tab="agent"/);
+    assert.match(js, /setAttribute\("aria-selected"/);
+    assert.match(css, /\.backend-status\[data-state="ready"\] \.bs-text/);
+});

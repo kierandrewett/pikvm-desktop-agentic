@@ -33,7 +33,7 @@
              `display:none` and nothing below it runs, so the web/mobile UI is
              byte-for-byte unchanged. The whole bar is the window drag region; the
              buttons opt out with -webkit-app-region:no-drag (set in CSS). -->
-        <div class="titlebar" id="titlebar" aria-hidden="true">
+        <div class="titlebar" id="titlebar">
             <div class="tb-left">
                 <button class="tb-btn active" id="tb-panel" title="Hide computer preview" aria-label="Hide computer preview" aria-pressed="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -41,8 +41,8 @@
                 </button>
                 <!-- Computer backend readiness (daemon + OmniParser + PiKVM + OCR).
                      Polls the daemon's /status via the proxy; tooltip lists each. -->
-                <div class="backend-status" id="backend-status" data-state="unknown" title="Computer backend">
-                    <span class="bs-dot"></span>
+                <div class="backend-status" id="backend-status" data-state="unknown" role="status" aria-live="polite" title="Computer backend">
+                    <span class="bs-dot" aria-hidden="true"></span>
                     <span class="bs-text" id="bs-text">Backend…</span>
                 </div>
             </div>
@@ -162,9 +162,9 @@
                 <div class="chat-resize" id="chat-resize" title="Resize chat workspace"></div>
                 <!-- Desktop-only: the assistant-ui chat is primary; the shared shell
                      remains available as a secondary tool. -->
-                <div class="panel-tabs" id="panel-tabs">
-                    <button type="button" data-tab="agent" class="active">Chat</button>
-                    <button type="button" data-tab="terminal">Terminal</button>
+                <div class="panel-tabs" id="panel-tabs" role="tablist" aria-label="Workspace">
+                    <button type="button" role="tab" aria-selected="true" data-tab="agent" class="active">Chat</button>
+                    <button type="button" role="tab" aria-selected="false" data-tab="terminal">Terminal</button>
                 </div>
                 <div class="bar-keys" id="drawer">
                     <button class="ibtn" data-click="left" title="Left click">L</button>

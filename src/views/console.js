@@ -1898,7 +1898,11 @@
             tabBtns.forEach(function (btn) {
                 btn.addEventListener("click", function () {
                     var tab = btn.getAttribute("data-tab");
-                    tabBtns.forEach(function (b) { b.classList.toggle("active", b === btn); });
+                    tabBtns.forEach(function (b) {
+                        var selected = b === btn;
+                        b.classList.toggle("active", selected);
+                        b.setAttribute("aria-selected", selected ? "true" : "false");
+                    });
                     window.desktopConsole.setPanelTab(tab);
                 });
             });
@@ -1930,11 +1934,11 @@
                             parts.push("OCR: " + d.ocr.provider + (d.ocr.available ? "" : " (missing)"));
                         var ready = !!s.ok;
                         setBackend(ready ? "ready" : "starting",
-                                   ready ? "Backend ready" : "Backend starting",
+                                   ready ? "Ready" : "Starting",
                                    "Computer backend — " + parts.join("  ·  "));
                     })
                     .catch(function () {
-                        setBackend("down", "Backend down", "Computer daemon unreachable (starting or not running)");
+                        setBackend("down", "Unavailable", "Computer daemon unreachable (starting or not running)");
                     });
             };
             pollBackend();

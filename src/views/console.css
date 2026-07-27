@@ -637,6 +637,26 @@ html.desktop-console .backend-status {
     cursor: default;
     user-select: none;
 }
+.backend-status[data-state="ready"] {
+    width: 20px;
+    padding: 0;
+    margin-left: 2px;
+    justify-content: center;
+    gap: 0;
+    border-color: transparent;
+    background: transparent;
+}
+.backend-status[data-state="ready"] .bs-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
 .backend-status .bs-dot {
     width: 8px;
     height: 8px;
@@ -647,7 +667,6 @@ html.desktop-console .backend-status {
 .backend-status[data-state="ready"] .bs-dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
 .backend-status[data-state="starting"] .bs-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
 .backend-status[data-state="down"] .bs-dot { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
-.backend-status[data-state="ready"] { color: var(--foreground); }
 
 /* [Terminal | Agent] tab strip — desktop-console only (web/mobile have no native
  * views to switch, so the terminal iframe just fills the panel as before). */
@@ -689,6 +708,10 @@ html.desktop-console .panel-tabs button.active {
     background: var(--accent);
     color: var(--foreground);
     font-weight: 600;
+}
+html.desktop-console .panel-tabs button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
 }
 /* The native terminal/agent views float over #chat-frame's rect, so reserve the
  * tab strip's height by pushing the frame (and the keys drawer) down below it. */

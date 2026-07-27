@@ -105,12 +105,27 @@ const expression = `(() => {
             chatFrame: rect("#chat-frame"),
             screen: rect("#screen-pane"),
             panelTabs: rect("#panel-tabs"),
+            backendStatus: rect("#backend-status"),
+            backendStatusText: rect("#backend-status .bs-text"),
             composer: rect("textarea, [contenteditable='true']"),
             primaryHeading: rect("h1, h2"),
         },
         activeTab:
             document.querySelector("#panel-tabs [data-tab].active")
                 ?.getAttribute("data-tab") || null,
+        selectedTabs: [...document.querySelectorAll("#panel-tabs [role='tab']")]
+            .filter((element) => element.getAttribute("aria-selected") === "true")
+            .map((element) => element.getAttribute("data-tab")),
+        backendStatus: (() => {
+            const element = document.querySelector("#backend-status");
+            return element
+                ? {
+                    state: element.getAttribute("data-state"),
+                    label: element.textContent?.trim() || "",
+                    title: element.getAttribute("title") || "",
+                }
+                : null;
+        })(),
         buttons: labels("button"),
         fields: labels("input, textarea, [contenteditable='true']"),
         headings: labels("h1, h2, h3"),
