@@ -35,9 +35,9 @@
              buttons opt out with -webkit-app-region:no-drag (set in CSS). -->
         <div class="titlebar" id="titlebar" aria-hidden="true">
             <div class="tb-left">
-                <button class="tb-btn" id="tb-panel" title="Toggle computer chat" aria-label="Toggle computer chat">
+                <button class="tb-btn active" id="tb-panel" title="Hide computer preview" aria-label="Hide computer preview" aria-pressed="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m8 9 3 3-3 3M13 15h4" /></svg>
+                        stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M8 21h8M12 18v3" /></svg>
                 </button>
                 <!-- Computer backend readiness (daemon + OmniParser + PiKVM + OCR).
                      Polls the daemon's /status via the proxy; tooltip lists each. -->
@@ -46,7 +46,7 @@
                     <span class="bs-text" id="bs-text">Backend…</span>
                 </div>
             </div>
-            <div class="tb-title" id="tb-title">pikvm · PiKVM Session</div>
+            <div class="tb-title" id="tb-title">PiKVM</div>
             <div class="tb-right">
                 <!-- Send a keyboard shortcut to the KVM (Ctrl+Alt+Del, Alt+Tab, …). -->
                 <button class="tb-btn" id="tb-keys" title="Send keyboard shortcut to the target" aria-label="Send keyboard shortcut">
@@ -158,8 +158,8 @@
                  overlays the TOP of the chat when ⌨ is tapped — never the stream,
                  and no layout reflow. -->
             <div class="chat">
-                <!-- Drag the terminal panel's left edge to resize it (desktop only). -->
-                <div class="chat-resize" id="chat-resize" title="Drag to resize the terminal panel"></div>
+                <!-- Drag the workspace edge to balance chat and computer preview. -->
+                <div class="chat-resize" id="chat-resize" title="Resize chat workspace"></div>
                 <!-- Desktop-only: the assistant-ui chat is primary; the shared shell
                      remains available as a secondary tool. -->
                 <div class="panel-tabs" id="panel-tabs">

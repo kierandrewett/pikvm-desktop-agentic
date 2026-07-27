@@ -13,6 +13,7 @@ try {
             resolve(root, "tests/harness-manager.test.ts"),
             resolve(root, "tests/harness-runtime.test.ts"),
             resolve(root, "tests/harness-view-lifecycle.test.ts"),
+            resolve(root, "tests/desktop-layout.test.ts"),
             resolve(root, "tests/service-manager.test.ts"),
         ],
         outdir: output,

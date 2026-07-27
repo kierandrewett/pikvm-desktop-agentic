@@ -662,18 +662,19 @@ html.desktop-console .panel-tabs {
     right: 0;
     height: 32px;
     z-index: 9;
-    gap: 3px;
-    padding: 5px 8px 0;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 8px;
     background: var(--background);
     border-bottom: 1px solid var(--border);
     -webkit-app-region: no-drag;
 }
 html.desktop-console .panel-tabs button {
-    flex: 1;
-    height: 27px;
-    border: 1px solid var(--border);
-    border-bottom: none;
-    border-radius: 7px 7px 0 0;
+    flex: none;
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
     background: transparent;
     color: var(--muted-foreground);
     font: inherit;
@@ -681,12 +682,13 @@ html.desktop-console .panel-tabs button {
     cursor: pointer;
 }
 html.desktop-console .panel-tabs button:hover {
-    background: color-mix(in srgb, var(--card) 70%, transparent);
+    background: var(--secondary);
     color: var(--foreground);
 }
 html.desktop-console .panel-tabs button.active {
-    background: var(--card);
+    background: var(--accent);
     color: var(--foreground);
+    font-weight: 600;
 }
 /* The native terminal/agent views float over #chat-frame's rect, so reserve the
  * tab strip's height by pushing the frame (and the keys drawer) down below it. */
@@ -903,21 +905,21 @@ html.desktop-console .tb-close:hover {
     background: var(--danger);
     color: #fff;
 }
-/* The panel toggle reads "active" while the terminal panel is shown. */
+/* The preview toggle reads active while the supporting computer view is shown. */
 html.desktop-console .tb-btn.active {
     color: var(--primary);
 }
 
 /* The app fills the space under the titlebar; force the wide-landscape layout
- * (screen left, agent panel right) regardless of the OS-reported orientation,
- * and animate the panel collapse. */
+ * regardless of the OS-reported orientation. Chat is the primary workspace;
+ * the live computer is supporting context on the right. */
 html.desktop-console .app {
     flex: 1;
     min-height: 0;
     height: auto;
-    /* Screen takes the remainder; the terminal panel is a fixed, user-RESIZABLE width
-     * (--chat-w). This MUST match what fit-native assumes (window = screen + panel). */
-    grid-template-columns: minmax(0, 1fr) var(--chat-w, 460px);
+    grid-template-columns:
+        minmax(520px, min(var(--chat-w, 760px), calc(100vw - 300px)))
+        minmax(300px, 1fr);
     grid-template-rows: minmax(0, 1fr);
     transition: none;
 }
@@ -925,19 +927,21 @@ html.desktop-console.panel-anim .app {
     transition: grid-template-columns 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 html.desktop-console .screen {
-    grid-column: 1;
-    grid-row: 1;
-}
-html.desktop-console .chat {
     grid-column: 2;
     grid-row: 1;
-    min-height: 0;
     border-left: 1px solid var(--border);
+}
+html.desktop-console .chat {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    border-left: 0;
 }
 html.desktop-console .chat-resize {
     display: block;
     position: absolute;
-    left: -5px;
+    left: auto;
+    right: -5px;
     top: 0;
     bottom: 0;
     width: 10px;
@@ -948,7 +952,7 @@ html.desktop-console .chat-resize {
 html.desktop-console .chat-resize::before {
     content: "";
     position: absolute;
-    left: 4px;
+    right: 4px;
     top: 0;
     bottom: 0;
     width: 1px;
@@ -957,7 +961,7 @@ html.desktop-console .chat-resize::before {
 html.desktop-console .chat-resize::after {
     content: "";
     position: absolute;
-    left: 3px;
+    right: 3px;
     top: max(14px, 3vh);
     bottom: max(14px, 3vh);
     width: 3px;
@@ -982,20 +986,27 @@ html.desktop-console .app.booting .chat {
     transform: none;
 }
 html.desktop-console .app.chat-full {
-    grid-template-columns: var(--sw, 62vw) minmax(300px, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 42vw);
     grid-template-rows: minmax(0, 1fr);
 }
 html.desktop-console .app.chat-full > .screen {
     display: block;
 }
 
-/* Collapse the terminal panel: the screen takes the full width, the chat column
- * folds to zero. */
-html.desktop-console .app.panel-collapsed {
+/* Collapse only the supporting computer preview; the conversation always stays
+ * present and expands into the reclaimed space. */
+html.desktop-console .app.computer-collapsed {
     grid-template-columns: minmax(0, 1fr) 0;
 }
-html.desktop-console .app.panel-collapsed .chat {
+html.desktop-console .app.computer-collapsed .screen {
     border-left: 0;
     overflow: hidden;
     pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html.desktop-console.panel-anim .app,
+    html.desktop-console .chat-resize::after {
+        transition: none;
+    }
 }

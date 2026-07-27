@@ -377,9 +377,9 @@
     var connText = document.getElementById("conn-text");
     var kbd = document.getElementById("kbd");
     var chatFrame = document.getElementById("chat-frame");
-    var TERM_W_KEY = "pikvm-terminal-panel-width";
+    var TERM_W_KEY = "pikvm-chat-workspace-width-v2";
     function clampPanelWidth(w) {
-        return Math.round(Math.max(320, Math.min(900, Number(w) || 460)));
+        return Math.round(Math.max(560, Math.min(1100, Number(w) || 760)));
     }
     function readPanelWidth() {
         try {
@@ -1707,8 +1707,8 @@
         el.addEventListener("pointercancel", resizeEnd);
     });
 
-    /* ---- desktop: drag the terminal panel's left edge to resize its WIDTH (--chat-w).
-     * Works regardless of the screen size (incl. after "fit to native resolution"). */
+    /* ---- desktop: drag the chat workspace's right edge to balance it against
+     * the supporting computer preview. */
     var chatResize = document.getElementById("chat-resize");
     if (chatResize) {
         var cresizing = false;
@@ -1719,7 +1719,7 @@
             cresizing = true;
             cStartX = e.clientX;
             var chatEl = document.querySelector(".chat");
-            cStartW = chatEl ? chatEl.offsetWidth : 460;
+            cStartW = chatEl ? chatEl.offsetWidth : 760;
             cLastW = cStartW;
             app.classList.add("col-resizing");
             try {
@@ -1729,17 +1729,11 @@
         });
         chatResize.addEventListener("pointermove", function (e) {
             if (!cresizing) return;
-            // Dragging the LEFT edge left widens the panel. To PRESERVE the KVM surface
-            // size, grow/shrink the WINDOW by the same delta: main's setContentSize is
-            // top-left anchored, so the screen on the left keeps its exact pixels while
-            // the window's right edge moves. (Window-position moves are unreliable on
-            // Wayland, so we grow the frame instead of sliding it.)
-            var want = cStartW + (cStartX - e.clientX);
+            // The divider is the chat workspace's RIGHT edge.
+            var want = cStartW + (e.clientX - cStartX);
             want = clampPanelWidth(want);
-            var dw = want - cLastW;
-            if (dw !== 0) {
+            if (want !== cLastW) {
                 applyPanelWidth(want);
-                if (window.desktopConsole && window.desktopConsole.resizeBy) window.desktopConsole.resizeBy(dw, 0);
                 cLastW = want;
             }
         });
@@ -1886,11 +1880,6 @@
         });
         var reportTermRect = function () {
             try {
-                var shown = typeof panelShown === "function" ? panelShown() : true;
-                if (!shown) {
-                    window.desktopConsole.reportTerminalRect({ x: 0, y: 0, width: 0, height: 0 });
-                    return;
-                }
                 var r = chatFrame.getBoundingClientRect();
                 window.desktopConsole.reportTerminalRect({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
             } catch (e) {}
@@ -1913,7 +1902,7 @@
                     window.desktopConsole.setPanelTab(tab);
                 });
             });
-            window.desktopConsole.setPanelTab("terminal"); // default on load
+            window.desktopConsole.setPanelTab("agent"); // chat is the product surface
         }
 
         // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
@@ -2113,31 +2102,22 @@
             });
         }
 
-        /* ---- computer-chat panel collapse (titlebar-left toggle) ---- */
+        /* ---- supporting computer preview collapse (titlebar-left toggle) ---- */
         var tbPanel = document.getElementById("tb-panel");
         function panelShown() {
-            return !app.classList.contains("panel-collapsed");
+            return !app.classList.contains("computer-collapsed");
         }
         function paintPanelToggle() {
-            if (tbPanel) tbPanel.classList.toggle("active", panelShown());
+            if (!tbPanel) return;
+            var shown = panelShown();
+            tbPanel.classList.toggle("active", shown);
+            tbPanel.setAttribute("aria-pressed", String(shown));
+            tbPanel.setAttribute("aria-label", shown ? "Hide computer preview" : "Show computer preview");
+            tbPanel.title = shown ? "Hide computer preview" : "Show computer preview";
         }
-        var lastPanelW = savedPanelW || 460;
         function setPanel(show) {
             if (show === panelShown()) return;
-            if (!show) {
-                // Collapsing: remember the panel's width, then SHRINK the window by it
-                // so the KVM screen keeps its exact size (window loses the panel column).
-                var chat = document.querySelector(".chat");
-                lastPanelW = chat ? clampPanelWidth(Math.round(chat.getBoundingClientRect().width)) : lastPanelW;
-                savePanelWidth(lastPanelW);
-                app.classList.add("panel-collapsed");
-                if (dc.resizeBy) dc.resizeBy(-lastPanelW, 0);
-            } else {
-                // Expanding: GROW the window by the panel width first, then show it.
-                applyPanelWidth(lastPanelW);
-                app.classList.remove("panel-collapsed");
-                if (dc.resizeBy) dc.resizeBy(lastPanelW, 0);
-            }
+            app.classList.toggle("computer-collapsed", !show);
             paintPanelToggle();
         }
         paintPanelToggle();
@@ -2152,12 +2132,13 @@
         function fitNativeNow() {
             var d = nativeDims();
             if (!d) return false;
+            if (!panelShown()) setPanel(true);
             dc.fitNative({
                 width: d.w,
                 height: d.h,
                 // The chat column's measured width (0 when collapsed) so the
                 // screen lands exactly on its native size.
-                agentPanelWidth: panelShown() ? Math.round(document.querySelector(".chat").getBoundingClientRect().width) : 0,
+                agentPanelWidth: Math.round(document.querySelector(".chat").getBoundingClientRect().width),
                 titlebarHeight: TITLEBAR_H,
             });
             return true;
@@ -2175,15 +2156,6 @@
         };
         var tbFit = document.getElementById("tb-fit");
         if (tbFit) tbFit.addEventListener("click", fitNativeNow);
-
-        // Auto-size the window to the target's native resolution once, as soon as the
-        // first frame's dimensions are known after launch (the stream connects a beat
-        // after the window appears). Poll briefly, then give up so a user resize during
-        // start-up is never stomped on.
-        var autoFitTries = 0;
-        var autoFitTimer = setInterval(function () {
-            if (fitNativeNow() || ++autoFitTries > 80) clearInterval(autoFitTimer);
-        }, 150);
 
         // Titlebar audio/mic: drive the canonical toggles (the hidden menu buttons run
         // setAudio/setMic + getUserMedia; paintToggle mirrors state back to these).
@@ -2231,7 +2203,7 @@
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
             }
             items.push({ type: "separator" });
-            items.push({ id: "panel", label: panelShown() ? "Hide computer chat" : "Show computer chat" });
+            items.push({ id: "panel", label: panelShown() ? "Hide computer preview" : "Show computer preview" });
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "theme", label: "Toggle theme" });
             items.push({ type: "separator" });
