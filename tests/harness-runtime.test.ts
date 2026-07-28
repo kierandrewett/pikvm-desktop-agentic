@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+    chmodSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -53,6 +59,34 @@ test("runtime handoff refuses group-readable credentials", () => {
         assert.throws(
             () => readHarnessRuntime(path, { requireLiveDesktop: false }),
             /owner-only/,
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("legacy runtime tells the operator to restart the desktop for managed MCP", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pikvm-runtime-"));
+    const path = join(dir, "harness-runtime.json");
+    try {
+        writeFileSync(
+            path,
+            JSON.stringify({
+                version: 1,
+                desktopPid: process.pid,
+                harnessOrigin: "http://127.0.0.1:47616",
+                daemonOrigin: "http://127.0.0.1:47615",
+                harnessExecutable: "/opt/pikvm/bin/pikvm-agent",
+                harnessConfig:
+                    "/home/example/.config/PiKVM Desktop/harness.yaml",
+                observerToken:
+                    "observer-token-that-is-at-least-thirty-two-characters",
+            }),
+            { mode: 0o600 },
+        );
+        assert.throws(
+            () => readHarnessRuntime(path),
+            /restart PiKVM Desktop to enable managed MCP/i,
         );
     } finally {
         rmSync(dir, { recursive: true, force: true });

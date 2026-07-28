@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { selectMcpLaunch } from "../src/mcp-launch-plan";
+import { parseMcpLauncherArgs } from "../src/mcp-launcher-options";
 import type { HarnessRuntime } from "../src/harness-runtime";
 
 const runtime: HarnessRuntime = {
@@ -36,4 +37,24 @@ test("guarded direct control remains an explicit compatibility choice", () => {
     );
     assert.equal(launch.env.PIKVM_HARNESS_AGENT_TOKEN, undefined);
     assert.equal(launch.env.PIKVM_AGENT_HARNESS_TOKEN, undefined);
+});
+
+test("ordinary clients must identify themselves instead of being attributed to Claude", () => {
+    assert.throws(
+        () => parseMcpLauncherArgs(["--runtime", "/tmp/runtime.json"]),
+        /--caller-label is required/,
+    );
+    assert.deepEqual(
+        parseMcpLauncherArgs([
+            "--runtime",
+            "/tmp/runtime.json",
+            "--caller-label",
+            "codex-cli",
+        ]),
+        {
+            runtimePath: "/tmp/runtime.json",
+            callerLabel: "codex-cli",
+            controlMode: "managed",
+        },
+    );
 });

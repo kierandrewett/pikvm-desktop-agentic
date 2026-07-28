@@ -10,44 +10,15 @@
 import { spawn } from "node:child_process";
 import { readHarnessRuntime } from "./harness-runtime";
 import {
-    selectMcpLaunch,
-    type ControlMode,
-} from "./mcp-launch-plan";
-
-interface LauncherOptions {
-    runtimePath: string;
-    callerLabel: string;
-    controlMode: ControlMode;
-}
-
-function parseArgs(args: string[]): LauncherOptions {
-    let runtimePath = "";
-    let callerLabel = "claude-cli";
-    let controlMode: ControlMode = "managed";
-    for (let index = 0; index < args.length; index++) {
-        const arg = args[index];
-        if (arg === "--runtime") {
-            runtimePath = args[++index] ?? "";
-        } else if (arg === "--caller-label") {
-            callerLabel = args[++index] ?? "";
-        } else if (arg === "--control-mode") {
-            const value = args[++index] ?? "";
-            if (value !== "managed" && value !== "direct") {
-                throw new Error("--control-mode must be managed or direct");
-            }
-            controlMode = value;
-        } else {
-            throw new Error(`unknown argument: ${arg ?? ""}`);
-        }
-    }
-    if (!runtimePath) throw new Error("--runtime is required");
-    return { runtimePath, callerLabel, controlMode };
-}
+    parseMcpLauncherArgs,
+    type LauncherOptions,
+} from "./mcp-launcher-options";
+import { selectMcpLaunch } from "./mcp-launch-plan";
 
 export function launchMcp(args = process.argv.slice(2)): void {
     let options: LauncherOptions;
     try {
-        options = parseArgs(args);
+        options = parseMcpLauncherArgs(args);
         const runtime = readHarnessRuntime(options.runtimePath);
         const launch = selectMcpLaunch(
             runtime,

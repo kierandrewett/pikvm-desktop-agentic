@@ -82,6 +82,11 @@ function validateRuntime(value: unknown): HarnessRuntime {
         throw new Error("harness runtime must be an object");
     }
     const raw = value as Record<string, unknown>;
+    if (raw.version === 1 || raw.version === 2) {
+        throw new Error(
+            "restart PiKVM Desktop to enable managed MCP; this runtime was created by an older desktop build",
+        );
+    }
     if (raw.version !== 3) throw new Error("unsupported harness runtime version");
     if (
         typeof raw.desktopPid !== "number" ||
