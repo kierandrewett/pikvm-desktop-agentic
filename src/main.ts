@@ -10,7 +10,14 @@ import {
     session,
     Menu,
 } from "electron";
-import { readFileSync, existsSync, writeFileSync, statSync } from "fs";
+import {
+    readFileSync,
+    existsSync,
+    writeFileSync,
+    statSync,
+    realpathSync,
+    watch,
+} from "fs";
 import { resolve, isAbsolute, extname } from "path";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
@@ -97,7 +104,11 @@ function resolvedHarnessOrigin(): string {
 /** Start the PiKVM backend: the control core (for the reverse proxy's target), the
  *  shared terminal sessions, and the control server that hosts the proxy + terminal
  *  WebSocket + static console assets. Returns what the window wiring needs. */
-function startProxyAndTerminal(origin: string, settings: SettingsStore) {
+function startProxyAndTerminal(
+    origin: string,
+    settings: SettingsStore,
+    harnessCommand: string,
+) {
     const control = new PiKvmControl(
         {
             origin,
@@ -196,7 +207,7 @@ function startProxyAndTerminal(origin: string, settings: SettingsStore) {
     const harness = new HarnessManager({
         origin: harnessOrigin,
         daemonOrigin,
-        command: resolveHarnessCommand(settings.get().harnessCmd),
+        command: harnessCommand,
         configPath: harnessConfig,
         runtimePath:
             process.env.PIKVM_HARNESS_RUNTIME ||
@@ -218,6 +229,20 @@ function startProxyAndTerminal(origin: string, settings: SettingsStore) {
         harness,
         harnessReady,
     };
+}
+
+function resolveDevHarnessAssetDirectory(command: string): string | null {
+    const configured = process.env.PIKVM_HARNESS_ASSET_DIR?.trim();
+    if (configured) {
+        const directory = isAbsolute(configured)
+            ? configured
+            : resolve(process.cwd(), configured);
+        return existsSync(resolve(directory, "app.js")) ? directory : null;
+    }
+    if (!isAbsolute(command) || !existsSync(command)) return null;
+    const executable = realpathSync(command);
+    const directory = resolve(executable, "../../..", "pikvm_agent", "harness_ui");
+    return existsSync(resolve(directory, "app.js")) ? directory : null;
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -555,6 +580,7 @@ function createWindow() {
     agentView.setVisible(false);
 
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
+    const harnessCommand = resolveHarnessCommand(settings.get().harnessCmd);
     const HARNESS_ORIGIN = resolvedHarnessOrigin();
     const HARNESS_URL = `${HARNESS_ORIGIN}/app/`;
     const harnessViewLifecycle = new HarnessViewLifecycle(HARNESS_URL);
@@ -763,6 +789,7 @@ function createWindow() {
     });
     win.on("closed", () => {
         harnessViewLifecycle.stop();
+        harnessAssetsWatcher?.close();
         backend?.terminalSessions.killAll();
         backend?.harness.stop();
         backend?.daemon.stop();
@@ -797,7 +824,29 @@ function createWindow() {
     // Start the local backend (PiKVM control core for the proxy + the shared
     // terminal + the control server) — UNLESS we're a thin client pointing at a
     // remote console, where the remote host owns the proxy + terminal.
-    const backend = remoteConsole ? null : startProxyAndTerminal(origin, settings);
+    const backend = remoteConsole
+        ? null
+        : startProxyAndTerminal(origin, settings, harnessCommand);
+    const harnessAssetDirectory =
+        !app.isPackaged && backend
+            ? resolveDevHarnessAssetDirectory(harnessCommand)
+            : null;
+    const harnessAssetsWatcher = harnessAssetDirectory
+        ? watch(harnessAssetDirectory, { persistent: false }, () => {
+              harnessViewLifecycle.scheduleAssetReload(() => {
+                  if (agentView.webContents.isDestroyed()) return;
+                  console.log(
+                      `[harness-renderer] reloading rebuilt UI from ${harnessAssetDirectory}`,
+                  );
+                  agentView.webContents.reloadIgnoringCache();
+              });
+          })
+        : null;
+    harnessAssetsWatcher?.on("error", (error) =>
+        console.error(
+            `[harness-renderer] asset watcher failed: ${String(error)}`,
+        ),
+    );
 
     if (backend) {
         // The React workspace still uses its normal token-auth client, but only

@@ -4,10 +4,12 @@ export class HarnessViewLifecycle {
     private authBootstrapIssued = false;
     private currentLoadFailed = false;
     private retryTimer: NodeJS.Timeout | null = null;
+    private assetReloadTimer: NodeJS.Timeout | null = null;
 
     constructor(
         private readonly url: string,
         private readonly retryDelayMs = 500,
+        private readonly assetReloadDelayMs = 120,
     ) {}
 
     /**
@@ -50,7 +52,21 @@ export class HarnessViewLifecycle {
         this.retryTimer = null;
     }
 
+    /** Collapse a build's many filesystem events into one cache-bypassing reload. */
+    scheduleAssetReload(reload: () => void): void {
+        if (this.assetReloadTimer) {
+            clearTimeout(this.assetReloadTimer);
+        }
+        this.assetReloadTimer = setTimeout(() => {
+            this.assetReloadTimer = null;
+            reload();
+        }, this.assetReloadDelayMs);
+    }
+
     stop(): void {
         this.loaded();
+        if (!this.assetReloadTimer) return;
+        clearTimeout(this.assetReloadTimer);
+        this.assetReloadTimer = null;
     }
 }

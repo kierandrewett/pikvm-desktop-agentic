@@ -58,3 +58,24 @@ test("initial load failures coalesce and a successful load cancels the retry", a
     await new Promise((resolve) => setTimeout(resolve, 15));
     assert.equal(retries, 1);
 });
+
+test("rebuilt harness assets coalesce into one cache-bypassing renderer reload", async () => {
+    const lifecycle = new HarnessViewLifecycle(
+        "http://127.0.0.1:47616/app/",
+        500,
+        5,
+    );
+    let reloads = 0;
+
+    lifecycle.scheduleAssetReload(() => reloads++);
+    lifecycle.scheduleAssetReload(() => reloads++);
+    lifecycle.scheduleAssetReload(() => reloads++);
+
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(reloads, 1);
+
+    lifecycle.scheduleAssetReload(() => reloads++);
+    lifecycle.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(reloads, 1);
+});
