@@ -34,6 +34,8 @@ export class HarnessManager {
     readonly accessToken = randomBytes(32).toString("base64url");
     readonly agentToken = randomBytes(32).toString("base64url");
     readonly observerToken = randomBytes(32).toString("base64url");
+    readonly daemonActionToken = randomBytes(32).toString("base64url");
+    readonly daemonHarnessToken = randomBytes(32).toString("base64url");
     private readonly service: ManagedService;
     private readonly runInit: InitRunner;
     private stopped = false;
@@ -57,6 +59,8 @@ export class HarnessManager {
                 cwd: deps.cwd,
                 env: {
                     PIKVM_AGENT_DAEMON: deps.daemonOrigin,
+                    PIKVM_AGENT_DAEMON_TOKEN: this.daemonActionToken,
+                    PIKVM_AGENT_HARNESS_TOKEN: this.daemonHarnessToken,
                     PIKVM_HARNESS_TOKEN: this.accessToken,
                     PIKVM_HARNESS_AGENT_TOKEN: this.agentToken,
                     PIKVM_HARNESS_OBSERVER_TOKEN: this.observerToken,
@@ -135,12 +139,13 @@ export class HarnessManager {
             );
         }
         writeHarnessRuntime(this.deps.runtimePath, {
-            version: 1,
+            version: 2,
             desktopPid: process.pid,
             harnessOrigin: this.deps.origin,
             daemonOrigin: this.deps.daemonOrigin,
             harnessExecutable: this.deps.command,
             harnessConfig: this.deps.configPath,
+            daemonActionToken: this.daemonActionToken,
             observerToken: this.observerToken,
         });
         this.log("ready; guarded Claude MCP compatibility is available");

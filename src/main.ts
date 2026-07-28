@@ -177,26 +177,10 @@ function startProxyAndHarness(
         },
     });
 
-    // The pikvm-agent daemon (separate process) the Agent panel proxies to.
+    // The desktop owns both local services and creates two non-interchangeable
+    // daemon capabilities. Guarded-direct clients receive only the action
+    // capability; the harness-only approval capability stays in child env.
     const daemonOrigin = (process.env.PIKVM_AGENT_DAEMON || settings.get().daemonUrl || "http://127.0.0.1:47615").replace(/\/$/, "");
-    startControlServer({ control, settings, terminalSessions, daemonOrigin }, CONTROL_PORT, bindHost);
-    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
-
-    // The app owns the daemon's lifecycle (the Agent panel is its front-end): spawn it
-    // on startup, stop it on quit. Adopts an already-running daemon instead of double-spawning.
-    const { command, args } = resolveDaemonCommand(settings.get().daemonCmd);
-    const daemon = new ManagedService({
-        name: "daemon",
-        origin: daemonOrigin,
-        healthPath: "/healthz",
-        command,
-        args,
-        log: (line) => console.log(line),
-    });
-
-    // The chat workspace is a separate, authenticated local service. Its YAML
-    // contains provider names/routes only; all three credentials are random,
-    // per-session values owned by this desktop process.
     const harnessOrigin = resolvedHarnessOrigin();
     const configuredHarnessPath =
         process.env.PIKVM_HARNESS_CONFIG || settings.get().harnessConfig;
@@ -216,9 +200,48 @@ function startProxyAndHarness(
         cwd: settings.dir(),
         log: (line) => console.log(line),
     });
-    const harnessReady = daemon
-        .start()
-        .then(() => harness.start());
+
+    startControlServer(
+        {
+            control,
+            settings,
+            terminalSessions,
+            daemonOrigin,
+            daemonToken: harness.daemonActionToken,
+        },
+        CONTROL_PORT,
+        bindHost,
+    );
+    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
+
+    const { command, args } = resolveDaemonCommand(settings.get().daemonCmd);
+    const daemon = new ManagedService({
+        name: "daemon",
+        origin: daemonOrigin,
+        healthPath: "/healthz",
+        command,
+        args,
+        env: {
+            PIKVM_AGENT_DAEMON_TOKEN: harness.daemonActionToken,
+            PIKVM_AGENT_HARNESS_TOKEN: harness.daemonHarnessToken,
+        },
+        adoptExisting: false,
+        log: (line) => console.log(line),
+    });
+    const harnessReady = daemon.start().then(async (outcome) => {
+        if (outcome === "conflict") {
+            throw new Error(
+                `another credential-bound daemon already owns ${daemonOrigin}`,
+            );
+        }
+        if (!(await daemon.waitUntilHealthy())) {
+            daemon.stop();
+            throw new Error(
+                `machine-control daemon did not become healthy at ${daemonOrigin}`,
+            );
+        }
+        await harness.start();
+    });
     void harnessReady.catch((error) =>
             console.error(`[harness] startup failed: ${String(error)}`),
         );

@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -70,8 +76,16 @@ test("bootstraps a secret-free config and publishes only the Claude observer han
         assert.equal(runtime.daemonOrigin, "http://127.0.0.1:47615");
         assert.equal(runtime.harnessOrigin, "http://127.0.0.1:47616");
         assert.equal(runtime.observerToken, manager.observerToken);
+        assert.equal(runtime.daemonActionToken, manager.daemonActionToken);
         assert.equal(manager.accessToken.length >= 32, true);
         assert.equal(manager.agentToken.length >= 32, true);
+        assert.equal(manager.daemonActionToken.length >= 32, true);
+        assert.equal(manager.daemonHarnessToken.length >= 32, true);
+        assert.notEqual(manager.daemonActionToken, manager.daemonHarnessToken);
+        assert.equal(
+            readFileSync(runtimePath, "utf8").includes("daemonHarnessToken"),
+            false,
+        );
         assert.equal(service.starts, 1);
     } finally {
         manager.stop();

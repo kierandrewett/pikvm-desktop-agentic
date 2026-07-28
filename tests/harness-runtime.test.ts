@@ -12,16 +12,17 @@ import {
 } from "../src/harness-runtime";
 
 const fixture = (): HarnessRuntime => ({
-    version: 1,
+    version: 2,
     desktopPid: process.pid,
     harnessOrigin: "http://127.0.0.1:47616",
     daemonOrigin: "http://127.0.0.1:47615",
     harnessExecutable: "/opt/pikvm/bin/pikvm-agent",
     harnessConfig: "/home/example/.config/PiKVM Desktop/harness.yaml",
+    daemonActionToken: "daemon-action-token-that-is-at-least-thirty-two-characters",
     observerToken: "observer-token-that-is-at-least-thirty-two-characters",
 });
 
-test("runtime handoff is owner-only and never serializes browser or agent credentials", () => {
+test("runtime handoff is owner-only and serializes only guarded-direct credentials", () => {
     const dir = mkdtempSync(join(tmpdir(), "pikvm-runtime-"));
     const path = join(dir, "harness-runtime.json");
     try {
@@ -29,6 +30,8 @@ test("runtime handoff is owner-only and never serializes browser or agent creden
         assert.equal(readFileSync(path, "utf8").includes("observerToken"), true);
         assert.equal(readFileSync(path, "utf8").includes("accessToken"), false);
         assert.equal(readFileSync(path, "utf8").includes("agentToken"), false);
+        assert.equal(readFileSync(path, "utf8").includes("daemonHarnessToken"), false);
+        assert.equal(readFileSync(path, "utf8").includes("daemonActionToken"), true);
         if (process.platform !== "win32") {
             const mode = readHarnessRuntime(path, { requireLiveDesktop: false }).mode;
             assert.equal(mode & 0o077, 0);
@@ -69,10 +72,15 @@ test("Claude compatibility launches the guarded visible MCP boundary", () => {
     ]);
     assert.equal(launch.env.PIKVM_AGENT_DAEMON, "http://127.0.0.1:47615");
     assert.equal(
+        launch.env.PIKVM_AGENT_DAEMON_TOKEN,
+        "daemon-action-token-that-is-at-least-thirty-two-characters",
+    );
+    assert.equal(
         launch.env.PIKVM_HARNESS_OBSERVER_TOKEN,
         "observer-token-that-is-at-least-thirty-two-characters",
     );
-    assert.equal(launch.env.PIKVM_AGENT_TRUSTED_APPROVAL_CLIENT, "0");
+    assert.equal(launch.env.PIKVM_AGENT_HARNESS_TOKEN, undefined);
+    assert.equal(launch.env.PIKVM_AGENT_TRUSTED_APPROVAL_CLIENT, undefined);
     assert.equal(JSON.stringify(launch).includes("mcp_server"), false);
 });
 

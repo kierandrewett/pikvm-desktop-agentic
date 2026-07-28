@@ -19,11 +19,17 @@ import { URL } from "node:url";
 export interface DaemonProxyDeps {
     /** Daemon base URL, e.g. http://127.0.0.1:47615 (no trailing slash needed). */
     origin: string;
+    /** Desktop-owned action capability. Renderer-supplied auth is discarded. */
+    bearerToken: string;
     /** Namespace prefix stripped from req.url before forwarding. Default /_agent/daemon. */
     prefix?: string;
 }
 
-export function createDaemonProxy({ origin, prefix = "/_agent/daemon" }: DaemonProxyDeps) {
+export function createDaemonProxy({
+    origin,
+    bearerToken,
+    prefix = "/_agent/daemon",
+}: DaemonProxyDeps) {
     const target = new URL(origin);
     const isHttps = target.protocol === "https:";
     const doRequest = isHttps ? httpsRequest : httpRequest;
@@ -42,8 +48,18 @@ export function createDaemonProxy({ origin, prefix = "/_agent/daemon" }: DaemonP
                 port: target.port || defaultPort,
                 method: req.method,
                 path: rest,
-                // Forward headers but point Host at the daemon.
-                headers: { ...req.headers, host: target.host },
+                // Forward ordinary headers, but never let a renderer choose the
+                // daemon capability. The stronger harness capability is never
+                // available on this proxy.
+                headers: {
+                    ...Object.fromEntries(
+                        Object.entries(req.headers).filter(
+                            ([name]) => name.toLowerCase() !== "authorization",
+                        ),
+                    ),
+                    host: target.host,
+                    authorization: `Bearer ${bearerToken}`,
+                },
             },
             (proxyRes) => {
                 res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);

@@ -33,6 +33,8 @@ export interface ServerDeps {
     /** Base URL of the pikvm-agent daemon, reverse-proxied at /_agent/daemon/* so the
      *  same-origin Agent panel can reach its HTTP API without CORS. */
     daemonOrigin?: string;
+    /** Desktop-owned daemon action capability injected by the reverse proxy. */
+    daemonToken: string;
 }
 
 function json(res: ServerResponse, status: number, body: unknown) {
@@ -69,7 +71,10 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     });
 
     // The native Agent panel reaches the pikvm-agent daemon's HTTP API through here.
-    const daemonProxy = createDaemonProxy({ origin: deps.daemonOrigin ?? "http://127.0.0.1:47615" });
+    const daemonProxy = createDaemonProxy({
+        origin: deps.daemonOrigin ?? "http://127.0.0.1:47615",
+        bearerToken: deps.daemonToken,
+    });
 
     /** Thin server state: just what the web/desktop console reads (the PiKVM
      *  keyboard layout, the jiggler toggle). No agent surface. */
