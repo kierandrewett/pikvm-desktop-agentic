@@ -8,7 +8,11 @@ import {
     ManagedService,
     type ManagedServiceStart,
 } from "./service-manager";
-import { writeHarnessRuntime } from "./harness-runtime";
+import {
+    removeManagedClientRuntime,
+    writeHarnessRuntime,
+    writeManagedClientRuntime,
+} from "./harness-runtime";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +28,7 @@ export interface HarnessManagerDeps {
     command: string;
     configPath: string;
     runtimePath: string;
+    managedClientRuntimePath: string;
     cwd: string;
     log?: (line: string) => void;
     runInit?: InitRunner;
@@ -119,6 +124,17 @@ export class HarnessManager {
         } catch (error) {
             this.log(`could not remove stale MCP runtime handoff: ${String(error)}`);
         }
+        if (
+            !removeManagedClientRuntime(
+                this.deps.managedClientRuntimePath,
+                this.agentToken,
+            ) &&
+            existsSync(this.deps.managedClientRuntimePath)
+        ) {
+            this.log(
+                "left active managed runtime owned by another desktop instance",
+            );
+        }
     }
 
     async start(): Promise<void> {
@@ -138,7 +154,7 @@ export class HarnessManager {
                 `operator harness did not become healthy at ${this.deps.origin}`,
             );
         }
-        writeHarnessRuntime(this.deps.runtimePath, {
+        const runtime = {
             version: 3,
             desktopPid: process.pid,
             harnessOrigin: this.deps.origin,
@@ -148,9 +164,20 @@ export class HarnessManager {
             agentToken: this.agentToken,
             daemonActionToken: this.daemonActionToken,
             observerToken: this.observerToken,
-        });
+        } as const;
+        try {
+            writeHarnessRuntime(this.deps.runtimePath, runtime);
+            writeManagedClientRuntime(
+                this.deps.managedClientRuntimePath,
+                runtime,
+            );
+        } catch (error) {
+            this.removeRuntime();
+            this.service.stop();
+            throw error;
+        }
         this.log(
-            "ready; managed Claude MCP compatibility is available (direct mode is explicit)",
+            "ready; managed MCP compatibility is active for supported clients (direct mode is explicit)",
         );
     }
 

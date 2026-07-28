@@ -26,7 +26,10 @@ import { SettingsStore } from "./settings";
 import { TerminalSessions } from "./terminal-server";
 import { ManagedService } from "./service-manager";
 import { HarnessManager } from "./harness-manager";
-import { withHarnessAuthorization } from "./harness-runtime";
+import {
+    activeManagedClientRuntimePath,
+    withHarnessAuthorization,
+} from "./harness-runtime";
 import { HarnessViewLifecycle } from "./harness-view-lifecycle";
 
 const staticPath = resolve(__dirname, "static");
@@ -197,6 +200,7 @@ function startProxyAndHarness(
         runtimePath:
             process.env.PIKVM_HARNESS_RUNTIME ||
             resolve(settings.dir(), "harness-runtime.json"),
+        managedClientRuntimePath: activeManagedClientRuntimePath(),
         cwd: settings.dir(),
         log: (line) => console.log(line),
     });

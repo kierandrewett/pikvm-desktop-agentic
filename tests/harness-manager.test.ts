@@ -43,6 +43,11 @@ test("bootstraps a secret-free config and publishes scoped client handoffs", asy
     const dir = mkdtempSync(join(tmpdir(), "pikvm-harness-manager-"));
     const configPath = join(dir, "harness.yaml");
     const runtimePath = join(dir, "harness-runtime.json");
+    const managedClientRuntimePath = join(
+        dir,
+        "managed",
+        "managed-client-runtime.json",
+    );
     const service = new FakeService();
     const initCalls: string[][] = [];
     const manager = new HarnessManager({
@@ -51,6 +56,7 @@ test("bootstraps a secret-free config and publishes scoped client handoffs", asy
         command: "/opt/pikvm/bin/pikvm-agent",
         configPath,
         runtimePath,
+        managedClientRuntimePath,
         cwd: dir,
         runInit: async (_command, args) => {
             initCalls.push(args);
@@ -87,11 +93,28 @@ test("bootstraps a secret-free config and publishes scoped client handoffs", asy
             readFileSync(runtimePath, "utf8").includes("daemonHarnessToken"),
             false,
         );
+        const managedRuntime = JSON.parse(
+            readFileSync(managedClientRuntimePath, "utf8"),
+        ) as Record<string, unknown>;
+        assert.deepEqual(Object.keys(managedRuntime).sort(), [
+            "agent_token",
+            "agent_token_env",
+            "harness_config",
+            "schema_version",
+        ]);
+        assert.equal(managedRuntime.schema_version, 1);
+        assert.equal(
+            managedRuntime.agent_token_env,
+            "PIKVM_HARNESS_AGENT_TOKEN",
+        );
+        assert.equal(managedRuntime.agent_token, manager.agentToken);
+        assert.equal(managedRuntime.harness_config, configPath);
         assert.equal(service.starts, 1);
     } finally {
         manager.stop();
         assert.equal(service.stops, 1);
         assert.equal(existsSync(runtimePath), false);
+        assert.equal(existsSync(managedClientRuntimePath), false);
         rmSync(dir, { recursive: true, force: true });
     }
 });
@@ -100,6 +123,11 @@ test("fails closed when another credential-bound harness owns the port", async (
     const dir = mkdtempSync(join(tmpdir(), "pikvm-harness-manager-"));
     const configPath = join(dir, "harness.yaml");
     const runtimePath = join(dir, "harness-runtime.json");
+    const managedClientRuntimePath = join(
+        dir,
+        "managed",
+        "managed-client-runtime.json",
+    );
     writeFileSync(configPath, "providers: {}\n");
     const service = new FakeService("conflict");
     const manager = new HarnessManager({
@@ -108,12 +136,14 @@ test("fails closed when another credential-bound harness owns the port", async (
         command: "/opt/pikvm/bin/pikvm-agent",
         configPath,
         runtimePath,
+        managedClientRuntimePath,
         cwd: dir,
         service: service as unknown as ManagedService,
     });
     try {
         await assert.rejects(() => manager.start(), /already owns/);
         assert.equal(existsSync(runtimePath), false);
+        assert.equal(existsSync(managedClientRuntimePath), false);
     } finally {
         manager.stop();
         rmSync(dir, { recursive: true, force: true });

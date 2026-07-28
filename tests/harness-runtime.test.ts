@@ -1,20 +1,25 @@
 import assert from "node:assert/strict";
 import {
     chmodSync,
+    existsSync,
     mkdtempSync,
     readFileSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+    activeManagedClientRuntimePath,
     buildDirectMcpLaunch,
     buildManagedMcpLaunch,
     readHarnessRuntime,
+    removeManagedClientRuntime,
     withHarnessAuthorization,
     writeHarnessRuntime,
+    writeManagedClientRuntime,
     type HarnessRuntime,
 } from "../src/harness-runtime";
 
@@ -60,6 +65,65 @@ test("runtime handoff refuses group-readable credentials", () => {
             () => readHarnessRuntime(path, { requireLiveDesktop: false }),
             /owner-only/,
         );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("active managed runtime location is stable without entering client config", () => {
+    assert.equal(
+        activeManagedClientRuntimePath({
+            PIKVM_MANAGED_CLIENT_RUNTIME: "/tmp/pikvm/active.json",
+        }),
+        "/tmp/pikvm/active.json",
+    );
+    assert.equal(
+        activeManagedClientRuntimePath({
+            XDG_RUNTIME_DIR: "/run/user/1000",
+        }),
+        "/run/user/1000/pikvm-agent/managed-client-runtime.json",
+    );
+    assert.throws(
+        () =>
+            activeManagedClientRuntimePath({
+                PIKVM_MANAGED_CLIENT_RUNTIME: "relative/runtime.json",
+            }),
+        /absolute path/,
+    );
+});
+
+test("desktop publishes and revokes only its reduced managed capability", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pikvm-managed-runtime-"));
+    const path = join(dir, "private", "managed-client-runtime.json");
+    const runtime = fixture();
+    try {
+        writeManagedClientRuntime(path, runtime);
+        const document = JSON.parse(
+            readFileSync(path, "utf8"),
+        ) as Record<string, unknown>;
+        assert.deepEqual(document, {
+            schema_version: 1,
+            harness_config:
+                "/home/example/.config/PiKVM Desktop/harness.yaml",
+            agent_token_env: "PIKVM_HARNESS_AGENT_TOKEN",
+            agent_token:
+                "agent-token-that-is-at-least-thirty-two-characters",
+        });
+        assert.equal(JSON.stringify(document).includes("daemonActionToken"), false);
+        assert.equal(JSON.stringify(document).includes("observerToken"), false);
+        if (process.platform !== "win32") {
+            assert.equal(statSync(path).mode & 0o077, 0);
+        }
+        assert.equal(
+            removeManagedClientRuntime(path, "another-desktop-token"),
+            false,
+        );
+        assert.equal(existsSync(path), true);
+        assert.equal(
+            removeManagedClientRuntime(path, runtime.agentToken),
+            true,
+        );
+        assert.equal(existsSync(path), false);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
