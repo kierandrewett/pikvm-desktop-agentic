@@ -1864,24 +1864,18 @@
     } catch (e) {}
     // First paint of the embedded chat should match; pass the theme on its URL and
     // re-assert on load (in case it booted before the message handler attached).
-    // Inside the native desktop console the terminal panel is a native child view
-    // (?embed=desktop); on web/mobile it is the headerless merged-bar embed (?embed=1).
+    // Inside the native desktop console the chat workspace is a native child view;
+    // on web/mobile the legacy embedded workspace remains available.
     var EMBED_PARAM = window.desktopConsole ? "desktop" : "1";
-    if (window.desktopConsole && window.desktopConsole.reportTerminalRect) {
-        // DESKTOP: the terminal panel is the embedded shell terminal - a native
-        // WebContentsView floated by main over this panel's content area. We don't load
-        // the old chat here; we just report where the panel content sits so main can
-        // position the terminal there (and hide it when the panel is collapsed).
+    if (window.desktopConsole && window.desktopConsole.reportWorkspaceRect) {
+        // DESKTOP: the first-party harness is a native WebContentsView floated over
+        // this panel. Report only the content bounds; there is no secondary terminal
+        // workspace or mode switch.
         chatFrame.src = "about:blank";
-        // The "new tab" button drives the embedded terminal iframe on web/mobile; on
-        // desktop the terminal is a native child view, so hide it here.
-        document.querySelectorAll('[data-agent="new"]').forEach(function (el) {
-            el.style.display = "none";
-        });
         var reportTermRect = function () {
             try {
                 var r = chatFrame.getBoundingClientRect();
-                window.desktopConsole.reportTerminalRect({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
+                window.desktopConsole.reportWorkspaceRect({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
             } catch (e) {}
         };
         window.addEventListener("resize", reportTermRect);
@@ -1890,24 +1884,6 @@
         } catch (e) {}
         setInterval(reportTermRect, 1000); // fallback for layout changes we don't observe
         setTimeout(reportTermRect, 150);
-
-        // [Chat | Terminal] tabs: tell main which native view to float over this panel.
-        var panelTabs = document.getElementById("panel-tabs");
-        if (panelTabs && window.desktopConsole.setPanelTab) {
-            var tabBtns = panelTabs.querySelectorAll("[data-tab]");
-            tabBtns.forEach(function (btn) {
-                btn.addEventListener("click", function () {
-                    var tab = btn.getAttribute("data-tab");
-                    tabBtns.forEach(function (b) {
-                        var selected = b === btn;
-                        b.classList.toggle("active", selected);
-                        b.setAttribute("aria-selected", selected ? "true" : "false");
-                    });
-                    window.desktopConsole.setPanelTab(tab);
-                });
-            });
-            window.desktopConsole.setPanelTab("agent"); // chat is the product surface
-        }
 
         // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
         // colour the titlebar dot. Tooltip enumerates each dependency the daemon needs.
@@ -2187,12 +2163,11 @@
             // The toggles are unhidden by revealAvToggles() once WebRTC is live.
             return !!(audioBtnEl && !audioBtnEl.hidden);
         }
-        // Terminal mode (desktop): the "chat" is the shared shell terminal, which keeps its
-        // own history — so History / Copy-conversation don't apply; Settings opens in its
-        // own window.
-        var isTerminalMode = !!(window.desktopConsole && window.desktopConsole.reportTerminalRect);
+        // The native harness owns its own history and copy controls. Keep this outer
+        // shell menu to desktop settings instead of duplicating chat actions.
+        var isDesktopWorkspace = !!(window.desktopConsole && window.desktopConsole.reportWorkspaceRect);
         function buildMenu() {
-            var items = isTerminalMode
+            var items = isDesktopWorkspace
                 ? [
                       { id: "settings", label: "Settings" },
                   ]
@@ -2222,9 +2197,7 @@
             switch (id) {
                 case "history":
                 case "settings":
-                    // Terminal mode: open the panel in its own window. Web/legacy: drive the
-                    // embedded chat iframe as before.
-                    if (isTerminalMode && window.desktopConsole.openAgentPanel) {
+                    if (isDesktopWorkspace && window.desktopConsole.openAgentPanel) {
                         window.desktopConsole.openAgentPanel(id);
                     } else {
                         try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: id }, "*"); } catch (e) {}

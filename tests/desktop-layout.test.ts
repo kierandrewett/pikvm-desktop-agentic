@@ -7,11 +7,17 @@ const root = process.cwd();
 const html = readFileSync(resolve(root, "src/views/console.html"), "utf8");
 const css = readFileSync(resolve(root, "src/views/console.css"), "utf8");
 const js = readFileSync(resolve(root, "src/views/console.js"), "utf8");
+const main = readFileSync(resolve(root, "src/main.ts"), "utf8");
+const preload = readFileSync(resolve(root, "src/preload-console.ts"), "utf8");
 
-test("desktop opens chat first and never auto-fits around the remote screen", () => {
-    assert.match(js, /setPanelTab\("agent"\)/);
+test("desktop exposes one chat workspace and never auto-fits around the remote screen", () => {
+    assert.doesNotMatch(html, /role="tablist" aria-label="Workspace"/);
+    assert.doesNotMatch(html, />Terminal<\/button>/);
+    assert.doesNotMatch(js, /setPanelTab\(/);
+    assert.doesNotMatch(preload, /setPanelTab/);
+    assert.doesNotMatch(main, /const terminalView = new WebContentsView/);
+    assert.doesNotMatch(main, /console:panel-tab/);
     assert.doesNotMatch(js, /autoFitTimer/);
-    assert.doesNotMatch(js, /setPanelTab\("terminal"\)/);
 });
 
 test("desktop keeps chat primary while the computer preview is collapsible", () => {
@@ -22,11 +28,8 @@ test("desktop keeps chat primary while the computer preview is collapsible", () 
     assert.match(js, /pikvm-chat-workspace-width-v2/);
 });
 
-test("desktop keeps healthy status and workspace switching quiet and accessible", () => {
+test("desktop keeps healthy status quiet and accessible", () => {
     assert.doesNotMatch(js, /Backend ready/);
     assert.match(html, /role="status" aria-live="polite"/);
-    assert.match(html, /role="tablist" aria-label="Workspace"/);
-    assert.match(html, /role="tab" aria-selected="true" data-tab="agent"/);
-    assert.match(js, /setAttribute\("aria-selected"/);
     assert.match(css, /\.backend-status\[data-state="ready"\] \.bs-text/);
 });

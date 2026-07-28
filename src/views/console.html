@@ -123,10 +123,6 @@
                     <span class="dot" id="conn" title="Connection"></span>
                     <span class="status" id="conn-text">Connecting…</span>
                     <span class="spacer"></span>
-                    <button class="ibtn" data-agent="new" title="New terminal tab" aria-label="New terminal tab">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                    </button>
                     <button class="ibtn" id="kbd-btn" title="Keys &amp; mouse" aria-label="Controls">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                             stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path
@@ -154,18 +150,12 @@
                 <a class="more-item" id="full-ui" href="/?native=1">Full PiKVM UI ⤢</a>
             </div>
 
-            <!-- Terminal panel. The keys/mouse row
+            <!-- Chat workspace. The keys/mouse row
                  overlays the TOP of the chat when ⌨ is tapped — never the stream,
                  and no layout reflow. -->
             <div class="chat">
                 <!-- Drag the workspace edge to balance chat and computer preview. -->
                 <div class="chat-resize" id="chat-resize" title="Resize chat workspace"></div>
-                <!-- Desktop-only: the assistant-ui chat is primary; the shared shell
-                     remains available as a secondary tool. -->
-                <div class="panel-tabs" id="panel-tabs" role="tablist" aria-label="Workspace">
-                    <button type="button" role="tab" aria-selected="true" data-tab="agent" class="active">Chat</button>
-                    <button type="button" role="tab" aria-selected="false" data-tab="terminal">Terminal</button>
-                </div>
                 <div class="bar-keys" id="drawer">
                     <button class="ibtn" data-click="left" title="Left click">L</button>
                     <button class="ibtn" data-click="middle" title="Middle click">M</button>
@@ -190,7 +180,7 @@
                     <button class="ibtn" data-scroll="up" title="Scroll up">▲</button>
                     <button class="ibtn" data-scroll="down" title="Scroll down">▼</button>
                 </div>
-                <iframe id="chat-frame" title="Terminal"></iframe>
+                <iframe id="chat-frame" title="Chat workspace"></iframe>
             </div>
         </div>
 

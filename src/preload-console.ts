@@ -68,11 +68,9 @@ export interface DesktopConsoleApi {
     setConsoleOrigin(origin: string): void;
     /** Persist the PiKVM URL the local backend connects to, and relaunch. */
     setPikvmOrigin(url: string): void;
-    reportTerminalRect(rect: { x: number; y: number; width: number; height: number }): void;
-    /** Pick which native view floats over the panel rect: the terminal or the Agent panel. */
-    setPanelTab(tab: "terminal" | "agent"): void;
-    runTask(task: string): void;
-    /** Open Settings / Monitor / History in their own window (terminal mode). */
+    /** Report where the first-party chat workspace belongs in the native shell. */
+    reportWorkspaceRect(rect: { x: number; y: number; width: number; height: number }): void;
+    /** Open Settings / Monitor / History in their own window. */
     openAgentPanel(id: "settings" | "ambient" | "history"): void;
     /** True WINDOW focus (from the main process), so the KVM mouse tracks window focus —
      *  not the console view's focus, which a focused terminal child view would steal. */
@@ -104,13 +102,7 @@ const api: DesktopConsoleApi = {
     originConfig: ipcRenderer.sendSync("console:get-origin") as { origin: string; isLocal: boolean; envLocked: boolean; pikvmOrigin: string },
     setConsoleOrigin: (origin) => ipcRenderer.send("console:set-origin", origin),
     setPikvmOrigin: (url) => ipcRenderer.send("console:set-pikvm-origin", url),
-    // Tell main where the agent-panel content sits, so it floats the Claude Code
-    // terminal view there. Pass width/height 0 when the panel is collapsed.
-    reportTerminalRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:terminal-rect", rect),
-    setPanelTab: (tab) => ipcRenderer.send("console:panel-tab", tab),
-    // Hand a task (e.g. a tapped suggestion) to the live Claude Code session.
-    runTask: (task: string) => ipcRenderer.send("console:run-task", task),
-    // Settings / Monitor / History open in their own window in terminal mode.
+    reportWorkspaceRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:workspace-rect", rect),
     openAgentPanel: (id) => ipcRenderer.send("console:open-agent-panel", id),
     onWindowFocus: (cb) => {
         const listener = (_e: unknown, focused: boolean) => cb(!!focused);

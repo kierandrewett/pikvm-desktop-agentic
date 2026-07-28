@@ -101,10 +101,8 @@ function resolvedHarnessOrigin(): string {
     );
 }
 
-/** Start the PiKVM backend: the control core (for the reverse proxy's target), the
- *  shared terminal sessions, and the control server that hosts the proxy + terminal
- *  WebSocket + static console assets. Returns what the window wiring needs. */
-function startProxyAndTerminal(
+/** Start the PiKVM backend, first-party harness, and local console proxy. */
+function startProxyAndHarness(
     origin: string,
     settings: SettingsStore,
     harnessCommand: string,
@@ -136,43 +134,46 @@ function startProxyAndTerminal(
     // phone with a dev build, without flipping the setting the installed app shares).
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
 
-    // ---- Server-hosted terminal sessions — the PTYs live here and stream to ALL
-    // devices over the /_agent/terminal WebSocket (desktop + mobile see the same tabs). ----
+    // Keep the optional browser/mobile shell service available for compatibility.
+    // The desktop app does not create or render a terminal WebContentsView.
     const vaultPath = (): string => {
-        const p = settings.get().atlas?.vaultPath;
-        return p && p.trim() ? p : app.getPath("home");
+        const path = settings.get().atlas?.vaultPath;
+        return path && path.trim() ? path : app.getPath("home");
     };
-    const resolvePath = (p: string): string => {
-        if (p.startsWith("~/")) return resolve(app.getPath("home"), p.slice(2));
-        return isAbsolute(p) ? p : resolve(vaultPath(), p);
+    const resolvePath = (path: string): string => {
+        if (path.startsWith("~/")) return resolve(app.getPath("home"), path.slice(2));
+        return isAbsolute(path) ? path : resolve(vaultPath(), path);
     };
-    const IMG_MIME: Record<string, string> = {
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".svg": "image/svg+xml",
+    const imageMime: Record<string, string> = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".svg": "image/svg+xml",
     };
     const terminalSessions = new TerminalSessions({
         vaultPath,
         port: CONTROL_PORT,
-        prepareAgent: () => {
-            /* plain shell terminal — no agent environment to prepare */
-        },
-        resolveImage: (p) => {
+        prepareAgent: () => {},
+        resolveImage: (path) => {
             try {
-                const abs = resolvePath(p);
-                const mime = IMG_MIME[extname(abs).toLowerCase()];
-                if (!mime || !existsSync(abs)) return null;
-                if (statSync(abs).size > 12 * 1024 * 1024) return null;
-                return `data:${mime};base64,${readFileSync(abs).toString("base64")}`;
+                const absolute = resolvePath(path);
+                const mime = imageMime[extname(absolute).toLowerCase()];
+                if (!mime || !existsSync(absolute)) return null;
+                if (statSync(absolute).size > 12 * 1024 * 1024) return null;
+                return `data:${mime};base64,${readFileSync(absolute).toString("base64")}`;
             } catch {
                 return null;
             }
         },
-        openPath: (p) => {
-            const abs = resolvePath(p);
-            if (existsSync(abs)) void shell.openPath(abs);
+        openPath: (path) => {
+            const absolute = resolvePath(path);
+            if (existsSync(absolute)) void shell.openPath(absolute);
         },
-        openExternal: (u) => {
-            if (/^https?:\/\//i.test(u)) void shell.openExternal(u);
+        openExternal: (url) => {
+            if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
         },
     });
 
@@ -551,24 +552,9 @@ function createWindow() {
         },
     });
 
-    // The embedded shared terminal. Its own WebContentsView, loaded over HTTP from our
-    // backend so it's same-origin with the /_agent/terminal WebSocket it drives — the
-    // SAME page mobile loads. Positioned over the console's terminal-panel region. Never
-    // throttled. Carries a tiny clipboard-only preload so copy/paste works (otherwise no IPC).
-    const terminalView = new WebContentsView({
-        webPreferences: {
-            contextIsolation: true,
-            backgroundThrottling: false,
-            preload: resolve(__dirname, "preload-terminal.js"),
-        },
-    });
-    terminalView.setBackgroundColor("#0a0a0c");
-    terminalView.setVisible(false);
-
-    // Second panel view: the first-party chat harness. It floats over the SAME
-    // panel rect as the terminal; the [Terminal|Chat] tabs choose which is visible.
-    // Its isolated session lets main inject the operator credential without ever
-    // exposing that credential to page JavaScript.
+    // The first-party chat harness is the desktop's sole workspace. Its isolated
+    // session lets main inject the operator credential without ever exposing that
+    // credential to page JavaScript.
     const agentView = new WebContentsView({
         webPreferences: {
             contextIsolation: true,
@@ -630,14 +616,13 @@ function createWindow() {
 
     win.contentView.addChildView(overlayView);
     win.contentView.addChildView(mainView);
-    win.contentView.addChildView(terminalView);
     win.contentView.addChildView(agentView);
 
     const layout = () => {
         const [w, h] = win.getContentSize();
         console.log(`Layout: ${w}x${h}`);
 
-        // The console hosts its own terminal panel, so the native sidebar is not used
+        // The console hosts its own chat workspace, so the native sidebar is not used
         // in console mode — the main view (the console) spans full width.
         const sbW = useConsole ? 0 : sidebarOpen ? sidebarWidth : 0;
 
@@ -660,66 +645,12 @@ function createWindow() {
         mainView.webContents.send("window:resize", mainView.getBounds());
     };
 
-    // The terminal renderer is loaded over HTTP (once the backend is up, below) so it's
-    // same-origin with the /_agent/terminal WebSocket it connects to — the SAME page the
-    // mobile/web console loads, so every device shares the server-hosted sessions.
-    terminalView.webContents.on("console-message", (_e, level, message, line, src) => {
-        console.log(`[term-renderer:${level}] ${message} (${src}:${line})`);
-    });
-    terminalView.webContents.on("did-fail-load", (_e, code, desc, url) => {
-        console.error(`[term-renderer] did-fail-load ${code} ${desc} ${url}`);
-        // The backend may not have bound yet on first paint — retry the load shortly.
-        if (!terminalView.webContents.isDestroyed())
-            setTimeout(() => {
-                if (!terminalView.webContents.isDestroyed())
-                    void terminalView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`);
-            }, 500);
-    });
-    terminalView.webContents.on("render-process-gone", (_e, details) => {
-        console.error(`[term-renderer] render-process-gone`, details);
-    });
-    const openTerminalUrlExternally = (url: string): boolean => {
+    const openUrlExternally = (url: string): boolean => {
         if (!/^https?:\/\//i.test(url)) return false;
         void shell.openExternal(url);
         return true;
     };
-    terminalView.webContents.setWindowOpenHandler(({ url }) => {
-        openTerminalUrlExternally(url);
-        return { action: "deny" };
-    });
-    terminalView.webContents.on("will-navigate", (e, url) => {
-        const own = url.startsWith(`http://127.0.0.1:${CONTROL_PORT}/_agent/`);
-        if (own) return;
-        e.preventDefault();
-        openTerminalUrlExternally(url);
-    });
-    // Never page-zoom the terminal (it breaks the xterm layout); the renderer maps Ctrl+/-/0
-    // to font size instead. Lock the Electron zoom level as a backstop.
-    terminalView.webContents.on("zoom-changed", () => terminalView.webContents.setZoomLevel(0));
-    terminalView.webContents.on("did-finish-load", () => {
-        terminalView.webContents.setZoomLevel(0);
-        terminalView.webContents.setVisualZoomLevelLimits(1, 1);
-        requestTerminalFit();
-    });
-    let terminalFitTimer: NodeJS.Timeout | null = null;
-    const requestTerminalFit = () => {
-        const wc = terminalView.webContents;
-        if (wc.isDestroyed()) return;
-        const run = () => {
-            if (wc.isDestroyed()) return;
-            void wc
-                .executeJavaScript(
-                    'window.dispatchEvent(new Event("resize")); window.postMessage({ type: "terminal-fit" }, "*"); window.__pikvmTerminalFit?.();',
-                    true,
-                )
-                .catch(() => {});
-        };
-        run();
-        if (terminalFitTimer) clearTimeout(terminalFitTimer);
-        terminalFitTimer = setTimeout(run, 80);
-    };
-
-    // Chat harness view: same retry-on-fail + external-link guards as the terminal.
+    // Chat harness view: retry on transient startup failure and keep navigation local.
     // The harness may still be bootstrapping its secret-free provider config.
     const loadHarness = () => {
         if (agentView.webContents.isDestroyed()) return;
@@ -734,58 +665,36 @@ function createWindow() {
         }
     });
     agentView.webContents.setWindowOpenHandler(({ url }) => {
-        openTerminalUrlExternally(url);
+        openUrlExternally(url);
         return { action: "deny" };
     });
     agentView.webContents.on("will-navigate", (e, url) => {
         if (url.startsWith(`${HARNESS_ORIGIN}/`)) return;
         e.preventDefault();
-        openTerminalUrlExternally(url);
+        openUrlExternally(url);
     });
 
-    // Any external task → type it into the primary terminal session.
-    ipcMain.on("console:run-task", (_, task: unknown) => {
-        if (typeof task === "string" && task.trim() && backend)
-            backend.terminalSessions.submitLine(backend.terminalSessions.primaryId(), task.trim());
-    });
-    // The console reports where its terminal-panel content sits (window pixels); we float the
-    // terminal view there. Empty/zero → hide it (panel collapsed). The renderer re-fits on
-    // its own resize events when these bounds change.
-    let termRectSeen = false;
-    // Both panel views overlay the SAME reported rect; `activeTab` (set by the
-    // [Terminal|Agent] tabs) picks which is visible. A zero rect (panel collapsed)
-    // hides both.
-    let activeTab: "terminal" | "agent" = "agent";
+    // The console reports the chat content rect; the harness view is the only native
+    // child allowed to occupy it. A zero rect hides it while the preview is collapsed.
+    let workspaceRectSeen = false;
     let lastPanelRect = { x: 0, y: 0, width: 0, height: 0 };
-    const applyPanelViews = () => {
+    const applyWorkspaceView = () => {
         const { x, y, width, height } = lastPanelRect;
         const visible = width > 1 && height > 1;
-        const showTerminal = visible && activeTab === "terminal";
-        const showAgent = visible && activeTab === "agent";
-        terminalView.setVisible(showTerminal);
-        agentView.setVisible(showAgent);
-        if (showTerminal) {
-            terminalView.setBounds({ x, y, width, height });
-            requestTerminalFit();
-        }
-        if (showAgent) agentView.setBounds({ x, y, width, height });
+        agentView.setVisible(visible);
+        if (visible) agentView.setBounds({ x, y, width, height });
     };
-    ipcMain.on("console:terminal-rect", (_, r: { x?: number; y?: number; width?: number; height?: number }) => {
+    ipcMain.on("console:workspace-rect", (_, r: { x?: number; y?: number; width?: number; height?: number }) => {
         const x = Math.round(Number(r?.x) || 0);
         const y = Math.round(Number(r?.y) || 0);
         const width = Math.round(Number(r?.width) || 0);
         const height = Math.round(Number(r?.height) || 0);
         lastPanelRect = { x, y, width, height };
-        if (width > 1 && height > 1 && !termRectSeen) {
-            console.log(`[console:terminal-rect] first show ${width}x${height} @${x},${y}`);
-            termRectSeen = true;
+        if (width > 1 && height > 1 && !workspaceRectSeen) {
+            console.log(`[console:workspace-rect] first show ${width}x${height} @${x},${y}`);
+            workspaceRectSeen = true;
         }
-        applyPanelViews();
-    });
-    // The console's [Terminal|Agent] tab switch.
-    ipcMain.on("console:panel-tab", (_, tab: unknown) => {
-        activeTab = tab === "agent" ? "agent" : "terminal";
-        applyPanelViews();
+        applyWorkspaceView();
     });
     win.on("closed", () => {
         harnessViewLifecycle.stop();
@@ -826,7 +735,7 @@ function createWindow() {
     // remote console, where the remote host owns the proxy + terminal.
     const backend = remoteConsole
         ? null
-        : startProxyAndTerminal(origin, settings, harnessCommand);
+        : startProxyAndHarness(origin, settings, harnessCommand);
     const harnessAssetDirectory =
         !app.isPackaged && backend
             ? resolveDevHarnessAssetDirectory(harnessCommand)
@@ -890,12 +799,9 @@ function createWindow() {
         });
     }
 
-    // Now that the backend is listening, load the shared terminal renderer over HTTP so it's
-    // same-origin with its /_agent/terminal WebSocket (the desktop view and mobile both use it).
-    void terminalView.webContents.loadURL(`http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`);
     if (backend) {
         void backend.harnessReady.then(loadHarness).catch(() => {
-            // startProxyAndTerminal already logs the actionable startup error.
+            // startProxyAndHarness already logs the actionable startup error.
         });
     }
 
