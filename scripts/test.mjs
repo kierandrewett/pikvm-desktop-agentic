@@ -17,6 +17,7 @@ try {
             resolve(root, "tests/harness-view-lifecycle.test.ts"),
             resolve(root, "tests/desktop-layout.test.ts"),
             resolve(root, "tests/service-manager.test.ts"),
+            resolve(root, "tests/cdp-inspector.test.ts"),
         ],
         outdir: output,
         platform: "node",

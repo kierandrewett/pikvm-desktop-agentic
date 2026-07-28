@@ -3,13 +3,22 @@
 import WebSocket from "ws";
 
 const port = Number(process.env.PIKVM_CDP_PORT || "9223");
-const reloadMatch = process.env.PIKVM_CDP_RELOAD_MATCH || "";
 const collectGarbage = process.env.PIKVM_CDP_COLLECT_GARBAGE === "1";
-const clickMatch = process.env.PIKVM_CDP_CLICK_MATCH || "";
-const clickLabel = process.env.PIKVM_CDP_CLICK_LABEL || "";
-const fillMatch = process.env.PIKVM_CDP_FILL_MATCH || "";
-const fillSelector = process.env.PIKVM_CDP_FILL_SELECTOR || "";
-const fillValue = process.env.PIKVM_CDP_FILL_VALUE || "";
+const mutationOptions = [
+    "PIKVM_CDP_RELOAD_MATCH",
+    "PIKVM_CDP_CLICK_MATCH",
+    "PIKVM_CDP_CLICK_LABEL",
+    "PIKVM_CDP_FILL_MATCH",
+    "PIKVM_CDP_FILL_SELECTOR",
+    "PIKVM_CDP_FILL_VALUE",
+].filter((name) => process.env[name]);
+if (mutationOptions.length > 0) {
+    throw new Error(
+        "The Electron CDP inspector is read-only. " +
+        `Remove mutating options: ${mutationOptions.join(", ")}. ` +
+        "Exercise input only through an isolated, target-free browser fixture.",
+    );
+}
 const bodyTextLimit = Math.min(
     20_000,
     Math.max(1_000, Number(process.env.PIKVM_CDP_BODY_TEXT_LIMIT || "1600")),
@@ -44,75 +53,6 @@ async function inspectTarget(target) {
     };
     try {
         await call("Performance.enable");
-        if (reloadMatch && target.url.includes(reloadMatch)) {
-            await call("Page.reload", { ignoreCache: true });
-            await new Promise((resolve) => setTimeout(resolve, 750));
-        }
-        if (
-            fillSelector &&
-            fillMatch &&
-            target.url.includes(fillMatch)
-        ) {
-            const filled = await call("Runtime.evaluate", {
-                expression: `(() => {
-                    const element = document.querySelector(
-                        ${JSON.stringify(fillSelector)}
-                    );
-                    if (
-                        !(element instanceof HTMLInputElement) &&
-                        !(element instanceof HTMLTextAreaElement)
-                    ) return false;
-                    const prototype = element instanceof HTMLTextAreaElement
-                        ? HTMLTextAreaElement.prototype
-                        : HTMLInputElement.prototype;
-                    const setter = Object.getOwnPropertyDescriptor(
-                        prototype,
-                        "value",
-                    )?.set;
-                    setter?.call(element, ${JSON.stringify(fillValue)});
-                    element.dispatchEvent(new Event("input", { bubbles: true }));
-                    element.dispatchEvent(new Event("change", { bubbles: true }));
-                    return true;
-                })()`,
-                returnByValue: true,
-            });
-            if (filled.result?.value !== true) {
-                throw new Error(
-                    `No editable field matching ${JSON.stringify(fillSelector)} in ${target.url}`,
-                );
-            }
-        }
-        if (
-            clickLabel &&
-            clickMatch &&
-            target.url.includes(clickMatch)
-        ) {
-            const clicked = await call("Runtime.evaluate", {
-                expression: `(() => {
-                    const label = ${JSON.stringify(clickLabel)};
-                    const element = [...document.querySelectorAll("button")]
-                        .find((candidate) => {
-                            const candidateLabel = (
-                                candidate.getAttribute("aria-label") ||
-                                candidate.textContent ||
-                                candidate.getAttribute("title") ||
-                                ""
-                            ).trim().replace(/\\s+/g, " ");
-                            return candidateLabel === label;
-                        });
-                    if (!element) return false;
-                    element.click();
-                    return true;
-                })()`,
-                returnByValue: true,
-            });
-            if (clicked.result?.value !== true) {
-                throw new Error(
-                    `No button with aria-label ${JSON.stringify(clickLabel)} in ${target.url}`,
-                );
-            }
-            await new Promise((resolve) => setTimeout(resolve, 350));
-        }
         const evaluated = await call("Runtime.evaluate", {
             expression,
             returnByValue: true,
