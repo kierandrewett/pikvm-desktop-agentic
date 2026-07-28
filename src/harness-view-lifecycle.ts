@@ -9,7 +9,7 @@ export class HarnessViewLifecycle {
     constructor(
         private readonly url: string,
         private readonly retryDelayMs = 500,
-        private readonly assetReloadDelayMs = 120,
+        private readonly assetReloadDelayMs = 800,
     ) {}
 
     /**

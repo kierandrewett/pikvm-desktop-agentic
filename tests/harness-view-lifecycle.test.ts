@@ -63,19 +63,21 @@ test("rebuilt harness assets coalesce into one cache-bypassing renderer reload",
     const lifecycle = new HarnessViewLifecycle(
         "http://127.0.0.1:47616/app/",
         500,
-        5,
+        20,
     );
     let reloads = 0;
 
     lifecycle.scheduleAssetReload(() => reloads++);
+    await new Promise((resolve) => setTimeout(resolve, 10));
     lifecycle.scheduleAssetReload(() => reloads++);
+    await new Promise((resolve) => setTimeout(resolve, 10));
     lifecycle.scheduleAssetReload(() => reloads++);
 
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(reloads, 1);
 
     lifecycle.scheduleAssetReload(() => reloads++);
     lifecycle.stop();
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(reloads, 1);
 });
