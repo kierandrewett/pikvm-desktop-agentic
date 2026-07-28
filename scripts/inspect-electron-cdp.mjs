@@ -10,6 +10,10 @@ const clickLabel = process.env.PIKVM_CDP_CLICK_LABEL || "";
 const fillMatch = process.env.PIKVM_CDP_FILL_MATCH || "";
 const fillSelector = process.env.PIKVM_CDP_FILL_SELECTOR || "";
 const fillValue = process.env.PIKVM_CDP_FILL_VALUE || "";
+const bodyTextLimit = Math.min(
+    20_000,
+    Math.max(1_000, Number(process.env.PIKVM_CDP_BODY_TEXT_LIMIT || "1600")),
+);
 const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((res) => {
     if (!res.ok) throw new Error(`CDP target discovery returned ${res.status}`);
     return res.json();
@@ -208,6 +212,37 @@ const expression = `(() => {
         fields: labels("input, textarea, [contenteditable='true']"),
         headings: labels("h1, h2, h3"),
         dialogs: labels("[role='dialog'], dialog"),
+        operational: {
+            counts: {
+                assistantMessages: document.querySelectorAll(
+                    "[data-slot='aui_assistant-message-root']",
+                ).length,
+                userMessages: document.querySelectorAll(
+                    "[data-slot='aui_user-message-root']",
+                ).length,
+                runActivities: document.querySelectorAll(
+                    "[data-slot='aui_thread-run-activity']",
+                ).length,
+                branchPickers: document.querySelectorAll(
+                    "[data-slot='aui-branch-picker-root']",
+                ).length,
+                toolGroups: document.querySelectorAll(
+                    "[data-slot='tool-group-root']",
+                ).length,
+                genericToolCalls: document.querySelectorAll(
+                    "[data-slot='tool-fallback-root']",
+                ).length,
+                computerActions:
+                    document.querySelectorAll(".computer-action-step").length,
+                statuses: document.querySelectorAll("[role='status']").length,
+            },
+            statusLabels: labels("[role='status']"),
+            toolLabels: labels(
+                "[data-slot='tool-group-trigger'], " +
+                "[data-slot='tool-fallback-root'], " +
+                ".computer-action-step",
+            ),
+        },
         topLevel: [...document.body.children].slice(0, 20).map((element) => {
             const box = element.getBoundingClientRect();
             return {
@@ -273,7 +308,7 @@ const expression = `(() => {
         bodyText: (document.body?.innerText || "")
             .trim()
             .replace(/\\n{3,}/g, "\\n\\n")
-            .slice(0, 1600),
+            .slice(0, ${bodyTextLimit}),
     };
 })()`;
 
