@@ -1,53 +1,52 @@
-# pikvm-desktop
+# PiKVM Desktop
 
-PiKVM desktop client with an integrated AI agent (Pi harness + MCP), plus a
-web/mobile client served from the same server.
+A chat-first desktop workspace for supervised computer use. Bring an OAuth- or
+API-backed model, connect a managed PiKVM/VNC target, ask for an outcome in
+plain language, and watch planning, exact tool calls, screen transitions,
+verification, and approvals in one conversation.
 
-## Web / mobile access
+The desktop owns two local services:
 
-The control server reverse-proxies the PiKVM target, so any browser (including a
-phone) can use the Pi's own UI through it, with the agent bolted on. PiKVM
-credentials stay on the server; a client only needs the server address and an
-access token.
+- the provider-neutral chat and operator harness;
+- the machine-control daemon selected at runtime.
 
-How it fits together:
+The model never receives a VNC address, PiKVM credential, browser token, or
+approval capability. Normal Claude MCP compatibility exposes only the five
+high-level managed computer controls. The first-party harness—not Claude
+Code—plans, selects bounded input, verifies the resulting frame, and handles
+recovery. Guarded direct MCP remains available only with the explicit
+`--control-mode direct` launcher argument.
 
-- `/_agent/*` is our surface (agent API, MCP at `/_agent/mcp` and `/mcp`, the UI
-  bundle). Everything else is proxied to the Pi (its UI, the MJPEG stream, the HID
-  WebSocket, login). The proxy injects the PiKVM auth on every request.
-- The agent UI is injected into proxied pages as a same-origin iframe behind a
-  floating button, so its styling stays isolated from the Pi UI. It is a docked
-  panel on desktop and a full-screen sheet on mobile.
-- Touch: one finger is PiKVM input, two fingers pinch-zoom and pan the view,
-  double-tap resets. On desktop browsers ctrl/cmd + wheel zooms.
+## Development
 
-To turn it on (in the desktop app: Settings -> Server):
-
-1. Set an access token.
-2. Enable "Allow access from the LAN", then restart the app (you cannot rebind a
-   live listener).
-3. On another device on the same network, open `http://<this-machine-ip>:25650`,
-   enter the token, and tap the floating button for the agent.
-
-The local desktop app is always allowed without a token (loopback is trusted).
-The token only gates other devices.
-
-## Build and run
-
-```
-yarn install
-yarn build
-yarn start          # desktop app (also runs the server)
-yarn smoke:proxy    # proxy + auth smoke test (no Pi needed; uses a mock)
+```bash
+npm install
+npm run build
+npm test
+npm start
 ```
 
-The agent API moved from `/api/*` to `/_agent/api/*` because PiKVM owns `/api/*`
-and we now proxy it. `/mcp` is kept at the root for existing MCP clients.
+`PIKVM_AGENT_DAEMON`, `PIKVM_HARNESS_ORIGIN`, `PIKVM_AGENT_CONFIG`, and
+`PIKVM_HARNESS_CONFIG` select local runtime services without hard-coding a
+computer endpoint. Use `PIKVM_AGENT_FAKE=1` for target-free development.
 
-## Architecture notes
+The ordinary MCP entrypoint is:
 
-- The desktop app hosts the server in-process and renders the Pi directly for its
-  own view (no self-proxying). Remote clients use the proxy. An optional
-  "desktop-via-proxy" mode is possible but not enabled, since it would route
-  localhost through itself for no functional gain.
-- See `TODO.md` for the migration phases.
+```bash
+node dist/mcp-launcher.js \
+  --runtime "/path/to/owner-only/harness-runtime.json" \
+  --caller-label claude-cli
+```
+
+The default launches `harness managed-mcp`. Direct compatibility must be
+requested deliberately:
+
+```bash
+node dist/mcp-launcher.js \
+  --runtime "/path/to/owner-only/harness-runtime.json" \
+  --caller-label claude-cli \
+  --control-mode direct
+```
+
+The runtime handoff is mode `0600`, tied to the live desktop process, and never
+contains the browser operator token or daemon approval capability.

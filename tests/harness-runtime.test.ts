@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
     buildDirectMcpLaunch,
+    buildManagedMcpLaunch,
     readHarnessRuntime,
     withHarnessAuthorization,
     writeHarnessRuntime,
@@ -12,24 +13,25 @@ import {
 } from "../src/harness-runtime";
 
 const fixture = (): HarnessRuntime => ({
-    version: 2,
+    version: 3,
     desktopPid: process.pid,
     harnessOrigin: "http://127.0.0.1:47616",
     daemonOrigin: "http://127.0.0.1:47615",
     harnessExecutable: "/opt/pikvm/bin/pikvm-agent",
     harnessConfig: "/home/example/.config/PiKVM Desktop/harness.yaml",
+    agentToken: "agent-token-that-is-at-least-thirty-two-characters",
     daemonActionToken: "daemon-action-token-that-is-at-least-thirty-two-characters",
     observerToken: "observer-token-that-is-at-least-thirty-two-characters",
 });
 
-test("runtime handoff is owner-only and serializes only guarded-direct credentials", () => {
+test("runtime handoff is owner-only and excludes operator approval credentials", () => {
     const dir = mkdtempSync(join(tmpdir(), "pikvm-runtime-"));
     const path = join(dir, "harness-runtime.json");
     try {
         writeHarnessRuntime(path, fixture());
         assert.equal(readFileSync(path, "utf8").includes("observerToken"), true);
         assert.equal(readFileSync(path, "utf8").includes("accessToken"), false);
-        assert.equal(readFileSync(path, "utf8").includes("agentToken"), false);
+        assert.equal(readFileSync(path, "utf8").includes("agentToken"), true);
         assert.equal(readFileSync(path, "utf8").includes("daemonHarnessToken"), false);
         assert.equal(readFileSync(path, "utf8").includes("daemonActionToken"), true);
         if (process.platform !== "win32") {
@@ -57,7 +59,7 @@ test("runtime handoff refuses group-readable credentials", () => {
     }
 });
 
-test("Claude compatibility launches the guarded visible MCP boundary", () => {
+test("explicit direct compatibility launches the guarded visible MCP boundary", () => {
     const launch = buildDirectMcpLaunch(fixture(), "claude-cli");
     assert.equal(launch.command, "/opt/pikvm/bin/pikvm-agent");
     assert.deepEqual(launch.args, [
@@ -82,6 +84,26 @@ test("Claude compatibility launches the guarded visible MCP boundary", () => {
     assert.equal(launch.env.PIKVM_AGENT_HARNESS_TOKEN, undefined);
     assert.equal(launch.env.PIKVM_AGENT_TRUSTED_APPROVAL_CLIENT, undefined);
     assert.equal(JSON.stringify(launch).includes("mcp_server"), false);
+});
+
+test("ordinary Claude compatibility launches the managed operator harness", () => {
+    const launch = buildManagedMcpLaunch(fixture(), "claude-cli");
+    assert.equal(launch.command, "/opt/pikvm/bin/pikvm-agent");
+    assert.deepEqual(launch.args, [
+        "harness",
+        "managed-mcp",
+        "--config",
+        "/home/example/.config/PiKVM Desktop/harness.yaml",
+        "--caller-label",
+        "claude-cli",
+    ]);
+    assert.equal(
+        launch.env.PIKVM_HARNESS_AGENT_TOKEN,
+        "agent-token-that-is-at-least-thirty-two-characters",
+    );
+    assert.equal(launch.env.PIKVM_AGENT_DAEMON_TOKEN, undefined);
+    assert.equal(launch.env.PIKVM_HARNESS_OBSERVER_TOKEN, undefined);
+    assert.equal(launch.env.PIKVM_AGENT_HARNESS_TOKEN, undefined);
 });
 
 test("desktop auth replaces the renderer sentinel case-insensitively", () => {

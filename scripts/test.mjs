@@ -12,6 +12,7 @@ try {
         entryPoints: [
             resolve(root, "tests/harness-manager.test.ts"),
             resolve(root, "tests/harness-runtime.test.ts"),
+            resolve(root, "tests/mcp-launcher.test.ts"),
             resolve(root, "tests/daemon-proxy.test.ts"),
             resolve(root, "tests/harness-view-lifecycle.test.ts"),
             resolve(root, "tests/desktop-layout.test.ts"),

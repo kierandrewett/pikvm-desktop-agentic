@@ -39,7 +39,7 @@ class FakeService {
     }
 }
 
-test("bootstraps a secret-free config and publishes only the Claude observer handoff", async () => {
+test("bootstraps a secret-free config and publishes scoped client handoffs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pikvm-harness-manager-"));
     const configPath = join(dir, "harness.yaml");
     const runtimePath = join(dir, "harness-runtime.json");
@@ -76,6 +76,7 @@ test("bootstraps a secret-free config and publishes only the Claude observer han
         assert.equal(runtime.daemonOrigin, "http://127.0.0.1:47615");
         assert.equal(runtime.harnessOrigin, "http://127.0.0.1:47616");
         assert.equal(runtime.observerToken, manager.observerToken);
+        assert.equal(runtime.agentToken, manager.agentToken);
         assert.equal(runtime.daemonActionToken, manager.daemonActionToken);
         assert.equal(manager.accessToken.length >= 32, true);
         assert.equal(manager.agentToken.length >= 32, true);

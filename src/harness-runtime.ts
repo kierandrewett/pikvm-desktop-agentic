@@ -12,12 +12,13 @@ const MAX_RUNTIME_BYTES = 64 * 1024;
 const CALLER_LABEL = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface HarnessRuntime {
-    version: 2;
+    version: 3;
     desktopPid: number;
     harnessOrigin: string;
     daemonOrigin: string;
     harnessExecutable: string;
     harnessConfig: string;
+    agentToken: string;
     daemonActionToken: string;
     observerToken: string;
 }
@@ -26,10 +27,24 @@ export interface HarnessRuntimeReadOptions {
     requireLiveDesktop?: boolean;
 }
 
-export interface DirectMcpLaunch {
+export interface McpLaunch {
     command: string;
     args: string[];
     env: NodeJS.ProcessEnv;
+}
+
+const SCOPED_CAPABILITY_ENV = [
+    "PIKVM_AGENT_DAEMON_TOKEN",
+    "PIKVM_AGENT_HARNESS_TOKEN",
+    "PIKVM_HARNESS_TOKEN",
+    "PIKVM_HARNESS_AGENT_TOKEN",
+    "PIKVM_HARNESS_OBSERVER_TOKEN",
+] as const;
+
+function withoutScopedCapabilities(): NodeJS.ProcessEnv {
+    const environment = { ...process.env };
+    for (const name of SCOPED_CAPABILITY_ENV) delete environment[name];
+    return environment;
 }
 
 export function withHarnessAuthorization(
@@ -67,7 +82,7 @@ function validateRuntime(value: unknown): HarnessRuntime {
         throw new Error("harness runtime must be an object");
     }
     const raw = value as Record<string, unknown>;
-    if (raw.version !== 2) throw new Error("unsupported harness runtime version");
+    if (raw.version !== 3) throw new Error("unsupported harness runtime version");
     if (
         typeof raw.desktopPid !== "number" ||
         !Number.isSafeInteger(raw.desktopPid) ||
@@ -88,6 +103,12 @@ function validateRuntime(value: unknown): HarnessRuntime {
         throw new Error("harnessConfig must be an absolute path");
     }
     if (
+        typeof raw.agentToken !== "string" ||
+        raw.agentToken.length < TOKEN_MIN_LENGTH
+    ) {
+        throw new Error("agentToken is missing or too short");
+    }
+    if (
         typeof raw.daemonActionToken !== "string" ||
         raw.daemonActionToken.length < TOKEN_MIN_LENGTH
     ) {
@@ -100,7 +121,7 @@ function validateRuntime(value: unknown): HarnessRuntime {
         throw new Error("observerToken is missing or too short");
     }
     return {
-        version: 2,
+        version: 3,
         desktopPid: raw.desktopPid,
         harnessOrigin: requireLoopbackOrigin(
             raw.harnessOrigin,
@@ -109,6 +130,7 @@ function validateRuntime(value: unknown): HarnessRuntime {
         daemonOrigin: requireLoopbackOrigin(raw.daemonOrigin, "daemonOrigin"),
         harnessExecutable: raw.harnessExecutable,
         harnessConfig: raw.harnessConfig,
+        agentToken: raw.agentToken,
         daemonActionToken: raw.daemonActionToken,
         observerToken: raw.observerToken,
     };
@@ -158,7 +180,7 @@ export function readHarnessRuntime(
 export function buildDirectMcpLaunch(
     runtime: HarnessRuntime,
     callerLabel: string,
-): DirectMcpLaunch {
+): McpLaunch {
     const validated = validateRuntime(runtime);
     if (!CALLER_LABEL.test(callerLabel)) {
         throw new Error("caller label contains unsupported characters");
@@ -176,10 +198,35 @@ export function buildDirectMcpLaunch(
             callerLabel,
         ],
         env: {
-            ...process.env,
+            ...withoutScopedCapabilities(),
             PIKVM_AGENT_DAEMON: validated.daemonOrigin,
             PIKVM_AGENT_DAEMON_TOKEN: validated.daemonActionToken,
             PIKVM_HARNESS_OBSERVER_TOKEN: validated.observerToken,
+        },
+    };
+}
+
+export function buildManagedMcpLaunch(
+    runtime: HarnessRuntime,
+    callerLabel: string,
+): McpLaunch {
+    const validated = validateRuntime(runtime);
+    if (!CALLER_LABEL.test(callerLabel)) {
+        throw new Error("caller label contains unsupported characters");
+    }
+    return {
+        command: validated.harnessExecutable,
+        args: [
+            "harness",
+            "managed-mcp",
+            "--config",
+            validated.harnessConfig,
+            "--caller-label",
+            callerLabel,
+        ],
+        env: {
+            ...withoutScopedCapabilities(),
+            PIKVM_HARNESS_AGENT_TOKEN: validated.agentToken,
         },
     };
 }

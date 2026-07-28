@@ -139,16 +139,19 @@ export class HarnessManager {
             );
         }
         writeHarnessRuntime(this.deps.runtimePath, {
-            version: 2,
+            version: 3,
             desktopPid: process.pid,
             harnessOrigin: this.deps.origin,
             daemonOrigin: this.deps.daemonOrigin,
             harnessExecutable: this.deps.command,
             harnessConfig: this.deps.configPath,
+            agentToken: this.agentToken,
             daemonActionToken: this.daemonActionToken,
             observerToken: this.observerToken,
         });
-        this.log("ready; guarded Claude MCP compatibility is available");
+        this.log(
+            "ready; managed Claude MCP compatibility is available (direct mode is explicit)",
+        );
     }
 
     stop(): void {
