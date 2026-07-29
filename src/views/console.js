@@ -1,9 +1,9 @@
 /*
  * PiKVM web console — manual keyboard/mouse + live screen, with the agent chat
- * below. It reuses the existing reverse proxy: the live picture is the Pi's own
- * MJPEG stream (/streamer/stream) and input goes over the Pi's own HID WebSocket
- * (/api/ws) with the exact JSON the desktop control core sends — so we add no new
- * server surface and reinvent nothing.
+ * below. It reuses the existing reverse proxy: native PiKVM targets use their
+ * MJPEG/WebRTC stream, while VNC lab adapters advertise a snapshot feed through
+ * /api/info. Input always uses the target's HID WebSocket (/api/ws) with the exact
+ * JSON the desktop control core sends.
  *
  * The pure helpers (key map, coordinate maths, stream URL) are exported for the
  * node smoke test; everything below `if (typeof window === "undefined")` is the
@@ -72,7 +72,18 @@
         return p;
     }
 
-    var pure = { charToKey: charToKey, fracToNorm: fracToNorm, streamPath: streamPath };
+    /** Select a screen transport from the target's advertised capabilities. */
+    function streamModeForInfo(info) {
+        var extras = info && info.result && info.result.extras;
+        return extras && extras.vnc_lab && extras.vnc_lab.enabled === true ? "snapshot" : "native";
+    }
+
+    var pure = {
+        charToKey: charToKey,
+        fracToNorm: fracToNorm,
+        streamPath: streamPath,
+        streamModeForInfo: streamModeForInfo,
+    };
     if (typeof module !== "undefined" && module.exports) module.exports = pure;
     if (typeof window === "undefined") return; // node test: stop before DOM wiring
 
@@ -372,9 +383,12 @@
         var el = streamEl();
         return (webrtcActive ? el.videoHeight : el.naturalHeight) || 9;
     }
-    var overlayMsg = document.getElementById("overlay-msg");
+    var overlayTitle = document.getElementById("overlay-title");
+    var overlayDetail = document.getElementById("overlay-detail");
+    var overlayRetry = document.getElementById("overlay-retry");
     var conn = document.getElementById("conn");
     var connText = document.getElementById("conn-text");
+    var titleText = document.getElementById("tb-title");
     var kbd = document.getElementById("kbd");
     var chatFrame = document.getElementById("chat-frame");
     var TERM_W_KEY = "pikvm-chat-workspace-width-v2";
@@ -402,9 +416,8 @@
 
     /* ---- connection / stream resilience ----
      * A small state machine drives the status chip + overlay and an exponential
-     * reconnect. Sources: the MJPEG <img> load/error, a periodic /api/streamer
-     * health poll (distinguishes "no signal" / "server unreachable" from a stream
-     * hiccup), the HID socket, and page-visibility / network events. */
+     * reconnect. Sources: native stream load/error + health, VNC snapshot fetches,
+     * the HID socket, and page-visibility / network events. */
     var streamKey = Math.random().toString(16).slice(2) + Date.now().toString(16);
     var streamUp = false;
     var serverDown = false;
@@ -412,6 +425,7 @@
     var retryMs = 800;
     var streamWatchdog = null;
     var reconnectTimer = null;
+    var streamMode = "detecting"; // detecting | native | snapshot
     // When WebRTC is the live source we suspend the MJPEG pipeline entirely: blank
     // the <img> src (so the Pi's MJPEG connection is released) and stop the watchdog
     // / health-driven state changes from fighting the WebRTC status. Resumed on
@@ -419,31 +433,66 @@
     var mjpegPaused = false;
 
     var STATUS = {
-        connecting: ["", "Connecting…", true],
-        live: ["ok", "Live", false],
-        nosignal: ["warn", "No signal from target", true],
-        offline: ["bad", "Stream lost — reconnecting…", true],
-        reconnecting: ["", "Reconnecting…", true],
-        disconnected: ["bad", "Disconnected — check connection", true],
+        connecting: {
+            tone: "",
+            label: "Connecting",
+            title: "Connecting to computer",
+            detail: "Waiting for the first screen frame.",
+        },
+        live: {
+            tone: "ok",
+            label: "Live",
+            title: "Screen connected",
+            detail: "",
+        },
+        nosignal: {
+            tone: "warn",
+            label: "No signal",
+            title: "No display signal",
+            detail: "The computer is connected, but it is not producing a picture.",
+            retry: true,
+        },
+        offline: {
+            tone: "bad",
+            label: "Reconnecting",
+            title: "Screen paused",
+            detail: "Keeping the last frame visible while the screen reconnects.",
+            retry: true,
+        },
+        reconnecting: {
+            tone: "",
+            label: "Reconnecting",
+            title: "Reconnecting to computer",
+            detail: "The next screen frame will appear automatically.",
+            retry: true,
+        },
+        disconnected: {
+            tone: "bad",
+            label: "Screen unavailable",
+            title: "Screen preview unavailable",
+            detail: "The computer did not return a frame. Retrying automatically.",
+            retry: true,
+        },
     };
     function setState(s) {
         streamState = s;
         var d = STATUS[s] || STATUS.connecting;
-        conn.className = "dot " + d[0];
+        conn.className = "dot " + d.tone;
         var inputNote = hid.isOpen() ? "" : " · input offline";
-        if (connText) connText.textContent = d[1];
-        conn.title = d[1] + inputNote;
+        if (connText) connText.textContent = d.label;
+        conn.title = d.label + inputNote;
+        pane.setAttribute("data-stream-state", s);
         if (s === "live") {
             pane.classList.remove("offline");
         } else {
             pane.classList.add("offline");
-            overlayMsg.textContent = d[1];
-            // No spinner for a steady "no signal" (target is just off).
-            pane.classList.toggle("no-spin", s === "nosignal");
+            if (overlayTitle) overlayTitle.textContent = d.title;
+            if (overlayDetail) overlayDetail.textContent = d.detail;
+            if (overlayRetry) overlayRetry.hidden = !d.retry;
         }
     }
     function loadStream() {
-        if (mjpegPaused) return; // WebRTC owns the picture; don't open an MJPEG conn
+        if (streamMode !== "native" || mjpegPaused) return; // WebRTC owns the picture; don't open an MJPEG conn
         if (streamState !== "live") setState(streamState === "disconnected" ? "reconnecting" : streamState || "connecting");
         img.src = streamPath(streamKey, navigator.userAgent) + "&t=" + Date.now();
         if (streamWatchdog) clearTimeout(streamWatchdog);
@@ -452,7 +501,7 @@
         }, 7000);
     }
     function scheduleReconnect() {
-        if (mjpegPaused || reconnectTimer) return;
+        if (streamMode !== "native" || mjpegPaused || reconnectTimer) return;
         if (streamState !== "disconnected") setState("offline");
         reconnectTimer = setTimeout(function () {
             reconnectTimer = null;
@@ -461,14 +510,15 @@
         retryMs = Math.min(Math.round(retryMs * 1.7), 8000);
     }
     img.addEventListener("load", function () {
-        if (mjpegPaused) return;
+        if (streamMode !== "native" || mjpegPaused) return;
         streamUp = true;
+        pane.classList.add("has-frame");
         retryMs = 800;
         if (streamWatchdog) clearTimeout(streamWatchdog);
         if (!serverDown && !blankFrame) setState("live");
     });
     img.addEventListener("error", function () {
-        if (mjpegPaused) return;
+        if (streamMode !== "native" || mjpegPaused) return;
         streamUp = false;
         scheduleReconnect();
     });
@@ -476,6 +526,7 @@
     // Health poll: tells server-unreachable / no-signal apart from a stream hiccup,
     // and recovers the stream after the link comes back (phone reconnects, etc.).
     function pollHealth() {
+        if (streamMode !== "native") return;
         var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
         var to = setTimeout(function () {
             if (ctrl) ctrl.abort();
@@ -508,13 +559,166 @@
             });
     }
 
+    var snapshotTimer = null;
+    var snapshotInFlight = false;
+    var snapshotFailures = 0;
+    var snapshotObjectUrl = null;
+
+    function scheduleSnapshot(delay) {
+        if (streamMode !== "snapshot") return;
+        if (snapshotTimer) clearTimeout(snapshotTimer);
+        snapshotTimer = setTimeout(function () {
+            snapshotTimer = null;
+            loadSnapshotFrame();
+        }, Math.max(0, delay || 0));
+    }
+
+    function snapshotFailed() {
+        if (streamMode !== "snapshot") return;
+        snapshotFailures += 1;
+        serverDown = true;
+        setState(snapshotFailures >= 3 ? "disconnected" : "reconnecting");
+        scheduleSnapshot(Math.min(400 * Math.pow(1.8, snapshotFailures - 1), 5000));
+    }
+
+    function presentSnapshot(blob) {
+        var nextUrl = URL.createObjectURL(blob);
+        var candidate = new Image();
+        candidate.onload = function () {
+            if (streamMode !== "snapshot") {
+                snapshotInFlight = false;
+                URL.revokeObjectURL(nextUrl);
+                return;
+            }
+            var previousUrl = snapshotObjectUrl;
+            snapshotObjectUrl = nextUrl;
+            img.src = nextUrl;
+            img.classList.remove("hidden");
+            pane.classList.add("has-frame");
+            streamUp = true;
+            serverDown = false;
+            snapshotFailures = 0;
+            snapshotInFlight = false;
+            setState(blankFrame ? "nosignal" : "live");
+            if (previousUrl) {
+                requestAnimationFrame(function () {
+                    URL.revokeObjectURL(previousUrl);
+                });
+            }
+            scheduleSnapshot(200);
+        };
+        candidate.onerror = function () {
+            snapshotInFlight = false;
+            URL.revokeObjectURL(nextUrl);
+            snapshotFailed();
+        };
+        candidate.src = nextUrl;
+    }
+
+    function loadSnapshotFrame() {
+        if (streamMode !== "snapshot" || snapshotInFlight) return;
+        if (document.hidden) {
+            scheduleSnapshot(500);
+            return;
+        }
+        snapshotInFlight = true;
+        var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        var timeout = setTimeout(function () {
+            if (controller) controller.abort();
+        }, 5000);
+        fetch(
+            "/api/streamer/snapshot?t=" + Date.now(),
+            controller ? { signal: controller.signal, cache: "no-store" } : { cache: "no-store" },
+        )
+            .then(function (response) {
+                if (!response.ok) throw new Error("snapshot " + response.status);
+                var type = response.headers.get("content-type") || "";
+                if (type.indexOf("image/") !== 0) throw new Error("snapshot was not an image");
+                return response.blob();
+            })
+            .then(function (blob) {
+                clearTimeout(timeout);
+                presentSnapshot(blob);
+            })
+            .catch(function () {
+                clearTimeout(timeout);
+                snapshotInFlight = false;
+                snapshotFailed();
+            });
+    }
+
+    function startSnapshotScreen() {
+        streamMode = "snapshot";
+        mjpegPaused = true;
+        vid.classList.add("hidden");
+        img.classList.remove("hidden");
+        if (titleText) titleText.textContent = "VNC lab";
+        var fullUi = document.getElementById("full-ui");
+        if (fullUi) fullUi.hidden = true;
+        setState("connecting");
+        loadSnapshotFrame();
+    }
+
+    function startNativeScreen() {
+        streamMode = "native";
+        mjpegPaused = false;
+        if (titleText) titleText.textContent = "PiKVM";
+        var fullUi = document.getElementById("full-ui");
+        if (fullUi) fullUi.hidden = false;
+        setState("connecting");
+        loadStream();
+        startNativeWebrtc();
+    }
+
+    function detectScreenMode() {
+        var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        var timeout = setTimeout(function () {
+            if (ctrl) ctrl.abort();
+        }, 2500);
+        fetch("/api/info", ctrl ? { signal: ctrl.signal, cache: "no-store" } : { cache: "no-store" })
+            .then(function (response) {
+                if (!response.ok) throw new Error("info " + response.status);
+                return response.json();
+            })
+            .then(function (info) {
+                clearTimeout(timeout);
+                if (streamModeForInfo(info) === "snapshot") startSnapshotScreen();
+                else startNativeScreen();
+            })
+            .catch(function () {
+                clearTimeout(timeout);
+                startNativeScreen();
+            });
+    }
+
+    if (overlayRetry) {
+        overlayRetry.addEventListener("click", function (event) {
+            event.stopPropagation();
+            serverDown = false;
+            retryMs = 800;
+            if (streamMode === "snapshot") {
+                snapshotFailures = 0;
+                setState("reconnecting");
+                scheduleSnapshot(0);
+                return;
+            }
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+            setState("reconnecting");
+            loadStream();
+            pollHealth();
+        });
+    }
+
     hid.setStatus(function () {
         // Refresh the input note without changing the stream state.
         setState(streamState || "connecting");
     });
     hid.connect();
     setState("connecting");
-    loadStream();
+    detectScreenMode();
     setInterval(pollHealth, 2500);
 
     /* ---- visual "no signal" detection ----
@@ -586,18 +790,22 @@
     document.addEventListener("visibilitychange", function () {
         if (!document.hidden) {
             hid.connect();
-            pollHealth();
-            if (streamState !== "live") loadStream();
+            if (streamMode === "snapshot") scheduleSnapshot(0);
+            else {
+                pollHealth();
+                if (streamState !== "live") loadStream();
+            }
         }
     });
     window.addEventListener("online", function () {
         serverDown = false;
         hid.connect();
-        loadStream();
+        if (streamMode === "snapshot") scheduleSnapshot(0);
+        else loadStream();
     });
     window.addEventListener("offline", function () {
         serverDown = true;
-        if (!mjpegPaused) setState("disconnected");
+        setState("disconnected");
     });
 
     /* ----------------------------------------------------------------- *
@@ -785,7 +993,7 @@
         var w = geomW();
         var h = geomH();
         if (w <= 16 || h <= 9) return; // no real frame yet
-        var src = webrtcActive ? "HD · WebRTC" : "MJPEG";
+        var src = webrtcActive ? "HD · WebRTC" : streamMode === "snapshot" ? "VNC" : "MJPEG";
         var key = w + "x" + h + "/" + src;
         var changed = key !== lastResKey;
         if (!force && !changed) return; // only on a real change
@@ -802,7 +1010,8 @@
     }
 
     var stream = null;
-    if (window.JanusStream && window.JanusStream.available()) {
+    function startNativeWebrtc() {
+        if (streamMode !== "native" || stream || !window.JanusStream || !window.JanusStream.available()) return;
         var sawVideo = false;
         var startGuard = null;
         stream = window.JanusStream({
@@ -2185,8 +2394,10 @@
             items.push({ id: "panel", label: panelShown() ? "Hide computer preview" : "Show computer preview" });
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "theme", label: "Toggle theme" });
-            items.push({ type: "separator" });
-            items.push({ id: "full-ui", label: "Full PiKVM UI" });
+            if (streamMode === "native") {
+                items.push({ type: "separator" });
+                items.push({ id: "full-ui", label: "Full PiKVM UI" });
+            }
             return items;
         }
         function runCommand(id) {

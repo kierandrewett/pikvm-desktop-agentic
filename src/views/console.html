@@ -89,8 +89,8 @@
         <div class="app" id="app">
             <!-- Live screen (top, resizable) -->
             <div class="screen" id="screen-pane">
-                <!-- MJPEG fallback picture. -->
-                <img id="screen" alt="KVM screen" draggable="false" />
+                <!-- Native MJPEG or capability-selected VNC snapshot picture. -->
+                <img id="screen" alt="Remote computer screen" draggable="false" />
                 <!-- WebRTC (Janus) H.264 video — occupies the EXACT same box as the
                      <img>; shown when WebRTC is live, hidden (and the <img> shown)
                      when it is unavailable or fails. Muted by default for autoplay;
@@ -109,9 +109,21 @@
                     <span class="res-toast-av" id="res-toast-av"></span>
                 </div>
 
-                <div class="overlay">
-                    <div class="spinner" id="overlay-spin"></div>
-                    <div id="overlay-msg">Connecting to the stream…</div>
+                <div class="overlay" role="status" aria-live="polite">
+                    <div class="stream-state">
+                        <div class="stream-state-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="13" rx="2" />
+                                <path d="M8 21h8M12 17v4" />
+                            </svg>
+                        </div>
+                        <div class="stream-state-copy">
+                            <strong id="overlay-title">Connecting to computer</strong>
+                            <span id="overlay-detail">Waiting for the first screen frame.</span>
+                        </div>
+                        <button id="overlay-retry" class="stream-retry" type="button" hidden>Retry now</button>
+                    </div>
                 </div>
             </div>
 

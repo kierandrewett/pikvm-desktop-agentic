@@ -546,6 +546,10 @@ html.desktop-console.win-blur .screen {
 #screen-video.warming {
     opacity: 0;
 }
+.screen:not(.has-frame) #screen,
+.screen:not(.has-frame) #screen-video {
+    visibility: hidden;
+}
 .screen .overlay {
     position: absolute;
     inset: 0;
@@ -553,34 +557,105 @@ html.desktop-console.win-blur .screen {
     display: none;
     align-items: center;
     justify-content: center;
-    flex-direction: column;
-    gap: 12px;
-    color: #d6d7df;
-    background: rgba(0, 0, 0, 0.82);
-    font-size: 13.5px;
-    font-weight: 500;
-    text-align: center;
-    padding: 20px;
-    /* Purely informational — never swallow clicks meant for the live screen. */
+    color: var(--foreground);
+    background:
+        radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--card) 74%, transparent), transparent 42%),
+        #07080a;
+    padding: 24px;
     pointer-events: none;
 }
 .screen.offline .overlay {
     display: flex;
 }
-.spinner {
-    width: 26px;
-    height: 26px;
-    border: 3px solid rgba(255, 255, 255, 0.22);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+.screen.has-frame .overlay {
+    align-items: flex-end;
+    justify-content: flex-start;
+    background: linear-gradient(to top, rgba(5, 6, 8, 0.78), rgba(5, 6, 8, 0.08) 42%);
 }
-.screen.no-spin .spinner {
-    display: none;
+.stream-state {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    width: min(420px, 100%);
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
 }
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
+.stream-state-icon {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--muted-foreground);
+    background: var(--secondary);
+}
+.stream-state-icon svg {
+    width: 18px;
+    height: 18px;
+}
+.screen[data-stream-state="connecting"] .stream-state-icon,
+.screen[data-stream-state="reconnecting"] .stream-state-icon {
+    color: var(--primary);
+    animation: stream-pulse 1.5s ease-in-out infinite;
+}
+.screen[data-stream-state="nosignal"] .stream-state-icon {
+    color: var(--warn);
+}
+.screen[data-stream-state="offline"] .stream-state-icon,
+.screen[data-stream-state="disconnected"] .stream-state-icon {
+    color: var(--danger);
+}
+.stream-state-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: left;
+}
+.stream-state-copy strong {
+    font-size: 13px;
+    line-height: 1.35;
+    font-weight: 650;
+}
+.stream-state-copy span {
+    color: var(--muted-foreground);
+    font-size: 11.5px;
+    line-height: 1.4;
+}
+.stream-retry {
+    pointer-events: auto;
+    min-height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.stream-retry:hover {
+    background: var(--accent);
+}
+.stream-retry:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+@keyframes stream-pulse {
+    50% {
+        opacity: 0.48;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .stream-state-icon {
+        animation: none !important;
     }
 }
 

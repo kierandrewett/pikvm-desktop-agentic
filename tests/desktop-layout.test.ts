@@ -33,3 +33,24 @@ test("desktop keeps healthy status quiet and accessible", () => {
     assert.match(html, /role="status" aria-live="polite"/);
     assert.match(css, /\.backend-status\[data-state="ready"\] \.bs-text/);
 });
+
+test("VNC lab targets use the snapshot screen transport", () => {
+    const consolePure = require(resolve(root, "src/views/console.js"));
+
+    assert.equal(
+        consolePure.streamModeForInfo({
+            result: { extras: { vnc_lab: { enabled: true } } },
+        }),
+        "snapshot",
+    );
+    assert.equal(consolePure.streamModeForInfo({ result: { extras: {} } }), "native");
+    assert.match(js, /\/api\/streamer\/snapshot/);
+});
+
+test("screen failures keep the last frame and offer a deliberate retry", () => {
+    assert.match(html, /alt="Remote computer screen"/);
+    assert.match(html, /id="overlay-retry"/);
+    assert.doesNotMatch(html, /class="spinner"/);
+    assert.match(js, /Screen preview unavailable/);
+    assert.match(css, /\.screen\.has-frame \.overlay/);
+});
