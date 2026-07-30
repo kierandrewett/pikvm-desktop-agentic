@@ -9,7 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { HarnessManager } from "../src/harness-manager";
+import {
+    HarnessManager,
+    harnessDaemonSelectorEnvironment,
+} from "../src/harness-manager";
 import { readHarnessRuntime } from "../src/harness-runtime";
 import type {
     ManagedService,
@@ -38,6 +41,16 @@ class FakeService {
         this.stops++;
     }
 }
+
+test("forwards the managed daemon to default and disposable-lab configs", () => {
+    assert.deepEqual(
+        harnessDaemonSelectorEnvironment("http://127.0.0.1:47615"),
+        {
+            PIKVM_AGENT_DAEMON: "http://127.0.0.1:47615",
+            PIKVM_LAB_DAEMON_URL: "http://127.0.0.1:47615",
+        },
+    );
+});
 
 test("bootstraps a secret-free config and publishes scoped client handoffs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pikvm-harness-manager-"));

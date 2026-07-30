@@ -35,6 +35,15 @@ export interface HarnessManagerDeps {
     service?: ManagedService;
 }
 
+export function harnessDaemonSelectorEnvironment(
+    daemonOrigin: string,
+): NodeJS.ProcessEnv {
+    return {
+        PIKVM_AGENT_DAEMON: daemonOrigin,
+        PIKVM_LAB_DAEMON_URL: daemonOrigin,
+    };
+}
+
 export class HarnessManager {
     readonly accessToken = randomBytes(32).toString("base64url");
     readonly agentToken = randomBytes(32).toString("base64url");
@@ -63,7 +72,7 @@ export class HarnessManager {
                 args: ["harness", "serve", "--config", deps.configPath],
                 cwd: deps.cwd,
                 env: {
-                    PIKVM_AGENT_DAEMON: deps.daemonOrigin,
+                    ...harnessDaemonSelectorEnvironment(deps.daemonOrigin),
                     PIKVM_AGENT_DAEMON_TOKEN: this.daemonActionToken,
                     PIKVM_AGENT_HARNESS_TOKEN: this.daemonHarnessToken,
                     PIKVM_HARNESS_TOKEN: this.accessToken,
