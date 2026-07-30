@@ -184,7 +184,12 @@ export function activeManagedClientRuntimePath(
         if (!isAbsolute(xdgRuntime)) {
             throw new Error("XDG_RUNTIME_DIR must be an absolute path");
         }
-        return join(xdgRuntime, "pikvm-agent", MANAGED_RUNTIME_NAME);
+        return join(
+            xdgRuntime,
+            "pikvm-agent",
+            "managed",
+            MANAGED_RUNTIME_NAME,
+        );
     }
     if (process.platform === "win32") {
         const localAppData = environment.LOCALAPPDATA?.trim();

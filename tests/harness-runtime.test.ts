@@ -81,7 +81,7 @@ test("active managed runtime location is stable without entering client config",
         activeManagedClientRuntimePath({
             XDG_RUNTIME_DIR: "/run/user/1000",
         }),
-        "/run/user/1000/pikvm-agent/managed-client-runtime.json",
+        "/run/user/1000/pikvm-agent/managed/managed-client-runtime.json",
     );
     assert.throws(
         () =>
