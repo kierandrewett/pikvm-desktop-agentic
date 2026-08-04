@@ -200,6 +200,10 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                     return json(res, 400, { error: "Invalid JSON" });
                 }
                 const list = Array.isArray(parsed) ? parsed : (parsed as { macros?: unknown })?.macros;
+                // An empty array is a legitimate "I deleted them all". A body we
+                // cannot read as a list is a client bug, and saving it would wipe
+                // every macro and report success while doing it.
+                if (!Array.isArray(list)) return json(res, 400, { error: "Expected a macros array" });
                 return json(res, 200, { macros: macros.replace(list) });
             });
             return;

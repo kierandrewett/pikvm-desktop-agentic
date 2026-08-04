@@ -86,6 +86,23 @@ test("ships the example macro on first run and round-trips a save", () => {
     assert.ok(readFileSync(path, "utf-8").includes("MetaLeft"));
 });
 
+test("a body that is not a list is refused instead of erasing the file", () => {
+    const path = join(dir(), "macros.json");
+    const store = new MacroStore(path);
+    store.replace([{ label: "Keep me", steps: [{ type: "chord", code: "F5" }] }]);
+
+    for (const bad of [undefined, null, "nope", 42, { macros: [] }]) {
+        assert.throws(() => store.replace(bad), TypeError, `${JSON.stringify(bad)} must not be saved`);
+    }
+    // The macro survived every one of those, on disk and in memory.
+    assert.equal(new MacroStore(path).list()[0]!.label, "Keep me");
+    assert.equal(store.list()[0]!.label, "Keep me");
+
+    // An empty array still means "I deleted them all", and must go through.
+    assert.deepEqual(store.replace([]), []);
+    assert.deepEqual(new MacroStore(path).list(), []);
+});
+
 test("a hand-edited bare array is accepted as well as the wrapped shape", () => {
     const path = join(dir(), "macros.json");
     writeFileSync(path, JSON.stringify([{ label: "Bare", steps: [{ type: "chord", code: "F5" }] }]));

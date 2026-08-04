@@ -153,6 +153,10 @@ export class MacroStore {
     }
 
     replace(raw: unknown): Macro[] {
+        // cleanMacros turns anything it cannot read into an empty list, which is
+        // the right answer when READING a corrupt file and the wrong one when
+        // WRITING: it would erase every macro. Only a real array may be saved.
+        if (!Array.isArray(raw)) throw new TypeError("macros must be an array");
         this.macros = cleanMacros(raw);
         try {
             writeFileSync(this.path, JSON.stringify({ macros: this.macros }, null, 2));
