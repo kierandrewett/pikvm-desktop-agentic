@@ -55,6 +55,9 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4M12 17h.01" /></svg>
                 </button>
+                <!-- Custom macro buttons, filled from the user's macros.json.
+                     Empty (and invisible) until macros are pinned. -->
+                <span class="tb-macros" id="tb-macros"></span>
                 <!-- ATX power (kvmd api/atx/click). Hidden until the Pi reports that
                      it actually has ATX wiring; the icon colour carries the power LED. -->
                 <button class="tb-btn" id="tb-power" title="Power" aria-label="Power control" hidden>
@@ -215,6 +218,43 @@
                     </div>
                 </div>
 
+                <!-- Macro editor: user-defined input sequences the target receives.
+                     Saved to macros.json beside the app's other settings. -->
+                <div class="dlg-scrim" id="macro-dlg" hidden>
+                    <div class="dlg dlg-wide" role="dialog" aria-modal="true" aria-labelledby="macro-dlg-title">
+                        <h2 class="dlg-title" id="macro-dlg-title">Macros</h2>
+                        <div class="macro-body">
+                            <div class="macro-list" id="macro-list"></div>
+                            <div class="macro-edit" id="macro-edit">
+                                <p class="dlg-note" id="macro-empty">Select a macro, or add one.</p>
+                                <div id="macro-form" hidden>
+                                    <div class="dlg-row">
+                                        <label class="dlg-label" for="macro-label">Name</label>
+                                        <input type="text" id="macro-label" class="dlg-text dlg-grow" maxlength="60" spellcheck="false" />
+                                    </div>
+                                    <div class="dlg-row">
+                                        <label class="dlg-label" for="macro-icon">Button</label>
+                                        <input type="text" id="macro-icon" class="dlg-text" style="width: 5rem" maxlength="2"
+                                            placeholder="⛶" spellcheck="false" />
+                                        <label class="dlg-check"><input type="checkbox" id="macro-pinned" /> Show in the titlebar</label>
+                                    </div>
+                                    <div class="macro-steps" id="macro-steps"></div>
+                                    <div class="dlg-row">
+                                        <button type="button" class="dlg-btn" data-add-step="chord">Add key combo</button>
+                                        <button type="button" class="dlg-btn" data-add-step="text">Add text</button>
+                                        <button type="button" class="dlg-btn" data-add-step="delay">Add pause</button>
+                                        <button type="button" class="dlg-btn" id="macro-delete">Delete macro</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="dlg-actions">
+                            <button type="button" class="dlg-btn" id="macro-new">New macro</button>
+                            <button type="button" class="dlg-btn primary" id="macro-close">Done</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Health + HID recovery: what is wrong, and the buttons that fix the
                      part of it we can fix from here. -->
                 <div class="dlg-scrim" id="health-dlg" hidden>
@@ -359,6 +399,7 @@
                 <button class="more-item" id="msd-btn" hidden>Mass storage…</button>
                 <button class="more-item" id="ocr-btn" hidden>Read text from the screen…</button>
                 <button class="more-item" id="log-btn">PiKVM log…</button>
+                <button class="more-item" id="macro-btn">Macros…</button>
                 <!-- ATX power. Hidden until the Pi reports it actually has the wiring. -->
                 <div class="more-sep" id="atx-sep" hidden></div>
                 <button class="more-item" id="atx-power" data-atx="power" hidden>Power button</button>

@@ -432,6 +432,344 @@
     });
 
     /* ----------------------------------------------------------------- *
+     * Macros: user-defined input the target receives
+     * ----------------------------------------------------------------- */
+
+    /* Stored server-side as macros.json beside the app's other settings, so the
+     * same list reaches desktop and phone and can be hand-edited on disk. A
+     * macro is a list of steps because the useful ones rarely are one chord:
+     * "open the run box, type a path, press enter" is three. */
+    var macros = [];
+    var macroDlg = document.getElementById("macro-dlg");
+    var macroSelected = null; // id being edited
+
+    /** Human-readable chord, e.g. "Ctrl + Shift + S". */
+    function chordLabel(step) {
+        var names = {
+            ControlLeft: "Ctrl",
+            ControlRight: "Ctrl",
+            AltLeft: "Alt",
+            AltRight: "AltGr",
+            ShiftLeft: "Shift",
+            ShiftRight: "Shift",
+            MetaLeft: "Super",
+            MetaRight: "Super",
+        };
+        var parts = (step.mods || []).map(function (m) {
+            return names[m] || m;
+        });
+        parts.push(String(step.code || "").replace(/^Key|^Digit/, ""));
+        return parts.join(" + ");
+    }
+
+    function loadMacros() {
+        return fetch("/_agent/api/macros", { cache: "no-store" })
+            .then(function (r) {
+                return r.ok ? r.json() : { macros: [] };
+            })
+            .then(function (d) {
+                macros = (d && d.macros) || [];
+                paintMacroButtons();
+                paintMacroEditor();
+            })
+            .catch(function () {
+                /* no macros is a fine state; the editor still opens */
+            });
+    }
+
+    function saveMacros() {
+        return fetch("/_agent/api/macros", {
+            method: "PUT",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ macros: macros }),
+        })
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function (d) {
+                // The server normalises (drops empty steps, dedupes ids), so
+                // adopt what it stored rather than what we sent.
+                macros = (d && d.macros) || [];
+                paintMacroButtons();
+                paintMacroEditor();
+            })
+            .catch(function (e) {
+                toast("Could not save macros: " + (e && e.message ? e.message : "network error"), true);
+            });
+    }
+
+    /** Run a macro's steps in order, through the same queue manual keys use. */
+    function runMacro(macro) {
+        if (!macro || agentActing) return;
+        noteManualKvmInput();
+        var i = 0;
+        var next = function () {
+            if (i >= macro.steps.length) return;
+            var step = macro.steps[i++];
+            if (step.type === "chord") {
+                sendChord(step.mods || [], step.code, false);
+                setTimeout(next, 0);
+                return;
+            }
+            if (step.type === "text") {
+                // kvmd types it with its own keymap — faster and layout-correct.
+                fetch("/api/hid/print?limit=0&delay=0.02", {
+                    method: "POST",
+                    cache: "no-store",
+                    headers: { "Content-Type": "text/plain" },
+                    body: step.text,
+                })
+                    .catch(function () {
+                        toast("Macro text failed to send", true);
+                    })
+                    .then(next);
+                return;
+            }
+            if (step.type === "delay") {
+                setTimeout(next, step.ms);
+                return;
+            }
+            next();
+        };
+        next();
+    }
+
+    function paintMacroButtons() {
+        var host = document.getElementById("tb-macros");
+        if (!host) return;
+        host.innerHTML = "";
+        macros
+            .filter(function (m) {
+                return m.pinned !== false;
+            })
+            .forEach(function (m) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "tb-btn";
+                btn.title = m.label;
+                btn.setAttribute("aria-label", m.label);
+                btn.textContent = m.icon || m.label.slice(0, 2).toUpperCase();
+                btn.addEventListener("click", function () {
+                    runMacro(m);
+                });
+                host.appendChild(btn);
+            });
+    }
+
+    /* ---- editor ---- */
+
+    function macroById(id) {
+        for (var i = 0; i < macros.length; i++) if (macros[i].id === id) return macros[i];
+        return null;
+    }
+
+    function paintMacroEditor() {
+        if (!macroDlg || macroDlg.hidden) return;
+        var list = document.getElementById("macro-list");
+        if (list) {
+            list.innerHTML = "";
+            macros.forEach(function (m) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = m.id === macroSelected ? "active" : "";
+                btn.textContent = (m.icon ? m.icon + "  " : "") + m.label;
+                btn.addEventListener("click", function () {
+                    macroSelected = m.id;
+                    paintMacroEditor();
+                });
+                list.appendChild(btn);
+            });
+        }
+        var macro = macroById(macroSelected);
+        var form = document.getElementById("macro-form");
+        var empty = document.getElementById("macro-empty");
+        if (form) form.hidden = !macro;
+        if (empty) empty.hidden = !!macro;
+        if (!macro) return;
+
+        var labelEl = document.getElementById("macro-label");
+        var iconEl = document.getElementById("macro-icon");
+        var pinnedEl = document.getElementById("macro-pinned");
+        if (labelEl && document.activeElement !== labelEl) labelEl.value = macro.label;
+        if (iconEl && document.activeElement !== iconEl) iconEl.value = macro.icon || "";
+        if (pinnedEl) pinnedEl.checked = macro.pinned !== false;
+
+        var steps = document.getElementById("macro-steps");
+        if (!steps) return;
+        steps.innerHTML = "";
+        macro.steps.forEach(function (step, index) {
+            var row = document.createElement("div");
+            row.className = "macro-step";
+            var kind = document.createElement("span");
+            kind.className = "macro-kind";
+            kind.textContent = step.type === "chord" ? "Keys" : step.type === "text" ? "Text" : "Pause";
+            row.appendChild(kind);
+
+            if (step.type === "chord") {
+                // Capture the chord by pressing it, rather than asking the user
+                // to know that "S" is "KeyS".
+                var capture = document.createElement("button");
+                capture.type = "button";
+                capture.className = "macro-capture";
+                capture.textContent = step.code ? chordLabel(step) : "Click, then press the keys";
+                capture.addEventListener("click", function () {
+                    capture.classList.add("capturing");
+                    capture.textContent = "Press the keys…";
+                    var onKey = function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (/^(Control|Alt|Meta|Shift)(Left|Right)?$/.test(e.code)) return;
+                        step.mods = [];
+                        if (e.ctrlKey) step.mods.push("ControlLeft");
+                        if (e.altKey) step.mods.push("AltLeft");
+                        if (e.metaKey) step.mods.push("MetaLeft");
+                        if (e.shiftKey) step.mods.push("ShiftLeft");
+                        step.code = e.code;
+                        window.removeEventListener("keydown", onKey, true);
+                        capture.classList.remove("capturing");
+                        void saveMacros();
+                    };
+                    window.addEventListener("keydown", onKey, true);
+                });
+                row.appendChild(capture);
+            } else if (step.type === "text") {
+                var text = document.createElement("input");
+                text.type = "text";
+                text.className = "dlg-text dlg-grow";
+                text.value = step.text || "";
+                text.addEventListener("change", function () {
+                    step.text = text.value;
+                    void saveMacros();
+                });
+                row.appendChild(text);
+            } else {
+                var ms = document.createElement("input");
+                ms.type = "number";
+                ms.className = "dlg-text";
+                ms.style.width = "7rem";
+                ms.min = "10";
+                ms.max = "10000";
+                ms.value = String(step.ms || 200);
+                ms.addEventListener("change", function () {
+                    step.ms = Number(ms.value) || 200;
+                    void saveMacros();
+                });
+                row.appendChild(ms);
+                var unit = document.createElement("span");
+                unit.className = "dlg-hint";
+                unit.textContent = "ms";
+                row.appendChild(unit);
+            }
+
+            var remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "dlg-btn";
+            remove.textContent = "Remove";
+            remove.addEventListener("click", function () {
+                macro.steps.splice(index, 1);
+                if (!macro.steps.length) macro.steps.push({ type: "chord", mods: [], code: "" });
+                void saveMacros();
+            });
+            row.appendChild(remove);
+            steps.appendChild(row);
+        });
+    }
+
+    function openMacroEditor() {
+        if (!macroDlg) return;
+        macroDlg.hidden = false;
+        if (!macroSelected && macros.length) macroSelected = macros[0].id;
+        paintMacroEditor();
+    }
+    function closeMacroEditor() {
+        if (macroDlg) macroDlg.hidden = true;
+        refocusKbd();
+    }
+    function macroEditorOpen() {
+        return !!(macroDlg && !macroDlg.hidden);
+    }
+
+    (function wireMacroEditor() {
+        var close = document.getElementById("macro-close");
+        if (close) close.addEventListener("click", closeMacroEditor);
+        var add = document.getElementById("macro-new");
+        if (add) {
+            add.addEventListener("click", function () {
+                var macro = {
+                    id: "macro-" + Date.now().toString(36),
+                    label: "New macro",
+                    icon: "",
+                    pinned: true,
+                    steps: [{ type: "chord", mods: [], code: "" }],
+                };
+                macros.push(macro);
+                macroSelected = macro.id;
+                // Not saved yet: a step with no key is dropped by the server's
+                // validation, so it only persists once it does something.
+                paintMacroEditor();
+            });
+        }
+        ["macro-label", "macro-icon"].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener("change", function () {
+                var macro = macroById(macroSelected);
+                if (!macro) return;
+                if (id === "macro-label") macro.label = el.value.trim() || "Macro";
+                else macro.icon = el.value.trim();
+                void saveMacros();
+            });
+        });
+        var pinned = document.getElementById("macro-pinned");
+        if (pinned) {
+            pinned.addEventListener("change", function () {
+                var macro = macroById(macroSelected);
+                if (!macro) return;
+                macro.pinned = pinned.checked;
+                void saveMacros();
+            });
+        }
+        document.querySelectorAll("[data-add-step]").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var macro = macroById(macroSelected);
+                if (!macro) return;
+                var kind = btn.getAttribute("data-add-step");
+                if (kind === "chord") macro.steps.push({ type: "chord", mods: [], code: "" });
+                else if (kind === "text") macro.steps.push({ type: "text", text: "" });
+                else macro.steps.push({ type: "delay", ms: 200 });
+                paintMacroEditor();
+            });
+        });
+        var del = document.getElementById("macro-delete");
+        if (del) {
+            del.addEventListener("click", function () {
+                var macro = macroById(macroSelected);
+                if (!macro) return;
+                if (!window.confirm('Delete the macro "' + macro.label + '"?')) return;
+                macros = macros.filter(function (m) {
+                    return m.id !== macro.id;
+                });
+                macroSelected = macros.length ? macros[0].id : null;
+                void saveMacros();
+            });
+        }
+        if (macroDlg) {
+            macroDlg.addEventListener("mousedown", function (e) {
+                if (e.target === macroDlg) closeMacroEditor();
+            });
+            macroDlg.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeMacroEditor();
+                }
+            });
+        }
+        void loadMacros();
+    })();
+
+    /* ----------------------------------------------------------------- *
      * Pi log (kvmd api/log)
      * ----------------------------------------------------------------- */
 
@@ -1707,6 +2045,8 @@
     if (ocrBtn) ocrBtn.addEventListener("click", startOcrPick);
     var logBtn = document.getElementById("log-btn");
     if (logBtn) logBtn.addEventListener("click", openLogDialog);
+    var macroBtn = document.getElementById("macro-btn");
+    if (macroBtn) macroBtn.addEventListener("click", openMacroEditor);
     if (pasteText) pasteText.addEventListener("input", paintPasteCount);
     if (pasteSend) pasteSend.addEventListener("click", sendPaste);
     var pasteCancel = document.getElementById("paste-cancel");
@@ -1738,6 +2078,7 @@
             (healthDlg && !healthDlg.hidden) ||
             (msdDlg && !msdDlg.hidden) ||
             (logDlg && !logDlg.hidden) ||
+            macroEditorOpen() ||
             ocrDialogOpen()
         );
     }
@@ -4093,6 +4434,7 @@
             if (msd.available()) items.push({ id: "msd", label: "Mass storage…" });
             if (ocrAvailable()) items.push({ id: "ocr", label: "Read text from the screen…" });
             items.push({ id: "log", label: "PiKVM log…" });
+            items.push({ id: "macros", label: "Macros…" });
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
                 items.push({ type: "separator" });
@@ -4143,6 +4485,14 @@
             }
             if (id === "log") {
                 openLogDialog();
+                return;
+            }
+            if (id === "macros") {
+                openMacroEditor();
+                return;
+            }
+            if (id.indexOf("macro:") === 0) {
+                runMacro(macroById(id.slice(6)));
                 return;
             }
             switch (id) {
@@ -4254,7 +4604,14 @@
                 // Paste sits at the top of the "send to target" menu: it is the same
                 // idea as a shortcut (keystrokes the target receives) and it is the
                 // one people hunt for.
-                var items = [{ id: "paste", label: "Paste text…" }, { type: "separator" }];
+                var items = [{ id: "paste", label: "Paste text…" }];
+                if (macros.length) {
+                    items.push({ type: "separator" });
+                    macros.forEach(function (m) {
+                        items.push({ id: "macro:" + m.id, label: m.label });
+                    });
+                }
+                items.push({ type: "separator" });
                 dc.popupMenu(
                     items.concat(
                         KVM_SHORTCUTS.map(function (s) {

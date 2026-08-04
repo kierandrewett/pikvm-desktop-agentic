@@ -13,6 +13,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
+import { resolve } from "node:path";
 import type { PiKvmControl } from "./pikvm-control";
 import { createPiKvmProxy } from "./proxy";
 import { createDaemonProxy } from "./daemon-proxy";
@@ -22,6 +23,7 @@ import { MouseJiggler } from "./mouse-jiggler";
 import { webAssets, DESKTOP_SHELL_COOKIE } from "./web-assets";
 import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
 import type { SettingsStore } from "./settings";
+import { MacroStore } from "./macros";
 
 export interface ServerDeps {
     /** PiKVM control core — the proxy reads its target (origin + auth) from here, and
@@ -54,6 +56,9 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 export function startControlServer(deps: ServerDeps, port: number, host = "127.0.0.1"): ReturnType<typeof createServer> {
     const { control, settings } = deps;
+    // User macros live beside the other settings so they can be hand-edited and
+    // copied between machines. Served here so web and desktop share one list.
+    const macros = new MacroStore(resolve(settings.dir(), "macros.json"));
     // Idle mouse-jiggler: keeps the target awake when nobody's driving. It tracks the
     // user's cursor off the proxied HID socket (onHidActivity) and restores the exact
     // position. With no agent there is nothing to hold off for, so it's never "busy".
@@ -184,6 +189,21 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         }
 
         if (path === "/api/state" && req.method === "GET") return json(res, 200, state());
+
+        if (path === "/api/macros" && req.method === "GET") return json(res, 200, { macros: macros.list() });
+        if (path === "/api/macros" && req.method === "PUT") {
+            void readBody(req).then((body) => {
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(body);
+                } catch {
+                    return json(res, 400, { error: "Invalid JSON" });
+                }
+                const list = Array.isArray(parsed) ? parsed : (parsed as { macros?: unknown })?.macros;
+                return json(res, 200, { macros: macros.replace(list) });
+            });
+            return;
+        }
 
         json(res, 404, { error: "Not found" });
     });

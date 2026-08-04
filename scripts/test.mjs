@@ -20,6 +20,7 @@ try {
             resolve(root, "tests/cdp-inspector.test.ts"),
             resolve(root, "tests/mouse-jiggler.test.ts"),
             resolve(root, "tests/key-chord.test.ts"),
+            resolve(root, "tests/macros.test.ts"),
         ],
         outdir: output,
         platform: "node",
