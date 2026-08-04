@@ -526,8 +526,8 @@ html.desktop-console.win-blur .screen {
     transform: translate(-50%, 0);
 }
 .toast.is-error {
-    border-color: color-mix(in srgb, var(--destructive, #e5484d) 55%, var(--border));
-    color: color-mix(in srgb, var(--destructive, #e5484d) 88%, var(--foreground));
+    border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+    color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
 }
 
 /* Power (ATX) state on the titlebar button: green when the target is powered,
@@ -1080,4 +1080,102 @@ html.desktop-console .app.computer-collapsed .screen {
     html.desktop-console .chat-resize::after {
         transition: none;
     }
+}
+
+/* ---- modal dialog (paste-as-keys; the pattern later parity work reuses) ---- */
+.dlg-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: color-mix(in srgb, #000 52%, transparent);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+}
+.dlg-scrim[hidden] {
+    display: none;
+}
+.dlg {
+    width: min(560px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+}
+.dlg-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+}
+.dlg-input {
+    width: 100%;
+    resize: vertical;
+    padding: 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    outline: none;
+}
+.dlg-input:focus {
+    border-color: var(--primary);
+}
+.dlg-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.dlg-label {
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+.dlg-select {
+    padding: 5px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+}
+.dlg-hint {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+.dlg-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.dlg-btn {
+    padding: 7px 14px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.dlg-btn:hover {
+    background: color-mix(in srgb, var(--foreground) 8%, var(--background));
+}
+.dlg-btn.primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-foreground);
+}
+.dlg-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
 }

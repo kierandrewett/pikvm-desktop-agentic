@@ -52,10 +52,11 @@ Ordered by how much a KVM operator actually reaches for it.
 - [x] **Pi-side mouse jiggler** — `hid.jiggler.{enabled,active}` + `set_params?jiggler=`.
       Runs on the Pi, so the target stays awake even with our app closed. Our own
       nudger stays as the fallback for boards that do not expose it.
-- [x] **ATX power control** — power / power_long / reset, plus the power and HDD LEDs.
-      The single most-reached-for feature on a KVM and we have none of it.
-- [ ] **Paste text into the target** — `api/hid/print`. The control core already has
-      `printText()`; the console has no way to reach it.
+- [x] **ATX power control** — power / power_long / reset, with the power LED on the
+      titlebar button. Confirms before every action; 409 means another client has it.
+- [x] **Paste text into the target** — `api/hid/print`, prefilled from the host
+      clipboard. kvmd types it with its own keymap, so it is layout-correct and far
+      faster than sending it key by key.
 - [ ] **Stream controls** — quality, desired FPS, resolution, orientation, stream reset.
 - [ ] **Health and status LEDs** — link, video, HID keyboard/mouse, fan, overheating,
       undervoltage. Cheap to add and tells the operator why something is wrong.

@@ -119,6 +119,26 @@
                      the bottom so it never collides with the resolution toast above. -->
                 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+                <!-- Paste-as-keys (kvmd api/hid/print): the Pi types the whole string
+                     using its own keymap, which is layout-correct and far faster than
+                     sending it key by key. Prefilled from the host clipboard. -->
+                <div class="dlg-scrim" id="paste-dlg" hidden>
+                    <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="paste-dlg-title">
+                        <h2 class="dlg-title" id="paste-dlg-title">Paste text to the target</h2>
+                        <textarea id="paste-text" class="dlg-input" rows="6" spellcheck="false"
+                            placeholder="Text to type on the target…"></textarea>
+                        <div class="dlg-row">
+                            <label class="dlg-label" for="paste-keymap">Keymap</label>
+                            <select id="paste-keymap" class="dlg-select"></select>
+                            <span class="dlg-hint" id="paste-count"></span>
+                        </div>
+                        <div class="dlg-actions">
+                            <button type="button" class="dlg-btn" id="paste-cancel">Cancel</button>
+                            <button type="button" class="dlg-btn primary" id="paste-send">Paste</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="overlay" role="status" aria-live="polite">
                     <div class="stream-state">
                         <div class="stream-state-icon" aria-hidden="true">
@@ -168,6 +188,8 @@
                     <span>Microphone</span><span class="more-pip" id="mic-pip">Off</span>
                 </button>
                 <div class="more-sep" id="av-sep" hidden></div>
+                <!-- Paste-as-keys: kvmd types the string with its own keymap. -->
+                <button class="more-item" id="paste-btn">Paste text to the target…</button>
                 <!-- ATX power. Hidden until the Pi reports it actually has the wiring. -->
                 <div class="more-sep" id="atx-sep" hidden></div>
                 <button class="more-item" id="atx-power" data-atx="power" hidden>Power button</button>

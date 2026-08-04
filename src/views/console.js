@@ -105,6 +105,9 @@
      * HID WebSocket client — same protocol as src/pikvm-control.ts
      * ----------------------------------------------------------------- */
 
+    /** kvmd's own keymap set ({default, available}) from the hid_keymaps event. */
+    var kvmdKeymaps = null;
+
     var hid = (function () {
         var ws = null;
         var open = false;
@@ -170,6 +173,9 @@
                     // ATX power state: {enabled, busy, leds:{power, hdd}}. Deltas are
                     // partial, so the module merges rather than replaces.
                     if (d && d.event_type === "atx") atx.setState(ed);
+                    // The Pi's configured keymaps — paste-as-keys needs the name kvmd
+                    // itself uses, not our send-side US/UK layout.
+                    if (d && d.event_type === "hid_keymaps" && ed && ed.keymaps) kvmdKeymaps = ed.keymaps;
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
@@ -414,6 +420,135 @@
             tb.title = !show ? "Power" : busy ? "Power — busy" : powered ? "Power — target is on" : "Power — target is off";
         }
     });
+
+    /* ----------------------------------------------------------------- *
+     * Paste as keys (kvmd api/hid/print)
+     * ----------------------------------------------------------------- */
+
+    /* kvmd types the whole string itself using its configured keymap. That is both
+     * far faster than sending it key by key over the HID socket and layout-correct,
+     * because kvmd owns the Shift/AltGr decisions rather than our US/UK map. */
+    var pasteDlg = document.getElementById("paste-dlg");
+    var pasteText = document.getElementById("paste-text");
+    var pasteKeymap = document.getElementById("paste-keymap");
+    var pasteCount = document.getElementById("paste-count");
+    var pasteSend = document.getElementById("paste-send");
+
+    function paintPasteCount() {
+        if (!pasteCount || !pasteText) return;
+        var n = pasteText.value.length;
+        pasteCount.textContent = n ? n + (n === 1 ? " character" : " characters") : "";
+        if (pasteSend) pasteSend.disabled = !n;
+    }
+    function fillKeymaps() {
+        if (!pasteKeymap) return;
+        var km = kvmdKeymaps || {};
+        var avail = km.available && km.available.length ? km.available : km["default"] ? [km["default"]] : [];
+        // Only rebuild when the set actually changed, so the user's pick survives.
+        var key = avail.join(",");
+        if (pasteKeymap.getAttribute("data-set") === key) return;
+        pasteKeymap.setAttribute("data-set", key);
+        pasteKeymap.innerHTML = "";
+        for (var i = 0; i < avail.length; i++) {
+            var o = document.createElement("option");
+            o.value = avail[i];
+            o.textContent = avail[i];
+            if (avail[i] === km["default"]) o.selected = true;
+            pasteKeymap.appendChild(o);
+        }
+        pasteKeymap.disabled = avail.length < 2;
+    }
+    function closePaste() {
+        if (pasteDlg) pasteDlg.hidden = true;
+        refocusKbd();
+    }
+    function openPasteDialog() {
+        if (!pasteDlg || !pasteText) return;
+        fillKeymaps();
+        pasteText.value = "";
+        paintPasteCount();
+        pasteDlg.hidden = false;
+        pasteText.focus();
+        // Prefill from the host clipboard — pasting what you just copied is the whole
+        // point. Needs a secure context and permission, so a refusal is not an error:
+        // the box is still there to type or Ctrl+V into.
+        if (navigator.clipboard && navigator.clipboard.readText) {
+            navigator.clipboard
+                .readText()
+                .then(function (t) {
+                    if (t && !pasteText.value) {
+                        pasteText.value = t;
+                        pasteText.select();
+                        paintPasteCount();
+                    }
+                })
+                .catch(function () {});
+        }
+    }
+    function sendPaste() {
+        if (!pasteText) return;
+        var text = pasteText.value;
+        if (!text) return;
+        var keymap = pasteKeymap && pasteKeymap.value ? pasteKeymap.value : null;
+        var q = ["limit=0"];
+        if (keymap) q.push("keymap=" + encodeURIComponent(keymap));
+        // 20ms between keys — kvmd's own default, and slow enough that a target under
+        // load does not drop characters.
+        q.push("delay=0.02");
+        if (pasteSend) pasteSend.disabled = true;
+        fetch("/api/hid/print?" + q.join("&"), {
+            method: "POST",
+            cache: "no-store",
+            headers: { "Content-Type": "text/plain" },
+            body: text,
+        })
+            .then(function (r) {
+                if (r.status === 413) {
+                    toast("That is too much text for one paste.", true);
+                    return;
+                }
+                if (!r.ok) {
+                    toast("Paste failed (" + r.status + ")", true);
+                    return;
+                }
+                closePaste();
+                toast("Typed " + text.length + (text.length === 1 ? " character" : " characters") + " on the target");
+            })
+            .catch(function (e) {
+                toast("Paste failed: " + (e && e.message ? e.message : "network error"), true);
+            })
+            .then(function () {
+                if (pasteSend) pasteSend.disabled = false;
+            });
+    }
+    var pasteBtn = document.getElementById("paste-btn");
+    if (pasteBtn) pasteBtn.addEventListener("click", openPasteDialog);
+    if (pasteText) pasteText.addEventListener("input", paintPasteCount);
+    if (pasteSend) pasteSend.addEventListener("click", sendPaste);
+    var pasteCancel = document.getElementById("paste-cancel");
+    if (pasteCancel) pasteCancel.addEventListener("click", closePaste);
+    if (pasteDlg) {
+        // Click the scrim (not the panel) to dismiss.
+        pasteDlg.addEventListener("mousedown", function (e) {
+            if (e.target === pasteDlg) closePaste();
+        });
+        // The dialog's own keys are LOCAL: Esc closes, Ctrl/Cmd+Enter sends. They must
+        // not reach the KVM forwarder, which would type them on the target.
+        pasteDlg.addEventListener("keydown", function (e) {
+            if (e.key === "Escape") {
+                e.stopPropagation();
+                closePaste();
+            } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.stopPropagation();
+                e.preventDefault();
+                sendPaste();
+            }
+        });
+    }
+    /** True while the paste dialog owns the keyboard. */
+    function pasteDialogOpen() {
+        return !!(pasteDlg && !pasteDlg.hidden);
+    }
 
     function runAtxAction(id) {
         for (var i = 0; i < ATX_ACTIONS.length; i++) {
@@ -2419,6 +2554,9 @@
         // key — this only fires for KVM-destined input. We skip our own editable fields.
         document.addEventListener("keydown", function (e) {
             if (!windowFocused) return;
+            // A modal owns the keyboard while it is up — forwarding here would type
+            // the dialog's own keystrokes onto the target as well.
+            if (pasteDialogOpen()) return;
             var t = e.target;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
             if (blockKvmInput(e)) return;
@@ -2567,6 +2705,8 @@
                 items.push({ id: "audio", label: "Audio output", type: "checkbox", checked: audioOn });
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
             }
+            items.push({ type: "separator" });
+            items.push({ id: "paste", label: "Paste text to the target…" });
             if (atx.available()) {
                 items.push({ type: "separator" });
                 for (var a = 0; a < ATX_ACTIONS.length; a++) {
@@ -2590,6 +2730,10 @@
             }
             if (id.indexOf("atx:") === 0) {
                 runAtxAction(id.slice(4));
+                return;
+            }
+            if (id === "paste") {
+                openPasteDialog();
                 return;
             }
             switch (id) {
@@ -2695,10 +2839,16 @@
             tbKeys.addEventListener("click", function (e) {
                 e.stopPropagation();
                 var r = tbKeys.getBoundingClientRect();
+                // Paste sits at the top of the "send to target" menu: it is the same
+                // idea as a shortcut (keystrokes the target receives) and it is the
+                // one people hunt for.
+                var items = [{ id: "paste", label: "Paste text…" }, { type: "separator" }];
                 dc.popupMenu(
-                    KVM_SHORTCUTS.map(function (s) {
-                        return { id: "kb:" + s.id, label: s.label };
-                    }),
+                    items.concat(
+                        KVM_SHORTCUTS.map(function (s) {
+                            return { id: "kb:" + s.id, label: s.label };
+                        }),
+                    ),
                     { x: r.left, y: r.bottom },
                 );
             });
