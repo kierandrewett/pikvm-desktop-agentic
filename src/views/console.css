@@ -579,7 +579,9 @@ html.modal-open .screen {
     color: var(--foreground);
 }
 .tb-btn.atx-busy {
-    color: #d29922;
+    /* Was a hardcoded amber that ignored the theme; --warn is darker in the
+       light palette precisely so it still reads against a light titlebar. */
+    color: var(--warn);
 }
 .res-toast-av:empty {
     display: none;
@@ -628,7 +630,11 @@ html.modal-open .screen {
     display: none;
     align-items: center;
     justify-content: center;
-    color: var(--foreground);
+    /* This overlay is near-black in BOTH themes because it covers the video
+       area, where a light panel would be wrong. So its text cannot follow
+       --foreground: in the light theme that is near-black too, and "Connecting
+       to computer" dropped to 1.12:1 — invisible. Fixed light text instead. */
+    color: #ededf1;
     background:
         radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--card) 74%, transparent), transparent 42%),
         #07080a;
