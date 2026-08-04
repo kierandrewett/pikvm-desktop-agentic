@@ -310,12 +310,25 @@
      * any human burst, so it stays crystal-smooth AND correct. */
     var keyQ = [];
     var keyBusy = false;
-    var KEY_HOLD = 11;
-    var KEY_GAP = 2;
+    /* The target reads the USB HID gadget on a polling interval (5-10ms is typical).
+     * A press whose down AND up both land between two polls is never seen at all — the
+     * host just reads "nothing pressed" and the keystroke vanishes. The old 11ms hold
+     * sat right on that boundary, which is a good part of why keys felt like they
+     * landed "sometimes". 22ms spans several polls with room to spare and still allows
+     * ~36 keys/s, far beyond any human burst. */
+    var KEY_HOLD = 22;
+    var KEY_GAP = 4;
+    /* Modifiers get their own report, settled, BEFORE the key goes down. Sending both
+     * in the same instant lets them coalesce into one report, and some targets (BIOS,
+     * UEFI, KVM switches) then apply the key without the modifier. */
+    var KEY_MOD_SETTLE = 6;
     function sendChord(mods, codeName, shift) {
         if (agentActing) return;
         var m = (mods || []).slice();
-        if (shift) m.push("ShiftLeft");
+        // Shift can arrive twice — once from the caller's flag, once from an armed
+        // on-screen Shift. Pressing the same physical key twice leaves it stuck down
+        // on the target, so fold them into one.
+        if (shift && m.indexOf("ShiftLeft") < 0 && m.indexOf("ShiftRight") < 0) m.push("ShiftLeft");
         keyQ.push({ mods: m, code: codeName });
         if (keyQ.length > 600) keyQ.shift(); // never let a runaway queue grow unbounded
         if (!keyBusy) drainKeys();
@@ -328,12 +341,17 @@
         keyBusy = true;
         var op = keyQ.shift();
         for (var i = 0; i < op.mods.length; i++) hid.key(op.mods[i], true);
-        hid.key(op.code, true);
-        setTimeout(function () {
-            hid.key(op.code, false);
-            for (var j = op.mods.length - 1; j >= 0; j--) hid.key(op.mods[j], false);
-            setTimeout(drainKeys, KEY_GAP);
-        }, KEY_HOLD);
+        setTimeout(
+            function () {
+                hid.key(op.code, true);
+                setTimeout(function () {
+                    hid.key(op.code, false);
+                    for (var j = op.mods.length - 1; j >= 0; j--) hid.key(op.mods[j], false);
+                    setTimeout(drainKeys, KEY_GAP);
+                }, KEY_HOLD);
+            },
+            op.mods.length ? KEY_MOD_SETTLE : 0,
+        );
     }
     /** A bare key (with any armed sticky modifiers). */
     function sendCode(codeName) {
@@ -1624,46 +1642,65 @@
     );
 
     /* ---- keyboard input via the hidden field ---- */
-    var CONTROL_KEYS = {
-        Enter: "Enter",
-        Backspace: "Backspace",
-        Tab: "Tab",
-        Escape: "Escape",
-        Delete: "Delete",
-        Home: "Home",
-        End: "End",
-        PageUp: "PageUp",
-        PageDown: "PageDown",
-        ArrowUp: "ArrowUp",
-        ArrowDown: "ArrowDown",
-        ArrowLeft: "ArrowLeft",
-        ArrowRight: "ArrowRight",
-    };
-    var lastKey = { code: "", ts: 0 };
-    function dedupe(codeName) {
+    /* What a keydown means (chord / character / swallow) is decided by key-chord.js —
+     * pure, shared by both keyboard paths, and covered by tests. This file keeps the
+     * parts that need the DOM and the socket: gating, dedupe, and the send queue. */
+    var KeyChord = window.KeyChord;
+    /* One physical press can reach us twice (keydown AND the beforeinput fallback that
+     * soft keyboards need), so a same-key guard is needed. It has to be exact, though:
+     * keyed on the code alone it also swallowed Shift+Enter typed straight after Enter,
+     * and every OS auto-repeat faster than 60ms while a key was held — which is most of
+     * them. So the identity includes the modifiers, and a repeat event always passes. */
+    var lastKey = { code: "", id: "", ts: 0 };
+    var DEDUPE_MS = 60;
+    /** Auto-repeat throttle. A held key repeats at the HOST's rate, which can be as low
+     *  as 15ms and outrun the send queue — the target would then carry on receiving the
+     *  key well after it was released. Admitting a repeat only once the queue is nearly
+     *  drained makes a held key track the drain rate instead of building a backlog. */
+    function admitRepeat() {
+        return keyQ.length < 2;
+    }
+    function dedupe(codeName, mods, repeat) {
+        if (repeat) return admitRepeat(); // genuine OS auto-repeat, not a double-fire
+        var id = codeName + "|" + (mods || []).slice().sort().join("+");
         var now = Date.now();
-        if (lastKey.code === codeName && now - lastKey.ts < 60) return false;
-        lastKey = { code: codeName, ts: now };
+        if (lastKey.id === id && now - lastKey.ts < DEDUPE_MS) return false;
+        lastKey = { code: codeName, id: id, ts: now };
         return true;
+    }
+    /** True if ANY chord on this physical key just went out. The beforeinput fallback
+     *  uses this so it never re-sends what keydown already handled with a modifier. */
+    function recentlySent(codeName) {
+        return lastKey.code === codeName && Date.now() - lastKey.ts < DEDUPE_MS;
+    }
+    /** Record a send that didn't go through dedupe (the beforeinput fallback), so a
+     *  repeat of the same event is still caught. */
+    function noteSent(codeName) {
+        lastKey = { code: codeName, id: codeName + "|", ts: Date.now() };
+    }
+    /**
+     * Act on a decided keydown. Shared by both keyboard paths so the gating, the
+     * dedupe and the queue behave identically whichever one is live.
+     * `printable` is false for the hidden field, where beforeinput produces characters.
+     */
+    function handleKeydown(e, printable) {
+        var d = KeyChord.decide(e, { armed: armedList(), printable: printable });
+        if (d.kind === "ignore") return;
+        e.preventDefault();
+        if (d.kind === "swallow") return;
+        if (d.kind === "char") {
+            // Printable keys carry no dedupe (a fast "aaa" must all land), so only the
+            // repeat throttle applies.
+            if (!e.repeat || admitRepeat()) sendChar(d.char);
+            return;
+        }
+        if (dedupe(d.code, d.mods, e.repeat)) sendChord(d.mods, d.code, false);
+        clearArmed();
     }
     kbd.addEventListener("keydown", function (e) {
         if (blockKvmInput(e)) return;
         noteManualKvmInput();
-        var ctrlAltMeta = e.ctrlKey || e.altKey || e.metaKey;
-        var ctl = CONTROL_KEYS[e.code] || CONTROL_KEYS[e.key];
-        if (/^F\d{1,2}$/.test(e.code)) ctl = e.code;
-        if (ctl) {
-            e.preventDefault();
-            if (dedupe(ctl)) sendChord(modsFromEvent(e).concat(armedList()), ctl, false);
-            clearArmed();
-            return;
-        }
-        if (ctrlAltMeta && e.code && !/^(Control|Alt|Meta|Shift)/.test(e.code)) {
-            // Hardware chord (Ctrl+C etc.) — the printable path is suppressed.
-            e.preventDefault();
-            if (dedupe(e.code)) sendChord(modsFromEvent(e).concat(armedList()), e.code, e.shiftKey);
-            clearArmed();
-        }
+        handleKeydown(e, false);
     });
     kbd.addEventListener("beforeinput", function (e) {
         if (blockKvmInput(e)) return;
@@ -1672,10 +1709,18 @@
             for (var i = 0; i < e.data.length; i++) sendChar(e.data[i]);
             e.preventDefault();
         } else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
-            if (dedupe("Enter")) sendCode("Enter");
+            // Soft-keyboard fallback only. Match on the CODE, not the full chord, so a
+            // Shift+Enter that keydown already sent isn't followed by a bare Enter.
+            if (!recentlySent("Enter")) {
+                noteSent("Enter");
+                sendCode("Enter");
+            }
             e.preventDefault();
         } else if (e.inputType === "deleteContentBackward") {
-            if (dedupe("Backspace")) sendCode("Backspace");
+            if (!recentlySent("Backspace")) {
+                noteSent("Backspace");
+                sendCode("Backspace");
+            }
             e.preventDefault();
         }
         kbd.value = "";
@@ -2214,42 +2259,10 @@
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
             if (blockKvmInput(e)) return;
             noteManualKvmInput();
-            if (e.isComposing) return;
-            var code = e.code;
-            if (!code) return;
-            if (/^(Control|Alt|Meta|Shift)(Left|Right)?$/.test(code)) return; // bare modifier rides the chord
-            // Caps Lock: NEVER forward it. We hold the target's Caps Lock OFF (the LED
-            // watcher turns it off if it drifts on) and produce letter case purely from
-            // the HOST's e.key via Shift — synchronous and exact, so a fast caps toggle
-            // can't race a laggy target LED. The host's own caps still flips e.key's case.
-            if (code === "CapsLock") {
-                e.preventDefault();
-                return;
-            }
-            var mods = modsFromEvent(e).concat(armedList());
-            var ctl = CONTROL_KEYS[code] || CONTROL_KEYS[e.key] || (/^F\d{1,2}$/.test(code) ? code : null);
-            if (ctl) {
-                e.preventDefault();
-                if (dedupe(ctl)) sendChord(mods, ctl, false);
-                clearArmed();
-                return;
-            }
-            if (e.ctrlKey || e.altKey || e.metaKey) {
-                e.preventDefault();
-                if (dedupe(code)) sendChord(mods, code, e.shiftKey);
-                clearArmed();
-                return;
-            }
-            // Printable: send the produced character (e.key already reflects the host's
-            // Shift + Caps Lock, so the case is correct on the caps-off target).
-            if (e.key && e.key.length === 1) {
-                e.preventDefault();
-                sendChar(e.key);
-            } else if (dedupe(code)) {
-                e.preventDefault();
-                sendChord(mods, code, e.shiftKey);
-                clearArmed();
-            }
+            // Printable keys are ours here (there is no hidden field in play), so the
+            // produced character goes through — e.key already reflects the host's Shift
+            // and Caps Lock, which is why the case is right on the caps-off target.
+            handleKeydown(e, true);
         });
 
         // The MAIN desktop window keeps the original ui.html titlebar ABOVE the
