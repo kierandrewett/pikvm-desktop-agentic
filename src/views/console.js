@@ -2186,6 +2186,11 @@
         document.querySelectorAll(".dlg-scrim").forEach(function (el) {
             document.body.appendChild(el);
         });
+        // The general toast goes with them: most of what it reports is fired FROM
+        // a dialog, so leaving it in the pane hid it behind them. The RESOLUTION
+        // toast stays put — it is about the stream, and no dialog raises it.
+        var toastNode = document.getElementById("toast");
+        if (toastNode) document.body.appendChild(toastNode);
     })();
 
     /** The dialog currently up, or null. */

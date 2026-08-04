@@ -261,12 +261,22 @@ body {
     z-index: 100;
     display: none;
     flex-direction: column;
-    min-width: 200px;
+    min-width: 208px;
     background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+    /* The dialogs' treatment: one hairline ring plus a lift, rather than a
+       border and a heavy shadow doing the same job twice. */
+    border: 0;
+    border-radius: 10px;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+        0 12px 32px -8px rgb(0 0 0 / 55%);
     padding: 5px;
+    animation: dlg-rise 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+    .more-menu {
+        animation: none;
+    }
 }
 .more-menu.open {
     display: flex;
@@ -277,13 +287,18 @@ body {
     background: transparent;
     color: var(--foreground);
     text-align: left;
-    padding: 10px 11px;
-    border-radius: 8px;
-    font-size: 13.5px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     text-decoration: none;
     display: block;
+    transition: background 0.12s;
+}
+.more-item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 45%, transparent);
 }
 .more-item:active,
 .more-item:hover {
@@ -522,6 +537,11 @@ html.modal-open .screen {
 /* The general toast sits at the BOTTOM so a power message and a resolution
    change can be on screen at the same time without overlapping. */
 .toast {
+    /* Window-level and above the dialogs. Most of what this reports is fired FROM
+       a dialog ("Macro saved", "Paste failed"), so at pane level and z-index 7 it
+       rendered invisibly behind them. */
+    position: fixed;
+    z-index: 70;
     top: auto;
     bottom: max(14px, env(safe-area-inset-bottom));
     transform: translate(-50%, 10px);
