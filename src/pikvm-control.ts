@@ -81,6 +81,11 @@ export function isAltTabPeekHotkey(codes: readonly string[]): boolean {
     return parseAltTabPeekHotkey(codes) !== null;
 }
 
+/** Default keep-awake nudge, in FRAME PIXELS. Big enough that the target OS registers
+ *  a real pointer move (sub-pixel jogs are rounded away and never reset an idle
+ *  timer), small enough to be barely visible if someone is watching. */
+export const NUDGE_PX = 24;
+
 const sleep = (ms: number, signal?: AbortSignal) =>
     new Promise<void>((resolve, reject) => {
         if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
@@ -716,23 +721,40 @@ export class PiKvmControl {
         await this.send("mouse_relative", { delta: { x: Math.round(dx), y: Math.round(dy) }, squash: true });
     }
 
-    /** A tiny keep-awake nudge that lands the cursor back exactly where it started,
-     *  using whichever HID mode the target is actually in. In RELATIVE mode we send a
-     *  delta and its inverse. In ABSOLUTE mode (the common USB-HID default, where
-     *  mouse_relative is silently ignored) we jog a hair off the last-known position
-     *  and move straight back — this is what the old relative-only jiggler missed, so
-     *  absolute targets never got woken and kept sleeping. */
-    async mouseNudge(delta = 10): Promise<void> {
-        const d = Math.round(delta);
+    /** Adopt a cursor position observed on the PROXIED HID stream (the user's own
+     *  client driving the Pi). Without this our idea of the cursor only tracks moves
+     *  WE sent, so a keep-awake nudge would jog off a stale guess and teleport the
+     *  user's pointer instead of netting back to zero. Coordinates are PiKVM
+     *  normalized units (−32768..32767). */
+    noteObservedMouse(x: number, y: number): void {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        this.mouse = { x: this.clampNorm(x), y: this.clampNorm(y) };
+    }
+
+    /** A keep-awake nudge that lands the cursor back exactly where it started, using
+     *  whichever HID mode the target is actually in. In RELATIVE mode we send a delta
+     *  and its inverse. In ABSOLUTE mode (the common USB-HID default, where
+     *  mouse_relative is silently ignored) we jog off the last-known position and move
+     *  straight back.
+     *
+     *  `px` is in FRAME PIXELS, not HID units. The old version passed a raw 10 into the
+     *  normalized ±32767 space, which on a 1920-wide target is 0.3 of a pixel: the
+     *  target rounded it to the same pixel, saw no motion at all, and slept anyway.
+     *  That is the reason the jiggler "did nothing" on absolute targets. */
+    async mouseNudge(px = NUDGE_PX): Promise<void> {
+        const d = Math.max(1, Math.round(px));
         if (this.getMouseMode() === "relative") {
             await this.mouseRelative(d, 0);
-            await new Promise((r) => setTimeout(r, 160));
+            await sleep(160);
             await this.mouseRelative(-d, 0);
             return;
         }
         const { x, y } = this.mouse;
-        await this.sendMove(this.clampNorm(x + d), y);
-        await new Promise((r) => setTimeout(r, 160));
+        // Pixels → normalized units, then jog INWARD so a cursor parked on the right
+        // edge still travels the full distance instead of being clamped to a no-op.
+        const step = this.toNorm(d, this.dims.width) - this.toNorm(0, this.dims.width);
+        await this.sendMove(this.clampNorm(x + (x > 0 ? -step : step)), y);
+        await sleep(160);
         await this.sendMove(x, y);
     }
 
