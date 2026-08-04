@@ -1325,6 +1325,11 @@
             hidConnected: function () {
                 return hidState && hidState.connected !== undefined ? hidState.connected : null;
             },
+            /** Is the Pi's HID gadget up? Some boards report this while leaving
+             *  `connected` null, which is the only signal they give. */
+            hidOnline: function () {
+                return hidState && hidState.online !== undefined ? hidState.online : null;
+            },
             /**
              * Everything currently wrong, worst first. Each is {level, text} where
              * level is "error" or "warn" — an empty list means there is nothing to say.
@@ -1751,13 +1756,22 @@
         paintGpio();
         paintAbout();
 
+        /* This board reports connected:null and online:true — it simply does not
+         * publish an attach flag. Keying the control off `connected` alone left
+         * Detach permanently disabled and the row reading "state unknown", so the
+         * feature was dead on the hardware it ships against. A gadget that is
+         * online IS attached as far as the target is concerned, so treat it that
+         * way and reserve "unknown" for boards that say nothing at all. */
         var connected = health.hidConnected();
+        var online = health.hidOnline();
+        var attached = connected === true || (connected === null && online === true);
+        var known = connected !== null || online !== null;
         var stateEl = document.getElementById("health-hid-state");
-        if (stateEl) stateEl.textContent = connected === null ? "state unknown" : connected ? "attached" : "detached";
+        if (stateEl) stateEl.textContent = !known ? "state unknown" : attached ? "attached" : "detached";
         var toggle = document.getElementById("hid-toggle");
         if (toggle) {
-            toggle.textContent = connected === false ? "Attach" : "Detach";
-            toggle.disabled = connected === null;
+            toggle.textContent = attached ? "Detach" : "Attach";
+            toggle.disabled = !known;
         }
     }
     /* GPIO rows are rebuilt only when the channel set changes; their live state is
@@ -1871,7 +1885,11 @@
         var toggle = document.getElementById("hid-toggle");
         if (toggle) {
             toggle.addEventListener("click", function () {
-                setHidConnected(health.hidConnected() === false);
+                // Mirror the label: whatever it says it will do, do that.
+                var isAttached =
+                    health.hidConnected() === true ||
+                    (health.hidConnected() === null && health.hidOnline() === true);
+                setHidConnected(!isAttached);
             });
         }
         var reset = document.getElementById("hid-reset");
