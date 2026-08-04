@@ -2613,9 +2613,21 @@
     var TERM_W_KEY = "pikvm-chat-workspace-width-v2";
     /* Shared with the divider's ARIA range: a keyboard user is told the same
      * bounds the drag is clamped to, and the two cannot drift apart. */
-    var PANEL_MIN_W = 320;
-    var PANEL_MAX_W = 1100;
-    var PANEL_DEFAULT_W = 400;
+    /* Read from the stylesheet rather than repeated here: the grid enforces the
+     * floor, so if these disagreed the drag would announce a width the layout
+     * refused to render. The fallbacks only matter if the stylesheet has not
+     * applied yet. */
+    function panelBound(name, fallback) {
+        var raw = "";
+        try {
+            raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+        } catch (e) {}
+        var value = parseInt(raw, 10);
+        return isFinite(value) && value > 0 ? value : fallback;
+    }
+    var PANEL_MIN_W = panelBound("--chat-min", 320);
+    var PANEL_MAX_W = panelBound("--chat-max", 1100);
+    var PANEL_DEFAULT_W = panelBound("--chat-default", 400);
     function clampPanelWidth(w) {
         return Math.round(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, Number(w) || PANEL_DEFAULT_W)));
     }
