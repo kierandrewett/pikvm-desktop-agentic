@@ -41,7 +41,8 @@ export type MacroStep = MacroChordStep | MacroTextStep | MacroDelayStep;
 export interface Macro {
     id: string;
     label: string;
-    /** One or two characters drawn on the button — an emoji or initials. */
+    /** Named icon from the console's set (see MACRO_ICONS in console.js).
+     *  Legacy values may be one or two literal characters. */
     icon?: string;
     /** Show it in the titlebar's custom area (otherwise it lives in the menu). */
     pinned?: boolean;
@@ -98,7 +99,10 @@ export function cleanMacros(raw: unknown): Macro[] {
         let id = typeof macro.id === "string" && macro.id.trim() ? macro.id.trim().slice(0, 64) : label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         while (!id || seen.has(id)) id = `${id || "macro"}-${seen.size + 1}`;
         seen.add(id);
-        const icon = typeof macro.icon === "string" ? [...macro.icon.trim()].slice(0, 2).join("") : "";
+        // An icon NAME ("camera") or, for macros written before the picker
+        // existed, one or two literal characters.
+        const rawIcon = typeof macro.icon === "string" ? macro.icon.trim() : "";
+        const icon = /^[a-z][a-z0-9-]{0,23}$/.test(rawIcon) ? rawIcon : [...rawIcon].slice(0, 2).join("");
         out.push({
             id,
             label,
@@ -119,7 +123,7 @@ export const DEFAULT_MACROS: Macro[] = [
     {
         id: "screenshot-region",
         label: "Capture region",
-        icon: "⛶",
+        icon: "camera",
         pinned: true,
         steps: [{ type: "chord", mods: ["AltLeft", "ControlLeft", "ShiftLeft"], code: "KeyS" }],
     },

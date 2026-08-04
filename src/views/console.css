@@ -1100,9 +1100,27 @@ html.desktop-console .app.computer-collapsed .screen {
     align-items: center;
     justify-content: center;
     padding: 20px;
-    background: color-mix(in srgb, #000 52%, transparent);
-    -webkit-backdrop-filter: blur(2px);
-    backdrop-filter: blur(2px);
+    background: color-mix(in srgb, #000 62%, transparent);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    animation: dlg-fade 0.14s ease-out;
+}
+@keyframes dlg-fade {
+    from {
+        opacity: 0;
+    }
+}
+@keyframes dlg-rise {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.985);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dlg-scrim,
+    .dlg {
+        animation: none;
+    }
 }
 .dlg-scrim[hidden] {
     display: none;
@@ -1111,13 +1129,21 @@ html.desktop-console .app.computer-collapsed .screen {
     width: min(560px, 100%);
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 18px;
-    border-radius: 14px;
-    border: 1px solid var(--border);
+    gap: 14px;
+    padding: 20px;
+    border-radius: 12px;
+    /* One hairline ring rather than a border plus a heavy shadow: the ring
+       defines the edge, the shadow only lifts it off the screen behind. */
+    border: 0;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+        0 16px 48px -12px rgb(0 0 0 / 60%);
     background: var(--card);
     color: var(--foreground);
-    box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+    animation: dlg-rise 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.dlg-title {
+    letter-spacing: -0.01em;
 }
 .dlg-title {
     margin: 0;
@@ -1167,17 +1193,39 @@ html.desktop-console .app.computer-collapsed .screen {
     gap: 8px;
 }
 .dlg-btn {
-    padding: 7px 14px;
-    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 8px;
     border: 1px solid var(--border);
-    background: var(--background);
+    background: var(--secondary);
     color: var(--foreground);
     font: inherit;
     font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
+    transition:
+        background 0.12s,
+        border-color 0.12s;
 }
 .dlg-btn:hover {
-    background: color-mix(in srgb, var(--foreground) 8%, var(--background));
+    background: var(--accent);
+    border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
+}
+.dlg-btn:focus-visible,
+.dlg-text:focus-visible,
+.dlg-select:focus-visible,
+.dlg-input:focus-visible,
+.macro-icon:focus-visible,
+.macro-capture:focus-visible {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent);
+}
+.dlg-btn.primary:hover {
+    background: color-mix(in srgb, var(--primary) 88%, #fff);
 }
 .dlg-btn.primary {
     background: var(--primary);
@@ -1475,4 +1523,49 @@ html.desktop-console.agent-detached .screen {
     border-style: solid;
     border-color: var(--primary);
     color: var(--primary);
+}
+
+/* ---- macro icon picker ---- */
+.macro-icons {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+    gap: 6px;
+}
+.macro-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 38px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition:
+        background 0.12s,
+        color 0.12s,
+        border-color 0.12s;
+}
+.macro-icon svg {
+    width: 17px;
+    height: 17px;
+}
+.macro-icon:hover {
+    background: var(--secondary);
+    color: var(--foreground);
+}
+.macro-icon.active {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 16%, transparent);
+    color: var(--primary);
+}
+.macro-list button svg.macro-row-icon {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    color: var(--muted-foreground);
+}
+.tb-macros .tb-btn svg {
+    width: 16px;
+    height: 16px;
 }

@@ -443,6 +443,57 @@
     var macroDlg = document.getElementById("macro-dlg");
     var macroSelected = null; // id being edited
 
+    /* A small set of real icons, so a macro button is picked rather than typed.
+     * Lucide geometry (MIT), inlined because the console ships no icon library
+     * and one <svg> beats a font request. Macros written before the picker may
+     * still carry a literal glyph, which renders as text. */
+    var MACRO_ICONS = {
+        camera: ["M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z", "M12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"],
+        monitor: ["M3 4h18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z", "M8 21h8M12 17v4"],
+        terminal: ["m4 17 6-6-6-6", "M12 19h8"],
+        power: ["M12 2v10", "M18.4 6.6a9 9 0 1 1-12.8 0"],
+        lock: ["M4 11h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z", "M7 11V7a5 5 0 0 1 10 0v4"],
+        refresh: ["M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", "M21 3v5h-5", "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", "M8 16H3v5"],
+        folder: ["M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"],
+        search: ["M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z", "m21 21-4.3-4.3"],
+        clipboard: ["M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2", "M9 2h6a1 1 0 0 1 1 1v3H8V3a1 1 0 0 1 1-1z"],
+        play: ["m6 3 14 9-14 9V3z"],
+        save: ["M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7", "M7 3v4a1 1 0 0 0 1 1h7"],
+        keyboard: ["M2 6h20a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z", "M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"],
+        download: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m7 10 5 5 5-5", "M12 15V3"],
+        upload: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m17 8-5-5-5 5", "M12 3v12"],
+        star: ["M11.5 2.8a.6.6 0 0 1 1 0l2.4 5 5.4.8a.6.6 0 0 1 .3 1l-3.9 3.8.9 5.4a.6.6 0 0 1-.9.6L12 16.9l-4.8 2.5a.6.6 0 0 1-.9-.6l.9-5.4L3.3 9.6a.6.6 0 0 1 .3-1l5.4-.8z"],
+        bell: ["M10.3 21a1.94 1.94 0 0 0 3.4 0", "M21 19H3l1.6-2.4A6 6 0 0 0 6 13V9a6 6 0 0 1 12 0v4a6 6 0 0 0 1.4 3.6z"],
+        copy: ["M10 9h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"],
+        zap: ["M4 14a1 1 0 0 1-.8-1.6l9.4-11a1 1 0 0 1 1.7.9L13 10h6a1 1 0 0 1 .8 1.6l-9.4 11a1 1 0 0 1-1.7-.9L11 14z"],
+        maximize: ["M8 3H5a2 2 0 0 0-2 2v3", "M21 8V5a2 2 0 0 0-2-2h-3", "M3 16v3a2 2 0 0 0 2 2h3", "M16 21h3a2 2 0 0 0 2-2v-3"],
+        command: ["M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"],
+        trash: ["M3 6h18", "M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2", "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"],
+        settings: ["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z", "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"],
+    };
+    var MACRO_ICON_NAMES = Object.keys(MACRO_ICONS);
+
+    /** Build the <svg> for a named icon, or null when it is a legacy glyph. */
+    function macroIconSvg(name) {
+        var paths = MACRO_ICONS[name];
+        if (!paths) return null;
+        var NS = "http://www.w3.org/2000/svg";
+        var svg = document.createElementNS(NS, "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", "2");
+        svg.setAttribute("stroke-linecap", "round");
+        svg.setAttribute("stroke-linejoin", "round");
+        svg.setAttribute("aria-hidden", "true");
+        paths.forEach(function (d) {
+            var path = document.createElementNS(NS, "path");
+            path.setAttribute("d", d);
+            svg.appendChild(path);
+        });
+        return svg;
+    }
+
     /** Human-readable chord, e.g. "Ctrl + Shift + S". */
     function chordLabel(step) {
         var names = {
@@ -550,7 +601,9 @@
                 btn.className = "tb-btn";
                 btn.title = m.label;
                 btn.setAttribute("aria-label", m.label);
-                btn.textContent = m.icon || m.label.slice(0, 2).toUpperCase();
+                var svg = macroIconSvg(m.icon);
+                if (svg) btn.appendChild(svg);
+                else btn.textContent = m.icon || m.label.slice(0, 2).toUpperCase();
                 btn.addEventListener("click", function () {
                     runMacro(m);
                 });
@@ -574,7 +627,12 @@
                 var btn = document.createElement("button");
                 btn.type = "button";
                 btn.className = m.id === macroSelected ? "active" : "";
-                btn.textContent = (m.icon ? m.icon + "  " : "") + m.label;
+                var rowIcon = macroIconSvg(m.icon);
+                if (rowIcon) {
+                    rowIcon.classList.add("macro-row-icon");
+                    btn.appendChild(rowIcon);
+                }
+                btn.appendChild(document.createTextNode(m.label));
                 btn.addEventListener("click", function () {
                     macroSelected = m.id;
                     paintMacroEditor();
@@ -590,11 +648,30 @@
         if (!macro) return;
 
         var labelEl = document.getElementById("macro-label");
-        var iconEl = document.getElementById("macro-icon");
         var pinnedEl = document.getElementById("macro-pinned");
         if (labelEl && document.activeElement !== labelEl) labelEl.value = macro.label;
-        if (iconEl && document.activeElement !== iconEl) iconEl.value = macro.icon || "";
         if (pinnedEl) pinnedEl.checked = macro.pinned !== false;
+
+        var icons = document.getElementById("macro-icons");
+        if (icons) {
+            icons.innerHTML = "";
+            MACRO_ICON_NAMES.forEach(function (name) {
+                var choice = document.createElement("button");
+                choice.type = "button";
+                choice.className = "macro-icon" + (macro.icon === name ? " active" : "");
+                choice.setAttribute("role", "radio");
+                choice.setAttribute("aria-checked", String(macro.icon === name));
+                choice.setAttribute("aria-label", name);
+                choice.title = name;
+                var svg = macroIconSvg(name);
+                if (svg) choice.appendChild(svg);
+                choice.addEventListener("click", function () {
+                    macro.icon = name;
+                    void saveMacros();
+                });
+                icons.appendChild(choice);
+            });
+        }
 
         var steps = document.getElementById("macro-steps");
         if (!steps) return;
@@ -700,7 +777,7 @@
                 var macro = {
                     id: "macro-" + Date.now().toString(36),
                     label: "New macro",
-                    icon: "",
+                    icon: "command",
                     pinned: true,
                     steps: [{ type: "chord", mods: [], code: "" }],
                 };
@@ -711,17 +788,15 @@
                 paintMacroEditor();
             });
         }
-        ["macro-label", "macro-icon"].forEach(function (id) {
-            var el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener("change", function () {
+        var labelInput = document.getElementById("macro-label");
+        if (labelInput) {
+            labelInput.addEventListener("change", function () {
                 var macro = macroById(macroSelected);
                 if (!macro) return;
-                if (id === "macro-label") macro.label = el.value.trim() || "Macro";
-                else macro.icon = el.value.trim();
+                macro.label = labelInput.value.trim() || "Macro";
                 void saveMacros();
             });
-        });
+        }
         var pinned = document.getElementById("macro-pinned");
         if (pinned) {
             pinned.addEventListener("change", function () {

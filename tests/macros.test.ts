@@ -11,7 +11,7 @@ test("keeps a well-formed macro and normalises what it can", () => {
     const [macro] = cleanMacros([
         {
             label: "  Capture region  ",
-            icon: "⛶extra",
+            icon: "camera",
             steps: [
                 { type: "chord", mods: ["AltLeft", "ControlLeft"], code: "KeyS" },
                 { type: "text", text: "hello" },
@@ -22,9 +22,16 @@ test("keeps a well-formed macro and normalises what it can", () => {
     assert.ok(macro);
     assert.equal(macro.label, "Capture region");
     assert.equal(macro.id, "capture-region", "an id is derived when none is given");
-    assert.equal([...macro.icon!].length, 2, "the button glyph is capped at two characters");
+    assert.equal(macro.icon, "camera", "a named icon is kept whole");
     assert.equal(macro.pinned, true, "pinned unless explicitly false");
     assert.deepEqual(macro.steps[2], { type: "delay", ms: 251 });
+});
+
+test("keeps a literal glyph from a macro written before the icon picker", () => {
+    const [macro] = cleanMacros([
+        { label: "Old", icon: "⛶extra", steps: [{ type: "chord", code: "KeyA" }] },
+    ]);
+    assert.equal([...macro!.icon!].length, 2, "legacy glyphs are capped at two characters");
 });
 
 test("drops steps that would do nothing rather than sending garbage to the target", () => {
