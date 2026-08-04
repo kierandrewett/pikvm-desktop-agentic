@@ -320,19 +320,29 @@
     var toastEl = document.getElementById("toast");
     var toastTimer = null;
     /** Say something briefly over the stream. `error` styles it red and holds it
-     *  longer, because a failed power action is worth actually reading. */
-    function toast(msg, error) {
+     *  longer, because a failed power action is worth actually reading.
+     *  `sticky` keeps it up until something replaces or clears it — for work
+     *  that outlasts the normal dwell and would otherwise look abandoned. */
+    function toast(msg, error, sticky) {
         if (!toastEl) return;
         toastEl.textContent = msg;
         toastEl.classList.toggle("is-error", !!error);
         toastEl.classList.add("show");
         if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = null;
+        if (sticky) return;
         toastTimer = setTimeout(
             function () {
                 toastEl.classList.remove("show");
             },
             error ? 6000 : 2600,
         );
+    }
+    function hideToast() {
+        if (!toastEl) return;
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = null;
+        toastEl.classList.remove("show");
     }
 
     /* ----------------------------------------------------------------- *
@@ -1115,7 +1125,10 @@
         var langs = ocrLangs && ocrLangs.langs && ocrLangs.langs["default"];
         var q = ["allow_offline=1", "ocr=1", "ocr_left=" + left, "ocr_top=" + top, "ocr_right=" + right, "ocr_bottom=" + bottom];
         if (langs && langs.length) q.push("ocr_langs=" + encodeURIComponent(langs.join(",")));
-        toast("Reading the screen…");
+        // Measured at ~6s for a full screen against a real Pi, well past the
+        // toast's normal dwell — so it has to stay up until the text arrives,
+        // or the UI goes quiet mid-operation and reads as a failure.
+        toast("Reading the screen…", false, true);
         fetch("/api/streamer/snapshot?" + q.join("&"), { cache: "no-store" })
             .then(function (r) {
                 if (!r.ok) throw new Error("HTTP " + r.status);
@@ -1124,6 +1137,7 @@
             .then(function (text) {
                 var out = document.getElementById("ocr-text");
                 var dlg = document.getElementById("ocr-dlg");
+                hideToast();
                 if (out) out.value = text.replace(/\s+$/, "") || "(no text found in that region)";
                 if (dlg) dlg.hidden = false;
                 if (out) out.focus();
