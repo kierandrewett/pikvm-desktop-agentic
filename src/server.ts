@@ -61,6 +61,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         control,
         enabled: () => settings.get().jiggler,
         isAgentBusy: () => false,
+        log: (line) => console.log(line),
     });
     jiggler.start();
 
@@ -68,6 +69,9 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         control,
         htmlInjection: (req) => webAssets.htmlInjection(req),
         onHidActivity: () => jiggler.noteUserActivity(),
+        // Track the user's real cursor so the nudge returns it exactly, instead of
+        // jogging off a stale position we only ever updated from our own moves.
+        onHidMouseMove: (x, y) => control.noteObservedMouse(x, y),
     });
 
     // The native Agent panel reaches the pikvm-agent daemon's HTTP API through here.
@@ -77,7 +81,9 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
     });
 
     /** Thin server state: just what the web/desktop console reads (the PiKVM
-     *  keyboard layout, the jiggler toggle). No agent surface. */
+     *  keyboard layout, the jiggler toggle). No agent surface. `jigglerStatus` is the
+     *  evidence trail — last nudge, count, last error — so a target that went to sleep
+     *  can be diagnosed instead of guessed at. */
     const state = () => {
         const s = settings.get();
         return {
@@ -86,6 +92,7 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
                 jiggler: s.jiggler,
                 bindHost: s.bindHost,
             },
+            jigglerStatus: jiggler.status(),
         };
     };
 
