@@ -1889,11 +1889,18 @@
                 var label = document.createElement("span");
                 label.className = "dlg-label dlg-grow";
                 label.textContent = o.label;
+                label.id = "gpio-label-" + o.name.replace(/[^A-Za-z0-9_-]/g, "-");
                 row.appendChild(label);
                 if (o.canSwitch) {
                     var btn = document.createElement("button");
                     btn.type = "button";
                     btn.className = "dlg-btn";
+                    // A switch, not a button: the word on it is the STATE, not
+                    // what it does. Without these it announced a bare "On" with
+                    // nothing saying what was on, and the state was carried to
+                    // sighted users by the blue fill alone.
+                    btn.setAttribute("role", "switch");
+                    btn.setAttribute("aria-labelledby", label.id);
                     btn.setAttribute("data-gpio-switch", o.name);
                     btn.addEventListener("click", function () {
                         var cur = gpio.outputs().filter(function (x) {
@@ -1911,6 +1918,9 @@
                     pulse.type = "button";
                     pulse.className = "dlg-btn";
                     pulse.textContent = "Pulse";
+                    // Every pulse button says "Pulse", so on their own a list of
+                    // them names nothing you could tell apart.
+                    pulse.setAttribute("aria-label", "Pulse " + o.label);
                     pulse.setAttribute("data-gpio-pulse", o.name);
                     pulse.addEventListener("click", function () {
                         var warn = GPIO_CONFIRM[o.name];
@@ -1926,6 +1936,7 @@
             var btn = rows.querySelector('[data-gpio-switch="' + o.name + '"]');
             if (btn) {
                 btn.textContent = o.on ? "On" : "Off";
+                btn.setAttribute("aria-checked", o.on ? "true" : "false");
                 btn.classList.toggle("primary", o.on);
                 btn.disabled = o.busy || !o.online;
             }
