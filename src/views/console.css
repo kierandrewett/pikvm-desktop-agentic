@@ -1624,6 +1624,17 @@ html.desktop-console.agent-detached .screen {
 }
 
 /* ---- macro icon picker ---- */
+/* Each field sits directly under its own label, so the gap has to come from the
+   form rather than from whatever height the row happens to have. */
+#macro-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+/* The label names the grid below it, so it must not drift away from it. */
+#macro-icons-label {
+    margin-bottom: -4px;
+}
 .macro-icons {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
