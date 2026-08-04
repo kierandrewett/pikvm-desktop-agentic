@@ -769,7 +769,7 @@
                 btn.type = "button";
                 btn.className = "dlg-btn macro-move";
                 btn.textContent = label;
-                btn.setAttribute("aria-label", (delta < 0 ? "Move step up" : "Move step down"));
+                btn.setAttribute("aria-label", delta < 0 ? "Move step up" : "Move step down");
                 btn.disabled = delta < 0 ? index === 0 : index === macro.steps.length - 1;
                 btn.addEventListener("click", function () {
                     var to = index + delta;
@@ -779,8 +779,12 @@
                 });
                 return btn;
             };
-            row.appendChild(move(-1, "↑"));
-            row.appendChild(move(1, "↓"));
+            // Nothing to reorder in a one-step macro — and a permanently disabled
+            // pair of arrows reads as a rendering fault rather than as a control.
+            if (macro.steps.length > 1) {
+                row.appendChild(move(-1, "↑"));
+                row.appendChild(move(1, "↓"));
+            }
 
             var remove = document.createElement("button");
             remove.type = "button";
