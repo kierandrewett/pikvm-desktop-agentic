@@ -64,9 +64,10 @@ Ordered by how much a KVM operator actually reaches for it.
 - [ ] **Stream orientation** — the real UI rotates client-side (0/90/180/270) and
       remaps input to match. Ours would need the same remap through the existing
       zoom/pan transform, so it is its own piece of work rather than another slider.
-- [ ] **Health and status LEDs** — link, video, HID keyboard/mouse, fan, overheating,
-      undervoltage. Cheap to add and tells the operator why something is wrong.
-- [ ] **HID attach/detach + reset** — recover a wedged USB gadget without SSH.
+- [x] **Health** — no video signal, HID detached, undervoltage, thermal throttling,
+      fan failure. Collapsed into one indicator that is hidden while everything is
+      fine, rather than the stock UI's ten always-on LEDs.
+- [x] **HID attach/detach + reset** — recover a wedged USB gadget without SSH.
 - [ ] **Mass storage** — upload/select an ISO, mount read-only or RW, remote URL fetch.
 - [ ] **GPIO** — user-defined switches and pulses (USB breaker, locator, relays).
 - [ ] **System log viewer** — `api/log`.

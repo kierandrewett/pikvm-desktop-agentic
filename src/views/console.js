@@ -178,6 +178,11 @@
                     if (d && d.event_type === "hid_keymaps" && ed && ed.keymaps) kvmdKeymaps = ed.keymaps;
                     // Streamer features/limits/applied — what the settings dialog drives.
                     if (d && d.event_type === "streamer") setStreamerState(ed);
+                    // Pi health (throttling, fan) and the source/HID online flags feed
+                    // the one warning indicator.
+                    if (d && d.event_type === "info") health.setInfo(ed);
+                    if (d && d.event_type === "streamer" && ed && ed.streamer) health.setSource(ed.streamer.source);
+                    if (d && d.event_type === "hid") health.setHid(ed);
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
@@ -422,6 +427,218 @@
             tb.title = !show ? "Power" : busy ? "Power — busy" : powered ? "Power — target is on" : "Power — target is off";
         }
     });
+
+    /* ----------------------------------------------------------------- *
+     * Health: why is this not working?
+     * ----------------------------------------------------------------- */
+
+    /* The stock UI scatters ten separate LEDs across its navbar. Most of the time all
+     * of them are green and none of them are worth the space, so we collapse them into
+     * one indicator that is INVISIBLE while everything is fine and names the actual
+     * problem when it is not. Sources: the `info` event (Pi throttling + fan), the
+     * `streamer` event (is there a video signal) and the `hid` event (is the USB
+     * keyboard/mouse actually attached to the target). */
+    var health = (function () {
+        var info = null;
+        var source = null;
+        var hidState = null;
+        var listeners = [];
+        function changed() {
+            for (var i = 0; i < listeners.length; i++) listeners[i]();
+        }
+        /** A throttling flag counts as a problem now, or recently unless kvmd says to
+         *  ignore the past. "Past" is downgraded to a warning, matching the real UI. */
+        function flag(flags, name, ignorePast) {
+            var f = flags && flags[name];
+            if (!f) return null;
+            if (f.now) return "now";
+            if (f.past && !ignorePast) return "past";
+            return null;
+        }
+        return {
+            setInfo: function (s) {
+                if (!s) return;
+                info = info || {};
+                if (s.health !== undefined) info.health = s.health;
+                if (s.fan !== undefined) info.fan = s.fan;
+                if (s.system !== undefined) info.system = s.system;
+                if (s.node !== undefined) info.node = s.node;
+                changed();
+            },
+            setSource: function (s) {
+                source = s || null;
+                changed();
+            },
+            setHid: function (s) {
+                if (!s) return;
+                hidState = hidState || {};
+                if (s.online !== undefined) hidState.online = s.online;
+                if (s.connected !== undefined) hidState.connected = s.connected;
+                changed();
+            },
+            onChange: function (cb) {
+                listeners.push(cb);
+                cb();
+            },
+            /** kvmd's reported versions/hostname, for the About block. */
+            info: function () {
+                return info;
+            },
+            /** Is the USB HID attached? null when the Pi doesn't say. */
+            hidConnected: function () {
+                return hidState && hidState.connected !== undefined ? hidState.connected : null;
+            },
+            /**
+             * Everything currently wrong, worst first. Each is {level, text} where
+             * level is "error" or "warn" — an empty list means there is nothing to say.
+             */
+            problems: function () {
+                var out = [];
+                if (source && source.online === false) {
+                    out.push({ level: "error", text: "No video signal from the target" });
+                }
+                if (hidState && hidState.connected === false) {
+                    out.push({ level: "error", text: "Keyboard and mouse are detached from the target" });
+                } else if (hidState && hidState.online === false) {
+                    out.push({ level: "error", text: "The Pi's USB keyboard/mouse is offline" });
+                }
+                var th = info && info.health && info.health.throttling;
+                if (th && th.parsed_flags) {
+                    var uv = flag(th.parsed_flags, "undervoltage", th.ignore_past);
+                    if (uv) {
+                        out.push({
+                            level: uv === "now" ? "error" : "warn",
+                            text: uv === "now" ? "The Pi is undervolted — check the power supply and cable" : "The Pi was undervolted recently",
+                        });
+                    }
+                    var fc = flag(th.parsed_flags, "freq_capped", th.ignore_past);
+                    if (fc) {
+                        out.push({
+                            level: fc === "now" ? "error" : "warn",
+                            text: fc === "now" ? "The Pi is overheating and has been throttled" : "The Pi was throttled by heat recently",
+                        });
+                    }
+                }
+                var fan = info && info.fan;
+                if (fan && fan.monitored && fan.state && fan.state.fan) {
+                    if (!fan.state.fan.ok) out.push({ level: "error", text: "The Pi's fan has failed" });
+                    else if (fan.state.fan.last_fail_ts >= 0) out.push({ level: "warn", text: "The Pi's fan failed earlier" });
+                }
+                return out;
+            },
+        };
+    })();
+
+    /* ----------------------------------------------------------------- *
+     * HID recovery (kvmd api/hid/set_connected, api/hid/reset)
+     * ----------------------------------------------------------------- */
+
+    /** Attach or detach the emulated USB keyboard/mouse from the target. Detaching is
+     *  how you make the target forget the Pi is there; attaching is how you get back a
+     *  HID the target stopped talking to. */
+    function setHidConnected(on) {
+        return fetch("/api/hid/set_connected?connected=" + (on ? 1 : 0), { method: "POST", cache: "no-store" })
+            .then(function (r) {
+                toast(r.ok ? (on ? "Keyboard and mouse attached" : "Keyboard and mouse detached") : "Could not " + (on ? "attach" : "detach") + " the HID (" + r.status + ")", !r.ok);
+            })
+            .catch(function (e) {
+                toast("Could not change the HID: " + (e && e.message ? e.message : "network error"), true);
+            });
+    }
+
+    /** Reset the Pi's HID stack — the fix for a keyboard the target has stopped
+     *  responding to, without reaching for SSH. */
+    function resetHid() {
+        if (!window.confirm("Reset the keyboard and mouse?\n\nThe target briefly sees the USB device disappear and come back.")) return;
+        fetch("/api/hid/reset", { method: "POST", cache: "no-store" })
+            .then(function (r) {
+                toast(r.ok ? "Keyboard and mouse reset" : "Could not reset the HID (" + r.status + ")", !r.ok);
+            })
+            .catch(function (e) {
+                toast("Could not reset the HID: " + (e && e.message ? e.message : "network error"), true);
+            });
+    }
+
+    var healthDlg = document.getElementById("health-dlg");
+
+    function paintHealth() {
+        var problems = health.problems();
+        var worst = problems.some(function (p) {
+            return p.level === "error";
+        });
+        var tb = document.getElementById("tb-health");
+        if (tb) {
+            tb.hidden = problems.length === 0;
+            tb.classList.toggle("is-error", worst);
+            tb.title =
+                problems.length === 0
+                    ? "Health"
+                    : problems
+                          .map(function (p) {
+                              return p.text;
+                          })
+                          .join("\n");
+        }
+        var list = document.getElementById("health-list");
+        if (list) {
+            list.innerHTML = "";
+            for (var i = 0; i < problems.length; i++) {
+                var li = document.createElement("li");
+                li.textContent = problems[i].text;
+                if (problems[i].level === "error") li.className = "is-error";
+                list.appendChild(li);
+            }
+        }
+        var ok = document.getElementById("health-ok");
+        if (ok) ok.hidden = problems.length > 0;
+
+        var connected = health.hidConnected();
+        var stateEl = document.getElementById("health-hid-state");
+        if (stateEl) stateEl.textContent = connected === null ? "state unknown" : connected ? "attached" : "detached";
+        var toggle = document.getElementById("hid-toggle");
+        if (toggle) {
+            toggle.textContent = connected === false ? "Attach" : "Detach";
+            toggle.disabled = connected === null;
+        }
+    }
+    health.onChange(paintHealth);
+
+    function openHealthDialog() {
+        if (!healthDlg) return;
+        paintHealth();
+        healthDlg.hidden = false;
+        var close = document.getElementById("health-close");
+        if (close) close.focus();
+    }
+    function closeHealthDialog() {
+        if (healthDlg) healthDlg.hidden = true;
+        refocusKbd();
+    }
+    (function wireHealthDialog() {
+        var tb = document.getElementById("tb-health");
+        if (tb) tb.addEventListener("click", openHealthDialog);
+        var close = document.getElementById("health-close");
+        if (close) close.addEventListener("click", closeHealthDialog);
+        var toggle = document.getElementById("hid-toggle");
+        if (toggle) {
+            toggle.addEventListener("click", function () {
+                setHidConnected(health.hidConnected() === false);
+            });
+        }
+        var reset = document.getElementById("hid-reset");
+        if (reset) reset.addEventListener("click", resetHid);
+        if (healthDlg) {
+            healthDlg.addEventListener("mousedown", function (e) {
+                if (e.target === healthDlg) closeHealthDialog();
+            });
+            healthDlg.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeHealthDialog();
+                }
+            });
+        }
+    })();
 
     /* ----------------------------------------------------------------- *
      * Stream settings (kvmd api/streamer/set_params)
@@ -710,6 +927,8 @@
     if (streamBtn) streamBtn.addEventListener("click", openStreamDialog);
     var screenshotBtn = document.getElementById("screenshot-btn");
     if (screenshotBtn) screenshotBtn.addEventListener("click", saveScreenshot);
+    var healthBtn = document.getElementById("health-btn");
+    if (healthBtn) healthBtn.addEventListener("click", openHealthDialog);
     if (pasteText) pasteText.addEventListener("input", paintPasteCount);
     if (pasteSend) pasteSend.addEventListener("click", sendPaste);
     var pasteCancel = document.getElementById("paste-cancel");
@@ -735,7 +954,7 @@
     /** True while any modal owns the keyboard. The KVM forwarder holds off then —
      *  otherwise the dialog's own keystrokes get typed on the target as well. */
     function modalOpen() {
-        return !!((pasteDlg && !pasteDlg.hidden) || (streamDlg && !streamDlg.hidden));
+        return !!((pasteDlg && !pasteDlg.hidden) || (streamDlg && !streamDlg.hidden) || (healthDlg && !healthDlg.hidden));
     }
 
     function runAtxAction(id) {
@@ -2906,6 +3125,7 @@
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "stream", label: "Stream settings…" });
             items.push({ id: "screenshot", label: "Save screenshot" });
+            items.push({ id: "health", label: "Health & keyboard recovery…" });
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
                 items.push({ type: "separator" });
@@ -2932,6 +3152,10 @@
             }
             if (id === "screenshot") {
                 saveScreenshot();
+                return;
+            }
+            if (id === "health") {
+                openHealthDialog();
                 return;
             }
             switch (id) {

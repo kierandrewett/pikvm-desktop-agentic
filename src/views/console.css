@@ -1192,3 +1192,39 @@ html.desktop-console .app.computer-collapsed .screen {
 .dlg-actions .dlg-btn:first-child {
     margin-right: auto;
 }
+
+/* Health indicator: only ever visible when something is actually wrong, so it
+   earns the attention it draws. */
+.tb-btn.tb-health {
+    color: var(--warn);
+}
+.tb-btn.tb-health.is-error {
+    color: var(--danger);
+}
+.dlg-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+.dlg-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+}
+.dlg-list li::before {
+    content: "";
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warn);
+    transform: translateY(-1px);
+}
+.dlg-list li.is-error::before {
+    background: var(--danger);
+}
