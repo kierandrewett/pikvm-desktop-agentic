@@ -480,7 +480,12 @@ ipcMain.on("settings:read", (e) => {
 // existing console:set-pikvm-origin behaviour).
 ipcMain.on("settings:save", (_e, v: { pikvmUrl?: unknown; keyboardLayout?: unknown; jiggler?: unknown }) => {
     const layout = v?.keyboardLayout === "uk" ? "uk" : "us";
-    new SettingsStore(settingsFilePath()).patch({ keyboardLayout: layout, jiggler: !!v?.jiggler });
+    // Only touch the jiggler when the form actually sent a boolean. `!!v?.jiggler`
+    // turned it OFF for any save that omitted the field — a silent way to lose the
+    // keep-awake without anyone choosing to.
+    const patch: { keyboardLayout: "us" | "uk"; jiggler?: boolean } = { keyboardLayout: layout };
+    if (typeof v?.jiggler === "boolean") patch.jiggler = v.jiggler;
+    new SettingsStore(settingsFilePath()).patch(patch);
     const cfg = loadConfig();
     const url = typeof v?.pikvmUrl === "string" ? v.pikvmUrl.trim().replace(/\/$/, "") : "";
     if (url) cfg.origin = url;
