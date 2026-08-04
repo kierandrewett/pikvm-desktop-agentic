@@ -814,7 +814,7 @@
          * before its key is captured just vanishes. Say that, rather than
          * letting the work disappear silently. */
         var incomplete = macro.steps.filter(function (step) {
-            return (step.type === "chord" && !step.code) || (step.type === "text" && !step.text);
+            return !stepWouldPersist(step);
         }).length;
         var unsaved = document.getElementById("macro-unsaved");
         if (unsaved) {
@@ -828,6 +828,20 @@
         }
     }
 
+    /* The server drops any step it cannot use, and a macro left with none goes
+     * with them (see cleanStep in src/macros.ts). These two mirror that rule so
+     * the editor never shows a macro that will not survive its next save. */
+    function stepWouldPersist(step) {
+        if (!step) return false;
+        if (step.type === "chord") return !!step.code;
+        if (step.type === "text") return !!step.text;
+        if (step.type === "delay") return Number(step.ms) > 0;
+        return false;
+    }
+    function macroWouldPersist(macro) {
+        return !!(macro && macro.label && macro.steps && macro.steps.some(stepWouldPersist));
+    }
+
     function openMacroEditor() {
         if (!macroDlg) return;
         macroDlg.hidden = false;
@@ -836,6 +850,17 @@
     }
     function closeMacroEditor() {
         if (macroDlg) macroDlg.hidden = true;
+        // A new macro is held locally until it does something, because the
+        // server will not store one with no usable step. Keeping that draft
+        // after the dialog closes lists a macro that exists nowhere else and
+        // vanishes on the next save, so let it go the moment the user leaves.
+        var kept = macros.filter(macroWouldPersist);
+        if (kept.length !== macros.length) {
+            macros = kept;
+            if (!macroById(macroSelected)) macroSelected = macros.length ? macros[0].id : null;
+            paintMacroButtons();
+            paintMacroEditor();
+        }
         refocusKbd();
     }
     function macroEditorOpen() {
