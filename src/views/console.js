@@ -2069,6 +2069,26 @@
             }
         });
     }
+    /* The real OS cursor is hidden over the live screen in favour of the
+     * simulated PiKVM one. While a dialog is up the pointer is pointing at
+     * buttons rather than driving the target, so hand the host cursor back and
+     * drop the blob. Driven by observing the scrims' `hidden` attribute rather
+     * than by wiring every open/close pair, so a dialog added later is covered
+     * without anyone remembering to. */
+    function syncModalCursor() {
+        var open = modalOpen();
+        document.documentElement.classList.toggle("modal-open", open);
+        if (open && kvmCursor) kvmCursor.style.display = "none";
+    }
+    (function watchModalCursor() {
+        if (typeof MutationObserver !== "function") return;
+        var observer = new MutationObserver(syncModalCursor);
+        document.querySelectorAll(".dlg-scrim").forEach(function (el) {
+            observer.observe(el, { attributes: true, attributeFilter: ["hidden"] });
+        });
+        syncModalCursor();
+    })();
+
     /** True while any modal owns the keyboard. The KVM forwarder holds off then —
      *  otherwise the dialog's own keystrokes get typed on the target as well. */
     function modalOpen() {
@@ -3346,6 +3366,11 @@
     var kvmCursor = document.getElementById("kvm-cursor");
     function paintCursor(clientX, clientY) {
         if (!kvmCursor) return;
+        // A dialog owns the pointer; the blob would sit under it as a ghost.
+        if (modalOpen()) {
+            kvmCursor.style.display = "none";
+            return;
+        }
         // Background desktop window: the cursor isn't driving the target, so don't
         // paint the blob (a passing pointer must not leave a ghost cursor).
         if (window.desktopConsole && !windowFocused) {

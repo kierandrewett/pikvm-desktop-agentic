@@ -412,6 +412,12 @@ body {
 html.desktop-console.win-blur .screen {
     cursor: default;
 }
+/* A dialog is up: the pointer is aiming at buttons, not at the target. The
+   dialogs are children of .screen, so without this they inherit `cursor: none`
+   and you end up clicking blind. */
+html.modal-open .screen {
+    cursor: default;
+}
 /* PiKVM's cursor: a small translucent blue dot with a light ring. */
 .kvm-cursor {
     position: absolute;
