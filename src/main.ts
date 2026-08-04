@@ -31,6 +31,7 @@ import {
     withHarnessAuthorization,
 } from "./harness-runtime";
 import { HarnessViewLifecycle } from "./harness-view-lifecycle";
+import { requestAttention } from "./taskbar-attention";
 
 const staticPath = resolve(__dirname, "static");
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -346,6 +347,14 @@ ipcMain.on("console:toggle-maximise", (e) => {
     w.isMaximized() ? w.unmaximize() : w.maximize();
 });
 ipcMain.on("console:close", (e) => consoleWinFrom(e)?.close());
+// The console's background sampler saw the remote screen change meaningfully
+// while this window was NOT focused → pulse its taskbar/dock entry. The renderer
+// only sends this when it is unfocused; requestAttention re-checks anyway, since
+// focus can land between the sample and the message arriving here.
+ipcMain.on("console:screen-activity", (e) => {
+    const w = consoleWinFrom(e);
+    if (w) requestAttention(w);
+});
 ipcMain.handle("console:is-maximised", (e) => {
     const w = consoleWinFrom(e);
     return !!w && w.isMaximized();

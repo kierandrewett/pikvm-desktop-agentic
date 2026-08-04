@@ -81,6 +81,12 @@ export interface DesktopConsoleApi {
     /** True WINDOW focus (from the main process), so the KVM mouse tracks window focus —
      *  not the console view's focus, which a focused terminal child view would steal. */
     onWindowFocus(cb: (focused: boolean) => void): () => void;
+    /**
+     * The remote screen changed meaningfully while this window was in the
+     * background — pulse the taskbar/dock icon. The main process ignores it when
+     * the window is focused, and clears the pulse as soon as the user focuses.
+     */
+    signalScreenChange(): void;
 }
 
 const api: DesktopConsoleApi = {
@@ -121,6 +127,7 @@ const api: DesktopConsoleApi = {
         ipcRenderer.on("kvm:input-enabled", listener);
         return () => ipcRenderer.removeListener("kvm:input-enabled", listener);
     },
+    signalScreenChange: () => ipcRenderer.send("console:screen-activity"),
 };
 
 contextBridge.exposeInMainWorld("desktopConsole", api);
