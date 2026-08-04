@@ -261,22 +261,12 @@ body {
     z-index: 100;
     display: none;
     flex-direction: column;
-    min-width: 208px;
+    min-width: 200px;
     background: var(--card);
-    /* Same ring-plus-lift as the dialogs, rather than a border and a heavy
-       shadow doing the same job twice. */
-    border: 0;
-    border-radius: 10px;
-    box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
-        0 12px 32px -8px rgb(0 0 0 / 55%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
     padding: 5px;
-    animation: dlg-rise 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
-}
-@media (prefers-reduced-motion: reduce) {
-    .more-menu {
-        animation: none;
-    }
 }
 .more-menu.open {
     display: flex;
@@ -287,18 +277,13 @@ body {
     background: transparent;
     color: var(--foreground);
     text-align: left;
-    padding: 8px 10px;
-    border-radius: 7px;
-    font-size: 13px;
+    padding: 10px 11px;
+    border-radius: 8px;
+    font-size: 13.5px;
     font-weight: 500;
     cursor: pointer;
     text-decoration: none;
     display: block;
-    transition: background 0.12s;
-}
-.more-item:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 45%, transparent);
 }
 .more-item:active,
 .more-item:hover {
@@ -1108,11 +1093,9 @@ html.desktop-console .app.computer-collapsed .screen {
 
 /* ---- modal dialog (paste-as-keys; the pattern later parity work reuses) ---- */
 .dlg-scrim {
-    /* Fixed, not absolute: these are window-level modals now, so they cover the
-       whole app rather than being confined to the live-screen pane. */
-    position: fixed;
+    position: absolute;
     inset: 0;
-    z-index: 60;
+    z-index: 9;
     display: flex;
     align-items: center;
     justify-content: center;
