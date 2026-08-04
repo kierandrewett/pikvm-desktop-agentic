@@ -18,6 +18,7 @@ try {
             resolve(root, "tests/desktop-layout.test.ts"),
             resolve(root, "tests/service-manager.test.ts"),
             resolve(root, "tests/cdp-inspector.test.ts"),
+            resolve(root, "tests/mouse-jiggler.test.ts"),
         ],
         outdir: output,
         platform: "node",
