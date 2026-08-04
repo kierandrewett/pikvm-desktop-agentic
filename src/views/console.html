@@ -206,7 +206,13 @@
                             <input type="file" id="msd-file" class="dlg-file" accept=".iso,.img,.bin,application/octet-stream" />
                         </div>
                         <div class="dlg-row">
-                            <label class="dlg-label" for="msd-url">or URL</label>
+                            <!-- "or image URL" rather than "or URL": this label IS the
+                                 input's accessible name, and on its own "or URL" is a
+                                 fragment that says nothing about what the URL is for.
+                                 Keeping the leading "or" preserves the visual reading
+                                 under Upload, and the name still contains the visible
+                                 text. -->
+                            <label class="dlg-label" for="msd-url">or image URL</label>
                             <input type="text" id="msd-url" class="dlg-text dlg-grow" placeholder="https://…/image.iso" spellcheck="false" />
                         </div>
                         <div class="dlg-row" id="msd-progress-row" hidden>
