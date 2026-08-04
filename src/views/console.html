@@ -167,7 +167,10 @@
                 <div class="dlg-scrim" id="ocr-dlg" hidden>
                     <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="ocr-dlg-title">
                         <h2 class="dlg-title" id="ocr-dlg-title">Text from the screen</h2>
-                        <textarea id="ocr-text" class="dlg-input" rows="8" spellcheck="false" readonly></textarea>
+                        <!-- Labelled explicitly: the dialog title names the DIALOG, which
+                             leaves the field itself announced as a bare "text area". -->
+                        <textarea id="ocr-text" class="dlg-input" rows="8" spellcheck="false" readonly
+                            aria-label="Text read from the screen"></textarea>
                         <div class="dlg-actions">
                             <button type="button" class="dlg-btn" id="ocr-copy">Copy</button>
                             <button type="button" class="dlg-btn primary" id="ocr-close">Done</button>
