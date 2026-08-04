@@ -2222,6 +2222,96 @@
     } catch (e) {}
     var blankSince = 0;
     var blankFrame = false;
+
+    /* ---- background screen-change alerts (desktop only) ----
+     * While the desktop window sits behind something else we keep watching the
+     * remote picture: when a big enough part of it changes (a dialog opens, the
+     * target reboots, a long install finishes) we ask the OS to pulse the
+     * taskbar/dock icon, so you can leave the window in the background and still
+     * notice. The detector reuses the same 40x24 luminance grid the blank
+     * sampler already reads back, so it costs one diff over 960 cells and no
+     * extra frame grab.
+     *
+     * That coarse grid is the whole trick for "meaningful": a moving mouse
+     * pointer, a blinking caret or a clock ticking over averages away to almost
+     * nothing across a cell (~48x45 source px at 1080p), while anything
+     * dialog-sized moves a couple of percent of the cells at once. Measured on
+     * simulated 1080p frames, share of cells over ALERT_CELL_DELTA:
+     *
+     *   mouse cursor moving        0.10%   caret blink        0.21%
+     *   clock digits               0.21%   all of the above
+     *                                      plus tray widgets  1.04%
+     *   notification toast         1.67%   modal dialog       9.06%
+     *   wake from a black screen   100%
+     *
+     * So 2% sits at about twice the worst compound idle noise. A small toast
+     * lands just under it, which is the trade we want: a cue you never learn to
+     * ignore beats one that catches everything. */
+    var ALERTS_KEY = "pikvm-console-screen-alerts";
+    var ALERT_CELL_DELTA = 10; // per-cell luminance change (0-255) that counts as movement
+    var ALERT_CHANGED_FRACTION = 0.02; // share of cells that must move to be "meaningful"
+    var ALERT_QUIET_MS = 20000; // the screen must settle this long before we alert again
+    var screenAlertsOn = true;
+    try {
+        screenAlertsOn = localStorage.getItem(ALERTS_KEY) !== "off";
+    } catch (e) {}
+    var prevLum = null; // previous luminance grid, or null while we are not watching
+    var lastMeaningfulAt = 0; // nowMs() of the last change over the threshold
+
+    function screenAlertsAvailable() {
+        return !!(window.desktopConsole && window.desktopConsole.signalScreenChange);
+    }
+    function screenAlertsEnabled() {
+        return screenAlertsOn;
+    }
+    function setScreenAlerts(on) {
+        screenAlertsOn = !!on;
+        try {
+            localStorage.setItem(ALERTS_KEY, screenAlertsOn ? "on" : "off");
+        } catch (e) {}
+    }
+    /** Watch only when the desktop window is in the BACKGROUND — a focused window
+     *  is already being looked at, and web/mobile has no taskbar to pulse. */
+    function watchingForChange() {
+        return screenAlertsAvailable() && screenAlertsOn && !windowFocused;
+    }
+
+    // Two grids, ping-ponged, so a sample never allocates and the previous sample
+    // stays intact for the diff.
+    var lumGrids = [null, null];
+    var lumSlot = 0;
+    function nextLumGrid(n) {
+        lumSlot ^= 1;
+        var g = lumGrids[lumSlot];
+        if (!g || g.length !== n) g = lumGrids[lumSlot] = new Float32Array(n);
+        return g;
+    }
+
+    function noteScreenSample(lum, n) {
+        if (!watchingForChange()) {
+            // Re-baseline (and start a fresh episode) on the first sample after we
+            // start watching again, so nothing that happened while the window was
+            // focused fires an alert the moment it loses focus.
+            prevLum = null;
+            lastMeaningfulAt = 0;
+            return;
+        }
+        var prev = prevLum;
+        prevLum = lum;
+        if (!prev || prev.length !== n) return; // first sample, or the grid was resized
+        var changed = 0;
+        for (var i = 0; i < n; i++) {
+            if (Math.abs(lum[i] - prev[i]) > ALERT_CELL_DELTA) changed++;
+        }
+        if (changed / n < ALERT_CHANGED_FRACTION) return;
+        // One alert per episode of activity: an install churns the screen for
+        // minutes and should pulse the icon once, not on every 1.5s tick.
+        var now = nowMs();
+        var newEpisode = !lastMeaningfulAt || now - lastMeaningfulAt >= ALERT_QUIET_MS;
+        lastMeaningfulAt = now;
+        if (newEpisode) window.desktopConsole.signalScreenChange();
+    }
+
     function reevalStreamState() {
         if (mjpegPaused && !webrtcActive) return; // WebRTC owns status while live-MJPEG is suspended
         if (blankFrame && streamUp) setState("nosignal");
@@ -2230,8 +2320,10 @@
     function sampleBlank() {
         if (!blankCtx) return;
         // The getImageData readback is expensive — skip it entirely while the window
-        // is hidden (the user isn't looking at "no signal" anyway).
-        if (typeof document !== "undefined" && document.hidden) return;
+        // is hidden (the user isn't looking at "no signal" anyway). A minimised
+        // window still gets sampled when screen-change alerts are armed: that is
+        // exactly the case the alert exists for.
+        if (typeof document !== "undefined" && document.hidden && !watchingForChange()) return;
         var useVid = webrtcActive && webrtcSwapped;
         if (!streamUp && !useVid) return;
         var srcEl = useVid ? vid : img;
@@ -2239,15 +2331,17 @@
         var h = useVid ? vid.videoHeight : img.naturalHeight;
         if (!w || !h) return;
         var uniform;
+        var n = 40 * 24;
+        var lum = nextLumGrid(n);
         try {
             blankCtx.drawImage(srcEl, 0, 0, 40, 24);
             var px = blankCtx.getImageData(0, 0, 40, 24).data;
-            var n = 40 * 24,
-                sum = 0,
+            var sum = 0,
                 sumsq = 0;
             for (var i = 0; i < n; i++) {
                 var o = i * 4;
                 var l = (px[o] + px[o + 1] + px[o + 2]) / 3;
+                lum[i] = l;
                 sum += l;
                 sumsq += l * l;
             }
@@ -2257,6 +2351,9 @@
         } catch (e) {
             return; // draw/read failed — don't guess
         }
+        // Same grid, second job: has enough of the picture moved to be worth a
+        // taskbar pulse while the window is in the background?
+        noteScreenSample(lum, n);
         var now = nowMs();
         if (uniform) {
             if (!blankSince) blankSince = now;
@@ -3986,6 +4083,9 @@
             }
             items.push({ type: "separator" });
             items.push({ id: "panel", label: panelShown() ? "Hide computer preview" : "Show computer preview" });
+            if (screenAlertsAvailable()) {
+                items.push({ id: "alerts", label: "Pulse the taskbar when the screen changes", type: "checkbox", checked: screenAlertsEnabled() });
+            }
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "stream", label: "Stream settings…" });
             items.push({ id: "screenshot", label: "Save screenshot" });
@@ -4065,6 +4165,9 @@
                     break;
                 case "panel":
                     setPanel(!panelShown());
+                    break;
+                case "alerts":
+                    setScreenAlerts(!screenAlertsEnabled());
                     break;
                 case "fit":
                     if (tbFit) tbFit.click();
