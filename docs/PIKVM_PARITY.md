@@ -68,7 +68,9 @@ Ordered by how much a KVM operator actually reaches for it.
       fan failure. Collapsed into one indicator that is hidden while everything is
       fine, rather than the stock UI's ten always-on LEDs.
 - [x] **HID attach/detach + reset** — recover a wedged USB gadget without SSH.
-- [ ] **Mass storage** — upload/select an ISO, mount read-only or RW, remote URL fetch.
+- [x] **Mass storage** — upload an ISO with a progress bar, or have the Pi fetch one
+      from a URL; select, mount as CD/DVD or flash, read-only or writable, delete,
+      reset. Multi-part storage prefixes are not exposed (the default part is used).
 - [ ] **GPIO** — user-defined switches and pulses (USB breaker, locator, relays).
 - [ ] **System log viewer** — `api/log`.
 - [ ] **Input recorder** — record, replay, loop, save/load HID scripts.

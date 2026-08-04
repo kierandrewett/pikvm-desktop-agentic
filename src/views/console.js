@@ -183,6 +183,7 @@
                     if (d && d.event_type === "info") health.setInfo(ed);
                     if (d && d.event_type === "streamer" && ed && ed.streamer) health.setSource(ed.streamer.source);
                     if (d && d.event_type === "hid") health.setHid(ed);
+                    if (d && d.event_type === "msd") msd.setState(ed);
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
@@ -429,6 +430,112 @@
     });
 
     /* ----------------------------------------------------------------- *
+     * Mass storage (kvmd api/msd/*)
+     * ----------------------------------------------------------------- */
+
+    function humanBytes(n) {
+        if (typeof n !== "number" || !isFinite(n)) return "";
+        var u = ["B", "KB", "MB", "GB", "TB"];
+        var i = 0;
+        while (n >= 1024 && i < u.length - 1) {
+            n /= 1024;
+            i++;
+        }
+        return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i];
+    }
+
+    /* State from the `msd` event: {enabled, online, busy, drive, storage}. `drive` is
+     * what the target sees (image, cdrom, rw, connected); `storage` is what the Pi is
+     * holding (images, parts, uploading). Both are null while offline, so every read
+     * goes through the guards below rather than trusting the shape. */
+    var msd = (function () {
+        var state = null;
+        var listeners = [];
+        function emit() {
+            for (var i = 0; i < listeners.length; i++) listeners[i]();
+        }
+        return {
+            setState: function (s) {
+                if (!s) {
+                    state = null;
+                    emit();
+                    return;
+                }
+                var next = state || { storage: {} };
+                if (s.enabled !== undefined) next.enabled = s.enabled;
+                if (s.online !== undefined) next.online = s.online;
+                if (s.busy !== undefined) next.busy = s.busy;
+                if (s.drive) next.drive = s.drive;
+                if (s.storage) {
+                    next.storage = next.storage || {};
+                    if (s.storage.parts !== undefined) next.storage.parts = s.storage.parts;
+                    if (s.storage.images !== undefined) next.storage.images = s.storage.images;
+                    if (s.storage.uploading !== undefined) next.storage.uploading = s.storage.uploading;
+                    if (s.storage.downloading !== undefined) next.storage.downloading = s.storage.downloading;
+                }
+                state = next;
+                emit();
+            },
+            onChange: function (cb) {
+                listeners.push(cb);
+                cb();
+            },
+            /** Does this Pi have mass storage at all? */
+            available: function () {
+                return !!(state && state.enabled);
+            },
+            online: function () {
+                return !!(state && state.online);
+            },
+            busy: function () {
+                return !!(state && state.busy);
+            },
+            drive: function () {
+                return (state && state.drive) || null;
+            },
+            images: function () {
+                return (state && state.storage && state.storage.images) || {};
+            },
+            /** Free bytes on the default storage part, or null. */
+            free: function () {
+                var parts = state && state.storage && state.storage.parts;
+                if (!parts) return null;
+                var names = Object.keys(parts);
+                if (!names.length) return null;
+                var p = parts[""] !== undefined ? parts[""] : parts[names[0]];
+                return p && typeof p.free === "number" ? p.free : null;
+            },
+            /** A plain sentence for the top of the dialog. */
+            summary: function () {
+                if (!state || !state.enabled) return "This PiKVM has no mass storage.";
+                if (!state.online) return "The drive is offline.";
+                var d = state.drive;
+                if (!d) return "The drive is idle.";
+                if (d.connected) {
+                    return "Mounted on the target: " + (d.image ? d.image.name : "(no image)") + " as " + (d.cdrom ? "a CD/DVD" : "a flash drive") + (d.rw ? ", writable" : ", read-only") + ".";
+                }
+                if (d.image) return "Ready to mount " + d.image.name + " (" + humanBytes(d.image.size) + ").";
+                return "No image selected.";
+            },
+            setParam: function (name, value) {
+                return fetch("/api/msd/set_params?" + encodeURIComponent(name) + "=" + encodeURIComponent(value), { method: "POST", cache: "no-store" }).then(function (r) {
+                    if (!r.ok) toast("Could not set the drive " + name + " (" + r.status + ")", true);
+                    return r.ok;
+                });
+            },
+            setConnected: function (on) {
+                return fetch("/api/msd/set_connected?connected=" + (on ? 1 : 0), { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        toast(r.ok ? (on ? "Mounted on the target" : "Unmounted") : "Could not " + (on ? "mount" : "unmount") + " (" + r.status + ")", !r.ok);
+                    })
+                    .catch(function (e) {
+                        toast("Mass storage: " + (e && e.message ? e.message : "network error"), true);
+                    });
+            },
+        };
+    })();
+
+    /* ----------------------------------------------------------------- *
      * Health: why is this not working?
      * ----------------------------------------------------------------- */
 
@@ -557,6 +664,250 @@
             .catch(function (e) {
                 toast("Could not reset the HID: " + (e && e.message ? e.message : "network error"), true);
             });
+    }
+
+    var msdDlg = document.getElementById("msd-dlg");
+    var msdUpload = null; // the in-flight XMLHttpRequest, or null
+
+    function paintMsd() {
+        if (!msdDlg || msdDlg.hidden) return;
+        var online = msd.online();
+        var busy = msd.busy();
+        var d = msd.drive() || {};
+        var connected = !!d.connected;
+        // While the drive is connected the target owns it — kvmd rejects any change,
+        // so the controls that would make one are disabled rather than left to fail.
+        var settable = online && !connected && !busy && !msdUpload;
+
+        var status = document.getElementById("msd-status");
+        if (status) status.textContent = msd.summary();
+
+        var sel = document.getElementById("msd-image");
+        if (sel) {
+            var images = msd.images();
+            var names = Object.keys(images).sort(function (a, b) {
+                return (images[b].mod_ts || 0) - (images[a].mod_ts || 0);
+            });
+            var key = names.join(",");
+            if (sel.getAttribute("data-set") !== key) {
+                sel.setAttribute("data-set", key);
+                sel.innerHTML = "";
+                var none = document.createElement("option");
+                none.value = "";
+                none.textContent = names.length ? "— select an image —" : "no images uploaded";
+                sel.appendChild(none);
+                for (var i = 0; i < names.length; i++) {
+                    var o = document.createElement("option");
+                    o.value = names[i];
+                    o.textContent = names[i] + "  (" + humanBytes(images[names[i]].size) + ")";
+                    sel.appendChild(o);
+                }
+            }
+            if (document.activeElement !== sel) sel.value = d.image && d.image.in_storage ? d.image.name : "";
+            sel.disabled = !settable;
+        }
+
+        var mode = document.getElementById("msd-mode");
+        if (mode) {
+            if (document.activeElement !== mode) mode.value = d.cdrom ? "1" : "0";
+            mode.disabled = !settable;
+        }
+        var rw = document.getElementById("msd-rw");
+        if (rw) {
+            rw.checked = !!d.rw;
+            // A CD/DVD is read-only by definition, so the toggle only applies to flash.
+            rw.disabled = !settable || !!d.cdrom;
+        }
+
+        var conn = document.getElementById("msd-connect");
+        var disc = document.getElementById("msd-disconnect");
+        if (conn) {
+            conn.hidden = connected;
+            conn.disabled = !(online && d.image && !connected && !busy);
+        }
+        if (disc) {
+            disc.hidden = !connected;
+            disc.disabled = !(online && connected && !busy);
+        }
+        var rm = document.getElementById("msd-remove");
+        if (rm) rm.disabled = !(settable && d.image && d.image.removable);
+
+        var file = document.getElementById("msd-file");
+        var url = document.getElementById("msd-url");
+        var up = document.getElementById("msd-upload");
+        var abort = document.getElementById("msd-abort");
+        if (file) file.disabled = !settable;
+        if (url) url.disabled = !settable;
+        if (up) {
+            up.hidden = !!msdUpload;
+            up.disabled = !settable || !((file && file.files && file.files.length) || (url && url.value.trim()));
+        }
+        if (abort) abort.hidden = !msdUpload;
+        var reset = document.getElementById("msd-reset");
+        if (reset) reset.disabled = !online || busy || !!msdUpload;
+
+        var free = document.getElementById("msd-free");
+        if (free) {
+            var f = msd.free();
+            free.textContent = f === null ? "" : humanBytes(f) + " free";
+        }
+    }
+    msd.onChange(paintMsd);
+    // The menu entry has to track availability even while the dialog is closed, so it
+    // is painted separately from the dialog body (which short-circuits when hidden).
+    msd.onChange(function () {
+        var btn = document.getElementById("msd-btn");
+        if (btn) btn.hidden = !msd.available();
+    });
+
+    function setMsdProgress(pct, label) {
+        var row = document.getElementById("msd-progress-row");
+        var bar = document.getElementById("msd-progress");
+        var val = document.getElementById("msd-progress-value");
+        if (row) row.hidden = pct === null;
+        if (bar && pct !== null) bar.value = pct;
+        if (val) val.textContent = label || "";
+    }
+
+    /* Uploads use XMLHttpRequest, not fetch: fetch still cannot report upload progress,
+     * and an ISO is big enough that a bar is the difference between "working" and
+     * "frozen". remove_incomplete=1 so an aborted upload does not leave a half image
+     * in storage pretending to be bootable. */
+    function startMsdUpload() {
+        var file = document.getElementById("msd-file");
+        var urlEl = document.getElementById("msd-url");
+        var remote = urlEl && urlEl.value.trim();
+        var picked = file && file.files && file.files[0];
+        if (!picked && !remote) return;
+
+        var xhr = new XMLHttpRequest();
+        msdUpload = xhr;
+        setMsdProgress(0, remote ? "starting…" : "0%");
+        paintMsd();
+
+        var done = function (okMsg, errMsg) {
+            msdUpload = null;
+            setMsdProgress(null, "");
+            if (file) file.value = "";
+            if (urlEl) urlEl.value = "";
+            if (errMsg) toast(errMsg, true);
+            else if (okMsg) toast(okMsg);
+            paintMsd();
+        };
+
+        if (remote) {
+            // The Pi fetches it itself; progress comes back on the msd event rather
+            // than from us, so there is nothing to measure locally.
+            xhr.open("POST", "/api/msd/write_remote?url=" + encodeURIComponent(remote) + "&remove_incomplete=1", true);
+            setMsdProgress(0, "the Pi is downloading it…");
+        } else {
+            xhr.open("POST", "/api/msd/write?image=" + encodeURIComponent(picked.name) + "&remove_incomplete=1", true);
+            xhr.upload.onprogress = function (e) {
+                if (!e.lengthComputable) return;
+                var pct = Math.round((e.loaded / e.total) * 100);
+                setMsdProgress(pct, pct + "%  ·  " + humanBytes(e.loaded) + " of " + humanBytes(e.total));
+            };
+        }
+        xhr.onload = function () {
+            if (xhr.status === 200) done(remote ? "Image downloaded to the Pi" : "Uploaded " + picked.name, null);
+            else done(null, "Upload failed (" + xhr.status + ")");
+        };
+        xhr.onerror = function () {
+            done(null, "Upload failed: network error");
+        };
+        xhr.onabort = function () {
+            done(null, "Upload aborted");
+        };
+        xhr.send(remote ? null : picked);
+    }
+
+    (function wireMsdDialog() {
+        var sel = document.getElementById("msd-image");
+        if (sel) {
+            sel.addEventListener("change", function () {
+                msd.setParam("image", sel.value).then(paintMsd);
+            });
+        }
+        var mode = document.getElementById("msd-mode");
+        if (mode) {
+            mode.addEventListener("change", function () {
+                msd.setParam("cdrom", mode.value === "1" ? 1 : 0).then(paintMsd);
+            });
+        }
+        var rw = document.getElementById("msd-rw");
+        if (rw) {
+            rw.addEventListener("change", function () {
+                msd.setParam("rw", rw.checked ? 1 : 0).then(paintMsd);
+            });
+        }
+        var conn = document.getElementById("msd-connect");
+        if (conn) conn.addEventListener("click", function () { msd.setConnected(true); });
+        var disc = document.getElementById("msd-disconnect");
+        if (disc) disc.addEventListener("click", function () { msd.setConnected(false); });
+        var rm = document.getElementById("msd-remove");
+        if (rm) {
+            rm.addEventListener("click", function () {
+                var d = msd.drive();
+                if (!d || !d.image) return;
+                if (!window.confirm('Delete "' + d.image.name + '" from the PiKVM?\n\nThis cannot be undone.')) return;
+                fetch("/api/msd/remove?image=" + encodeURIComponent(d.image.name), { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        toast(r.ok ? "Image deleted" : "Could not delete the image (" + r.status + ")", !r.ok);
+                    })
+                    .catch(function (e) {
+                        toast("Could not delete the image: " + (e && e.message ? e.message : "network error"), true);
+                    });
+            });
+        }
+        var up = document.getElementById("msd-upload");
+        if (up) up.addEventListener("click", startMsdUpload);
+        var abort = document.getElementById("msd-abort");
+        if (abort) {
+            abort.addEventListener("click", function () {
+                if (msdUpload) msdUpload.abort();
+            });
+        }
+        var file = document.getElementById("msd-file");
+        if (file) file.addEventListener("change", paintMsd);
+        var url = document.getElementById("msd-url");
+        if (url) url.addEventListener("input", paintMsd);
+        var reset = document.getElementById("msd-reset");
+        if (reset) {
+            reset.addEventListener("click", function () {
+                if (!window.confirm("Reset the mass storage drive?\n\nAnything mounted is unmounted.")) return;
+                fetch("/api/msd/reset", { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        toast(r.ok ? "Drive reset" : "Could not reset the drive (" + r.status + ")", !r.ok);
+                    })
+                    .catch(function (e) {
+                        toast("Could not reset the drive: " + (e && e.message ? e.message : "network error"), true);
+                    });
+            });
+        }
+        var close = document.getElementById("msd-close");
+        if (close) close.addEventListener("click", closeMsdDialog);
+        if (msdDlg) {
+            msdDlg.addEventListener("mousedown", function (e) {
+                if (e.target === msdDlg) closeMsdDialog();
+            });
+            msdDlg.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeMsdDialog();
+                }
+            });
+        }
+    })();
+
+    function openMsdDialog() {
+        if (!msdDlg) return;
+        msdDlg.hidden = false;
+        paintMsd();
+    }
+    function closeMsdDialog() {
+        // An upload in flight keeps running; closing the dialog is not an abort.
+        if (msdDlg) msdDlg.hidden = true;
+        refocusKbd();
     }
 
     var healthDlg = document.getElementById("health-dlg");
@@ -929,6 +1280,8 @@
     if (screenshotBtn) screenshotBtn.addEventListener("click", saveScreenshot);
     var healthBtn = document.getElementById("health-btn");
     if (healthBtn) healthBtn.addEventListener("click", openHealthDialog);
+    var msdBtn = document.getElementById("msd-btn");
+    if (msdBtn) msdBtn.addEventListener("click", openMsdDialog);
     if (pasteText) pasteText.addEventListener("input", paintPasteCount);
     if (pasteSend) pasteSend.addEventListener("click", sendPaste);
     var pasteCancel = document.getElementById("paste-cancel");
@@ -954,7 +1307,7 @@
     /** True while any modal owns the keyboard. The KVM forwarder holds off then —
      *  otherwise the dialog's own keystrokes get typed on the target as well. */
     function modalOpen() {
-        return !!((pasteDlg && !pasteDlg.hidden) || (streamDlg && !streamDlg.hidden) || (healthDlg && !healthDlg.hidden));
+        return !!((pasteDlg && !pasteDlg.hidden) || (streamDlg && !streamDlg.hidden) || (healthDlg && !healthDlg.hidden) || (msdDlg && !msdDlg.hidden));
     }
 
     function runAtxAction(id) {
@@ -3126,6 +3479,7 @@
             items.push({ id: "stream", label: "Stream settings…" });
             items.push({ id: "screenshot", label: "Save screenshot" });
             items.push({ id: "health", label: "Health & keyboard recovery…" });
+            if (msd.available()) items.push({ id: "msd", label: "Mass storage…" });
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
                 items.push({ type: "separator" });
@@ -3156,6 +3510,10 @@
             }
             if (id === "health") {
                 openHealthDialog();
+                return;
+            }
+            if (id === "msd") {
+                openMsdDialog();
                 return;
             }
             switch (id) {
