@@ -108,7 +108,7 @@ body {
     .app {
         /* Screen takes the remainder; the agent panel is a USER-RESIZABLE width
          * (drag its left edge). Use "fit to native resolution" for a 1:1 screen. */
-        grid-template-columns: minmax(0, 1fr) var(--chat-w, 460px);
+        grid-template-columns: minmax(0, 1fr) var(--chat-w, 400px);
         grid-template-rows: minmax(0, 1fr) auto;
         transition: none;
     }
@@ -1038,7 +1038,7 @@ html.desktop-console .app {
     min-height: 0;
     height: auto;
     grid-template-columns:
-        minmax(520px, min(var(--chat-w, 760px), calc(100vw - 300px)))
+        minmax(320px, min(var(--chat-w, 400px), calc(100vw - 300px)))
         minmax(300px, 1fr);
     grid-template-rows: minmax(0, 1fr);
     transition: none;
@@ -1502,7 +1502,7 @@ html.desktop-console .app.computer-collapsed .screen {
 html.desktop-console.agent-right .app {
     grid-template-columns:
         minmax(300px, 1fr)
-        minmax(520px, min(var(--chat-w, 760px), calc(100vw - 300px)));
+        minmax(320px, min(var(--chat-w, 400px), calc(100vw - 300px)));
 }
 html.desktop-console.agent-right .screen {
     grid-column: 1;

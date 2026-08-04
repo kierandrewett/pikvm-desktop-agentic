@@ -2617,10 +2617,11 @@
     var TERM_W_KEY = "pikvm-chat-workspace-width-v2";
     /* Shared with the divider's ARIA range: a keyboard user is told the same
      * bounds the drag is clamped to, and the two cannot drift apart. */
-    var PANEL_MIN_W = 560;
+    var PANEL_MIN_W = 320;
     var PANEL_MAX_W = 1100;
+    var PANEL_DEFAULT_W = 400;
     function clampPanelWidth(w) {
-        return Math.round(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, Number(w) || 760)));
+        return Math.round(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, Number(w) || PANEL_DEFAULT_W)));
     }
     function readPanelWidth() {
         try {
