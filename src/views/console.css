@@ -572,17 +572,6 @@ html.modal-open .screen {
     color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
 }
 
-/* Power (ATX) state on the titlebar button: full-strength when the target is
-   powered, yellow while kvmd is mid-operation, dim when it is off. Powered is
-   the normal state, so it reads as "on" by weight rather than colour. */
-.tb-btn.atx-on {
-    color: var(--foreground);
-}
-.tb-btn.atx-busy {
-    /* Was a hardcoded amber that ignored the theme; --warn is darker in the
-       light palette precisely so it still reads against a light titlebar. */
-    color: var(--warn);
-}
 .res-toast-av:empty {
     display: none;
 }
@@ -768,35 +757,37 @@ html.modal-open .screen {
     display: block;
 }
 
-/* Agent-backend readiness pill in the titlebar (desktop only — fed by the daemon
- * /status proxy). Colour = overall: green ready, amber starting/degraded, red down. */
+/* Agent-backend readiness in the titlebar (desktop only — fed by the daemon
+ * /status proxy). A readout, not a control, so it sits on the same muted colour
+ * and the same cluster gap as the buttons but stays visibly lighter than one: no
+ * fill (the bar is already --card, so filling it with --card only ever drew an
+ * empty ring), no hover, and a shorter pill. Ready is the normal state, so it
+ * collapses to a bare dot occupying exactly one button's width and the cluster
+ * keeps its rhythm; anything worse expands into a labelled outline that
+ * interrupts on purpose. Colour = overall: muted ready, amber starting, red down. */
 .backend-status {
     display: none;
 }
 html.desktop-console .backend-status {
+    -webkit-app-region: no-drag;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     height: 22px;
     padding: 0 9px 0 7px;
-    margin-left: 4px;
-    border-radius: 999px;
     border: 1px solid var(--border);
-    background: var(--card);
+    border-radius: 999px;
     font-size: 11px;
     color: var(--muted-foreground);
-    -webkit-app-region: no-drag;
     cursor: default;
     user-select: none;
 }
-.backend-status[data-state="ready"] {
-    width: 20px;
+html.desktop-console .backend-status[data-state="ready"] {
+    width: 30px;
     padding: 0;
-    margin-left: 2px;
-    justify-content: center;
     gap: 0;
     border-color: transparent;
-    background: transparent;
 }
 .backend-status[data-state="ready"] .bs-text {
     position: absolute;
@@ -869,11 +860,14 @@ html.desktop-console .titlebar {
     -webkit-user-select: none;
     -webkit-app-region: drag;
 }
+/* The two control clusters. Spacing between controls lives here and ONLY here,
+ * so a button never carries its own margin and the rhythm cannot drift. */
 html.desktop-console .tb-left,
-html.desktop-console .tb-right {
+html.desktop-console .tb-right,
+html.desktop-console .tb-macros {
     display: flex;
     align-items: center;
-    gap: 1px;
+    gap: 3px;
     flex: none;
     z-index: 1; /* above the absolutely-centred title */
 }
@@ -895,7 +889,12 @@ html.desktop-console .tb-title {
     text-overflow: ellipsis;
     pointer-events: none; /* the centre stays a pure drag surface */
 }
-/* GNOME/Adwaita-style buttons: round, transparent, a subtle backdrop on hover. */
+/* ---- the one control in this bar -------------------------------------------
+ * Every clickable thing in the titlebar is a .tb-btn: a 30x30 transparent
+ * GNOME/Adwaita circle holding a 15px currentColor icon, muted at rest and
+ * lifting to the foreground on hover. Nothing else in the bar defines its own
+ * size, radius or hover treatment. The variants below change colour only, with
+ * one deliberate exception (.tb-win) that states its reason. */
 html.desktop-console .tb-btn {
     -webkit-app-region: no-drag;
     appearance: none;
@@ -905,12 +904,16 @@ html.desktop-console .tb-btn {
     width: 30px;
     height: 30px;
     padding: 0;
-    margin: 0 1px;
     border-radius: 50%;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    /* A pinned macro with no icon falls back to a short text label; sizing that
+       here keeps the fallback on the same rule as everything else. */
+    font: inherit;
+    font-size: 13px;
+    line-height: 1;
     transition:
         background 0.15s,
         color 0.15s;
@@ -927,38 +930,31 @@ html.desktop-console .tb-btn svg {
     height: 15px;
     pointer-events: none;
 }
-/* Masked SVG icons (the actual GTK icons from the old PiKVM titlebar). They take
- * currentColor so hover/active states recolour them. */
-html.desktop-console .tb-ico {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    background-color: currentColor;
-    -webkit-mask: var(--icon) no-repeat center / contain;
-    mask: var(--icon) no-repeat center / contain;
-    pointer-events: none;
+
+/* ---- state variants: colour only -------------------------------------------
+ * Each one says something about what the button controls. None of them touch
+ * geometry, so the row keeps a single rhythm however many are lit. */
+/* The preview toggle reads active while the supporting computer view is shown. */
+html.desktop-console .tb-btn.active {
+    color: var(--primary);
 }
-/* ---- platform window-control styles ----------------------------------------
- * Linux: GNOME/Adwaita — round buttons with an always-on subtle backdrop on the
- * window controls (min/max/close), brighter on hover; close reddens. */
-html.desktop-console.platform-linux .tb-win {
-    background: color-mix(in srgb, currentColor 10%, transparent);
+/* Health is only ever visible when something is actually wrong, so it earns the
+   attention it draws. */
+html.desktop-console .tb-btn.tb-health {
+    color: var(--warn);
 }
-html.desktop-console.platform-linux .tb-win:hover {
-    background: color-mix(in srgb, currentColor 20%, transparent);
+html.desktop-console .tb-btn.tb-health.is-error {
+    color: var(--danger);
 }
-html.desktop-console.platform-linux .tb-close:hover {
-    background: var(--danger);
-    color: #fff;
+/* ATX power: full strength when the target is powered, amber while kvmd is
+   mid-operation, muted when it is off. Powered is the normal state, so it reads
+   as "on" by weight rather than by colour. --warn rather than a hardcoded amber
+   because the light palette darkens it precisely so it still reads on a light bar. */
+html.desktop-console .tb-btn.atx-on {
+    color: var(--foreground);
 }
-/* macOS: the OS draws native traffic lights (top-left). Hide our own window
- * controls and reserve space on the LEFT so they don't overlap the panel toggle. */
-html.desktop-console.native-window-controls .tb-win,
-html.desktop-console.native-window-controls .tb-sep {
-    display: none;
-}
-html.desktop-console.native-window-controls .titlebar {
-    padding-left: 78px;
+html.desktop-console .tb-btn.atx-busy {
+    color: var(--warn);
 }
 /* Audio/mic toggles: blue when on, amber when mic denied; speaker waves on with audio. */
 html.desktop-console .tb-av .wave {
@@ -995,39 +991,66 @@ html.desktop-console .tb-av::before {
     transition: height 0.05s linear;
     pointer-events: none;
 }
-/* Window controls render a touch smaller + symmetric. */
-html.desktop-console .tb-win svg {
-    width: 12px;
-    height: 12px;
-}
-html.desktop-console .tb-win svg rect {
-    fill: currentColor;
-}
-html.desktop-console .tb-sep {
-    width: 1px;
+/* ---- window controls: the one variant that changes geometry -----------------
+ * Min/max/close are .tb-btn like everything else, so they inherit the circle,
+ * the hover and the transition. Two things differ, both because these are the
+ * OS window controls rather than app actions:
+ *   - the Adwaita glyphs are drawn on a 16px grid out of axis-aligned bars, and
+ *     scaling them to the shared 15px softens every edge, so they keep 16;
+ *   - on Linux they sit on an always-on backdrop, which is how GNOME separates
+ *     window management from the app's own buttons. Hover/active still come
+ *     from the shared rule, just one step brighter. */
+/* Selectors carry .tb-btn as well as .tb-win so they out-rank the shared rule on
+ * specificity rather than on source order. */
+html.desktop-console .tb-btn.tb-win svg {
+    width: 16px;
     height: 16px;
-    background: var(--border);
-    margin: 0 5px;
-    -webkit-app-region: no-drag;
 }
-/* Maximise vs restore glyph swap, driven by `.is-maximised` on the titlebar. */
-html.desktop-console .tb-ico-restore {
-    display: none;
+html.desktop-console.platform-linux .tb-btn.tb-win {
+    background: color-mix(in srgb, currentColor 10%, transparent);
 }
-html.desktop-console .titlebar.is-maximised .tb-ico-max {
-    display: none;
-}
-html.desktop-console .titlebar.is-maximised .tb-ico-restore {
-    display: inline-block;
+html.desktop-console.platform-linux .tb-btn.tb-win:hover {
+    background: color-mix(in srgb, currentColor 20%, transparent);
 }
 /* Close goes red on hover (and its glyph white). */
-html.desktop-console .tb-close:hover {
+html.desktop-console .tb-btn.tb-close:hover {
     background: var(--danger);
     color: #fff;
 }
-/* The preview toggle reads active while the supporting computer view is shown. */
-html.desktop-console .tb-btn.active {
-    color: var(--primary);
+/* Maximise vs restore glyph swap, driven by `.is-maximised` on the titlebar. */
+html.desktop-console .tb-glyph-restore {
+    display: none;
+}
+html.desktop-console .titlebar.is-maximised .tb-glyph-max {
+    display: none;
+}
+html.desktop-console .titlebar.is-maximised .tb-glyph-restore {
+    display: inline-block;
+}
+/* macOS: the OS draws native traffic lights (top-left). Hide our own window
+ * controls and reserve space on the LEFT so they don't overlap the panel toggle. */
+html.desktop-console.native-window-controls .tb-win,
+html.desktop-console.native-window-controls .tb-sep {
+    display: none;
+}
+html.desktop-console.native-window-controls .titlebar {
+    padding-left: 78px;
+}
+
+/* ---- the one divider -------------------------------------------------------
+ * A hairline the height of an icon, used both as a standalone element and as
+ * the trailing rule after the macro cluster. Defined once so the two cannot
+ * drift apart; the cluster gap either side does the spacing. */
+html.desktop-console .tb-sep,
+html.desktop-console .tb-macros:not(:empty)::after {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    margin: 0 4px;
+    -webkit-app-region: no-drag;
+}
+html.desktop-console .tb-macros:not(:empty)::after {
+    content: "";
 }
 
 /* The app fills the space under the titlebar; force the wide-landscape layout
@@ -1343,14 +1366,6 @@ html.desktop-console .app.computer-collapsed .screen {
     margin-right: auto;
 }
 
-/* Health indicator: only ever visible when something is actually wrong, so it
-   earns the attention it draws. */
-.tb-btn.tb-health {
-    color: var(--warn);
-}
-.tb-btn.tb-health.is-error {
-    color: var(--danger);
-}
 .dlg-list {
     margin: 0;
     padding: 0;
@@ -1556,23 +1571,10 @@ html.desktop-console.agent-detached .screen {
     border-right: 0;
 }
 
-/* ---- custom macro buttons + editor ---- */
-.tb-macros {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-}
-.tb-macros:not(:empty)::after {
-    content: "";
-    width: 1px;
-    height: 16px;
-    margin: 0 4px;
-    background: var(--border);
-}
-.tb-macros .tb-btn {
-    font-size: 13px;
-    line-height: 1;
-}
+/* ---- custom macro buttons + editor ----
+ * The pinned macro buttons are plain .tb-btn children and carry no styling of
+ * their own; the cluster's layout and its trailing divider live with the rest
+ * of the titlebar rules above. Everything below is the editor dialog. */
 .macro-body {
     display: grid;
     grid-template-columns: minmax(140px, 34%) minmax(0, 1fr);
@@ -1699,10 +1701,6 @@ html.desktop-console.agent-detached .screen {
     height: 15px;
     flex: none;
     color: var(--muted-foreground);
-}
-.tb-macros .tb-btn svg {
-    width: 16px;
-    height: 16px;
 }
 .dlg-btn.macro-move {
     width: 32px;
