@@ -27,6 +27,8 @@ export interface JigglerControl {
     getNativeJiggler?: () => { enabled?: boolean; active?: boolean } | undefined;
     /** Turn kvmd's own jiggler on or off. */
     setNativeJiggler?: (on: boolean) => Promise<void>;
+    /** Open the Pi's state socket. Idempotent — a no-op once it is up. */
+    connect?: () => Promise<void>;
 }
 
 export interface JigglerDeps {
@@ -125,8 +127,29 @@ export class MouseJiggler {
         return Math.max(this.lastUserActivity, this.deps.control.lastInputAt());
     }
 
+    /* The control core opens its state socket lazily, inside the first send. Nothing
+     * else opens it, so without this the jiggler would sit blind: no hid event means no
+     * `jiggler` state, so it could not tell the Pi HAS a jiggler and would nudge locally
+     * instead — and that first nudge would fire with an unknown mouse mode and a
+     * last-known cursor of (0,0), i.e. a jump to the middle of the screen. Connecting
+     * up front means we know what the Pi can do before we do anything. Idempotent, so
+     * this also re-establishes the socket after a kvmd restart. */
+    private async ensureConnected(): Promise<void> {
+        if (!this.deps.control.connect) return;
+        try {
+            await this.deps.control.connect();
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (this.lastError !== msg) {
+                this.lastError = msg;
+                this.log(`cannot reach the Pi's state socket: ${msg}`);
+            }
+        }
+    }
+
     private async tick(): Promise<void> {
         if (this.jiggling || !this.deps.enabled() || this.deps.isAgentBusy()) return;
+        await this.ensureConnected();
         // The Pi's own jiggler, where the board has one, beats nudging from here: it
         // keeps running when this app is closed or the laptop is asleep, which is when
         // the target is most likely to be left alone long enough to blank. So keep it
@@ -152,16 +175,19 @@ export class MouseJiggler {
         try {
             await this.deps.control.setNativeJiggler(true);
             this.nativeSwitchOns++;
+            this.native = true;
             this.log(this.nativeSwitchOns === 1 ? "switching kvmd's jiggler on" : `kvmd's jiggler was off again — switching it back on (${this.nativeSwitchOns}x)`);
+            // The Pi is on it from here. Nudging as well would move the cursor for no
+            // reason — and on the first tick that means jogging off a last-known
+            // position of (0,0), i.e. a jump to the middle of the screen.
+            return true;
         } catch (e) {
-            // Fall through to our own nudge this tick rather than leaving the target
-            // with no keep-awake at all.
+            // Fall through to our own nudge rather than leaving the target with no
+            // keep-awake at all.
             this.lastError = e instanceof Error ? e.message : String(e);
             this.log(`could not switch kvmd's jiggler on: ${this.lastError}`);
             return false;
         }
-        // kvmd echoes the new state back on the hid event; nudge once more meanwhile.
-        return false;
     }
 
     private async jiggle(idleMs: number): Promise<void> {

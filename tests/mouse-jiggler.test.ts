@@ -13,9 +13,15 @@ function stubControl(overrides: Partial<JigglerControl> = {}) {
         native: undefined as { enabled?: boolean; active?: boolean } | undefined,
         nativeSets: [] as boolean[],
         nativeFail: undefined as string | undefined,
+        connects: 0,
+        connectFail: undefined as string | undefined,
     };
     const control: JigglerControl = {
         lastInputAt: () => state.lastInput,
+        connect: async () => {
+            state.connects++;
+            if (state.connectFail) throw new Error(state.connectFail);
+        },
         isHidOnline: () => state.hidOnline,
         getNativeJiggler: () => state.native,
         setNativeJiggler: async (on: boolean) => {
@@ -135,6 +141,30 @@ test("the Pi's jiggler is switched back on every time something turns it off", a
     assert.deepEqual(state.nativeSets, [true, true]);
     assert.equal(jiggler.status().nativeSwitchOns, 2);
     assert.match(logs.join("\n"), /switching it back on/);
+});
+
+test("the Pi's state socket is opened before deciding anything", async () => {
+    // The control core opens it lazily inside the first send, and nothing else opens
+    // it — so without this the jiggler is blind to hid state and nudges locally on a
+    // board whose own jiggler it should have used.
+    const { control, state } = stubControl();
+    state.lastInput = Date.now() - 120_000;
+    state.native = { enabled: true, active: false };
+    const jiggler = new MouseJiggler({ control, enabled: () => true, isAgentBusy: () => false });
+
+    await tick(jiggler);
+    assert.equal(state.connects, 1);
+    assert.deepEqual(state.nativeSets, [true], "must reach the native jiggler on the FIRST tick");
+    assert.equal(state.nudges, 0, "and must not nudge locally on a board that has its own");
+});
+
+test("an unreachable state socket does not stop the fallback nudge", async () => {
+    const { control, state } = stubControl();
+    state.lastInput = Date.now() - 120_000;
+    state.connectFail = "ECONNREFUSED";
+    const jiggler = new MouseJiggler({ control, enabled: () => true, isAgentBusy: () => false });
+    await tick(jiggler);
+    assert.equal(state.nudges, 1);
 });
 
 test("a board with no native jiggler still gets nudged from here", async () => {
