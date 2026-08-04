@@ -126,6 +126,42 @@
                      the bottom so it never collides with the resolution toast above. -->
                 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+                <!-- The Pi's own journal (kvmd api/log). Read-only snapshot with a
+                     refresh; the real UI streams it with follow=1, which is the wrong
+                     shape for a dialog you open to answer one question. -->
+                <div class="dlg-scrim" id="log-dlg" hidden>
+                    <div class="dlg dlg-wide" role="dialog" aria-modal="true" aria-labelledby="log-dlg-title">
+                        <h2 class="dlg-title" id="log-dlg-title">PiKVM log</h2>
+                        <div class="dlg-row">
+                            <label class="dlg-label" for="log-seek">Show</label>
+                            <select id="log-seek" class="dlg-select">
+                                <option value="600">last 10 minutes</option>
+                                <option value="3600" selected>last hour</option>
+                                <option value="86400">last day</option>
+                                <option value="0">everything</option>
+                            </select>
+                            <button type="button" class="dlg-btn" id="log-refresh">Refresh</button>
+                        </div>
+                        <pre class="dlg-log" id="log-body">…</pre>
+                        <div class="dlg-actions">
+                            <button type="button" class="dlg-btn" id="log-copy">Copy</button>
+                            <button type="button" class="dlg-btn primary" id="log-close">Done</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- OCR result (kvmd reads the text off a region of the live picture). -->
+                <div class="dlg-scrim" id="ocr-dlg" hidden>
+                    <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="ocr-dlg-title">
+                        <h2 class="dlg-title" id="ocr-dlg-title">Text from the screen</h2>
+                        <textarea id="ocr-text" class="dlg-input" rows="8" spellcheck="false" readonly></textarea>
+                        <div class="dlg-actions">
+                            <button type="button" class="dlg-btn" id="ocr-copy">Copy</button>
+                            <button type="button" class="dlg-btn primary" id="ocr-close">Done</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Mass storage (kvmd api/msd/*): put an ISO on the target as a virtual
                      CD/DVD or flash drive. Everything is gated on the Pi's own state —
                      an image cannot be changed while the drive is connected. -->
@@ -321,6 +357,8 @@
                 <button class="more-item" id="screenshot-btn">Save screenshot</button>
                 <button class="more-item" id="health-btn">System, GPIO &amp; health…</button>
                 <button class="more-item" id="msd-btn" hidden>Mass storage…</button>
+                <button class="more-item" id="ocr-btn" hidden>Read text from the screen…</button>
+                <button class="more-item" id="log-btn">PiKVM log…</button>
                 <!-- ATX power. Hidden until the Pi reports it actually has the wiring. -->
                 <div class="more-sep" id="atx-sep" hidden></div>
                 <button class="more-item" id="atx-power" data-atx="power" hidden>Power button</button>

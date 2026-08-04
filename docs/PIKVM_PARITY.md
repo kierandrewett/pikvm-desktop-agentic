@@ -74,9 +74,12 @@ Ordered by how much a KVM operator actually reaches for it.
 - [x] **GPIO** — user-defined switches and pulses. Verified against a live v4plus,
       which exposes `__v3_usb_breaker__` and `__v4_locator__`.
 - [x] **About** — hostname, model, kvmd/streamer versions, CPU temperature, fan RPM.
-- [ ] **System log viewer** — `api/log`.
+- [x] **System log viewer** — `api/log`, as a refreshable snapshot rather than the
+      real UI's endless follow stream.
 - [ ] **Input recorder** — record, replay, loop, save/load HID scripts.
-- [ ] **OCR text selection** — select a screen region and pull the text out.
+- [x] **OCR text selection** — drag a region, kvmd runs tesseract over that part of
+      the current frame and returns the text. Coordinates go through the same fracAt
+      mapping the pointer uses, so it stays correct under any zoom or pan.
 - [ ] **Multi-port KVM switch** — active port, per-port EDID, colours, beacon.
 
 ## Verified against live hardware

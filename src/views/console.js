@@ -185,6 +185,7 @@
                     if (d && d.event_type === "hid") health.setHid(ed);
                     if (d && d.event_type === "msd") msd.setState(ed);
                     if (d && d.event_type === "gpio") gpio.setState(ed);
+                    if (d && d.event_type === "ocr") setOcrState(ed);
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
@@ -429,6 +430,257 @@
             tb.title = !show ? "Power" : busy ? "Power — busy" : powered ? "Power — target is on" : "Power — target is off";
         }
     });
+
+    /* ----------------------------------------------------------------- *
+     * Pi log (kvmd api/log)
+     * ----------------------------------------------------------------- */
+
+    var logDlg = document.getElementById("log-dlg");
+
+    function loadLog() {
+        var body = document.getElementById("log-body");
+        var seekEl = document.getElementById("log-seek");
+        if (!body) return;
+        var seek = seekEl ? seekEl.value : "3600";
+        body.textContent = "loading…";
+        // follow=0: a snapshot, not a stream. The real UI opens a following tab, which
+        // never ends and is the wrong shape for a dialog opened to answer one question.
+        fetch("/api/log?seek=" + encodeURIComponent(seek) + "&follow=0", { cache: "no-store" })
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.text();
+            })
+            .then(function (t) {
+                body.textContent = t || "(nothing in this window)";
+                body.scrollTop = body.scrollHeight; // newest last
+            })
+            .catch(function (e) {
+                body.textContent = "Could not read the log: " + (e && e.message ? e.message : "network error");
+            });
+    }
+    function openLogDialog() {
+        if (!logDlg) return;
+        logDlg.hidden = false;
+        loadLog();
+    }
+    function closeLogDialog() {
+        if (logDlg) logDlg.hidden = true;
+        refocusKbd();
+    }
+    (function wireLogDialog() {
+        var refresh = document.getElementById("log-refresh");
+        if (refresh) refresh.addEventListener("click", loadLog);
+        var seek = document.getElementById("log-seek");
+        if (seek) seek.addEventListener("change", loadLog);
+        var copy = document.getElementById("log-copy");
+        if (copy) {
+            copy.addEventListener("click", function () {
+                var body = document.getElementById("log-body");
+                if (body) copyText(body.textContent, "Log copied");
+            });
+        }
+        var close = document.getElementById("log-close");
+        if (close) close.addEventListener("click", closeLogDialog);
+        if (logDlg) {
+            logDlg.addEventListener("mousedown", function (e) {
+                if (e.target === logDlg) closeLogDialog();
+            });
+            logDlg.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeLogDialog();
+                }
+            });
+        }
+    })();
+
+    /** Copy text, falling back to a hidden textarea where the async API is refused. */
+    function copyText(text, okMsg) {
+        var done = function () {
+            toast(okMsg || "Copied");
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard
+                .writeText(text)
+                .then(done)
+                .catch(function () {
+                    legacyCopy(text, done);
+                });
+            return;
+        }
+        legacyCopy(text, done);
+    }
+    function legacyCopy(text, done) {
+        try {
+            var ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            ta.remove();
+            done();
+        } catch (e) {
+            toast("Could not copy", true);
+        }
+    }
+
+    /* ----------------------------------------------------------------- *
+     * OCR: read text off the live picture (kvmd snapshot?ocr=1)
+     * ----------------------------------------------------------------- */
+
+    /* kvmd runs tesseract over a region of the CURRENT frame and returns plain text.
+     * The region is in SOURCE-frame pixels, so the drag is converted through fracAt —
+     * the same mapping the pointer uses — which means it stays correct under any zoom
+     * or pan. Verified available on this Pi: the `ocr` event reports enabled with the
+     * eng language pack. */
+    var ocrLangs = null;
+    var ocrPicking = false;
+    var ocrDrag = null;
+    var ocrRect = null;
+    var ocrHint = null;
+
+    function ocrAvailable() {
+        return !!(ocrLangs && ocrLangs.enabled);
+    }
+    function setOcrState(s) {
+        if (!s) return;
+        ocrLangs = { enabled: !!s.enabled, langs: s.langs || null };
+        var btn = document.getElementById("ocr-btn");
+        if (btn) btn.hidden = !ocrAvailable();
+    }
+
+    function startOcrPick() {
+        if (!ocrAvailable() || ocrPicking) return;
+        ocrPicking = true;
+        pane.classList.add("ocr-picking");
+        ocrHint = document.createElement("div");
+        ocrHint.className = "ocr-hint";
+        ocrHint.textContent = "Drag over the text to read  ·  Esc to cancel";
+        pane.appendChild(ocrHint);
+    }
+    function endOcrPick() {
+        ocrPicking = false;
+        ocrDrag = null;
+        pane.classList.remove("ocr-picking");
+        if (ocrRect) {
+            ocrRect.remove();
+            ocrRect = null;
+        }
+        if (ocrHint) {
+            ocrHint.remove();
+            ocrHint = null;
+        }
+    }
+    /** True while the OCR picker owns the pointer, so KVM input stays out of the way. */
+    function ocrPickingNow() {
+        return ocrPicking;
+    }
+    function ocrPointerDown(e) {
+        var f = fracAt(e.clientX, e.clientY);
+        if (!f) return;
+        ocrDrag = { x0: e.clientX, y0: e.clientY, f0: f };
+        ocrRect = document.createElement("div");
+        ocrRect.className = "ocr-rect";
+        pane.appendChild(ocrRect);
+        ocrPointerMove(e);
+    }
+    function ocrPointerMove(e) {
+        if (!ocrDrag || !ocrRect) return;
+        var pr = pane.getBoundingClientRect();
+        var x = Math.min(ocrDrag.x0, e.clientX) - pr.left;
+        var y = Math.min(ocrDrag.y0, e.clientY) - pr.top;
+        ocrRect.style.left = x + "px";
+        ocrRect.style.top = y + "px";
+        ocrRect.style.width = Math.abs(e.clientX - ocrDrag.x0) + "px";
+        ocrRect.style.height = Math.abs(e.clientY - ocrDrag.y0) + "px";
+    }
+    function ocrPointerUp(e) {
+        if (!ocrDrag) {
+            endOcrPick();
+            return;
+        }
+        var f1 = fracAt(e.clientX, e.clientY);
+        var f0 = ocrDrag.f0;
+        // A click rather than a drag, or a drag that ended off the picture: nothing to read.
+        if (!f1 || (Math.abs(e.clientX - ocrDrag.x0) < 6 && Math.abs(e.clientY - ocrDrag.y0) < 6)) {
+            endOcrPick();
+            return;
+        }
+        var w = geomW();
+        var h = geomH();
+        var left = Math.round(Math.min(f0.fx, f1.fx) * w);
+        var right = Math.round(Math.max(f0.fx, f1.fx) * w);
+        var top = Math.round(Math.min(f0.fy, f1.fy) * h);
+        var bottom = Math.round(Math.max(f0.fy, f1.fy) * h);
+        endOcrPick();
+        runOcr(left, top, right, bottom);
+    }
+    function runOcr(left, top, right, bottom) {
+        var langs = ocrLangs && ocrLangs.langs && ocrLangs.langs["default"];
+        var q = ["allow_offline=1", "ocr=1", "ocr_left=" + left, "ocr_top=" + top, "ocr_right=" + right, "ocr_bottom=" + bottom];
+        if (langs && langs.length) q.push("ocr_langs=" + encodeURIComponent(langs.join(",")));
+        toast("Reading the screen…");
+        fetch("/api/streamer/snapshot?" + q.join("&"), { cache: "no-store" })
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.text();
+            })
+            .then(function (text) {
+                var out = document.getElementById("ocr-text");
+                var dlg = document.getElementById("ocr-dlg");
+                if (out) out.value = text.replace(/\s+$/, "") || "(no text found in that region)";
+                if (dlg) dlg.hidden = false;
+                if (out) out.focus();
+            })
+            .catch(function (e) {
+                toast("Could not read the screen: " + (e && e.message ? e.message : "network error"), true);
+            });
+    }
+    (function wireOcrDialog() {
+        var dlg = document.getElementById("ocr-dlg");
+        var close = document.getElementById("ocr-close");
+        var copy = document.getElementById("ocr-copy");
+        var closeIt = function () {
+            if (dlg) dlg.hidden = true;
+            refocusKbd();
+        };
+        if (close) close.addEventListener("click", closeIt);
+        if (copy) {
+            copy.addEventListener("click", function () {
+                var out = document.getElementById("ocr-text");
+                if (out) copyText(out.value, "Text copied");
+            });
+        }
+        if (dlg) {
+            dlg.addEventListener("mousedown", function (e) {
+                if (e.target === dlg) closeIt();
+            });
+            dlg.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeIt();
+                }
+            });
+        }
+        // Esc cancels an in-progress pick, before the KVM forwarder sees the key.
+        document.addEventListener(
+            "keydown",
+            function (e) {
+                if (ocrPicking && e.key === "Escape") {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    endOcrPick();
+                }
+            },
+            true,
+        );
+    })();
+    function ocrDialogOpen() {
+        var dlg = document.getElementById("ocr-dlg");
+        return !!(dlg && !dlg.hidden);
+    }
 
     /* ----------------------------------------------------------------- *
      * Mass storage (kvmd api/msd/*)
@@ -1451,6 +1703,10 @@
     if (healthBtn) healthBtn.addEventListener("click", openHealthDialog);
     var msdBtn = document.getElementById("msd-btn");
     if (msdBtn) msdBtn.addEventListener("click", openMsdDialog);
+    var ocrBtn = document.getElementById("ocr-btn");
+    if (ocrBtn) ocrBtn.addEventListener("click", startOcrPick);
+    var logBtn = document.getElementById("log-btn");
+    if (logBtn) logBtn.addEventListener("click", openLogDialog);
     if (pasteText) pasteText.addEventListener("input", paintPasteCount);
     if (pasteSend) pasteSend.addEventListener("click", sendPaste);
     var pasteCancel = document.getElementById("paste-cancel");
@@ -1476,7 +1732,14 @@
     /** True while any modal owns the keyboard. The KVM forwarder holds off then —
      *  otherwise the dialog's own keystrokes get typed on the target as well. */
     function modalOpen() {
-        return !!((pasteDlg && !pasteDlg.hidden) || (streamDlg && !streamDlg.hidden) || (healthDlg && !healthDlg.hidden) || (msdDlg && !msdDlg.hidden));
+        return !!(
+            (pasteDlg && !pasteDlg.hidden) ||
+            (streamDlg && !streamDlg.hidden) ||
+            (healthDlg && !healthDlg.hidden) ||
+            (msdDlg && !msdDlg.hidden) ||
+            (logDlg && !logDlg.hidden) ||
+            ocrDialogOpen()
+        );
     }
 
     function runAtxAction(id) {
@@ -2673,6 +2936,14 @@
             // are NOT KVM input — let those handle their own clicks.
             if (e.target && e.target.closest && e.target.closest(".bar-keys, .acting-bar, .copilot, .suggest-card")) return;
             if (blockKvmInput(e)) return;
+            // Picking an OCR region: the drag is a selection, not remote input.
+            if (ocrPickingNow()) {
+                e.preventDefault();
+                e.stopPropagation();
+                pane.setPointerCapture(e.pointerId);
+                ocrPointerDown(e);
+                return;
+            }
             pane.setPointerCapture(e.pointerId);
             pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -2742,6 +3013,11 @@
         "pointermove",
         function (e) {
             if (blockKvmInput(e)) return;
+            if (ocrPickingNow()) {
+                e.preventDefault();
+                ocrPointerMove(e);
+                return;
+            }
             // Desktop mouse: the remote cursor follows the pointer ABSOLUTELY — on
             // plain hover too, not only while a button is held (gating on "is the
             // pointer down" made it behave like a relative trackpad).
@@ -2809,6 +3085,11 @@
     );
 
     function endTouch(e) {
+        if (ocrPickingNow()) {
+            e.preventDefault();
+            ocrPointerUp(e);
+            return;
+        }
         if (!pts.has(e.pointerId)) return;
         pts.delete(e.pointerId);
         if (e.pointerType === "mouse") {
@@ -3649,6 +3930,8 @@
             items.push({ id: "screenshot", label: "Save screenshot" });
             items.push({ id: "health", label: "System, GPIO & health…" });
             if (msd.available()) items.push({ id: "msd", label: "Mass storage…" });
+            if (ocrAvailable()) items.push({ id: "ocr", label: "Read text from the screen…" });
+            items.push({ id: "log", label: "PiKVM log…" });
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
                 items.push({ type: "separator" });
@@ -3683,6 +3966,14 @@
             }
             if (id === "msd") {
                 openMsdDialog();
+                return;
+            }
+            if (id === "ocr") {
+                startOcrPick();
+                return;
+            }
+            if (id === "log") {
+                openLogDialog();
                 return;
             }
             switch (id) {

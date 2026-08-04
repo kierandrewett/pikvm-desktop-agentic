@@ -1268,3 +1268,48 @@ html.desktop-console .app.computer-collapsed .screen {
     height: 8px;
     accent-color: var(--primary);
 }
+
+/* ---- log viewer + OCR selection ---- */
+.dlg-wide {
+    width: min(900px, 100%);
+}
+.dlg-log {
+    margin: 0;
+    max-height: min(52vh, 420px);
+    overflow: auto;
+    padding: 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre;
+    tab-size: 4;
+}
+/* While picking an OCR region the stream must not act like a remote pointer,
+   so the whole pane switches to crosshair and swallows the input. */
+.screen.ocr-picking {
+    cursor: crosshair;
+}
+.ocr-rect {
+    position: absolute;
+    z-index: 8;
+    border: 1px solid var(--primary);
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+    pointer-events: none;
+}
+.ocr-hint {
+    position: absolute;
+    z-index: 8;
+    top: max(10px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    font-size: 12px;
+    font-weight: 650;
+    pointer-events: none;
+    white-space: nowrap;
+}
