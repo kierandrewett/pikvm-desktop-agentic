@@ -740,6 +740,26 @@
                 row.appendChild(unit);
             }
 
+            // Order is the whole point of a multi-step macro — "type the path,
+            // THEN press enter" — so it has to be changeable after the fact.
+            var move = function (delta, label) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "dlg-btn macro-move";
+                btn.textContent = label;
+                btn.setAttribute("aria-label", (delta < 0 ? "Move step up" : "Move step down"));
+                btn.disabled = delta < 0 ? index === 0 : index === macro.steps.length - 1;
+                btn.addEventListener("click", function () {
+                    var to = index + delta;
+                    var moved = macro.steps.splice(index, 1)[0];
+                    macro.steps.splice(to, 0, moved);
+                    void saveMacros();
+                });
+                return btn;
+            };
+            row.appendChild(move(-1, "↑"));
+            row.appendChild(move(1, "↓"));
+
             var remove = document.createElement("button");
             remove.type = "button";
             remove.className = "dlg-btn";
@@ -2155,9 +2175,62 @@
         document.documentElement.classList.toggle("modal-open", open);
         if (open && kvmCursor) kvmCursor.style.display = "none";
     }
+    /** The dialog currently up, or null. */
+    function openScrim() {
+        var scrims = document.querySelectorAll(".dlg-scrim");
+        for (var i = 0; i < scrims.length; i++) if (!scrims[i].hidden) return scrims[i];
+        return null;
+    }
+    var FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    /* Focus was free to leave a dialog: one Tab and you were back on the live
+     * surface, typing at the remote machine while a dialog was still up. Keep it
+     * inside, and hand it back where it came from on close. */
+    var focusBeforeModal = null;
+    document.addEventListener(
+        "keydown",
+        function (e) {
+            if (e.key !== "Tab") return;
+            var scrim = openScrim();
+            if (!scrim) return;
+            var items = Array.prototype.filter.call(scrim.querySelectorAll(FOCUSABLE), function (el) {
+                return el.offsetParent !== null;
+            });
+            if (!items.length) return;
+            var first = items[0];
+            var last = items[items.length - 1];
+            var active = document.activeElement;
+            // Wrap at both ends, and pull focus back in if it has already escaped.
+            if (!scrim.contains(active)) {
+                e.preventDefault();
+                (e.shiftKey ? last : first).focus();
+            } else if (e.shiftKey && active === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && active === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        },
+        true,
+    );
+
     (function watchModalCursor() {
         if (typeof MutationObserver !== "function") return;
-        var observer = new MutationObserver(syncModalCursor);
+        var observer = new MutationObserver(function () {
+            syncModalCursor();
+            var scrim = openScrim();
+            if (scrim && !scrim.contains(document.activeElement)) {
+                // Remember where focus was so closing returns it, not the body.
+                if (!focusBeforeModal) focusBeforeModal = document.activeElement;
+                var first = scrim.querySelector(FOCUSABLE);
+                if (first) first.focus();
+            } else if (!scrim && focusBeforeModal) {
+                var restore = focusBeforeModal;
+                focusBeforeModal = null;
+                if (restore && restore.focus && document.contains(restore)) restore.focus();
+            }
+        });
         document.querySelectorAll(".dlg-scrim").forEach(function (el) {
             observer.observe(el, { attributes: true, attributeFilter: ["hidden"] });
         });

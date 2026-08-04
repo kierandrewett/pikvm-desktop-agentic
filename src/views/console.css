@@ -1569,3 +1569,13 @@ html.desktop-console.agent-detached .screen {
     width: 16px;
     height: 16px;
 }
+.dlg-btn.macro-move {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+    font-size: 12px;
+}
+.dlg-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
