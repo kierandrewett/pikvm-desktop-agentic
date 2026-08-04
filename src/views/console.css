@@ -1367,6 +1367,37 @@ html.desktop-console .app.computer-collapsed .screen {
     font-size: 12px;
     outline: none;
 }
+/* The file input's button lives in shadow DOM and keeps the PLATFORM style
+   unless targeted — a light-grey slab in the middle of a dark dialog, and the
+   one control here that looked like it belonged to another application. */
+.dlg-file {
+    padding: 5px 8px;
+    cursor: pointer;
+}
+.dlg-file::file-selector-button {
+    margin-right: 10px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background 0.12s,
+        border-color 0.12s;
+}
+.dlg-file::file-selector-button:hover {
+    background: var(--accent);
+    border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
+}
+.dlg-file:disabled,
+.dlg-file:disabled::file-selector-button {
+    opacity: 0.5;
+    cursor: default;
+}
 .dlg-text:focus {
     border-color: var(--primary);
 }
