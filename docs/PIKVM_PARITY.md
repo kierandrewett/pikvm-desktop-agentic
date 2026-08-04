@@ -71,12 +71,36 @@ Ordered by how much a KVM operator actually reaches for it.
 - [x] **Mass storage** — upload an ISO with a progress bar, or have the Pi fetch one
       from a URL; select, mount as CD/DVD or flash, read-only or writable, delete,
       reset. Multi-part storage prefixes are not exposed (the default part is used).
-- [ ] **GPIO** — user-defined switches and pulses (USB breaker, locator, relays).
+- [x] **GPIO** — user-defined switches and pulses. Verified against a live v4plus,
+      which exposes `__v3_usb_breaker__` and `__v4_locator__`.
+- [x] **About** — hostname, model, kvmd/streamer versions, CPU temperature, fan RPM.
 - [ ] **System log viewer** — `api/log`.
 - [ ] **Input recorder** — record, replay, loop, save/load HID scripts.
 - [ ] **OCR text selection** — select a screen region and pull the text out.
 - [ ] **Multi-port KVM switch** — active port, per-port EDID, colours, beacon.
-- [ ] **About / versions** — kvmd and streamer versions, platform, hostname.
+
+## Verified against live hardware
+
+The event shapes above are not guesses. With the app running, this reads the real
+state socket through its proxy (read-only — it only listens):
+
+```
+node -e '
+const WebSocket = require("ws");
+const ws = new WebSocket("ws://127.0.0.1:25650/api/ws");
+ws.on("message", (r) => { const m = JSON.parse(r); console.log(m.event_type, JSON.stringify(m.event)); });
+setTimeout(() => process.exit(0), 20000);
+'
+```
+
+Confirmed on a PiKVM v4plus (kvmd 4.150): `atx`, `hid`, `hid_keymaps`, `msd`,
+`streamer`, `gpio`, `ocr`, `switch`, and `info`. Two things worth knowing:
+
+- `info` arrives as SEPARATE partial events — `{auth}`, `{node}`, `{meta}`,
+  `{uptime}`, `{health}`, `{system}`, `{fan}`, `{extras}` — one key at a time, a few
+  seconds apart. Anything reading it must merge, never replace.
+- `hid.connected` is `null` on this board, not a boolean. Only an explicit `false`
+  means detached.
 
 ## Notes
 

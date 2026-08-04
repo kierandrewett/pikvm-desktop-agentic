@@ -183,13 +183,22 @@
                      part of it we can fix from here. -->
                 <div class="dlg-scrim" id="health-dlg" hidden>
                     <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="health-dlg-title">
-                        <h2 class="dlg-title" id="health-dlg-title">Health</h2>
+                        <h2 class="dlg-title" id="health-dlg-title">System</h2>
                         <ul class="dlg-list" id="health-list"></ul>
                         <p class="dlg-note" id="health-ok" hidden>Everything looks fine.</p>
+
+                        <!-- User GPIO: relays, the v3 USB breaker, the v4 locator. -->
+                        <div id="gpio-section" hidden>
+                            <hr class="dlg-hr" />
+                            <div id="gpio-rows"></div>
+                        </div>
+
+                        <hr class="dlg-hr" />
                         <div class="dlg-row">
                             <span class="dlg-label">Keyboard &amp; mouse</span>
                             <span class="dlg-hint" id="health-hid-state"></span>
                         </div>
+                        <p class="dlg-note" id="health-about"></p>
                         <div class="dlg-actions">
                             <button type="button" class="dlg-btn" id="hid-toggle">Detach</button>
                             <button type="button" class="dlg-btn" id="hid-reset">Reset</button>
@@ -310,7 +319,7 @@
                 <button class="more-item" id="paste-btn">Paste text to the target…</button>
                 <button class="more-item" id="stream-btn">Stream settings…</button>
                 <button class="more-item" id="screenshot-btn">Save screenshot</button>
-                <button class="more-item" id="health-btn">Health &amp; keyboard recovery…</button>
+                <button class="more-item" id="health-btn">System, GPIO &amp; health…</button>
                 <button class="more-item" id="msd-btn" hidden>Mass storage…</button>
                 <!-- ATX power. Hidden until the Pi reports it actually has the wiring. -->
                 <div class="more-sep" id="atx-sep" hidden></div>

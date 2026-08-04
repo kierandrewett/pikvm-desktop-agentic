@@ -184,6 +184,7 @@
                     if (d && d.event_type === "streamer" && ed && ed.streamer) health.setSource(ed.streamer.source);
                     if (d && d.event_type === "hid") health.setHid(ed);
                     if (d && d.event_type === "msd") msd.setState(ed);
+                    if (d && d.event_type === "gpio") gpio.setState(ed);
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
@@ -637,6 +638,81 @@
     })();
 
     /* ----------------------------------------------------------------- *
+     * GPIO (kvmd api/gpio/switch, api/gpio/pulse)
+     * ----------------------------------------------------------------- */
+
+    /* User-defined outputs: relays, the v3 USB breaker, the v4 locator LED. The model
+     * describes what exists ({switch, pulse:{max_delay}, hw}), the state says whether
+     * each one is on ({online, state, busy}). Verified against a live v4plus, which
+     * exposes __v3_usb_breaker__ and __v4_locator__. */
+    var GPIO_LABELS = {
+        __v3_usb_breaker__: "USB power to the target",
+        __v4_locator__: "Locator LED",
+    };
+    /* Channels where a stray click has a real cost. Cutting the target's USB pulls
+     * the keyboard, mouse and any mounted image out from under it. */
+    var GPIO_CONFIRM = { __v3_usb_breaker__: "Switch the target's USB power?\n\nThe keyboard, mouse and any mounted image disconnect." };
+
+    function gpioLabel(name) {
+        if (GPIO_LABELS[name]) return GPIO_LABELS[name];
+        // kvmd wraps its built-ins in double underscores; a user channel is plain.
+        return name.replace(/^__|__$/g, "").replace(/_/g, " ");
+    }
+
+    var gpio = (function () {
+        var model = null;
+        var state = null;
+        var listeners = [];
+        return {
+            setState: function (s) {
+                if (!s) return;
+                if (s.model !== undefined) model = s.model;
+                if (s.state !== undefined) state = s.state;
+                for (var i = 0; i < listeners.length; i++) listeners[i]();
+            },
+            onChange: function (cb) {
+                listeners.push(cb);
+                cb();
+            },
+            /** Output channels, or an empty list when this Pi has none wired. */
+            outputs: function () {
+                var scheme = model && model.scheme && model.scheme.outputs;
+                if (!scheme) return [];
+                return Object.keys(scheme).map(function (name) {
+                    var st = (state && state.outputs && state.outputs[name]) || {};
+                    return {
+                        name: name,
+                        label: gpioLabel(name),
+                        canSwitch: !!scheme[name].switch,
+                        canPulse: !!(scheme[name].pulse && scheme[name].pulse.max_delay > 0),
+                        online: st.online !== false,
+                        on: !!st.state,
+                        busy: !!st.busy,
+                    };
+                });
+            },
+            switchTo: function (name, on) {
+                return fetch("/api/gpio/switch?channel=" + encodeURIComponent(name) + "&state=" + (on ? 1 : 0), { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        if (!r.ok) toast("Could not switch " + gpioLabel(name) + " (" + r.status + ")", true);
+                    })
+                    .catch(function (e) {
+                        toast("GPIO: " + (e && e.message ? e.message : "network error"), true);
+                    });
+            },
+            pulse: function (name) {
+                return fetch("/api/gpio/pulse?channel=" + encodeURIComponent(name), { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        if (!r.ok) toast("Could not pulse " + gpioLabel(name) + " (" + r.status + ")", true);
+                    })
+                    .catch(function (e) {
+                        toast("GPIO: " + (e && e.message ? e.message : "network error"), true);
+                    });
+            },
+        };
+    })();
+
+    /* ----------------------------------------------------------------- *
      * HID recovery (kvmd api/hid/set_connected, api/hid/reset)
      * ----------------------------------------------------------------- */
 
@@ -943,6 +1019,9 @@
         var ok = document.getElementById("health-ok");
         if (ok) ok.hidden = problems.length > 0;
 
+        paintGpio();
+        paintAbout();
+
         var connected = health.hidConnected();
         var stateEl = document.getElementById("health-hid-state");
         if (stateEl) stateEl.textContent = connected === null ? "state unknown" : connected ? "attached" : "detached";
@@ -952,6 +1031,96 @@
             toggle.disabled = connected === null;
         }
     }
+    /* GPIO rows are rebuilt only when the channel set changes; their live state is
+     * written on every event, so a toggle reflects the Pi rather than the click. */
+    function paintGpio() {
+        var section = document.getElementById("gpio-section");
+        var rows = document.getElementById("gpio-rows");
+        if (!section || !rows) return;
+        var outs = gpio.outputs();
+        section.hidden = outs.length === 0;
+        if (!outs.length) return;
+        var key = outs
+            .map(function (o) {
+                return o.name;
+            })
+            .join(",");
+        if (rows.getAttribute("data-set") !== key) {
+            rows.setAttribute("data-set", key);
+            rows.innerHTML = "";
+            outs.forEach(function (o) {
+                var row = document.createElement("div");
+                row.className = "dlg-row";
+                var label = document.createElement("span");
+                label.className = "dlg-label dlg-grow";
+                label.textContent = o.label;
+                row.appendChild(label);
+                if (o.canSwitch) {
+                    var btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "dlg-btn";
+                    btn.setAttribute("data-gpio-switch", o.name);
+                    btn.addEventListener("click", function () {
+                        var cur = gpio.outputs().filter(function (x) {
+                            return x.name === o.name;
+                        })[0];
+                        if (!cur) return;
+                        var warn = GPIO_CONFIRM[o.name];
+                        if (warn && !window.confirm(warn)) return;
+                        gpio.switchTo(o.name, !cur.on);
+                    });
+                    row.appendChild(btn);
+                }
+                if (o.canPulse) {
+                    var pulse = document.createElement("button");
+                    pulse.type = "button";
+                    pulse.className = "dlg-btn";
+                    pulse.textContent = "Pulse";
+                    pulse.setAttribute("data-gpio-pulse", o.name);
+                    pulse.addEventListener("click", function () {
+                        var warn = GPIO_CONFIRM[o.name];
+                        if (warn && !window.confirm(warn)) return;
+                        gpio.pulse(o.name);
+                    });
+                    row.appendChild(pulse);
+                }
+                rows.appendChild(row);
+            });
+        }
+        outs.forEach(function (o) {
+            var btn = rows.querySelector('[data-gpio-switch="' + o.name + '"]');
+            if (btn) {
+                btn.textContent = o.on ? "On" : "Off";
+                btn.classList.toggle("primary", o.on);
+                btn.disabled = o.busy || !o.online;
+            }
+            var pulse = rows.querySelector('[data-gpio-pulse="' + o.name + '"]');
+            if (pulse) pulse.disabled = o.busy || !o.online;
+        });
+    }
+    gpio.onChange(function () {
+        if (healthDlg && !healthDlg.hidden) paintGpio();
+    });
+
+    /** One line of "what is this Pi", from the info event's system/health blocks. */
+    function paintAbout() {
+        var el = document.getElementById("health-about");
+        if (!el) return;
+        var i = health.info();
+        if (!i) {
+            el.textContent = "";
+            return;
+        }
+        var bits = [];
+        if (i.node && i.node.host) bits.push(i.node.host);
+        if (i.system && i.system.platform && i.system.platform.model) bits.push("PiKVM " + i.system.platform.model);
+        if (i.system && i.system.kvmd && i.system.kvmd.version) bits.push("kvmd " + i.system.kvmd.version);
+        if (i.system && i.system.streamer && i.system.streamer.version) bits.push((i.system.streamer.app || "streamer") + " " + i.system.streamer.version);
+        if (i.health && i.health.temp && typeof i.health.temp.cpu === "number") bits.push(i.health.temp.cpu.toFixed(0) + "°C");
+        if (i.fan && i.fan.monitored && i.fan.state && i.fan.state.hall && i.fan.state.hall.available) bits.push(i.fan.state.hall.rpm + " rpm");
+        el.textContent = bits.join("  ·  ");
+    }
+
     health.onChange(paintHealth);
 
     function openHealthDialog() {
@@ -3478,7 +3647,7 @@
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "stream", label: "Stream settings…" });
             items.push({ id: "screenshot", label: "Save screenshot" });
-            items.push({ id: "health", label: "Health & keyboard recovery…" });
+            items.push({ id: "health", label: "System, GPIO & health…" });
             if (msd.available()) items.push({ id: "msd", label: "Mass storage…" });
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
