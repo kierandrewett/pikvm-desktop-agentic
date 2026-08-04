@@ -497,6 +497,27 @@ function openSettingsWindow() {
     });
     settingsWin.removeMenu();
     void settingsWin.loadFile(resolve(__dirname, "views", "settings-console.html"));
+    // Grow the window to whatever the page actually needs before showing it.
+    // width/height above include the window chrome, and how much that is
+    // differs per platform — this GTK frame takes 80px, which left the page
+    // 280px for 352px of content, so Settings opened already scrolled with
+    // "Save & restart" below the fold in a window that cannot be resized.
+    // useContentSize is not the fix: it is ignored here. Measuring the rendered
+    // page is, and it also covers a larger system font or a longer hint.
+    settingsWin.webContents.once("did-finish-load", () => {
+        if (!settingsWin || settingsWin.isDestroyed()) return;
+        void settingsWin.webContents
+            .executeJavaScript("document.documentElement.scrollHeight")
+            .then((needed: unknown) => {
+                if (!settingsWin || settingsWin.isDestroyed()) return;
+                const [width, height] = settingsWin.getContentSize();
+                const wanted = Math.min(Math.ceil(Number(needed) || 0), 900);
+                if (wanted > height) settingsWin.setContentSize(width, wanted);
+            })
+            .catch(() => {
+                /* the fixed size still shows most of the form; never block the window */
+            });
+    });
     settingsWin.once("ready-to-show", () => settingsWin?.show());
     settingsWin.on("closed", () => {
         settingsWin = null;
