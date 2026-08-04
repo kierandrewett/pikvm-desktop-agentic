@@ -553,11 +553,23 @@
 
     /** Run a macro's steps in order, through the same queue manual keys use. */
     function runMacro(macro) {
-        if (!macro || agentActing) return;
+        if (!macro) return;
+        if (agentActing) {
+            // Silently doing nothing is the worst answer: the user cannot tell a
+            // blocked macro from one whose chord the target ignored.
+            toast("The agent is driving the target — macros are held until it stops.", true);
+            return;
+        }
         noteManualKvmInput();
         var i = 0;
         var next = function () {
-            if (i >= macro.steps.length) return;
+            if (i >= macro.steps.length) {
+                // A macro's whole effect happens on the OTHER machine, so without
+                // this the click has no visible consequence here at all — and a
+                // chord the target ignored looks identical to one never sent.
+                toast(macro.label + " sent");
+                return;
+            }
             var step = macro.steps[i++];
             if (step.type === "chord") {
                 sendChord(step.mods || [], step.code, false);
