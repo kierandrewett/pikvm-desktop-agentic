@@ -2305,28 +2305,18 @@
      * all — it was only synthesised for the few milliseconds a chord took — so
      * holding Ctrl and clicking, or Ctrl-dragging, did nothing on the target
      * because Ctrl was never actually down when the button arrived. */
-    var heldMods = Object.create(null);
-    function modHeld(code) {
-        return heldMods[code] === true;
-    }
+    var modMirror = KeyChord.createModifierMirror(function (code, down) {
+        hid.key(code, down);
+    });
     function pressMod(code) {
-        if (heldMods[code]) return;
-        heldMods[code] = true;
-        hid.key(code, true);
+        modMirror.press(code);
     }
     function releaseMod(code) {
-        if (!heldMods[code]) return;
-        delete heldMods[code];
-        hid.key(code, false);
+        modMirror.release(code);
     }
     /** Let go of everything: focus loss, or a modal taking the keyboard. */
     function releaseAllMods() {
-        Object.keys(heldMods).forEach(releaseMod);
-    }
-    /** True when this chord modifier is already down because the user is holding
-     *  it — the chord must then neither press nor release it. */
-    function chordOwnsMod(code) {
-        return !modHeld(code);
+        modMirror.releaseAll();
     }
 
     var keyQ = [];
@@ -2364,7 +2354,7 @@
         // A modifier the user is holding is already down on the target; pressing
         // it again is harmless but RELEASING it at the end of the chord would
         // drop it while their finger is still on the key. Leave those alone.
-        var owned = op.mods.filter(chordOwnsMod);
+        var owned = modMirror.owned(op.mods);
         for (var i = 0; i < owned.length; i++) hid.key(owned[i], true);
         setTimeout(
             function () {
@@ -3470,7 +3460,7 @@
         // Anything the user is physically holding is already down and stays down
         // until they let go; synthesising it again would mean releasing it on
         // pointerup while it is still held.
-        m = m.filter(chordOwnsMod);
+        m = modMirror.owned(m);
         for (var i = 0; i < m.length; i++) hid.key(m[i], true);
         clickMods = m;
     }

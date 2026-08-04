@@ -96,5 +96,64 @@
         return { kind: "ignore", why: "no-code" };
     }
 
-    return { decide: decide, chordMods: chordMods, CONTROL_KEYS: CONTROL_KEYS };
+    /**
+     * Mirrors the modifiers the user is physically holding onto the target.
+     *
+     * The subtlety is not the tracking, it is the interaction with the two
+     * paths that SYNTHESISE modifiers — chords and clicks. Both must stand down
+     * for a key the user is already holding: pressing it again is harmless, but
+     * releasing it at the end of a chord (or on pointerup) drops it while their
+     * finger is still on the key, which is exactly the bug that made Ctrl+click
+     * do nothing. `owned` answers "which of these are mine to press and
+     * release", and is the only thing either path may act on.
+     *
+     * `send(code, down)` performs the actual HID write.
+     */
+    function createModifierMirror(send) {
+        var held = Object.create(null);
+        return {
+            isHeld: function (code) {
+                return held[code] === true;
+            },
+            press: function (code) {
+                if (!code || held[code]) return false;
+                held[code] = true;
+                send(code, true);
+                return true;
+            },
+            release: function (code) {
+                if (!code || !held[code]) return false;
+                delete held[code];
+                send(code, false);
+                return true;
+            },
+            releaseAll: function () {
+                var codes = Object.keys(held);
+                for (var i = 0; i < codes.length; i++) {
+                    delete held[codes[i]];
+                    send(codes[i], false);
+                }
+                return codes;
+            },
+            /** The subset a chord or click may press AND release itself. */
+            owned: function (mods) {
+                var out = [];
+                for (var i = 0; i < (mods || []).length; i++) {
+                    if (!held[mods[i]]) out.push(mods[i]);
+                }
+                return out;
+            },
+            /** Everything currently down, for assertions and diagnostics. */
+            heldCodes: function () {
+                return Object.keys(held);
+            },
+        };
+    }
+
+    return {
+        decide: decide,
+        chordMods: chordMods,
+        createModifierMirror: createModifierMirror,
+        CONTROL_KEYS: CONTROL_KEYS,
+    };
 });

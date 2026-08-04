@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { describe, it } from "node:test";
 
 // Plain browser script (UMD) shared with the console renderer.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -116,4 +116,74 @@ test("a soft keyboard reporting no code still resolves a named key", () => {
     const d = decide({ code: "", key: "Enter", shiftKey: false, ctrlKey: false, altKey: false, metaKey: false });
     assert.equal(d.kind, "chord");
     assert.equal(d.code, "Enter");
+});
+
+describe("modifier mirror", () => {
+  const setup = () => {
+    const sent: Array<[string, boolean]> = [];
+    const mirror = (KeyChord as unknown as {
+      createModifierMirror(send: (code: string, down: boolean) => void): {
+        isHeld(code: string): boolean;
+        press(code: string): boolean;
+        release(code: string): boolean;
+        releaseAll(): string[];
+        owned(mods: string[]): string[];
+        heldCodes(): string[];
+      };
+    }).createModifierMirror((code, down) => sent.push([code, down]));
+    return { sent, mirror };
+  };
+
+  it("holds a modifier down until the user lets go", () => {
+    const { sent, mirror } = setup();
+    mirror.press("ControlLeft");
+    assert.deepEqual(sent, [["ControlLeft", true]]);
+    // Auto-repeat fires keydown over and over; the target must see one press.
+    mirror.press("ControlLeft");
+    assert.equal(sent.length, 1);
+    assert.equal(mirror.isHeld("ControlLeft"), true);
+
+    mirror.release("ControlLeft");
+    assert.deepEqual(sent[1], ["ControlLeft", false]);
+    // A second keyup (or a blur after one) must not send a stray release.
+    mirror.release("ControlLeft");
+    assert.equal(sent.length, 2);
+  });
+
+  it("does not let a chord release a modifier the user is holding", () => {
+    const { mirror } = setup();
+    mirror.press("ControlLeft");
+    // The chord wants Ctrl+Shift+T; Ctrl is the user's, Shift is the chord's.
+    assert.deepEqual(mirror.owned(["ControlLeft", "ShiftLeft"]), ["ShiftLeft"]);
+    // Releasing Ctrl at the end of the chord would drop it under their finger —
+    // which is exactly what made Ctrl+click do nothing.
+    assert.equal(mirror.isHeld("ControlLeft"), true);
+  });
+
+  it("gives a chord everything when nothing is held", () => {
+    const { mirror } = setup();
+    assert.deepEqual(mirror.owned(["ControlLeft", "AltLeft"]), [
+      "ControlLeft",
+      "AltLeft",
+    ]);
+    assert.deepEqual(mirror.owned([]), []);
+  });
+
+  it("releases everything at once, and only once", () => {
+    const { sent, mirror } = setup();
+    mirror.press("ControlLeft");
+    mirror.press("ShiftLeft");
+    sent.length = 0;
+
+    const released = mirror.releaseAll().sort();
+    assert.deepEqual(released, ["ControlLeft", "ShiftLeft"]);
+    assert.deepEqual(
+      sent.map(([code, down]) => `${code}:${down}`).sort(),
+      ["ControlLeft:false", "ShiftLeft:false"],
+    );
+    assert.deepEqual(mirror.heldCodes(), [], "a stuck modifier is worse than the bug");
+    sent.length = 0;
+    mirror.releaseAll();
+    assert.deepEqual(sent, [], "releasing twice sends nothing");
+  });
 });
