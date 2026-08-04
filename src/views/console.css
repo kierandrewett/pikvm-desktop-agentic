@@ -1266,6 +1266,7 @@ html.desktop-console .app.computer-collapsed .screen {
 .dlg-input:focus-visible,
 .dlg-file:focus-visible,
 .macro-icon:focus-visible,
+.macro-list button:focus-visible,
 .macro-capture:focus-visible {
     outline: none;
     border-color: var(--primary);
