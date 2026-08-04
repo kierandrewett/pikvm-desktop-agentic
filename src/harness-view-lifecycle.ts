@@ -5,12 +5,25 @@ export class HarnessViewLifecycle {
     private currentLoadFailed = false;
     private retryTimer: NodeJS.Timeout | null = null;
     private assetReloadTimer: NodeJS.Timeout | null = null;
+    private consecutiveFailures = 0;
 
     constructor(
         private readonly url: string,
         private readonly retryDelayMs = 500,
         private readonly assetReloadDelayMs = 800,
+        private readonly maxRetryDelayMs = 15_000,
     ) {}
+
+    /**
+     * Failed loads since the last successful one. A harness that is still
+     * starting fails a couple of times and recovers; one that cannot start at
+     * all, because another instance already owns its port, fails forever. The
+     * count is what tells those apart, so the view can keep quiet about the
+     * first and explain itself about the second.
+     */
+    failureCount(): number {
+        return this.consecutiveFailures;
+    }
 
     /**
      * The renderer needs one reload after Electron seeds its non-secret auth
@@ -35,18 +48,28 @@ export class HarnessViewLifecycle {
 
     failed(): void {
         this.currentLoadFailed = true;
+        this.consecutiveFailures += 1;
     }
 
-    /** Coalesce a burst of initial connection failures into one retry. */
+    /**
+     * Coalesce a burst of initial connection failures into one retry, backing
+     * off as the streak grows. A harness that will never start was otherwise
+     * retried twice a second for as long as the app stayed open.
+     */
     scheduleRetry(reload: () => void): void {
         if (this.retryTimer) return;
+        const delay = Math.min(
+            this.retryDelayMs * 2 ** Math.max(0, this.consecutiveFailures - 1),
+            this.maxRetryDelayMs,
+        );
         this.retryTimer = setTimeout(() => {
             this.retryTimer = null;
             reload();
-        }, this.retryDelayMs);
+        }, delay);
     }
 
     loaded(): void {
+        this.consecutiveFailures = 0;
         if (!this.retryTimer) return;
         clearTimeout(this.retryTimer);
         this.retryTimer = null;
