@@ -928,13 +928,30 @@
                 return r.text();
             })
             .then(function (t) {
-                body.textContent = t || "(nothing in this window)";
+                body.textContent = capLog(t) || "(nothing in this window)";
                 body.scrollTop = body.scrollHeight; // newest last
             })
             .catch(function (e) {
                 body.textContent = "Could not read the log: " + (e && e.message ? e.message : "network error");
             });
     }
+    /* An hour of this Pi's journal is ~7,200 lines and 1.45MB, which took 155ms
+     * just to lay out — jank on every open and refresh, and "everything" is far
+     * worse. Keep the newest lines, which is what anyone opening a log wants,
+     * and SAY what was dropped rather than quietly truncating. */
+    var LOG_MAX_LINES = 1500;
+    function capLog(text) {
+        if (!text) return text;
+        var lines = text.split("\n");
+        var dropped = lines.length - LOG_MAX_LINES;
+        if (dropped <= 0) return text;
+        return (
+            "… " + dropped + " earlier lines not shown. Narrow the window above, " +
+            "or read the full journal on the Pi.\n\n" +
+            lines.slice(-LOG_MAX_LINES).join("\n")
+        );
+    }
+
     function openLogDialog() {
         if (!logDlg) return;
         logDlg.hidden = false;
