@@ -5,10 +5,23 @@ import { makeHidTap } from "../src/proxy";
 
 /** A control stub that records nudges and can be told to fail. */
 function stubControl(overrides: Partial<JigglerControl> = {}) {
-    const state = { nudges: 0, lastInput: 0, fail: undefined as string | undefined, hidOnline: undefined as boolean | undefined };
+    const state = {
+        nudges: 0,
+        lastInput: 0,
+        fail: undefined as string | undefined,
+        hidOnline: undefined as boolean | undefined,
+        native: undefined as { enabled?: boolean; active?: boolean } | undefined,
+        nativeSets: [] as boolean[],
+        nativeFail: undefined as string | undefined,
+    };
     const control: JigglerControl = {
         lastInputAt: () => state.lastInput,
         isHidOnline: () => state.hidOnline,
+        getNativeJiggler: () => state.native,
+        setNativeJiggler: async (on: boolean) => {
+            if (state.nativeFail) throw new Error(state.nativeFail);
+            state.nativeSets.push(on);
+        },
         mouseNudge: async () => {
             if (state.fail) throw new Error(state.fail);
             state.nudges++;
@@ -87,6 +100,64 @@ test("a detached HID counts as a failure, not a silent success", async () => {
     await tick(jiggler);
     assert.equal(state.nudges, 0);
     assert.match(jiggler.status().lastError ?? "", /detached/);
+});
+
+test("the Pi's own jiggler is left to do the work when it is running", async () => {
+    const { control, state } = stubControl();
+    state.lastInput = Date.now() - 120_000;
+    state.native = { enabled: true, active: true };
+    const jiggler = new MouseJiggler({ control, enabled: () => true, isAgentBusy: () => false });
+
+    await tick(jiggler);
+    assert.equal(state.nudges, 0, "nudging as well as the Pi would just move the cursor twice");
+    assert.deepEqual(state.nativeSets, [], "already on — nothing to switch");
+    assert.equal(jiggler.status().mode, "pi");
+});
+
+test("the Pi's jiggler is switched back on every time something turns it off", async () => {
+    const { control, state } = stubControl();
+    state.lastInput = Date.now() - 120_000;
+    state.native = { enabled: true, active: false };
+    const logs: string[] = [];
+    const jiggler = new MouseJiggler({ control, enabled: () => true, isAgentBusy: () => false, log: (l) => logs.push(l) });
+
+    await tick(jiggler);
+    assert.deepEqual(state.nativeSets, [true]);
+
+    // kvmd echoes the new state back; we then leave it alone.
+    state.native = { enabled: true, active: true };
+    await tick(jiggler);
+    assert.deepEqual(state.nativeSets, [true], "no repeat switch while it is on");
+
+    // Another client (or a kvmd restart) turns it off — switch it straight back on.
+    state.native = { enabled: true, active: false };
+    await tick(jiggler);
+    assert.deepEqual(state.nativeSets, [true, true]);
+    assert.equal(jiggler.status().nativeSwitchOns, 2);
+    assert.match(logs.join("\n"), /switching it back on/);
+});
+
+test("a board with no native jiggler still gets nudged from here", async () => {
+    const { control, state } = stubControl();
+    state.lastInput = Date.now() - 120_000;
+    state.native = { enabled: false };
+    const jiggler = new MouseJiggler({ control, enabled: () => true, isAgentBusy: () => false });
+
+    await tick(jiggler);
+    assert.equal(state.nudges, 1);
+    assert.deepEqual(state.nativeSets, []);
+    assert.equal(jiggler.status().mode, "local");
+});
+
+test("if the Pi's jiggler cannot be switched on, we nudge rather than give up", async () => {
+    const { control, state } = stubControl();
+    state.lastInput = Date.now() - 120_000;
+    state.native = { enabled: true, active: false };
+    state.nativeFail = "403 Forbidden";
+    const jiggler = new MouseJiggler({ control, enabled: () => true, isAgentBusy: () => false });
+
+    await tick(jiggler);
+    assert.equal(state.nudges, 1, "a target with no keep-awake at all is the one outcome to avoid");
 });
 
 /** Build a masked client→server WebSocket text frame, the way a browser sends one. */

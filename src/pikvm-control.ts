@@ -595,6 +595,24 @@ export class PiKvmControl {
         if (m?.outputs?.active === "usb_rel") return "relative";
         return "unknown";
     }
+    /** The Pi's OWN mouse jiggler (kvmd `hid.jiggler`). `enabled` means the board
+     *  exposes it at all; `active` means it is currently running. Undefined until a
+     *  hid event arrives. This is strictly better than nudging from here — it keeps
+     *  the target awake even when this app is closed or the laptop is asleep. */
+    getNativeJiggler(): { enabled?: boolean; active?: boolean } | undefined {
+        return this.kvmdState.hid?.jiggler;
+    }
+
+    /** Turn the Pi's own jiggler on or off (POST /api/hid/set_params?jiggler=). */
+    async setNativeJiggler(on: boolean): Promise<void> {
+        await axios.post(`${this.httpBase()}/api/hid/set_params`, null, {
+            headers: await this.headers(),
+            httpsAgent: this.agent,
+            timeout: 15_000,
+            params: { jiggler: on ? 1 : 0 },
+        });
+    }
+
     /** Available mouse output modes (e.g. ["usb","usb_rel"]) for set_params gating. */
     getMouseOutputs(): string[] {
         return this.kvmdState.hid?.mouse?.outputs?.available ?? [];

@@ -23,6 +23,10 @@ export interface JigglerControl {
     mouseNudge(px?: number): Promise<void>;
     /** Is the HID actually attached to the target? undefined = unknown. */
     isHidOnline?: () => boolean | undefined;
+    /** kvmd's own jiggler: `enabled` = the board has one, `active` = it is running. */
+    getNativeJiggler?: () => { enabled?: boolean; active?: boolean } | undefined;
+    /** Turn kvmd's own jiggler on or off. */
+    setNativeJiggler?: (on: boolean) => Promise<void>;
 }
 
 export interface JigglerDeps {
@@ -36,6 +40,10 @@ export interface JigglerDeps {
 
 export interface JigglerStatus {
     enabled: boolean;
+    /** "pi" = kvmd's own jiggler is running it; "local" = we are nudging from here. */
+    mode: "pi" | "local";
+    /** How many times we have had to switch the Pi's jiggler back on. */
+    nativeSwitchOns: number;
     /** ms epoch of the last successful nudge, 0 if we have never managed one. */
     lastNudgeAt: number;
     nudges: number;
@@ -56,6 +64,9 @@ export class MouseJiggler {
     private failures = 0;
     private lastError: string | undefined;
     private lastNudgeLogAt = 0;
+    /** True while the Pi's own jiggler is doing the work. */
+    private native = false;
+    private nativeSwitchOns = 0;
 
     /** Jiggle after this much inactivity. Deliberately under a minute: the shortest
      *  display-blank timeouts in the wild are one minute, and a nudge that lands after
@@ -95,6 +106,8 @@ export class MouseJiggler {
     status(): JigglerStatus {
         return {
             enabled: this.deps.enabled(),
+            mode: this.native ? "pi" : "local",
+            nativeSwitchOns: this.nativeSwitchOns,
             lastNudgeAt: this.lastNudgeAt,
             nudges: this.nudges,
             failures: this.failures,
@@ -114,9 +127,41 @@ export class MouseJiggler {
 
     private async tick(): Promise<void> {
         if (this.jiggling || !this.deps.enabled() || this.deps.isAgentBusy()) return;
+        // The Pi's own jiggler, where the board has one, beats nudging from here: it
+        // keeps running when this app is closed or the laptop is asleep, which is when
+        // the target is most likely to be left alone long enough to blank. So keep it
+        // switched ON and stay out of its way — anything that turns it off (another
+        // client, a kvmd restart) gets corrected on the next tick.
+        if (await this.ensureNativeJiggler()) return;
         const idle = Date.now() - this.lastActivity();
         if (idle < this.IDLE_MS) return;
         await this.jiggle(idle);
+    }
+
+    /** True when the Pi is handling it, so we should not nudge as well. */
+    private async ensureNativeJiggler(): Promise<boolean> {
+        const state = this.deps.control.getNativeJiggler?.();
+        if (!state || state.enabled !== true || !this.deps.control.setNativeJiggler) return false;
+        if (state.active === true) {
+            if (!this.native) {
+                this.native = true;
+                this.log("kvmd has its own jiggler and it is on — leaving it to the Pi");
+            }
+            return true;
+        }
+        try {
+            await this.deps.control.setNativeJiggler(true);
+            this.nativeSwitchOns++;
+            this.log(this.nativeSwitchOns === 1 ? "switching kvmd's jiggler on" : `kvmd's jiggler was off again — switching it back on (${this.nativeSwitchOns}x)`);
+        } catch (e) {
+            // Fall through to our own nudge this tick rather than leaving the target
+            // with no keep-awake at all.
+            this.lastError = e instanceof Error ? e.message : String(e);
+            this.log(`could not switch kvmd's jiggler on: ${this.lastError}`);
+            return false;
+        }
+        // kvmd echoes the new state back on the hid event; nudge once more meanwhile.
+        return false;
     }
 
     private async jiggle(idleMs: number): Promise<void> {
