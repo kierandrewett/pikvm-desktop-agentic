@@ -17,6 +17,7 @@ await build({
         resolve(root, "src/preload.ts"),
         resolve(root, "src/preload-ui.ts"),
         resolve(root, "src/preload-console.ts"),
+        resolve(root, "src/preload-agent.ts"),
         resolve(root, "src/preload-settings.ts"),
         resolve(root, "src/preload-terminal.ts"),
         resolve(root, "src/mcp-launcher.ts"),

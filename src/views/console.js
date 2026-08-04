@@ -4579,12 +4579,23 @@
         function agentDetached() {
             return document.documentElement.classList.contains("agent-detached");
         }
+        /* The conversation's own header carries these controls, so it has to be
+         * told where things stand — on its first paint and after every change,
+         * whoever made it. The console stays the single owner of the state. */
+        function publishAgentPlacement() {
+            if (!dc.reportAgentPlacement) return;
+            dc.reportAgentPlacement({
+                side: agentOnRight() ? "right" : "left",
+                detached: agentDetached(),
+            });
+        }
         function setAgentSide(side) {
             document.documentElement.classList.toggle("agent-right", side === "right");
             try { localStorage.setItem(AGENT_SIDE_KEY, side); } catch (e) {}
             // Re-report the workspace rect NOW rather than at the next poll tick, so
             // the native harness view lands on the new side in the same frame.
             window.dispatchEvent(new Event("resize"));
+            publishAgentPlacement();
         }
         // Right by default. The screen is what you look at, so it keeps the left
         // of the window; the conversation reads as a panel alongside it. Only an
@@ -4605,11 +4616,20 @@
                 window.dispatchEvent(new Event("resize"));
             }
             dc.detachAgent();
+            publishAgentPlacement();
         }
         if (dc.onAgentAttached) {
             dc.onAgentAttached(function () {
                 document.documentElement.classList.remove("agent-detached");
                 window.dispatchEvent(new Event("resize"));
+                publishAgentPlacement();
+            });
+        }
+        if (dc.onAgentPlacementCommand) {
+            dc.onAgentPlacementCommand(function (command) {
+                if (command.type === "side") setAgentSide(command.side);
+                else if (command.type === "toggle-detached") toggleAgentDetached();
+                else publishAgentPlacement();
             });
         }
         if (!dc) return; // web/mobile: nothing below runs
@@ -4816,11 +4836,10 @@
                 items.push({ id: "audio", label: "Audio output", type: "checkbox", checked: audioOn });
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
             }
-            items.push({ type: "separator" });
-            items.push({ id: "detach", label: agentDetached() ? "Bring the conversation back into this window" : "Open conversation in its own window" });
-            if (!agentDetached()) {
-                items.push({ id: "swap-side", label: agentOnRight() ? "Move conversation to the left side" : "Move conversation to the right side" });
-            }
+            /* Detaching the conversation and swapping its side used to sit here,
+             * in the menu belonging to the OTHER half of the window. They live in
+             * the conversation's own header now, next to everything else about
+             * it; runCommand still answers both ids for the non-desktop path. */
             items.push({ type: "separator" });
             items.push({ id: "paste", label: "Paste text to the target…" });
             if (atx.available()) {
@@ -4999,24 +5018,9 @@
                 popNative({ x: r.left, y: r.bottom });
             });
         }
-        var tbDetach = document.getElementById("tb-detach");
-        if (tbDetach) {
-            var paintDetach = function () {
-                var out = agentDetached();
-                tbDetach.classList.toggle("active", out);
-                var label = out
-                    ? "Bring the conversation back into this window"
-                    : "Open conversation in its own window";
-                tbDetach.title = label;
-                tbDetach.setAttribute("aria-label", label);
-            };
-            tbDetach.addEventListener("click", function () {
-                toggleAgentDetached();
-                setTimeout(paintDetach, 0);
-            });
-            if (dc.onAgentAttached) dc.onAgentAttached(paintDetach);
-            paintDetach();
-        }
+        /* Detach used to be a button here. It acts on the conversation, so it
+         * sits in the conversation's own header now, beside the rest of its
+         * controls, and this bar is left to the target and the window. */
 
         // Titlebar power button: the same three actions, one click away rather than
         // buried in the ⋯ menu. Powering a hung machine is why a KVM exists.

@@ -105,6 +105,34 @@ function resolvedHarnessOrigin(): string {
     );
 }
 
+/**
+ * Tell the workspace page that Electron is injecting the real credential on
+ * every request, so it must not ask anyone to paste a token.
+ *
+ * The sentinel is not a secret, and it lives in sessionStorage, which is per
+ * browsing context rather than per session partition. Sharing a partition is
+ * therefore not enough: every window that shows the workspace has to be seeded
+ * on its own, which is exactly what the detached conversation window was
+ * missing when it greeted the user with a token prompt.
+ */
+function seedHarnessAuth(contents: Electron.WebContents): Promise<void> {
+    return contents
+        .executeJavaScript(
+            `(() => {
+                sessionStorage.setItem("pikvm-harness-token", "desktop-managed");
+                location.reload();
+                return true;
+            })()`,
+            true,
+        )
+        .then(() => undefined)
+        .catch((error: unknown) =>
+            console.error(
+                `[harness-renderer] could not bootstrap managed auth: ${String(error)}`,
+            ),
+        );
+}
+
 /** Text into an HTML document. Used for the harness view's failure page, whose
  *  only variable parts are a local origin and an Electron error description. */
 function escapeHtml(value: string): string {
@@ -610,6 +638,9 @@ function createWindow() {
         webPreferences: {
             contextIsolation: true,
             backgroundThrottling: false,
+            // Only the panel-placement bridge: the conversation's own header
+            // needs to be able to move and detach the panel it lives in.
+            preload: resolve(__dirname, "preload-agent.js"),
             partition: "pikvm-harness",
         },
     });
@@ -708,6 +739,7 @@ function createWindow() {
         harnessViewLifecycle.beginLoad();
         void agentView.webContents.loadURL(HARNESS_URL);
     };
+
     // A harness that never starts (its port already owned by another instance,
     // say) used to leave this view exactly as it was created: a black rectangle
     // filling half the window, with nothing to read and nothing to do. Say what
@@ -785,6 +817,30 @@ function createWindow() {
         }
         applyWorkspaceView();
     });
+
+    // Panel placement, asked for by the conversation's own header and answered by
+    // the console, which owns the state. Main only relays: it has no opinion on
+    // which side the panel is, and keeping it that way means one source of truth.
+    const toConsole = (channel: string, payload?: unknown) => {
+        if (!mainView.webContents.isDestroyed()) mainView.webContents.send(channel, payload);
+    };
+    ipcMain.on("panel:set-side", (_, side: unknown) => {
+        if (side === "left" || side === "right") toConsole("console:agent-side", side);
+    });
+    ipcMain.on("panel:toggle-detached", () => toConsole("console:agent-detach-toggle"));
+    ipcMain.on("panel:request-placement", () => toConsole("console:agent-placement-request"));
+    ipcMain.on("console:agent-placement", (_, placement: unknown) => {
+        // Both windows show the same conversation and the same header, so both
+        // need to know where it currently is — the detached one above all, since
+        // its only useful placement control is the one that puts it back.
+        if (!agentView.webContents.isDestroyed()) {
+            agentView.webContents.send("panel:placement", placement);
+        }
+        if (agentWin && !agentWin.isDestroyed()) {
+            agentWin.webContents.send("panel:placement", placement);
+        }
+    });
+
     win.on("closed", () => {
         // The detached conversation window rides on this window's harness process —
         // without it the page is dead, so it goes down with the ship.
@@ -828,8 +884,26 @@ function createWindow() {
             title: "PiKVM — Conversation",
             backgroundColor: "#0a0a0c",
             autoHideMenuBar: true,
+            webPreferences: {
+                contextIsolation: true,
+                // The same isolated session as the embedded view, and the same
+                // placement bridge, so this window's own header can put the
+                // conversation back where it came from.
+                partition: "pikvm-harness",
+                preload: resolve(__dirname, "preload-agent.js"),
+            },
         });
         agentWin.removeMenu();
+        // Seeded once per window: sessionStorage does not travel between them,
+        // so without this the detached conversation asked for a token that the
+        // embedded panel had never needed.
+        let detachedAuthSeeded = false;
+        agentWin.webContents.on("did-finish-load", () => {
+            if (detachedAuthSeeded || !agentWin || agentWin.isDestroyed()) return;
+            if (!agentWin.webContents.getURL().startsWith(HARNESS_ORIGIN)) return;
+            detachedAuthSeeded = true;
+            void seedHarnessAuth(agentWin.webContents);
+        });
         void agentWin.loadURL(HARNESS_URL);
         // Same navigation policy as the embedded harness view: keep the harness
         // origin in-window, kick everything else out to the system browser.
@@ -917,21 +991,7 @@ function createWindow() {
             ) {
                 return;
             }
-            void agentView.webContents
-                .executeJavaScript(
-                    `(() => {
-                        const key = "pikvm-harness-token";
-                        sessionStorage.setItem(key, "desktop-managed");
-                        location.reload();
-                        return true;
-                    })()`,
-                    true,
-                )
-                .catch((error) =>
-                    console.error(
-                        `[harness-renderer] could not bootstrap managed auth: ${String(error)}`,
-                    ),
-                );
+            void seedHarnessAuth(agentView.webContents);
         });
     }
 

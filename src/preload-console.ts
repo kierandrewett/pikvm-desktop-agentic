@@ -76,6 +76,18 @@ export interface DesktopConsoleApi {
      *  closes that window instead (a toggle); re-attachment is signalled via
      *  onAgentAttached when the window closes, however it closes. */
     detachAgent(): void;
+    /** Tell the conversation's own header where it currently sits. */
+    reportAgentPlacement(placement: { side: "left" | "right"; detached: boolean }): void;
+    /** Placement asks coming FROM that header: move to a side, detach/re-attach,
+     *  or (on its first paint) simply report where things stand. */
+    onAgentPlacementCommand(
+        cb: (
+            command:
+                | { type: "side"; side: "left" | "right" }
+                | { type: "toggle-detached" }
+                | { type: "request" },
+        ) => void,
+    ): () => void;
     /** Fired when the detached conversation window closes — re-embed the panel. */
     onAgentAttached(cb: () => void): () => void;
     /** True WINDOW focus (from the main process), so the KVM mouse tracks window focus —
@@ -117,6 +129,23 @@ const api: DesktopConsoleApi = {
     reportWorkspaceRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:workspace-rect", rect),
     openAgentPanel: (id) => ipcRenderer.send("console:open-agent-panel", id),
     detachAgent: () => ipcRenderer.send("agent:detach"),
+    /* Panel placement is driven from the conversation's own header now, so the
+     * console answers requests from it rather than owning the only buttons. */
+    reportAgentPlacement: (placement: { side: "left" | "right"; detached: boolean }) =>
+        ipcRenderer.send("console:agent-placement", placement),
+    onAgentPlacementCommand: (cb) => {
+        const side = (_e: unknown, value: "left" | "right") => cb({ type: "side", side: value });
+        const toggle = () => cb({ type: "toggle-detached" });
+        const request = () => cb({ type: "request" });
+        ipcRenderer.on("console:agent-side", side);
+        ipcRenderer.on("console:agent-detach-toggle", toggle);
+        ipcRenderer.on("console:agent-placement-request", request);
+        return () => {
+            ipcRenderer.removeListener("console:agent-side", side);
+            ipcRenderer.removeListener("console:agent-detach-toggle", toggle);
+            ipcRenderer.removeListener("console:agent-placement-request", request);
+        };
+    },
     onAgentAttached: (cb) => {
         const listener = () => cb();
         ipcRenderer.on("agent:attached", listener);
