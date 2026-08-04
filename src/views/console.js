@@ -1093,9 +1093,14 @@
             ta.style.opacity = "0";
             document.body.appendChild(ta);
             ta.select();
-            document.execCommand("copy");
+            // execCommand reports a refusal by RETURNING FALSE, not by throwing,
+            // so ignoring the result meant a blocked copy still said "Copied"
+            // and the user went on to paste whatever was there before. A silent
+            // failure is bad; one that claims success is worse.
+            var copied = document.execCommand("copy");
             ta.remove();
-            done();
+            if (copied) done();
+            else toast("Could not copy", true);
         } catch (e) {
             toast("Could not copy", true);
         }
