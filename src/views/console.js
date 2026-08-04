@@ -784,6 +784,24 @@
             row.appendChild(remove);
             steps.appendChild(row);
         });
+
+        /* A step with no key (or no text) is dropped by the server's validation,
+         * and a macro left with none is dropped whole — so a new macro closed
+         * before its key is captured just vanishes. Say that, rather than
+         * letting the work disappear silently. */
+        var incomplete = macro.steps.filter(function (step) {
+            return (step.type === "chord" && !step.code) || (step.type === "text" && !step.text);
+        }).length;
+        var unsaved = document.getElementById("macro-unsaved");
+        if (unsaved) {
+            unsaved.hidden = incomplete === 0;
+            unsaved.textContent =
+                incomplete === 0
+                    ? ""
+                    : incomplete === macro.steps.length
+                      ? "Not saved yet — set the key or text below and it will be kept."
+                      : "One step is still empty; it will be dropped when saved.";
+        }
     }
 
     function openMacroEditor() {

@@ -1601,3 +1601,6 @@ html.desktop-console.agent-detached .screen {
     opacity: 0.4;
     cursor: default;
 }
+.macro-unsaved {
+    color: var(--warn);
+}
