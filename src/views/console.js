@@ -1336,6 +1336,22 @@
     var twoStart = null; // {t, moved} for two-finger tap = right click
     var scrollAcc = 0;
     var heldMouseButtons = {};
+    // Modifiers held on the HOST across a click. The chord queue only ever synthesises
+    // modifiers around KEYS, and a bare modifier keydown is never forwarded, so without
+    // this the target sees a plain click: Shift+click range-select and Ctrl+click
+    // multi-select silently did the wrong thing.
+    var clickMods = [];
+    function pressClickMods(e) {
+        releaseClickMods();
+        var m = modsFromEvent(e);
+        if (e.shiftKey) m.push("ShiftLeft");
+        for (var i = 0; i < m.length; i++) hid.key(m[i], true);
+        clickMods = m;
+    }
+    function releaseClickMods() {
+        for (var i = clickMods.length - 1; i >= 0; i--) hid.key(clickMods[i], false);
+        clickMods = [];
+    }
     var MOVE_SLOP = 8;
     var SENS = 0.9; // trackpad sensitivity (finger px -> cursor travel)
 
@@ -1477,6 +1493,7 @@
                 moveTo(e.clientX, e.clientY, true);
                 paintCursor(e.clientX, e.clientY);
                 heldMouseButtons[b] = true;
+                pressClickMods(e);
                 hid.button(b, true);
                 return;
             }
@@ -1591,6 +1608,7 @@
             var b = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
             hid.button(b, false);
             delete heldMouseButtons[b];
+            releaseClickMods();
             return;
         }
         cancelLongPress();
@@ -2238,6 +2256,9 @@
             // Drop the simulated cursor blob and restore the real OS cursor over the
             // screen, so an unfocused window shows a normal pointer instead of nothing.
             if (!focused && kvmCursor) kvmCursor.style.display = "none";
+            // Alt+Tabbing away mid-click must not leave a modifier stuck down on the
+            // target — the host stops sending us the keyup that would have released it.
+            if (!focused) releaseClickMods();
         }
         if (window.desktopConsole && window.desktopConsole.onWindowFocus) {
             // Desktop: focus comes from the MAIN process (true window focus). A focused
