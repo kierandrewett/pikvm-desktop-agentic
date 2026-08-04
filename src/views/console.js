@@ -924,24 +924,57 @@
 
     var logDlg = document.getElementById("log-dlg");
 
+    /* Measured against this Pi: an hour is 2MB over ~4s, a day 18MB over ~27s,
+     * and everything 54MB over ~58s. A static "loading…" for a minute is
+     * indistinguishable from a hang, so the body streams and reports how much
+     * has arrived — and a new window or a close aborts the one in flight
+     * instead of leaving tens of megabytes downloading into a closed dialog. */
+    var logAbort = null;
     function loadLog() {
         var body = document.getElementById("log-body");
         var seekEl = document.getElementById("log-seek");
         if (!body) return;
+        if (logAbort) logAbort.abort();
+        var controller = new AbortController();
+        logAbort = controller;
         var seek = seekEl ? seekEl.value : "3600";
-        body.textContent = "loading…";
+        body.textContent = "Loading…";
         // follow=0: a snapshot, not a stream. The real UI opens a following tab, which
         // never ends and is the wrong shape for a dialog opened to answer one question.
-        fetch("/api/log?seek=" + encodeURIComponent(seek) + "&follow=0", { cache: "no-store" })
+        fetch("/api/log?seek=" + encodeURIComponent(seek) + "&follow=0", { cache: "no-store", signal: controller.signal })
             .then(function (r) {
                 if (!r.ok) throw new Error("HTTP " + r.status);
-                return r.text();
+                if (!r.body || !r.body.getReader) return r.text();
+                // Read it progressively so the wait shows movement.
+                var reader = r.body.getReader();
+                var chunks = [];
+                var received = 0;
+                var pump = function () {
+                    return reader.read().then(function (res) {
+                        if (res.done) {
+                            var merged = new Uint8Array(received);
+                            var at = 0;
+                            for (var i = 0; i < chunks.length; i++) {
+                                merged.set(chunks[i], at);
+                                at += chunks[i].length;
+                            }
+                            return new TextDecoder("utf-8").decode(merged);
+                        }
+                        chunks.push(res.value);
+                        received += res.value.length;
+                        body.textContent = "Loading… " + humanBytes(received);
+                        return pump();
+                    });
+                };
+                return pump();
             })
             .then(function (t) {
+                if (controller.signal.aborted) return;
                 body.textContent = capLog(t) || "(nothing in this window)";
                 body.scrollTop = body.scrollHeight; // newest last
             })
             .catch(function (e) {
+                if (e && e.name === "AbortError") return;
                 body.textContent = "Could not read the log: " + (e && e.message ? e.message : "network error");
             });
     }
@@ -968,6 +1001,9 @@
         loadLog();
     }
     function closeLogDialog() {
+        // Do not leave tens of megabytes downloading into a dialog nobody is
+        // looking at.
+        if (logAbort) logAbort.abort();
         if (logDlg) logDlg.hidden = true;
         refocusKbd();
     }
