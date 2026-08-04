@@ -1301,6 +1301,20 @@ html.desktop-console .app.computer-collapsed .screen {
     accent-color: var(--primary);
     cursor: pointer;
 }
+/* Four sliders stacked in a column, each with its label and value sized to its
+   own text: every track started and ended at a different x, so the column
+   looked ragged down both edges and the same drag distance moved a different
+   amount on each row. Sizing both gutters to their widest content lines the
+   tracks up. The value column fits "20000 kbps", the widest any of them gets,
+   and tabular figures stop the digits jittering while you drag. */
+#stream-dlg .dlg-row > .dlg-label {
+    min-width: 72px;
+}
+#stream-dlg .dlg-row > .dlg-hint {
+    min-width: 68px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
 .dlg-check {
     min-height: 24px;
 }
