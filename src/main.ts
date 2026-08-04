@@ -740,6 +740,37 @@ function createWindow() {
         void agentView.webContents.loadURL(HARNESS_URL);
     };
 
+    // Starting the harness is not fast: a Python process has to come up, bind a
+    // port and answer before the view is even asked to load, and only then does
+    // the workspace bundle parse. Until now the panel was simply its background
+    // colour for all of it, which reads as broken rather than busy. Shown from
+    // the moment the view exists, and replaced the instant loadHarness lands.
+    const showHarnessLoading = () => {
+        if (agentView.webContents.isDestroyed()) return;
+        const page = `<!doctype html><meta charset="utf-8"><title>Starting…</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+      gap:.75em;background:#0a0a0c;color:#8a8a95;font:13px/1.5 system-ui,sans-serif}
+ .ring{width:15px;height:15px;border-radius:50%;border:2px solid #26262e;
+       border-top-color:#5b8cff;animation:spin .8s linear infinite}
+ @media (prefers-reduced-motion:reduce){
+   /* No rotation: a still spinner reads as hung, so the label breathes instead. */
+   .ring{animation:none;border-top-color:#26262e}
+   p{animation:fade 2s ease-in-out infinite}
+ }
+ @keyframes spin{to{transform:rotate(360deg)}}
+ @keyframes fade{0%,100%{opacity:1}50%{opacity:.55}}
+ p{margin:0}
+</style>
+<div class="ring" role="progressbar" aria-label="Starting the agent workspace"></div>
+<p>Starting the agent workspace…</p>`;
+        void agentView.webContents.loadURL(
+            `data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
+        );
+    };
+    showHarnessLoading();
+
     // A harness that never starts (its port already owned by another instance,
     // say) used to leave this view exactly as it was created: a black rectangle
     // filling half the window, with nothing to read and nothing to do. Say what
