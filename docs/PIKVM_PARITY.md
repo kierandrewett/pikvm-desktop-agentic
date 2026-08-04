@@ -57,14 +57,18 @@ Ordered by how much a KVM operator actually reaches for it.
 - [x] **Paste text into the target** — `api/hid/print`, prefilled from the host
       clipboard. kvmd types it with its own keymap, so it is layout-correct and far
       faster than sending it key by key.
-- [ ] **Stream controls** — quality, desired FPS, resolution, orientation, stream reset.
+- [x] **Stream controls** — resolution, quality, target FPS, H264 bitrate/GOP, stream
+      reset. Ranges come from the Pi's own `limits`, and each row hides unless the Pi
+      reports the matching feature.
+- [x] **Screenshot** — `api/streamer/snapshot`, saved as a timestamped JPEG.
+- [ ] **Stream orientation** — the real UI rotates client-side (0/90/180/270) and
+      remaps input to match. Ours would need the same remap through the existing
+      zoom/pan transform, so it is its own piece of work rather than another slider.
 - [ ] **Health and status LEDs** — link, video, HID keyboard/mouse, fan, overheating,
       undervoltage. Cheap to add and tells the operator why something is wrong.
 - [ ] **HID attach/detach + reset** — recover a wedged USB gadget without SSH.
 - [ ] **Mass storage** — upload/select an ISO, mount read-only or RW, remote URL fetch.
 - [ ] **GPIO** — user-defined switches and pulses (USB breaker, locator, relays).
-- [ ] **Screenshot button** — `api/streamer/snapshot` is already used internally, but
-      there is no way for the user to ask for one.
 - [ ] **System log viewer** — `api/log`.
 - [ ] **Input recorder** — record, replay, loop, save/load HID scripts.
 - [ ] **OCR text selection** — select a screen region and pull the text out.

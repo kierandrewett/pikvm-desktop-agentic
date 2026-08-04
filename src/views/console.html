@@ -119,6 +119,45 @@
                      the bottom so it never collides with the resolution toast above. -->
                 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+                <!-- Stream settings (kvmd api/streamer/set_params). Each row is hidden
+                     unless the Pi reports the matching feature, and the ranges come
+                     from its own limits rather than being hardcoded here. -->
+                <div class="dlg-scrim" id="stream-dlg" hidden>
+                    <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="stream-dlg-title">
+                        <h2 class="dlg-title" id="stream-dlg-title">Stream</h2>
+                        <div class="dlg-row" id="sp-resolution-row" hidden>
+                            <label class="dlg-label" for="sp-resolution">Resolution</label>
+                            <select id="sp-resolution" class="dlg-select"></select>
+                        </div>
+                        <div class="dlg-row" id="sp-quality-row" hidden>
+                            <label class="dlg-label" for="sp-quality">Quality</label>
+                            <input type="range" id="sp-quality" class="dlg-range" min="5" max="100" step="5" />
+                            <span class="dlg-hint" id="sp-quality-value"></span>
+                        </div>
+                        <div class="dlg-row" id="sp-fps-row" hidden>
+                            <label class="dlg-label" for="sp-fps">Target FPS</label>
+                            <input type="range" id="sp-fps" class="dlg-range" min="0" max="70" step="1" />
+                            <span class="dlg-hint" id="sp-fps-value"></span>
+                        </div>
+                        <div class="dlg-row" id="sp-bitrate-row" hidden>
+                            <label class="dlg-label" for="sp-bitrate">H264 bitrate</label>
+                            <input type="range" id="sp-bitrate" class="dlg-range" min="25" max="20000" step="25" />
+                            <span class="dlg-hint" id="sp-bitrate-value"></span>
+                        </div>
+                        <div class="dlg-row" id="sp-gop-row" hidden>
+                            <label class="dlg-label" for="sp-gop">H264 GOP</label>
+                            <input type="range" id="sp-gop" class="dlg-range" min="0" max="60" step="1" />
+                            <span class="dlg-hint" id="sp-gop-value"></span>
+                        </div>
+                        <p class="dlg-note" id="sp-empty" hidden>The Pi has not reported any adjustable stream settings.</p>
+                        <div class="dlg-actions">
+                            <button type="button" class="dlg-btn" id="sp-screenshot">Save screenshot</button>
+                            <button type="button" class="dlg-btn" id="sp-reset">Reset stream</button>
+                            <button type="button" class="dlg-btn primary" id="sp-close">Done</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Paste-as-keys (kvmd api/hid/print): the Pi types the whole string
                      using its own keymap, which is layout-correct and far faster than
                      sending it key by key. Prefilled from the host clipboard. -->
@@ -190,6 +229,8 @@
                 <div class="more-sep" id="av-sep" hidden></div>
                 <!-- Paste-as-keys: kvmd types the string with its own keymap. -->
                 <button class="more-item" id="paste-btn">Paste text to the target…</button>
+                <button class="more-item" id="stream-btn">Stream settings…</button>
+                <button class="more-item" id="screenshot-btn">Save screenshot</button>
                 <!-- ATX power. Hidden until the Pi reports it actually has the wiring. -->
                 <div class="more-sep" id="atx-sep" hidden></div>
                 <button class="more-item" id="atx-power" data-atx="power" hidden>Power button</button>

@@ -176,6 +176,8 @@
                     // The Pi's configured keymaps — paste-as-keys needs the name kvmd
                     // itself uses, not our send-side US/UK layout.
                     if (d && d.event_type === "hid_keymaps" && ed && ed.keymaps) kvmdKeymaps = ed.keymaps;
+                    // Streamer features/limits/applied — what the settings dialog drives.
+                    if (d && d.event_type === "streamer") setStreamerState(ed);
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
@@ -422,6 +424,187 @@
     });
 
     /* ----------------------------------------------------------------- *
+     * Stream settings (kvmd api/streamer/set_params)
+     * ----------------------------------------------------------------- */
+
+    /* The `streamer` event carries {features, limits, applied}. `features` says which
+     * knobs this Pi actually has, `limits` gives their ranges and the resolutions it
+     * can capture, `applied` is what is currently in force. We drive the controls from
+     * all three rather than hardcoding ranges, so an unusual capture board still gets
+     * the right sliders. */
+    var streamerState = { features: null, limits: null, applied: null };
+
+    function setStreamerState(s) {
+        if (!s) return;
+        if (s.features !== undefined) {
+            streamerState.features = s.features;
+            streamerState.limits = s.limits; // kvmd sends limits with features
+        }
+        if (s.applied !== undefined) streamerState.applied = s.applied;
+        paintStreamDialog();
+    }
+
+    function sendStreamParam(name, value) {
+        return fetch("/api/streamer/set_params?" + encodeURIComponent(name) + "=" + encodeURIComponent(value), {
+            method: "POST",
+            cache: "no-store",
+        })
+            .then(function (r) {
+                if (!r.ok) toast("Could not change the stream " + name.replace(/_/g, " ") + " (" + r.status + ")", true);
+            })
+            .catch(function (e) {
+                toast("Could not change the stream: " + (e && e.message ? e.message : "network error"), true);
+            });
+    }
+
+    var streamDlg = document.getElementById("stream-dlg");
+    /* name -> [param, row id, value formatter]. One table so adding the next knob is
+     * one line rather than another copy of the same wiring. */
+    var STREAM_SLIDERS = [
+        { el: "sp-quality", row: "sp-quality-row", param: "quality", feature: "quality", fmt: function (v) { return v + "%"; } },
+        { el: "sp-fps", row: "sp-fps-row", param: "desired_fps", limit: "desired_fps", fmt: function (v) { return v === 0 ? "unlimited" : v + " fps"; } },
+        { el: "sp-bitrate", row: "sp-bitrate-row", param: "h264_bitrate", feature: "h264", limit: "h264_bitrate", fmt: function (v) { return v + " kbps"; } },
+        { el: "sp-gop", row: "sp-gop-row", param: "h264_gop", feature: "h264", limit: "h264_gop", fmt: String },
+    ];
+
+    function paintStreamDialog() {
+        var f = streamerState.features || {};
+        var l = streamerState.limits || {};
+        var a = streamerState.applied || {};
+        var anything = false;
+
+        var resRow = document.getElementById("sp-resolution-row");
+        var resSel = document.getElementById("sp-resolution");
+        if (resRow && resSel) {
+            var hasRes = !!f.resolution && !!(l.available_resolutions && l.available_resolutions.length);
+            resRow.hidden = !hasRes;
+            if (hasRes) {
+                anything = true;
+                var key = l.available_resolutions.join(",");
+                if (resSel.getAttribute("data-set") !== key) {
+                    resSel.setAttribute("data-set", key);
+                    resSel.innerHTML = "";
+                    for (var i = 0; i < l.available_resolutions.length; i++) {
+                        var o = document.createElement("option");
+                        o.value = o.textContent = l.available_resolutions[i];
+                        resSel.appendChild(o);
+                    }
+                }
+                if (a.resolution) resSel.value = a.resolution;
+            }
+        }
+
+        for (var s = 0; s < STREAM_SLIDERS.length; s++) {
+            var cfg = STREAM_SLIDERS[s];
+            var row = document.getElementById(cfg.row);
+            var el = document.getElementById(cfg.el);
+            var val = document.getElementById(cfg.el + "-value");
+            if (!row || !el) continue;
+            var have = cfg.feature ? !!f[cfg.feature] : a[cfg.param] !== undefined;
+            row.hidden = !have;
+            if (!have) continue;
+            anything = true;
+            var range = cfg.limit ? l[cfg.limit] : null;
+            if (range && typeof range.min === "number") el.min = range.min;
+            if (range && typeof range.max === "number") el.max = range.max;
+            // Don't fight the user mid-drag: only adopt the applied value when the
+            // slider isn't the thing that just changed it.
+            if (a[cfg.param] !== undefined && document.activeElement !== el) el.value = a[cfg.param];
+            if (val) val.textContent = cfg.fmt(Number(el.value));
+        }
+
+        var empty = document.getElementById("sp-empty");
+        if (empty) empty.hidden = anything;
+    }
+
+    (function wireStreamDialog() {
+        var resSel = document.getElementById("sp-resolution");
+        if (resSel) {
+            resSel.addEventListener("change", function () {
+                sendStreamParam("resolution", resSel.value);
+            });
+        }
+        STREAM_SLIDERS.forEach(function (cfg) {
+            var el = document.getElementById(cfg.el);
+            var val = document.getElementById(cfg.el + "-value");
+            if (!el) return;
+            // Live label while dragging, but only POST on release — kvmd re-encodes on
+            // every change and a slider dragged across its range would hammer it.
+            el.addEventListener("input", function () {
+                if (val) val.textContent = cfg.fmt(Number(el.value));
+            });
+            el.addEventListener("change", function () {
+                sendStreamParam(cfg.param, Number(el.value));
+            });
+        });
+        var close = document.getElementById("sp-close");
+        if (close) close.addEventListener("click", closeStreamDialog);
+        var reset = document.getElementById("sp-reset");
+        if (reset) {
+            reset.addEventListener("click", function () {
+                if (!window.confirm("Reset the stream?\n\nThe picture drops for a moment while the streamer restarts.")) return;
+                fetch("/api/streamer/reset", { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        toast(r.ok ? "Stream reset" : "Could not reset the stream (" + r.status + ")", !r.ok);
+                    })
+                    .catch(function (e) {
+                        toast("Could not reset the stream: " + (e && e.message ? e.message : "network error"), true);
+                    });
+            });
+        }
+        var shot = document.getElementById("sp-screenshot");
+        if (shot) shot.addEventListener("click", saveScreenshot);
+        if (streamDlg) {
+            streamDlg.addEventListener("mousedown", function (e) {
+                if (e.target === streamDlg) closeStreamDialog();
+            });
+            streamDlg.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeStreamDialog();
+                }
+            });
+        }
+    })();
+
+    function openStreamDialog() {
+        if (!streamDlg) return;
+        paintStreamDialog();
+        streamDlg.hidden = false;
+        var first = streamDlg.querySelector("select:not([disabled]), input, button");
+        if (first) first.focus();
+    }
+    function closeStreamDialog() {
+        if (streamDlg) streamDlg.hidden = true;
+        refocusKbd();
+    }
+
+    /** Pull a full-resolution JPEG straight from the streamer and save it. */
+    function saveScreenshot() {
+        fetch("/api/streamer/snapshot?allow_offline=1", { cache: "no-store" })
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.blob();
+            })
+            .then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement("a");
+                a.href = url;
+                a.download = "pikvm-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(function () {
+                    URL.revokeObjectURL(url);
+                }, 10_000);
+                toast("Screenshot saved");
+            })
+            .catch(function (e) {
+                toast("Screenshot failed: " + (e && e.message ? e.message : "network error"), true);
+            });
+    }
+
+    /* ----------------------------------------------------------------- *
      * Paste as keys (kvmd api/hid/print)
      * ----------------------------------------------------------------- */
 
@@ -523,6 +706,10 @@
     }
     var pasteBtn = document.getElementById("paste-btn");
     if (pasteBtn) pasteBtn.addEventListener("click", openPasteDialog);
+    var streamBtn = document.getElementById("stream-btn");
+    if (streamBtn) streamBtn.addEventListener("click", openStreamDialog);
+    var screenshotBtn = document.getElementById("screenshot-btn");
+    if (screenshotBtn) screenshotBtn.addEventListener("click", saveScreenshot);
     if (pasteText) pasteText.addEventListener("input", paintPasteCount);
     if (pasteSend) pasteSend.addEventListener("click", sendPaste);
     var pasteCancel = document.getElementById("paste-cancel");
@@ -545,9 +732,10 @@
             }
         });
     }
-    /** True while the paste dialog owns the keyboard. */
-    function pasteDialogOpen() {
-        return !!(pasteDlg && !pasteDlg.hidden);
+    /** True while any modal owns the keyboard. The KVM forwarder holds off then —
+     *  otherwise the dialog's own keystrokes get typed on the target as well. */
+    function modalOpen() {
+        return !!((pasteDlg && !pasteDlg.hidden) || (streamDlg && !streamDlg.hidden));
     }
 
     function runAtxAction(id) {
@@ -2556,7 +2744,7 @@
             if (!windowFocused) return;
             // A modal owns the keyboard while it is up — forwarding here would type
             // the dialog's own keystrokes onto the target as well.
-            if (pasteDialogOpen()) return;
+            if (modalOpen()) return;
             var t = e.target;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
             if (blockKvmInput(e)) return;
@@ -2716,6 +2904,8 @@
             items.push({ type: "separator" });
             items.push({ id: "panel", label: panelShown() ? "Hide computer preview" : "Show computer preview" });
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
+            items.push({ id: "stream", label: "Stream settings…" });
+            items.push({ id: "screenshot", label: "Save screenshot" });
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
                 items.push({ type: "separator" });
@@ -2734,6 +2924,14 @@
             }
             if (id === "paste") {
                 openPasteDialog();
+                return;
+            }
+            if (id === "stream") {
+                openStreamDialog();
+                return;
+            }
+            if (id === "screenshot") {
+                saveScreenshot();
                 return;
             }
             switch (id) {

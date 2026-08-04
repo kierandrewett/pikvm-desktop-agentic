@@ -1179,3 +1179,16 @@ html.desktop-console .app.computer-collapsed .screen {
     opacity: 0.5;
     cursor: default;
 }
+.dlg-range {
+    flex: 1;
+    min-width: 120px;
+    accent-color: var(--primary);
+}
+.dlg-note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+.dlg-actions .dlg-btn:first-child {
+    margin-right: auto;
+}
