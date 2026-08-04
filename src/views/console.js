@@ -1836,16 +1836,21 @@
         });
         var tb = document.getElementById("tb-health");
         if (tb) {
+            var problemTexts = problems.map(function (p) {
+                return p.text;
+            });
             tb.hidden = problems.length === 0;
             tb.classList.toggle("is-error", worst);
-            tb.title =
-                problems.length === 0
-                    ? "Health"
-                    : problems
-                          .map(function (p) {
-                              return p.text;
-                          })
-                          .join("\n");
+            tb.title = problems.length === 0 ? "Health" : problemTexts.join("\n");
+            /* aria-label WINS over title, so leaving it at the static "Health"
+             * announced a generic word for a button that only appears when
+             * something is wrong and whose whole job is to say what. Joined with
+             * a full stop rather than the tooltip's newlines, which screen
+             * readers run together inconsistently. */
+            tb.setAttribute(
+                "aria-label",
+                problems.length === 0 ? "Health" : "Health: " + problemTexts.join(". "),
+            );
         }
         var list = document.getElementById("health-list");
         if (list) {
