@@ -64,6 +64,16 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round"><path d="M12 3v9" /><path d="M18.4 6.6a9 9 0 1 1-12.8 0" /></svg>
                 </button>
+                <!-- Pop the conversation into its own window (and back). -->
+                <button class="tb-btn" id="tb-detach" title="Open conversation in its own window" aria-label="Open conversation in its own window">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" /></svg>
+                </button>
+                <!-- Everything else: models, stream, macros, health, log. -->
+                <button class="tb-btn" id="tb-more" title="More" aria-label="More actions">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+                </button>
                 <!-- Send a keyboard shortcut to the KVM (Ctrl+Alt+Del, Alt+Tab, …). -->
                 <button class="tb-btn" id="tb-keys" title="Send keyboard shortcut to the target" aria-label="Send keyboard shortcut">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"

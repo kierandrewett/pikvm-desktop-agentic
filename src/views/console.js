@@ -4605,6 +4605,37 @@
                 }
             }
         }
+        /* The desktop titlebar had no ⋯ button — the native menu was reachable
+         * only by right-clicking the chrome, which meant everything in it
+         * (models, stream, macros, health, log, detach) was effectively hidden.
+         * These two buttons make the common ones findable. */
+        var tbMore = document.getElementById("tb-more");
+        if (tbMore) {
+            tbMore.addEventListener("click", function (e) {
+                e.stopPropagation();
+                var r = tbMore.getBoundingClientRect();
+                popNative({ x: r.left, y: r.bottom });
+            });
+        }
+        var tbDetach = document.getElementById("tb-detach");
+        if (tbDetach) {
+            var paintDetach = function () {
+                var out = agentDetached();
+                tbDetach.classList.toggle("active", out);
+                var label = out
+                    ? "Bring the conversation back into this window"
+                    : "Open conversation in its own window";
+                tbDetach.title = label;
+                tbDetach.setAttribute("aria-label", label);
+            };
+            tbDetach.addEventListener("click", function () {
+                toggleAgentDetached();
+                setTimeout(paintDetach, 0);
+            });
+            if (dc.onAgentAttached) dc.onAgentAttached(paintDetach);
+            paintDetach();
+        }
+
         // Titlebar power button: the same three actions, one click away rather than
         // buried in the ⋯ menu. Powering a hung machine is why a KVM exists.
         var tbPower = document.getElementById("tb-power");
