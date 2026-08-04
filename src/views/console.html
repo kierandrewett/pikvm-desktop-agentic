@@ -429,7 +429,12 @@
                  and no layout reflow. -->
             <div class="chat">
                 <!-- Drag the workspace edge to balance chat and computer preview. -->
-                <div class="chat-resize" id="chat-resize" title="Resize chat workspace"></div>
+                <!-- A real separator, not just a drag strip: tabbable, and it
+                     reports the width it is at plus the range it may take, so
+                     the panel can be resized without a pointer. -->
+                <div class="chat-resize" id="chat-resize" title="Resize chat workspace"
+                    role="separator" tabindex="0" aria-orientation="vertical"
+                    aria-label="Conversation panel width"></div>
                 <div class="bar-keys" id="drawer">
                     <button class="ibtn" data-click="left" title="Left click">L</button>
                     <button class="ibtn" data-click="middle" title="Middle click">M</button>

@@ -2615,8 +2615,12 @@
     var kbd = document.getElementById("kbd");
     var chatFrame = document.getElementById("chat-frame");
     var TERM_W_KEY = "pikvm-chat-workspace-width-v2";
+    /* Shared with the divider's ARIA range: a keyboard user is told the same
+     * bounds the drag is clamped to, and the two cannot drift apart. */
+    var PANEL_MIN_W = 560;
+    var PANEL_MAX_W = 1100;
     function clampPanelWidth(w) {
-        return Math.round(Math.max(560, Math.min(1100, Number(w) || 760)));
+        return Math.round(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, Number(w) || 760)));
     }
     function readPanelWidth() {
         try {
@@ -4360,13 +4364,62 @@
                 cLastW = want;
             }
         });
+        function paintResizeValue() {
+            var chatEl = document.querySelector(".chat");
+            chatResize.setAttribute("aria-valuemin", String(PANEL_MIN_W));
+            chatResize.setAttribute("aria-valuemax", String(PANEL_MAX_W));
+            chatResize.setAttribute(
+                "aria-valuenow",
+                String(chatEl ? Math.round(chatEl.offsetWidth) : PANEL_MIN_W),
+            );
+        }
         function cresizeEnd() {
             cresizing = false;
             app.classList.remove("col-resizing");
             savePanelWidth(cLastW);
+            paintResizeValue();
         }
         chatResize.addEventListener("pointerup", cresizeEnd);
         chatResize.addEventListener("pointercancel", cresizeEnd);
+
+        /* The divider was drag-only, so the panel width could not be changed
+         * from the keyboard at all. Arrows move it, Shift takes bigger steps,
+         * Home and End go to the ends of the same range the drag is clamped to.
+         *
+         * stopPropagation matters here: the console forwards stray keystrokes
+         * straight to the TARGET, and it only skips its own editable fields — a
+         * focusable div is not one, so without this every arrow press would
+         * also arrive on the remote machine. */
+        chatResize.addEventListener("keydown", function (e) {
+            var chatEl = document.querySelector(".chat");
+            var current = chatEl ? chatEl.offsetWidth : 760;
+            // On the right-hand side the same arrow means the opposite width
+            // change, exactly as the drag already accounts for.
+            var sign = document.documentElement.classList.contains("agent-right") ? -1 : 1;
+            var step = e.shiftKey ? 64 : 16;
+            var next = null;
+            if (e.key === "ArrowLeft") next = current - sign * step;
+            else if (e.key === "ArrowRight") next = current + sign * step;
+            else if (e.key === "Home") next = PANEL_MIN_W;
+            else if (e.key === "End") next = PANEL_MAX_W;
+            if (next === null) return;
+            e.preventDefault();
+            e.stopPropagation();
+            next = clampPanelWidth(next);
+            applyPanelWidth(next);
+            savePanelWidth(next);
+            paintResizeValue();
+        });
+        paintResizeValue();
+        /* The first paint runs before the panel has been laid out, so it reports
+         * whatever width the element happens to have at parse time — measured as
+         * 460 against an actual 760. Correct it once layout has settled, and
+         * again whenever the window changes, which is also how a side swap
+         * announces itself. A timeout rather than a frame callback on purpose:
+         * an occluded window stops producing frames, and the value would then
+         * stay wrong for as long as it stayed hidden. */
+        setTimeout(paintResizeValue, 0);
+        window.addEventListener("resize", paintResizeValue);
     }
 
     /* ---- merged bar: drive the embedded terminal (e.g. "new tab") ---- */
