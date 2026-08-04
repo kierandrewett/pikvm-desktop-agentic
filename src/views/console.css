@@ -1149,6 +1149,10 @@ html.desktop-console .app.computer-collapsed .screen {
 }
 .dlg {
     width: min(560px, 100%);
+    /* On a short window (or once mass storage lists a few images) a dialog would
+       otherwise grow past the viewport and put its own buttons out of reach. */
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -1261,7 +1265,21 @@ html.desktop-console .app.computer-collapsed .screen {
 .dlg-range {
     flex: 1;
     min-width: 120px;
+    /* The control renders ~16px tall by default, which is under the 24px
+       minimum target size and genuinely fiddly to grab — the stream dialog has
+       four of them. The track stays slim; only the hit area grows. */
+    height: 24px;
+    margin: 0;
+    background: transparent;
     accent-color: var(--primary);
+    cursor: pointer;
+}
+.dlg-check {
+    min-height: 24px;
+}
+.dlg-check input {
+    width: 15px;
+    height: 15px;
 }
 .dlg-note {
     margin: 0;
