@@ -2385,6 +2385,15 @@
         return null;
     }
     var FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    /* Focusable AND on screen. Dialogs hide rows the board cannot do — the stream
+     * dialog's resolution select, the mass-storage progress bar — and those still
+     * match the selector. Focusing one silently does nothing, so anything that
+     * picks "the first thing to focus" has to filter first. */
+    function focusablesIn(scrim) {
+        return Array.prototype.filter.call(scrim.querySelectorAll(FOCUSABLE), function (el) {
+            return el.offsetParent !== null;
+        });
+    }
 
     /* Focus was free to leave a dialog: one Tab and you were back on the live
      * surface, typing at the remote machine while a dialog was still up. Keep it
@@ -2396,9 +2405,7 @@
             if (e.key !== "Tab") return;
             var scrim = openScrim();
             if (!scrim) return;
-            var items = Array.prototype.filter.call(scrim.querySelectorAll(FOCUSABLE), function (el) {
-                return el.offsetParent !== null;
-            });
+            var items = focusablesIn(scrim);
             if (!items.length) return;
             var first = items[0];
             var last = items[items.length - 1];
@@ -2426,7 +2433,7 @@
             if (scrim && !scrim.contains(document.activeElement)) {
                 // Remember where focus was so closing returns it, not the body.
                 if (!focusBeforeModal) focusBeforeModal = document.activeElement;
-                var first = scrim.querySelector(FOCUSABLE);
+                var first = focusablesIn(scrim)[0];
                 if (first) first.focus();
             } else if (!scrim && focusBeforeModal) {
                 var restore = focusBeforeModal;
