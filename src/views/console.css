@@ -480,7 +480,8 @@ html.desktop-console.win-blur .screen {
 }
 
 /* ---- resolution toast: pops over the top of the stream on a source/size change */
-.res-toast {
+.res-toast,
+.toast {
     position: absolute;
     top: max(10px, env(safe-area-inset-top));
     left: 50%;
@@ -509,6 +510,33 @@ html.desktop-console.win-blur .screen {
 .res-toast.show {
     opacity: 1;
     transform: translate(-50%, 0);
+}
+/* The general toast sits at the BOTTOM so a power message and a resolution
+   change can be on screen at the same time without overlapping. */
+.toast {
+    top: auto;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    transform: translate(-50%, 10px);
+    max-width: min(520px, calc(100% - 32px));
+    white-space: normal;
+    text-align: center;
+}
+.toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+.toast.is-error {
+    border-color: color-mix(in srgb, var(--destructive, #e5484d) 55%, var(--border));
+    color: color-mix(in srgb, var(--destructive, #e5484d) 88%, var(--foreground));
+}
+
+/* Power (ATX) state on the titlebar button: green when the target is powered,
+   yellow while kvmd is mid-operation, dim when it is off. */
+.tb-btn.atx-on {
+    color: #3fb950;
+}
+.tb-btn.atx-busy {
+    color: #d29922;
 }
 .res-toast-av:empty {
     display: none;

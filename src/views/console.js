@@ -167,6 +167,9 @@
                 try {
                     var d = JSON.parse(ev.data);
                     var ed = d && d.event;
+                    // ATX power state: {enabled, busy, leds:{power, hdd}}. Deltas are
+                    // partial, so the module merges rather than replaces.
+                    if (d && d.event_type === "atx") atx.setState(ed);
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
                         targetCaps = leds.caps;
@@ -283,6 +286,146 @@
             },
         };
     })();
+
+    /* ----------------------------------------------------------------- *
+     * Transient messages
+     * ----------------------------------------------------------------- */
+
+    var toastEl = document.getElementById("toast");
+    var toastTimer = null;
+    /** Say something briefly over the stream. `error` styles it red and holds it
+     *  longer, because a failed power action is worth actually reading. */
+    function toast(msg, error) {
+        if (!toastEl) return;
+        toastEl.textContent = msg;
+        toastEl.classList.toggle("is-error", !!error);
+        toastEl.classList.add("show");
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(
+            function () {
+                toastEl.classList.remove("show");
+            },
+            error ? 6000 : 2600,
+        );
+    }
+
+    /* ----------------------------------------------------------------- *
+     * ATX power control (kvmd api/atx/click)
+     * ----------------------------------------------------------------- */
+
+    var atx = (function () {
+        // {enabled, busy, leds:{power,hdd}} from the `atx` event on /api/ws.
+        // null until the Pi tells us; a board with no ATX wiring reports enabled:false.
+        var state = null;
+        var listeners = [];
+        function emit() {
+            for (var i = 0; i < listeners.length; i++) listeners[i](state);
+        }
+        return {
+            setState: function (s) {
+                if (!s) {
+                    state = null;
+                    emit();
+                    return;
+                }
+                var next = state || { leds: {} };
+                if (s.enabled !== undefined) next.enabled = s.enabled;
+                if (s.busy !== undefined) next.busy = s.busy;
+                if (s.leds !== undefined) next.leds = s.leds || {};
+                state = next;
+                emit();
+            },
+            onChange: function (cb) {
+                listeners.push(cb);
+                cb(state);
+            },
+            /** Does this Pi actually have ATX wiring? */
+            available: function () {
+                return !!(state && state.enabled);
+            },
+            /** True while kvmd is mid-operation — the buttons are dead then. */
+            busy: function () {
+                return !!(state && state.busy);
+            },
+            /** Target power LED, or null when unknown. */
+            powered: function () {
+                return state && state.leds ? !!state.leds.power : null;
+            },
+            /**
+             * Press an ATX button. `power` is a short press (the OS sees it and shuts
+             * down cleanly), `power_long` holds it (a hard cut), `reset` is the reset
+             * line. Goes through our proxy, so the Pi's auth is injected for us.
+             */
+            click: function (button) {
+                return fetch("/api/atx/click?button=" + encodeURIComponent(button), { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        if (r.status === 409) {
+                            // kvmd serialises ATX across clients.
+                            toast("Another client is using the power controls. Try again in a moment.", true);
+                            return false;
+                        }
+                        if (!r.ok) {
+                            toast("Power action failed (" + r.status + ")", true);
+                            return false;
+                        }
+                        return true;
+                    })
+                    .catch(function (e) {
+                        toast("Power action failed: " + (e && e.message ? e.message : "network error"), true);
+                        return false;
+                    });
+            },
+        };
+    })();
+
+    /* The three ATX actions, in the order the real PiKVM UI lists them. `warn` is the
+     * confirmation text: every one of these can cost the operator unsaved work, so
+     * none of them fire on a single stray click. */
+    var ATX_ACTIONS = [
+        { id: "power", label: "Power button", warn: "Press the power button?\n\nThe target will start up, or shut down cleanly if it is running." },
+        { id: "power_long", label: "Power button (hold 5s)", warn: "Hold the power button for 5 seconds?\n\nThis cuts the power without asking the OS. Unsaved work will be lost." },
+        { id: "reset", label: "Reset", warn: "Press the reset button?\n\nThe target restarts immediately. Unsaved work will be lost." },
+    ];
+    /* Web/mobile: the ATX entries live in the ⋯ menu, revealed once the Pi says it
+     * has the wiring. Desktop adds them to the native menu and the titlebar button
+     * as well; both routes call runAtxAction, so there is one code path. */
+    document.querySelectorAll("[data-atx]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            runAtxAction(btn.getAttribute("data-atx"));
+        });
+    });
+    atx.onChange(function () {
+        var show = atx.available();
+        var busy = atx.busy();
+        document.querySelectorAll("[data-atx]").forEach(function (btn) {
+            btn.hidden = !show;
+            btn.disabled = busy;
+        });
+        ["atx-sep", "atx-sep-end"].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.hidden = !show;
+        });
+        var tb = document.getElementById("tb-power");
+        if (tb) {
+            tb.hidden = !show;
+            var powered = atx.powered();
+            tb.classList.toggle("atx-on", powered === true && !busy);
+            tb.classList.toggle("atx-busy", busy);
+            tb.title = !show ? "Power" : busy ? "Power — busy" : powered ? "Power — target is on" : "Power — target is off";
+        }
+    });
+
+    function runAtxAction(id) {
+        for (var i = 0; i < ATX_ACTIONS.length; i++) {
+            var a = ATX_ACTIONS[i];
+            if (a.id !== id) continue;
+            if (!window.confirm(a.warn)) return;
+            atx.click(a.id).then(function (ok) {
+                if (ok) toast(a.label + " sent");
+            });
+            return;
+        }
+    }
 
     /* ----------------------------------------------------------------- *
      * Keyboard: armed modifiers + chord sender
@@ -2424,6 +2567,12 @@
                 items.push({ id: "audio", label: "Audio output", type: "checkbox", checked: audioOn });
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
             }
+            if (atx.available()) {
+                items.push({ type: "separator" });
+                for (var a = 0; a < ATX_ACTIONS.length; a++) {
+                    items.push({ id: "atx:" + ATX_ACTIONS[a].id, label: ATX_ACTIONS[a].label, enabled: !atx.busy() });
+                }
+            }
             items.push({ type: "separator" });
             items.push({ id: "panel", label: panelShown() ? "Hide computer preview" : "Show computer preview" });
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
@@ -2437,6 +2586,10 @@
         function runCommand(id) {
             if (id.indexOf("kb:") === 0) {
                 runShortcut(id.slice(3));
+                return;
+            }
+            if (id.indexOf("atx:") === 0) {
+                runAtxAction(id.slice(4));
                 return;
             }
             switch (id) {
@@ -2521,6 +2674,22 @@
                 }
             }
         }
+        // Titlebar power button: the same three actions, one click away rather than
+        // buried in the ⋯ menu. Powering a hung machine is why a KVM exists.
+        var tbPower = document.getElementById("tb-power");
+        if (tbPower) {
+            tbPower.addEventListener("click", function (e) {
+                e.stopPropagation();
+                var r = tbPower.getBoundingClientRect();
+                dc.popupMenu(
+                    ATX_ACTIONS.map(function (a) {
+                        return { id: "atx:" + a.id, label: a.label, enabled: !atx.busy() };
+                    }),
+                    { x: r.left, y: r.bottom },
+                );
+            });
+        }
+
         var tbKeys = document.getElementById("tb-keys");
         if (tbKeys) {
             tbKeys.addEventListener("click", function (e) {

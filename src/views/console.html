@@ -48,6 +48,12 @@
             </div>
             <div class="tb-title" id="tb-title">PiKVM</div>
             <div class="tb-right">
+                <!-- ATX power (kvmd api/atx/click). Hidden until the Pi reports that
+                     it actually has ATX wiring; the icon colour carries the power LED. -->
+                <button class="tb-btn" id="tb-power" title="Power" aria-label="Power control" hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round"><path d="M12 3v9" /><path d="M18.4 6.6a9 9 0 1 1-12.8 0" /></svg>
+                </button>
                 <!-- Send a keyboard shortcut to the KVM (Ctrl+Alt+Del, Alt+Tab, …). -->
                 <button class="tb-btn" id="tb-keys" title="Send keyboard shortcut to the target" aria-label="Send keyboard shortcut">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -109,6 +115,10 @@
                     <span class="res-toast-av" id="res-toast-av"></span>
                 </div>
 
+                <!-- General-purpose transient message (power actions, errors). Sits at
+                     the bottom so it never collides with the resolution toast above. -->
+                <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
                 <div class="overlay" role="status" aria-live="polite">
                     <div class="stream-state">
                         <div class="stream-state-icon" aria-hidden="true">
@@ -158,6 +168,12 @@
                     <span>Microphone</span><span class="more-pip" id="mic-pip">Off</span>
                 </button>
                 <div class="more-sep" id="av-sep" hidden></div>
+                <!-- ATX power. Hidden until the Pi reports it actually has the wiring. -->
+                <div class="more-sep" id="atx-sep" hidden></div>
+                <button class="more-item" id="atx-power" data-atx="power" hidden>Power button</button>
+                <button class="more-item" id="atx-power-long" data-atx="power_long" hidden>Power button (hold 5s)</button>
+                <button class="more-item" id="atx-reset" data-atx="reset" hidden>Reset</button>
+                <div class="more-sep" id="atx-sep-end" hidden></div>
                 <button class="more-item" id="theme-btn">Toggle theme</button>
                 <a class="more-item" id="full-ui" href="/?native=1">Full PiKVM UI ⤢</a>
             </div>
