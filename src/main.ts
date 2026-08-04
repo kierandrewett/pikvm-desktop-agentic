@@ -105,6 +105,16 @@ function resolvedHarnessOrigin(): string {
     );
 }
 
+/** Text into an HTML document. Used for the harness view's failure page, whose
+ *  only variable parts are a local origin and an Electron error description. */
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
 /** Start the PiKVM backend, first-party harness, and local console proxy. */
 function startProxyAndHarness(
     origin: string,
@@ -698,12 +708,50 @@ function createWindow() {
         harnessViewLifecycle.beginLoad();
         void agentView.webContents.loadURL(HARNESS_URL);
     };
+    // A harness that never starts (its port already owned by another instance,
+    // say) used to leave this view exactly as it was created: a black rectangle
+    // filling half the window, with nothing to read and nothing to do. Say what
+    // happened instead. Written straight into the view because the point is to
+    // work when the thing that serves our pages is the thing that is down.
+    const HARNESS_FAILURE_SHOWN_AFTER = 3;
+    let harnessFailureShown = false;
+    const showHarnessFailure = (detail: string, retrying: boolean) => {
+        if (harnessFailureShown || agentView.webContents.isDestroyed()) return;
+        harnessFailureShown = true;
+        const page = `<!doctype html><meta charset="utf-8"><title>Agent workspace unavailable</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+      background:#0a0a0c;color:#ededf1;font:13px/1.6 system-ui,sans-serif}
+ main{max-width:34em;padding:0 2.5em;text-align:left}
+ h1{margin:0 0 .6em;font-size:15px;font-weight:600}
+ p{margin:0 0 .8em;color:#8a8a95}
+ code{font-family:ui-monospace,monospace;color:#ededf1;overflow-wrap:anywhere}
+</style>
+<main>
+ <h1>The agent workspace did not start</h1>
+ <p>Nothing is answering at <code>${escapeHtml(HARNESS_ORIGIN)}</code>, so this
+    panel has nothing to show. The console, the screen and the keyboard are
+    unaffected.</p>
+ <p>This usually means another copy of the app is still running and owns the
+    harness, or the previous one did not shut down cleanly. Closing the other
+    window, or quitting and reopening this one, is normally enough.</p>
+ <p>Last error: <code>${escapeHtml(detail)}</code></p>
+ <p>${retrying ? "Retrying in the background." : "Reopen the app once the other copy has closed."}</p>
+</main>`;
+        void agentView.webContents.loadURL(
+            `data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
+        );
+    };
+
     agentView.webContents.on("did-fail-load", (_e, code, desc, url) => {
         console.error(`[harness-renderer] did-fail-load ${code} ${desc} ${url}`);
         harnessViewLifecycle.failed();
-        if (!agentView.webContents.isDestroyed()) {
-            harnessViewLifecycle.scheduleRetry(loadHarness);
+        if (agentView.webContents.isDestroyed()) return;
+        if (harnessViewLifecycle.failureCount() >= HARNESS_FAILURE_SHOWN_AFTER) {
+            showHarnessFailure(`${desc || "load failed"} (${code})`, true);
         }
+        harnessViewLifecycle.scheduleRetry(loadHarness);
     });
     agentView.webContents.setWindowOpenHandler(({ url }) => {
         openUrlExternally(url);
@@ -856,6 +904,11 @@ function createWindow() {
             },
         );
         agentView.webContents.on("did-finish-load", () => {
+            // The failure page loads successfully too. Only the harness itself
+            // answering means the harness is back, so anything else must not
+            // clear the streak and restart the retries at full speed.
+            if (!agentView.webContents.getURL().startsWith(HARNESS_ORIGIN)) return;
+            harnessFailureShown = false;
             harnessViewLifecycle.loaded();
             if (
                 !harnessViewLifecycle.shouldBootstrapAuth(
@@ -883,8 +936,16 @@ function createWindow() {
     }
 
     if (backend) {
-        void backend.harnessReady.then(loadHarness).catch(() => {
-            // startProxyAndHarness already logs the actionable startup error.
+        void backend.harnessReady.then(loadHarness).catch((error: unknown) => {
+            // startProxyAndHarness logs the actionable startup error, but the
+            // user is looking at the panel, not our stdout. This is the path
+            // that left the view exactly as constructed, a black rectangle
+            // filling half the window: the harness never became ready, so
+            // nothing ever asked the view to load and did-fail-load never ran.
+            const detail =
+                error instanceof Error ? error.message : String(error ?? "unknown error");
+            console.error(`[harness-renderer] harness never became ready: ${detail}`);
+            showHarnessFailure(detail, false);
         });
     }
 
