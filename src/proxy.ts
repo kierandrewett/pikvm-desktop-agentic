@@ -29,19 +29,30 @@ export interface ProxyDeps {
     htmlInjection: (req: IncomingMessage) => { head: string; body: string };
     /**
      * Signalled on user HID input over the proxied input WebSocket (/api/ws) — so the
-     * idle mouse-jiggler knows the user is active and holds off. (A relative jiggle
-     * needs no cursor position, so we only detect activity, not coordinates.)
+     * idle mouse-jiggler knows the user is active and holds off.
      */
     onHidActivity?: () => void;
+    /**
+     * Absolute cursor position (PiKVM normalized units) seen on that same socket. The
+     * jiggler's nudge nets back to zero displacement only if we know where the cursor
+     * ACTUALLY is; without this we only track moves we sent ourselves, so a nudge would
+     * teleport the user's pointer to a stale guess.
+     */
+    onHidMouseMove?: (x: number, y: number) => void;
+}
+
+export interface HidTapEvents {
+    onActivity: () => void;
+    onMouseMove?: (x: number, y: number) => void;
 }
 
 /**
- * Detect user input frames on the (always-masked) client→server HID socket and call
- * `onActivity`. We only need to know that a real input frame went by, so this just
- * parses frame headers — no unmasking / JSON. Buffers across TCP segment boundaries;
- * defensive — never throws into the socket pipeline.
+ * Watch the (always-masked) client→server HID socket. Every data frame counts as user
+ * activity; `mouse_move` frames are unmasked and parsed so we also learn where the
+ * cursor is. Buffers across TCP segment boundaries; defensive — never throws into the
+ * socket pipeline, and never modifies it (the pipe still forwards every byte).
  */
-function makeHidTap(onActivity: () => void): (chunk: Buffer) => void {
+export function makeHidTap(events: HidTapEvents): (chunk: Buffer) => void {
     let buf: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     return (chunk: Buffer) => {
         try {
@@ -62,14 +73,42 @@ function makeHidTap(onActivity: () => void): (chunk: Buffer) => void {
                 }
                 const frameLen = off + (masked ? 4 : 0) + len;
                 if (buf.length < frameLen) break; // frame not fully arrived yet
+                const frame = buf.subarray(0, frameLen);
                 buf = buf.subarray(frameLen);
-                if (opcode === 0x1 || opcode === 0x2) onActivity(); // a real input frame (not ping/pong/close)
+                if (opcode !== 0x1 && opcode !== 0x2) continue; // ping/pong/close carry no input
+                events.onActivity();
+                // Text frames only, and only ones small enough to be an input event —
+                // anything larger is not a KVMD HID message and isn't worth decoding.
+                if (opcode === 0x1 && events.onMouseMove && len > 0 && len <= 4096) {
+                    readMouseMove(frame.subarray(off + (masked ? 4 : 0)), masked ? frame.subarray(off, off + 4) : undefined, events.onMouseMove);
+                }
             }
             if (buf.length > 1 << 20) buf = Buffer.alloc(0); // safety cap (not a real WS stream)
         } catch {
             /* never disturb the proxied socket */
         }
     };
+}
+
+/** Unmask a WebSocket text payload and report it if it is a KVMD `mouse_move`. */
+function readMouseMove(payload: Buffer, mask: Buffer | undefined, onMouseMove: (x: number, y: number) => void): void {
+    let text: string;
+    if (mask) {
+        const out = Buffer.allocUnsafe(payload.length);
+        for (let i = 0; i < payload.length; i++) out[i] = payload[i]! ^ mask[i & 3]!;
+        text = out.toString("utf8");
+    } else {
+        text = payload.toString("utf8");
+    }
+    if (!text.includes("mouse_move")) return;
+    let msg: { event_type?: string; event?: { to?: { x?: unknown; y?: unknown } } };
+    try {
+        msg = JSON.parse(text);
+    } catch {
+        return;
+    }
+    const to = msg?.event_type === "mouse_move" ? msg.event?.to : undefined;
+    if (typeof to?.x === "number" && typeof to?.y === "number") onMouseMove(to.x, to.y);
 }
 
 /** Rewrite a Set-Cookie so it binds to OUR origin, not the Pi's. */
@@ -227,8 +266,9 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             clientSocket.on("close", cleanup);
             // Observe user HID input (mouse/keys) on the input WebSocket for the idle
             // jiggler — a passive 'data' listener; the pipe still forwards every byte.
-            if (deps.onHidActivity && typeof req.url === "string" && req.url.startsWith("/api/ws")) {
-                clientSocket.on("data", makeHidTap(deps.onHidActivity));
+            const onActivity = deps.onHidActivity;
+            if (onActivity && typeof req.url === "string" && req.url.startsWith("/api/ws")) {
+                clientSocket.on("data", makeHidTap({ onActivity, ...(deps.onHidMouseMove ? { onMouseMove: deps.onHidMouseMove } : {}) }));
             }
             proxySocket.pipe(clientSocket);
             clientSocket.pipe(proxySocket);
