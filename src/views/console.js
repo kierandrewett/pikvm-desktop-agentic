@@ -2300,6 +2300,35 @@
      * then up) before the next begins — so fast typing never interleaves modifiers
      * (which would flip a letter's case or drop it). ~13ms/key ⇒ ~75 keys/s, well above
      * any human burst, so it stays crystal-smooth AND correct. */
+    /* Modifiers the user is physically holding, mirrored onto the target for as
+     * long as they are down. Previously a bare modifier was never forwarded at
+     * all — it was only synthesised for the few milliseconds a chord took — so
+     * holding Ctrl and clicking, or Ctrl-dragging, did nothing on the target
+     * because Ctrl was never actually down when the button arrived. */
+    var heldMods = Object.create(null);
+    function modHeld(code) {
+        return heldMods[code] === true;
+    }
+    function pressMod(code) {
+        if (heldMods[code]) return;
+        heldMods[code] = true;
+        hid.key(code, true);
+    }
+    function releaseMod(code) {
+        if (!heldMods[code]) return;
+        delete heldMods[code];
+        hid.key(code, false);
+    }
+    /** Let go of everything: focus loss, or a modal taking the keyboard. */
+    function releaseAllMods() {
+        Object.keys(heldMods).forEach(releaseMod);
+    }
+    /** True when this chord modifier is already down because the user is holding
+     *  it — the chord must then neither press nor release it. */
+    function chordOwnsMod(code) {
+        return !modHeld(code);
+    }
+
     var keyQ = [];
     var keyBusy = false;
     /* The target reads the USB HID gadget on a polling interval (5-10ms is typical).
@@ -2332,13 +2361,17 @@
         }
         keyBusy = true;
         var op = keyQ.shift();
-        for (var i = 0; i < op.mods.length; i++) hid.key(op.mods[i], true);
+        // A modifier the user is holding is already down on the target; pressing
+        // it again is harmless but RELEASING it at the end of the chord would
+        // drop it while their finger is still on the key. Leave those alone.
+        var owned = op.mods.filter(chordOwnsMod);
+        for (var i = 0; i < owned.length; i++) hid.key(owned[i], true);
         setTimeout(
             function () {
                 hid.key(op.code, true);
                 setTimeout(function () {
                     hid.key(op.code, false);
-                    for (var j = op.mods.length - 1; j >= 0; j--) hid.key(op.mods[j], false);
+                    for (var j = owned.length - 1; j >= 0; j--) hid.key(owned[j], false);
                     setTimeout(drainKeys, KEY_GAP);
                 }, KEY_HOLD);
             },
@@ -3434,6 +3467,10 @@
         releaseClickMods();
         var m = modsFromEvent(e);
         if (e.shiftKey) m.push("ShiftLeft");
+        // Anything the user is physically holding is already down and stays down
+        // until they let go; synthesising it again would mean releasing it on
+        // pointerup while it is still held.
+        m = m.filter(chordOwnsMod);
         for (var i = 0; i < m.length; i++) hid.key(m[i], true);
         clickMods = m;
     }
@@ -3830,7 +3867,12 @@
      */
     function handleKeydown(e, printable) {
         var d = KeyChord.decide(e, { armed: armedList(), printable: printable });
-        if (d.kind === "ignore") return;
+        if (d.kind === "ignore") {
+            // A bare modifier rides the chord for typing, but it also has to be
+            // HELD on the target so Ctrl+click and Ctrl+drag behave.
+            if (d.why === "bare-modifier" && e.code) pressMod(e.code);
+            return;
+        }
         e.preventDefault();
         if (d.kind === "swallow") return;
         if (d.kind === "char") {
@@ -3846,6 +3888,9 @@
         if (blockKvmInput(e)) return;
         noteManualKvmInput();
         handleKeydown(e, false);
+    });
+    kbd.addEventListener("keyup", function (e) {
+        if (e.code) releaseMod(e.code);
     });
     kbd.addEventListener("beforeinput", function (e) {
         if (blockKvmInput(e)) return;
@@ -4424,9 +4469,12 @@
             // Drop the simulated cursor blob and restore the real OS cursor over the
             // screen, so an unfocused window shows a normal pointer instead of nothing.
             if (!focused && kvmCursor) kvmCursor.style.display = "none";
-            // Alt+Tabbing away mid-click must not leave a modifier stuck down on the
-            // target — the host stops sending us the keyup that would have released it.
-            if (!focused) releaseClickMods();
+            // Alt+Tabbing away must not leave a modifier stuck down on the target —
+            // the host stops sending us the keyup that would have released it.
+            if (!focused) {
+                releaseClickMods();
+                releaseAllMods();
+            }
         }
         if (window.desktopConsole && window.desktopConsole.onWindowFocus) {
             // Desktop: focus comes from the MAIN process (true window focus). A focused
@@ -4446,7 +4494,10 @@
             if (!windowFocused) return;
             // A modal owns the keyboard while it is up — forwarding here would type
             // the dialog's own keystrokes onto the target as well.
-            if (modalOpen()) return;
+            if (modalOpen()) {
+                releaseAllMods();
+                return;
+            }
             var t = e.target;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
             if (blockKvmInput(e)) return;
@@ -4456,6 +4507,14 @@
             // and Caps Lock, which is why the case is right on the caps-off target.
             handleKeydown(e, true);
         });
+        /* Releasing the modifier is what ends the hold on the target, so this
+         * listener is the other half of the feature — without it a modifier
+         * would stay down forever. It is deliberately ungated: if the key went
+         * down we must let it up, whatever the window state has become since. */
+        document.addEventListener("keyup", function (e) {
+            if (e.code) releaseMod(e.code);
+        });
+        window.addEventListener("blur", releaseAllMods);
 
         // The MAIN desktop window keeps the original ui.html titlebar ABOVE the
         // console (?shell=native) — hide the console's own titlebar then, but keep all
