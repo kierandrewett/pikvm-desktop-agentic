@@ -22,6 +22,14 @@ export interface PanelPlacement {
 
 const api = {
     setSide: (side: "left" | "right") => ipcRenderer.send("panel:set-side", side),
+    /** The console owns the theme; this panel shares its window, so it follows.
+     *  Asks once on subscribe so the first paint is not the wrong colour. */
+    onTheme: (cb: (theme: "dark" | "light") => void) => {
+        const listener = (_e: unknown, theme: "dark" | "light") => cb(theme);
+        ipcRenderer.on("panel:theme", listener);
+        ipcRenderer.send("panel:request-theme");
+        return () => ipcRenderer.removeListener("panel:theme", listener);
+    },
     toggleDetached: () => ipcRenderer.send("panel:toggle-detached"),
     /** Subscribe to placement, and ask for it once so the first paint is right. */
     onPlacement: (cb: (placement: PanelPlacement) => void) => {

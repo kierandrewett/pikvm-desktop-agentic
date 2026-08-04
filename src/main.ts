@@ -881,6 +881,16 @@ function createWindow() {
     });
     ipcMain.on("panel:toggle-detached", () => toConsole("console:agent-detach-toggle"));
     ipcMain.on("panel:request-placement", () => toConsole("console:agent-placement-request"));
+    ipcMain.on("panel:request-theme", () => toConsole("console:agent-theme-request"));
+    ipcMain.on("console:agent-theme", (_, theme: unknown) => {
+        if (theme !== "dark" && theme !== "light") return;
+        if (!agentView.webContents.isDestroyed()) {
+            agentView.webContents.send("panel:theme", theme);
+        }
+        if (agentWin && !agentWin.isDestroyed()) {
+            agentWin.webContents.send("panel:theme", theme);
+        }
+    });
     ipcMain.on("console:agent-placement", (_, placement: unknown) => {
         // Both windows show the same conversation and the same header, so both
         // need to know where it currently is — the detached one above all, since

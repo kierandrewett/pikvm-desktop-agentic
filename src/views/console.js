@@ -4522,6 +4522,15 @@
         try {
             chatFrame.contentWindow.postMessage({ type: "pikvm-theme", theme: t }, "*");
         } catch (e) {}
+        /* The desktop conversation is a native child view, not that iframe, so
+         * the postMessage above never reaches it. Without this the console went
+         * light and the panel beside it stayed dark, in the same window. */
+        /* window.desktopConsole rather than the `dc` alias: that is declared
+         * inside the desktop-only block further down, so naming it here threw a
+         * ReferenceError after the theme had already been applied — silently,
+         * because it is the last statement in the handler. */
+        var desk = window.desktopConsole;
+        if (desk && desk.reportAgentTheme) desk.reportAgentTheme(t);
     }
     themeBtn.addEventListener("click", function () {
         applyTheme(currentTheme() === "light" ? "dark" : "light");
@@ -4697,6 +4706,11 @@
                 document.documentElement.classList.remove("agent-detached");
                 window.dispatchEvent(new Event("resize"));
                 publishAgentPlacement();
+            });
+        }
+        if (dc.onAgentThemeRequest) {
+            dc.onAgentThemeRequest(function () {
+                if (dc.reportAgentTheme) dc.reportAgentTheme(currentTheme());
             });
         }
         if (dc.onAgentPlacementCommand) {

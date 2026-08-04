@@ -76,6 +76,10 @@ export interface DesktopConsoleApi {
      *  closes that window instead (a toggle); re-attachment is signalled via
      *  onAgentAttached when the window closes, however it closes. */
     detachAgent(): void;
+    /** Tell the conversation which theme the console is in; it shares the window. */
+    reportAgentTheme(theme: "dark" | "light"): void;
+    /** The conversation asking, on its first paint, which theme to be in. */
+    onAgentThemeRequest(cb: () => void): () => void;
     /** Tell the conversation's own header where it currently sits. */
     reportAgentPlacement(placement: { side: "left" | "right"; detached: boolean }): void;
     /** Placement asks coming FROM that header: move to a side, detach/re-attach,
@@ -133,6 +137,13 @@ const api: DesktopConsoleApi = {
      * console answers requests from it rather than owning the only buttons. */
     reportAgentPlacement: (placement: { side: "left" | "right"; detached: boolean }) =>
         ipcRenderer.send("console:agent-placement", placement),
+    reportAgentTheme: (theme: "dark" | "light") =>
+        ipcRenderer.send("console:agent-theme", theme),
+    onAgentThemeRequest: (cb) => {
+        const listener = () => cb();
+        ipcRenderer.on("console:agent-theme-request", listener);
+        return () => ipcRenderer.removeListener("console:agent-theme-request", listener);
+    },
     onAgentPlacementCommand: (cb) => {
         const side = (_e: unknown, value: "left" | "right") => cb({ type: "side", side: value });
         const toggle = () => cb({ type: "toggle-detached" });
