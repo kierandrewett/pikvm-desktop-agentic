@@ -1265,11 +1265,16 @@ html.desktop-console .app.computer-collapsed .screen {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent);
 }
 .dlg-btn.primary:hover {
-    background: color-mix(in srgb, var(--primary) 88%, #fff);
+    /* Lift from the deepened base, staying above the AA threshold. */
+    background: color-mix(in srgb, var(--primary) 88%, #000);
 }
+/* White on the accent blue is 3.16:1 — under the 4.5:1 AA needs at this text
+   size. The fill is deepened just enough to pass (~4.9:1) while staying the
+   same colour; the accent itself is untouched, since everywhere else it sits
+   against a dark surface where it has ample contrast. */
 .dlg-btn.primary {
-    background: var(--primary);
-    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 78%, #000);
+    border-color: color-mix(in srgb, var(--primary) 78%, #000);
     color: var(--primary-foreground);
 }
 .dlg-btn:disabled {
