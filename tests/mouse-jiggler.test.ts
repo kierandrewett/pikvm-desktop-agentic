@@ -158,6 +158,20 @@ test("the Pi's state socket is opened before deciding anything", async () => {
     assert.equal(state.nudges, 0, "and must not nudge locally on a board that has its own");
 });
 
+test("start() seeds the idle clock so boot does not count as idle", async () => {
+    // lastActivity() is 0 on a fresh start, so without the seed the first tick reads
+    // as decades idle and fires a blind nudge before the Pi's state has arrived.
+    const { control, state } = stubControl();
+    const jiggler = new MouseJiggler({ control, enabled: () => true, isAgentBusy: () => false });
+    jiggler.start();
+    try {
+        await tick(jiggler);
+        assert.equal(state.nudges, 0, "boot must get the full idle grace period");
+    } finally {
+        jiggler.stop();
+    }
+});
+
 test("an unreachable state socket does not stop the fallback nudge", async () => {
     const { control, state } = stubControl();
     state.lastInput = Date.now() - 120_000;

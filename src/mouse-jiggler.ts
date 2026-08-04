@@ -83,6 +83,12 @@ export class MouseJiggler {
 
     start(): void {
         if (this.timer) return;
+        // Seed the idle clock at boot. Without this, lastActivity() is 0 on a fresh
+        // start, the first tick reads as decades idle, and a nudge fires before the
+        // Pi's hid state has even arrived — a blind jog on an unknown mouse mode. The
+        // 45s grace also gives the state socket ample time to report whether the Pi
+        // has its own jiggler, so pi-mode boots never locally nudge at all.
+        this.lastUserActivity = Date.now();
         this.timer = setInterval(() => void this.tick(), this.CHECK_MS);
         if (this.timer.unref) this.timer.unref();
         this.log(`watching for idle — nudging after ${Math.round(this.IDLE_MS / 1000)}s (enabled: ${this.deps.enabled()})`);
