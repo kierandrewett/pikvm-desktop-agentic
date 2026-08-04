@@ -3504,8 +3504,11 @@
         });
         chatResize.addEventListener("pointermove", function (e) {
             if (!cresizing) return;
-            // The divider is the chat workspace's RIGHT edge.
-            var want = cStartW + (e.clientX - cStartX);
+            // The divider is the chat workspace's RIGHT edge — unless the conversation
+            // has been swapped to the right side, where the handle is its LEFT edge and
+            // the same pointer travel means the opposite width change.
+            var sign = document.documentElement.classList.contains("agent-right") ? -1 : 1;
+            var want = cStartW + sign * (e.clientX - cStartX);
             want = clampPanelWidth(want);
             if (want !== cLastW) {
                 applyPanelWidth(want);
@@ -3740,6 +3743,44 @@
      * ===================================================================== */
     (function desktopConsole() {
         var dc = window.desktopConsole;
+
+        /* ---- conversation placement: which side, or its own window ----
+         * Side is a lasting preference (localStorage, like the theme and panel
+         * width); detached is session state and intentionally not persisted. */
+        var AGENT_SIDE_KEY = "pikvm-console-agent-side";
+        function agentOnRight() {
+            return document.documentElement.classList.contains("agent-right");
+        }
+        function agentDetached() {
+            return document.documentElement.classList.contains("agent-detached");
+        }
+        function setAgentSide(side) {
+            document.documentElement.classList.toggle("agent-right", side === "right");
+            try { localStorage.setItem(AGENT_SIDE_KEY, side); } catch (e) {}
+            // Re-report the workspace rect NOW rather than at the next poll tick, so
+            // the native harness view lands on the new side in the same frame.
+            window.dispatchEvent(new Event("resize"));
+        }
+        try {
+            if (localStorage.getItem(AGENT_SIDE_KEY) === "right") document.documentElement.classList.add("agent-right");
+        } catch (e) {}
+        function toggleAgentDetached() {
+            if (!dc.detachAgent) return;
+            // Optimistically collapse the embedded panel; main opens the window. When
+            // already detached the same message closes that window instead, and the
+            // attach signal below restores the panel.
+            if (!agentDetached()) {
+                document.documentElement.classList.add("agent-detached");
+                window.dispatchEvent(new Event("resize"));
+            }
+            dc.detachAgent();
+        }
+        if (dc.onAgentAttached) {
+            dc.onAgentAttached(function () {
+                document.documentElement.classList.remove("agent-detached");
+                window.dispatchEvent(new Event("resize"));
+            });
+        }
         if (!dc) return; // web/mobile: nothing below runs
 
         var TITLEBAR_H = 38; // keep in sync with .titlebar height in console.css
@@ -3931,6 +3972,11 @@
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
             }
             items.push({ type: "separator" });
+            items.push({ id: "detach", label: agentDetached() ? "Bring the conversation back into this window" : "Open conversation in its own window" });
+            if (!agentDetached()) {
+                items.push({ id: "swap-side", label: agentOnRight() ? "Move conversation to the left side" : "Move conversation to the right side" });
+            }
+            items.push({ type: "separator" });
             items.push({ id: "paste", label: "Paste text to the target…" });
             if (atx.available()) {
                 items.push({ type: "separator" });
@@ -3965,6 +4011,14 @@
             }
             if (id === "paste") {
                 openPasteDialog();
+                return;
+            }
+            if (id === "detach") {
+                toggleAgentDetached();
+                return;
+            }
+            if (id === "swap-side") {
+                setAgentSide(agentOnRight() ? "left" : "right");
                 return;
             }
             if (id === "stream") {

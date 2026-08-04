@@ -729,6 +729,9 @@ function createWindow() {
         applyWorkspaceView();
     });
     win.on("closed", () => {
+        // The detached conversation window rides on this window's harness process —
+        // without it the page is dead, so it goes down with the ship.
+        if (agentWin && !agentWin.isDestroyed()) agentWin.close();
         harnessViewLifecycle.stop();
         harnessAssetsWatcher?.close();
         backend?.terminalSessions.killAll();
@@ -749,6 +752,45 @@ function createWindow() {
         const delta = sidebarOpen ? sidebarWidth : -sidebarWidth;
         win.setContentSize(Math.max(300, w! + delta), h!);
         layout();
+    });
+
+    // Detach the conversation into its own window. A second request while detached
+    // closes that window (a toggle); the console re-embeds its panel on the
+    // "agent:attached" signal, which fires however the window ends up closing.
+    let agentWin: BrowserWindow | null = null;
+    ipcMain.on("agent:detach", (e) => {
+        if (agentWin && !agentWin.isDestroyed()) {
+            agentWin.close();
+            return;
+        }
+        agentWin = new BrowserWindow({
+            width: Math.max(760, sidebarWidth),
+            height: 900,
+            minWidth: 480,
+            minHeight: 400,
+            title: "PiKVM — Conversation",
+            backgroundColor: "#0a0a0c",
+            autoHideMenuBar: true,
+        });
+        agentWin.removeMenu();
+        void agentWin.loadURL(HARNESS_URL);
+        // Same navigation policy as the embedded harness view: keep the harness
+        // origin in-window, kick everything else out to the system browser.
+        agentWin.webContents.setWindowOpenHandler(({ url }) => {
+            openUrlExternally(url);
+            return { action: "deny" };
+        });
+        agentWin.webContents.on("will-navigate", (ev, url) => {
+            if (url.startsWith(`${HARNESS_ORIGIN}/`)) return;
+            ev.preventDefault();
+            openUrlExternally(url);
+        });
+        attachContextMenu(agentWin.webContents);
+        const sender = e.sender;
+        agentWin.on("closed", () => {
+            agentWin = null;
+            if (!sender.isDestroyed()) sender.send("agent:attached");
+        });
     });
 
     // Drag-to-resize the sidebar: the renderer sends the desired width.

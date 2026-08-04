@@ -72,6 +72,12 @@ export interface DesktopConsoleApi {
     reportWorkspaceRect(rect: { x: number; y: number; width: number; height: number }): void;
     /** Open Settings / Monitor / History in their own window. */
     openAgentPanel(id: "settings" | "ambient" | "history"): void;
+    /** Detach the conversation into its own window. A second call while detached
+     *  closes that window instead (a toggle); re-attachment is signalled via
+     *  onAgentAttached when the window closes, however it closes. */
+    detachAgent(): void;
+    /** Fired when the detached conversation window closes — re-embed the panel. */
+    onAgentAttached(cb: () => void): () => void;
     /** True WINDOW focus (from the main process), so the KVM mouse tracks window focus —
      *  not the console view's focus, which a focused terminal child view would steal. */
     onWindowFocus(cb: (focused: boolean) => void): () => void;
@@ -104,6 +110,12 @@ const api: DesktopConsoleApi = {
     setPikvmOrigin: (url) => ipcRenderer.send("console:set-pikvm-origin", url),
     reportWorkspaceRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:workspace-rect", rect),
     openAgentPanel: (id) => ipcRenderer.send("console:open-agent-panel", id),
+    detachAgent: () => ipcRenderer.send("agent:detach"),
+    onAgentAttached: (cb) => {
+        const listener = () => cb();
+        ipcRenderer.on("agent:attached", listener);
+        return () => ipcRenderer.removeListener("agent:attached", listener);
+    },
     onWindowFocus: (cb) => {
         const listener = (_e: unknown, focused: boolean) => cb(!!focused);
         ipcRenderer.on("kvm:input-enabled", listener);

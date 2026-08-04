@@ -1313,3 +1313,64 @@ html.desktop-console .app.computer-collapsed .screen {
     pointer-events: none;
     white-space: nowrap;
 }
+
+/* ---- conversation on the RIGHT (html.agent-right) ---------------------------
+ * Mirror of the default desktop layout: the live screen takes column 1 and the
+ * conversation takes column 2, with the resize handle flipped to the chat's
+ * LEFT edge. Same track sizes, just swapped. */
+html.desktop-console.agent-right .app {
+    grid-template-columns:
+        minmax(300px, 1fr)
+        minmax(520px, min(var(--chat-w, 760px), calc(100vw - 300px)));
+}
+html.desktop-console.agent-right .screen {
+    grid-column: 1;
+    border-left: 0;
+    border-right: 1px solid var(--border);
+}
+html.desktop-console.agent-right .chat {
+    grid-column: 2;
+}
+html.desktop-console.agent-right .chat-resize {
+    right: auto;
+    left: -5px;
+}
+html.desktop-console.agent-right .chat-resize::before {
+    right: auto;
+    left: 4px;
+}
+html.desktop-console.agent-right .chat-resize::after {
+    right: auto;
+    left: 3px;
+}
+html.desktop-console.agent-right .app.computer-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
+}
+html.desktop-console.agent-right .app.computer-collapsed .screen {
+    border-right: 0;
+}
+html.desktop-console.agent-right .app.chat-full {
+    grid-template-columns: minmax(300px, 42vw) minmax(0, 1fr);
+}
+
+/* ---- conversation DETACHED into its own window (html.agent-detached) --------
+ * The embedded chat column collapses to zero; the reported workspace rect goes
+ * to 0x0, which hides the native harness view, and the screen takes the full
+ * window until the detached window closes. */
+html.desktop-console.agent-detached .app {
+    grid-template-columns: 0 minmax(0, 1fr);
+}
+html.desktop-console.agent-detached.agent-right .app {
+    grid-template-columns: minmax(0, 1fr) 0;
+}
+html.desktop-console.agent-detached .chat {
+    overflow: hidden;
+    pointer-events: none;
+}
+html.desktop-console.agent-detached .chat-resize {
+    display: none;
+}
+html.desktop-console.agent-detached .screen {
+    border-left: 0;
+    border-right: 0;
+}
