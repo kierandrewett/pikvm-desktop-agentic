@@ -1220,13 +1220,25 @@ html.desktop-console .app.computer-collapsed .screen {
     color: var(--muted-foreground);
 }
 .dlg-select {
-    padding: 5px 8px;
+    /* The box was themed but the arrow was not: appearance:auto leaves the OS
+       to draw it, which put a light GTK chevron inside a flat dark control.
+       Draw our own instead, one per theme since a background image cannot pick
+       up currentColor. */
+    appearance: none;
+    padding: 5px 26px 5px 8px;
     border-radius: 8px;
     border: 1px solid var(--border);
-    background: var(--background);
+    background-color: var(--background);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8a95' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 7px center;
+    background-size: 13px;
     color: var(--foreground);
     font: inherit;
     font-size: 12px;
+}
+[data-theme="light"] .dlg-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666672' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 .dlg-hint {
     margin-left: auto;
