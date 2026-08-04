@@ -42,6 +42,20 @@
     -webkit-tap-highlight-color: transparent;
 }
 
+/* The `hidden` attribute must actually hide.
+ *
+ * Its UA rule is `[hidden] { display: none }`, which ANY author rule setting a
+ * display beats — so `.dlg-row { display: flex }` and `.dlg-btn { display:
+ * inline-flex }` silently defeated it. Everything the console hides by setting
+ * `.hidden = true` was affected: the mass-storage upload progress bar and its
+ * Abort button rendered permanently, the resolution row showed an empty
+ * dropdown on boards that cannot change resolution, and the mount/unmount pair
+ * would have shown together. !important is the right tool here: the whole point
+ * of the attribute is that it wins. */
+[hidden] {
+    display: none !important;
+}
+
 /* Lock the document so iOS Safari can't rubber-band / scroll the page. */
 html,
 body {
