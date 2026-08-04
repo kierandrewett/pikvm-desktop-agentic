@@ -343,8 +343,10 @@ body {
     flex: none;
     transition: background 0.2s;
 }
+/* Connected is the expected state, so it stays neutral — colour is reserved
+   for things that need attention. */
 .dot.ok {
-    background: var(--ok);
+    background: var(--muted-foreground);
 }
 .dot.warn {
     background: var(--warn);
@@ -530,10 +532,11 @@ html.desktop-console.win-blur .screen {
     color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
 }
 
-/* Power (ATX) state on the titlebar button: green when the target is powered,
-   yellow while kvmd is mid-operation, dim when it is off. */
+/* Power (ATX) state on the titlebar button: full-strength when the target is
+   powered, yellow while kvmd is mid-operation, dim when it is off. Powered is
+   the normal state, so it reads as "on" by weight rather than colour. */
 .tb-btn.atx-on {
-    color: #3fb950;
+    color: var(--foreground);
 }
 .tb-btn.atx-busy {
     color: #d29922;
@@ -767,7 +770,7 @@ html.desktop-console .backend-status {
     background: var(--muted-foreground);
     flex: none;
 }
-.backend-status[data-state="ready"] .bs-dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.backend-status[data-state="ready"] .bs-dot { background: var(--muted-foreground); box-shadow: none; }
 .backend-status[data-state="starting"] .bs-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
 .backend-status[data-state="down"] .bs-dot { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
 
