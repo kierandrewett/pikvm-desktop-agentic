@@ -26,6 +26,10 @@
         input[type="text"]:focus, select:focus { border-color: #4c6ef5; }
         input[type="text"]:disabled { opacity: .5; }
         .hint { font-size: 11px; color: #6e6e7a; margin-top: 5px; }
+        /* Always present, so revealing a problem does not change the height of a
+           window that is measured once at load and cannot be resized. */
+        .err { font-size: 11px; color: #f2827c; margin: 4px 0 0; min-height: 15px; }
+        input[type="text"][aria-invalid="true"] { border-color: #f2827c; }
         .row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
         .row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #4c6ef5; }
         .row label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 13px; color: #e6e6ea; }
@@ -46,6 +50,7 @@
     <label for="pikvm-url">PiKVM connection</label>
     <input id="pikvm-url" type="text" placeholder="https://user:password@pikvm/" autocomplete="off" spellcheck="false" />
     <div class="hint">The PiKVM URL the app connects to. Credentials may be included in the URL.</div>
+    <p class="err" id="url-err" role="status" aria-live="polite"></p>
 
     <label for="layout">Keyboard layout</label>
     <select id="layout">
@@ -79,19 +84,57 @@
             layoutEl.value = data.keyboardLayout === "uk" ? "uk" : "us";
             jigglerEl.checked = !!data.jiggler;
 
-            saveEl.addEventListener("click", function () {
+            var errEl = document.getElementById("url-err");
+
+            /* Saving relaunches the app, so a typo here is only discovered when
+               the console comes back unable to connect. Empty is allowed and
+               means the built-in default. */
+            function urlProblem(value) {
+                if (!value) return "";
+                var parsed;
+                try {
+                    parsed = new URL(value);
+                } catch (e) {
+                    return "That is not a URL. Include the scheme, for example https://pikvm/";
+                }
+                if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                    return "The URL must start with http:// or https://";
+                }
+                if (!parsed.hostname) return "The URL needs a host, for example https://pikvm/";
+                return "";
+            }
+            function attemptSave() {
                 if (!S) return;
+                var value = urlEl.value.trim();
+                var problem = urlProblem(value);
+                errEl.textContent = problem;
+                urlEl.setAttribute("aria-invalid", problem ? "true" : "false");
+                if (problem) {
+                    urlEl.focus();
+                    return;
+                }
                 S.save({
-                    pikvmUrl: urlEl.value.trim(),
+                    pikvmUrl: value,
                     keyboardLayout: layoutEl.value === "uk" ? "uk" : "us",
                     jiggler: jigglerEl.checked,
                 });
-            });
+            }
+            saveEl.addEventListener("click", attemptSave);
             cancelEl.addEventListener("click", function () { if (S) S.cancel(); });
-            // Enter in the URL field saves; Esc cancels.
+            // Clear the complaint as soon as the field is being corrected.
+            urlEl.addEventListener("input", function () {
+                if (!errEl.textContent) return;
+                errEl.textContent = "";
+                urlEl.setAttribute("aria-invalid", "false");
+            });
+            /* Enter saves only from the URL field. It used to be bound on the
+               document, so Enter anywhere — including choosing a keyboard layout
+               in the select — saved and relaunched the app. */
+            urlEl.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") attemptSave();
+            });
             document.addEventListener("keydown", function (e) {
-                if (e.key === "Enter") saveEl.click();
-                else if (e.key === "Escape") cancelEl.click();
+                if (e.key === "Escape") cancelEl.click();
             });
             urlEl.focus();
         })();
