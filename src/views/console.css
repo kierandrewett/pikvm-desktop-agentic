@@ -1258,6 +1258,7 @@ html.desktop-console .app.computer-collapsed .screen {
 .dlg-text:focus-visible,
 .dlg-select:focus-visible,
 .dlg-input:focus-visible,
+.dlg-file:focus-visible,
 .macro-icon:focus-visible,
 .macro-capture:focus-visible {
     outline: none;
