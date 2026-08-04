@@ -1093,9 +1093,11 @@ html.desktop-console .app.computer-collapsed .screen {
 
 /* ---- modal dialog (paste-as-keys; the pattern later parity work reuses) ---- */
 .dlg-scrim {
-    position: absolute;
+    /* Fixed, not absolute: reparented to the body at runtime, these are
+       window-level modals rather than overlays confined to the screen pane. */
+    position: fixed;
     inset: 0;
-    z-index: 9;
+    z-index: 60;
     display: flex;
     align-items: center;
     justify-content: center;

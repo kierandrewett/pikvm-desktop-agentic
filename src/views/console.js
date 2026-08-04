@@ -2175,6 +2175,19 @@
         document.documentElement.classList.toggle("modal-open", open);
         if (open && kvmCursor) kvmCursor.style.display = "none";
     }
+    /* Dialogs are AUTHORED inside the screen pane (they belong to it in the
+     * markup's reading order) but must not be CLIPPED to it: with the
+     * conversation panel taking most of the window, that pane is a narrow strip,
+     * which left dialogs cramped and put the click-to-dismiss scrim right beside
+     * their content. Reparenting at runtime gets window-level modals without
+     * cutting up nested markup — element references and listeners survive a
+     * move, so everything wired below still works. */
+    (function liftDialogsToWindowLevel() {
+        document.querySelectorAll(".dlg-scrim").forEach(function (el) {
+            document.body.appendChild(el);
+        });
+    })();
+
     /** The dialog currently up, or null. */
     function openScrim() {
         var scrims = document.querySelectorAll(".dlg-scrim");
