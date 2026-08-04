@@ -873,10 +873,6 @@
         }
         refocusKbd();
     }
-    function macroEditorOpen() {
-        return !!(macroDlg && !macroDlg.hidden);
-    }
-
     (function wireMacroEditor() {
         var close = document.getElementById("macro-close");
         if (close) close.addEventListener("click", closeMacroEditor);
@@ -1261,11 +1257,6 @@
             true,
         );
     })();
-    function ocrDialogOpen() {
-        var dlg = document.getElementById("ocr-dlg");
-        return !!(dlg && !dlg.hidden);
-    }
-
     /* ----------------------------------------------------------------- *
      * Mass storage (kvmd api/msd/*)
      * ----------------------------------------------------------------- */
@@ -2448,17 +2439,15 @@
     })();
 
     /** True while any modal owns the keyboard. The KVM forwarder holds off then —
-     *  otherwise the dialog's own keystrokes get typed on the target as well. */
+     *  otherwise the dialog's own keystrokes get typed on the target as well.
+     *
+     *  Derived from the scrims rather than listed. The list named all seven and
+     *  was correct, but it had to be remembered: an eighth dialog that nobody
+     *  added here would have let every keystroke typed into it go to the remote
+     *  machine as well, and nothing would have said so. openScrim already asks
+     *  the DOM the same question for the focus trap, so ask it once. */
     function modalOpen() {
-        return !!(
-            (pasteDlg && !pasteDlg.hidden) ||
-            (streamDlg && !streamDlg.hidden) ||
-            (healthDlg && !healthDlg.hidden) ||
-            (msdDlg && !msdDlg.hidden) ||
-            (logDlg && !logDlg.hidden) ||
-            macroEditorOpen() ||
-            ocrDialogOpen()
-        );
+        return !!openScrim();
     }
 
     function runAtxAction(id) {
