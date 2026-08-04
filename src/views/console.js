@@ -4586,9 +4586,15 @@
             // the native harness view lands on the new side in the same frame.
             window.dispatchEvent(new Event("resize"));
         }
+        // Right by default. The screen is what you look at, so it keeps the left
+        // of the window; the conversation reads as a panel alongside it. Only an
+        // explicit choice of "left" moves it back, so a storage failure lands on
+        // the default rather than silently on the old side.
+        var storedAgentSide = null;
         try {
-            if (localStorage.getItem(AGENT_SIDE_KEY) === "right") document.documentElement.classList.add("agent-right");
+            storedAgentSide = localStorage.getItem(AGENT_SIDE_KEY);
         } catch (e) {}
+        if (storedAgentSide !== "left") document.documentElement.classList.add("agent-right");
         function toggleAgentDetached() {
             if (!dc.detachAgent) return;
             // Optimistically collapse the embedded panel; main opens the window. When
