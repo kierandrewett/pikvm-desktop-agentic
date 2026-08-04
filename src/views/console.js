@@ -87,6 +87,16 @@
     if (typeof module !== "undefined" && module.exports) module.exports = pure;
     if (typeof window === "undefined") return; // node test: stop before DOM wiring
 
+    /* What a keydown means (chord / character / swallow) is decided by key-chord.js —
+     * pure, shared by both keyboard paths, and covered by tests. This file keeps the
+     * parts that need the DOM and the socket: gating, dedupe, and the send queue.
+     *
+     * Bound HERE, at the top, because `var` hoists the declaration but not the
+     * assignment: bound further down it was still undefined when the modifier
+     * mirror reached for it, which threw and killed every line of this file
+     * below that point — titlebar, keyboard handlers, the lot. */
+    var KeyChord = window.KeyChord;
+
     // True while the agent is driving the target — user HID input is dropped then.
     var agentActing = false;
     var clearRegionMapForManualInput = function () {};
@@ -3849,10 +3859,6 @@
     );
 
     /* ---- keyboard input via the hidden field ---- */
-    /* What a keydown means (chord / character / swallow) is decided by key-chord.js —
-     * pure, shared by both keyboard paths, and covered by tests. This file keeps the
-     * parts that need the DOM and the socket: gating, dedupe, and the send queue. */
-    var KeyChord = window.KeyChord;
     /* One physical press can reach us twice (keydown AND the beforeinput fallback that
      * soft keyboards need), so a same-key guard is needed. It has to be exact, though:
      * keyed on the code alone it also swallowed Shift+Enter typed straight after Enter,
