@@ -325,6 +325,16 @@
      *  that outlasts the normal dwell and would otherwise look abandoned. */
     function toast(msg, error, sticky) {
         if (!toastEl) return;
+        /* An error and a confirmation were both announced politely, which means
+         * a screen reader can hold "Power action failed" until the user happens
+         * to go idle, or drop it behind the next message. Errors interrupt;
+         * everything else waits its turn.
+         *
+         * Set BEFORE the text on purpose: a live region is read according to the
+         * politeness it had when the content changed, so flipping it afterwards
+         * announces the previous message's urgency, or nothing at all. */
+        toastEl.setAttribute("role", error ? "alert" : "status");
+        toastEl.setAttribute("aria-live", error ? "assertive" : "polite");
         toastEl.textContent = msg;
         toastEl.classList.toggle("is-error", !!error);
         toastEl.classList.add("show");
