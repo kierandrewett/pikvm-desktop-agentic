@@ -2926,6 +2926,7 @@
     // pointer mode — this client drives the cursor with absolute moves, so a Pi stuck in
     // relative can't track it. ensureAbsolute is a throttled no-op once it's absolute.
     pane.addEventListener("pointerenter", function (e) {
+        if (modalOpen()) return;
         if (e.pointerType === "mouse") hid.ensureAbsolute();
     });
 
@@ -2936,6 +2937,7 @@
             // are NOT KVM input — let those handle their own clicks.
             if (e.target && e.target.closest && e.target.closest(".bar-keys, .acting-bar, .copilot, .suggest-card")) return;
             if (blockKvmInput(e)) return;
+            if (modalOpen()) return;
             // Picking an OCR region: the drag is a selection, not remote input.
             if (ocrPickingNow()) {
                 e.preventDefault();
@@ -3013,6 +3015,7 @@
         "pointermove",
         function (e) {
             if (blockKvmInput(e)) return;
+            if (modalOpen()) return;
             if (ocrPickingNow()) {
                 e.preventDefault();
                 ocrPointerMove(e);
@@ -3085,6 +3088,17 @@
     );
 
     function endTouch(e) {
+        if (modalOpen()) {
+            // A modal swallows the release, so let go of anything the target is still
+            // holding rather than leaving a button or modifier stuck down on it.
+            Object.keys(heldMouseButtons).forEach(function (b) {
+                hid.button(b, false);
+                delete heldMouseButtons[b];
+            });
+            releaseClickMods();
+            pts.delete(e.pointerId);
+            return;
+        }
         if (ocrPickingNow()) {
             e.preventDefault();
             ocrPointerUp(e);
@@ -3135,6 +3149,7 @@
         "wheel",
         function (e) {
             if (blockKvmInput(e)) return;
+            if (modalOpen()) return;
             noteManualKvmInput();
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
