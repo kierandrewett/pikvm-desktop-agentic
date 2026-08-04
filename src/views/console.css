@@ -575,8 +575,13 @@ html.modal-open .screen {
 .res-toast-av:empty {
     display: none;
 }
+/* This pill floats over the VIDEO, so its backdrop is --card at 82% composited
+   over whatever the target is showing, not the page. In the light theme that
+   lands around #d1d1d1, where --muted-foreground measures 3.71:1 and small text
+   needs 4.5. Mixing down from --foreground instead clears it against the
+   composite in both themes. */
 .res-toast-av {
-    color: var(--muted-foreground);
+    color: color-mix(in srgb, var(--foreground) 72%, transparent);
     border-left: 1px solid var(--border);
     padding-left: 8px;
 }
