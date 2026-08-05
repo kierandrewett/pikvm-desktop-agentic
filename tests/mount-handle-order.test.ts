@@ -578,3 +578,30 @@ test("mounting reports what was asked for, not an outcome it cannot know", () =>
     // The failure still names what failed and its status.
     assert.match(body, /"Could not " \+ \(on \? "mount" : "unmount"\) \+ " \(" \+ r\.status/);
 });
+
+/**
+ * Attaching and detaching reports what was asked for, like mounting does.
+ *
+ * setHidConnected said "Keyboard and mouse detached" on its 200, which is kvmd
+ * taking the request — the hid event reports what actually happened. So the
+ * toast sat beside a row still reading "attached" and a button still offering
+ * to Detach, in the same dialog.
+ *
+ * Measured: after clicking Detach the toast reads "Detaching the keyboard and
+ * mouse…" while the row still says attached, and the row alone flips once the
+ * Pi confirms.
+ *
+ * Left alone deliberately: "Image deleted" stays an outcome claim. A file
+ * unlink is synchronous where a USB gadget connect is not, so a 200 there
+ * plausibly does mean deleted, and the image list lagging is event latency
+ * rather than the dialog contradicting itself.
+ */
+test("attach and detach report the request, not a state the Pi has not sent", () => {
+    const fn = js.slice(js.indexOf("function setHidConnected(on)"));
+    const body = fn.slice(0, fn.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /"Attaching the keyboard and mouse…"/);
+    assert.match(body, /"Detaching the keyboard and mouse…"/);
+    assert.doesNotMatch(body, /"Keyboard and mouse (attached|detached)"/);
+    // The failure still names the action and its status.
+    assert.match(body, /"Could not " \+ \(on \? "attach" : "detach"\)/);
+});

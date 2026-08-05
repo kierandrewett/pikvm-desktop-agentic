@@ -2179,7 +2179,20 @@
     function setHidConnected(on) {
         return fetch("/api/hid/set_connected?connected=" + (on ? 1 : 0), { method: "POST", cache: "no-store" })
             .then(function (r) {
-                toast(r.ok ? (on ? "Keyboard and mouse attached" : "Keyboard and mouse detached") : "Could not " + (on ? "attach" : "detach") + " the keyboard and mouse (" + r.status + ")", !r.ok);
+                /* Present tense, for the same reason the mount toast is.
+                 *
+                 * A 200 is kvmd taking the request; the hid event reports what
+                 * actually happened. Claiming "detached" on the response put
+                 * that toast on screen beside a row still reading "attached"
+                 * and a button still offering to Detach. */
+                toast(
+                    r.ok
+                        ? on
+                            ? "Attaching the keyboard and mouse…"
+                            : "Detaching the keyboard and mouse…"
+                        : "Could not " + (on ? "attach" : "detach") + " the keyboard and mouse (" + r.status + ")",
+                    !r.ok,
+                );
             })
             .catch(function (e) {
                 toast("Could not " + (on ? "attach" : "detach") + " the keyboard and mouse: " + (e && e.message ? e.message : "network error"), true);
