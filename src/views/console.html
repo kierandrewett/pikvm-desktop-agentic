@@ -383,6 +383,12 @@
                 <button class="more-item" id="ocr-btn" hidden>Read text from the screen…</button>
                 <button class="more-item" id="log-btn">PiKVM log…</button>
                 <button class="more-item" id="macro-btn">Macros…</button>
+                <!-- Pinned macros, so they can be RUN here and not only edited.
+                     The titlebar carries them on the desktop; it does not exist
+                     on web or mobile, which left a macro you could build, pin
+                     and never fire. Filled by paintMacroMenu. -->
+                <div class="more-sep" id="macro-run-sep" hidden></div>
+                <div id="macro-run-list" role="group" aria-label="Run a macro"></div>
                 <!-- ATX power. Hidden until the Pi reports it actually has the wiring. -->
                 <div class="more-sep" id="atx-sep" hidden></div>
                 <button class="more-item" id="atx-power" data-atx="power" hidden>Power button</button>

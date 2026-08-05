@@ -409,3 +409,33 @@ test("a click on the picture honours an armed modifier, by mouse and by touch", 
     const tap = js.slice(js.indexOf("function tapClick(button)"));
     assert.match(tap.slice(0, tap.indexOf("\n    }")), /withArmedMods\(/);
 });
+
+/**
+ * Pinned macros have to be runnable where there is no titlebar.
+ *
+ * The titlebar carries them on the desktop and does not exist on web or
+ * mobile, but the editor is reachable everywhere — so on a phone a macro could
+ * be created, named, given an icon and ticked "Show in the titlebar", and then
+ * never fired. Nothing outside that titlebar could run one: the only other
+ * caller of runMacro is the desktop menu's macro: dispatch.
+ *
+ * Verified on the web surface with the titlebar display:none and tb-macros
+ * empty: the overflow menu now lists the pinned macros after the editor entry,
+ * clicking one sends its steps, and the menu closes behind it.
+ */
+test("the web overflow menu can run a pinned macro, not only edit them", () => {
+    const html = readFileSync(resolve(process.cwd(), "src/views/console.html"), "utf8");
+    assert.match(html, /id="macro-run-list"/);
+    assert.match(html, /id="macro-run-sep"/);
+
+    const fn = js.slice(js.indexOf("function paintMacroMenu()"));
+    const body = fn.slice(0, fn.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /m\.pinned !== false/);
+    assert.match(body, /runMacro\(m\)/);
+    // The separator goes with them, so an empty list leaves no stray rule.
+    assert.match(body, /sep\.hidden = !pinned\.length/);
+
+    // And it repaints with the titlebar rather than needing its own trigger.
+    const paint = js.slice(js.indexOf("function paintMacroButtons()"));
+    assert.match(paint.slice(0, paint.indexOf("\n    }")), /paintMacroMenu\(\)/);
+});

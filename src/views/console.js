@@ -899,6 +899,45 @@
     }
     function paintMacroButtons() {
         repaintMacroButtons();
+        paintMacroMenu();
+    }
+
+    /* The same pinned macros, in the web/mobile overflow menu.
+     *
+     * The titlebar is where they live on the desktop and it does not exist
+     * anywhere else, so on a phone a macro could be created, named, given an
+     * icon and ticked "Show in the titlebar" — and then never run, because
+     * nothing outside that titlebar could fire one. The editor was reachable
+     * and the thing it edits was not.
+     *
+     * Rendered rather than declared because the set changes; the separator goes
+     * with them so an empty list leaves no stray rule behind. */
+    function paintMacroMenu() {
+        var host = document.getElementById("macro-run-list");
+        var sep = document.getElementById("macro-run-sep");
+        if (!host) return;
+        var pinned = macros.filter(function (m) {
+            return m.pinned !== false;
+        });
+        if (sep) sep.hidden = !pinned.length;
+        var key = pinned
+            .map(function (m) {
+                return m.id + ":" + m.label;
+            })
+            .join("|");
+        if (host.getAttribute("data-set") === key) return;
+        host.setAttribute("data-set", key);
+        host.innerHTML = "";
+        pinned.forEach(function (m) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "more-item";
+            btn.textContent = m.label;
+            btn.addEventListener("click", function () {
+                runMacro(m);
+            });
+            host.appendChild(btn);
+        });
     }
 
     /* ---- editor ---- */
