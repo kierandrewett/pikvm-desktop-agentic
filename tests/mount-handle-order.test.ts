@@ -157,3 +157,37 @@ test("the legacy titlebar has no controls it cannot resolve", () => {
     // sidebarWidth stays: it is the detached conversation window's width now.
     assert.match(main, /width: Math\.max\(760, sidebarWidth\)/);
 });
+
+/**
+ * Every getElementById in the console has to resolve to something.
+ *
+ * Moving the dialog actions onto the shared component library swapped their
+ * `id` for `data-tb`, and three lookups were left behind pointing at ids that
+ * no longer exist. They do not throw — getElementById returns null and the
+ * guarded code simply stops happening — so the loss is invisible.
+ *
+ * One of them mattered: the health dialog focused its Done button on open, and
+ * with that lookup dead the focus fell through to the first focusable in the
+ * dialog, which on a V4 is the USB power breaker. Pressing Enter to dismiss a
+ * dialog is muscle memory, and that is not the control it should land on.
+ */
+test("no console lookup points at an element that cannot exist", () => {
+    const html = readFileSync(resolve(process.cwd(), "src/views/console.html"), "utf8");
+    const inMarkup = new Set([...html.matchAll(/id="([\w-]+)"/g)].map((m) => m[1]));
+    // Elements this file builds get their id assigned at runtime, whole or by prefix.
+    const assigned = new Set([...js.matchAll(/\.id\s*=\s*"([\w-]+)"/g)].map((m) => m[1]));
+    const prefixes = [...js.matchAll(/\.id\s*=\s*"([\w-]+)"\s*\+/g)].map((m) => m[1]);
+
+    const unresolvable = [...new Set([...js.matchAll(/getElementById\("([\w-]+)"\)/g)].map((m) => m[1]))]
+        .filter((k) => !inMarkup.has(k) && !assigned.has(k) && !prefixes.some((p) => k.startsWith(p)));
+
+    assert.deepEqual(unresolvable, [], `these lookups can never resolve: ${unresolvable.join(", ")}`);
+});
+
+test("the health dialog opens focused on Done, not on a power switch", () => {
+    // Looked up across all three ways a dialog control can be drawn, because the
+    // id form stopped resolving the moment the actions moved to the library.
+    assert.match(js, /var close = dialogControl\("health-close"\);/);
+    assert.match(js, /document\.querySelector\('\[data-tb="' \+ key \+ '"\]'\)/);
+    assert.match(js, /document\.querySelector\('\[data-fk="' \+ key \+ '"\]'\)/);
+});

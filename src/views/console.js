@@ -1247,6 +1247,20 @@
         return { update: function (next) { renderPlainButtons(host, next); } };
     }
 
+    /** A dialog control by key, whichever way it was drawn.
+     *
+     *  Markup this file owns uses an id; the shared component library sets
+     *  data-tb; the no-bundle fallback sets data-fk. Focus restoration already
+     *  had to look across the last two, and a plain getElementById silently
+     *  stopped resolving anything the migration touched. */
+    function dialogControl(key) {
+        return (
+            document.getElementById(key) ||
+            document.querySelector('[data-tb="' + key + '"]') ||
+            document.querySelector('[data-fk="' + key + '"]')
+        );
+    }
+
     function mountDialogActions(hostId, specs) {
         var mounted = null;
         function tryMount() {
@@ -2633,7 +2647,17 @@
         if (!healthDlg) return;
         paintHealth();
         healthDlg.hidden = false;
-        var close = document.getElementById("health-close");
+        /* Focus Done, not whatever happens to be first.
+         *
+         * This looked the button up by id, and the id went away when the
+         * actions moved to the shared component library — they carry data-tb,
+         * and the no-bundle fallback carries data-fk. The lookup quietly
+         * returned null, so the deliberate choice fell through to
+         * initialFocusIn, which takes the FIRST focusable in the dialog. In
+         * this one that is a GPIO switch: on a V4 the dialog opened with focus
+         * on the USB power breaker, the single channel here that carries a
+         * confirmation warning. Enter to dismiss a dialog is muscle memory. */
+        var close = dialogControl("health-close");
         if (close) close.focus();
     }
     var hidToggleState = { attached: false, known: false };
@@ -3040,7 +3064,6 @@
     if (macroBtn) macroBtn.addEventListener("click", openMacroEditor);
     if (pasteText) pasteText.addEventListener("input", paintPasteCount);
     pasteActions = mountDialogActions("paste-dlg-actions", pasteActionSpecs);
-    var pasteCancel = document.getElementById("paste-cancel");
     if (pasteDlg) {
         // Click the scrim (not the panel) to dismiss.
         pasteDlg.addEventListener("mousedown", function (e) {
@@ -6390,14 +6413,6 @@
          * only by right-clicking the chrome, which meant everything in it
          * (models, stream, macros, health, log, detach) was effectively hidden.
          * These two buttons make the common ones findable. */
-        var tbMore = document.getElementById("tb-more");
-        if (tbMore) {
-            tbMore.addEventListener("click", function (e) {
-                e.stopPropagation();
-                var r = tbMore.getBoundingClientRect();
-                popNative({ x: r.left, y: r.bottom });
-            });
-        }
         /* Detach used to be a button here. It acts on the conversation, so it
          * sits in the conversation's own header now, beside the rest of its
          * controls, and this bar is left to the target and the window. */
