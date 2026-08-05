@@ -1324,6 +1324,14 @@ html.desktop-console .tb-right {
     font-size: 12px;
     color: var(--muted-foreground);
 }
+/* A row of buttons inside a dialog's body rather than its footer. The footer
+   row is .dlg-actions and is right-aligned and sticky; these sit in the flow
+   where they were, so they only need to lay their buttons out. */
+.dlg-inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 .dlg-actions {
     display: flex;
     justify-content: flex-end;

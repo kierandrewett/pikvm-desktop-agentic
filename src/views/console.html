@@ -131,7 +131,7 @@
                                 <option value="86400">last day</option>
                                 <option value="0">everything</option>
                             </select>
-                            <button type="button" class="dlg-btn" id="log-refresh">Refresh</button>
+                            <span class="dlg-inline-actions" id="log-refresh-host"></span>
                         </div>
                         <pre class="dlg-log" id="log-body">…</pre>
                         <div class="dlg-actions" id="log-dlg-actions"></div>
@@ -171,9 +171,7 @@
                             <label class="dlg-check"><input type="checkbox" id="msd-rw" /> Writable</label>
                         </div>
                         <div class="dlg-row">
-                            <button type="button" class="dlg-btn" id="msd-connect">Mount on the target</button>
-                            <button type="button" class="dlg-btn" id="msd-disconnect">Unmount</button>
-                            <button type="button" class="dlg-btn" id="msd-remove">Delete image</button>
+                            <span class="dlg-inline-actions" id="msd-drive-actions"></span>
                         </div>
 
                         <hr class="dlg-hr" />
@@ -197,8 +195,7 @@
                             <span class="dlg-hint" id="msd-progress-value"></span>
                         </div>
                         <div class="dlg-row">
-                            <button type="button" class="dlg-btn" id="msd-upload">Start upload</button>
-                            <button type="button" class="dlg-btn" id="msd-abort" hidden>Abort</button>
+                            <span class="dlg-inline-actions" id="msd-upload-actions"></span>
                             <span class="dlg-hint" id="msd-free"></span>
                         </div>
 

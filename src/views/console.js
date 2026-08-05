@@ -1465,8 +1465,9 @@
         refocusKbd();
     }
     (function wireLogDialog() {
-        var refresh = document.getElementById("log-refresh");
-        if (refresh) refresh.addEventListener("click", loadLog);
+        mountDialogActions("log-refresh-host", function () {
+            return [{ id: "log-refresh", label: "Refresh", onSelect: loadLog }];
+        });
         var seek = document.getElementById("log-seek");
         if (seek) seek.addEventListener("change", loadLog);
         logActions = mountDialogActions("log-dlg-actions", logActionSpecs);
@@ -2095,30 +2096,21 @@
             rw.disabled = !settable || !!d.cdrom;
         }
 
-        var conn = document.getElementById("msd-connect");
-        var disc = document.getElementById("msd-disconnect");
-        if (conn) {
-            conn.hidden = connected;
-            conn.disabled = !(online && d.image && !connected && !busy);
-        }
-        if (disc) {
-            disc.hidden = !connected;
-            disc.disabled = !(online && connected && !busy);
-        }
-        var rm = document.getElementById("msd-remove");
-        if (rm) rm.disabled = !(settable && d.image && d.image.removable);
-
         var file = document.getElementById("msd-file");
         var url = document.getElementById("msd-url");
-        var up = document.getElementById("msd-upload");
-        var abort = document.getElementById("msd-abort");
         if (file) file.disabled = !settable;
         if (url) url.disabled = !settable;
-        if (up) {
-            up.hidden = !!msdUpload;
-            up.disabled = !settable || !((file && file.files && file.files.length) || (url && url.value.trim()));
-        }
-        if (abort) abort.hidden = !msdUpload;
+
+        /* The dialog's own buttons are drawn from state rather than poked at
+         * directly, so mounting them through the shared component library is a
+         * matter of writing the flags down here and repainting. */
+        msdBody.connected = connected;
+        msdBody.canConnect = !!(online && d.image && !connected && !busy);
+        msdBody.canDisconnect = !!(online && connected && !busy);
+        msdBody.canRemove = !!(settable && d.image && d.image.removable);
+        msdBody.uploading = !!msdUpload;
+        msdBody.canUpload = !!(settable && ((file && file.files && file.files.length) || (url && url.value.trim())));
+        repaintMsdBody();
         msdResetEnabled = online && !busy && !msdUpload;
         repaintMsdActions();
 
@@ -2197,6 +2189,31 @@
         xhr.send(remote ? null : picked);
     }
 
+    /* Declared BEFORE the wiring below, not after it.
+     *
+     * wireMsdDialog runs as it is reached, and a `var x = null` further down
+     * the file executes AFTERWARDS — so declaring these below the wiring set
+     * every mount handle back to null the moment control passed the line.
+     * repaint then saw null and did nothing, forever: Reset drive sat
+     * permanently disabled and the dialog's buttons never tracked the drive.
+     * Nothing threw, which is exactly why it survived. */
+    /* The dialog BODY buttons, as state rather than five elements poked at from
+     * paintMsd. Mount/Unmount swap places on `connected`, Start upload/Abort on
+     * `uploading` — a pair of buttons occupying one slot, which is why they are
+     * hidden rather than disabled. */
+    var msdBody = {
+        connected: false,
+        canConnect: false,
+        canDisconnect: false,
+        canRemove: false,
+        uploading: false,
+        canUpload: false,
+    };
+    var msdDriveActions = null;
+    var msdUploadActions = null;
+    var msdResetEnabled = false;
+    var msdActions = null;
+
     (function wireMsdDialog() {
         var sel = document.getElementById("msd-image");
         if (sel) {
@@ -2216,33 +2233,8 @@
                 msd.setParam("rw", rw.checked ? 1 : 0).then(paintMsd);
             });
         }
-        var conn = document.getElementById("msd-connect");
-        if (conn) conn.addEventListener("click", function () { msd.setConnected(true); });
-        var disc = document.getElementById("msd-disconnect");
-        if (disc) disc.addEventListener("click", function () { msd.setConnected(false); });
-        var rm = document.getElementById("msd-remove");
-        if (rm) {
-            rm.addEventListener("click", function () {
-                var d = msd.drive();
-                if (!d || !d.image) return;
-                if (!window.confirm('Delete "' + d.image.name + '" from the PiKVM?\n\nThis cannot be undone.')) return;
-                fetch("/api/msd/remove?image=" + encodeURIComponent(d.image.name), { method: "POST", cache: "no-store" })
-                    .then(function (r) {
-                        toast(r.ok ? "Image deleted" : "Could not delete the image (" + r.status + ")", !r.ok);
-                    })
-                    .catch(function (e) {
-                        toast("Could not delete the image: " + (e && e.message ? e.message : "network error"), true);
-                    });
-            });
-        }
-        var up = document.getElementById("msd-upload");
-        if (up) up.addEventListener("click", startMsdUpload);
-        var abort = document.getElementById("msd-abort");
-        if (abort) {
-            abort.addEventListener("click", function () {
-                if (msdUpload) msdUpload.abort();
-            });
-        }
+        msdDriveActions = mountDialogActions("msd-drive-actions", msdDriveSpecs);
+        msdUploadActions = mountDialogActions("msd-upload-actions", msdUploadSpecs);
         var file = document.getElementById("msd-file");
         if (file) file.addEventListener("change", paintMsd);
         var url = document.getElementById("msd-url");
@@ -2266,8 +2258,63 @@
         msdDlg.hidden = false;
         paintMsd();
     }
-    var msdResetEnabled = false;
-    var msdActions = null;
+    function msdDriveSpecs() {
+        return [
+            {
+                id: "msd-connect",
+                label: "Mount on the target",
+                hidden: msdBody.connected,
+                disabled: !msdBody.canConnect,
+                onSelect: function () { msd.setConnected(true); },
+            },
+            {
+                id: "msd-disconnect",
+                label: "Unmount",
+                hidden: !msdBody.connected,
+                disabled: !msdBody.canDisconnect,
+                onSelect: function () { msd.setConnected(false); },
+            },
+            {
+                id: "msd-remove",
+                label: "Delete image",
+                disabled: !msdBody.canRemove,
+                onSelect: removeMsdImage,
+            },
+        ];
+    }
+    function msdUploadSpecs() {
+        return [
+            {
+                id: "msd-upload",
+                label: "Start upload",
+                hidden: msdBody.uploading,
+                disabled: !msdBody.canUpload,
+                onSelect: startMsdUpload,
+            },
+            {
+                id: "msd-abort",
+                label: "Abort",
+                hidden: !msdBody.uploading,
+                onSelect: function () { if (msdUpload) msdUpload.abort(); },
+            },
+        ];
+    }
+    function repaintMsdBody() {
+        if (msdDriveActions) msdDriveActions.update();
+        if (msdUploadActions) msdUploadActions.update();
+    }
+    function removeMsdImage() {
+        var d = msd.drive();
+        if (!d || !d.image) return;
+        if (!window.confirm('Delete "' + d.image.name + '" from the PiKVM?\n\nThis cannot be undone.')) return;
+        fetch("/api/msd/remove?image=" + encodeURIComponent(d.image.name), { method: "POST", cache: "no-store" })
+            .then(function (r) {
+                toast(r.ok ? "Image deleted" : "Could not delete the image (" + r.status + ")", !r.ok);
+            })
+            .catch(function (e) {
+                toast("Could not delete the image: " + (e && e.message ? e.message : "network error"), true);
+            });
+    }
     function msdActionSpecs() {
         return [
             {
