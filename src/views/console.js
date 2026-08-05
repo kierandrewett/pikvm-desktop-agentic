@@ -4953,25 +4953,66 @@
         // DESKTOP: the first-party harness is a native WebContentsView floated over
         // this panel. Report only the content bounds; there is no secondary terminal
         // workspace or mode switch.
-        chatFrame.src = "about:blank";
-        /* Nothing is ever rendered in here on the desktop: the frame is a spacer
-         * whose rect tells main where to float the native conversation view. An
-         * empty frame that announces itself as a workspace is worse than one
-         * that says nothing, so take it out of the accessibility tree. */
-        chatFrame.setAttribute("aria-hidden", "true");
-        chatFrame.removeAttribute("title");
-        var reportTermRect = function () {
-            try {
-                var r = chatFrame.getBoundingClientRect();
-                window.desktopConsole.reportWorkspaceRect({ x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) });
-            } catch (e) {}
-        };
-        window.addEventListener("resize", reportTermRect);
-        try {
-            new ResizeObserver(reportTermRect).observe(chatFrame);
-        } catch (e) {}
-        setInterval(reportTermRect, 1000); // fallback for layout changes we don't observe
-        setTimeout(reportTermRect, 150);
+        /* The conversation is served from OUR origin at /_agent/workspace/, so it
+         * renders here, in the page, laid out by the same grid as everything else.
+         *
+         * It used to be a native WebContentsView floated over this frame, which
+         * meant the frame existed only to be measured: its rect was reported to
+         * main on a resize listener, a ResizeObserver AND a one-second interval,
+         * because a native view pinned over a page has no way to follow the
+         * layout on its own. None of that is needed once the thing is IN the
+         * layout — it moves because the grid moved.
+         *
+         * Same origin, so no CORS and no separate session: the API comes back
+         * through /_agent/harness/*, where the proxy attaches the operator
+         * credential server-side and it never reaches any renderer. */
+        chatFrame.title = "Conversation";
+        chatFrame.removeAttribute("aria-hidden");
+
+        /* The harness is a separate process this app spawns, and it is not
+         * listening the instant the window opens — the proxy answers 502 until
+         * it is. Pointing the frame at the workspace straight away therefore put
+         * a token prompt over a Bad Gateway, and nothing retried, so it sat
+         * there long after the harness came up.
+         *
+         * The native view this replaces had exactly this machinery
+         * (HarnessViewLifecycle: beginLoad / failed / scheduleRetry / loaded).
+         * Moving the conversation into the page does not make the race go away,
+         * so the retry has to move with it. Ask first, load once the answer is
+         * real, and never let the frame see the error page at all. */
+        var WORKSPACE_URL = "/_agent/workspace/";
+        var workspaceShown = false;
+        var workspaceRetryMs = 400;
+        function harnessAnswering() {
+            return fetch("/_agent/harness/api/runs?limit=1", {
+                headers: { "X-PiKVM-Workspace": "1" },
+                cache: "no-store",
+            })
+                .then(function (r) {
+                    return r.ok;
+                })
+                .catch(function () {
+                    return false;
+                });
+        }
+        function pollWorkspace() {
+            harnessAnswering().then(function (up) {
+                if (up && !workspaceShown) {
+                    workspaceShown = true;
+                    chatFrame.src = WORKSPACE_URL;
+                    workspaceRetryMs = 400;
+                } else if (!up && workspaceShown) {
+                    /* It went away — a harness restart, or the app respawning it.
+                     * Drop the frame so the conversation is not left showing a
+                     * dead session, and let the poll bring it back. */
+                    workspaceShown = false;
+                    chatFrame.removeAttribute("src");
+                }
+                var next = workspaceShown ? 5000 : (workspaceRetryMs = Math.min(Math.round(workspaceRetryMs * 1.6), 5000));
+                setTimeout(pollWorkspace, next);
+            });
+        }
+        pollWorkspace();
 
         // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
         // colour the titlebar dot. Tooltip enumerates each dependency the daemon needs.

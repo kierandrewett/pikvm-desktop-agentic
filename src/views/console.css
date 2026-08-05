@@ -1753,9 +1753,13 @@ html.desktop-console.agent-detached .screen {
    which survives only as a geometry placeholder — its rect is what gets reported
    to the main process to position that view. Its about:blank document paints
    WHITE, which flashes over the dark app on startup and is the whole panel if
-   the harness fails to load. Keep the box, drop the paint: visibility preserves
-   layout and getBoundingClientRect, unlike display:none which would zero the
-   rect and hide the native view with it. */
+   the harness fails to load.
+
+   It used to be hidden outright, because it held nothing: the conversation was
+   a native view floated over it and this was only a box to measure. Now the
+   conversation is IN it, so hiding it would hide the thing itself — paint the
+   frame dark instead, which fixes the flash at its cause rather than by
+   removing the element from view. */
 html.desktop-console #chat-frame {
-    visibility: hidden;
+    background: var(--background);
 }

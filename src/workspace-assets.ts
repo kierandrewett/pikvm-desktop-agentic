@@ -47,7 +47,22 @@ export const WORKSPACE_PREFIX = "/_agent/workspace";
  * blocked, and the app would fall back to same-origin /api/*, which on this
  * server is the kvmd proxy. Wrong silently, which is the worst kind.
  */
-const HOST_CONFIG = `window.__PIKVM_HARNESS_API_BASE__ = ${JSON.stringify(WORKSPACE_API_BASE)};\n`;
+const HOST_CONFIG =
+    `window.__PIKVM_HARNESS_API_BASE__ = ${JSON.stringify(WORKSPACE_API_BASE)};\n` +
+    /* And the sentinel that says "a host is managing authentication, do not ask
+     * anyone to paste a token".
+     *
+     * It is not a secret and never was: the proxy attaches the real operator
+     * credential server-side and discards whatever a page sent. But it lives in
+     * sessionStorage, which is per BROWSING CONTEXT rather than per origin or
+     * per session — so the native view being seeded did nothing for a frame in
+     * the console, which came up asking for a token nobody has.
+     *
+     * Seeded here rather than by executing script into the context after load,
+     * which is how the native views do it: this file already runs before the
+     * app module for the API base, so the value is simply there when the app
+     * first looks, with no reload to undo a prompt that already appeared. */
+    `try { sessionStorage.setItem("pikvm-harness-token", "desktop-managed"); } catch (e) {}\n`;
 const HOST_CONFIG_FILE = "host-config.js";
 
 /** Resolve a request path inside the build output, or null if it escapes. */

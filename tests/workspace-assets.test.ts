@@ -77,10 +77,17 @@ test("the document tells the bundle where its API is, without an inline script",
         const cfg = await fetchRaw(s.origin, WORKSPACE_PREFIX + "/host-config.js");
         assert.equal(cfg.status, 200);
         assert.match(cfg.type, /javascript/);
-        assert.equal(
-            cfg.body.trim(),
-            `window.__PIKVM_HARNESS_API_BASE__ = ${JSON.stringify(WORKSPACE_API_BASE)};`,
+        assert.match(
+            cfg.body,
+            new RegExp(
+                `window\\.__PIKVM_HARNESS_API_BASE__ = ${JSON.stringify(WORKSPACE_API_BASE).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")};`,
+            ),
         );
+        /* And the managed-auth sentinel. sessionStorage is per BROWSING CONTEXT,
+         * so seeding the native view did nothing for a frame in the console —
+         * it came up asking for a token nobody has. Not a secret: the proxy
+         * attaches the real credential and discards whatever a page sends. */
+        assert.match(cfg.body, /sessionStorage\.setItem\("pikvm-harness-token", "desktop-managed"\)/);
     } finally {
         await s.close();
     }
