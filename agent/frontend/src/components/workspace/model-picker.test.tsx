@@ -43,7 +43,7 @@ describe("ModelPicker", () => {
 
     const trigger = screen.getByRole("combobox", { name: /Model: Auto/ });
     await user.click(trigger);
-    await user.click(screen.getByRole("option", { name: "Opus" }));
+    await user.click(await screen.findByRole("option", { name: "Opus" }));
 
     // One pick fans out to every stage — the sheet reads back this exact state.
     expect(onPreferenceChange).toHaveBeenCalledTimes(4);
@@ -70,7 +70,7 @@ describe("ModelPicker", () => {
 
     await user.click(screen.getByRole("combobox", { name: /Model: Auto/ }));
     await user.click(
-      screen.getByRole("option", { name: /Configure models…/ }),
+      await screen.findByRole("option", { name: /Configure models…/ }),
     );
     expect(onOpenModels).toHaveBeenCalledOnce();
     expect(onPreferenceChange).not.toHaveBeenCalled();
@@ -99,7 +99,7 @@ describe("ModelPicker", () => {
     const trigger = screen.getByRole("combobox", { name: /Model: Opus/ });
     await user.click(trigger);
     // Auto names the model it resolves to, so the option reads "Auto <model>".
-    await user.click(screen.getByRole("option", { name: /^Auto\b/ }));
+    await user.click(await screen.findByRole("option", { name: /^Auto\b/ }));
     expect(onResetPreferences).toHaveBeenCalledOnce();
   });
 
@@ -122,7 +122,10 @@ describe("ModelPicker", () => {
     expect(trigger.textContent).toMatch(/^Auto./);
 
     await user.click(trigger);
-    const auto = screen.getByRole("option", { name: /^Auto\s+\S/ });
+    // findBy, not getBy: the popup mounts through a portal and positions
+    // itself, so it is not in the tree on the tick the click resolves. getBy
+    // asks once and fails; under load that is exactly what happened.
+    const auto = await screen.findByRole("option", { name: /^Auto\s+\S/ });
     expect(auto.textContent).not.toBe("Auto");
   });
 
