@@ -2700,6 +2700,11 @@
     function clampPanelWidthNow(w) {
         return Math.round(Math.max(PANEL_MIN_W, Math.min(panelMaxNow(), Number(w) || PANEL_DEFAULT_W)));
     }
+    /* Assigned once the divider is wired. Collapsing the preview stretches the
+     * conversation across the whole window, so the announced value has to be
+     * refreshed on the way back out — otherwise the divider keeps reporting the
+     * collapsed width, which is larger than the maximum it also reports. */
+    var repaintPanelDivider = function () {};
     function readPanelWidth() {
         try {
             var raw = localStorage.getItem(TERM_W_KEY);
@@ -4454,9 +4459,14 @@
             var chatEl = document.querySelector(".chat");
             chatResize.setAttribute("aria-valuemin", String(PANEL_MIN_W));
             chatResize.setAttribute("aria-valuemax", String(panelMaxNow()));
+            /* Clamped to the same range that was just announced, so min <= now <=
+             * max holds by construction. In a normal layout this is a no-op: the
+             * grid and panelMaxNow() compute the ceiling from the same token. It
+             * earns its keep with the preview collapsed, where the conversation
+             * spans the whole window and the raw width would exceed the maximum. */
             chatResize.setAttribute(
                 "aria-valuenow",
-                String(chatEl ? Math.round(chatEl.offsetWidth) : PANEL_MIN_W),
+                String(clampPanelWidthNow(chatEl ? chatEl.offsetWidth : PANEL_MIN_W)),
             );
         }
         function cresizeEnd() {
@@ -4496,6 +4506,7 @@
             savePanelWidth(next);
             paintResizeValue();
         });
+        repaintPanelDivider = paintResizeValue;
         paintResizeValue();
         /* The first paint runs before the panel has been laid out, so it reports
          * whatever width the element happens to have at parse time — measured as
@@ -4912,6 +4923,10 @@
             if (show === panelShown()) return;
             app.classList.toggle("computer-collapsed", !show);
             paintPanelToggle();
+            /* The conversation's width changes with the collapse, and the divider
+             * announces that width. Repaint after the class change so it never
+             * reports the stretched size once the preview is back. */
+            repaintPanelDivider();
         }
         paintPanelToggle();
         if (tbPanel) tbPanel.addEventListener("click", function () { setPanel(!panelShown()); });

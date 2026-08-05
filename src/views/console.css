@@ -1153,6 +1153,15 @@ html.desktop-console .app.computer-collapsed .screen {
     overflow: hidden;
     pointer-events: none;
 }
+/* Collapsed there is no boundary to drag, so the divider is not a control.
+ * display:none rather than a visual hide, because it has to leave the tab order
+ * and the accessibility tree together: it is absolutely positioned against the
+ * conversation, so with the preview collapsed it sat half off the window edge,
+ * invisible but still focusable — and one arrow press there rewrote the SAVED
+ * panel width, which only showed up as a squeezed preview on restore. */
+html.desktop-console .app.computer-collapsed .chat-resize {
+    display: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
     html.desktop-console .chat-resize::after {

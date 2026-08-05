@@ -69,6 +69,22 @@ test("the panel divider offers only widths the grid will actually render", () =>
     assert.match(js, /aria-valuemax", String\(panelMaxNow\(\)\)/);
 });
 
+test("collapsing the preview retires the divider instead of hiding it off-screen", () => {
+    // It is absolutely positioned against the conversation, so with the preview
+    // collapsed it sits half off the window edge. Visually gone is not enough —
+    // it stayed focusable, and one arrow press there rewrote the saved width.
+    assert.match(
+        css,
+        /\.app\.computer-collapsed \.chat-resize\s*\{\s*display:\s*none/,
+    );
+    // The collapse changes the conversation's width, and the divider announces
+    // that width, so the toggle has to repaint it on the way back out.
+    assert.match(js, /repaintPanelDivider\(\)/);
+    assert.match(js, /repaintPanelDivider = paintResizeValue/);
+    // aria-valuenow is clamped into the announced range, so now > max cannot happen.
+    assert.match(js, /aria-valuenow",\s*String\(clampPanelWidthNow\(/);
+});
+
 test("screen failures keep the last frame and offer a deliberate retry", () => {
     assert.match(html, /alt="Remote target screen"/);
     assert.match(html, /id="overlay-retry"/);
