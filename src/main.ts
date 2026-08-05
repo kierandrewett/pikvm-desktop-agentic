@@ -70,6 +70,15 @@ const consoleWcToWin = new Map<number, Electron.BrowserWindow>();
 const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
     process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 13, y: 10 } } : { frame: false };
 
+/** The isolated session the conversation runs in.
+ *
+ *  Everything that shows the harness uses this partition — the embedded panel and
+ *  the detached window both — and main rewrites the Authorization header on it so
+ *  the real operator credential never reaches renderer JavaScript. Named once
+ *  because a view that opened on a DIFFERENT partition would silently lose that
+ *  rewrite, and the only symptom would be an auth prompt nobody could explain. */
+const HARNESS_PARTITION = "pikvm-harness";
+
 /** Where the pikvm-agent executable might be, best candidate first.
  *
  *  agent/ is part of this repo now, so its venv leads. The standalone checkout
@@ -612,7 +621,7 @@ function createWindow() {
             // Only the panel-placement bridge: the conversation's own header
             // needs to be able to move and detach the panel it lives in.
             preload: resolve(__dirname, "preload-agent.js"),
-            partition: "pikvm-harness",
+            partition: HARNESS_PARTITION,
         },
     });
     agentView.setBackgroundColor("#0a0a0c");
@@ -901,7 +910,7 @@ function createWindow() {
                 // The same isolated session as the embedded view, and the same
                 // placement bridge, so this window's own header can put the
                 // conversation back where it came from.
-                partition: "pikvm-harness",
+                partition: HARNESS_PARTITION,
                 preload: resolve(__dirname, "preload-agent.js"),
             },
         });
@@ -969,7 +978,13 @@ function createWindow() {
         // The React workspace still uses its normal token-auth client, but only
         // sees a non-secret sentinel. Electron replaces that header inside this
         // isolated session, keeping approval authority out of renderer storage.
-        agentView.webContents.session.webRequest.onBeforeSendHeaders(
+        /* Registered on the partition rather than on agentView.webContents.session.
+         * They are the same object today, so this changes nothing now — but the
+         * detached conversation window was only getting its credential injected
+         * because it happened to share the embedded view's session. Hanging the
+         * rewrite off one view meant the day that view stopped existing, a second
+         * window that still used the partition would quietly lose its authority. */
+        session.fromPartition(HARNESS_PARTITION).webRequest.onBeforeSendHeaders(
             { urls: [`${HARNESS_ORIGIN}/api/*`] },
             (details, callback) => {
                 callback({

@@ -265,3 +265,20 @@ test("the daemon and the harness resolve one pikvm-agent installation", () => {
     assert.match(main, /agentExecutables\(configured, process\.env\.PIKVM_AGENT_DAEMON_CMD\)/);
     assert.match(main, /agentExecutables\(configured, process\.env\.PIKVM_HARNESS_CMD, process\.env\.PIKVM_AGENT_DAEMON_CMD\)/);
 });
+
+test("the operator credential is injected on the partition, not on a view", () => {
+    /* The harness runs in an isolated session so main can swap a non-secret
+     * sentinel for the real operator token before a request leaves — the
+     * credential that authorises computer input never reaches renderer JS.
+     * Two things use that partition: the embedded panel and the detached window. */
+    assert.match(main, /const HARNESS_PARTITION = "pikvm-harness";/);
+    const literals = main.match(/partition: "pikvm-harness"/g) ?? [];
+    assert.equal(literals.length, 0, "the partition name is written out by hand again");
+    assert.equal((main.match(/partition: HARNESS_PARTITION/g) ?? []).length, 2);
+
+    // Bound to the session itself. Hanging it off one view meant the detached
+    // window only got its credential because it happened to share that view's
+    // session — and would have lost it silently the day the view went away.
+    assert.match(main, /session\.fromPartition\(HARNESS_PARTITION\)\.webRequest\.onBeforeSendHeaders/);
+    assert.doesNotMatch(main, /agentView\.webContents\.session\.webRequest/);
+});
