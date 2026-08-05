@@ -6128,12 +6128,26 @@
         var windowButtons = null;
         function viewButtonSpecs() {
             var dims = nativeDims();
+            /* "Waiting for a picture" is false while one is on screen.
+             *
+             * nativeDims reads the <img>, and the whole point of the freeze is
+             * that the img has gone empty while the last frame stays visible on
+             * the canvas. So during a reconnect this button sat there telling
+             * the user there was no picture, directly underneath one.
+             *
+             * It stays disabled: the held frame's size is the resolution from
+             * BEFORE the drop, and sizing the window to it is a guess that the
+             * target did not change mode while the link was down. But the
+             * reason it gives is now the true one. */
+            var held = !dims && pane.classList.contains("frozen");
             return [
                 {
                     id: "fit",
                     label: dims
                         ? "Fit to native resolution (" + dims.w + " x " + dims.h + ")"
-                        : "Fit to native resolution — waiting for a picture",
+                        : held
+                          ? "Fit to native resolution — waiting for the stream to come back"
+                          : "Fit to native resolution — waiting for a picture",
                     icon: TB_ICONS.fit,
                     disabled: !dims,
                     onSelect: fitNativeNow,
