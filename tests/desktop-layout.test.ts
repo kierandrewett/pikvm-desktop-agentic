@@ -133,3 +133,35 @@ test("screen failures keep the last frame under a one-line overlay", () => {
     // The last good frame still shows through underneath rather than going black.
     assert.match(css, /\.screen\.has-frame \.overlay/);
 });
+
+test("a held button keeps steering the target once the pointer leaves the picture", () => {
+    const { fracInBox } = require(resolve(root, "src/views/console.js"));
+    const box = { left: 0, top: 38, w: 1920, h: 1080 };
+
+    // Hovering outside the picture is not KVM input and never was.
+    assert.equal(fracInBox(box, -500, 578, false), null);
+    assert.equal(fracInBox(box, 2720, 578, false), null);
+    assert.deepEqual(fracInBox(box, 960, 578, false), { fx: 0.5, fy: 0.5 });
+
+    /* Dragging is different: the browser keeps delivering moves once a button is
+     * down, and dropping them froze the remote cursor wherever it crossed the
+     * edge — so a window being dragged stuck there. Each side pins to its edge,
+     * and a throw at the corner lands in the corner, which is what edge-snapping
+     * on the target needs to see. */
+    assert.deepEqual(fracInBox(box, -500, 578, true), { fx: 0, fy: 0.5 });
+    assert.deepEqual(fracInBox(box, 2720, 578, true), { fx: 1, fy: 0.5 });
+    assert.deepEqual(fracInBox(box, 960, -300, true), { fx: 0.5, fy: 0 });
+    assert.deepEqual(fracInBox(box, 960, 1518, true), { fx: 0.5, fy: 1 });
+    assert.deepEqual(fracInBox(box, 3000, 3000, true), { fx: 1, fy: 1 });
+    // Inside is untouched by the clamp.
+    assert.deepEqual(fracInBox(box, 960, 578, true), { fx: 0.5, fy: 0.5 });
+    // A collapsed or unmeasured box is never a point, clamped or not.
+    assert.equal(fracInBox({ left: 0, top: 0, w: 0, h: 0 }, 5, 5, true), null);
+    assert.equal(fracInBox(null, 5, 5, true), null);
+
+    // The button state has to come from the event, not from where the pointer is.
+    assert.match(js, /var dragging = e\.buttons !== 0;/);
+    assert.match(js, /moveTo\(e\.clientX, e\.clientY, false, dragging\)/);
+    // Leaving the pane mid-drag must not hide the cursor blob.
+    assert.match(js, /if \(e\.buttons !== 0\) return;/);
+});

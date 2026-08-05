@@ -190,12 +190,27 @@
         ];
     }
 
+    /** Where a point sits inside a box, as 0..1 fractions.
+     *
+     * `clamp` is the drag case: a button is held, so a pointer that has left the
+     * picture is still part of the same gesture and pins to the nearest edge.
+     * Without it an outside point is not a KVM point at all and returns null. */
+    function fracInBox(box, x, y, clamp) {
+        if (!box || !(box.w > 0) || !(box.h > 0)) return null;
+        var fx = (x - box.left) / box.w;
+        var fy = (y - box.top) / box.h;
+        if (clamp) return { fx: Math.max(0, Math.min(1, fx)), fy: Math.max(0, Math.min(1, fy)) };
+        if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return null;
+        return { fx: fx, fy: fy };
+    }
+
     var pure = {
         charToKey: charToKey,
         fracToNorm: fracToNorm,
         streamPath: streamPath,
         streamModeForInfo: streamModeForInfo,
         panelCeiling: panelCeiling,
+        fracInBox: fracInBox,
         macroKeyGroups: macroKeyGroups,
         MACRO_MODS: MACRO_MODS,
     };
@@ -3801,15 +3816,16 @@
      * zoom/pan. Map a screen point to a 0..1 fraction of the actual video content,
      * accounting for the letterbox bars and the current transform. */
     var lastMoveTs = 0;
-    function fracAt(clientX, clientY) {
+    /* The picture's box in client pixels — the transformed element minus the
+     * letterbox bars the aspect ratio leaves. Shared, because the cursor blob has
+     * to be pinned to exactly the box the coordinates are pinned to; computing it
+     * twice is how the two would drift. */
+    function pictureBox() {
         var r = streamEl().getBoundingClientRect(); // transformed element box
         if (r.width <= 0 || r.height <= 0) return null;
-        var nw = geomW();
-        var nh = geomH();
-        var elemAR = r.width / r.height;
-        var natAR = nw / nh;
+        var natAR = geomW() / geomH();
         var cw, ch, ox, oy;
-        if (elemAR > natAR) {
+        if (r.width / r.height > natAR) {
             ch = r.height;
             cw = ch * natAR;
             ox = (r.width - cw) / 2;
@@ -3820,16 +3836,27 @@
             ox = 0;
             oy = (r.height - ch) / 2;
         }
-        var fx = (clientX - r.left - ox) / cw;
-        var fy = (clientY - r.top - oy) / ch;
-        // Outside the actual picture (in the letterbox/empty space) → not a KVM point.
-        if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return null;
-        return { fx: fx, fy: fy };
+        return { left: r.left + ox, top: r.top + oy, w: cw, h: ch };
     }
+
+    function fracAt(clientX, clientY, clamp) {
+        /* With a button held, a pointer that has left the picture is still part of
+         * the same drag, so it pins to the nearest edge rather than being dropped.
+         *
+         * Dropping it is what made dragging a window on the target fall apart the
+         * moment the host pointer crossed into the letterbox or off the window
+         * entirely: the browser keeps delivering the moves (a button-down takes an
+         * implicit grab), the remote cursor just stopped following them and the
+         * window stuck where the pointer left it. Pinning to the edge is also
+         * exactly what edge-snapping needs — you throw the window at the side of
+         * the screen and the target sees the cursor arrive there and hold. */
+        return fracInBox(pictureBox(), clientX, clientY, clamp);
+    }
+
     // Absolute move (desktop mouse): set the virtual cursor to the exact point and
     // send coalesced via rAF (one per frame) — same smooth path as the trackpad.
-    function moveTo(clientX, clientY, force) {
-        var f = fracAt(clientX, clientY);
+    function moveTo(clientX, clientY, force, clamp) {
+        var f = fracAt(clientX, clientY, clamp);
         if (!f) return;
         vcur.x = fracToNorm(f.fx);
         vcur.y = fracToNorm(f.fy);
@@ -4015,7 +4042,7 @@
 
     // Our own cursor (the OS one is hidden over the screen). Follows the mouse.
     var kvmCursor = document.getElementById("kvm-cursor");
-    function paintCursor(clientX, clientY) {
+    function paintCursor(clientX, clientY, dragging) {
         if (!kvmCursor) return;
         // A dialog owns the pointer; the blob would sit under it as a ghost.
         if (modalOpen()) {
@@ -4028,12 +4055,25 @@
             kvmCursor.style.display = "none";
             return;
         }
+        // Pinned to the picture while dragging, so the blob sits where the
+        // target's cursor actually is rather than following the host pointer out
+        // into the letterbox.
+        if (dragging) {
+            var b = pictureBox();
+            if (b) {
+                clientX = Math.max(b.left, Math.min(b.left + b.w, clientX));
+                clientY = Math.max(b.top, Math.min(b.top + b.h, clientY));
+            }
+        }
         var pr = pane.getBoundingClientRect();
         kvmCursor.style.left = clientX - pr.left + "px";
         kvmCursor.style.top = clientY - pr.top + "px";
         kvmCursor.style.display = "block";
     }
     pane.addEventListener("pointerleave", function (e) {
+        // Not while a button is held: the drag is still running and the blob is
+        // pinned to the edge, which is the only feedback that it still is.
+        if (e.buttons !== 0) return;
         if (e.pointerType === "mouse" && kvmCursor) kvmCursor.style.display = "none";
     });
     // When the user's mouse enters the live surface, make sure the target is in ABSOLUTE
@@ -4140,8 +4180,15 @@
             // pointer down" made it behave like a relative trackpad).
             if (e.pointerType === "mouse") {
                 hid.ensureAbsolute(); // recover absolute mode if the Pi reports relative (throttled no-op otherwise)
-                moveTo(e.clientX, e.clientY);
-                paintCursor(e.clientX, e.clientY);
+                /* A held button means this move belongs to a drag that started on
+                 * the picture, so it keeps steering the target even once the host
+                 * pointer has left — pinned to the edge rather than thrown away.
+                 * That is what lets a window be dragged to the side of the remote
+                 * screen and snapped, and it is why the button state has to be read
+                 * from the event rather than assumed from where the pointer is. */
+                var dragging = e.buttons !== 0;
+                moveTo(e.clientX, e.clientY, false, dragging);
+                paintCursor(e.clientX, e.clientY, dragging);
                 // When the target isn't showing a live picture (asleep / no signal), an
                 // absolute position report alone often won't wake it — mirror the actual
                 // movement as a clamped RELATIVE nudge, which reliably does. Gated to
