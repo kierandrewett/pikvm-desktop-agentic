@@ -9,19 +9,14 @@ const output = mkdtempSync(join(tmpdir(), "pikvm-desktop-tests-"));
 
 try {
     await build({
-        entryPoints: [
-            resolve(root, "tests/harness-manager.test.ts"),
-            resolve(root, "tests/harness-runtime.test.ts"),
-            resolve(root, "tests/mcp-launcher.test.ts"),
-            resolve(root, "tests/daemon-proxy.test.ts"),
-            resolve(root, "tests/harness-view-lifecycle.test.ts"),
-            resolve(root, "tests/desktop-layout.test.ts"),
-            resolve(root, "tests/service-manager.test.ts"),
-            resolve(root, "tests/cdp-inspector.test.ts"),
-            resolve(root, "tests/mouse-jiggler.test.ts"),
-            resolve(root, "tests/key-chord.test.ts"),
-            resolve(root, "tests/macros.test.ts"),
-        ],
+        // Discovered, not listed. The entry points used to be written out by
+        // hand, so a new tests/*.test.ts file simply never ran and the suite
+        // still reported green — which is the one failure mode a test runner
+        // must not have.
+        entryPoints: readdirSync(resolve(root, "tests"))
+            .filter((name) => name.endsWith(".test.ts"))
+            .sort()
+            .map((name) => resolve(root, "tests", name)),
         outdir: output,
         platform: "node",
         format: "cjs",
