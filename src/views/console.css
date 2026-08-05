@@ -379,15 +379,6 @@ body {
     border-color: var(--warn);
 }
 
-/* While an agent panel is open it covers the whole phone (the embedded chat asks
- * for this) — collapse the screen + bar so the panel is a true full overlay. */
-.app.chat-full > .screen,
-.app.chat-full > .bar {
-    display: none;
-}
-.app.chat-full {
-    grid-template-rows: minmax(0, 1fr);
-}
 .dot {
     width: 8px;
     height: 8px;
@@ -1062,9 +1053,6 @@ html.desktop-console .app {
     grid-template-rows: minmax(0, 1fr);
     transition: none;
 }
-html.desktop-console.panel-anim .app {
-    transition: grid-template-columns 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
-}
 html.desktop-console .screen {
     grid-column: 2;
     grid-row: 1;
@@ -1125,16 +1113,9 @@ html.desktop-console .chat-resize:focus-visible {
 html.desktop-console .bar {
     display: none;
 }
-/* Never let the mobile booting/chat-full transforms strand the panel here. */
+/* Never let the mobile booting transform strand the panel here. */
 html.desktop-console .app.booting .chat {
     transform: none;
-}
-html.desktop-console .app.chat-full {
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 42vw);
-    grid-template-rows: minmax(0, 1fr);
-}
-html.desktop-console .app.chat-full > .screen {
-    display: block;
 }
 
 /* Collapse only the supporting computer preview; the conversation always stays
@@ -1149,7 +1130,6 @@ html.desktop-console .app.computer-collapsed .screen {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    html.desktop-console.panel-anim .app,
     html.desktop-console .chat-resize::after {
         transition: none;
     }
@@ -1551,9 +1531,6 @@ html.desktop-console.agent-right .app.computer-collapsed {
 }
 html.desktop-console.agent-right .app.computer-collapsed .screen {
     border-right: 0;
-}
-html.desktop-console.agent-right .app.chat-full {
-    grid-template-columns: minmax(300px, 42vw) minmax(0, 1fr);
 }
 
 /* ---- conversation DETACHED into its own window (html.agent-detached) --------
