@@ -4375,13 +4375,31 @@
             if (blockKvmInput(e)) return;
             if (modalOpen()) return;
             noteManualKvmInput();
+            e.preventDefault();
+            var dy = e.deltaY < 0 ? 1 : -1;
+            /* Ctrl+wheel zooms the LOCAL view on a phone, where there is no other
+             * way to get a closer look and no target application expecting it.
+             * On the desktop it belongs to the target: Ctrl+scroll is how you zoom
+             * an editor, a browser or a document over there, and swallowing it to
+             * scale our own picture meant the one gesture everybody already knows
+             * did the wrong thing on a window that looks like a computer.
+             *
+             * Bare modifiers are deliberately never forwarded (see key-chord.js),
+             * so holding Ctrl on the host does NOT leave the target holding it.
+             * The modifier has to be wrapped around the wheel explicitly, or the
+             * target would just receive a plain scroll. */
             if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                zoomAround(e.clientX, e.clientY, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+                if (!window.desktopConsole) {
+                    zoomAround(e.clientX, e.clientY, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+                    return;
+                }
+                var mod = e.metaKey ? "MetaLeft" : "ControlLeft";
+                hid.key(mod, true);
+                hid.wheel(0, dy);
+                hid.key(mod, false);
                 return;
             }
-            e.preventDefault();
-            hid.wheel(0, e.deltaY < 0 ? 1 : -1);
+            hid.wheel(0, dy);
         },
         { passive: false },
     );

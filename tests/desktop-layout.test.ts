@@ -282,3 +282,17 @@ test("the operator credential is injected on the partition, not on a view", () =
     assert.match(main, /session\.fromPartition\(HARNESS_PARTITION\)\.webRequest\.onBeforeSendHeaders/);
     assert.doesNotMatch(main, /agentView\.webContents\.session\.webRequest/);
 });
+
+test("ctrl+scroll belongs to the target on desktop, not to our zoom", () => {
+    // Zooming the local picture is a phone affordance: there is no other way to
+    // look closer there, and no target application expecting the gesture. On a
+    // desktop Ctrl+scroll is how you zoom an editor or a browser over there.
+    assert.match(js, /if \(!window\.desktopConsole\) \{\s*\n\s*zoomAround\(/);
+    // Bare modifiers are never forwarded, so it has to be wrapped explicitly or
+    // the target receives a plain scroll.
+    assert.match(js, /var mod = e\.metaKey \? "MetaLeft" : "ControlLeft";/);
+    assert.match(js, /hid\.key\(mod, true\);\s*\n\s*hid\.wheel\(0, dy\);\s*\n\s*hid\.key\(mod, false\);/);
+    // key-chord is still the thing that ignores bare modifiers, which is why.
+    const chord = readFileSync(resolve(root, "src/views/key-chord.js"), "utf8");
+    assert.match(chord, /BARE_MODIFIER\.test\(code\)\) return \{ kind: "ignore"/);
+});
