@@ -64,10 +64,6 @@ export interface DesktopConsoleApi {
     onMenuCommand(cb: (id: string) => void): () => void;
     /** The console origin this desktop loads from + the local backend's PiKVM URL. */
     originConfig: { origin: string; isLocal: boolean; envLocked: boolean; pikvmOrigin: string };
-    /** Persist a new console origin and relaunch (empty / local URL → back to local). */
-    setConsoleOrigin(origin: string): void;
-    /** Persist the PiKVM URL the local backend connects to, and relaunch. */
-    setPikvmOrigin(url: string): void;
     /** Report where the first-party chat workspace belongs in the native shell. */
     reportWorkspaceRect(rect: { x: number; y: number; width: number; height: number }): void;
     /** Open Settings in its own window.
@@ -134,8 +130,6 @@ const api: DesktopConsoleApi = {
         return () => ipcRenderer.removeListener("console:menu-command", listener);
     },
     originConfig: ipcRenderer.sendSync("console:get-origin") as { origin: string; isLocal: boolean; envLocked: boolean; pikvmOrigin: string },
-    setConsoleOrigin: (origin) => ipcRenderer.send("console:set-origin", origin),
-    setPikvmOrigin: (url) => ipcRenderer.send("console:set-pikvm-origin", url),
     reportWorkspaceRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:workspace-rect", rect),
     openSettingsWindow: () => ipcRenderer.send("console:open-settings"),
     detachAgent: () => ipcRenderer.send("agent:detach"),

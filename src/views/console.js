@@ -4436,24 +4436,8 @@
         if (!d) return;
         if (d.type === "chat-ready") {
             reveal(); // terminal loaded — slide the panel in
-            sendDesktopOrigin();
-        } else if (d.type === "desktop-origin-request") {
-            // The embedded settings (re)opened and wants the current origin config.
-            sendDesktopOrigin();
-        } else if (d.type === "desktop-set-console-origin") {
-            // The embedded settings asked to change the desktop's console origin.
-            if (window.desktopConsole && window.desktopConsole.setConsoleOrigin) window.desktopConsole.setConsoleOrigin(String(d.origin || ""));
-        } else if (d.type === "desktop-set-pikvm-origin") {
-            if (window.desktopConsole && window.desktopConsole.setPikvmOrigin) window.desktopConsole.setPikvmOrigin(String(d.url || ""));
         }
     });
-    // Tell the embedded settings where this desktop loads the console from.
-    function sendDesktopOrigin() {
-        if (!window.desktopConsole || !window.desktopConsole.originConfig) return;
-        try {
-            chatFrame.contentWindow.postMessage({ type: "desktop-origin", config: window.desktopConsole.originConfig }, "*");
-        } catch (e2) {}
-    }
 
     /* ---- overflow (⋯) menu: positioned to the best-fitting spot, closes on
      * pick/outside. Flips above/below by available room and clamps on-screen. */
@@ -4519,9 +4503,6 @@
         } catch (e) {}
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute("content", t === "light" ? "#f5f5f7" : "#0a0a0c");
-        try {
-            chatFrame.contentWindow.postMessage({ type: "pikvm-theme", theme: t }, "*");
-        } catch (e) {}
         /* The desktop conversation is a native child view, not that iframe, so
          * the postMessage above never reaches it. Without this the console went
          * light and the panel beside it stayed dark, in the same window. */

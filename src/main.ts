@@ -356,28 +356,6 @@ ipcMain.on("console:get-origin", (e) => {
     }
     e.returnValue = { origin, isLocal: origin === `http://127.0.0.1:${CONTROL_PORT}`, envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN, pikvmOrigin };
 });
-// Set where the LOCAL backend reaches the PiKVM (creds may be in the URL). Relaunch.
-ipcMain.on("console:set-pikvm-origin", (e, url: unknown) => {
-    if (!consoleWinFrom(e)) return;
-    const u = typeof url === "string" ? url.trim().replace(/\/$/, "") : "";
-    if (!u) return;
-    const cfg = loadConfig();
-    cfg.origin = u;
-    saveConfig(cfg);
-    app.relaunch();
-    app.exit(0);
-});
-ipcMain.on("console:set-origin", (e, origin: unknown) => {
-    if (!consoleWinFrom(e)) return;
-    const cfg = loadConfig();
-    const o = typeof origin === "string" ? origin.trim().replace(/\/$/, "") : "";
-    // Empty / the local server → clear it (back to local mode).
-    if (o && o !== `http://127.0.0.1:${CONTROL_PORT}`) cfg.consoleOrigin = o;
-    else delete cfg.consoleOrigin;
-    saveConfig(cfg);
-    app.relaunch();
-    app.exit(0);
-});
 ipcMain.on("console:minimise", (e) => consoleWinFrom(e)?.minimize());
 ipcMain.on("console:toggle-maximise", (e) => {
     const w = consoleWinFrom(e);
