@@ -1151,6 +1151,29 @@
         }
         refocusKbd();
     }
+    /* Mount a dialog's action row with the shared library.
+     *
+     * The bundle is a module and has not run when this file does, so every
+     * caller would otherwise write the same poll. Returns nothing: these rows
+     * are static, and the ones that are not keep their own update handle. */
+    function mountDialogActions(hostId, specs) {
+        var mounted = null;
+        function tryMount() {
+            var shared = window.pikvmShared;
+            var host = document.getElementById(hostId);
+            if (!shared || !shared.mountButtons || !host || mounted) return !!mounted;
+            mounted = shared.mountButtons(host, specs());
+            return true;
+        }
+        if (!tryMount()) {
+            var tries = 0;
+            var timer = setInterval(function () {
+                if (tryMount() || ++tries > 100) clearInterval(timer);
+            }, 50);
+        }
+        return { update: function () { if (mounted) mounted.update(specs()); } };
+    }
+
     (function wireMacroEditor() {
         /* The dialog's buttons are drawn by the shared component library, so a
          * dialog action looks the same here as it does in the conversation. The
@@ -1357,15 +1380,19 @@
         if (refresh) refresh.addEventListener("click", loadLog);
         var seek = document.getElementById("log-seek");
         if (seek) seek.addEventListener("change", loadLog);
-        var copy = document.getElementById("log-copy");
-        if (copy) {
-            copy.addEventListener("click", function () {
-                var body = document.getElementById("log-body");
-                if (body) copyText(body.textContent, "Log copied");
-            });
-        }
-        var close = document.getElementById("log-close");
-        if (close) close.addEventListener("click", closeLogDialog);
+        mountDialogActions("log-dlg-actions", function () {
+            return [
+                {
+                    id: "log-copy",
+                    label: "Copy",
+                    onSelect: function () {
+                        var body = document.getElementById("log-body");
+                        if (body) copyText(body.textContent, "Log copied");
+                    },
+                },
+                { id: "log-close", label: "Done", variant: "default", onSelect: closeLogDialog },
+            ];
+        });
         if (logDlg) {
             logDlg.addEventListener("mousedown", function (e) {
                 if (e.target === logDlg) closeLogDialog();
@@ -1534,19 +1561,23 @@
     }
     (function wireOcrDialog() {
         var dlg = document.getElementById("ocr-dlg");
-        var close = document.getElementById("ocr-close");
-        var copy = document.getElementById("ocr-copy");
         var closeIt = function () {
             if (dlg) dlg.hidden = true;
             refocusKbd();
         };
-        if (close) close.addEventListener("click", closeIt);
-        if (copy) {
-            copy.addEventListener("click", function () {
-                var out = document.getElementById("ocr-text");
-                if (out) copyText(out.value, "Text copied");
-            });
-        }
+        mountDialogActions("ocr-dlg-actions", function () {
+            return [
+                {
+                    id: "ocr-copy",
+                    label: "Copy",
+                    onSelect: function () {
+                        var out = document.getElementById("ocr-text");
+                        if (out) copyText(out.value, "Text copied");
+                    },
+                },
+                { id: "ocr-close", label: "Done", variant: "default", onSelect: closeIt },
+            ];
+        });
         if (dlg) {
             dlg.addEventListener("mousedown", function (e) {
                 if (e.target === dlg) closeIt();
