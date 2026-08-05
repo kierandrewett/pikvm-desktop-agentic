@@ -5004,10 +5004,23 @@
                     zoomAround(e.clientX, e.clientY, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
                     return;
                 }
+                /* owned(), for the reason the chord queue uses it.
+                 *
+                 * This pressed the modifier and then RELEASED it — while the
+                 * user's finger was still on the key. The mirror went on
+                 * believing Ctrl was held, so owned() excluded it from every
+                 * chord after, and the target had it up: hold Ctrl, scroll
+                 * once, then press A, and the target received a plain A. Zoom a
+                 * document and then select all is an ordinary thing to do.
+                 *
+                 * A trackpad pinch still works. It arrives as ctrlKey with no
+                 * physical Ctrl behind it, so the mirror does not have it, and
+                 * owned() hands it back to be pressed and released here. */
                 var mod = e.metaKey ? "MetaLeft" : "ControlLeft";
-                hid.key(mod, true);
+                var mine = modMirror.owned([mod]);
+                for (var mi = 0; mi < mine.length; mi++) hid.key(mine[mi], true);
                 hid.wheel(0, dy);
-                hid.key(mod, false);
+                for (var mj = mine.length - 1; mj >= 0; mj--) hid.key(mine[mj], false);
                 return;
             }
             hid.wheel(0, dy);

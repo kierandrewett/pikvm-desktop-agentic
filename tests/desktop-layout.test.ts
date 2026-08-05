@@ -305,7 +305,19 @@ test("ctrl+scroll belongs to the target on desktop, not to our zoom", () => {
     // Bare modifiers are never forwarded, so it has to be wrapped explicitly or
     // the target receives a plain scroll.
     assert.match(js, /var mod = e\.metaKey \? "MetaLeft" : "ControlLeft";/);
-    assert.match(js, /hid\.key\(mod, true\);\s*\n\s*hid\.wheel\(0, dy\);\s*\n\s*hid\.key\(mod, false\);/);
+    /* Wrapped through owned(), not pressed and released blind.
+     *
+     * This used to assert the three literal lines hid.key(mod,true) / wheel /
+     * hid.key(mod,false), and those lines RELEASED a modifier the user was
+     * still holding: the mirror went on believing Ctrl was down, owned()
+     * excluded it from every later chord, and the target had it up — so hold
+     * Ctrl, scroll, press A, and the target got a plain A.
+     *
+     * The behaviour to pin is that the wheel is wrapped by whatever the mirror
+     * says is OURS to press, which is empty when the user is already holding
+     * the key and is the modifier itself for a trackpad pinch. */
+    assert.match(js, /var mine = modMirror\.owned\(\[mod\]\);/);
+    assert.match(js, /hid\.wheel\(0, dy\);/);
     // key-chord is still the thing that ignores bare modifiers, which is why.
     const chord = readFileSync(resolve(root, "src/views/key-chord.js"), "utf8");
     assert.match(chord, /BARE_MODIFIER\.test\(code\)\) return \{ kind: "ignore"/);
