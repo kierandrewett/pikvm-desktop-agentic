@@ -165,3 +165,23 @@ test("the shared bundle offers labelled buttons as well as icon ones", async () 
         await s.close();
     }
 });
+
+test("host-config never replaces a bridge a preload already provided", async () => {
+    /* The same bundle is loaded two ways. The embedded frame has no preload, so
+     * it needs the postMessage bridge this file installs. The detached window is
+     * a top-level WINDOW with a preload, so it already has a real IPC bridge and
+     * has no parent to postMessage at — assigning over that would swap a working
+     * bridge for one talking into the void, and the buttons would still render,
+     * so it would fail silently. */
+    const s = await listen();
+    try {
+        const cfg = await fetchRaw(s.origin, WORKSPACE_PREFIX + "/host-config.js");
+        assert.equal(cfg.status, 200);
+        assert.match(cfg.body, /if \(!window\.pikvmPanel\) \{/);
+        // And it still installs one when there is nothing there.
+        assert.match(cfg.body, /setSide: function \(side\)/);
+        assert.match(cfg.body, /toggleDetached: function \(\)/);
+    } finally {
+        await s.close();
+    }
+});

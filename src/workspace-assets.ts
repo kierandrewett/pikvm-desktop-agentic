@@ -92,12 +92,21 @@ const HOST_CONFIG =
     post("subscribe");
     return function () { var i = list.indexOf(cb); if (i >= 0) list.splice(i, 1); };
   };
-  window.pikvmPanel = {
-    setSide: function (side) { post("set-side", side); },
-    toggleDetached: function () { post("toggle-detached"); },
-    onPlacement: function (cb) { return sub(placement, cb); },
-    onTheme: function (cb) { return sub(theme, cb); }
-  };
+  /* Only when nothing better is already here.
+   *
+   * The detached conversation is a top-level WINDOW with a preload, so it gets
+   * a real IPC bridge and has no parent to postMessage at. Assigning over that
+   * would replace a working bridge with one that talks into the void — and the
+   * buttons would still render, so it would fail silently. The embedded frame
+   * has no preload, which is exactly when this one is needed. */
+  if (!window.pikvmPanel) {
+    window.pikvmPanel = {
+      setSide: function (side) { post("set-side", side); },
+      toggleDetached: function () { post("toggle-detached"); },
+      onPlacement: function (cb) { return sub(placement, cb); },
+      onTheme: function (cb) { return sub(theme, cb); }
+    };
+  }
 })();\n`;
 const HOST_CONFIG_FILE = "host-config.js";
 

@@ -31,6 +31,7 @@ import {
     withHarnessAuthorization,
 } from "./harness-runtime";
 import { HarnessViewLifecycle } from "./harness-view-lifecycle";
+import { WORKSPACE_PREFIX } from "./workspace-assets";
 import { requestAttention } from "./taskbar-attention";
 
 const staticPath = resolve(__dirname, "static");
@@ -79,6 +80,14 @@ const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
  *  rewrite, and the only symptom would be an auth prompt nobody could explain. */
 const HARNESS_PARTITION = "pikvm-harness";
 
+/** Where the conversation is served from, for BOTH the embedded frame and the
+ *  detached window. Our own origin, so its API comes back through the proxy that
+ *  injects the operator credential rather than through a session header rewrite,
+ *  and there is one path to keep working instead of two. */
+function workspaceUrl(): string {
+    return `http://127.0.0.1:${CONTROL_PORT}${WORKSPACE_PREFIX}/`;
+}
+
 /** Where the pikvm-agent executable might be, best candidate first.
  *
  *  agent/ is part of this repo now, so its venv leads. The standalone checkout
@@ -118,34 +127,6 @@ function resolvedHarnessOrigin(): string {
         /\/$/,
         "",
     );
-}
-
-/**
- * Tell the workspace page that Electron is injecting the real credential on
- * every request, so it must not ask anyone to paste a token.
- *
- * The sentinel is not a secret, and it lives in sessionStorage, which is per
- * browsing context rather than per session partition. Sharing a partition is
- * therefore not enough: every window that shows the workspace has to be seeded
- * on its own, which is exactly what the detached conversation window was
- * missing when it greeted the user with a token prompt.
- */
-function seedHarnessAuth(contents: Electron.WebContents): Promise<void> {
-    return contents
-        .executeJavaScript(
-            `(() => {
-                sessionStorage.setItem("pikvm-harness-token", "desktop-managed");
-                location.reload();
-                return true;
-            })()`,
-            true,
-        )
-        .then(() => undefined)
-        .catch((error: unknown) =>
-            console.error(
-                `[harness-renderer] could not bootstrap managed auth: ${String(error)}`,
-            ),
-        );
 }
 
 /** Text into an HTML document. Used for the harness view's failure page, whose
@@ -786,14 +767,11 @@ function createWindow() {
         // Seeded once per window: sessionStorage does not travel between them,
         // so without this the detached conversation asked for a token that the
         // embedded panel had never needed.
-        let detachedAuthSeeded = false;
-        agentWin.webContents.on("did-finish-load", () => {
-            if (detachedAuthSeeded || !agentWin || agentWin.isDestroyed()) return;
-            if (!agentWin.webContents.getURL().startsWith(HARNESS_ORIGIN)) return;
-            detachedAuthSeeded = true;
-            void seedHarnessAuth(agentWin.webContents);
-        });
-        void agentWin.loadURL(HARNESS_URL);
+        /* No auth seeding here any more. The sentinel used to be executed into
+         * this window after load, which needed a reload to take; the workspace
+         * bundle now carries it in host-config.js, so it is already set when the
+         * app first looks. */
+        void agentWin.loadURL(workspaceUrl());
         // Same navigation policy as the embedded harness view: keep the harness
         // origin in-window, kick everything else out to the system browser.
         agentWin.webContents.setWindowOpenHandler(({ url }) => {
@@ -801,7 +779,7 @@ function createWindow() {
             return { action: "deny" };
         });
         agentWin.webContents.on("will-navigate", (ev, url) => {
-            if (url.startsWith(`${HARNESS_ORIGIN}/`)) return;
+            if (url.startsWith(workspaceUrl())) return;
             ev.preventDefault();
             openUrlExternally(url);
         });
