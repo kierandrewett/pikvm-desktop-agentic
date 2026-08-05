@@ -35,13 +35,13 @@
              buttons opt out with -webkit-app-region:no-drag (set in CSS). -->
         <div class="titlebar" id="titlebar">
             <div class="tb-left">
-                <button class="tb-btn active" id="tb-panel" title="Hide computer preview" aria-label="Hide computer preview" aria-pressed="true">
+                <button class="tb-btn active" id="tb-panel" title="Hide target preview" aria-label="Hide target preview" aria-pressed="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M8 21h8M12 18v3" /></svg>
                 </button>
-                <!-- Computer backend readiness (daemon + OmniParser + PiKVM + OCR).
+                <!-- Target backend readiness (daemon + OmniParser + PiKVM + OCR).
                      Polls the daemon's /status via the proxy; tooltip lists each. -->
-                <div class="backend-status" id="backend-status" data-state="unknown" role="status" aria-live="polite" title="Computer backend">
+                <div class="backend-status" id="backend-status" data-state="unknown" role="status" aria-live="polite" title="Target backend">
                     <span class="bs-dot" aria-hidden="true"></span>
                     <span class="bs-text" id="bs-text">Backend…</span>
                 </div>
@@ -117,7 +117,7 @@
             <!-- Live screen (top, resizable) -->
             <div class="screen" id="screen-pane">
                 <!-- Native MJPEG or capability-selected VNC snapshot picture. -->
-                <img id="screen" alt="Remote computer screen" draggable="false" />
+                <img id="screen" alt="Remote target screen" draggable="false" />
                 <!-- WebRTC (Janus) H.264 video — occupies the EXACT same box as the
                      <img>; shown when WebRTC is live, hidden (and the <img> shown)
                      when it is unavailable or fails. Muted by default for autoplay;
@@ -377,7 +377,7 @@
                             </svg>
                         </div>
                         <div class="stream-state-copy">
-                            <strong id="overlay-title">Connecting to computer</strong>
+                            <strong id="overlay-title">Connecting to the target</strong>
                             <span id="overlay-detail">Waiting for the first screen frame.</span>
                         </div>
                         <button id="overlay-retry" class="stream-retry" type="button" hidden>Retry now</button>
@@ -439,7 +439,7 @@
                  overlays the TOP of the chat when ⌨ is tapped — never the stream,
                  and no layout reflow. -->
             <div class="chat">
-                <!-- Drag the workspace edge to balance chat and computer preview. -->
+                <!-- Drag the workspace edge to balance chat and target preview. -->
                 <!-- A real separator, not just a drag strip: tabbable, and it
                      reports the width it is at plus the range it may take, so
                      the panel can be resized without a pointer. -->

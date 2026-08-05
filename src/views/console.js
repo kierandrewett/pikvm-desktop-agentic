@@ -2688,7 +2688,7 @@
         connecting: {
             tone: "",
             label: "Connecting",
-            title: "Connecting to computer",
+            title: "Connecting to the target",
             detail: "Waiting for the first screen frame.",
         },
         live: {
@@ -2701,7 +2701,7 @@
             tone: "warn",
             label: "No signal",
             title: "No display signal",
-            detail: "The computer is connected, but it is not producing a picture.",
+            detail: "The target is connected, but it is not producing a picture.",
             retry: true,
         },
         offline: {
@@ -2714,7 +2714,7 @@
         reconnecting: {
             tone: "",
             label: "Reconnecting",
-            title: "Reconnecting to computer",
+            title: "Reconnecting to the target",
             detail: "The next screen frame will appear automatically.",
             retry: true,
         },
@@ -2722,7 +2722,7 @@
             tone: "bad",
             label: "Screen unavailable",
             title: "Screen preview unavailable",
-            detail: "The computer did not return a frame. Retrying automatically.",
+            detail: "The target did not return a frame. Retrying automatically.",
             retry: true,
         },
     };
@@ -4608,10 +4608,10 @@
                         var ready = !!s.ok;
                         setBackend(ready ? "ready" : "starting",
                                    ready ? "Ready" : "Starting",
-                                   "Computer backend — " + parts.join("  ·  "));
+                                   "Target backend — " + parts.join("  ·  "));
                     })
                     .catch(function () {
-                        setBackend("down", "Unavailable", "Computer daemon unreachable (starting or not running)");
+                        setBackend("down", "Unavailable", "Target backend unreachable (daemon starting or not running)");
                     });
             };
             pollBackend();
@@ -4852,8 +4852,8 @@
             var shown = panelShown();
             tbPanel.classList.toggle("active", shown);
             tbPanel.setAttribute("aria-pressed", String(shown));
-            tbPanel.setAttribute("aria-label", shown ? "Hide computer preview" : "Show computer preview");
-            tbPanel.title = shown ? "Hide computer preview" : "Show computer preview";
+            tbPanel.setAttribute("aria-label", shown ? "Hide target preview" : "Show target preview");
+            tbPanel.title = shown ? "Hide target preview" : "Show target preview";
         }
         function setPanel(show) {
             if (show === panelShown()) return;
@@ -4964,7 +4964,7 @@
                 }
             }
             items.push({ type: "separator" });
-            items.push({ id: "panel", label: panelShown() ? "Hide computer preview" : "Show computer preview" });
+            items.push({ id: "panel", label: panelShown() ? "Hide target preview" : "Show target preview" });
             if (screenAlertsAvailable()) {
                 items.push({ id: "alerts", label: "Pulse the taskbar when the screen changes", type: "checkbox", checked: screenAlertsEnabled() });
             }

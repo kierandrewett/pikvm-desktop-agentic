@@ -20,11 +20,11 @@ test("desktop exposes one chat workspace and never auto-fits around the remote s
     assert.doesNotMatch(js, /autoFitTimer/);
 });
 
-test("desktop keeps chat primary while the computer preview is collapsible", () => {
+test("desktop keeps chat primary while the target preview is collapsible", () => {
     assert.match(css, /grid-column:\s*1;[\s\S]*?\.screen\s*\{[\s\S]*?grid-column:\s*2;/);
     assert.match(css, /\.app\.computer-collapsed/);
     assert.doesNotMatch(css, /\.app\.panel-collapsed/);
-    assert.match(html, /aria-label="Hide computer preview"/);
+    assert.match(html, /aria-label="Hide target preview"/);
     assert.match(js, /pikvm-chat-workspace-width-v2/);
 });
 
@@ -48,7 +48,7 @@ test("VNC lab targets use the snapshot screen transport", () => {
 });
 
 test("screen failures keep the last frame and offer a deliberate retry", () => {
-    assert.match(html, /alt="Remote computer screen"/);
+    assert.match(html, /alt="Remote target screen"/);
     assert.match(html, /id="overlay-retry"/);
     assert.doesNotMatch(html, /class="spinner"/);
     assert.match(js, /Screen preview unavailable/);
