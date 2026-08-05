@@ -605,3 +605,37 @@ test("attach and detach report the request, not a state the Pi has not sent", ()
     // The failure still names the action and its status.
     assert.match(body, /"Could not " \+ \(on \? "attach" : "detach"\)/);
 });
+
+/**
+ * The console's own controls have to keep their own keystrokes.
+ *
+ * The desktop keydown forwarder exempted INPUT, TEXTAREA and SELECT and
+ * nothing else, so a focused BUTTON was captured and forwarded like any other
+ * key — and handleKeydown calls preventDefault, which stops the browser doing
+ * what it would have done. Measured on the desktop path with the socket
+ * terminating at a test harness:
+ *
+ *   Enter on the titlebar's panel toggle  did not toggle it, and sent
+ *                                         Enter:true/false to the target
+ *   Tab from any console button           did not move focus, and sent Tab
+ *
+ * So a control could be focused and then neither activated nor left — the
+ * titlebar, the macros and the window controls were unreachable by keyboard,
+ * and every attempt typed into the remote machine instead.
+ *
+ * After: Enter toggles the panel and sends nothing, Tab walks the titlebar and
+ * sends nothing, and the two things that must not change still hold — clicking
+ * the picture blurs to BODY and typing goes to the target, while a dialog's
+ * text field keeps its own keys.
+ */
+test("a focused console control keeps its keystrokes instead of forwarding them", () => {
+    const at = js.indexOf("// Desktop keyboard: forward PHYSICAL keystrokes straight to the KVM.");
+    assert.ok(at > 0, "desktop keydown handler not found");
+    const body = js.slice(at, js.indexOf("\n        });", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Anything that can hold focus is a control whose keys are its own.
+    assert.match(body, /t\.closest\(FOCUSABLE\)/);
+    // The old list named three tags and missed every button.
+    assert.doesNotMatch(body, /t\.tagName === "INPUT"/);
+    // FOCUSABLE is the set the dialog focus traps already use.
+    assert.match(js, /var FOCUSABLE = 'button:not\(\[disabled\]\), \[href\]/);
+});

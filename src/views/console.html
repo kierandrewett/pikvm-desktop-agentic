@@ -456,11 +456,25 @@
             </div>
         </div>
 
-        <!-- Visually-hidden input that drives the soft keyboard / captures keys. -->
+        <!-- Visually-hidden input that drives the soft keyboard / captures keys.
+
+             tabindex="-1" because it must NOT be a tab stop. It is 1x1 and
+             invisible, so landing on it shows no focus anywhere, and once it
+             has focus its own keydown handler forwards Tab to the target and
+             calls preventDefault — so the browser never moves focus on. One Tab
+             from the conversation put a keyboard user on this element and left
+             them there, typing Tab into the remote machine, with the titlebar,
+             the macros and the window controls unreachable.
+
+             Focus still arrives the two ways it is meant to: clicking the
+             picture, and the Controls button on web and mobile. Both call
+             .focus() directly, which -1 does not affect, and which is still
+             what raises the soft keyboard on a phone. -->
         <input
             class="kbd"
             id="kbd"
             type="text"
+            tabindex="-1"
             aria-label="Keyboard input to the remote target"
             autocomplete="off"
             autocapitalize="off"

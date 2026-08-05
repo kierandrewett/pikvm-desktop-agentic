@@ -6094,8 +6094,23 @@
                 releaseAllMods();
                 return;
             }
+            /* Focus on one of OUR controls means the keystroke is ours.
+             *
+             * This listed INPUT, TEXTAREA and SELECT only, so a focused BUTTON
+             * was captured and forwarded like any other key — and handleKeydown
+             * calls preventDefault, which stops the browser doing what it would
+             * have done. Enter on a titlebar button did not press it, it typed
+             * Enter on the remote machine. Tab did not move to the next
+             * control, it typed Tab. Focusing any console control from the
+             * keyboard was a one-way trip: nothing could activate it and
+             * nothing could leave it.
+             *
+             * FOCUSABLE is the same set the dialog focus traps use, so a
+             * control that can hold focus is a control whose keys are its own.
+             * Clicking the picture still blurs to BODY, which matches nothing
+             * here, so typing at the target is unchanged. */
             var t = e.target;
-            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+            if (t && (t.isContentEditable || (t.closest && t.closest(FOCUSABLE)))) return;
             if (blockKvmInput(e)) return;
             noteManualKvmInput();
             // Printable keys are ours here (there is no hidden field in play), so the
