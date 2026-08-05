@@ -1182,10 +1182,16 @@ html.desktop-console .app.computer-collapsed .screen {
         transform: translateY(6px) scale(0.985);
     }
 }
+/* !important because this has to win on merit, not on position. This block sits
+   ABOVE `.dlg`'s own `animation: dlg-rise`, and at equal specificity the later
+   rule takes it — so the dialog kept rising for people who had asked it not to,
+   while the scrim above obeyed purely because its animation is declared
+   earlier. A preference that holds only while nobody adds a rule underneath it
+   is not a preference. The icon pulse block already does this. */
 @media (prefers-reduced-motion: reduce) {
     .dlg-scrim,
     .dlg {
-        animation: none;
+        animation: none !important;
     }
 }
 .dlg-scrim[hidden] {
