@@ -49,7 +49,7 @@
 
     <label for="pikvm-url">PiKVM connection</label>
     <input id="pikvm-url" type="text" placeholder="https://user:password@pikvm/" autocomplete="off" spellcheck="false" />
-    <div class="hint">The PiKVM URL the app connects to. Credentials may be included in the URL.</div>
+    <div class="hint">The PiKVM URL the app connects to. Credentials may be included in the URL; the password stays hidden until you click into the field.</div>
     <p class="err" id="url-err" role="status" aria-live="polite"></p>
 
     <label for="layout">Keyboard layout</label>
@@ -80,11 +80,51 @@
             var cancelEl = document.getElementById("cancel");
 
             var data = (S && S.read()) || { pikvmUrl: "", keyboardLayout: "us", jiggler: true, envLocked: false };
-            urlEl.value = data.pikvmUrl || "";
             layoutEl.value = data.keyboardLayout === "uk" ? "uk" : "us";
             jigglerEl.checked = !!data.jiggler;
 
             var errEl = document.getElementById("url-err");
+
+            /* The URL usually carries the PiKVM password inline, and this window
+               opens over whatever is on screen. The field therefore shows a
+               masked rendering while it is not being edited, and the real text
+               only while it has focus.
+
+               `realUrl` — not the input's value — is the source of truth: the
+               input can be showing dots, and saving those would write them into
+               the config as the password. */
+            var realUrl = data.pikvmUrl || "";
+            /* scheme://[user][:password]@ — matched on the raw text rather than
+               via URL() so masking never reformats what the user typed. */
+            var PASSWORD_IN_URL = /^([a-z][a-z0-9+.\-]*:\/\/[^/?#@]*?:)([^@/?#]*)@/i;
+            // A fixed run of dots, so the real length is not on show either.
+            var MASK = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+            function maskPassword(value) {
+                return value.replace(PASSWORD_IN_URL, function (whole, prefix, password) {
+                    return password ? prefix + MASK + "@" : whole;
+                });
+            }
+            /* Reveal on anything that can PRECEDE an edit, not on focus alone.
+               Chromium sets activeElement without firing focus when the window
+               itself is unfocused, which would leave the field editable while
+               still showing dots \u2014 and the first keystroke would then store the
+               mask as the password. keydown fires before input, so revealing
+               here means the input handler always sees real text. */
+            function reveal() {
+                if (urlEl.value !== realUrl) urlEl.value = realUrl;
+            }
+            urlEl.value = maskPassword(realUrl);
+            urlEl.addEventListener("focus", reveal);
+            urlEl.addEventListener("pointerdown", reveal);
+            urlEl.addEventListener("keydown", reveal);
+            function hide() {
+                urlEl.value = maskPassword(realUrl);
+            }
+            urlEl.addEventListener("blur", hide);
+            /* Switching away is exactly when the password should not be sitting
+               on screen, and the window can keep the field focused while it is
+               in the background. */
+            window.addEventListener("blur", hide);
 
             /* Saving relaunches the app, so a typo here is only discovered when
                the console comes back unable to connect. Empty is allowed and
@@ -105,7 +145,7 @@
             }
             function attemptSave() {
                 if (!S) return;
-                var value = urlEl.value.trim();
+                var value = realUrl.trim();
                 var problem = urlProblem(value);
                 errEl.textContent = problem;
                 urlEl.setAttribute("aria-invalid", problem ? "true" : "false");
@@ -121,8 +161,16 @@
             }
             saveEl.addEventListener("click", attemptSave);
             cancelEl.addEventListener("click", function () { if (S) S.cancel(); });
-            // Clear the complaint as soon as the field is being corrected.
             urlEl.addEventListener("input", function () {
+                /* Backstop: never store the mask itself as the password. If an
+                   edit somehow arrives while the dots are still showing, drop it
+                   and reveal instead of corrupting the saved credentials. */
+                if (urlEl.value.indexOf(MASK) !== -1) {
+                    urlEl.value = realUrl;
+                    return;
+                }
+                realUrl = urlEl.value;
+                // Clear the complaint as soon as the field is being corrected.
                 if (!errEl.textContent) return;
                 errEl.textContent = "";
                 urlEl.setAttribute("aria-invalid", "false");
@@ -136,7 +184,9 @@
             document.addEventListener("keydown", function (e) {
                 if (e.key === "Escape") cancelEl.click();
             });
-            urlEl.focus();
+            /* The URL field is deliberately NOT focused on open: focus reveals the
+               password, and autofocusing would put it on screen every time the
+               window appeared. It is still the first thing Tab reaches. */
         })();
     </script>
 </body>
