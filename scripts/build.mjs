@@ -1,10 +1,18 @@
 // Dual esbuild: Node (Electron main + preloads) and the browser terminal renderer.
 import { build } from "esbuild";
-import { rmSync, cpSync, mkdirSync } from "fs";
+import { rmSync, cpSync, mkdirSync, readdirSync } from "fs";
 import { resolve } from "path";
 
 const root = resolve(import.meta.dirname, "..");
 const dist = resolve(root, "dist");
+
+/** src/preload*.ts — the scripts Electron injects into a renderer. */
+function preloadEntryPoints() {
+    return readdirSync(resolve(root, "src"))
+        .filter((name) => name.startsWith("preload") && name.endsWith(".ts"))
+        .sort()
+        .map((name) => resolve(root, "src", name));
+}
 
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
@@ -14,13 +22,12 @@ mkdirSync(dist, { recursive: true });
 await build({
     entryPoints: [
         resolve(root, "src/main.ts"),
-        resolve(root, "src/preload.ts"),
-        resolve(root, "src/preload-ui.ts"),
-        resolve(root, "src/preload-console.ts"),
-        resolve(root, "src/preload-agent.ts"),
-        resolve(root, "src/preload-settings.ts"),
-        resolve(root, "src/preload-terminal.ts"),
         resolve(root, "src/mcp-launcher.ts"),
+        // Every preload, discovered. They used to be listed, and a preload left
+        // off the list simply was not built: Electron then fails to load it and
+        // the window keeps running with that bridge missing, so the feature it
+        // carries quietly does nothing.
+        ...preloadEntryPoints(),
     ],
     outdir: dist,
     platform: "node",
