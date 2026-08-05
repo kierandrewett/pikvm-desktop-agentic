@@ -31,6 +31,13 @@ export type IconButtonSpec = {
     pressed?: boolean;
     disabled?: boolean;
     hidden?: boolean;
+    /** Extra classes from the host's own stylesheet.
+     *
+     *  The console has controls whose LOOK is already expressed in CSS — the
+     *  audio pair carry a live level meter drawn with a ::before and a --vol
+     *  custom property. Rewriting that in Tailwind to change the button would
+     *  be a second copy of a thing that works; the class comes across instead. */
+    className?: string;
     onSelect: () => void;
 };
 
@@ -48,7 +55,7 @@ function IconButtonRow({ buttons }: { buttons: IconButtonSpec[] }) {
                         disabled={b.disabled}
                         data-tb={b.id}
                         onClick={b.onSelect}
-                        className="size-[30px] rounded-full p-0"
+                        className={`size-[30px] rounded-full p-0${b.className ? " " + b.className : ""}`}
                     >
                         <span
                             aria-hidden="true"

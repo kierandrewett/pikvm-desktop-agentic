@@ -2936,6 +2936,21 @@
      * frame has arrived. Assigned by the desktop titlebar wiring; the stream state
      * machine calls it because that is what knows when a picture appears or goes. */
     var repaintFitButton = function () {};
+    /* What paintToggle last said about the audio and mic toggles.
+     *
+     * Out here, not in the desktop block, because paintToggle and the WebRTC
+     * visibility switch are both out here: declared inside that block, every
+     * `typeof avState` guard in this scope read undefined and the buttons never
+     * appeared at all. The spec is built from the latest word rather than
+     * re-derived, so it cannot drift from the in-page control showing the same
+     * state in words. */
+    var avState = {
+        visible: false,
+        audio: { on: false, warn: false, label: "" },
+        mic: { on: false, warn: false, label: "" },
+    };
+    var repaintAv = function () {};
+
     function readPanelWidth() {
         try {
             var raw = localStorage.getItem(TERM_W_KEY);
@@ -3606,11 +3621,14 @@
         // re-watch (a transient MJPEG flash), and resetting would wipe the user's
         // choice + the indicators every time. The desired state persists and is
         // re-applied/repainted when WebRTC re-activates (see activateWebrtc).
-        [audioBtn, micBtn, avSep, document.getElementById("tb-audio"), document.getElementById("tb-mic"), document.querySelector(".tb-av-sep")].forEach(function (el) {
+        [audioBtn, micBtn, avSep, document.querySelector(".tb-av-sep")].forEach(function (el) {
             if (!el) return;
             if (on) el.removeAttribute("hidden");
             else el.setAttribute("hidden", "");
         });
+        // Their titlebar twins are rendered, so visibility is a prop, not an attribute.
+        avState.visible = !!on;
+        repaintAv();
         if (on) {
             // Re-paint the indicators to the persisted desired state.
             paintToggle(audioBtn, audioPip, audioOn, false);
@@ -3739,7 +3757,7 @@
     function meterTick() {
         meterRaf = 0;
         if (!webrtcActive || !stream || !stream.getAudioLevels) {
-            setVol([document.getElementById("tb-audio"), audioBtn, document.getElementById("tb-mic"), micBtn], 0);
+            setVol([document.querySelector('[data-tb="audio"]'), audioBtn, document.querySelector('[data-tb="mic"]'), micBtn], 0);
             spkShown = micShown = spkTarget = micTarget = 0;
             return; // loop stops; activateWebrtc restarts it
         }
@@ -3747,7 +3765,7 @@
         // heartbeat instead of burning 60fps + getStats; it resumes full rate the
         // moment audio/mic is on and the window is visible again.
         if ((!audioOn && !micOn) || (typeof document !== "undefined" && document.hidden)) {
-            setVol([document.getElementById("tb-audio"), audioBtn, document.getElementById("tb-mic"), micBtn], 0);
+            setVol([document.querySelector('[data-tb="audio"]'), audioBtn, document.querySelector('[data-tb="mic"]'), micBtn], 0);
             meterRaf = setTimeout(meterTick, 500);
             return;
         }
@@ -3762,8 +3780,8 @@
         // Rise instantly, fall slowly (~0.4s) — a real VU meter.
         spkShown = spkTarget > spkShown ? spkTarget : Math.max(spkTarget, spkShown - 0.03);
         micShown = micTarget > micShown ? micTarget : Math.max(micTarget, micShown - 0.03);
-        setVol([document.getElementById("tb-audio"), audioBtn], audioOn ? spkShown : 0);
-        setVol([document.getElementById("tb-mic"), micBtn], micOn ? micShown : 0);
+        setVol([document.querySelector('[data-tb="audio"]'), audioBtn], audioOn ? spkShown : 0);
+        setVol([document.querySelector('[data-tb="mic"]'), micBtn], micOn ? micShown : 0);
         meterRaf = raf(meterTick);
     }
     function startMeters() {
@@ -3775,19 +3793,15 @@
         btn.classList.toggle("on", on);
         btn.classList.toggle("warn", !!warn);
         pip.textContent = label || (on ? "On" : "Off");
-        // Mirror state onto the matching desktop-titlebar button.
-        var tb = btn === audioBtn ? document.getElementById("tb-audio") : btn === micBtn ? document.getElementById("tb-mic") : null;
-        if (tb) {
-            tb.classList.toggle("on", on);
-            tb.classList.toggle("warn", !!warn);
-            /* The in-page control spells its state out in the pip beside it —
-               "On", "Off", "Denied", "No mic". Its titlebar twin has room for
-               none of that, so until now the state lived entirely in the
-               button's colour: nothing a screen reader could reach, and no way
-               to tell a muted mic from one the browser refused. */
-            tb.setAttribute("aria-pressed", String(!!on));
-            var base = tb.id === "tb-mic" ? "Microphone" : "Audio output";
-            tb.title = warn && label ? base + " — " + label : base;
+        /* The titlebar twin is drawn by the shared component library now, so
+         * this records what was said and lets the spec express it. The in-page
+         * control spells the state out in the pip beside it — "On", "Off",
+         * "Denied", "No mic" — and its twin has room for none of that, so the
+         * label carries it rather than it living only in a colour. */
+        var which = btn === audioBtn ? "audio" : btn === micBtn ? "mic" : null;
+        if (which) {
+            avState[which] = { on: !!on, warn: !!warn, label: label || "" };
+            repaintAv();
         }
     }
     if (audioBtn) {
@@ -5377,6 +5391,27 @@
          * rather than writing four attributes onto a node. The label is the
          * ACTION, not the state — "Hide target preview" while it is showing —
          * which is why aria-pressed carries the state separately. */
+        function avButtonSpecs() {
+            return ["audio", "mic"].map(function (which) {
+                var st = avState[which];
+                var base = which === "mic" ? "Microphone" : "Audio output";
+                return {
+                    id: which,
+                    /* The in-page twin spells the state out beside it — "On",
+                     * "Denied", "No mic". This has room for none of that, so it
+                     * goes in the label rather than living only in a colour. */
+                    label: st.warn && st.label ? base + " — " + st.label : base,
+                    icon: TB_ICONS[which],
+                    pressed: !!st.on,
+                    hidden: !avState.visible,
+                    className: "tb-av" + (st.on ? " on" : "") + (st.warn ? " warn" : ""),
+                    onSelect: function () {
+                        var b = document.getElementById(which === "mic" ? "mic-btn" : "audio-btn");
+                        if (b) b.click();
+                    },
+                };
+            });
+        }
         function panelButtonSpecs() {
             var shown = panelShown();
             return [
@@ -5461,6 +5496,8 @@
             more: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"5\" cy=\"12\" r=\"1\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/></svg>",
             keys: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\"/><path d=\"M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12\"/></svg>",
             fit: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 9 4 4M4 9V4h5\"/><path d=\"m15 9 5-5M15 4h5v5\"/><path d=\"M9 15l-5 5M4 15v5h5\"/><path d=\"m15 15 5 5M20 15v5h-5\"/></svg>",
+            audio: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 5 6 9H2v6h4l5 4V5z\"/><path class=\"wave\" d=\"M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14\"/></svg>",
+            mic: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"2\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 10a7 7 0 0 0 14 0M12 17v4\"/></svg>",
             panel: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8M12 18v3\"/></svg>",
             settings: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z\"/></svg>",
         };
@@ -5471,6 +5508,7 @@
         var menuButtons = null;
         var viewButtons = null;
         var panelButtons = null;
+        var avButtons = null;
         function viewButtonSpecs() {
             var dims = nativeDims();
             return [
@@ -5516,7 +5554,15 @@
             if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, viewButtonSpecs());
             var panelHost = document.getElementById("tb-actions-panel");
             if (panelHost && !panelButtons) panelButtons = shared.mountIconButtons(panelHost, panelButtonSpecs());
-            return !!(menuButtons && viewButtons && panelButtons);
+            var avHost = document.getElementById("tb-actions-av");
+            if (avHost && !avButtons) {
+                avButtons = shared.mountIconButtons(avHost, avButtonSpecs());
+                repaintAv = function () {
+                    if (avButtons) avButtons.update(avButtonSpecs());
+                };
+                repaintAv();
+            }
+            return !!(menuButtons && viewButtons && panelButtons && avButtons);
         }
         /* The bundle is a module, so it has not run when this line does. Poll
          * briefly rather than racing it; if it never arrives the console is
@@ -5541,12 +5587,9 @@
         img.addEventListener("load", repaintFitButton);
         vid.addEventListener("resize", repaintFitButton);
 
-        // Titlebar audio/mic: drive the canonical toggles (the hidden menu buttons run
-        // setAudio/setMic + getUserMedia; paintToggle mirrors state back to these).
-        var tbAudio = document.getElementById("tb-audio");
-        var tbMic = document.getElementById("tb-mic");
-        if (tbAudio) tbAudio.addEventListener("click", function () { var b = document.getElementById("audio-btn"); if (b) b.click(); });
-        if (tbMic) tbMic.addEventListener("click", function () { var b = document.getElementById("mic-btn"); if (b) b.click(); });
+        /* The titlebar audio/mic pair still drive the canonical toggles — the
+         * hidden menu buttons that run setAudio/setMic and getUserMedia — but
+         * that click now lives in their spec, beside the state it reflects. */
 
         // Titlebar Settings opens in its own window. Visible button so it's
         // discoverable (not just in the ⋯ menu).
