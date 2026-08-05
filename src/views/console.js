@@ -217,6 +217,32 @@
     if (typeof module !== "undefined" && module.exports) module.exports = pure;
     if (typeof window === "undefined") return; // node test: stop before DOM wiring
 
+    /* Titlebar state the shared buttons are drawn from.
+     *
+     * Declared HERE, before anything else in this file runs, for two reasons
+     * learned the hard way. Their painters live in this outer scope, so state
+     * inside the desktop block is state those painters silently cannot see. And
+     * `var` hoists the declaration but not the assignment: the ATX handler fires
+     * during early setup, so an object initialised further down was still
+     * undefined when the first power event arrived — which threw, and took the
+     * whole desktop bring-up with it before the console had even been marked as
+     * a desktop console.
+     *
+     * The specs are built from the latest word each painter said rather than
+     * re-derived, so a titlebar button cannot drift from the in-page control
+     * that reports the same state in words. */
+    var avState = {
+        visible: false,
+        audio: { on: false, warn: false, label: "" },
+        mic: { on: false, warn: false, label: "" },
+    };
+    var repaintAv = function () {};
+    var tbState = {
+        health: { visible: false, error: false, label: "Health" },
+        power: { visible: false, on: false, busy: false, label: "Power" },
+    };
+    var repaintTbState = function () {};
+
     /* What a keydown means (chord / character / swallow) is decided by key-chord.js —
      * pure, shared by both keyboard paths, and covered by tests. This file keeps the
      * parts that need the DOM and the socket: gating, dedupe, and the send queue.
@@ -581,14 +607,14 @@
             var el = document.getElementById(id);
             if (el) el.hidden = !show;
         });
-        var tb = document.getElementById("tb-power");
-        if (tb) {
-            tb.hidden = !show;
-            var powered = atx.powered();
-            tb.classList.toggle("atx-on", powered === true && !busy);
-            tb.classList.toggle("atx-busy", busy);
-            tb.title = !show ? "Power" : busy ? "Power — busy" : powered ? "Power — target is on" : "Power — target is off";
-        }
+        var powered = atx.powered();
+        tbState.power = {
+            visible: !!show,
+            on: powered === true && !busy,
+            busy: !!busy,
+            label: !show ? "Power" : busy ? "Power — busy" : powered ? "Power — target is on" : "Power — target is off",
+        };
+        repaintTbState();
     });
 
     /* ----------------------------------------------------------------- *
@@ -2089,24 +2115,20 @@
         var worst = problems.some(function (p) {
             return p.level === "error";
         });
-        var tb = document.getElementById("tb-health");
-        if (tb) {
-            var problemTexts = problems.map(function (p) {
-                return p.text;
-            });
-            tb.hidden = problems.length === 0;
-            tb.classList.toggle("is-error", worst);
-            tb.title = problems.length === 0 ? "Health" : problemTexts.join("\n");
-            /* aria-label WINS over title, so leaving it at the static "Health"
-             * announced a generic word for a button that only appears when
-             * something is wrong and whose whole job is to say what. Joined with
-             * a full stop rather than the tooltip's newlines, which screen
-             * readers run together inconsistently. */
-            tb.setAttribute(
-                "aria-label",
-                problems.length === 0 ? "Health" : "Health: " + problemTexts.join(". "),
-            );
-        }
+        var problemTexts = problems.map(function (p) {
+            return p.text;
+        });
+        /* One label, not a title and an aria-label that could disagree. The
+         * button only appears when something is wrong and its whole job is to
+         * say what, so "Health" alone was a generic word for the one control
+         * that had something specific to report. Joined with a full stop rather
+         * than newlines, which screen readers run together inconsistently. */
+        tbState.health = {
+            visible: problems.length > 0,
+            error: worst,
+            label: problems.length === 0 ? "Health" : "Health: " + problemTexts.join(". "),
+        };
+        repaintTbState();
         var list = document.getElementById("health-list");
         if (list) {
             list.innerHTML = "";
@@ -2256,8 +2278,6 @@
         refocusKbd();
     }
     (function wireHealthDialog() {
-        var tb = document.getElementById("tb-health");
-        if (tb) tb.addEventListener("click", openHealthDialog);
         var close = document.getElementById("health-close");
         if (close) close.addEventListener("click", closeHealthDialog);
         var toggle = document.getElementById("hid-toggle");
@@ -2936,20 +2956,7 @@
      * frame has arrived. Assigned by the desktop titlebar wiring; the stream state
      * machine calls it because that is what knows when a picture appears or goes. */
     var repaintFitButton = function () {};
-    /* What paintToggle last said about the audio and mic toggles.
-     *
-     * Out here, not in the desktop block, because paintToggle and the WebRTC
-     * visibility switch are both out here: declared inside that block, every
-     * `typeof avState` guard in this scope read undefined and the buttons never
-     * appeared at all. The spec is built from the latest word rather than
-     * re-derived, so it cannot drift from the in-page control showing the same
-     * state in words. */
-    var avState = {
-        visible: false,
-        audio: { on: false, warn: false, label: "" },
-        mic: { on: false, warn: false, label: "" },
-    };
-    var repaintAv = function () {};
+
 
     function readPanelWidth() {
         try {
@@ -5391,6 +5398,36 @@
          * rather than writing four attributes onto a node. The label is the
          * ACTION, not the state — "Hide target preview" while it is showing —
          * which is why aria-pressed carries the state separately. */
+        function statusButtonSpecs() {
+            var h = tbState.health;
+            var p = tbState.power;
+            return [
+                {
+                    id: "health",
+                    label: h.label,
+                    icon: TB_ICONS.health,
+                    hidden: !h.visible,
+                    className: "tb-health" + (h.error ? " is-error" : ""),
+                    onSelect: openHealthDialog,
+                },
+                {
+                    id: "power",
+                    label: p.label,
+                    icon: TB_ICONS.power,
+                    hidden: !p.visible,
+                    className: (p.on ? "atx-on" : "") + (p.busy ? " atx-busy" : ""),
+                    onSelect: function () {
+                        var r = tbRect("power");
+                        dc.popupMenu(
+                            ATX_ACTIONS.map(function (a) {
+                                return { id: "atx:" + a.id, label: a.label, enabled: !atx.busy() };
+                            }),
+                            { x: r.left, y: r.bottom },
+                        );
+                    },
+                },
+            ];
+        }
         function avButtonSpecs() {
             return ["audio", "mic"].map(function (which) {
                 var st = avState[which];
@@ -5498,6 +5535,8 @@
             fit: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 9 4 4M4 9V4h5\"/><path d=\"m15 9 5-5M15 4h5v5\"/><path d=\"M9 15l-5 5M4 15v5h5\"/><path d=\"m15 15 5 5M20 15v5h-5\"/></svg>",
             audio: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 5 6 9H2v6h4l5 4V5z\"/><path class=\"wave\" d=\"M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14\"/></svg>",
             mic: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"2\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 10a7 7 0 0 0 14 0M12 17v4\"/></svg>",
+            health: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3 2 20h20L12 3z\"/><path d=\"M12 10v4M12 17h.01\"/></svg>",
+            power: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v9\"/><path d=\"M18.4 6.6a9 9 0 1 1-12.8 0\"/></svg>",
             panel: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8M12 18v3\"/></svg>",
             settings: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z\"/></svg>",
         };
@@ -5509,6 +5548,7 @@
         var viewButtons = null;
         var panelButtons = null;
         var avButtons = null;
+        var statusButtons = null;
         function viewButtonSpecs() {
             var dims = nativeDims();
             return [
@@ -5554,6 +5594,14 @@
             if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, viewButtonSpecs());
             var panelHost = document.getElementById("tb-actions-panel");
             if (panelHost && !panelButtons) panelButtons = shared.mountIconButtons(panelHost, panelButtonSpecs());
+            var statusHost = document.getElementById("tb-actions-status");
+            if (statusHost && !statusButtons) {
+                statusButtons = shared.mountIconButtons(statusHost, statusButtonSpecs());
+                repaintTbState = function () {
+                    if (statusButtons) statusButtons.update(statusButtonSpecs());
+                };
+                repaintTbState();
+            }
             var avHost = document.getElementById("tb-actions-av");
             if (avHost && !avButtons) {
                 avButtons = shared.mountIconButtons(avHost, avButtonSpecs());
@@ -5562,7 +5610,7 @@
                 };
                 repaintAv();
             }
-            return !!(menuButtons && viewButtons && panelButtons && avButtons);
+            return !!(menuButtons && viewButtons && panelButtons && avButtons && statusButtons);
         }
         /* The bundle is a module, so it has not run when this line does. Poll
          * briefly rather than racing it; if it never arrives the console is
@@ -5797,20 +5845,6 @@
 
         // Titlebar power button: the same three actions, one click away rather than
         // buried in the ⋯ menu. Powering a hung machine is why a KVM exists.
-        var tbPower = document.getElementById("tb-power");
-        if (tbPower) {
-            tbPower.addEventListener("click", function (e) {
-                e.stopPropagation();
-                var r = tbPower.getBoundingClientRect();
-                dc.popupMenu(
-                    ATX_ACTIONS.map(function (a) {
-                        return { id: "atx:" + a.id, label: a.label, enabled: !atx.busy() };
-                    }),
-                    { x: r.left, y: r.bottom },
-                );
-            });
-        }
-
         /* Named, not inline on a listener, because the button that opens it is
          * rendered by the shared component library now and hands us only its
          * position. The menu itself is unchanged. */

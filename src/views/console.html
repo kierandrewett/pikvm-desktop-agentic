@@ -57,22 +57,12 @@
                 <!-- One indicator for everything wrong with the Pi or the target
                      (no signal, HID detached, undervoltage, throttling, fan). Hidden
                      entirely while there is nothing to say. -->
-                <button class="tb-btn tb-health" id="tb-health" title="Health" aria-label="Health" hidden>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4M12 17h.01" /></svg>
-                </button>
-                <!-- Custom macro buttons, filled from the user's macros.json.
-                     Empty (and invisible) until macros are pinned. -->
+                <!-- Health + ATX power, drawn by the conversation's icon button.
+                     Both only appear when they have something to say. -->
+                <span class="tb-shared" id="tb-actions-status"></span>
                 <span class="tb-macros" id="tb-macros"></span>
                 <!-- ATX power (kvmd api/atx/click). Hidden until the Pi reports that
                      it actually has ATX wiring; the icon colour carries the power LED. -->
-                <button class="tb-btn" id="tb-power" title="Power" aria-label="Power control" hidden>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><path d="M12 3v9" /><path d="M18.4 6.6a9 9 0 1 1-12.8 0" /></svg>
-                </button>
-                <!-- More + send-keys, rendered with the conversation's icon
-                     button so the tooltip is the same one, not the operating
-                     system's. console.js owns what they do and when. -->
                 <span class="tb-shared" id="tb-actions-menus"></span>
                 <span class="tb-sep"></span>
                 <!-- Audio + mic (WebRTC only) — hidden until a WebRTC session is live. -->
