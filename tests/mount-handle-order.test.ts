@@ -310,3 +310,39 @@ test("the overflow menu can never be taller than the screen", () => {
     );
     assert.match(rule, /overflow-y:\s*auto/);
 });
+
+/**
+ * A macro's steps have to happen one after another.
+ *
+ * sendChord is fire-and-forget: it queues, and drainKeys plays the chord out
+ * over several timeouts, so it returns long before the keys have been sent.
+ * runMacro advanced on setTimeout(next, 0), which started the NEXT step while
+ * the modifiers were still held down on the target.
+ *
+ * Measured against a test harness recording both HID paths, with a macro of
+ * "Ctrl+Alt+Delete, then type hi":
+ *   before  ControlLeft:true AltLeft:true print:hi Delete:true Delete:false ...
+ *   after   ControlLeft:true AltLeft:true Delete:true Delete:false AltLeft:false
+ *           ControlLeft:false print:hi
+ * The text used to be typed inside the chord, so the target received
+ * Ctrl+Alt+h and Ctrl+Alt+i instead of "hi".
+ */
+test("a macro's chord step finishes before the next step starts", () => {
+    const fn = js.slice(js.indexOf("function runMacro(macro)"));
+    const body = fn.slice(0, fn.indexOf("\n    }"));
+    // Comments here NAME the old call while explaining it, so strip them before
+    // asserting it is gone — otherwise the assertion reads the prose.
+    const chord = body
+        .slice(body.indexOf('if (step.type === "chord")'))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(chord, /afterKeys\(next\)/);
+    assert.doesNotMatch(chord, /setTimeout\(next, 0\)/);
+
+    // afterKeys is only honest if something actually fires the waiters.
+    const drain = js.slice(js.indexOf("function drainKeys()"));
+    assert.match(drain.slice(0, drain.indexOf("var op =")), /keyDrained\.splice\(0, keyDrained\.length\)/);
+
+    // The other two step types already waited for themselves; they still must.
+    assert.match(body, /\.then\(next\);/);
+    assert.match(body, /setTimeout\(next, step\.ms\);/);
+});

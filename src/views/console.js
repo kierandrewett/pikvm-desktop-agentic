@@ -811,8 +811,21 @@
             }
             var step = macro.steps[i++];
             if (step.type === "chord") {
+                /* Wait for the chord to finish, not for sendChord to return.
+                 *
+                 * It returns immediately — the chord is played out of a queue
+                 * over several timeouts — so advancing on setTimeout(next, 0)
+                 * started the NEXT step while the modifiers were still held
+                 * down on the target. A macro of "Ctrl+Alt+Delete, then type
+                 * hi" sent ControlLeft down, AltLeft down, then the text, and
+                 * only then Delete: the target received Ctrl+Alt+h and
+                 * Ctrl+Alt+i rather than "hi".
+                 *
+                 * The other two step types already wait for themselves — text
+                 * on the fetch's .then, delay on its own timer. This one did
+                 * not. */
                 sendChord(step.mods || [], step.code, false);
-                setTimeout(next, 0);
+                afterKeys(next);
                 return;
             }
             if (step.type === "text") {
@@ -3282,6 +3295,13 @@
 
     var keyQ = [];
     var keyBusy = false;
+    /* Callbacks waiting for the key queue to empty.
+     *
+     * sendChord is fire-and-forget: it queues, and drainKeys plays the chord out
+     * over several timeouts. Anything that has to happen AFTER a chord — the
+     * next step of a macro, say — has to wait for this rather than for
+     * sendChord to return, which it does immediately. */
+    var keyDrained = [];
     /* The target reads the USB HID gadget on a polling interval (5-10ms is typical).
      * A press whose down AND up both land between two polls is never seen at all — the
      * host just reads "nothing pressed" and the keystroke vanishes. The old 11ms hold
@@ -3294,6 +3314,14 @@
      * in the same instant lets them coalesce into one report, and some targets (BIOS,
      * UEFI, KVM switches) then apply the key without the modifier. */
     var KEY_MOD_SETTLE = 6;
+    /** Run `cb` once every queued key has been pressed AND released. */
+    function afterKeys(cb) {
+        if (!keyBusy && !keyQ.length) {
+            setTimeout(cb, 0);
+            return;
+        }
+        keyDrained.push(cb);
+    }
     function sendChord(mods, codeName, shift) {
         if (agentActing) return;
         var m = (mods || []).slice();
@@ -3308,6 +3336,12 @@
     function drainKeys() {
         if (!keyQ.length) {
             keyBusy = false;
+            var waiting = keyDrained.splice(0, keyDrained.length);
+            for (var w = 0; w < waiting.length; w++) {
+                try {
+                    waiting[w]();
+                } catch (e) {}
+            }
             return;
         }
         keyBusy = true;
