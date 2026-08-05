@@ -1956,7 +1956,30 @@
             setConnected: function (on) {
                 return fetch("/api/msd/set_connected?connected=" + (on ? 1 : 0), { method: "POST", cache: "no-store" })
                     .then(function (r) {
-                        toast(r.ok ? (on ? "Mounted on the target" : "Unmounted") : "Could not " + (on ? "mount" : "unmount") + " (" + r.status + ")", !r.ok);
+                        /* Present tense, because that is what a 200 means here.
+                         *
+                         * kvmd accepting the request is not the drive being
+                         * connected — the msd event confirms that separately,
+                         * and the dialog already says so in full once it
+                         * arrives. Claiming "Mounted on the target" at the
+                         * moment the request returned put a success toast on
+                         * screen beside a dialog still reading "Ready to mount"
+                         * with the Mount button still offered: two things
+                         * contradicting each other at once, and the toast was
+                         * the one that could be wrong.
+                         *
+                         * This file already words the other in-flight actions
+                         * this way — "the Pi is downloading it…", "Reading the
+                         * screen…", and ATX saying "sent" rather than claiming
+                         * the machine powered off. */
+                        toast(
+                            r.ok
+                                ? on
+                                    ? "Mounting on the target…"
+                                    : "Unmounting…"
+                                : "Could not " + (on ? "mount" : "unmount") + " (" + r.status + ")",
+                            !r.ok,
+                        );
                     })
                     .catch(function (e) {
                         toast("Mass storage: " + (e && e.message ? e.message : "network error"), true);

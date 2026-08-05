@@ -549,3 +549,32 @@ test("a drive setting that never reached the Pi says so and snaps back", () => {
     assert.match(js, /msd\.setParam\("cdrom", mode\.value === "1" \? 1 : 0\)\.then\(paintMsd\)/);
     assert.match(js, /msd\.setParam\("rw", rw\.checked \? 1 : 0\)\.then\(paintMsd\)/);
 });
+
+/**
+ * A toast may not claim an outcome the Pi has not confirmed.
+ *
+ * setConnected said "Mounted on the target" the moment its request returned
+ * 200. That is kvmd ACCEPTING the request, not the drive being connected —
+ * the msd event confirms that separately. So a success toast sat on screen
+ * beside a dialog still reading "Ready to mount", with the Mount button still
+ * offered: two things contradicting each other at once, and the toast was the
+ * one that could turn out wrong.
+ *
+ * This file already words its other in-flight actions honestly — "the Pi is
+ * downloading it…", "Reading the screen…", and ATX saying "sent" rather than
+ * claiming the machine powered off.
+ *
+ * Measured: the toast now reads "Mounting on the target…" while the dialog
+ * still says "Ready to mount", and the dialog alone reports the outcome once
+ * kvmd confirms. Failures are unchanged and still say what went wrong.
+ */
+test("mounting reports what was asked for, not an outcome it cannot know", () => {
+    const fn = js.slice(js.indexOf("setConnected: function (on)"));
+    const body = fn.slice(0, fn.indexOf("\n            },")).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /"Mounting on the target…"/);
+    assert.match(body, /"Unmounting…"/);
+    // The outcome claim is gone.
+    assert.doesNotMatch(body, /"Mounted on the target"/);
+    // The failure still names what failed and its status.
+    assert.match(body, /"Could not " \+ \(on \? "mount" : "unmount"\) \+ " \(" \+ r\.status/);
+});
