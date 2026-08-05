@@ -201,3 +201,20 @@ test("the last frame is held while the stream is re-established", () => {
     assert.match(css, /#screen,\n#screen-video,\n#screen-freeze \{/);
     assert.match(js, /freezeCanvas\.style\.transform = t;/);
 });
+
+test("the centred titlebar title yields rather than overlapping the buttons", () => {
+    // It is centred on the WINDOW, so it can run under the clusters: the right
+    // one grows with every pinned macro, and at the 900px minimum window "PiKVM"
+    // was drawn straight over two macro icons.
+    assert.match(js, /function fitTitle\(\)/);
+    assert.match(js, /tbTitle\.style\.visibility = clear \? "" : "hidden"/);
+    // Measured unhidden, or it could never come back once it went away.
+    assert.match(js, /tbTitle\.style\.visibility = "";\n\s+var t = tbTitle\.getBoundingClientRect\(\)/);
+    // Watching the clusters, not only the window: pinning a macro, the health
+    // warning appearing and the audio pair being revealed all change their width
+    // without resizing anything.
+    assert.match(js, /new ResizeObserver\(fitTitle\)/);
+    assert.match(js, /titleFit\.observe\(tbLeft\)/);
+    assert.match(js, /titleFit\.observe\(tbRight\)/);
+    assert.match(js, /window\.addEventListener\("resize", fitTitle\)/);
+});

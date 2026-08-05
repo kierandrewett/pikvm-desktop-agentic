@@ -5194,6 +5194,40 @@
             });
         }
 
+        /* The title is centred on the WINDOW, not on the space left between the
+         * two clusters, because a title that shifts as buttons come and go reads
+         * as a wobble. The cost is that it can run underneath them: the right
+         * cluster grows with every pinned macro, and at the 900px minimum window
+         * "PiKVM" was drawn straight over two macro icons.
+         *
+         * So it yields. Nothing else can give way — the buttons are all doing a
+         * job and the title is the one thing here that is only decoration. */
+        var tbTitle = document.getElementById("tb-title");
+        var tbLeft = document.querySelector(".tb-left");
+        var tbRight = document.querySelector(".tb-right");
+        function fitTitle() {
+            if (!tbTitle || !tbLeft || !tbRight) return;
+            // Measured unhidden, or it would never come back once it went away.
+            tbTitle.style.visibility = "";
+            var t = tbTitle.getBoundingClientRect();
+            if (!t.width) return;
+            var GAP = 8; // a hair of air, so it does not sit flush against an icon
+            var clear = t.left >= tbLeft.getBoundingClientRect().right + GAP && t.right <= tbRight.getBoundingClientRect().left - GAP;
+            tbTitle.style.visibility = clear ? "" : "hidden";
+        }
+        fitTitle();
+        window.addEventListener("resize", fitTitle);
+        /* Watching the clusters, not just the window: they change width on their
+         * own when a macro is pinned, when the health warning appears, or when the
+         * audio pair is revealed by a WebRTC session — none of which resize
+         * anything. Observing the boxes catches every one of those without each
+         * having to remember to call this. */
+        if (window.ResizeObserver) {
+            var titleFit = new ResizeObserver(fitTitle);
+            titleFit.observe(tbLeft);
+            titleFit.observe(tbRight);
+        }
+
         /* ---- supporting computer preview collapse (titlebar-left toggle) ---- */
         var tbPanel = document.getElementById("tb-panel");
         function panelShown() {
