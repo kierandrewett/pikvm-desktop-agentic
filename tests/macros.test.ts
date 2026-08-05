@@ -114,3 +114,27 @@ test("a corrupt file falls back to the defaults instead of erroring", () => {
     writeFileSync(path, "{ not json");
     assert.deepEqual(new MacroStore(path).list(), DEFAULT_MACROS);
 });
+
+test("every key the macro editor offers survives the server's validation", () => {
+    // The picker is a hand-written list and the validator is a regex; they sit in
+    // different files and nothing but this test makes them agree. Offering a code
+    // the server rejects drops the step, and a macro left with no steps is
+    // dropped whole — so a bad entry here would silently delete a user's macro.
+    const { macroKeyGroups, MACRO_MODS } = require("../src/views/console.js");
+    const groups = macroKeyGroups() as [string, [string, string][]][];
+    const codes = groups.flatMap(([, keys]) => keys.map(([code]) => code));
+    const mods = (MACRO_MODS as [string, string][]).map(([code]) => code);
+
+    assert.ok(codes.length > 100, "expected a full keyboard, got " + codes.length);
+    assert.equal(new Set(codes).size, codes.length, "duplicate key codes offered");
+
+    for (const code of codes) {
+        const [macro] = cleanMacros([{ label: "x", steps: [{ type: "chord", mods, code }] }]);
+        assert.ok(macro, `the server rejected the offered key ${code}`);
+        assert.equal(macro.steps[0]!.type, "chord");
+        assert.equal((macro.steps[0] as { code: string }).code, code);
+    }
+    // Every modifier the toggles can set has to survive too, all at once.
+    const [withMods] = cleanMacros([{ label: "x", steps: [{ type: "chord", mods, code: "KeyL" }] }]);
+    assert.deepEqual((withMods!.steps[0] as { mods: string[] }).mods, mods);
+});

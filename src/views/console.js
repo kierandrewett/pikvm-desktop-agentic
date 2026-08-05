@@ -90,12 +90,114 @@
         return Math.max(minW, Math.min(maxW, (Number(viewportW) || 0) - screenMin));
     }
 
+    /* The modifiers a chord can hold. Left-hand codes because that is what the
+     * target expects for a plain modifier; AltGr is the exception worth offering
+     * separately, since on a UK layout it is the only way to reach several
+     * characters and it is genuinely a different key from Alt. */
+    var MACRO_MODS = [
+        ["ControlLeft", "Ctrl"],
+        ["AltLeft", "Alt"],
+        ["ShiftLeft", "Shift"],
+        ["MetaLeft", "Super"],
+        ["AltRight", "AltGr"],
+    ];
+
+    /* The chord's key, offered as a list instead of recorded from a real press.
+     *
+     * A recorder can only ever capture what the HOST desktop lets through, and
+     * the chords most worth keeping as a macro are exactly the ones it does not:
+     * Super+L locks the session before the page sees it, Ctrl+Alt+F2 switches
+     * virtual terminal, and a compositor takes most Super combinations for
+     * itself. Picking the key also means a macro can use a key this keyboard
+     * does not physically have — F13-F24, or a numpad on a laptop. */
+    function macroKeyGroups() {
+        var letters = [];
+        for (var i = 0; i < 26; i++) {
+            var ch = String.fromCharCode(65 + i);
+            letters.push(["Key" + ch, ch]);
+        }
+        var digits = [];
+        for (var d = 0; d <= 9; d++) digits.push(["Digit" + d, String(d)]);
+        var fkeys = [];
+        for (var f = 1; f <= 24; f++) fkeys.push(["F" + f, "F" + f]);
+        var numpad = [];
+        for (var n = 0; n <= 9; n++) numpad.push(["Numpad" + n, "Numpad " + n]);
+        numpad.push(
+            ["NumpadEnter", "Numpad Enter"],
+            ["NumpadAdd", "Numpad +"],
+            ["NumpadSubtract", "Numpad -"],
+            ["NumpadMultiply", "Numpad *"],
+            ["NumpadDivide", "Numpad /"],
+            ["NumpadDecimal", "Numpad ."],
+        );
+        return [
+            ["Letters", letters],
+            ["Digits", digits],
+            ["Function", fkeys],
+            [
+                "Editing",
+                [
+                    ["Enter", "Enter"],
+                    ["Tab", "Tab"],
+                    ["Space", "Space"],
+                    ["Backspace", "Backspace"],
+                    ["Delete", "Delete"],
+                    ["Insert", "Insert"],
+                    ["Escape", "Escape"],
+                ],
+            ],
+            [
+                "Navigation",
+                [
+                    ["Home", "Home"],
+                    ["End", "End"],
+                    ["PageUp", "Page Up"],
+                    ["PageDown", "Page Down"],
+                    ["ArrowUp", "Arrow Up"],
+                    ["ArrowDown", "Arrow Down"],
+                    ["ArrowLeft", "Arrow Left"],
+                    ["ArrowRight", "Arrow Right"],
+                ],
+            ],
+            [
+                "Punctuation",
+                [
+                    ["Minus", "- minus"],
+                    ["Equal", "= equals"],
+                    ["BracketLeft", "[ bracket"],
+                    ["BracketRight", "] bracket"],
+                    ["Backslash", "\\ backslash"],
+                    ["Semicolon", "; semicolon"],
+                    ["Quote", "' quote"],
+                    ["Backquote", "` backquote"],
+                    ["Comma", ", comma"],
+                    ["Period", ". period"],
+                    ["Slash", "/ slash"],
+                ],
+            ],
+            ["Numpad", numpad],
+            [
+                "System",
+                [
+                    ["PrintScreen", "Print Screen"],
+                    ["ScrollLock", "Scroll Lock"],
+                    ["Pause", "Pause"],
+                    ["CapsLock", "Caps Lock"],
+                    ["NumLock", "Num Lock"],
+                    ["ContextMenu", "Menu"],
+                ],
+            ],
+        ];
+    }
+
     var pure = {
         charToKey: charToKey,
         fracToNorm: fracToNorm,
         streamPath: streamPath,
         streamModeForInfo: streamModeForInfo,
         panelCeiling: panelCeiling,
+        macroKeyGroups: macroKeyGroups,
+        MACRO_MODS: MACRO_MODS,
     };
     if (typeof module !== "undefined" && module.exports) module.exports = pure;
     if (typeof window === "undefined") return; // node test: stop before DOM wiring
@@ -485,6 +587,9 @@
     var macros = [];
     var macroDlg = document.getElementById("macro-dlg");
     var macroSelected = null; // id being edited
+    /* Set by an edit that MOVES the control it was fired from, so the repaint
+     * can follow it instead of restoring focus to the old position. */
+    var pendingMacroFocus = null;
 
     /* A small set of real icons, so a macro button is picked rather than typed.
      * Lucide geometry (MIT), inlined because the console ships no icon library
@@ -555,6 +660,7 @@
         parts.push(String(step.code || "").replace(/^Key|^Digit/, ""));
         return parts.join(" + ");
     }
+
 
     function loadMacros() {
         return fetch("/_agent/api/macros", { cache: "no-store" })
@@ -760,6 +866,14 @@
 
         var steps = document.getElementById("macro-steps");
         if (!steps) return;
+        /* Every edit saves, every save repaints this whole list, so without
+         * putting focus back the ring lands on the body after each change — and
+         * building one chord now means several changes in a row (three
+         * modifiers, then the key). Controls carry a stable data-fk so the
+         * equivalent one can be found again in the rebuilt rows. */
+        var active = document.activeElement;
+        var refocus = pendingMacroFocus || (active && steps.contains(active) ? active.getAttribute("data-fk") : null);
+        pendingMacroFocus = null;
         steps.innerHTML = "";
         macro.steps.forEach(function (step, index) {
             var row = document.createElement("div");
@@ -770,36 +884,74 @@
             row.appendChild(kind);
 
             if (step.type === "chord") {
-                // Capture the chord by pressing it, rather than asking the user
-                // to know that "S" is "KeyS".
-                var capture = document.createElement("button");
-                capture.type = "button";
-                capture.className = "macro-capture";
-                capture.textContent = step.code ? chordLabel(step) : "Click, then press the keys";
-                capture.addEventListener("click", function () {
-                    capture.classList.add("capturing");
-                    capture.textContent = "Press the keys…";
-                    var onKey = function (e) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (/^(Control|Alt|Meta|Shift)(Left|Right)?$/.test(e.code)) return;
-                        step.mods = [];
-                        if (e.ctrlKey) step.mods.push("ControlLeft");
-                        if (e.altKey) step.mods.push("AltLeft");
-                        if (e.metaKey) step.mods.push("MetaLeft");
-                        if (e.shiftKey) step.mods.push("ShiftLeft");
-                        step.code = e.code;
-                        window.removeEventListener("keydown", onKey, true);
-                        capture.classList.remove("capturing");
+                var mods = document.createElement("div");
+                mods.className = "macro-mods";
+                mods.setAttribute("role", "group");
+                mods.setAttribute("aria-label", "Modifier keys for step " + (index + 1));
+                MACRO_MODS.forEach(function (m) {
+                    var mcode = m[0];
+                    var mbtn = document.createElement("button");
+                    mbtn.type = "button";
+                    mbtn.className = "dlg-btn macro-mod";
+                    mbtn.textContent = m[1];
+                    mbtn.setAttribute("data-fk", "m" + index + ":" + mcode);
+                    var on = (step.mods || []).indexOf(mcode) >= 0;
+                    mbtn.classList.toggle("is-on", on);
+                    mbtn.setAttribute("aria-pressed", String(on));
+                    mbtn.addEventListener("click", function () {
+                        step.mods = step.mods || [];
+                        var at = step.mods.indexOf(mcode);
+                        if (at >= 0) step.mods.splice(at, 1);
+                        else step.mods.push(mcode);
                         void saveMacros();
-                    };
-                    window.addEventListener("keydown", onKey, true);
+                    });
+                    mods.appendChild(mbtn);
                 });
-                row.appendChild(capture);
+                row.appendChild(mods);
+
+                var keySel = document.createElement("select");
+                keySel.className = "dlg-select macro-key";
+                keySel.setAttribute("aria-label", "Key for step " + (index + 1));
+                keySel.setAttribute("data-fk", "k" + index);
+                var blank = document.createElement("option");
+                blank.value = "";
+                blank.textContent = "Choose a key…";
+                keySel.appendChild(blank);
+                macroKeyGroups().forEach(function (group) {
+                    var og = document.createElement("optgroup");
+                    og.label = group[0];
+                    group[1].forEach(function (k) {
+                        var opt = document.createElement("option");
+                        opt.value = k[0];
+                        opt.textContent = k[1];
+                        og.appendChild(opt);
+                    });
+                    keySel.appendChild(og);
+                });
+                keySel.value = step.code || "";
+                /* A macro written before this list existed — or by hand, or by
+                 * the agent — can hold a code the list does not carry. Without
+                 * this the select would quietly show "Choose a key…" for a macro
+                 * that has a perfectly good key, and the next edit would look
+                 * like the user had cleared it. */
+                if (step.code && keySel.value !== step.code) {
+                    var kept = document.createElement("option");
+                    kept.value = step.code;
+                    kept.textContent = step.code;
+                    keySel.appendChild(kept);
+                    keySel.value = step.code;
+                }
+                keySel.addEventListener("change", function () {
+                    step.code = keySel.value;
+                    void saveMacros();
+                });
+                row.appendChild(keySel);
             } else if (step.type === "text") {
                 var text = document.createElement("input");
                 text.type = "text";
                 text.className = "dlg-text dlg-grow";
+                text.setAttribute("aria-label", "Text for step " + (index + 1));
+                text.setAttribute("data-fk", "t" + index);
                 text.value = step.text || "";
                 text.addEventListener("change", function () {
                     step.text = text.value;
@@ -813,6 +965,8 @@
                 ms.style.width = "7rem";
                 ms.min = "10";
                 ms.max = "10000";
+                ms.setAttribute("aria-label", "Pause for step " + (index + 1) + ", milliseconds");
+                ms.setAttribute("data-fk", "d" + index);
                 ms.value = String(step.ms || 200);
                 ms.addEventListener("change", function () {
                     step.ms = Number(ms.value) || 200;
@@ -833,39 +987,65 @@
                 btn.className = "dlg-btn macro-move";
                 btn.textContent = label;
                 btn.setAttribute("aria-label", delta < 0 ? "Move step up" : "Move step down");
+                btn.setAttribute("data-fk", (delta < 0 ? "u" : "n") + index);
                 btn.disabled = delta < 0 ? index === 0 : index === macro.steps.length - 1;
                 btn.addEventListener("click", function () {
                     var to = index + delta;
                     var moved = macro.steps.splice(index, 1)[0];
                     macro.steps.splice(to, 0, moved);
+                    // Follow the step to its new position, so a second press
+                    // keeps moving the SAME step rather than whatever slid into
+                    // the slot the pointer happens to be over.
+                    pendingMacroFocus = (delta < 0 ? "u" : "n") + to;
                     void saveMacros();
                 });
                 return btn;
             };
+            /* Kept in one box so a wrapped chord row cannot leave the up arrow on
+             * the first line and the down arrow on the second, which reads as a
+             * broken layout rather than as one set of controls. */
+            var actions = document.createElement("div");
+            actions.className = "macro-actions";
             // Nothing to reorder in a one-step macro — and a permanently disabled
             // pair of arrows reads as a rendering fault rather than as a control.
             if (macro.steps.length > 1) {
-                row.appendChild(move(-1, "↑"));
-                row.appendChild(move(1, "↓"));
+                actions.appendChild(move(-1, "↑"));
+                actions.appendChild(move(1, "↓"));
             }
 
             var remove = document.createElement("button");
             remove.type = "button";
             remove.className = "dlg-btn";
             remove.textContent = "Remove";
+            remove.setAttribute("aria-label", "Remove step " + (index + 1));
+            remove.setAttribute("data-fk", "r" + index);
             remove.addEventListener("click", function () {
                 macro.steps.splice(index, 1);
                 if (!macro.steps.length) macro.steps.push({ type: "chord", mods: [], code: "" });
+                // Land on the row that took its place, or the new last row.
+                pendingMacroFocus = "r" + Math.min(index, macro.steps.length - 1);
                 void saveMacros();
             });
-            row.appendChild(remove);
+            actions.appendChild(remove);
+            row.appendChild(actions);
             steps.appendChild(row);
         });
+        if (refocus) {
+            var back = steps.querySelector('[data-fk="' + refocus + '"]');
+            // A move can push the step to an end, which disables the arrow that
+            // got it there; the opposite one is still under the pointer.
+            if (back && back.disabled && /^[un]/.test(refocus)) {
+                back = steps.querySelector(
+                    '[data-fk="' + (refocus[0] === "u" ? "n" : "u") + refocus.slice(1) + '"]',
+                );
+            }
+            if (back && !back.disabled) back.focus();
+        }
 
         /* A step with no key (or no text) is dropped by the server's validation,
          * and a macro left with none is dropped whole — so a new macro closed
-         * before its key is captured just vanishes. Say that, rather than
-         * letting the work disappear silently. */
+         * before its key is chosen just vanishes. Say that, rather than letting
+         * the work disappear silently. */
         var incomplete = macro.steps.filter(function (step) {
             return !stepWouldPersist(step);
         }).length;
@@ -876,8 +1056,10 @@
                 incomplete === 0
                     ? ""
                     : incomplete === macro.steps.length
-                      ? "Not saved yet — set the key or text below and it will be kept."
-                      : "One step is still empty; it will be dropped when saved.";
+                      ? "Not saved yet — choose the key or enter the text below and it will be kept."
+                      : incomplete === 1
+                        ? "One step is still empty; it will be dropped when saved."
+                        : incomplete + " steps are still empty; they will be dropped when saved.";
         }
     }
 

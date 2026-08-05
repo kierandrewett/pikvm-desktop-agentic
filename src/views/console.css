@@ -1322,8 +1322,7 @@ html.desktop-console .app.computer-collapsed .chat-resize {
 .dlg-input:focus-visible,
 .dlg-file:focus-visible,
 .macro-icon:focus-visible,
-.macro-list button:focus-visible,
-.macro-capture:focus-visible {
+.macro-list button:focus-visible {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent);
@@ -1644,6 +1643,11 @@ html.desktop-console.agent-detached .screen {
     display: flex;
     align-items: center;
     gap: 7px;
+    /* A chord row carries five modifier toggles AND a key list, which together
+       are wider than the dialog. Wrapping keeps the key list readable — squeezed
+       onto one line it collapsed to about 55px, enough for "L" but not for
+       "Print Screen", so the chosen key could not be read back. */
+    flex-wrap: wrap;
 }
 .macro-step .macro-kind {
     flex: none;
@@ -1651,22 +1655,33 @@ html.desktop-console.agent-detached .screen {
     font-size: 11px;
     color: var(--muted-foreground);
 }
-.macro-capture {
-    flex: 1;
-    min-width: 0;
-    padding: 6px 9px;
-    border-radius: 8px;
-    border: 1px dashed var(--border);
-    background: var(--background);
-    color: var(--foreground);
-    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-    text-align: left;
-    cursor: pointer;
+/* The chord is built from toggles plus a key list, not recorded from a real key
+   press — see macroKeyGroups() in console.js for why. */
+.macro-mods {
+    display: flex;
+    flex: none;
+    gap: 4px;
 }
-.macro-capture.capturing {
-    border-style: solid;
+.dlg-btn.macro-mod {
+    padding: 5px 8px;
+    font-size: 11px;
+    min-width: 3rem;
+}
+.dlg-btn.macro-mod.is-on {
     border-color: var(--primary);
-    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+    color: var(--foreground);
+}
+.macro-key {
+    flex: 1;
+    min-width: 9rem;
+}
+.macro-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: none;
+    margin-left: auto;
 }
 
 /* ---- macro icon picker ---- */
