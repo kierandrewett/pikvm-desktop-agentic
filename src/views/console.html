@@ -15,6 +15,13 @@
         <link rel="apple-touch-icon" href="/_agent/icon.png" />
         <link rel="icon" href="/_agent/icon.png" />
         <link rel="stylesheet" href="/_agent/console.css" />
+        <!-- The conversation's own component library, so the two halves of this
+             window are one interface rather than two that share a frame. Loaded
+             AFTER console.css deliberately: it changes nothing here, because
+             Tailwind v4 emits inside @layer and unlayered author CSS outranks
+             every layer, so console.css keeps winning wherever it has a view. -->
+        <link rel="stylesheet" href="/_agent/workspace/styles.css" />
+        <script type="module" src="/_agent/workspace/shared.js"></script>
         <title>PiKVM Console</title>
     </head>
     <body>
@@ -64,16 +71,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                         stroke-linejoin="round"><path d="M12 3v9" /><path d="M18.4 6.6a9 9 0 1 1-12.8 0" /></svg>
                 </button>
-                <!-- Everything else: models, stream, macros, health, log. -->
-                <button class="tb-btn" id="tb-more" title="More" aria-label="More actions">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
-                </button>
-                <!-- Send a keyboard shortcut to the KVM (Ctrl+Alt+Del, Alt+Tab, …). -->
-                <button class="tb-btn" id="tb-keys" title="Send keyboard shortcut to the target" aria-label="Send keyboard shortcut">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12" /></svg>
-                </button>
+                <!-- More + send-keys, rendered with the conversation's icon
+                     button so the tooltip is the same one, not the operating
+                     system's. console.js owns what they do and when. -->
+                <span class="tb-shared" id="tb-actions-menus"></span>
                 <span class="tb-sep"></span>
                 <!-- Audio + mic (WebRTC only) — hidden until a WebRTC session is live. -->
                 <button class="tb-btn tb-av" id="tb-audio" title="Audio output" aria-label="Toggle audio output" hidden>
@@ -85,15 +86,7 @@
                         stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v4" /></svg>
                 </button>
                 <span class="tb-sep tb-av-sep" hidden></span>
-                <button class="tb-btn" id="tb-fit" title="Fit to native resolution" aria-label="Fit to native resolution">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><path d="M9 9 4 4M4 9V4h5" /><path d="m15 9 5-5M15 4h5v5" /><path d="M9 15l-5 5M4 15v5h5" /><path d="m15 15 5 5M20 15v5h-5" /></svg>
-                </button>
-                <!-- Settings (connection / origin) — opens in its own window. -->
-                <button class="tb-btn" id="tb-settings" title="Settings" aria-label="Settings">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
-                </button>
+                <span class="tb-shared" id="tb-actions-view"></span>
                 <span class="tb-sep"></span>
             </div>
             <!-- Outside .tb-right on purpose. That cluster is its own stacking

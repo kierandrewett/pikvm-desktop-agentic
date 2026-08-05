@@ -5438,19 +5438,90 @@
                 fitNativeNow();
             }, 0);
         };
-        var tbFit = document.getElementById("tb-fit");
-        if (tbFit) tbFit.addEventListener("click", fitNativeNow);
+        /* ---- titlebar buttons drawn by the conversation's component library ----
+         *
+         * The console keeps owning what these do and when; React is only told
+         * what to draw. That split matters: nothing about how this page talks to
+         * the target moves into a framework, and the buttons stop being a second
+         * design system with the operating system's tooltip on them.
+         *
+         * The menus need the button's own rectangle to open beneath it, so they
+         * find it by data-tb rather than being handed a node — React owns that
+         * element and may replace it on any update. */
+        var TB_ICONS = {
+            more: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"5\" cy=\"12\" r=\"1\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/></svg>",
+            keys: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\"/><path d=\"M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12\"/></svg>",
+            fit: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 9 4 4M4 9V4h5\"/><path d=\"m15 9 5-5M15 4h5v5\"/><path d=\"M9 15l-5 5M4 15v5h5\"/><path d=\"m15 15 5 5M20 15v5h-5\"/></svg>",
+            settings: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z\"/></svg>",
+        };
+        function tbRect(id) {
+            var el = document.querySelector('[data-tb="' + id + '"]');
+            return el ? el.getBoundingClientRect() : { left: 0, bottom: 38 };
+        }
+        var menuButtons = null;
+        var viewButtons = null;
+        function viewButtonSpecs() {
+            var dims = nativeDims();
+            return [
+                {
+                    id: "fit",
+                    label: dims
+                        ? "Fit to native resolution (" + dims.w + " x " + dims.h + ")"
+                        : "Fit to native resolution — waiting for a picture",
+                    icon: TB_ICONS.fit,
+                    disabled: !dims,
+                    onSelect: fitNativeNow,
+                },
+                { id: "settings", label: "Settings", icon: TB_ICONS.settings, onSelect: openSettingsWindow },
+            ];
+        }
+        function mountTitlebarButtons() {
+            var shared = window.pikvmShared;
+            if (!shared) return false;
+            var menusHost = document.getElementById("tb-actions-menus");
+            var viewHost = document.getElementById("tb-actions-view");
+            if (menusHost && !menuButtons) {
+                menuButtons = shared.mountIconButtons(menusHost, [
+                    {
+                        id: "more",
+                        label: "More actions",
+                        icon: TB_ICONS.more,
+                        onSelect: function () {
+                            var r = tbRect("more");
+                            popNative({ x: r.left, y: r.bottom });
+                        },
+                    },
+                    {
+                        id: "keys",
+                        label: "Send a keyboard shortcut to the target",
+                        icon: TB_ICONS.keys,
+                        onSelect: function () {
+                            var r = tbRect("keys");
+                            popSendKeys({ x: r.left, y: r.bottom });
+                        },
+                    },
+                ]);
+            }
+            if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, viewButtonSpecs());
+            return !!(menuButtons && viewButtons);
+        }
+        /* The bundle is a module, so it has not run when this line does. Poll
+         * briefly rather than racing it; if it never arrives the console is
+         * simply missing two buttons rather than broken. */
+        if (!mountTitlebarButtons()) {
+            var mountTries = 0;
+            var mountTimer = setInterval(function () {
+                if (mountTitlebarButtons() || ++mountTries > 100) clearInterval(mountTimer);
+            }, 50);
+        }
         /* Without a frame there are no native dimensions, so fitNativeNow returns
          * false and nothing happens at all — a button that looks available and
          * silently does not work. Say which it is, and name the size it would fit
          * to when it can, since that is the one thing the label cannot tell you. */
         repaintFitButton = function () {
-            if (!tbFit) return;
-            var d = nativeDims();
-            tbFit.disabled = !d;
-            tbFit.title = d
-                ? "Fit to native resolution (" + d.w + " x " + d.h + ")"
-                : "Fit to native resolution — waiting for a picture";
+            // The button is drawn by the shared component library now, so this
+            // hands it new props rather than reaching for a DOM node.
+            if (viewButtons) viewButtons.update(viewButtonSpecs());
         };
         repaintFitButton();
         // The dimensions can change without the stream state changing at all.
@@ -5470,8 +5541,6 @@
             var desk = window.desktopConsole;
             if (desk && desk.openSettingsWindow) desk.openSettingsWindow();
         }
-        var tbSettings = document.getElementById("tb-settings");
-        if (tbSettings) tbSettings.addEventListener("click", openSettingsWindow);
 
         /* ---- NATIVE context menu (replaces the HTML .more-menu) ----
          * The same actions the web ⋯ menu offers, plus the WebRTC Audio/Mic
@@ -5686,31 +5755,29 @@
             });
         }
 
-        var tbKeys = document.getElementById("tb-keys");
-        if (tbKeys) {
-            tbKeys.addEventListener("click", function (e) {
-                e.stopPropagation();
-                var r = tbKeys.getBoundingClientRect();
-                // Paste sits at the top of the "send to target" menu: it is the same
-                // idea as a shortcut (keystrokes the target receives) and it is the
-                // one people hunt for.
-                var items = [{ id: "paste", label: "Paste text…" }];
-                if (macros.length) {
-                    items.push({ type: "separator" });
-                    macros.forEach(function (m) {
-                        items.push({ id: "macro:" + m.id, label: m.label });
-                    });
-                }
+        /* Named, not inline on a listener, because the button that opens it is
+         * rendered by the shared component library now and hands us only its
+         * position. The menu itself is unchanged. */
+        function popSendKeys(anchor) {
+            // Paste sits at the top of the "send to target" menu: it is the same
+            // idea as a shortcut (keystrokes the target receives) and it is the
+            // one people hunt for.
+            var items = [{ id: "paste", label: "Paste text…" }];
+            if (macros.length) {
                 items.push({ type: "separator" });
-                dc.popupMenu(
-                    items.concat(
-                        KVM_SHORTCUTS.map(function (s) {
-                            return { id: "kb:" + s.id, label: s.label };
-                        }),
-                    ),
-                    { x: r.left, y: r.bottom },
-                );
-            });
+                macros.forEach(function (m) {
+                    items.push({ id: "macro:" + m.id, label: m.label });
+                });
+            }
+            items.push({ type: "separator" });
+            dc.popupMenu(
+                items.concat(
+                    KVM_SHORTCUTS.map(function (s) {
+                        return { id: "kb:" + s.id, label: s.label };
+                    }),
+                ),
+                anchor,
+            );
         }
 
         // The window starts wide enough for the desktop layout immediately, so fit
