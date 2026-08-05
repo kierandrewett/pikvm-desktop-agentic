@@ -3471,6 +3471,14 @@
         if (tb) {
             tb.classList.toggle("on", on);
             tb.classList.toggle("warn", !!warn);
+            /* The in-page control spells its state out in the pip beside it —
+               "On", "Off", "Denied", "No mic". Its titlebar twin has room for
+               none of that, so until now the state lived entirely in the
+               button's colour: nothing a screen reader could reach, and no way
+               to tell a muted mic from one the browser refused. */
+            tb.setAttribute("aria-pressed", String(!!on));
+            var base = tb.id === "tb-mic" ? "Microphone" : "Audio output";
+            tb.title = warn && label ? base + " — " + label : base;
         }
     }
     if (audioBtn) {
