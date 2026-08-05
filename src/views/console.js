@@ -2174,12 +2174,24 @@
         if (btn) btn.hidden = !msd.available();
     });
 
+    /* `pct` null hides the row, a number fills the bar, and anything else shows
+     * the bar with NO measurement.
+     *
+     * That third state is the remote download: the Pi fetches the image itself
+     * and reports nothing back on the way, so there is no local number. It used
+     * to be drawn as a determinate bar pinned at 0, which claims a measurement
+     * the browser does not have and reads as an upload that has stalled at the
+     * start. A <progress> with no value attribute is indeterminate and says
+     * "working, length unknown", which is the true statement. */
     function setMsdProgress(pct, label) {
         var row = document.getElementById("msd-progress-row");
         var bar = document.getElementById("msd-progress");
         var val = document.getElementById("msd-progress-value");
         if (row) row.hidden = pct === null;
-        if (bar && pct !== null) bar.value = pct;
+        if (bar) {
+            if (typeof pct === "number") bar.value = pct;
+            else if (pct !== null) bar.removeAttribute("value");
+        }
         if (val) val.textContent = label || "";
     }
 
@@ -2196,7 +2208,8 @@
 
         var xhr = new XMLHttpRequest();
         msdUpload = xhr;
-        setMsdProgress(0, remote ? "starting…" : "0%");
+        // A local upload measures itself; a remote one has nothing to measure.
+        setMsdProgress(remote ? undefined : 0, remote ? "starting…" : "0%");
         paintMsd();
 
         var done = function (okMsg, errMsg) {
@@ -2213,7 +2226,7 @@
             // The Pi fetches it itself; progress comes back on the msd event rather
             // than from us, so there is nothing to measure locally.
             xhr.open("POST", "/api/msd/write_remote?url=" + encodeURIComponent(remote) + "&remove_incomplete=1", true);
-            setMsdProgress(0, "the Pi is downloading it…");
+            setMsdProgress(undefined, "the Pi is downloading it…");
         } else {
             xhr.open("POST", "/api/msd/write?image=" + encodeURIComponent(picked.name) + "&remove_incomplete=1", true);
             xhr.upload.onprogress = function (e) {

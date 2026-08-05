@@ -1562,6 +1562,16 @@ html.desktop-console .tb-right {
     opacity: 0.5;
     cursor: default;
 }
+/* The text fields and selects needed the same treatment and never had it.
+   Only the file input showed that it was disabled, so during an upload the URL
+   field sat there looking perfectly editable while refusing every keystroke —
+   and the image and mode selects did the same whenever the drive was busy or
+   mounted. Matching the file input rather than inventing a second look. */
+.dlg-text:disabled,
+.dlg-select:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
 .dlg-text:focus {
     border-color: var(--primary);
 }
