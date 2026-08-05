@@ -257,3 +257,29 @@ test("a background window neither moves the pointer nor holds a modifier down", 
     const body = focusFn.slice(0, focusFn.indexOf("\n        }"));
     assert.match(body, /if \(!focused\) \{[\s\S]*releaseClickMods\(\);[\s\S]*releaseAllMods\(\);/);
 });
+
+/**
+ * Hiding the target preview stops the keyboard too.
+ *
+ * The desktop keydown handler already refuses to forward when the window is in
+ * the background or a modal is up — both of which mean the user is not looking
+ * at the target. A collapsed preview is the same thing and was the one case
+ * missing, and it left the two halves of the input path disagreeing: with the
+ * screen at zero width no pointer event can reach it, so the mouse was already
+ * off while the keyboard carried on.
+ *
+ * Verified in the natural flow — click the picture to take the keyboard, so
+ * focus is on BODY and this handler is the live path — with the console's
+ * websocket terminating at a test harness: keys forward with the preview
+ * shown, stop when it is collapsed, and forwarded before this guard existed.
+ */
+test("a hidden target preview stops the keyboard reaching the target", () => {
+    // Several keydown listeners exist; anchor on the desktop one's own comment.
+    const at = js.indexOf("// Desktop keyboard: forward PHYSICAL keystrokes straight to the KVM.");
+    assert.ok(at > 0, "desktop keydown handler not found");
+    const body = js.slice(at, js.indexOf("\n        });", at));
+    assert.match(body, /if \(!panelShown\(\)\) \{[\s\S]*?releaseAllMods\(\);[\s\S]*?return;/);
+    // Alongside the two it already had, not instead of them.
+    assert.match(body, /if \(!windowFocused\) return;/);
+    assert.match(body, /if \(modalOpen\(\)\) \{/);
+});

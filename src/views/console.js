@@ -5836,6 +5836,23 @@
                 releaseAllMods();
                 return;
             }
+            /* The preview is hidden, so there is nothing to type AT.
+             *
+             * Same category as the two guards above: both mean the user is not
+             * looking at the target, and this is the one case of that which was
+             * missing. It also closes a split — with the preview collapsed the
+             * screen is zero pixels wide, so no pointer event can reach it and
+             * the mouse is already off; only the keyboard was still going, and
+             * it is the half with no feedback at all. There is no picture, no
+             * simulated cursor and no letterbox, so a keystroke that lands on
+             * the target leaves nothing on screen to say it did.
+             *
+             * Paste text to the target… is the supported way to send input
+             * without watching it arrive. */
+            if (!panelShown()) {
+                releaseAllMods();
+                return;
+            }
             var t = e.target;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
             if (blockKvmInput(e)) return;
