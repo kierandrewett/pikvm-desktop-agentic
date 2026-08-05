@@ -1328,6 +1328,21 @@ html.desktop-console .tb-right {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+    /* Pinned to the bottom of a dialog that has had to scroll.
+       A .dlg caps at 520px and scrolls past that, and its actions were part of
+       the scrolling content — so a health dialog with nine problems and ten GPIO
+       rows in a 560px window pushed Done, Detach and Reset out of sight, and the
+       way to reach the dialog's own buttons was to scroll the dialog. Sticky
+       costs nothing when there is no overflow: the row simply sits where it
+       already sat.
+
+       The background is not decoration. Without it the scrolling content passes
+       visibly underneath the buttons, which reads as a rendering fault. */
+    position: sticky;
+    bottom: 0;
+    background: var(--card);
+    padding-top: 12px;
+    margin-top: -12px;
 }
 .dlg-btn {
     display: inline-flex;

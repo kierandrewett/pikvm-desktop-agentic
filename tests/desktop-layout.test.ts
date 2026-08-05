@@ -402,3 +402,15 @@ test("pinned macros cannot push the window controls off the titlebar", () => {
     // The window controls are what is being protected, so they never give ground.
     assert.match(css, /\.tb-window \{[^}]*flex: none;/);
 });
+
+test("a dialog's actions stay put when its content has to scroll", () => {
+    /* A .dlg caps at 520px and scrolls past that, and .dlg-actions was part of
+     * the scrolling content. With nine problems and ten GPIO rows in a 560px
+     * window the health dialog pushed Done, Detach and Reset out of sight — so
+     * reaching the dialog's own buttons meant scrolling the dialog.
+     *
+     * Sticky costs nothing when nothing overflows: the row sits where it already
+     * sat. The background is not decoration — without it the scrolling content
+     * passes visibly under the buttons and reads as a rendering fault. */
+    assert.match(css, /\.dlg-actions \{[\s\S]*?position: sticky;[\s\S]*?bottom: 0;[\s\S]*?background: var\(--card\);/);
+});
