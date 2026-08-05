@@ -2065,6 +2065,22 @@
         { el: "sp-gop", row: "sp-gop-row", param: "h264_gop", feature: "h264", limit: "h264_gop", fmt: String },
     ];
 
+    /* The formatted value goes on the SLIDER as well as the label beside it.
+     *
+     * A range input is announced by its raw number, so "Target FPS" at 0 was
+     * read out as zero — the one value where the number and the meaning
+     * disagree, since 0 there means unlimited. The label beside it already said
+     * so and nothing carried that across.
+     *
+     * One helper rather than setting it at each call site: the text is painted
+     * both on open and on every drag, and a second place to remember is how the
+     * slider and its label drift apart. */
+    function paintSliderValue(cfg, el, val) {
+        var text = cfg.fmt(Number(el.value));
+        if (val) val.textContent = text;
+        el.setAttribute("aria-valuetext", text);
+    }
+
     function paintStreamDialog() {
         var f = streamerState.features || {};
         var l = streamerState.limits || {};
@@ -2108,7 +2124,7 @@
             // Don't fight the user mid-drag: only adopt the applied value when the
             // slider isn't the thing that just changed it.
             if (a[cfg.param] !== undefined && document.activeElement !== el) el.value = a[cfg.param];
-            if (val) val.textContent = cfg.fmt(Number(el.value));
+            paintSliderValue(cfg, el, val);
         }
 
         var empty = document.getElementById("sp-empty");
@@ -2129,7 +2145,7 @@
             // Live label while dragging, but only POST on release — kvmd re-encodes on
             // every change and a slider dragged across its range would hammer it.
             el.addEventListener("input", function () {
-                if (val) val.textContent = cfg.fmt(Number(el.value));
+                paintSliderValue(cfg, el, val);
             });
             el.addEventListener("change", function () {
                 sendStreamParam(cfg.param, Number(el.value));
