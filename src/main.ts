@@ -266,6 +266,11 @@ function startProxyAndHarness(
             terminalSessions,
             daemonOrigin,
             daemonToken: harness.daemonActionToken,
+            /* So the conversation can be served from this origin and still reach
+             * its own API. The operator capability is handed to the PROXY, never
+             * to a renderer — same contract as the daemon token beside it. */
+            harnessOrigin,
+            harnessToken: harness.accessToken,
         },
         CONTROL_PORT,
         bindHost,

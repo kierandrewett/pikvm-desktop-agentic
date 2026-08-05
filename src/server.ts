@@ -37,6 +37,17 @@ export interface ServerDeps {
     daemonOrigin?: string;
     /** Desktop-owned daemon action capability injected by the reverse proxy. */
     daemonToken: string;
+    /** Base URL of the first-party harness, reverse-proxied at /_agent/harness/*.
+     *
+     *  This is what lets the conversation be served from OUR origin instead of
+     *  being loaded from the harness into a native view: its API comes back
+     *  same-origin, so /api/* on this server can stay the kvmd proxy the console
+     *  needs for HID and streaming. Omit it and no harness route is mounted. */
+    harnessOrigin?: string;
+    /** Desktop-owned OPERATOR capability. Stronger than the daemon token — it
+     *  authorises computer input and approvals — and, like it, injected by the
+     *  proxy so it never exists in renderer JavaScript. */
+    harnessToken?: string;
 }
 
 function json(res: ServerResponse, status: number, body: unknown) {
@@ -84,6 +95,21 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         origin: deps.daemonOrigin ?? "http://127.0.0.1:47615",
         bearerToken: deps.daemonToken,
     });
+
+    /* The same reverse proxy pointed at the harness, so the conversation can be
+     * served from this origin and still reach its own API.
+     *
+     * Only mounted when both an origin and a token are supplied: half a
+     * configuration would put an UNAUTHENTICATED route to the operator API on
+     * this server, which is worse than no route at all. */
+    const harnessProxy =
+        deps.harnessOrigin && deps.harnessToken
+            ? createDaemonProxy({
+                  origin: deps.harnessOrigin,
+                  bearerToken: deps.harnessToken,
+                  prefix: "/_agent/harness",
+              })
+            : null;
 
     /** Thin server state: just what the web/desktop console reads (the PiKVM
      *  keyboard layout, the jiggler toggle). No agent surface. `jigglerStatus` is the
@@ -137,6 +163,16 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         // no CORS. All methods + binary frames stream straight through.
         if (path === "/daemon" || path.startsWith("/daemon/")) {
             daemonProxy.handleHttp(req, res);
+            return;
+        }
+
+        // Same idea for the harness API, behind the same /_agent/* auth gate.
+        if (path === "/harness" || path.startsWith("/harness/")) {
+            if (!harnessProxy) {
+                res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+                return res.end("harness proxy not configured");
+            }
+            harnessProxy.handleHttp(req, res);
             return;
         }
 
