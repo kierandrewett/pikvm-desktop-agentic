@@ -6,8 +6,13 @@
         <title>Terminal</title>
         <link rel="stylesheet" href="xterm.css" />
         <style>
-            /* Design tokens mirrored from console.css so the terminal matches the app. */
+            /* Design tokens mirrored from console.css so the terminal matches the app.
+               Both palettes, because the console posts its theme to this frame and
+               this page used to ignore it — the console went light and the panel
+               beside it stayed black. The xterm canvas is painted by JS rather
+               than CSS, so terminal/main.ts carries the matching pair. */
             :root {
+                color-scheme: dark;
                 --background: #0a0a0c;
                 --foreground: #ededf1;
                 --card: #121216;
@@ -19,6 +24,19 @@
                 --ok: #46c773;
                 --danger: #f25555;
                 --radius: 7px;
+            }
+            :root[data-theme="light"] {
+                color-scheme: light;
+                --background: #eef0f4;
+                --foreground: #17171c;
+                --card: #ffffff;
+                --muted-foreground: #666672;
+                --secondary: #f1f2f6;
+                --accent: #e6e7ee;
+                --border: #dcdde4;
+                --primary: #3b6ef0;
+                --ok: #18803d;
+                --danger: #d6453f;
             }
             html,
             body {

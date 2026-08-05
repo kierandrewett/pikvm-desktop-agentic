@@ -146,6 +146,58 @@ interface View {
     exited: boolean;
 }
 const views = new Map<string, View>();
+
+/* The terminal canvas is painted by xterm, not by CSS, so it does not follow
+ * the page's tokens — it has to be told. Mirrors console.css both ways: without
+ * this the page around the terminal went light and the terminal stayed black.
+ * The console already posts its theme to this frame; nothing was listening. */
+const XTERM_THEME = {
+    dark: {
+        background: "#0a0a0c",
+        foreground: "#ededf1",
+        cursor: "#5b8cff",
+        cursorAccent: "#0a0a0c",
+        selectionBackground: "#2c3354",
+    },
+    light: {
+        background: "#eef0f4",
+        foreground: "#17171c",
+        cursor: "#3b6ef0",
+        cursorAccent: "#eef0f4",
+        /* Light enough that the foreground still reads through it: dark text on
+         * this selection is 11.62:1. Keeping the dark theme's #2c3354 under
+         * light-theme text would have been 1.45:1 — selected text invisible. */
+        selectionBackground: "#c3d0f5",
+    },
+} as const;
+
+const currentTheme = (): "dark" | "light" =>
+    document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+
+/** Repaint every open terminal, plus the page around them. */
+const applyTheme = (theme: "dark" | "light"): void => {
+    document.documentElement.setAttribute("data-theme", theme);
+    for (const v of views.values()) {
+        v.term.options.theme = XTERM_THEME[theme];
+    }
+};
+
+/* Same channel and same origin check as the conversation frame uses. The
+ * console is the only thing that can be our parent here. */
+window.addEventListener("message", (e) => {
+    if (e.source !== window.parent || e.origin !== window.location.origin) return;
+    const d = e.data as { channel?: string; type?: string; value?: unknown } | null;
+    if (!d || d.channel !== "pikvm-panel" || d.type !== "theme") return;
+    applyTheme(d.value === "light" ? "light" : "dark");
+});
+/* Ask for the current theme rather than waiting for the next change: this frame
+ * loads well after the console applied one. */
+try {
+    window.parent.postMessage({ channel: "pikvm-panel", type: "subscribe" }, window.location.origin);
+} catch {
+    /* no parent, or a cross-origin one: the dark default stands */
+}
+
 let active: string | null = null;
 let controlOwner: string | null = null; // which session currently drives the KVM
 let activateNextCreated = false;
@@ -195,7 +247,7 @@ const makeTerm = (): { term: Terminal; fit: FitAddon } => {
         // are in Claude Code's "normal" (Kitty-capable) terminal. We no longer hand-encode
         // Shift+Enter; xterm emits the right CSI-u (when negotiated) or legacy bytes.
         vtExtensions: { kittyKeyboard: true },
-        theme: { background: "#0a0a0c", foreground: "#ededf1", cursor: "#5b8cff", cursorAccent: "#0a0a0c", selectionBackground: "#2c3354" },
+        theme: XTERM_THEME[currentTheme()],
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
