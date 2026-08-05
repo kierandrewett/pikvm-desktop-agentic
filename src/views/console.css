@@ -160,9 +160,19 @@ body {
         background: transparent;
         transition: background 0.12s;
     }
+    /* Focus reuses the hover treatment rather than inventing a third look for
+       the same handle. It is keyboard-resizable, so it is a real tab stop. */
     .chat-resize:hover::after,
+    .chat-resize:focus-visible::after,
     .app.col-resizing .chat-resize::after {
         background: var(--primary);
+    }
+    /* The ring goes on the handle itself, not just its ::after line: the
+       handle is the tab stop, and an indicator that only exists on a
+       pseudo-element is one I cannot prove is there. */
+    .chat-resize:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
     }
     /* No vertical split to drag on desktop — the screen takes the remainder. */
     .grip {
@@ -321,7 +331,7 @@ body {
 }
 .more-item:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 45%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
 }
 .more-item:active,
 .more-item:hover {
@@ -890,6 +900,20 @@ html.desktop-console .tb-btn {
         background 0.15s,
         color 0.15s;
 }
+/* The titlebar had no focus style of its own, so all thirteen of its buttons
+   fell back to the platform ring — orange, from the GTK accent, next to the
+   blue one every designed control in this console already uses. Everything
+   with a rule (the dialogs, the ⋯ menu, the retry button) agreed; the app's
+   primary chrome was the one surface that did not.
+
+   2px rather than the dialogs' 3px: these are 30px circles in a 38px bar, and
+   the wider ring has nowhere to go. box-shadow follows border-radius, so it
+   stays round with them. */
+html.desktop-console .tb-btn:focus-visible,
+.ibtn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+}
 html.desktop-console .tb-btn:hover {
     background: color-mix(in srgb, currentColor 16%, transparent);
     color: var(--foreground);
@@ -1087,9 +1111,14 @@ html.desktop-console .chat-resize::after {
         box-shadow 0.12s;
 }
 html.desktop-console .chat-resize:hover::after,
+html.desktop-console .chat-resize:focus-visible::after,
 html.desktop-console .app.col-resizing .chat-resize::after {
     background: var(--primary);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+html.desktop-console .chat-resize:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
 }
 /* No bottom status bar over/under the screen in desktop mode — the titlebar
  * carries the chrome and nothing should cover the clickable surface. */
