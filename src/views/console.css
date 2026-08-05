@@ -475,61 +475,6 @@ html.modal-open .screen {
     display: none;
     will-change: left, top;
 }
-/* ---- top-left HUD: audio / mic indicators (click to toggle) ---------------- */
-.hud {
-    position: absolute;
-    top: max(8px, env(safe-area-inset-top));
-    left: max(8px, env(safe-area-inset-left));
-    z-index: 6;
-    display: none; /* shown (.show) only when a WebRTC session is live */
-    gap: 6px;
-}
-.hud.show {
-    display: flex;
-}
-.hud-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    height: 26px;
-    padding: 0 9px 0 7px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--card) 78%, transparent);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-    color: var(--muted-foreground);
-    font-size: 11.5px;
-    font-weight: 650;
-    cursor: pointer;
-    line-height: 1;
-    transition:
-        color 0.15s ease,
-        background 0.15s ease,
-        border-color 0.15s ease;
-}
-.hud-pill svg {
-    width: 14px;
-    height: 14px;
-}
-.hud-pill .wave {
-    opacity: 0; /* the speaker "sound waves" only show when audio is on */
-}
-.hud-pill.on {
-    color: var(--primary-foreground);
-    background: var(--primary);
-    border-color: var(--primary);
-}
-.hud-pill.on .wave {
-    opacity: 1;
-}
-/* Mic denied / unsupported: amber, clearly not "on". */
-.hud-pill.warn {
-    color: #1a1407;
-    background: var(--warn);
-    border-color: var(--warn);
-}
-
 /* ---- resolution toast: pops over the top of the stream on a source/size change */
 .res-toast,
 .toast {
