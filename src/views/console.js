@@ -1554,10 +1554,10 @@
     function setHidConnected(on) {
         return fetch("/api/hid/set_connected?connected=" + (on ? 1 : 0), { method: "POST", cache: "no-store" })
             .then(function (r) {
-                toast(r.ok ? (on ? "Keyboard and mouse attached" : "Keyboard and mouse detached") : "Could not " + (on ? "attach" : "detach") + " the HID (" + r.status + ")", !r.ok);
+                toast(r.ok ? (on ? "Keyboard and mouse attached" : "Keyboard and mouse detached") : "Could not " + (on ? "attach" : "detach") + " the keyboard and mouse (" + r.status + ")", !r.ok);
             })
             .catch(function (e) {
-                toast("Could not change the HID: " + (e && e.message ? e.message : "network error"), true);
+                toast("Could not " + (on ? "attach" : "detach") + " the keyboard and mouse: " + (e && e.message ? e.message : "network error"), true);
             });
     }
 
@@ -1567,10 +1567,10 @@
         if (!window.confirm("Reset the keyboard and mouse?\n\nThe target briefly sees the USB device disappear and come back.")) return;
         fetch("/api/hid/reset", { method: "POST", cache: "no-store" })
             .then(function (r) {
-                toast(r.ok ? "Keyboard and mouse reset" : "Could not reset the HID (" + r.status + ")", !r.ok);
+                toast(r.ok ? "Keyboard and mouse reset" : "Could not reset the keyboard and mouse (" + r.status + ")", !r.ok);
             })
             .catch(function (e) {
-                toast("Could not reset the HID: " + (e && e.message ? e.message : "network error"), true);
+                toast("Could not reset the keyboard and mouse: " + (e && e.message ? e.message : "network error"), true);
             });
     }
 
