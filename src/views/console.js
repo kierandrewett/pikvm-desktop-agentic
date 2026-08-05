@@ -5348,15 +5348,33 @@
         if (titlebar) titlebar.setAttribute("aria-hidden", "false");
 
         /* ---- window controls ---- */
-        var tbMin = document.getElementById("tb-min");
-        var tbMax = document.getElementById("tb-max");
-        var tbClose = document.getElementById("tb-close");
-        if (tbMin) tbMin.addEventListener("click", function () { dc.minimise(); });
-        if (tbMax) tbMax.addEventListener("click", function () { dc.toggleMaximise(); });
-        if (tbClose) tbClose.addEventListener("click", function () { dc.close(); });
-        // Reflect the maximised state on the glyph (max ⇄ restore).
+        /* The window's own controls, drawn by the shared component library but
+         * keeping .tb-btn and .tb-win from console.css. Both classes are load
+         * bearing and neither shows up in a screenshot: .tb-btn carries
+         * -webkit-app-region:no-drag, without which these become part of the
+         * window drag region and stop responding to clicks at all, and .tb-win
+         * carries the platform treatment. Their container keeps the z-index that
+         * holds them above a modal scrim. */
+        var windowMaximised = false;
+        function windowButtonSpecs() {
+            return [
+                { id: "win-min", label: "Minimise", icon: TB_ICONS.winmin, className: "tb-btn tb-win", onSelect: function () { dc.minimise(); } },
+                {
+                    id: "win-max",
+                    // The glyph used to be two SVGs swapped by a class on the
+                    // titlebar. One state, one icon, chosen here.
+                    label: windowMaximised ? "Restore" : "Maximise",
+                    icon: windowMaximised ? TB_ICONS.winrestore : TB_ICONS.winmax,
+                    className: "tb-btn tb-win",
+                    onSelect: function () { dc.toggleMaximise(); },
+                },
+                { id: "win-close", label: "Close", icon: TB_ICONS.winclose, className: "tb-btn tb-win tb-close", onSelect: function () { dc.close(); } },
+            ];
+        }
         function paintMax(maxed) {
+            windowMaximised = !!maxed;
             if (titlebar) titlebar.classList.toggle("is-maximised", !!maxed);
+            if (windowButtons) windowButtons.update(windowButtonSpecs());
         }
         Promise.resolve(dc.isMaximised && dc.isMaximised()).then(paintMax).catch(function () {});
         if (dc.onMaximiseChange) dc.onMaximiseChange(paintMax);
@@ -5549,6 +5567,10 @@
             mic: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"2\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 10a7 7 0 0 0 14 0M12 17v4\"/></svg>",
             health: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3 2 20h20L12 3z\"/><path d=\"M12 10v4M12 17h.01\"/></svg>",
             power: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v9\"/><path d=\"M18.4 6.6a9 9 0 1 1-12.8 0\"/></svg>",
+            winmin: "<svg viewBox=\"0 0 16 16\" fill=\"currentColor\"><path d=\"m 4 10.007812 h 8 v 1.988282 h -8 z m 0 0\"/></svg>",
+            winmax: "<svg viewBox=\"0 0 16 16\" fill=\"currentColor\"><path d=\"m 3.988281 3.992188 v 8.011718 h 8.011719 v -8.011718 z m 2 2 h 4.011719 v 4.011718 h -4.011719 z m 0 0\"/></svg>",
+            winrestore: "<svg viewBox=\"0 0 16 16\" fill=\"currentColor\"><path d=\"m 4.988281 4.992188 v 6.011718 h 6.011719 v -6.011718 z m 2 2 h 2.011719 v 2.011718 h -2.011719 z m 0 0\"/></svg>",
+            winclose: "<svg viewBox=\"0 0 16 16\" fill=\"currentColor\"><path d=\"m 4 4 h 1 h 0.03125 c 0.253906 0.011719 0.511719 0.128906 0.6875 0.3125 l 2.28125 2.28125 l 2.3125 -2.28125 c 0.265625 -0.230469 0.445312 -0.304688 0.6875 -0.3125 h 1 v 1 c 0 0.285156 -0.035156 0.550781 -0.25 0.75 l -2.28125 2.28125 l 2.25 2.25 c 0.1875 0.1875 0.28125 0.453125 0.28125 0.71875 v 1 h -1 c -0.265625 0 -0.53125 -0.09375 -0.71875 -0.28125 l -2.28125 -2.28125 l -2.28125 2.28125 c -0.1875 0.1875 -0.453125 0.28125 -0.71875 0.28125 h -1 v -1 c 0 -0.265625 0.09375 -0.53125 0.28125 -0.71875 l 2.28125 -2.25 l -2.28125 -2.28125 c -0.210938 -0.195312 -0.304688 -0.46875 -0.28125 -0.75 z m 0 0\"/></svg>",
             panel: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8M12 18v3\"/></svg>",
             settings: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z\"/></svg>",
         };
@@ -5562,6 +5584,7 @@
         var avButtons = null;
         var statusButtons = null;
         var macroButtonsRoot = null;
+        var windowButtons = null;
         function viewButtonSpecs() {
             var dims = nativeDims();
             return [
@@ -5607,6 +5630,8 @@
             if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, viewButtonSpecs());
             var panelHost = document.getElementById("tb-actions-panel");
             if (panelHost && !panelButtons) panelButtons = shared.mountIconButtons(panelHost, panelButtonSpecs());
+            var windowHost = document.getElementById("tb-window");
+            if (windowHost && !windowButtons) windowButtons = shared.mountIconButtons(windowHost, windowButtonSpecs());
             var macroHost = document.getElementById("tb-macros");
             if (macroHost && !macroButtonsRoot) {
                 macroButtonsRoot = shared.mountIconButtons(macroHost, pinnedMacroSpecs());
@@ -5631,7 +5656,7 @@
                 };
                 repaintAv();
             }
-            return !!(menuButtons && viewButtons && panelButtons && avButtons && statusButtons && macroButtonsRoot);
+            return !!(menuButtons && viewButtons && panelButtons && avButtons && statusButtons && macroButtonsRoot && windowButtons);
         }
         /* The bundle is a module, so it has not run when this line does. Poll
          * briefly rather than racing it; if it never arrives the console is
