@@ -2020,8 +2020,8 @@
             up.disabled = !settable || !((file && file.files && file.files.length) || (url && url.value.trim()));
         }
         if (abort) abort.hidden = !msdUpload;
-        var reset = document.getElementById("msd-reset");
-        if (reset) reset.disabled = !online || busy || !!msdUpload;
+        msdResetEnabled = online && !busy && !msdUpload;
+        repaintMsdActions();
 
         var free = document.getElementById("msd-free");
         if (free) {
@@ -2148,21 +2148,7 @@
         if (file) file.addEventListener("change", paintMsd);
         var url = document.getElementById("msd-url");
         if (url) url.addEventListener("input", paintMsd);
-        var reset = document.getElementById("msd-reset");
-        if (reset) {
-            reset.addEventListener("click", function () {
-                if (!window.confirm("Reset the mass storage drive?\n\nAnything mounted is unmounted.")) return;
-                fetch("/api/msd/reset", { method: "POST", cache: "no-store" })
-                    .then(function (r) {
-                        toast(r.ok ? "Drive reset" : "Could not reset the drive (" + r.status + ")", !r.ok);
-                    })
-                    .catch(function (e) {
-                        toast("Could not reset the drive: " + (e && e.message ? e.message : "network error"), true);
-                    });
-            });
-        }
-        var close = document.getElementById("msd-close");
-        if (close) close.addEventListener("click", closeMsdDialog);
+        msdActions = mountDialogActions("msd-dlg-actions", msdActionSpecs);
         if (msdDlg) {
             msdDlg.addEventListener("mousedown", function (e) {
                 if (e.target === msdDlg) closeMsdDialog();
@@ -2181,6 +2167,32 @@
         msdDlg.hidden = false;
         paintMsd();
     }
+    var msdResetEnabled = false;
+    var msdActions = null;
+    function msdActionSpecs() {
+        return [
+            {
+                id: "msd-reset",
+                label: "Reset drive",
+                disabled: !msdResetEnabled,
+                onSelect: function () {
+                    if (!window.confirm("Reset the mass storage drive?\n\nAnything mounted is unmounted.")) return;
+                    fetch("/api/msd/reset", { method: "POST", cache: "no-store" })
+                        .then(function (r) {
+                            toast(r.ok ? "Drive reset" : "Could not reset the drive (" + r.status + ")", !r.ok);
+                        })
+                        .catch(function (e) {
+                            toast("Could not reset the drive: " + (e && e.message ? e.message : "network error"), true);
+                        });
+                },
+            },
+            { id: "msd-close", label: "Done", variant: "default", onSelect: closeMsdDialog },
+        ];
+    }
+    function repaintMsdActions() {
+        if (msdActions) msdActions.update(msdActionSpecs());
+    }
+
     function closeMsdDialog() {
         // An upload in flight keeps running; closing the dialog is not an abort.
         if (msdDlg) msdDlg.hidden = true;
@@ -2533,23 +2545,26 @@
                 sendStreamParam(cfg.param, Number(el.value));
             });
         });
-        var close = document.getElementById("sp-close");
-        if (close) close.addEventListener("click", closeStreamDialog);
-        var reset = document.getElementById("sp-reset");
-        if (reset) {
-            reset.addEventListener("click", function () {
-                if (!window.confirm("Reset the stream?\n\nThe picture drops for a moment while the streamer restarts.")) return;
-                fetch("/api/streamer/reset", { method: "POST", cache: "no-store" })
-                    .then(function (r) {
-                        toast(r.ok ? "Stream reset" : "Could not reset the stream (" + r.status + ")", !r.ok);
-                    })
-                    .catch(function (e) {
-                        toast("Could not reset the stream: " + (e && e.message ? e.message : "network error"), true);
-                    });
-            });
-        }
-        var shot = document.getElementById("sp-screenshot");
-        if (shot) shot.addEventListener("click", saveScreenshot);
+        mountDialogActions("stream-dlg-actions", function () {
+            return [
+                { id: "sp-screenshot", label: "Save screenshot", onSelect: saveScreenshot },
+                {
+                    id: "sp-reset",
+                    label: "Reset stream",
+                    onSelect: function () {
+                        if (!window.confirm("Reset the stream?\n\nThe picture drops for a moment while the streamer restarts.")) return;
+                        fetch("/api/streamer/reset", { method: "POST", cache: "no-store" })
+                            .then(function (r) {
+                                toast(r.ok ? "Stream reset" : "Could not reset the stream (" + r.status + ")", !r.ok);
+                            })
+                            .catch(function (e) {
+                                toast("Could not reset the stream: " + (e && e.message ? e.message : "network error"), true);
+                            });
+                    },
+                },
+                { id: "sp-close", label: "Done", variant: "default", onSelect: closeStreamDialog },
+            ];
+        });
         if (streamDlg) {
             streamDlg.addEventListener("mousedown", function (e) {
                 if (e.target === streamDlg) closeStreamDialog();
