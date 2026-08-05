@@ -25,7 +25,10 @@
         }
         input[type="text"]:focus, select:focus { border-color: #4c6ef5; }
         input[type="text"]:disabled { opacity: .5; }
-        .hint { font-size: 11px; color: #6e6e7a; margin-top: 5px; }
+        /* The UA default for a dark colour-scheme lands at 3.97:1 here;
+           placeholder text needs the same 4.5:1 as any other text. */
+        input[type="text"]::placeholder { color: #8a8a95; }
+        .hint { font-size: 11px; color: #8a8a95; margin-top: 5px; }
         /* Always present, so revealing a problem does not change the height of a
            window that is measured once at load and cannot be resized. */
         .err { font-size: 11px; color: #f2827c; margin: 4px 0 0; min-height: 15px; }
@@ -39,9 +42,9 @@
             background: #1b1b22; color: #e6e6ea; font: inherit; cursor: pointer;
         }
         button:hover { background: #24242c; }
-        button.primary { background: #4c6ef5; border-color: #4c6ef5; color: #fff; }
-        button.primary:hover { background: #5b7bf7; }
-        .note { font-size: 11px; color: #6e6e7a; margin-top: 14px; }
+        button.primary { background: #4361d7; border-color: #4361d7; color: #fff; }
+        button.primary:hover { background: #506cda; }
+        .note { font-size: 11px; color: #8a8a95; margin-top: 14px; }
     </style>
 </head>
 <body>
