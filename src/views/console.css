@@ -675,7 +675,19 @@ html.modal-open .screen {
 .screen.has-frame .overlay {
     align-items: flex-end;
     justify-content: flex-start;
-    background: linear-gradient(to top, rgba(5, 6, 8, 0.78), rgba(5, 6, 8, 0.08) 42%);
+    /* A cue, not a cover.
+     *
+     * This was 0.78 at the bottom fading out at 42%, from when the status pill
+     * had no background of its own and needed the gradient to be readable. The
+     * pill has been self-backed on --overlay-glass at 96% since, and measures
+     * 5.05:1 at worst over a white picture with no help from this at all.
+     *
+     * What was left was dimming the bottom two fifths of the last frame by up
+     * to 78% — on a KVM that is the taskbar, the status line and the prompt,
+     * which is the part of a stalled picture an operator most wants to read.
+     * Held at a third, fading out by a quarter of the way up: still visibly
+     * dimmed under the pill, no longer hiding what is behind it. */
+    background: linear-gradient(to top, rgba(5, 6, 8, 0.34), rgba(5, 6, 8, 0.04) 26%);
 }
 .stream-state {
     display: flex;
