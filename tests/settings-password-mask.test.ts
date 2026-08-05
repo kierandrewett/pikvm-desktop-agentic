@@ -119,3 +119,23 @@ test("the field is not focused on open, because focus reveals the password", () 
     const focuses = source.match(/urlEl\.focus\(\)/g) ?? [];
     assert.equal(focuses.length, 1, "the URL field should only be focused when validation fails");
 });
+
+test("the settings window can measure the height it actually needs", () => {
+    /* Main sizes this window once after load by reading
+     * documentElement.scrollHeight. Pinned to height:100% the body cannot grow
+     * past the viewport, so content needing more overflows THROUGH the bottom
+     * padding and the measurement comes back exactly one padding short — the
+     * window opened with Save and Cancel flush against its bottom edge.
+     * Measured before and after: 371px tall with 0px below the buttons, then
+     * 389px with the declared 18px. */
+    const html = readFileSync(resolve(process.cwd(), "src/views/settings-console.html"), "utf8");
+    assert.match(html, /body \{ margin: 0; min-height: 100%; \}/);
+    assert.doesNotMatch(html, /html, body \{ margin: 0; height: 100%; \}/);
+    // The padding that has to survive the measurement.
+    assert.match(html, /padding: 18px 20px;/);
+
+    // And main still measures rather than guessing a fixed height.
+    const main = readFileSync(resolve(process.cwd(), "src/main.ts"), "utf8");
+    assert.match(main, /executeJavaScript\("document\.documentElement\.scrollHeight"\)/);
+    assert.match(main, /if \(wanted > height\) settingsWin\.setContentSize\(width, wanted\);/);
+});

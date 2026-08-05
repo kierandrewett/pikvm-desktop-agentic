@@ -7,7 +7,16 @@
     <style>
         :root { color-scheme: dark; }
         * { box-sizing: border-box; }
-        html, body { margin: 0; height: 100%; }
+        /* min-height, not height, on the body.
+           Main sizes this window by reading documentElement.scrollHeight once
+           after load. Pinned to height:100% the body cannot grow past the
+           viewport, so content that needs more simply overflows THROUGH the
+           bottom padding — and the measurement comes back one padding short.
+           The window then opened with Save and Cancel flush against its bottom
+           edge, touching the frame. Letting the body grow makes the number it
+           reports the number it actually needs. */
+        html { margin: 0; height: 100%; }
+        body { margin: 0; min-height: 100%; }
         body {
             background: #0a0a0c;
             color: #e6e6ea;
