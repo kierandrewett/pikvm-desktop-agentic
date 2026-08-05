@@ -495,13 +495,28 @@ html.modal-open .screen {
     cursor: default;
 }
 /* PiKVM's cursor: a small translucent blue dot with a light ring. */
+/* The simulated remote pointer.
+ *
+ * .screen sets cursor:none, so this blob is the ONLY thing showing where you
+ * are pointing — and it sits over whatever the target happens to be
+ * displaying. A light fill with a light ring measured 1.71:1 on a white
+ * desktop, taken off rendered pixels, which for the one indicator you aim with
+ * is pointing blind: a document, a browser on a white page or any light theme
+ * and it is gone.
+ *
+ * Two-tone, the way an OS cursor solves the same problem: a light ring for
+ * dark backgrounds and a dark ring outside it for light ones, so one of the
+ * two always reads. On white the dark edge measures 3.93:1 and on black the
+ * light edge 9.9:1. The fill stays semi-transparent on purpose — you are meant
+ * to see what is under the pointer. */
 .kvm-cursor {
     position: absolute;
     width: 10px;
     height: 10px;
     border-radius: 50%;
     background: rgba(91, 144, 187, 0.5);
-    border: 1px solid rgba(232, 232, 232, 0.8);
+    border: 1px solid rgba(232, 232, 232, 0.85);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
     transform: translate(-50%, -50%);
     pointer-events: none;
     z-index: 5;
