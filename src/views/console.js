@@ -2599,13 +2599,35 @@
     var pasteText = document.getElementById("paste-text");
     var pasteKeymap = document.getElementById("paste-keymap");
     var pasteCount = document.getElementById("paste-count");
-    var pasteSend = document.getElementById("paste-send");
+    /* Whether Paste can act, kept here rather than written onto a node: it is
+     * disabled with nothing to send AND while a send is in flight, and those two
+     * were previously set from three different places. */
+    var pasteHasText = false;
+    var pasteBusy = false;
+    var pasteActions = null;
+    function pasteActionSpecs() {
+        return [
+            { id: "paste-cancel", label: "Cancel", onSelect: closePaste },
+            {
+                id: "paste-send",
+                label: "Paste",
+                variant: "default",
+                disabled: !pasteHasText || pasteBusy,
+                onSelect: sendPaste,
+            },
+        ];
+    }
+    function repaintPasteActions() {
+        if (pasteActions) pasteActions.update(pasteActionSpecs());
+    }
 
     function paintPasteCount() {
         if (!pasteCount || !pasteText) return;
         var n = pasteText.value.length;
         pasteCount.textContent = n ? n + (n === 1 ? " character" : " characters") : "";
-        if (pasteSend) pasteSend.disabled = !n;
+        pasteBusy = false;
+        pasteHasText = n > 0;
+        repaintPasteActions();
     }
     function fillKeymaps() {
         if (!pasteKeymap) return;
@@ -2662,7 +2684,8 @@
         // 20ms between keys — kvmd's own default, and slow enough that a target under
         // load does not drop characters.
         q.push("delay=0.02");
-        if (pasteSend) pasteSend.disabled = true;
+        pasteBusy = true;
+        repaintPasteActions();
         fetch("/api/hid/print?" + q.join("&"), {
             method: "POST",
             cache: "no-store",
@@ -2685,7 +2708,8 @@
                 toast("Paste failed: " + (e && e.message ? e.message : "network error"), true);
             })
             .then(function () {
-                if (pasteSend) pasteSend.disabled = false;
+                pasteBusy = false;
+                repaintPasteActions();
             });
     }
     var pasteBtn = document.getElementById("paste-btn");
@@ -2705,9 +2729,8 @@
     var macroBtn = document.getElementById("macro-btn");
     if (macroBtn) macroBtn.addEventListener("click", openMacroEditor);
     if (pasteText) pasteText.addEventListener("input", paintPasteCount);
-    if (pasteSend) pasteSend.addEventListener("click", sendPaste);
+    pasteActions = mountDialogActions("paste-dlg-actions", pasteActionSpecs);
     var pasteCancel = document.getElementById("paste-cancel");
-    if (pasteCancel) pasteCancel.addEventListener("click", closePaste);
     if (pasteDlg) {
         // Click the scrim (not the panel) to dismiss.
         pasteDlg.addEventListener("mousedown", function (e) {
