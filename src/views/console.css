@@ -66,8 +66,16 @@
     --primary: #3b6ef0;
     --primary-foreground: #ffffff;
     --danger: #d6453f;
-    --warn: #b9831a;
-    --ok: #2faa5b;
+    /* Darker than the dark theme's amber and green, because these sit on light
+       surfaces rather than dark ones and the same hue does not survive the swap.
+       At #b9831a, --warn was 2.91:1 on the bar and 3.32:1 on a card — it is used
+       as TEXT in .macro-unsaved and as the health and ATX-busy icons, so it was
+       under 4.5:1 for the text and under even the 3:1 an icon needs. --ok at
+       #2faa5b was 2.62:1 as a status dot on the bar, the faintest thing in the
+       light theme.
+       Now: warn 4.69 bar / 5.36 card, ok 4.39 bar / 5.01 card. */
+    --warn: #8f620c;
+    --ok: #18803d;
 }
 
 * {
