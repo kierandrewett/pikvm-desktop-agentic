@@ -570,9 +570,39 @@
                 return r.json();
             })
             .then(function (d) {
-                // The server normalises (drops empty steps, dedupes ids), so
-                // adopt what it stored rather than what we sent.
-                macros = (d && d.macros) || [];
+                /* The server normalises (drops empty steps, dedupes ids), so
+                 * adopt what it stored rather than what we sent — EXCEPT for a
+                 * macro still being built.
+                 *
+                 * A new macro starts with one empty chord, which the server
+                 * drops, which leaves it with no steps, which makes the server
+                 * drop the macro itself. Adopting that answer wholesale deleted
+                 * the draft the editor was sitting on: picking an icon, renaming
+                 * it, or toggling pinned all saved, and all three wiped the very
+                 * macro they were editing. Only the edits that happened to give
+                 * it a usable step survived.
+                 *
+                 * Drafts stay in place, in order, until they earn a place on the
+                 * server. closeMacroEditor still discards them on the way out. */
+                var stored = (d && d.macros) || [];
+                var byId = {};
+                stored.forEach(function (m) {
+                    byId[m.id] = m;
+                });
+                var merged = [];
+                macros.forEach(function (m) {
+                    if (byId[m.id]) {
+                        merged.push(byId[m.id]);
+                        delete byId[m.id];
+                    } else if (!macroWouldPersist(m)) {
+                        merged.push(m);
+                    }
+                });
+                // Anything the server knows about that we did not send.
+                stored.forEach(function (m) {
+                    if (byId[m.id]) merged.push(m);
+                });
+                macros = merged;
                 paintMacroButtons();
                 paintMacroEditor();
             })
