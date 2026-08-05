@@ -1378,17 +1378,6 @@
                 void saveMacros();
             });
         }
-        document.querySelectorAll("[data-add-step]").forEach(function (btn) {
-            btn.addEventListener("click", function () {
-                var macro = macroById(macroSelected);
-                if (!macro) return;
-                var kind = btn.getAttribute("data-add-step");
-                if (kind === "chord") macro.steps.push({ type: "chord", mods: [], code: "" });
-                else if (kind === "text") macro.steps.push({ type: "text", text: "" });
-                else macro.steps.push({ type: "delay", ms: 200 });
-                paintMacroEditor();
-            });
-        });
         if (macroDlg) {
             macroDlg.addEventListener("mousedown", function (e) {
                 if (e.target === macroDlg) closeMacroEditor();

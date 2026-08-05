@@ -182,6 +182,19 @@ test("no console lookup points at an element that cannot exist", () => {
         .filter((k) => !inMarkup.has(k) && !assigned.has(k) && !prefixes.some((p) => k.startsWith(p)));
 
     assert.deepEqual(unresolvable, [], `these lookups can never resolve: ${unresolvable.join(", ")}`);
+
+    /* The same trap through querySelectorAll. [data-add-step] survived the move
+     * of the macro editor's step actions onto the shared library, matching
+     * nothing and quietly duplicating addStep() where it could have drifted. */
+    const attrSelectors = [...js.matchAll(/querySelectorAll?\(\s*"\[([\w-]+)\]"\s*\)/g)].map((m) => m[1]);
+    const attrUnresolvable = [...new Set(attrSelectors)].filter(
+        (a) => !html.includes(`${a}=`) && !js.includes(`setAttribute("${a}"`) && !js.includes(`"${a}",`),
+    );
+    assert.deepEqual(
+        attrUnresolvable,
+        [],
+        `nothing ever carries these attributes: ${attrUnresolvable.join(", ")}`,
+    );
 });
 
 test("the health dialog opens focused on Done, not on a power switch", () => {
