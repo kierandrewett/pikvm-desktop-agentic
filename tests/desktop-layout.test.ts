@@ -414,3 +414,18 @@ test("a dialog's actions stay put when its content has to scroll", () => {
      * passes visibly under the buttons and reads as a rendering fault. */
     assert.match(css, /\.dlg-actions \{[\s\S]*?position: sticky;[\s\S]*?bottom: 0;[\s\S]*?background: var\(--card\);/);
 });
+
+test("the backend pill reports vision as a fact, not as progress", () => {
+    /* The daemon reports omniparser reachable true or false and never says it is
+     * on its way. The console rendered false as "loading…" — its own guess, and
+     * one that read the same after hours of the service simply not running.
+     *
+     * The pill itself still says "Ready" on s.ok, which is right: the daemon's
+     * own needed_for says vision gates autonomous perception only, so the
+     * backend genuinely is usable without it. Only the word describing the
+     * dependency was wrong, so only that changed. */
+    assert.match(js, /"unavailable \(autonomous mode only\)"/);
+    assert.doesNotMatch(js, /"Vision: " \+ \(d\.omniparser\.reachable \? "ready" : "loading…"\)/);
+    // The overall state still follows the daemon's own verdict.
+    assert.match(js, /var ready = !!s\.ok;/);
+});

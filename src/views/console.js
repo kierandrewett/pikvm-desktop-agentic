@@ -5275,8 +5275,20 @@
                         var d = s.dependencies || {};
                         var parts = ["Daemon: ready"];
                         parts.push("PiKVM: " + (d.pikvm && d.pikvm.reachable ? "reachable" : "unreachable"));
+                        /* "loading…" was the client's own guess. The daemon
+                         * reports reachable true or false and never says it is
+                         * on its way, so an unreachable vision service was
+                         * described as making progress it may not be making —
+                         * this one has read "loading…" for hours. Report the
+                         * fact, and say what it costs, since the daemon is
+                         * explicit that it only gates autonomous perception. */
                         if (d.omniparser && d.omniparser.enabled)
-                            parts.push("Vision: " + (d.omniparser.reachable ? "ready" : "loading…"));
+                            parts.push(
+                                "Vision: " +
+                                    (d.omniparser.reachable
+                                        ? "ready"
+                                        : "unavailable (autonomous mode only)"),
+                            );
                         if (d.operator)
                             parts.push("LLM: " + (d.operator.configured ? d.operator.provider : "no API key"));
                         if (d.ocr)
