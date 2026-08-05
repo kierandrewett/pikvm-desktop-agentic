@@ -67,7 +67,7 @@ const useConsole = process.env.PIKVM_NATIVE_UI !== "1";
 // return null; this resolves the window reliably for the console-scoped IPC.
 const consoleWcToWin = new Map<number, Electron.BrowserWindow>();
 // Window-chrome per platform: macOS keeps its native traffic lights (titleBarStyle
-// "hidden", positioned to sit inside our 34px titlebar); Linux + Windows are fully
+// "hidden", positioned to sit inside our 38px titlebar); Linux + Windows are fully
 // frameless so the console draws its own controls (GTK-style on Linux).
 const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
     process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 13, y: 10 } } : { frame: false };

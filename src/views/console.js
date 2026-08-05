@@ -4730,7 +4730,20 @@
         }
         if (!dc) return; // web/mobile: nothing below runs
 
-        var TITLEBAR_H = 38; // keep in sync with .titlebar height in console.css
+        /* How much vertical space fit-native has to reserve above the picture.
+         *
+         * Measured rather than repeated: the height is set in console.css, and a
+         * copy here would silently start reserving the wrong amount the moment
+         * that changed. The fallback only covers the native shell, where the bar
+         * belongs to ui.html and is not in this document to measure. */
+        var NATIVE_SHELL_TITLEBAR_H = 38; // ui.html's strip; = TITLEBAR_HEIGHT in main.ts
+        var nativeShellTitlebar = false;
+        function titlebarHeight() {
+            if (nativeShellTitlebar) return NATIVE_SHELL_TITLEBAR_H;
+            var el = document.getElementById("titlebar");
+            var measured = el ? Math.round(el.getBoundingClientRect().height) : 0;
+            return measured || NATIVE_SHELL_TITLEBAR_H;
+        }
         var savedPanelW = readPanelWidth();
         if (savedPanelW) applyPanelWidth(savedPanelW);
         document.documentElement.classList.add("desktop-console");
@@ -4803,10 +4816,10 @@
         } catch (e) {}
         if (nativeShell) {
             document.documentElement.classList.add("native-titlebar");
-            // The console has no titlebar of its own, but the window has the ui.html
-            // titlebar strip (38px, = main.ts TITLEBAR_HEIGHT) above this view — so
-            // fit-native must reserve that, not the console's own 34px.
-            TITLEBAR_H = 38;
+            /* The console draws no titlebar in this mode, but ui.html's strip sits
+             * above this view, so fit-native still has to reserve it — and it
+             * cannot be measured from in here. */
+            nativeShellTitlebar = true;
         }
 
         var titlebar = document.getElementById("titlebar");
@@ -4870,7 +4883,7 @@
                 // The chat column's measured width (0 when collapsed) so the
                 // screen lands exactly on its native size.
                 agentPanelWidth: Math.round(document.querySelector(".chat").getBoundingClientRect().width),
-                titlebarHeight: TITLEBAR_H,
+                titlebarHeight: titlebarHeight(),
             });
             return true;
         }
