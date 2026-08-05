@@ -450,7 +450,9 @@ function openSettingsWindow() {
             .executeJavaScript("document.documentElement.scrollHeight")
             .then((needed: unknown) => {
                 if (!settingsWin || settingsWin.isDestroyed()) return;
-                const [width, height] = settingsWin.getContentSize();
+                const size = settingsWin.getContentSize();
+                const width = size[0] ?? 0;
+                const height = size[1] ?? 0;
                 const wanted = Math.min(Math.ceil(Number(needed) || 0), 900);
                 if (wanted > height) settingsWin.setContentSize(width, wanted);
             })
