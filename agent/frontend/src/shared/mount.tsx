@@ -17,6 +17,7 @@
  * it has an opinion and Tailwind only fills the gaps.
  */
 import { StrictMode } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 
 import { Button } from "@/components/ui/button";
@@ -78,11 +79,25 @@ function IconButtonRow({ buttons }: { buttons: IconButtonSpec[] }) {
  */
 export function mountIconButtons(host: HTMLElement, buttons: IconButtonSpec[]) {
     const root: Root = createRoot(host);
+    /* flushSync, not a bare render.
+     *
+     * React schedules a render; it does not perform one. The console rebuilds
+     * these rows and then, in the same tick, looks the new controls up by
+     * attribute to put focus back where it was — so a scheduled render leaves it
+     * searching a DOM that has not been written yet, and focus quietly lands on
+     * the body instead. That matters most where a person is pressing several
+     * buttons in a row, which is exactly the case the restoration exists for.
+     *
+     * These are rows of a dozen buttons at most, so the cost of rendering
+     * synchronously is not worth measuring against a control that silently
+     * stops working. */
     const draw = (next: IconButtonSpec[]) =>
-        root.render(
-            <StrictMode>
-                <IconButtonRow buttons={next} />
-            </StrictMode>,
+        flushSync(() =>
+            root.render(
+                <StrictMode>
+                    <IconButtonRow buttons={next} />
+                </StrictMode>,
+            ),
         );
     draw(buttons);
     return { update: draw, unmount: () => root.unmount() };
@@ -140,11 +155,14 @@ function TextButtonRow({ buttons }: { buttons: TextButtonSpec[] }) {
  */
 export function mountButtons(host: HTMLElement, buttons: TextButtonSpec[]) {
     const root: Root = createRoot(host);
+    // Synchronous for the same reason as the icon row above.
     const draw = (next: TextButtonSpec[]) =>
-        root.render(
-            <StrictMode>
-                <TextButtonRow buttons={next} />
-            </StrictMode>,
+        flushSync(() =>
+            root.render(
+                <StrictMode>
+                    <TextButtonRow buttons={next} />
+                </StrictMode>,
+            ),
         );
     draw(buttons);
     return { update: draw, unmount: () => root.unmount() };

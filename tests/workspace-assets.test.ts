@@ -185,3 +185,23 @@ test("host-config never replaces a bridge a preload already provided", async () 
         await s.close();
     }
 });
+
+test("the shared mounts render synchronously", async () => {
+    /* React schedules a render; it does not perform one. The console rebuilds a
+     * row and then, in the same tick, looks the new controls up by attribute to
+     * put focus back where it was — so a scheduled render leaves it searching a
+     * DOM that has not been written, and focus quietly lands on the body. That
+     * is worst exactly where it matters: building a chord means pressing several
+     * modifier toggles in a row, each one triggering a save and a repaint.
+     *
+     * Verified live rather than only here: clicking the preview toggle and
+     * reading its label with no await at all already shows the new one. */
+    const s = await listen();
+    try {
+        const shared = await fetchRaw(s.origin, WORKSPACE_PREFIX + "/shared.js");
+        assert.equal(shared.status, 200);
+        assert.match(shared.body, /flushSync/);
+    } finally {
+        await s.close();
+    }
+});
