@@ -51,9 +51,17 @@
     <h1>Settings</h1>
 
     <label for="pikvm-url">PiKVM connection</label>
-    <input id="pikvm-url" type="text" placeholder="https://user:password@pikvm/" autocomplete="off" spellcheck="false" />
-    <div class="hint">The PiKVM URL the app connects to. Credentials may be included in the URL; the password stays hidden until you click into the field.</div>
-    <p class="err" id="url-err" role="status" aria-live="polite"></p>
+    <!-- Described by its hint AND its error, so both are read with the field
+         rather than being loose text that happens to sit near it. -->
+    <input id="pikvm-url" type="text" placeholder="https://user:password@pikvm/" autocomplete="off" spellcheck="false"
+        aria-describedby="url-hint url-err" />
+    <div class="hint" id="url-hint">The PiKVM URL the app connects to. Credentials may be included in the URL; the password stays hidden until you click into the field.</div>
+    <!-- alert, not status: this line only ever holds a problem, and it appears
+         because the user just pressed Save and it did not happen. A polite
+         region waits for a gap in speech, which for a failed action means the
+         user can be typing again before they hear why nothing worked. The
+         console's toast made the same call for the same reason. -->
+    <p class="err" id="url-err" role="alert" aria-live="assertive"></p>
 
     <label for="layout">Keyboard layout</label>
     <select id="layout">
