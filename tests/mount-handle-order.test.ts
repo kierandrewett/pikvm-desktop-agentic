@@ -70,3 +70,21 @@ test("the theme is applied in the form the shared library reads", () => {
     assert.match(css, /html\[data-theme="dark"\]\s*\{\s*color-scheme:\s*dark/);
     assert.match(css, /html\[data-theme="light"\]\s*\{\s*color-scheme:\s*light/);
 });
+
+/**
+ * A frame that mounts after the theme was applied has missed the broadcast, so
+ * both of ours ask for it on mount. The desktop block answers that — but the
+ * whole block is skipped in a browser, and the browser is exactly where the
+ * terminal panel is used. The reply has to exist outside it too.
+ */
+test("a frame asking for the theme is answered on every platform", () => {
+    const desktopBlockAt = js.indexOf("(function desktopConsole() {");
+    assert.ok(desktopBlockAt > 0, "desktop block not found");
+
+    const replies = [...js.matchAll(/type: "subscribe"/g)].map((m) => m.index ?? 0);
+    assert.ok(replies.length >= 1, "nothing answers a subscribe");
+    assert.ok(
+        replies.some((at) => at < desktopBlockAt),
+        "the only subscribe handler is inside the desktop-only block, so web and mobile never get an answer",
+    );
+});

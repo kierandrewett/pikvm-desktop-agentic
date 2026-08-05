@@ -5376,6 +5376,30 @@
             }
         } catch (e) {}
     }
+    /* Answer a frame asking for the theme, on EVERY platform.
+     *
+     * applyTheme posts to the frame whenever the theme changes, which is enough
+     * once the frame is up — but a frame that mounts afterwards has missed it,
+     * and both of ours do: the conversation loads when the harness answers, and
+     * the terminal loads with the page. They ask on mount.
+     *
+     * The desktop block already answers subscribe with placement AND theme, but
+     * that whole block is skipped in a browser — which is exactly where the
+     * terminal panel is used. Answering here as well costs a duplicate message
+     * on the desktop and is the only answer on web and mobile. */
+    window.addEventListener("message", function (e) {
+        if (!chatFrame || e.source !== chatFrame.contentWindow) return;
+        if (e.origin !== location.origin) return;
+        var d = e.data;
+        if (!d || d.channel !== "pikvm-panel" || d.type !== "subscribe") return;
+        try {
+            e.source.postMessage(
+                { channel: "pikvm-panel", type: "theme", value: currentTheme() },
+                location.origin,
+            );
+        } catch (err) {}
+    });
+
     themeBtn.addEventListener("click", function () {
         applyTheme(currentTheme() === "light" ? "dark" : "light", true);
     });
