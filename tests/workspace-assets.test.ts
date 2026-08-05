@@ -127,3 +127,25 @@ test("built assets are served and escapes are refused", async () => {
         await s.close();
     }
 });
+
+test("the shared component bundle is served alongside the workspace", async () => {
+    /* The console and the conversation were two design systems in one window:
+     * the same 30x30 round icon button existed twice, one with a rendered
+     * tooltip and one with the operating system's — which appears after a second
+     * and cannot be styled. This entry is how the console gets the real one. */
+    const s = await listen();
+    try {
+        const shared = await fetchRaw(s.origin, WORKSPACE_PREFIX + "/shared.js");
+        assert.equal(shared.status, 200);
+        assert.match(shared.type, /javascript/);
+        assert.match(shared.body, /pikvmShared/);
+        // The stylesheet the console needs with it. Measured to change nothing
+        // there: Tailwind v4 emits inside @layer and unlayered author CSS beats
+        // every layer, so console.css keeps winning where it has an opinion.
+        const css = await fetchRaw(s.origin, WORKSPACE_PREFIX + "/styles.css");
+        assert.equal(css.status, 200);
+        assert.match(css.type, /text\/css/);
+    } finally {
+        await s.close();
+    }
+});

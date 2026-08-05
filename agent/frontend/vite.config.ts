@@ -34,8 +34,20 @@ export default defineConfig({
     minify: "oxc",
     chunkSizeWarningLimit: 1_024,
     rollupOptions: {
+      /* Two entries from one bundle.
+       *
+       * `app` is the conversation. `shared` is the same component library —
+       * buttons, tooltips, icons — mounted into the PiKVM console itself, so the
+       * two halves of the window stop being two different design systems that
+       * happen to sit next to each other. They share chunks, so the console does
+       * not pay for the whole workspace to get a button. */
+      input: {
+        app: resolve(frontendRoot, "index.html"),
+        shared: resolve(frontendRoot, "src/shared/mount.tsx"),
+      },
       output: {
-        entryFileNames: "app.js",
+        entryFileNames: (chunk) =>
+          chunk.name === "shared" ? "shared.js" : "app.js",
         assetFileNames: (assetInfo) =>
           assetInfo.name?.endsWith(".css") ? "styles.css" : "assets/[name][extname]",
         chunkFileNames: "assets/[name]-[hash].js",
