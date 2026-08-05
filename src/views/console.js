@@ -2996,6 +2996,12 @@
         },
     };
     function setState(s) {
+        /* Leaving "live" is the moment to hold the picture, whatever is about to
+         * stop updating it — an MJPEG source restart, a stall, a WebRTC drop. Doing
+         * it here rather than only in loadStream matters: loadStream returns early
+         * while WebRTC owns the picture, so on a WebRTC target the freeze would
+         * never have fired at all. */
+        if (s !== "live" && streamState === "live") freezeFrame();
         streamState = s;
         var d = STATUS[s] || STATUS.connecting;
         conn.className = "dot " + d.tone;
@@ -3005,6 +3011,7 @@
         pane.setAttribute("data-stream-state", s);
         if (s === "live") {
             pane.classList.remove("offline");
+            thawFrame(); // the live source is painting again
         } else {
             pane.classList.add("offline");
             /* One line, reusing the chip's own label so a state cannot be
@@ -3014,9 +3021,38 @@
             if (overlaySpinner) overlaySpinner.hidden = s === "nosignal";
         }
     }
+    /* Hold the last good frame on a canvas so re-establishing the stream does not
+     * blank the picture.
+     *
+     * Reloading an MJPEG <img> clears it the instant src is set and the first new
+     * frame is not instant, so the screen dropped to black on every reconnect —
+     * jarring, and indistinguishable from the target actually going away. The
+     * overlay already keeps the last frame visible for a stalled stream; this is
+     * the same idea for the moment the source is deliberately restarted. */
+    function freezeFrame() {
+        if (!freezeCanvas || !pane.classList.contains("has-frame")) return;
+        var live = webrtcActive ? vid : img;
+        var w = webrtcActive ? vid.videoWidth : img.naturalWidth;
+        var h = webrtcActive ? vid.videoHeight : img.naturalHeight;
+        if (!w || !h) return;
+        try {
+            freezeCanvas.width = w;
+            freezeCanvas.height = h;
+            freezeCanvas.getContext("2d").drawImage(live, 0, 0, w, h);
+            pane.classList.add("frozen");
+        } catch (e) {
+            // A source that cannot be drawn yet is not worth losing the reconnect over.
+        }
+    }
+    function thawFrame() {
+        if (freezeCanvas) pane.classList.remove("frozen");
+    }
+
     function loadStream() {
         if (streamMode !== "native" || mjpegPaused) return; // WebRTC owns the picture; don't open an MJPEG conn
         if (streamState !== "live") setState(streamState === "disconnected" ? "reconnecting" : streamState || "connecting");
+        // Before the src is replaced, not after: setting it is what blanks the <img>.
+        freezeFrame();
         img.src = streamPath(streamKey, navigator.userAgent) + "&t=" + Date.now();
         if (streamWatchdog) clearTimeout(streamWatchdog);
         streamWatchdog = setTimeout(function () {
@@ -3036,6 +3072,7 @@
         if (streamMode !== "native" || mjpegPaused) return;
         streamUp = true;
         pane.classList.add("has-frame");
+        thawFrame(); // a real frame is on screen again
         retryMs = 800;
         if (streamWatchdog) clearTimeout(streamWatchdog);
         if (!serverDown && !blankFrame) setState("live");
@@ -3894,6 +3931,9 @@
         img.style.willChange = wc;
         vid.style.transform = t;
         vid.style.willChange = wc;
+        // The held frame has to zoom and pan with the live picture, or thawing
+        // after a reconnect would snap the view back.
+        if (freezeCanvas) freezeCanvas.style.transform = t;
         if (onXform) onXform(); // let the region overlay re-scale with the stream
     }
     function clampPan() {
@@ -4060,6 +4100,7 @@
 
     // Our own cursor (the OS one is hidden over the screen). Follows the mouse.
     var kvmCursor = document.getElementById("kvm-cursor");
+    var freezeCanvas = document.getElementById("screen-freeze");
     function paintCursor(clientX, clientY, dragging) {
         if (!kvmCursor) return;
         // A dialog owns the pointer; the blob would sit under it as a ghost.

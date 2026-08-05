@@ -181,3 +181,23 @@ test("a release we never saw does not leave a button down on the target", () => 
     const adhoc = js.match(/delete heldMouseButtons\[/g) ?? [];
     assert.equal(adhoc.length, 2, "expected only the helper and the real pointerup");
 });
+
+test("the last frame is held while the stream is re-established", () => {
+    // Reloading an MJPEG <img> blanks it the instant src is set, so the picture
+    // dropped to black on every reconnect — indistinguishable from the target
+    // itself going away.
+    assert.match(html, /<canvas id="screen-freeze"/);
+    assert.match(js, /function freezeFrame\(\)/);
+    assert.match(js, /function thawFrame\(\)/);
+    // On the state transition, not only in loadStream: loadStream returns early
+    // while WebRTC owns the picture, so a WebRTC target would never freeze at all.
+    assert.match(js, /if \(s !== "live" && streamState === "live"\) freezeFrame\(\);/);
+    assert.match(js, /thawFrame\(\); \/\/ the live source is painting again/);
+    // Frozen: the canvas shows and the live element is hidden under it, so a
+    // blanked <img> cannot cover the frame being held.
+    assert.match(css, /\.screen\.frozen #screen-freeze\s*\{\s*display:\s*block/);
+    assert.match(css, /\.screen\.frozen #screen,\s*\n\.screen\.frozen #screen-video\s*\{\s*visibility:\s*hidden/);
+    // Same box and same zoom/pan as the live picture, or thawing would snap the view.
+    assert.match(css, /#screen,\n#screen-video,\n#screen-freeze \{/);
+    assert.match(js, /freezeCanvas\.style\.transform = t;/);
+});

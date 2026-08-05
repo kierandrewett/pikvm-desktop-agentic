@@ -130,6 +130,13 @@
                      the Audio toggle unmutes the remote audio track. -->
                 <video id="screen-video" class="hidden" autoplay playsinline muted></video>
 
+                <!-- The last good frame, held here while the stream is being
+                     re-established. Reloading an MJPEG <img> blanks it at once and
+                     the replacement takes a moment, so without this the picture
+                     dropped out every time the console reconnected — which looks
+                     exactly like the target itself going away. -->
+                <canvas id="screen-freeze" aria-hidden="true"></canvas>
+
                 <!-- Our own cursor (the OS one is hidden over the screen), styled
                      like PiKVM's: a translucent blue dot with a light ring. -->
                 <div class="kvm-cursor" id="kvm-cursor"></div>

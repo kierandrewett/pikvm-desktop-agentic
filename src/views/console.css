@@ -568,7 +568,8 @@ html.modal-open .screen {
  * and zoom/pan transform-origin so the input coordinate maths is identical for
  * either source. Only one is visible at a time (the other carries `.hidden`). */
 #screen,
-#screen-video {
+#screen-video,
+#screen-freeze {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -594,6 +595,19 @@ html.modal-open .screen {
 }
 .screen:not(.has-frame) #screen,
 .screen:not(.has-frame) #screen-video {
+    visibility: hidden;
+}
+/* The held frame. Shown only while the live source has nothing to paint, and the
+   live element is hidden under it so a blanked <img> cannot cover it. */
+#screen-freeze {
+    display: none;
+    z-index: 1;
+}
+.screen.frozen #screen-freeze {
+    display: block;
+}
+.screen.frozen #screen,
+.screen.frozen #screen-video {
     visibility: hidden;
 }
 .screen .overlay {
