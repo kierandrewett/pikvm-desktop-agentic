@@ -1072,52 +1072,66 @@
 
             // Order is the whole point of a multi-step macro — "type the path,
             // THEN press enter" — so it has to be changeable after the fact.
-            var move = function (delta, label) {
-                var btn = document.createElement("button");
-                btn.type = "button";
-                btn.className = "dlg-btn macro-move";
-                btn.textContent = label;
-                btn.setAttribute("aria-label", delta < 0 ? "Move step up" : "Move step down");
-                btn.setAttribute("data-fk", (delta < 0 ? "u" : "n") + index);
-                btn.disabled = delta < 0 ? index === 0 : index === macro.steps.length - 1;
-                btn.addEventListener("click", function () {
-                    var to = index + delta;
-                    var moved = macro.steps.splice(index, 1)[0];
-                    macro.steps.splice(to, 0, moved);
-                    // Follow the step to its new position, so a second press
-                    // keeps moving the SAME step rather than whatever slid into
-                    // the slot the pointer happens to be over.
-                    pendingMacroFocus = (delta < 0 ? "u" : "n") + to;
-                    void saveMacros();
-                });
-                return btn;
+            var moveSpec = function (delta, glyph) {
+                return {
+                    id: (delta < 0 ? "u" : "n") + index,
+                    label: glyph,
+                    // "↑" is a glyph, not a name.
+                    ariaLabel: delta < 0 ? "Move step up" : "Move step down",
+                    className: "dlg-btn macro-move",
+                    disabled: delta < 0 ? index === 0 : index === macro.steps.length - 1,
+                    onSelect: function () {
+                        var to = index + delta;
+                        var moved = macro.steps.splice(index, 1)[0];
+                        macro.steps.splice(to, 0, moved);
+                        // Follow the step to its new position, so a second press
+                        // keeps moving the SAME step rather than whatever slid
+                        // into the slot the pointer happens to be over.
+                        pendingMacroFocus = (delta < 0 ? "u" : "n") + to;
+                        void saveMacros();
+                    },
+                };
             };
             /* Kept in one box so a wrapped chord row cannot leave the up arrow on
              * the first line and the down arrow on the second, which reads as a
              * broken layout rather than as one set of controls. */
             var actions = document.createElement("div");
             actions.className = "macro-actions";
+            var actionSpecs = [];
             // Nothing to reorder in a one-step macro — and a permanently disabled
             // pair of arrows reads as a rendering fault rather than as a control.
             if (macro.steps.length > 1) {
-                actions.appendChild(move(-1, "↑"));
-                actions.appendChild(move(1, "↓"));
+                actionSpecs.push(moveSpec(-1, "↑"), moveSpec(1, "↓"));
             }
-
-            var remove = document.createElement("button");
-            remove.type = "button";
-            remove.className = "dlg-btn";
-            remove.textContent = "Remove";
-            remove.setAttribute("aria-label", "Remove step " + (index + 1));
-            remove.setAttribute("data-fk", "r" + index);
-            remove.addEventListener("click", function () {
-                macro.steps.splice(index, 1);
-                if (!macro.steps.length) macro.steps.push({ type: "chord", mods: [], code: "" });
-                // Land on the row that took its place, or the new last row.
-                pendingMacroFocus = "r" + Math.min(index, macro.steps.length - 1);
-                void saveMacros();
+            actionSpecs.push({
+                id: "r" + index,
+                label: "Remove",
+                ariaLabel: "Remove step " + (index + 1),
+                className: "dlg-btn",
+                onSelect: function () {
+                    macro.steps.splice(index, 1);
+                    if (!macro.steps.length) macro.steps.push({ type: "chord", mods: [], code: "" });
+                    // Land on the row that took its place, or the new last row.
+                    pendingMacroFocus = "r" + Math.min(index, macro.steps.length - 1);
+                    void saveMacros();
+                },
             });
-            actions.appendChild(remove);
+            var sharedRow = window.pikvmShared;
+            if (sharedRow && sharedRow.mountButtons) {
+                stepRoots.push(sharedRow.mountButtons(actions, actionSpecs));
+            } else {
+                actionSpecs.forEach(function (spec) {
+                    var b = document.createElement("button");
+                    b.type = "button";
+                    b.className = spec.className;
+                    b.textContent = spec.label;
+                    if (spec.ariaLabel) b.setAttribute("aria-label", spec.ariaLabel);
+                    b.setAttribute("data-fk", spec.id);
+                    b.disabled = !!spec.disabled;
+                    b.addEventListener("click", spec.onSelect);
+                    actions.appendChild(b);
+                });
+            }
             row.appendChild(actions);
             steps.appendChild(row);
         });

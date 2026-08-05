@@ -452,3 +452,20 @@ test("the macro step list survives its own repaint with focus intact", () => {
     assert.match(js, /\[data-fk="' \+ key \+ '"\]/);
     assert.match(js, /\[data-tb="' \+ key \+ '"\]/);
 });
+
+test("the macro step rows are drawn by the shared library", () => {
+    /* The reorder pair and Remove, which finishes the step list. The reorder
+     * buttons needed an accessible name separate from their label — "↑" is a
+     * glyph, not a name — so the spec carries one.
+     *
+     * Focus follows the STEP through a reorder rather than staying at the index,
+     * so a second press keeps moving the same step instead of whatever slid into
+     * the slot under the pointer. */
+    assert.match(js, /ariaLabel: delta < 0 \? "Move step up" : "Move step down"/);
+    assert.match(js, /pendingMacroFocus = \(delta < 0 \? "u" : "n"\) \+ to;/);
+    assert.match(js, /stepRoots\.push\(sharedRow\.mountButtons\(actions, actionSpecs\)\)/);
+    // A fallback for the window before the bundle has run: buttons drawn the old
+    // way beat a row with none.
+    assert.match(js, /actionSpecs\.forEach\(function \(spec\) \{/);
+    assert.doesNotMatch(js, /var move = function \(delta, label\)/);
+});

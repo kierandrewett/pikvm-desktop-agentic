@@ -117,6 +117,11 @@ window.pikvmShared = { mountIconButtons, mountButtons };
 export type TextButtonSpec = {
     id: string;
     label: string;
+    /** Accessible name, when the visible label is not one.
+     *
+     *  A reorder control reading "↑" is a glyph, not a name — the button has to
+     *  say "Move step up" to anything that cannot see the arrow. */
+    ariaLabel?: string;
     /** Maps to the library's own variants; the host says intent, not colour. */
     variant?: "default" | "outline" | "secondary" | "ghost" | "destructive";
     disabled?: boolean;
@@ -137,6 +142,7 @@ function TextButtonRow({ buttons }: { buttons: TextButtonSpec[] }) {
                         disabled={b.disabled}
                         data-tb={b.id}
                         onClick={b.onSelect}
+                        {...(b.ariaLabel ? { "aria-label": b.ariaLabel } : {})}
                         {...(b.className ? { className: b.className } : {})}
                     >
                         {b.label}
