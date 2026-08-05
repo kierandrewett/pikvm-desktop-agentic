@@ -847,6 +847,32 @@ html.desktop-console .tb-macros {
     flex: none;
     z-index: 1; /* above the absolutely-centred title */
 }
+/* Pinned macros are the one cluster that grows without limit — a user can pin
+   as many as they like — so they are the one that gives way.
+
+   A flex item defaults to min-width:auto, which means it refuses to shrink
+   below its content and pushes its siblings instead. With fifteen macros in a
+   900px window (the minimum this app allows) that pushed the window controls
+   off the right-hand edge: measured at x=892 and x=925 against a 900px
+   viewport, so maximise and close were simply gone and the window could not be
+   closed from its own titlebar.
+
+   Clipping them is the right trade. Every macro is still listed by name in the
+   send-keys menu, which is a complete way to reach them; a missing close button
+   has no such alternative. */
+html.desktop-console .tb-macros {
+    min-width: 0;
+    overflow: hidden;
+}
+/* And the cluster around them has to be able to shrink, or min-width:0 on the
+   macros achieves nothing: .tb-right was flex:none, so it kept its content
+   width and overflowed the bar regardless of what its children allowed.
+   .tb-window stays flex:none — the window controls are the thing being
+   protected, so they are the one part that never gives ground. */
+html.desktop-console .tb-right {
+    flex: 0 1 auto;
+    min-width: 0;
+}
 /* Title centred in the WHOLE window (not just the gap between the clusters). */
 html.desktop-console .tb-title {
     position: absolute;

@@ -385,3 +385,20 @@ test("the log will not copy its own status messages", () => {
     const cleared = js.match(/logHasText = false;\s*\n\s*repaintLogActions\(\);/g) ?? [];
     assert.ok(cleared.length >= 2, "a failed or restarted load must disable Copy again");
 });
+
+test("pinned macros cannot push the window controls off the titlebar", () => {
+    /* Macros are the one cluster with no upper bound — a user can pin as many
+     * as they like. A flex item defaults to min-width:auto, so the strip refused
+     * to shrink below its content and shoved its siblings instead: measured with
+     * fifteen macros in a 900px window (this app's minimum), maximise and close
+     * sat at x=892 and x=925 against a 900px viewport. Gone. The window could
+     * not be closed from its own titlebar.
+     *
+     * min-width:0 on the strip is not enough on its own — the cluster AROUND it
+     * was flex:none, so it kept its content width and overflowed regardless of
+     * what its children permitted. Both have to give. */
+    assert.match(css, /\.tb-macros \{\s*\n\s*min-width: 0;\s*\n\s*overflow: hidden;/);
+    assert.match(css, /\.tb-right \{\s*\n\s*flex: 0 1 auto;\s*\n\s*min-width: 0;/);
+    // The window controls are what is being protected, so they never give ground.
+    assert.match(css, /\.tb-window \{[^}]*flex: none;/);
+});
