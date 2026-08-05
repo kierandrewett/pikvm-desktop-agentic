@@ -5068,22 +5068,50 @@
             refocusKbd();
         });
     });
+    /* Hold the armed sticky modifiers around a mouse action, the way sendCode
+     * does around a key.
+     *
+     * An armed modifier applied to keys and was dropped by every button in this
+     * drawer, so Ctrl+click — how you multi-select almost anywhere — sent a bare
+     * click and left the Ctrl still armed for whatever came next. On a touch
+     * device this drawer is the only way to click at all, so there was no other
+     * route to the gesture.
+     *
+     * owned() so a modifier the user is also physically holding is left alone:
+     * pressing it again is harmless, releasing it at the end would drop it while
+     * their finger is still down. clearArmed() honours a double-tap lock, so a
+     * locked modifier stays on for the next click, same as for the next key. */
+    function withArmedMods(act) {
+        var mods = modMirror.owned(armedList());
+        for (var i = 0; i < mods.length; i++) hid.key(mods[i], true);
+        clearArmed();
+        act(function () {
+            for (var j = mods.length - 1; j >= 0; j--) hid.key(mods[j], false);
+        });
+    }
     document.querySelectorAll("[data-click]").forEach(function (btn) {
         btn.addEventListener("click", function () {
             if (agentActing) return;
             noteManualKvmInput();
             var b = btn.getAttribute("data-click");
-            hid.button(b, true);
-            setTimeout(function () {
-                hid.button(b, false);
-            }, 45);
+            withArmedMods(function (release) {
+                hid.button(b, true);
+                setTimeout(function () {
+                    hid.button(b, false);
+                    release();
+                }, 45);
+            });
         });
     });
     document.querySelectorAll("[data-scroll]").forEach(function (btn) {
         btn.addEventListener("click", function () {
             if (agentActing) return;
             noteManualKvmInput();
-            hid.wheel(0, btn.getAttribute("data-scroll") === "up" ? 2 : -2);
+            var up = btn.getAttribute("data-scroll") === "up";
+            withArmedMods(function (release) {
+                hid.wheel(0, up ? 2 : -2);
+                release();
+            });
         });
     });
     document.getElementById("cad").addEventListener("click", function () {

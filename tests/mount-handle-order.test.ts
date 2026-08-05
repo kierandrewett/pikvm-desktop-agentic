@@ -346,3 +346,32 @@ test("a macro's chord step finishes before the next step starts", () => {
     assert.match(body, /\.then\(next\);/);
     assert.match(body, /setTimeout\(next, step\.ms\);/);
 });
+
+/**
+ * An armed sticky modifier has to apply to the mouse buttons too.
+ *
+ * sendCode wraps a KEY in armedList() and clears it afterwards. The drawer's
+ * click and scroll buttons did neither, so Ctrl+click — how you multi-select
+ * almost anywhere — sent a bare click and left the Ctrl armed for whatever came
+ * next. On a touch device that drawer is the only way to click at all, so there
+ * was no other route to the gesture.
+ *
+ * Measured against a harness recording the HID socket:
+ *   before  mouse_button mouse_button                      (Ctrl still armed)
+ *   after   ControlLeft:true mouse_button mouse_button ControlLeft:false
+ * and unchanged for keys, plus Ctrl+scroll now wraps the wheel and a
+ * double-tap-locked modifier survives click after click.
+ */
+test("an armed modifier wraps the drawer's clicks and scrolls", () => {
+    const clicks = js.slice(js.indexOf('document.querySelectorAll("[data-click]")'));
+    assert.match(clicks.slice(0, clicks.indexOf("});")), /withArmedMods\(/);
+    const scrolls = js.slice(js.indexOf('document.querySelectorAll("[data-scroll]")'));
+    assert.match(scrolls.slice(0, scrolls.indexOf("});")), /withArmedMods\(/);
+
+    const helper = js.slice(js.indexOf("function withArmedMods(act)"));
+    const body = helper.slice(0, helper.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Pressed before the action, cleared like a key, released after it.
+    assert.match(body, /modMirror\.owned\(armedList\(\)\)/);
+    assert.match(body, /clearArmed\(\)/);
+    assert.ok(body.indexOf("clearArmed()") < body.indexOf("act("), "armed must be cleared before the action runs");
+});
