@@ -126,3 +126,34 @@ test("reduced motion stops the things that travel", () => {
     assert.match(all, /transform:\s*translate\(-50%,\s*0\)/);
     assert.match(all, /transition:\s*opacity/);
 });
+
+/**
+ * The legacy native UI (PIKVM_NATIVE_UI=1) had an "Agent sidebar" button left
+ * over from before the agent moved out of the app. src/sidebar was deleted,
+ * agent.svg with it, but the button, its icon reference and the whole
+ * sidebar:toggle path survived — so pressing it grew the window, shrank the
+ * KVM view by the same amount and left an empty band with nothing in it.
+ *
+ * The second half matters more than the first: ui.html reads every control it
+ * touches out of the DOM once and uses them inside onState, which fires on
+ * every window-state update. A getElementById that returns null there throws
+ * and takes the rest of the handler with it — the fit, maximise and minimise
+ * buttons stop updating too.
+ */
+test("the legacy titlebar has no controls it cannot resolve", () => {
+    const html = readFileSync(resolve(process.cwd(), "src/views/ui.html"), "utf8");
+    const main = readFileSync(resolve(process.cwd(), "src/main.ts"), "utf8");
+
+    const ids = new Set([...html.matchAll(/id="([\w-]+)"/g)].map((m) => m[1]));
+    const script = html.slice(html.indexOf("<script>"), html.lastIndexOf("</script>"));
+    for (const m of script.matchAll(/getElementById\("([\w-]+)"\)/g)) {
+        assert.ok(ids.has(m[1]), `ui.html reads #${m[1]} but no element has that id`);
+    }
+
+    // The dead path is gone rather than merely hidden.
+    assert.doesNotMatch(html, /sidebar:toggle/);
+    assert.doesNotMatch(html, /agent\.svg/);
+    assert.doesNotMatch(main, /ipcMain\.on\("sidebar:toggle"/);
+    // sidebarWidth stays: it is the detached conversation window's width now.
+    assert.match(main, /width: Math\.max\(760, sidebarWidth\)/);
+});

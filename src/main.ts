@@ -640,7 +640,10 @@ function createWindow() {
     }
 
     let canCloseByButton = false;
-    let sidebarOpen = false;
+    /* sidebarWidth outlived the sidebar: src/sidebar was removed when the agent
+     * moved out of the app, and this is now just the remembered width the
+     * detached conversation window opens at. There is no sidebarOpen any more —
+     * nothing was ever placed in the space it reserved. */
     let sidebarWidth = settings.get().sidebarWidth;
 
     // In console mode the main window IS a console-chromed window: it carries the
@@ -666,16 +669,12 @@ function createWindow() {
         const [w, h] = win.getContentSize();
         console.log(`Layout: ${w}x${h}`);
 
-        // The console hosts its own chat workspace, so the native sidebar is not used
-        // in console mode — the main view (the console) spans full width.
-        const sbW = useConsole ? 0 : sidebarOpen ? sidebarWidth : 0;
-
         // The console draws its OWN titlebar, so the main view fills the whole window.
         const topY = useConsole ? 0 : TITLEBAR_HEIGHT;
         mainView.setBounds({
             x: 0,
             y: topY,
-            width: w! - sbW,
+            width: w!,
             height: h! - topY,
         });
 
@@ -742,17 +741,6 @@ function createWindow() {
     // Right-click editing menus on the main + overlay views.
     attachContextMenu(mainView.webContents);
     attachContextMenu(overlayView.webContents);
-
-    ipcMain.on("sidebar:toggle", () => {
-        sidebarOpen = !sidebarOpen;
-        console.log("Sidebar toggle:", sidebarOpen);
-        // Grow the window to fit the sidebar beside the KVM, rather than
-        // shrinking the KVM view.
-        const [w, h] = win.getContentSize();
-        const delta = sidebarOpen ? sidebarWidth : -sidebarWidth;
-        win.setContentSize(Math.max(300, w! + delta), h!);
-        layout();
-    });
 
     // Detach the conversation into its own window. A second request while detached
     // closes that window (a toggle); the console re-embeds its panel on the
@@ -1048,12 +1036,6 @@ function createWindow() {
 
             lastStreamData = null;
 
-            // Left the KVM screen — collapse the sidebar so it isn't stranded open
-            // without its (now-hidden) toggle button.
-            if (sidebarOpen) {
-                sidebarOpen = false;
-            }
-
             if (
                 url ===
                 "file://" + resolve(__dirname, "views", "settings.html")
@@ -1111,7 +1093,7 @@ function createWindow() {
         if (!lastStreamData?.width || !lastStreamData?.height) return;
         if (win.isMaximized()) win.unmaximize();
         win.setContentSize(
-            lastStreamData.width + (sidebarOpen ? sidebarWidth : 0),
+            lastStreamData.width,
             lastStreamData.height + TITLEBAR_HEIGHT
         );
         setTimeout(() => layout(), 100);
@@ -1156,10 +1138,7 @@ function createWindow() {
                     `Resizing window to stream dimensions: ${data.width}x${data.height}`
                 );
 
-                win.setContentSize(
-                    data.width + (sidebarOpen ? sidebarWidth : 0),
-                    data.height + TITLEBAR_HEIGHT
-                );
+                win.setContentSize(data.width, data.height + TITLEBAR_HEIGHT);
                 setTimeout(() => {
                     layout();
                 }, 100);

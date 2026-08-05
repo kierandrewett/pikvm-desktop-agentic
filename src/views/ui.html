@@ -11,11 +11,6 @@
             <button class="drag"></button>
             <span id="title">PiKVM</span>
             <div class="controls">
-                <button id="agent" title="Agent sidebar">
-                    <div class="inner">
-                        <div class="icon" style="--icon: url(agent.svg)"></div>
-                    </div>
-                </button>
                 <button id="fit" title="Resize to native resolution">
                     <div class="inner">
                         <div class="icon" style="--icon: url(native.svg)"></div>
@@ -58,11 +53,9 @@
             const res = document.getElementById("res");
             const min = document.getElementById("min");
             const close = document.getElementById("close");
-            const agent = document.getElementById("agent");
             const fit = document.getElementById("fit");
             const title = document.getElementById("title");
 
-            agent.onclick = () => ui.send("sidebar:toggle");
             fit.onclick = () => ui.send("window:fit-native");
             max.onclick = () => ui.send("window:maximise");
             res.onclick = () => ui.send("window:restore");
@@ -73,9 +66,8 @@
             ui.onState(async (state) => {
                 console.log("Window state:", state);
 
-                // Only expose the agent sidebar once we're on the KVM page and
-                // there's actually a screen to see/drive.
-                agent.style.display = state.onKVM ? "block" : "none";
+                // Fit-to-native only means anything once we're on the KVM page
+                // and there is actually a screen to size the window to.
                 fit.style.display = state.onKVM ? "block" : "none";
 
                 max.style.display = state.canMaximize
