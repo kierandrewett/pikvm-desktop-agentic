@@ -2913,6 +2913,18 @@
             pasteKeymap.appendChild(o);
         }
         pasteKeymap.disabled = avail.length < 2;
+        /* With nothing to choose, the control goes away rather than sitting
+           there empty.
+           A labelled select showing no value and no options reads as a broken
+           control, not as "the Pi has not said yet" — and the row it lives in
+           also carries the character count, so the label and the select are
+           hidden rather than the row. Same call the resolution row already
+           makes on boards that cannot change resolution. One option is still
+           worth showing: it says which keymap the text will be typed with,
+           which is information even when it is not a choice. */
+        var keymapLabel = document.querySelector('label[for="paste-keymap"]');
+        pasteKeymap.hidden = !avail.length;
+        if (keymapLabel) keymapLabel.hidden = !avail.length;
     }
     function closePaste() {
         if (pasteDlg) pasteDlg.hidden = true;
