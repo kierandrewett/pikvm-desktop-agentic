@@ -523,3 +523,29 @@ test("a refused stream setting snaps back to what the Pi has", () => {
     const revert = js.slice(js.indexOf("function revertStreamControls()"));
     assert.match(revert.slice(0, revert.indexOf("\n    }")), /paintStreamDialog\(\);/);
 });
+
+/**
+ * A network error on a drive setting has to say so, and put the control back.
+ *
+ * msd.setParam had no .catch, where its neighbour setConnected does. An HTTP
+ * error toasted and RESOLVED, so the caller's .then(paintMsd) still ran and the
+ * control snapped back to the drive's real setting. A network error did
+ * neither: the promise rejected, nothing was said at all, and the select kept
+ * showing the value that never arrived.
+ *
+ * Measured with the request blocked at the network layer: before, the mode read
+ * CD/DVD with no toast while the drive was still a flash drive; after, it reads
+ * flash drive with "Mass storage: Failed to fetch". Which of the two it is
+ * decides what the target boots.
+ */
+test("a drive setting that never reached the Pi says so and snaps back", () => {
+    const fn = js.slice(js.indexOf("setParam: function (name, value)"));
+    const body = fn.slice(0, fn.indexOf("\n            },")).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /\.catch\(function \(e\) \{/);
+    // Resolving rather than rethrowing is what lets the caller's repaint run.
+    assert.match(body, /return false;/);
+    assert.doesNotMatch(body, /throw /);
+    // Both callers still repaint from the drive's state rather than the click.
+    assert.match(js, /msd\.setParam\("cdrom", mode\.value === "1" \? 1 : 0\)\.then\(paintMsd\)/);
+    assert.match(js, /msd\.setParam\("rw", rw\.checked \? 1 : 0\)\.then\(paintMsd\)/);
+});

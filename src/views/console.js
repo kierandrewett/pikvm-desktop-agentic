@@ -1930,10 +1930,28 @@
                 return "No image selected.";
             },
             setParam: function (name, value) {
-                return fetch("/api/msd/set_params?" + encodeURIComponent(name) + "=" + encodeURIComponent(value), { method: "POST", cache: "no-store" }).then(function (r) {
-                    if (!r.ok) toast("Could not set the drive " + name + " (" + r.status + ")", true);
-                    return r.ok;
-                });
+                return fetch("/api/msd/set_params?" + encodeURIComponent(name) + "=" + encodeURIComponent(value), { method: "POST", cache: "no-store" })
+                    .then(function (r) {
+                        if (!r.ok) toast("Could not set the drive " + name + " (" + r.status + ")", true);
+                        return r.ok;
+                    })
+                    /* The catch its neighbour below already had.
+                     *
+                     * An HTTP error toasted and resolved, so the caller's
+                     * .then(paintMsd) still ran and the control snapped back to
+                     * the drive's real setting. A NETWORK error did neither: the
+                     * promise rejected, nothing was said, and the select was
+                     * left showing the value that never arrived. Change the mode
+                     * with the Pi unreachable and the dialog read CD/DVD while
+                     * the drive stayed a flash drive, silently — and which of
+                     * the two it is decides what the target boots.
+                     *
+                     * Resolving false rather than rethrowing is what lets the
+                     * repaint run, which is the half that corrects the control. */
+                    .catch(function (e) {
+                        toast("Mass storage: " + (e && e.message ? e.message : "network error"), true);
+                        return false;
+                    });
             },
             setConnected: function (on) {
                 return fetch("/api/msd/set_connected?connected=" + (on ? 1 : 0), { method: "POST", cache: "no-store" })
