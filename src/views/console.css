@@ -352,10 +352,15 @@ body {
     padding: 2px 9px;
     flex: none;
 }
+/* Deepened for the same reason .dlg-btn.primary is, and by the same amount:
+   white on the raw accent is 3.16:1, and this pip is 11px, so it needs 4.5:1
+   rather than the 3:1 an icon or a divider gets away with. The mix lands at
+   ~4.9:1 in dark and ~6.6:1 in light without changing the colour. The accent
+   token itself stays untouched. */
 .more-item.on .more-pip {
     color: var(--primary-foreground);
-    background: var(--primary);
-    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 78%, #000);
+    border-color: color-mix(in srgb, var(--primary) 78%, #000);
 }
 /* Mic permission denied / unsupported: amber pip so it's clearly not "on". */
 .more-item.warn .more-pip {
