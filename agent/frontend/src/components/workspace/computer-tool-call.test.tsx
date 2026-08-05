@@ -12,6 +12,25 @@ import {
 } from "./computer-tool-call";
 import { ComputerToolEnvironmentProvider } from "./computer-tool-environment";
 
+/**
+ * Every authenticated request carries the bearer AND the workspace marker.
+ *
+ * The marker's only job is to be un-settable by a cross-origin request without
+ * a preflight: when the desktop serves this bundle its proxy attaches the
+ * operator capability server-side, and that can start a run or answer an
+ * approval. Asserted over EVERY call rather than the last one, because one
+ * unmarked request is the whole hole.
+ */
+const expectWorkspaceAuth = (mock: { mock: { calls: unknown[][] } }) => {
+  expect(mock.mock.calls.length).toBeGreaterThan(0);
+  for (const call of mock.mock.calls) {
+    const headers = new Headers((call[1] as RequestInit | undefined)?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer local-workspace-token");
+    expect(headers.get("X-PiKVM-Workspace")).toBe("1");
+  }
+};
+
+
 const group = (status: ThreadGroupPart["status"], count = 2): ThreadGroupPart =>
   ({
     type: "group-tool",
@@ -267,11 +286,9 @@ describe("ComputerToolCall", () => {
     expect(screen.getByText("Click target")).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/runs/run-1/verification-images/9/click-target?x=638&y=410&screen_width=1280&screen_height=720",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer local-workspace-token" },
-        cache: "no-store",
-      }),
+      expect.objectContaining({ cache: "no-store" }),
     );
+    expectWorkspaceAuth(fetchMock);
   });
 
   it("shows the same visual target for a guarded-direct click tool", async () => {
@@ -328,11 +345,9 @@ describe("ComputerToolCall", () => {
     ).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/runs/direct-run/verification-images/3/click-target?x=412&y=286&screen_width=1280&screen_height=720",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer local-workspace-token" },
-        cache: "no-store",
-      }),
+      expect.objectContaining({ cache: "no-store" }),
     );
+    expectWorkspaceAuth(fetchMock);
   });
 
   it("keeps exact typing visible when a consequential action needs approval", () => {
@@ -1023,11 +1038,9 @@ describe("ComputerActionReceipt", () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/runs/run-1/verification-images/7",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer local-workspace-token" },
-        cache: "no-store",
-      }),
+      expect.objectContaining({ cache: "no-store" }),
     );
+    expectWorkspaceAuth(fetchMock);
   });
 
   it("can keep the screen image outside the forensic receipt", () => {

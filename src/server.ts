@@ -25,6 +25,10 @@ import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from ".
 import type { SettingsStore } from "./settings";
 import { MacroStore } from "./macros";
 
+/** Marks a request as coming from our own workspace bundle. Its only job is to
+ *  be un-settable by a cross-origin request without a preflight. */
+const WORKSPACE_HEADER = "x-pikvm-workspace";
+
 export interface ServerDeps {
     /** PiKVM control core — the proxy reads its target (origin + auth) from here, and
      *  the idle jiggler nudges the cursor through it. */
@@ -166,11 +170,24 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
             return;
         }
 
-        // Same idea for the harness API, behind the same /_agent/* auth gate.
+        /* Same idea for the harness API, behind the same /_agent/* auth gate —
+         * plus a header no cross-origin request can set without a preflight.
+         *
+         * The gate above exempts loopback, which is right for a desktop app
+         * talking to itself and wrong for a PAGE in the user's browser: it can
+         * POST to 127.0.0.1 cross-origin, and the operator capability would be
+         * attached server-side. CORS hides the reply, which is no comfort when
+         * the point of the request was its side effect — this route can start a
+         * run or answer an approval. A custom header forces a preflight, and
+         * this server answers preflights for nobody, so the request never
+         * arrives. It costs the workspace one header. */
         if (path === "/harness" || path.startsWith("/harness/")) {
             if (!harnessProxy) {
                 res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
                 return res.end("harness proxy not configured");
+            }
+            if (req.headers[WORKSPACE_HEADER] !== "1") {
+                return json(res, 403, { error: "Missing workspace header" });
             }
             harnessProxy.handleHttp(req, res);
             return;

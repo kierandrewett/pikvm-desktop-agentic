@@ -134,3 +134,22 @@ test("a half-configured harness mounts no route at all", () => {
     assert.match(server, /deps\.harnessOrigin && deps\.harnessToken\s*\n\s*\?\s*createDaemonProxy/);
     assert.match(server, /res\.writeHead\(503[\s\S]*?harness proxy not configured/);
 });
+
+test("the harness route refuses anything that did not come from the workspace", () => {
+    /* The auth gate above it exempts loopback, which is right for a desktop app
+     * talking to itself and wrong for a PAGE in the user's browser: it can POST
+     * to 127.0.0.1 cross-origin and the operator capability gets attached
+     * server-side. CORS hides the reply, which is no comfort when the point was
+     * the side effect — this route can start a run or answer an approval.
+     *
+     * A custom header cannot be set cross-origin without a preflight, and this
+     * server answers preflights for nobody. Asserted on the source because the
+     * check lives in the route table rather than in the proxy. */
+    const server = readFileSync(resolve(process.cwd(), "src/server.ts"), "utf8");
+    assert.match(server, /const WORKSPACE_HEADER = "x-pikvm-workspace";/);
+    assert.match(server, /if \(req\.headers\[WORKSPACE_HEADER\] !== "1"\) \{[\s\S]*?403/);
+    // And it is required for the harness route specifically, not the daemon one,
+    // whose existing callers do not send it.
+    const harnessRoute = server.slice(server.indexOf('path.startsWith("/harness/")'));
+    assert.ok(harnessRoute.indexOf("WORKSPACE_HEADER") < harnessRoute.indexOf("harnessProxy.handleHttp"));
+});

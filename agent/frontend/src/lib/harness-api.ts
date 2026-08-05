@@ -168,12 +168,28 @@ export function harnessUrl(path: string): string {
   return API_BASE && path.startsWith("/") ? `${API_BASE}${path}` : path;
 }
 
+/**
+ * Marks a request as coming from this bundle.
+ *
+ * Its only job is to be un-settable by a cross-origin request without a
+ * preflight. When the desktop serves this app, its proxy attaches the operator
+ * capability server-side, and that capability can start a run or answer an
+ * approval — so a page elsewhere in the browser must not be able to reach it by
+ * POSTing at 127.0.0.1. Sent unconditionally: standalone is same-origin, where
+ * it costs nothing and no preflight happens.
+ */
+export function workspaceHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  headers.set("X-PiKVM-Workspace", "1");
+  return headers;
+}
+
 export async function harnessJson<T>(
   token: string,
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const headers = new Headers(init.headers);
+  const headers = workspaceHeaders(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
   if (init.body != null && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -194,8 +210,10 @@ export async function harnessBlob(
   path: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
+  const blobHeaders = workspaceHeaders();
+  blobHeaders.set("Authorization", `Bearer ${token}`);
   const response = await fetch(harnessUrl(path), {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: blobHeaders,
     cache: "no-store",
     signal,
   });
@@ -247,7 +265,7 @@ export async function harnessEventStream(
   path: string,
   options: HarnessEventStreamOptions,
 ): Promise<void> {
-  const headers = new Headers();
+  const headers = workspaceHeaders();
   headers.set("Authorization", `Bearer ${token}`);
   headers.set("Accept", "text/event-stream");
   const response = await fetch(harnessUrl(path), {
