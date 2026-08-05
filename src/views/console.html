@@ -142,7 +142,12 @@
                             </select>
                             <span class="dlg-inline-actions" id="log-refresh-host"></span>
                         </div>
-                        <pre class="dlg-log" id="log-body">…</pre>
+                        <!-- tabindex, so the log can be scrolled from the keyboard. It is the
+                             only scrollable region in any dialog, and without a tab stop a
+                             keyboard user could reach Refresh, Copy and Done but never the
+                             lines themselves. Named, because a bare tab stop announces
+                             nothing about what it holds. -->
+                        <pre class="dlg-log" id="log-body" tabindex="0" role="group" aria-label="Log output">…</pre>
                         <div class="dlg-actions" id="log-dlg-actions"></div>
                     </div>
                 </div>
