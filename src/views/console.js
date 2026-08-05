@@ -4927,19 +4927,15 @@
             // The toggles are unhidden by revealAvToggles() once WebRTC is live.
             return !!(audioBtnEl && !audioBtnEl.hidden);
         }
-        // The native harness owns its own history and copy controls. Keep this outer
-        // shell menu to desktop settings instead of duplicating chat actions.
-        var isDesktopWorkspace = !!(window.desktopConsole && window.desktopConsole.reportWorkspaceRect);
+        /* The conversation owns its own history and copy controls, so this outer
+         * shell menu carries neither. The branch that offered them was picked by
+         * isDesktopWorkspace, which is invariably true here: everything in this
+         * block runs only when window.desktopConsole exists, and the preload
+         * always defines reportWorkspaceRect on it. So the alternative was
+         * unreachable, and its two commands posted messages into a frame that is
+         * blank on the desktop and, on web, runs a terminal that ignores them. */
         function buildMenu() {
-            var items = isDesktopWorkspace
-                ? [
-                      { id: "settings", label: "Settings" },
-                  ]
-                : [
-                      { id: "history", label: "History" },
-                      { id: "settings", label: "Settings" },
-                      { id: "copy", label: "Copy conversation" },
-                  ];
+            var items = [{ id: "settings", label: "Settings" }];
             if (avAvailable()) {
                 items.push({ type: "separator" });
                 items.push({ id: "audio", label: "Audio output", type: "checkbox", checked: audioOn });
@@ -5031,20 +5027,10 @@
                 return;
             }
             switch (id) {
-                case "history":
                 case "settings":
-                    /* Only Settings has a window of its own. History belongs to
-                     * the chat, which on the desktop is the harness panel and
-                     * not this iframe, so it never reaches here from the desktop
-                     * menu — that menu offers Settings alone. */
-                    if (isDesktopWorkspace && id === "settings" && window.desktopConsole.openSettingsWindow) {
+                    if (window.desktopConsole.openSettingsWindow) {
                         window.desktopConsole.openSettingsWindow();
-                    } else {
-                        try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: id }, "*"); } catch (e) {}
                     }
-                    break;
-                case "copy":
-                    try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: "copy" }, "*"); } catch (e) {}
                     break;
                 case "audio":
                     if (audioBtnEl) audioBtnEl.click();
