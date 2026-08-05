@@ -227,3 +227,33 @@ test("the resolution toast only claims audio when a WebRTC session carries it", 
         "avSummary reads audioOn before checking that WebRTC is live",
     );
 });
+
+/**
+ * The three guards that decide when this window may write to somebody's server.
+ *
+ * Verified behaviourally against a live MJPEG stream, with the console's
+ * websocket terminating at a test harness rather than a PiKVM: a click on the
+ * screen sends mouse_move + two mouse_button with no dialog open and sends
+ * NOTHING with one open; a pointer move sends mouse_move while focused and
+ * nothing while the window is in the background; and a held ControlLeft is
+ * followed by ControlLeft:false the moment the window backgrounds, so
+ * alt-tabbing cannot leave a modifier stuck down on the target.
+ *
+ * None of that can run in this suite, which is node-only. What it can do is
+ * refuse to let the guards be deleted — which is the realistic regression, and
+ * a silent one, because dropping a guard makes the console send MORE, not
+ * fewer, events.
+ */
+test("input is refused while a modal owns the keyboard", () => {
+    // Every entry point into the KVM input path checks it, not just the first.
+    const guards = [...js.matchAll(/if \(modalOpen\(\)\) return;/g)];
+    assert.ok(guards.length >= 4, `only ${guards.length} modalOpen guards on the input path`);
+});
+
+test("a background window neither moves the pointer nor holds a modifier down", () => {
+    assert.match(js, /if \(window\.desktopConsole && !windowFocused\) return;/);
+    // Releasing on blur is what stops alt-tab leaving Ctrl down on the target.
+    const focusFn = js.slice(js.indexOf("function applyWinFocus(focused)"));
+    const body = focusFn.slice(0, focusFn.indexOf("\n        }"));
+    assert.match(body, /if \(!focused\) \{[\s\S]*releaseClickMods\(\);[\s\S]*releaseAllMods\(\);/);
+});
