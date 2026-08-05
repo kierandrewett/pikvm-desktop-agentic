@@ -70,12 +70,27 @@ const consoleWcToWin = new Map<number, Electron.BrowserWindow>();
 const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
     process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 13, y: 10 } } : { frame: false };
 
-/** Resolve the command that launches the pikvm-agent daemon. Preference: the explicit
- *  setting → env PIKVM_AGENT_DAEMON_CMD → the dev venv binary → `pikvm-agent` on PATH. */
+/** Where the pikvm-agent executable might be, best candidate first.
+ *
+ *  agent/ is part of this repo now, so its venv leads. The standalone checkout
+ *  stays on the list below it so an existing working setup keeps running while
+ *  the move settles — this is a search, not a migration, and nothing has to be
+ *  moved on disk for the app to start.
+ *
+ *  The daemon and the harness are the SAME installation, and this list used to
+ *  be written out twice, once in each resolver. Two copies of a preference order
+ *  is how the two end up launching different builds the day one of them gains a
+ *  candidate the other does not. */
+function agentExecutables(...preferred: (string | undefined)[]): string[] {
+    const inRepo = resolve(__dirname, "..", "agent", ".venv", "bin", "pikvm-agent");
+    const standalone = resolve(app.getPath("home"), "dev/pikvm-agent/.venv/bin/pikvm-agent");
+    return [...preferred, inRepo, standalone].filter(Boolean) as string[];
+}
+
+/** Resolve the command that launches the pikvm-agent daemon. Falls back to the
+ *  bare name so a PATH install still works. */
 function resolveDaemonCommand(configured?: string): { command: string; args: string[] } {
-    const venvBin = resolve(app.getPath("home"), "dev/pikvm-agent/.venv/bin/pikvm-agent");
-    const candidates = [configured, process.env.PIKVM_AGENT_DAEMON_CMD, venvBin].filter(Boolean) as string[];
-    for (const c of candidates) {
+    for (const c of agentExecutables(configured, process.env.PIKVM_AGENT_DAEMON_CMD)) {
         if (existsSync(c)) return { command: c, args: ["daemon"] };
     }
     return { command: "pikvm-agent", args: ["daemon"] }; // rely on PATH
@@ -83,15 +98,8 @@ function resolveDaemonCommand(configured?: string): { command: string; args: str
 
 /** Resolve the same pikvm-agent installation for the first-party harness. */
 function resolveHarnessCommand(configured?: string): string {
-    const venvBin = resolve(app.getPath("home"), "dev/pikvm-agent/.venv/bin/pikvm-agent");
-    const candidates = [
-        configured,
-        process.env.PIKVM_HARNESS_CMD,
-        process.env.PIKVM_AGENT_DAEMON_CMD,
-        venvBin,
-    ].filter(Boolean) as string[];
-    for (const candidate of candidates) {
-        if (existsSync(candidate)) return candidate;
+    for (const c of agentExecutables(configured, process.env.PIKVM_HARNESS_CMD, process.env.PIKVM_AGENT_DAEMON_CMD)) {
+        if (existsSync(c)) return c;
     }
     return "pikvm-agent";
 }

@@ -249,3 +249,19 @@ test("a chosen theme outranks the OS instead of being overwritten by it", () => 
     // The unconditional OS override is gone.
     assert.doesNotMatch(js, /overrides any stale saved value/);
 });
+
+test("the daemon and the harness resolve one pikvm-agent installation", () => {
+    // They are the same install, and the preference order used to be written out
+    // twice — one resolver gaining a candidate the other did not is how the two
+    // end up launching different builds.
+    assert.match(main, /function agentExecutables\(\.\.\.preferred/);
+    const resolvers = main.match(/dev\/pikvm-agent\/\.venv\/bin\/pikvm-agent/g) ?? [];
+    assert.equal(resolvers.length, 1, "the candidate list is duplicated again");
+    // agent/ is in this repo now, so its venv leads; the standalone checkout stays
+    // below it so an existing working setup keeps running.
+    assert.match(main, /resolve\(__dirname, "\.\.", "agent", "\.venv", "bin", "pikvm-agent"\)/);
+    assert.match(main, /return \[\.\.\.preferred, inRepo, standalone\]/);
+    // Both resolvers go through it.
+    assert.match(main, /agentExecutables\(configured, process\.env\.PIKVM_AGENT_DAEMON_CMD\)/);
+    assert.match(main, /agentExecutables\(configured, process\.env\.PIKVM_HARNESS_CMD, process\.env\.PIKVM_AGENT_DAEMON_CMD\)/);
+});

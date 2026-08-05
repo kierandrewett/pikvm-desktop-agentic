@@ -32,7 +32,8 @@ export interface AppSettings {
     daemonUrl?: string;
     /** Executable that launches the pikvm-agent daemon (run with `daemon`). The app
      *  spawns + manages it for the Agent panel. Empty → auto-resolve (env
-     *  PIKVM_AGENT_DAEMON_CMD → ~/dev/pikvm-agent/.venv/bin/pikvm-agent → PATH). */
+     *  PIKVM_AGENT_DAEMON_CMD → this repo's agent/.venv → a standalone
+     *  ~/dev/pikvm-agent checkout → PATH). */
     daemonCmd?: string;
     /** Executable that launches the first-party operator harness. Empty →
      *  PIKVM_HARNESS_CMD, then the daemon executable, then auto-resolution. */
