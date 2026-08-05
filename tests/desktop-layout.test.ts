@@ -333,3 +333,21 @@ test("every titlebar button keeps the console's own button class", () => {
     // The class that carries it must still say why.
     assert.match(css, /-webkit-app-region: no-drag/);
 });
+
+test("a dialog never opens with focus on a live slider", () => {
+    /* The stream dialog's sliders POST to the target on `change`, and a range
+     * input fires change on the FIRST arrow press. Opening with one focused
+     * meant a single keystroke retuned the live picture before anyone had
+     * decided to — measured: sp-quality held focus the moment the dialog
+     * appeared.
+     *
+     * Nothing else in these dialogs acts on a keystroke that way, so the rule is
+     * narrow: skip ranges, take the next thing, and fall back to the dialog
+     * itself so it is still announced and the trap still has somewhere to hold. */
+    assert.match(js, /function initialFocusIn\(scrim\)/);
+    assert.match(js, /if \(items\[i\]\.type !== "range"\) return items\[i\];/);
+    assert.match(js, /dlg\.setAttribute\("tabindex", "-1"\)/);
+    assert.match(js, /var first = initialFocusIn\(scrim\);/);
+    // The old unconditional first-focusable is gone.
+    assert.doesNotMatch(js, /var first = focusablesIn\(scrim\)\[0\];/);
+});

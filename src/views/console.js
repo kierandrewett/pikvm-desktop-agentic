@@ -2860,7 +2860,7 @@
             if (scrim && !scrim.contains(document.activeElement)) {
                 // Remember where focus was so closing returns it, not the body.
                 if (!focusBeforeModal) focusBeforeModal = document.activeElement;
-                var first = focusablesIn(scrim)[0];
+                var first = initialFocusIn(scrim);
                 if (first) first.focus();
             } else if (!scrim && focusBeforeModal) {
                 var restore = focusBeforeModal;
@@ -2882,6 +2882,30 @@
      *  added here would have let every keystroke typed into it go to the remote
      *  machine as well, and nothing would have said so. openScrim already asks
      *  the DOM the same question for the focus trap, so ask it once. */
+    /** Where a dialog should put focus when it opens.
+     *
+     *  The first focusable, EXCEPT a range input. The stream dialog's sliders
+     *  post to the target on `change`, and a range fires change on the first
+     *  arrow press — so opening with one focused meant a single keystroke
+     *  retuned the live picture before anyone had decided to. Nothing else in
+     *  these dialogs acts on a keystroke that way: a text field waits to be
+     *  typed into, a select waits to be opened, a button waits to be pressed.
+     *
+     *  With nothing safe to take it, focus goes to the dialog itself so it is
+     *  still announced and the trap still has somewhere to hold. */
+    function initialFocusIn(scrim) {
+        var items = focusablesIn(scrim);
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type !== "range") return items[i];
+        }
+        var dlg = scrim.querySelector(".dlg");
+        if (dlg) {
+            if (!dlg.hasAttribute("tabindex")) dlg.setAttribute("tabindex", "-1");
+            return dlg;
+        }
+        return items[0] || null;
+    }
+
     function modalOpen() {
         return !!openScrim();
     }
