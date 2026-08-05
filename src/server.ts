@@ -21,6 +21,7 @@ import { WebSocketServer } from "ws";
 import type { TerminalSessions, ClientMsg } from "./terminal-server";
 import { MouseJiggler } from "./mouse-jiggler";
 import { webAssets, DESKTOP_SHELL_COOKIE } from "./web-assets";
+import { workspaceAssets } from "./workspace-assets";
 import { isAuthed, isLoopback, sessionValue, loginPage, SESSION_COOKIE } from "./web-auth";
 import type { SettingsStore } from "./settings";
 import { MacroStore } from "./macros";
@@ -168,6 +169,15 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         if (path === "/daemon" || path.startsWith("/daemon/")) {
             daemonProxy.handleHttp(req, res);
             return;
+        }
+
+        /* The conversation workspace, served from this origin so it can be part
+         * of the page rather than another origin in a native view. Its API comes
+         * back through the harness proxy below, which is same-origin from here. */
+        if (req.method === "GET" && workspaceAssets.handles("/_agent" + path)) {
+            if (workspaceAssets.serve("/_agent" + path, res)) return;
+            res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+            return res.end("workspace build not found");
         }
 
         /* Same idea for the harness API, behind the same /_agent/* auth gate —

@@ -40,5 +40,11 @@
     },
     // Source lives in src/; scripts/ are esbuild-bundled smoke tests, not part of
     // the app typecheck (they import across rootDir on purpose).
-    "exclude": ["scripts", "tests", "dist", "node_modules"]
+    //
+    // agent/ is the daemon subtree and owns its own toolchain: a Python package
+    // plus a Vite/React app with its own tsconfig, JSX runtime and lib set. The
+    // default "**/*" include swallowed it the moment it landed in this repo, and
+    // every one of its .tsx files then failed rootDir on a project that only
+    // compiles src/. Its typecheck runs from agent/frontend, not from here.
+    "exclude": ["scripts", "tests", "dist", "node_modules", "agent"]
 }
