@@ -2932,6 +2932,10 @@
      * refreshed on the way back out — otherwise the divider keeps reporting the
      * collapsed width, which is larger than the maximum it also reports. */
     var repaintPanelDivider = function () {};
+    /* Fit-to-native needs the picture's real dimensions, which only exist once a
+     * frame has arrived. Assigned by the desktop titlebar wiring; the stream state
+     * machine calls it because that is what knows when a picture appears or goes. */
+    var repaintFitButton = function () {};
     function readPanelWidth() {
         try {
             var raw = localStorage.getItem(TERM_W_KEY);
@@ -3009,6 +3013,7 @@
         if (connText) connText.textContent = d.label;
         conn.title = d.label + inputNote;
         pane.setAttribute("data-stream-state", s);
+        repaintFitButton(); // a picture arriving or going changes whether it can fit
         if (s === "live") {
             pane.classList.remove("offline");
             thawFrame(); // the live source is painting again
@@ -5299,6 +5304,22 @@
         };
         var tbFit = document.getElementById("tb-fit");
         if (tbFit) tbFit.addEventListener("click", fitNativeNow);
+        /* Without a frame there are no native dimensions, so fitNativeNow returns
+         * false and nothing happens at all — a button that looks available and
+         * silently does not work. Say which it is, and name the size it would fit
+         * to when it can, since that is the one thing the label cannot tell you. */
+        repaintFitButton = function () {
+            if (!tbFit) return;
+            var d = nativeDims();
+            tbFit.disabled = !d;
+            tbFit.title = d
+                ? "Fit to native resolution (" + d.w + " x " + d.h + ")"
+                : "Fit to native resolution — waiting for a picture";
+        };
+        repaintFitButton();
+        // The dimensions can change without the stream state changing at all.
+        img.addEventListener("load", repaintFitButton);
+        vid.addEventListener("resize", repaintFitButton);
 
         // Titlebar audio/mic: drive the canonical toggles (the hidden menu buttons run
         // setAudio/setMic + getUserMedia; paintToggle mirrors state back to these).

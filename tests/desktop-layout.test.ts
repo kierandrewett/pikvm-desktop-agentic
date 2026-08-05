@@ -218,3 +218,18 @@ test("the centred titlebar title yields rather than overlapping the buttons", ()
     assert.match(js, /titleFit\.observe\(tbRight\)/);
     assert.match(js, /window\.addEventListener\("resize", fitTitle\)/);
 });
+
+test("fit-to-native says when it cannot act instead of doing nothing", () => {
+    // fitNativeNow returns false when no frame has arrived, so with no picture
+    // the button looked available and silently did nothing at all.
+    assert.match(js, /repaintFitButton = function \(\)/);
+    assert.match(js, /tbFit\.disabled = !d;/);
+    assert.match(js, /waiting for a picture/);
+    // Named the size it would fit to, which is the one thing the label cannot say.
+    assert.match(js, /"Fit to native resolution \(" \+ d\.w \+ " x " \+ d\.h \+ "\)"/);
+    // Repainted from the state machine AND from the sources, because the
+    // dimensions can change without the stream state changing at all.
+    assert.match(js, /repaintFitButton\(\); \/\/ a picture arriving or going/);
+    assert.match(js, /img\.addEventListener\("load", repaintFitButton\)/);
+    assert.match(js, /vid\.addEventListener\("resize", repaintFitButton\)/);
+});
