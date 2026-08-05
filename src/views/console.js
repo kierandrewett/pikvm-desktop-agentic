@@ -4636,14 +4636,6 @@
         })
         .catch(function () {});
 
-    // Surface the active input model: trackpad (relative) on touch, pointer
-    // (absolute) on desktop — matching how the screen responds to taps/clicks.
-    var hint = document.getElementById("mode-hint");
-    if (hint) {
-        var isTouch = "ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0;
-        hint.textContent = isTouch ? "Trackpad" : "Pointer";
-    }
-
     // The agent X-ray overlay, meeting copilot, suggestion cards and the overlay/
     // ambient SSE streams were removed with the in-app agent. `clearRegionMapForManualInput`
     // and `onXform` keep their safe no-op/null defaults declared above.
