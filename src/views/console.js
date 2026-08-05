@@ -4116,6 +4116,19 @@
     var resToastTimer = null;
     var onStreamResolutionChange = function () {};
     function avSummary() {
+        /* Only a WebRTC session carries audio at all.
+         *
+         * audioOn defaults to true and is a DESIRED state that deliberately
+         * survives a WebRTC drop, so the user's choice is not wiped by every
+         * re-watch. Reading it directly meant the resolution toast showed 🔊 on
+         * an MJPEG stream, which has no audio to be on — and on a Pi with no
+         * Janus at all that is every toast it ever shows.
+         *
+         * The console already draws this line: revealAvToggles hides the audio
+         * and mic buttons unless WebRTC is live, so the toast was the one place
+         * still claiming otherwise. Empty is a designed state here —
+         * .res-toast-av:empty is display:none — so the badge simply goes away. */
+        if (!webrtcActive) return "";
         var bits = [];
         if (audioOn) bits.push("🔊");
         if (micOn) bits.push("🎙");

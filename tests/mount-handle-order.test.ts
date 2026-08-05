@@ -204,3 +204,26 @@ test("the health dialog opens focused on Done, not on a power switch", () => {
     assert.match(js, /document\.querySelector\('\[data-tb="' \+ key \+ '"\]'\)/);
     assert.match(js, /document\.querySelector\('\[data-fk="' \+ key \+ '"\]'\)/);
 });
+
+/**
+ * The resolution toast carries a 🔊 / 🎙 badge, and audioOn defaults to true
+ * and deliberately SURVIVES a WebRTC drop so a re-watch does not wipe the
+ * user's choice. Read straight, that meant the badge claimed audio on an MJPEG
+ * stream — which has none — and on a Pi with no Janus at all, on every toast it
+ * ever showed.
+ *
+ * The console already draws this line for the toggles themselves, so the badge
+ * has to draw it too.
+ */
+test("the resolution toast only claims audio when a WebRTC session carries it", () => {
+    const summary = js.slice(js.indexOf("function avSummary()"));
+    // Comments in here NAME the flags while explaining them, so strip them
+    // before asking which the code reaches first.
+    const body = summary.slice(0, summary.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /if \(!webrtcActive\) return "";/);
+    // The guard has to come before the flags are read, or it is decoration.
+    assert.ok(
+        body.indexOf("webrtcActive") < body.indexOf("audioOn"),
+        "avSummary reads audioOn before checking that WebRTC is live",
+    );
+});
