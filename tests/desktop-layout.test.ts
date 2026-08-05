@@ -429,3 +429,26 @@ test("the backend pill reports vision as a fact, not as progress", () => {
     // The overall state still follows the daemon's own verdict.
     assert.match(js, /var ready = !!s\.ok;/);
 });
+
+test("the macro step list survives its own repaint with focus intact", () => {
+    /* Every modifier press saves, and every save repaints the whole list, so
+     * building one chord means several rebuilds in a row. Two things have to
+     * hold for focus to come back to the button you just pressed.
+     *
+     * The render must be synchronous — React schedules rather than performs, so
+     * a scheduled render leaves the lookup searching a DOM that is not written
+     * yet. That is flushSync in the shared mount.
+     *
+     * And where focus IS must be read before anything is unmounted. Dropping the
+     * roots destroys the focused button, so asking afterwards always answers
+     * "the body" — measured: focusKept false, with the toggle itself working
+     * perfectly, which is exactly how this hides. */
+    assert.match(js, /var active = document\.activeElement;[\s\S]{0,400}?dropStepRoots\(\);/);
+    assert.doesNotMatch(js, /dropStepRoots\(\);\s*\n\s*var active = document\.activeElement;/);
+    // Roots are tracked so a rebuild cannot orphan them.
+    assert.match(js, /function dropStepRoots\(\)/);
+    assert.match(js, /stepRoots\.push\(shared\.mountButtons\(mods, modSpecs\)\)/);
+    // Either attribute, so a row can mix drawn and hand-built controls.
+    assert.match(js, /\[data-fk="' \+ key \+ '"\]/);
+    assert.match(js, /\[data-tb="' \+ key \+ '"\]/);
+});

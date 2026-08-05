@@ -636,6 +636,19 @@
     /* Set by an edit that MOVES the control it was fired from, so the repaint
      * can follow it instead of restoring focus to the old position. */
     var pendingMacroFocus = null;
+    /* React roots mounted inside the step list. paintMacroEditor clears that
+     * list wholesale, so each rebuild must unmount what it is about to throw
+     * away — otherwise every save leaves another live root attached to detached
+     * nodes. */
+    var stepRoots = [];
+    function dropStepRoots() {
+        stepRoots.forEach(function (r) {
+            try {
+                r.unmount();
+            } catch (e) {}
+        });
+        stepRoots = [];
+    }
 
     /* A small set of real icons, so a macro button is picked rather than typed.
      * Lucide geometry (MIT), inlined because the console ships no icon library
@@ -924,9 +937,18 @@
          * building one chord now means several changes in a row (three
          * modifiers, then the key). Controls carry a stable data-fk so the
          * equivalent one can be found again in the rebuilt rows. */
+        /* Read where focus is BEFORE unmounting anything. Dropping the roots
+         * destroys the button that currently has it, so asking afterwards always
+         * answers "the body" — which is how this managed to restore nothing at
+         * all while looking correct. */
         var active = document.activeElement;
-        var refocus = pendingMacroFocus || (active && steps.contains(active) ? active.getAttribute("data-fk") : null);
+        var refocus =
+            pendingMacroFocus ||
+            (active && steps.contains(active)
+                ? active.getAttribute("data-fk") || active.getAttribute("data-tb")
+                : null);
         pendingMacroFocus = null;
+        dropStepRoots();
         steps.innerHTML = "";
         macro.steps.forEach(function (step, index) {
             var row = document.createElement("div");
@@ -941,25 +963,41 @@
                 mods.className = "macro-mods";
                 mods.setAttribute("role", "group");
                 mods.setAttribute("aria-label", "Modifier keys for step " + (index + 1));
-                MACRO_MODS.forEach(function (m) {
+                var shared = window.pikvmShared;
+                var modSpecs = MACRO_MODS.map(function (m) {
                     var mcode = m[0];
-                    var mbtn = document.createElement("button");
-                    mbtn.type = "button";
-                    mbtn.className = "dlg-btn macro-mod";
-                    mbtn.textContent = m[1];
-                    mbtn.setAttribute("data-fk", "m" + index + ":" + mcode);
                     var on = (step.mods || []).indexOf(mcode) >= 0;
-                    mbtn.classList.toggle("is-on", on);
-                    mbtn.setAttribute("aria-pressed", String(on));
-                    mbtn.addEventListener("click", function () {
-                        step.mods = step.mods || [];
-                        var at = step.mods.indexOf(mcode);
-                        if (at >= 0) step.mods.splice(at, 1);
-                        else step.mods.push(mcode);
-                        void saveMacros();
-                    });
-                    mods.appendChild(mbtn);
+                    return {
+                        // The focus key IS the id, so the restoration above finds
+                        // it by data-tb exactly as it finds the rest by data-fk.
+                        id: "m" + index + ":" + mcode,
+                        label: m[1],
+                        // Keeps .macro-mod, whose is-on state is already expressed
+                        // in this stylesheet; the component supplies the rest.
+                        className: "dlg-btn macro-mod" + (on ? " is-on" : ""),
+                        onSelect: function () {
+                            step.mods = step.mods || [];
+                            var at = step.mods.indexOf(mcode);
+                            if (at >= 0) step.mods.splice(at, 1);
+                            else step.mods.push(mcode);
+                            void saveMacros();
+                        },
+                    };
                 });
+                if (shared && shared.mountButtons) {
+                    stepRoots.push(shared.mountButtons(mods, modSpecs));
+                } else {
+                    // Bundle not up yet: plain buttons rather than no controls.
+                    modSpecs.forEach(function (spec) {
+                        var b = document.createElement("button");
+                        b.type = "button";
+                        b.className = spec.className;
+                        b.textContent = spec.label;
+                        b.setAttribute("data-fk", spec.id);
+                        b.addEventListener("click", spec.onSelect);
+                        mods.appendChild(b);
+                    });
+                }
                 row.appendChild(mods);
 
                 var keySel = document.createElement("select");
@@ -1084,13 +1122,18 @@
             steps.appendChild(row);
         });
         if (refocus) {
-            var back = steps.querySelector('[data-fk="' + refocus + '"]');
+            /* Either attribute: controls this file builds carry data-fk, and the
+             * ones the shared component library draws carry data-tb with the same
+             * key. One lookup, so a row can mix the two without the restoration
+             * quietly missing half of it. */
+            var find = function (key) {
+                return steps.querySelector('[data-fk="' + key + '"]') || steps.querySelector('[data-tb="' + key + '"]');
+            };
+            var back = find(refocus);
             // A move can push the step to an end, which disables the arrow that
             // got it there; the opposite one is still under the pointer.
             if (back && back.disabled && /^[un]/.test(refocus)) {
-                back = steps.querySelector(
-                    '[data-fk="' + (refocus[0] === "u" ? "n" : "u") + refocus.slice(1) + '"]',
-                );
+                back = find((refocus[0] === "u" ? "n" : "u") + refocus.slice(1));
             }
             if (back && !back.disabled) back.focus();
         }
