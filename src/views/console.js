@@ -78,11 +78,24 @@
         return extras && extras.vnc_lab && extras.vnc_lab.enabled === true ? "snapshot" : "native";
     }
 
+    /** The widest the conversation panel can actually be drawn right now.
+     *
+     * --chat-max is only the ceiling on a wide window: the grid also refuses to
+     * shrink the live screen past --screen-min, so on a narrow one the binding
+     * limit is the viewport minus that reserve. At the 900px minimum window the
+     * real ceiling is 600px, not 1100. The drag, the End key and the divider's
+     * announced maximum all resolve through here so none of them can offer a
+     * width the layout will then refuse to render. */
+    function panelCeiling(viewportW, screenMin, minW, maxW) {
+        return Math.max(minW, Math.min(maxW, (Number(viewportW) || 0) - screenMin));
+    }
+
     var pure = {
         charToKey: charToKey,
         fracToNorm: fracToNorm,
         streamPath: streamPath,
         streamModeForInfo: streamModeForInfo,
+        panelCeiling: panelCeiling,
     };
     if (typeof module !== "undefined" && module.exports) module.exports = pure;
     if (typeof window === "undefined") return; // node test: stop before DOM wiring
@@ -2674,8 +2687,18 @@
     var PANEL_MIN_W = panelBound("--chat-min", 320);
     var PANEL_MAX_W = panelBound("--chat-max", 1100);
     var PANEL_DEFAULT_W = panelBound("--chat-default", 400);
+    var PANEL_SCREEN_MIN = panelBound("--screen-min", 300);
+    function panelMaxNow() {
+        return panelCeiling(window.innerWidth, PANEL_SCREEN_MIN, PANEL_MIN_W, PANEL_MAX_W);
+    }
+    /* Storage keeps the static clamp on purpose: a width chosen on a big monitor
+     * should still be there after a spell in a small window, and the grid renders
+     * it correctly meanwhile. Only the live interaction clamps to the window. */
     function clampPanelWidth(w) {
         return Math.round(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, Number(w) || PANEL_DEFAULT_W)));
+    }
+    function clampPanelWidthNow(w) {
+        return Math.round(Math.max(PANEL_MIN_W, Math.min(panelMaxNow(), Number(w) || PANEL_DEFAULT_W)));
     }
     function readPanelWidth() {
         try {
@@ -4421,7 +4444,7 @@
             // the same pointer travel means the opposite width change.
             var sign = document.documentElement.classList.contains("agent-right") ? -1 : 1;
             var want = cStartW + sign * (e.clientX - cStartX);
-            want = clampPanelWidth(want);
+            want = clampPanelWidthNow(want);
             if (want !== cLastW) {
                 applyPanelWidth(want);
                 cLastW = want;
@@ -4430,7 +4453,7 @@
         function paintResizeValue() {
             var chatEl = document.querySelector(".chat");
             chatResize.setAttribute("aria-valuemin", String(PANEL_MIN_W));
-            chatResize.setAttribute("aria-valuemax", String(PANEL_MAX_W));
+            chatResize.setAttribute("aria-valuemax", String(panelMaxNow()));
             chatResize.setAttribute(
                 "aria-valuenow",
                 String(chatEl ? Math.round(chatEl.offsetWidth) : PANEL_MIN_W),
@@ -4464,11 +4487,11 @@
             if (e.key === "ArrowLeft") next = current - sign * step;
             else if (e.key === "ArrowRight") next = current + sign * step;
             else if (e.key === "Home") next = PANEL_MIN_W;
-            else if (e.key === "End") next = PANEL_MAX_W;
+            else if (e.key === "End") next = panelMaxNow();
             if (next === null) return;
             e.preventDefault();
             e.stopPropagation();
-            next = clampPanelWidth(next);
+            next = clampPanelWidthNow(next);
             applyPanelWidth(next);
             savePanelWidth(next);
             paintResizeValue();

@@ -47,6 +47,28 @@ test("VNC lab targets use the snapshot screen transport", () => {
     assert.match(js, /\/api\/streamer\/snapshot/);
 });
 
+test("the panel divider offers only widths the grid will actually render", () => {
+    const { panelCeiling } = require(resolve(root, "src/views/console.js"));
+
+    // At the 900px minimum window the grid keeps 300px for the screen, so the
+    // panel tops out at 600 — announcing --chat-max here would promise 1100 and
+    // leave the last 500px of the drag moving nothing.
+    assert.equal(panelCeiling(900, 300, 320, 1100), 600);
+    // Wide enough and the static ceiling is the binding one again.
+    assert.equal(panelCeiling(1600, 300, 320, 1100), 1100);
+    assert.equal(panelCeiling(1400, 300, 320, 1100), 1100);
+    assert.equal(panelCeiling(1399, 300, 320, 1100), 1099);
+    // Never below the floor, even if the viewport is nonsense or not yet known.
+    assert.equal(panelCeiling(400, 300, 320, 1100), 320);
+    assert.equal(panelCeiling(0, 300, 320, 1100), 320);
+    assert.equal(panelCeiling(undefined, 300, 320, 1100), 320);
+
+    // The reserve is a shared token, so the drag and the grid cannot drift.
+    assert.match(css, /--screen-min:\s*300px/);
+    assert.doesNotMatch(css, /calc\(100vw - 300px\)/);
+    assert.match(js, /aria-valuemax", String\(panelMaxNow\(\)\)/);
+});
+
 test("screen failures keep the last frame and offer a deliberate retry", () => {
     assert.match(html, /alt="Remote target screen"/);
     assert.match(html, /id="overlay-retry"/);

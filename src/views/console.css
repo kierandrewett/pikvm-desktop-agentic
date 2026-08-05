@@ -28,6 +28,12 @@
     --chat-min: 320px;
     --chat-default: 400px;
     --chat-max: 1100px;
+    /* The live screen never gives up more than this, so the panel's REAL ceiling
+       is 100vw minus this reserve, not --chat-max. At the 900px minimum window
+       that is 600px, well under 1100 — so this has to be a token the drag can
+       read too, or the divider announces a maximum it can never reach and the
+       last stretch of the drag moves nothing. */
+    --screen-min: 300px;
 }
 
 [data-theme="light"] {
@@ -1067,8 +1073,8 @@ html.desktop-console .app {
     min-height: 0;
     height: auto;
     grid-template-columns:
-        minmax(var(--chat-min), min(var(--chat-w, var(--chat-default)), calc(100vw - 300px)))
-        minmax(300px, 1fr);
+        minmax(var(--chat-min), min(var(--chat-w, var(--chat-default)), calc(100vw - var(--screen-min))))
+        minmax(var(--screen-min), 1fr);
     grid-template-rows: minmax(0, 1fr);
     transition: none;
 }
@@ -1522,8 +1528,8 @@ html.desktop-console .app.computer-collapsed .screen {
  * LEFT edge. Same track sizes, just swapped. */
 html.desktop-console.agent-right .app {
     grid-template-columns:
-        minmax(300px, 1fr)
-        minmax(var(--chat-min), min(var(--chat-w, var(--chat-default)), calc(100vw - 300px)));
+        minmax(var(--screen-min), 1fr)
+        minmax(var(--chat-min), min(var(--chat-w, var(--chat-default)), calc(100vw - var(--screen-min))));
 }
 html.desktop-console.agent-right .screen {
     grid-column: 1;
