@@ -564,17 +564,26 @@ html.modal-open .screen {
 
    The shared background is --card at 82%, so 18% of the screen behind bleeds
    through. Over a dark desktop that is fine; over a bright one it lifts the
-   backdrop far enough that the error text lands at 3.56:1 in dark and 3.45:1
-   in light, under the 4.5:1 this 12px text needs. The normal toast survives it
-   at 9.3:1 because its text is --foreground; the red does not have the room.
+   backdrop far enough that the red lands under the 4.5:1 this 12px text needs.
+   The normal toast survives it at 9.32:1 worst because its surface and its ink
+   flip together; the red does not have the room, so this pill is pinned to
+   --overlay-glass at 96% and the picture barely moves it.
 
-   Fixed on the pill rather than by washing the red toward --foreground, which
-   also passes but spends the one thing the colour is carrying. At 96% the
-   backdrop barely moves with the picture: 5.61 dark, 4.83 light. */
+   The INK has to be pinned too, and was not. Pinning only the surface left a
+   fixed dark pill carrying ink mixed from --danger and --foreground, both of
+   which flip: in the light theme that mix is #bf3f3b, a DARKER red on an
+   already dark pill, which measured 3.26:1 — worse than the bleed-through this
+   rule exists to fix, and in every state rather than only over a bright
+   screen. The stale figure in this comment said 4.83 and had not been
+   recomputed since the surface stopped following the theme.
+
+   Built from the overlay tokens instead, so surface and ink are pinned
+   together and both themes render the same pill: ink #f16768, worst 5.62:1
+   over a bright screen. */
 .toast.is-error {
     background: color-mix(in srgb, var(--overlay-glass) 96%, transparent);
-    border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
-    color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
+    border-color: color-mix(in srgb, var(--overlay-danger) 55%, var(--overlay-glass));
+    color: color-mix(in srgb, var(--overlay-danger) 88%, var(--overlay-ink));
 }
 
 .res-toast-av:empty {
