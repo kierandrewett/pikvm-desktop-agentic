@@ -33,11 +33,15 @@ await build({
     platform: "node",
     format: "cjs",
     bundle: true,
-    // nodejs-whisper spawns the whisper.cpp binary it locates via __dirname, and
-    // tesseract.js loads its worker/WASM/traineddata from its own package dir — so
-    // neither can be bundled; keep them external and resolve from node_modules.
-    // @lydell/node-pty is a prebuilt native (.node) addon — must resolve at runtime.
-    external: ["electron", "nodejs-whisper", "tesseract.js", "@lydell/node-pty"],
+    // electron is provided by the runtime. @lydell/node-pty is a prebuilt native
+    // (.node) addon, so it cannot be bundled and must resolve from node_modules at
+    // runtime — scripts/copy-runtime-deps.mjs ships it into the packaged app.
+    //
+    // nodejs-whisper and tesseract.js were listed here until the desktop app was
+    // slimmed to a pure PiKVM client. Neither is a dependency or installed any
+    // more, and nothing imports them; naming them here suggested a build that
+    // still handled transcription and local OCR.
+    external: ["electron", "@lydell/node-pty"],
     sourcemap: true,
     logLevel: "info",
 });

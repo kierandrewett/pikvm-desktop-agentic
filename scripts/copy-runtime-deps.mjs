@@ -1,12 +1,14 @@
 // Ship the runtime node_modules that the bundle deliberately keeps EXTERNAL.
 //
-// `scripts/build.mjs` bundles everything except a few packages that can't be
-// bundled because they spawn native binaries / load asset files relative to their
-// own package dir (`__dirname`): nodejs-whisper (whisper.cpp + the STT model),
-// tesseract.js (OCR worker/WASM/traineddata), and sharp (native libvips). esbuild
-// leaves those as bare `import("…")`, so they MUST exist in the packaged app's
-// node_modules or the import throws at runtime — which is exactly why transcription
-// reported "nodejs-whisper failed to load" in the RPM but worked in `yarn start`.
+// `scripts/build.mjs` bundles everything except what cannot be bundled: today
+// that is @lydell/node-pty, a prebuilt native addon. esbuild leaves it as a bare
+// `import("…")`, so it MUST exist in the packaged app's node_modules or the
+// import throws at runtime — the failure only shows in the RPM, never in
+// `yarn start`, because there the repo's own node_modules is still on disk.
+//
+// This once also carried nodejs-whisper (whisper.cpp and an STT model),
+// tesseract.js and sharp. None of them is a dependency any more, and the header
+// here went on describing them long after they went.
 //
 // electron-packager only copies `dist/`, so here we copy each external plus its full
 // (prod + optional) dependency closure into the packaged app's node_modules, AFTER
@@ -19,7 +21,8 @@ const root = resolve(import.meta.dirname, "..");
 const src = join(root, "node_modules");
 const dest = join(root, "builds/pikvm-desktop-linux-x64/resources/app/node_modules");
 
-// The bundle's externals (see build.mjs). Their transitive deps come along below.
+// The bundle's externals, minus electron (the runtime provides that). Their
+// transitive deps come along below.
 const ROOTS = ["@lydell/node-pty"];
 
 if (!existsSync(join(root, "builds/pikvm-desktop-linux-x64"))) {
@@ -57,4 +60,6 @@ for (const name of seen) {
     cpSync(from, to, { recursive: true, dereference: true });
 }
 
-console.log(`copy-runtime-deps: shipped ${seen.size} packages (incl. whisper.cpp + STT model) into the app.`);
+console.log(
+    `copy-runtime-deps: shipped ${seen.size} packages into the app: ${[...seen].sort().join(", ")}`,
+);
