@@ -22,12 +22,22 @@ export interface PikvmSettingsApi {
     save(values: SettingsValues): void;
     /** Close the window without saving. */
     cancel(): void;
+    /** The console's current theme, read before the first paint. */
+    theme(): "dark" | "light";
+    /** Follow the console if it changes while this window is open. */
+    onTheme(cb: (theme: "dark" | "light") => void): () => void;
 }
 
 const api: PikvmSettingsApi = {
     read: () => ipcRenderer.sendSync("settings:read"),
     save: (values) => ipcRenderer.send("settings:save", values),
     cancel: () => ipcRenderer.send("settings:cancel"),
+    theme: () => ipcRenderer.sendSync("settings:theme"),
+    onTheme: (cb) => {
+        const listener = (_e: unknown, theme: "dark" | "light") => cb(theme);
+        ipcRenderer.on("settings:theme", listener);
+        return () => ipcRenderer.removeListener("settings:theme", listener);
+    },
 };
 
 contextBridge.exposeInMainWorld("pikvmSettings", api);

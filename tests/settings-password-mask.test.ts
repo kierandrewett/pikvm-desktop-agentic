@@ -139,3 +139,30 @@ test("the settings window can measure the height it actually needs", () => {
     assert.match(main, /executeJavaScript\("document\.documentElement\.scrollHeight"\)/);
     assert.match(main, /if \(wanted > height\) settingsWin\.setContentSize\(width, wanted\);/);
 });
+
+/**
+ * Settings is a separate BrowserWindow, so it cannot read the console's theme
+ * choice out of localStorage. Main remembers what the console last reported and
+ * hands it over synchronously, or Settings opens black over a light console —
+ * the one part of the app that ignored the setting.
+ */
+test("the settings window follows the console's theme", () => {
+    const main = readFileSync(resolve(process.cwd(), "src/main.ts"), "utf8");
+    const preload = readFileSync(resolve(process.cwd(), "src/preload-settings.ts"), "utf8");
+
+    // Remembered on report, and used when the window is built.
+    assert.match(main, /consoleTheme = theme;/);
+    assert.match(main, /darkTheme: consoleTheme === "dark"/);
+    assert.match(main, /backgroundColor: THEME_BG\[consoleTheme\]/);
+    // Pushed to an already-open Settings rather than only applied at open.
+    assert.match(main, /settingsWin\.webContents\.send\("settings:theme", theme\)/);
+    // Synchronous, so the first frame is already the right theme.
+    assert.match(preload, /theme: \(\) => ipcRenderer\.sendSync\("settings:theme"\)/);
+
+    const html = readFileSync(resolve(process.cwd(), "src/views/settings-console.html"), "utf8");
+    assert.match(html, /:root\[data-theme="light"\]/);
+    // No colour left hardcoded in a rule: every one comes from a token.
+    const rules = html.slice(html.indexOf("</style>") - 4000, html.indexOf("</style>"));
+    assert.doesNotMatch(rules, /background:\s*#0a0a0c/);
+    assert.doesNotMatch(rules, /color:\s*#e6e6ea/);
+});

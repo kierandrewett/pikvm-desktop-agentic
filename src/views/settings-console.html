@@ -5,7 +5,45 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PiKVM Desktop — Settings</title>
     <style>
-        :root { color-scheme: dark; }
+        /* Named, so this window can follow the console's theme. It used to be a
+           set of literal hex values with color-scheme:dark pinned on, which
+           made Settings a black window over a light console — the one part of
+           the app that ignored the choice. Main remembers the theme the console
+           last reported and the preload hands it over before the first paint. */
+        :root {
+            color-scheme: dark;
+            --s-bg: #0a0a0c;
+            --s-fg: #e6e6ea;
+            --s-title: #f2f2f6;
+            --s-muted: #9a9aa6;
+            --s-hint: #8a8a95;
+            --s-field: #131318;
+            --s-border: #2a2a32;
+            --s-btn: #1b1b22;
+            --s-btn-hover: #24242c;
+            --s-accent: #4c6ef5;
+            --s-primary: #4361d7;
+            --s-primary-hover: #506cda;
+            --s-danger: #f2827c;
+        }
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --s-bg: #eef0f4;
+            --s-fg: #17171c;
+            --s-title: #0f0f14;
+            /* Both cleared 4.5:1 on their own backgrounds; the dark theme's
+               greys are far too pale on a light one. */
+            --s-muted: #5b5b66;
+            --s-hint: #5b5b66;
+            --s-field: #ffffff;
+            --s-border: #d3d4dc;
+            --s-btn: #ffffff;
+            --s-btn-hover: #e9eaf0;
+            --s-accent: #3b6ef0;
+            --s-primary: #3355cc;
+            --s-primary-hover: #2c4bbb;
+            --s-danger: #c0322c;
+        }
         * { box-sizing: border-box; }
         /* min-height, not height, on the body.
            Main sizes this window by reading documentElement.scrollHeight once
@@ -18,42 +56,42 @@
         html { margin: 0; height: 100%; }
         body { margin: 0; min-height: 100%; }
         body {
-            background: #0a0a0c;
-            color: #e6e6ea;
+            background: var(--s-bg);
+            color: var(--s-fg);
             font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             padding: 18px 20px;
             -webkit-user-select: none;
             user-select: none;
         }
-        h1 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: #f2f2f6; }
-        label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #9a9aa6; margin: 14px 0 5px; }
+        h1 { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: var(--s-title); }
+        label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--s-muted); margin: 14px 0 5px; }
         input[type="text"], select {
             width: 100%; padding: 8px 9px; border-radius: 7px;
-            border: 1px solid #2a2a32; background: #131318; color: #e6e6ea;
+            border: 1px solid var(--s-border); background: var(--s-field); color: var(--s-fg);
             font: inherit; outline: none;
         }
-        input[type="text"]:focus, select:focus { border-color: #4c6ef5; }
+        input[type="text"]:focus, select:focus { border-color: var(--s-accent); }
         input[type="text"]:disabled { opacity: .5; }
         /* The UA default for a dark colour-scheme lands at 3.97:1 here;
            placeholder text needs the same 4.5:1 as any other text. */
-        input[type="text"]::placeholder { color: #8a8a95; }
-        .hint { font-size: 11px; color: #8a8a95; margin-top: 5px; }
+        input[type="text"]::placeholder { color: var(--s-hint); }
+        .hint { font-size: 11px; color: var(--s-hint); margin-top: 5px; }
         /* Always present, so revealing a problem does not change the height of a
            window that is measured once at load and cannot be resized. */
-        .err { font-size: 11px; color: #f2827c; margin: 4px 0 0; min-height: 15px; }
-        input[type="text"][aria-invalid="true"] { border-color: #f2827c; }
+        .err { font-size: 11px; color: var(--s-danger); margin: 4px 0 0; min-height: 15px; }
+        input[type="text"][aria-invalid="true"] { border-color: var(--s-danger); }
         .row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
-        .row input[type="checkbox"] { width: 15px; height: 15px; accent-color: #4c6ef5; }
-        .row label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 13px; color: #e6e6ea; }
+        .row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--s-accent); }
+        .row label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--s-fg); }
         .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
         button {
-            padding: 8px 16px; border-radius: 7px; border: 1px solid #2a2a32;
-            background: #1b1b22; color: #e6e6ea; font: inherit; cursor: pointer;
+            padding: 8px 16px; border-radius: 7px; border: 1px solid var(--s-border);
+            background: var(--s-btn); color: var(--s-fg); font: inherit; cursor: pointer;
         }
-        button:hover { background: #24242c; }
-        button.primary { background: #4361d7; border-color: #4361d7; color: #fff; }
-        button.primary:hover { background: #506cda; }
-        .note { font-size: 11px; color: #8a8a95; margin-top: 14px; }
+        button:hover { background: var(--s-btn-hover); }
+        button.primary { background: var(--s-primary); border-color: var(--s-primary); color: #fff; }
+        button.primary:hover { background: var(--s-primary-hover); }
+        .note { font-size: 11px; color: var(--s-hint); margin-top: 14px; }
     </style>
 </head>
 <body>
@@ -93,6 +131,24 @@
     <script>
         (function () {
             var S = window.pikvmSettings;
+
+            /* Theme first, before anything reads a colour.
+               Read synchronously from the preload so the window paints in the
+               right theme on its FIRST frame — asking after load would flash
+               the wrong one in a window that is only on screen for a moment. */
+            function applyTheme(t) {
+                document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+            }
+            try {
+                applyTheme(S && S.theme ? S.theme() : "dark");
+            } catch (e) {
+                applyTheme("dark");
+            }
+            // And follow the console if it is toggled while this window is open.
+            try {
+                if (S && S.onTheme) S.onTheme(applyTheme);
+            } catch (e) {}
+
             var urlEl = document.getElementById("pikvm-url");
             var layoutEl = document.getElementById("layout");
             var jigglerEl = document.getElementById("jiggler");

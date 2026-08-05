@@ -412,6 +412,14 @@ ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: num
 // the only things a PiKVM client needs: connection URL, keyboard layout, jiggler.
 const settingsFilePath = () => resolve(app.getPath("userData"), "agent-settings.json");
 let settingsWin: Electron.BrowserWindow | null = null;
+/** The console's current theme, so windows opened later match it.
+ *
+ *  The console owns the choice — it is a deliberate user setting kept in its own
+ *  localStorage, not the OS preference — and it reports every change here. The
+ *  Settings window is a separate BrowserWindow that cannot read that storage, so
+ *  without remembering it here Settings opened black over a light console. */
+let consoleTheme: "dark" | "light" = "dark";
+const THEME_BG = { dark: "#0a0a0c", light: "#eef0f4" } as const;
 
 function openSettingsWindow() {
     if (settingsWin && !settingsWin.isDestroyed()) {
@@ -425,9 +433,9 @@ function openSettingsWindow() {
         minimizable: false,
         maximizable: false,
         center: true,
-        darkTheme: true,
+        darkTheme: consoleTheme === "dark",
         title: "PiKVM Desktop — Settings",
-        backgroundColor: "#0a0a0c",
+        backgroundColor: THEME_BG[consoleTheme],
         autoHideMenuBar: true,
         show: false,
         webPreferences: {
@@ -505,6 +513,11 @@ ipcMain.on("settings:save", (_e, v: { pikvmUrl?: unknown; keyboardLayout?: unkno
 });
 
 ipcMain.on("settings:cancel", (e) => BrowserWindow.fromWebContents(e.sender)?.close());
+// Read synchronously at load, so the window paints in the right theme on its
+// first frame rather than flashing the wrong one.
+ipcMain.on("settings:theme", (e) => {
+    e.returnValue = consoleTheme;
+});
 
 /** Standard editing context menu (cut/copy/paste/select all) for a view. */
 function attachContextMenu(wc: Electron.WebContents) {
@@ -695,8 +708,15 @@ function createWindow() {
     ipcMain.on("panel:request-theme", () => toConsole("console:agent-theme-request"));
     ipcMain.on("console:agent-theme", (_, theme: unknown) => {
         if (theme !== "dark" && theme !== "light") return;
+        consoleTheme = theme;
         if (agentWin && !agentWin.isDestroyed()) {
             agentWin.webContents.send("panel:theme", theme);
+        }
+        // Settings is a plain window rather than part of the conversation, but it
+        // is still this app's window and should not be the one thing left dark.
+        if (settingsWin && !settingsWin.isDestroyed()) {
+            settingsWin.setBackgroundColor(THEME_BG[theme]);
+            settingsWin.webContents.send("settings:theme", theme);
         }
     });
     ipcMain.on("console:agent-placement", (_, placement: unknown) => {
