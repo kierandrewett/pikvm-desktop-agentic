@@ -91,3 +91,38 @@ test("a frame asking for the theme is answered on every platform", () => {
         "the only subscribe handler is inside the desktop-only block, so web and mobile never get an answer",
     );
 });
+
+/**
+ * prefers-reduced-motion is about things that TRAVEL, not about colour.
+ *
+ * The console already quieted its spinner, dialog rise and menu, but the three
+ * largest movements in the window were missed: the split animating its height,
+ * the conversation panel sliding in, and the toasts sliding as they appear.
+ * All three are live on the web and mobile path, where the desktop layout's
+ * own `transition: none` does not apply.
+ */
+test("reduced motion stops the things that travel", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/views/console.css"), "utf8");
+    const blocks = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\)\s*\{/g)].map((m) => {
+        let depth = 1;
+        let i = m.index! + m[0].length;
+        while (depth > 0 && i < css.length) {
+            if (css[i] === "{") depth++;
+            else if (css[i] === "}") depth--;
+            i++;
+        }
+        return css.slice(m.index! + m[0].length, i);
+    });
+    const all = blocks.join("\n");
+
+    for (const sel of [".app", ".chat", ".toast", ".res-toast"]) {
+        assert.ok(
+            new RegExp(`(^|[,\\s])\\${sel}(\\.[\\w-]+)?\\s*[,{]`, "m").test(all),
+            `${sel} moves but nothing quiets it under reduced motion`,
+        );
+    }
+    // The toasts keep a crossfade rather than losing their feedback entirely,
+    // and lose the offset with it so they cannot jump the distance they slid.
+    assert.match(all, /transform:\s*translate\(-50%,\s*0\)/);
+    assert.match(all, /transition:\s*opacity/);
+});

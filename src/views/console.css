@@ -1899,3 +1899,30 @@ html[data-theme="light"] {
 #macro-step-actions [data-fk="macro-delete"] {
     margin-left: auto;
 }
+
+/* Reduced motion: the things that TRAVEL stop travelling.
+ *
+ * The blocks above already quiet the spinner, the dialog rise and the menu.
+ * These three were missed, and they are the largest movements in the window:
+ * the split animating its height over 0.55s, the conversation panel sliding
+ * in over 0.5s, and the toasts sliding 10px as they appear. Measured on the
+ * web and mobile path, where the desktop layout's `transition: none` does not
+ * apply and all three were live.
+ *
+ * The toasts keep their crossfade — that is the standard alternative, not an
+ * absence of feedback — but the offset has to go with the transition, or they
+ * would jump the distance they used to slide. Colour and background
+ * transitions elsewhere are left alone; they do not move anything. */
+@media (prefers-reduced-motion: reduce) {
+    .app,
+    .chat {
+        transition: none;
+    }
+    .toast,
+    .toast.show,
+    .res-toast,
+    .res-toast.show {
+        transform: translate(-50%, 0);
+        transition: opacity 0.25s ease;
+    }
+}
