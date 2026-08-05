@@ -85,6 +85,36 @@ test("collapsing the preview retires the divider instead of hiding it off-screen
     assert.match(js, /aria-valuenow",\s*String\(clampPanelWidthNow\(/);
 });
 
+test("window controls stay above the modal backdrop", () => {
+    // .tb-right is its own stacking context (z-index 1), so a window control
+    // inside it is pinned under the scrim no matter what z-index it carries —
+    // raising the button alone was measured to do nothing. They have to live in
+    // their own group, outside that cluster.
+    const right = html.slice(html.indexOf('class="tb-right"'), html.indexOf('class="tb-window"'));
+    assert.doesNotMatch(right, /tb-win/, "window controls are back inside .tb-right");
+    assert.match(html, /<div class="tb-window"/);
+    assert.match(css, /\.tb-window\s*\{[^}]*z-index:\s*70/);
+    // The scrim it has to clear.
+    assert.match(css, /\.dlg-scrim\s*\{[\s\S]*?z-index:\s*60/);
+    // .tb-right lost space-between and needs the auto margin to stay hard right.
+    assert.match(css, /\.tb-right\s*\{\s*margin-left:\s*auto/);
+});
+
+test("state pushes never rewrite a control the user is holding", () => {
+    // A native select closes its dropdown when anything rewrites it, and kvmd
+    // pushes streamer/MSD state unprompted, so every such control has to be
+    // skipped while focused and repainted on blur.
+    assert.match(js, /function controlBusy\(el, repaint\)/);
+    assert.match(js, /if \(!controlBusy\(resSel, paintStreamDialog\)\)/);
+    assert.match(js, /if \(controlBusy\(el, paintStreamDialog\)\) continue;/);
+    assert.match(js, /sel && !controlBusy\(sel, paintMsd\)/);
+    assert.match(js, /mode && !controlBusy\(mode, paintMsd\)/);
+    // The old ad-hoc guards are gone: the only place that still asks the DOM
+    // directly is controlBusy itself, which is the one way to ask.
+    const direct = js.match(/document\.activeElement !== el\b/g) ?? [];
+    assert.equal(direct.length, 1, "an ad-hoc activeElement guard crept back in");
+});
+
 test("screen failures keep the last frame and offer a deliberate retry", () => {
     assert.match(html, /alt="Remote target screen"/);
     assert.match(html, /id="overlay-retry"/);

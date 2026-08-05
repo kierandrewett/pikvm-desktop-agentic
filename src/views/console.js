@@ -1802,6 +1802,30 @@
     var msdDlg = document.getElementById("msd-dlg");
     var msdUpload = null; // the in-flight XMLHttpRequest, or null
 
+    /* True while the user has this control open, and not to be written to.
+     *
+     * A native <select> closes its dropdown the moment anything rewrites it —
+     * setting .value, replacing its options, or toggling .disabled all shut the
+     * list under the pointer. kvmd pushes streamer and MSD state continuously
+     * and unprompted, so a dialog that repaints on every event kept closing its
+     * own dropdown while the user was reading it. Skip the control while it has
+     * focus and repaint once it lets go, so nothing ends up stale either. */
+    function controlBusy(el, repaint) {
+        if (!el || document.activeElement !== el) return false;
+        if (el.getAttribute("data-catchup") !== "1") {
+            el.setAttribute("data-catchup", "1");
+            el.addEventListener(
+                "blur",
+                function () {
+                    el.removeAttribute("data-catchup");
+                    repaint();
+                },
+                { once: true },
+            );
+        }
+        return true;
+    }
+
     function paintMsd() {
         if (!msdDlg || msdDlg.hidden) return;
         var online = msd.online();
@@ -1816,7 +1840,7 @@
         if (status) status.textContent = msd.summary();
 
         var sel = document.getElementById("msd-image");
-        if (sel) {
+        if (sel && !controlBusy(sel, paintMsd)) {
             var images = msd.images();
             var names = Object.keys(images).sort(function (a, b) {
                 return (images[b].mod_ts || 0) - (images[a].mod_ts || 0);
@@ -1836,13 +1860,13 @@
                     sel.appendChild(o);
                 }
             }
-            if (document.activeElement !== sel) sel.value = d.image && d.image.in_storage ? d.image.name : "";
+            sel.value = d.image && d.image.in_storage ? d.image.name : "";
             sel.disabled = !settable;
         }
 
         var mode = document.getElementById("msd-mode");
-        if (mode) {
-            if (document.activeElement !== mode) mode.value = d.cdrom ? "1" : "0";
+        if (mode && !controlBusy(mode, paintMsd)) {
+            mode.value = d.cdrom ? "1" : "0";
             mode.disabled = !settable;
         }
         var rw = document.getElementById("msd-rw");
@@ -2317,19 +2341,24 @@
         if (resRow && resSel) {
             var hasRes = !!f.resolution && !!(l.available_resolutions && l.available_resolutions.length);
             resRow.hidden = !hasRes;
+            /* This is the one that bit: the sliders below already refuse to write
+             * to the control the user is holding, but the resolution list did not,
+             * so every unrelated streamer event slammed its dropdown shut. */
             if (hasRes) {
                 anything = true;
-                var key = l.available_resolutions.join(",");
-                if (resSel.getAttribute("data-set") !== key) {
-                    resSel.setAttribute("data-set", key);
-                    resSel.innerHTML = "";
-                    for (var i = 0; i < l.available_resolutions.length; i++) {
-                        var o = document.createElement("option");
-                        o.value = o.textContent = l.available_resolutions[i];
-                        resSel.appendChild(o);
+                if (!controlBusy(resSel, paintStreamDialog)) {
+                    var key = l.available_resolutions.join(",");
+                    if (resSel.getAttribute("data-set") !== key) {
+                        resSel.setAttribute("data-set", key);
+                        resSel.innerHTML = "";
+                        for (var i = 0; i < l.available_resolutions.length; i++) {
+                            var o = document.createElement("option");
+                            o.value = o.textContent = l.available_resolutions[i];
+                            resSel.appendChild(o);
+                        }
                     }
+                    if (a.resolution) resSel.value = a.resolution;
                 }
-                if (a.resolution) resSel.value = a.resolution;
             }
         }
 
@@ -2343,12 +2372,14 @@
             row.hidden = !have;
             if (!have) continue;
             anything = true;
+            /* Don't fight the user mid-drag. The value was already guarded, but the
+             * bounds were not, and rewriting min or max moves the thumb just as
+             * surely. The input handler keeps the label live while they hold it. */
+            if (controlBusy(el, paintStreamDialog)) continue;
             var range = cfg.limit ? l[cfg.limit] : null;
             if (range && typeof range.min === "number") el.min = range.min;
             if (range && typeof range.max === "number") el.max = range.max;
-            // Don't fight the user mid-drag: only adopt the applied value when the
-            // slider isn't the thing that just changed it.
-            if (a[cfg.param] !== undefined && document.activeElement !== el) el.value = a[cfg.param];
+            if (a[cfg.param] !== undefined) el.value = a[cfg.param];
             paintSliderValue(cfg, el, val);
         }
 
