@@ -466,3 +466,34 @@ test("a blur releases held input outside the desktop-only block", () => {
         );
     }
 });
+
+/**
+ * "input offline" has to be visible, not only in a tooltip.
+ *
+ * The connection chip put the note in the title attribute alone, so a console
+ * whose HID socket had dropped read a plain "Live" and looked healthy while
+ * every keystroke and click went nowhere. A tooltip is the wrong home for it:
+ * there is no hover on a phone at all, and on the desktop it means resting on
+ * an 8px dot to find out why nothing works.
+ *
+ * hid.setStatus existed and nothing subscribed to it, so the socket coming or
+ * going changed nothing on screen until some unrelated stream transition
+ * happened to repaint.
+ *
+ * Verified against a harness that drops the socket server-side and refuses the
+ * reconnect: with input measurably not arriving, the chip reads
+ * "Live · input offline" and returns to "Live" on recovery, fitting the bar at
+ * 390 and 320px wide with no clipping.
+ */
+test("the connection chip shows input being offline, not just its tooltip", () => {
+    const fn = js.slice(js.indexOf("function paintConnStatus()"));
+    const body = fn.slice(0, fn.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /connText\.textContent = d\.label \+ inputNote/);
+    assert.match(body, /conn\.title = d\.label \+ inputNote/);
+    // Repainted when the socket changes, not only when the stream state does.
+    assert.match(js, /hid\.setStatus\(paintConnStatus\);/);
+    // The overlay pill stays about the PICTURE: no input state on it.
+    const setState = js.slice(js.indexOf("function setState(s) {"));
+    const sbody = setState.slice(0, setState.indexOf("\n    }"));
+    assert.match(sbody, /overlayLabel\.textContent = d\.label;/);
+});

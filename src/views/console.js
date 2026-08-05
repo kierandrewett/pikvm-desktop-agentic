@@ -3562,6 +3562,24 @@
             label: "Screen unavailable",
         },
     };
+    /* The connection chip: stream state, plus whether input can reach the target.
+     *
+     * "input offline" used to go only into the title attribute, so a console
+     * whose HID socket had dropped showed a plain "Live" and looked perfectly
+     * healthy while every keystroke and click went nowhere. A tooltip is the
+     * wrong place for that: there is no hover on a phone at all, and on the
+     * desktop it means resting on an 8px dot to find out why nothing works.
+     *
+     * The overlay pill deliberately keeps d.label on its own — that one is
+     * about the picture, and the input socket is a different thing. */
+    function paintConnStatus() {
+        var d = STATUS[streamState] || STATUS.connecting;
+        var inputNote = hid.isOpen() ? "" : " · input offline";
+        conn.className = "dot " + d.tone;
+        if (connText) connText.textContent = d.label + inputNote;
+        conn.title = d.label + inputNote;
+    }
+
     function setState(s) {
         /* Leaving "live" is the moment to hold the picture, whatever is about to
          * stop updating it — an MJPEG source restart, a stall, a WebRTC drop. Doing
@@ -3570,11 +3588,8 @@
          * never have fired at all. */
         if (s !== "live" && streamState === "live") freezeFrame();
         streamState = s;
+        paintConnStatus();
         var d = STATUS[s] || STATUS.connecting;
-        conn.className = "dot " + d.tone;
-        var inputNote = hid.isOpen() ? "" : " · input offline";
-        if (connText) connText.textContent = d.label;
-        conn.title = d.label + inputNote;
         pane.setAttribute("data-stream-state", s);
         repaintFitButton(); // a picture arriving or going changes whether it can fit
         if (s === "live") {
@@ -3589,6 +3604,11 @@
             if (overlaySpinner) overlaySpinner.hidden = s === "nosignal";
         }
     }
+    /* setStatus existed and nothing had ever subscribed to it, so the socket
+     * coming or going changed nothing on screen until some unrelated stream
+     * transition repainted. */
+    hid.setStatus(paintConnStatus);
+
     /* Hold the last good frame on a canvas so re-establishing the stream does not
      * blank the picture.
      *
