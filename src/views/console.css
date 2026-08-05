@@ -892,8 +892,16 @@ html.desktop-console .tb-title {
     top: 0;
     height: 100%;
     transform: translateX(-50%);
-    display: flex;
-    align-items: center;
+    /* A BLOCK box that centres its own line, not a flex row.
+     *
+     * The ellipsis below only applies to a block container's own inline text.
+     * As a flex container the title's text was an anonymous flex item, so a
+     * title too long for max-width would have been cut off flat with no
+     * ellipsis to show it had been. Both titles this currently shows ("PiKVM",
+     * "VNC lab") fit easily, so nothing was visibly wrong — it would simply
+     * have started clipping the day something longer went here. */
+    display: block;
+    align-content: center;
     max-width: 52%;
     font-size: 12.5px;
     font-weight: 600;
