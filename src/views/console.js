@@ -4996,14 +4996,6 @@
                 openPasteDialog();
                 return;
             }
-            if (id === "detach") {
-                toggleAgentDetached();
-                return;
-            }
-            if (id === "swap-side") {
-                setAgentSide(agentOnRight() ? "left" : "right");
-                return;
-            }
             if (id === "stream") {
                 openStreamDialog();
                 return;
