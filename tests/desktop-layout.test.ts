@@ -165,3 +165,19 @@ test("a held button keeps steering the target once the pointer leaves the pictur
     // Leaving the pane mid-drag must not hide the cursor blob.
     assert.match(js, /if \(e\.buttons !== 0\) return;/);
 });
+
+test("a release we never saw does not leave a button down on the target", () => {
+    // Clamping the drag to the picture edge made this reachable in normal use:
+    // the drag now survives leaving the window, so the physical release can land
+    // over another application and its pointerup never arrives. A button left
+    // down on the TARGET is worse than a dropped one — the remote window keeps
+    // following the cursor with nothing held on this side.
+    assert.match(js, /function releaseHeldMouseButtons\(\)/);
+    // A move reporting no buttons is proof the release happened.
+    assert.match(js, /if \(e\.buttons === 0\) releaseHeldMouseButtons\(\);/);
+    // Losing the window mid-drag is the other way the release goes unseen.
+    assert.match(js, /window\.addEventListener\("blur", releaseHeldMouseButtons\)/);
+    // One way to let go, so a path cannot forget the modifiers half of it.
+    const adhoc = js.match(/delete heldMouseButtons\[/g) ?? [];
+    assert.equal(adhoc.length, 2, "expected only the helper and the real pointerup");
+});

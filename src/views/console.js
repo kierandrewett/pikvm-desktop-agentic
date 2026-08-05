@@ -3938,6 +3938,24 @@
     var twoStart = null; // {t, moved} for two-finger tap = right click
     var scrollAcc = 0;
     var heldMouseButtons = {};
+    /* Let go of everything the target is still holding.
+     *
+     * A release we never saw is the worst kind of stuck: the button stays down on
+     * the TARGET, so the remote window keeps following the cursor with nothing
+     * held on this side, and no amount of moving fixes it. It happens whenever the
+     * physical release lands where we do not get the event — over another
+     * application during a drag outside the window, or when the window loses the
+     * pointer outright. Clamping the drag to the edge made that reachable in
+     * normal use, because now the drag survives leaving the window at all. */
+    function releaseHeldMouseButtons() {
+        var held = Object.keys(heldMouseButtons);
+        if (!held.length) return;
+        held.forEach(function (b) {
+            hid.button(b, false);
+            delete heldMouseButtons[b];
+        });
+        releaseClickMods();
+    }
     // Modifiers held on the HOST across a click. The chord queue only ever synthesises
     // modifiers around KEYS, and a bare modifier keydown is never forwarded, so without
     // this the target sees a plain click: Shift+click range-select and Ctrl+click
@@ -4179,6 +4197,9 @@
             // plain hover too, not only while a button is held (gating on "is the
             // pointer down" made it behave like a relative trackpad).
             if (e.pointerType === "mouse") {
+                // A move that reports no buttons down is proof the release
+                // happened, whether or not its pointerup ever reached us.
+                if (e.buttons === 0) releaseHeldMouseButtons();
                 hid.ensureAbsolute(); // recover absolute mode if the Pi reports relative (throttled no-op otherwise)
                 /* A held button means this move belongs to a drag that started on
                  * the picture, so it keeps steering the target even once the host
@@ -4252,11 +4273,7 @@
         if (modalOpen()) {
             // A modal swallows the release, so let go of anything the target is still
             // holding rather than leaving a button or modifier stuck down on it.
-            Object.keys(heldMouseButtons).forEach(function (b) {
-                hid.button(b, false);
-                delete heldMouseButtons[b];
-            });
-            releaseClickMods();
+            releaseHeldMouseButtons();
             pts.delete(e.pointerId);
             return;
         }
@@ -5091,6 +5108,11 @@
             if (e.code) releaseMod(e.code);
         });
         window.addEventListener("blur", releaseAllMods);
+        /* Same argument for the mouse. Losing the window mid-drag is exactly when
+         * the release goes somewhere we cannot see it, and a button left down on
+         * the target is worse than a dropped one: the remote window carries on
+         * following the cursor with nothing held over here. */
+        window.addEventListener("blur", releaseHeldMouseButtons);
 
         // The MAIN desktop window keeps the original ui.html titlebar ABOVE the
         // console (?shell=native) — hide the console's own titlebar then, but keep all
