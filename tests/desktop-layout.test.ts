@@ -361,3 +361,13 @@ test("mass storage does not claim absence from missing data", () => {
     assert.match(js, /if \(!state\.enabled\) return "This PiKVM has no mass storage\.";/);
     assert.doesNotMatch(js, /if \(!state \|\| !state\.enabled\) return "This PiKVM has no mass storage/);
 });
+
+test("OCR will not copy its own 'nothing here' message", () => {
+    /* When the reader finds nothing, the dialog says so — but that line went
+     * into the same box as real text, so Copy put the sentence "(no text found
+     * in that region)" on the clipboard and reported "Text copied". Both
+     * useless and untrue. It is a message, not a result. */
+    assert.match(js, /ocrHasText = found\.length > 0;/);
+    assert.match(js, /disabled: !ocrHasText,/);
+    assert.match(js, /if \(out && ocrHasText\) copyText\(out\.value, "Text copied"\);/);
+});

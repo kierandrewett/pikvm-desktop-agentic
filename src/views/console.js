@@ -1551,7 +1551,14 @@
                 var out = document.getElementById("ocr-text");
                 var dlg = document.getElementById("ocr-dlg");
                 hideToast();
-                if (out) out.value = text.replace(/\s+$/, "") || "(no text found in that region)";
+                var found = text.replace(/\s+$/, "");
+                /* The "nothing here" line is a MESSAGE, not a result. It used to
+                 * go into the same box as real text, so Copy would put the
+                 * sentence "(no text found in that region)" on the clipboard and
+                 * report "Text copied" — which is both useless and untrue. */
+                ocrHasText = found.length > 0;
+                if (out) out.value = found || "(no text found in that region)";
+                repaintOcrActions();
                 if (dlg) dlg.hidden = false;
                 if (out) out.focus();
             })
@@ -1559,33 +1566,42 @@
                 toast("Could not read the screen: " + (e && e.message ? e.message : "network error"), true);
             });
     }
+    function closeOcrDialog() {
+        var dlg = document.getElementById("ocr-dlg");
+        if (dlg) dlg.hidden = true;
+        refocusKbd();
+    }
+    var ocrHasText = false;
+    var ocrActions = null;
+    function repaintOcrActions() {
+        if (ocrActions) ocrActions.update(ocrActionSpecs());
+    }
+    function ocrActionSpecs() {
+        return [
+            {
+                id: "ocr-copy",
+                label: "Copy",
+                disabled: !ocrHasText,
+                onSelect: function () {
+                    var out = document.getElementById("ocr-text");
+                    if (out && ocrHasText) copyText(out.value, "Text copied");
+                },
+            },
+            { id: "ocr-close", label: "Done", variant: "default", onSelect: closeOcrDialog },
+        ];
+    }
+
     (function wireOcrDialog() {
         var dlg = document.getElementById("ocr-dlg");
-        var closeIt = function () {
-            if (dlg) dlg.hidden = true;
-            refocusKbd();
-        };
-        mountDialogActions("ocr-dlg-actions", function () {
-            return [
-                {
-                    id: "ocr-copy",
-                    label: "Copy",
-                    onSelect: function () {
-                        var out = document.getElementById("ocr-text");
-                        if (out) copyText(out.value, "Text copied");
-                    },
-                },
-                { id: "ocr-close", label: "Done", variant: "default", onSelect: closeIt },
-            ];
-        });
+        ocrActions = mountDialogActions("ocr-dlg-actions", ocrActionSpecs);
         if (dlg) {
             dlg.addEventListener("mousedown", function (e) {
-                if (e.target === dlg) closeIt();
+                if (e.target === dlg) closeOcrDialog();
             });
             dlg.addEventListener("keydown", function (e) {
                 if (e.key === "Escape") {
                     e.stopPropagation();
-                    closeIt();
+                    closeOcrDialog();
                 }
             });
         }
