@@ -19,6 +19,7 @@
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+import { Button } from "@/components/ui/button";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 
 export type IconButtonSpec = {
@@ -89,8 +90,62 @@ export function mountIconButtons(host: HTMLElement, buttons: IconButtonSpec[]) {
 
 declare global {
     interface Window {
-        pikvmShared?: { mountIconButtons: typeof mountIconButtons };
+        pikvmShared?: {
+            mountIconButtons: typeof mountIconButtons;
+            mountButtons: typeof mountButtons;
+        };
     }
 }
 
-window.pikvmShared = { mountIconButtons };
+window.pikvmShared = { mountIconButtons, mountButtons };
+
+export type TextButtonSpec = {
+    id: string;
+    label: string;
+    /** Maps to the library's own variants; the host says intent, not colour. */
+    variant?: "default" | "outline" | "secondary" | "ghost" | "destructive";
+    disabled?: boolean;
+    hidden?: boolean;
+    className?: string;
+    onSelect: () => void;
+};
+
+function TextButtonRow({ buttons }: { buttons: TextButtonSpec[] }) {
+    return (
+        <>
+            {buttons
+                .filter((b) => !b.hidden)
+                .map((b) => (
+                    <Button
+                        key={b.id}
+                        variant={b.variant ?? "outline"}
+                        disabled={b.disabled}
+                        data-tb={b.id}
+                        onClick={b.onSelect}
+                        {...(b.className ? { className: b.className } : {})}
+                    >
+                        {b.label}
+                    </Button>
+                ))}
+        </>
+    );
+}
+
+/**
+ * Render a row of labelled buttons into a host element.
+ *
+ * The same contract as mountIconButtons: an update function rather than a
+ * remount, because a dialog repaints on every edit and tearing the tree down
+ * each time would drop focus mid-interaction.
+ */
+export function mountButtons(host: HTMLElement, buttons: TextButtonSpec[]) {
+    const root: Root = createRoot(host);
+    const draw = (next: TextButtonSpec[]) =>
+        root.render(
+            <StrictMode>
+                <TextButtonRow buttons={next} />
+            </StrictMode>,
+        );
+    draw(buttons);
+    return { update: draw, unmount: () => root.unmount() };
+}

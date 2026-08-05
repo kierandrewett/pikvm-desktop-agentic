@@ -149,3 +149,19 @@ test("the shared component bundle is served alongside the workspace", async () =
         await s.close();
     }
 });
+
+test("the shared bundle offers labelled buttons as well as icon ones", async () => {
+    /* The titlebar needed icon buttons; the dialogs need labelled ones — Done,
+     * Cancel, Delete macro. Same contract on purpose: an update function rather
+     * than a remount, because a dialog repaints on every edit and tearing the
+     * tree down each time would drop focus mid-interaction. */
+    const s = await listen();
+    try {
+        const shared = await fetchRaw(s.origin, WORKSPACE_PREFIX + "/shared.js");
+        assert.equal(shared.status, 200);
+        assert.match(shared.body, /mountIconButtons/);
+        assert.match(shared.body, /mountButtons/);
+    } finally {
+        await s.close();
+    }
+});
