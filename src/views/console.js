@@ -4865,13 +4865,26 @@
             var d = nativeDims();
             if (!d) return false;
             if (!panelShown()) setPanel(true);
+            var pane = document.getElementById("screen-pane");
+            if (!pane) return false;
+            /* Everything in the window that is NOT the screen's content box.
+             *
+             * This used to be sent as a list of the parts main should add back —
+             * the chat column and the titlebar — and the list was one short. The
+             * screen pane carries a 1px right border as the divider against the
+             * panel, so the pane was handed the native width as its BORDER box
+             * and its content box came out a pixel narrower. object-fit then
+             * scaled 1920x1080 down to 1919x1079.44: a resample and a sliver of
+             * letterbox, from the one button whose entire job is neither.
+             *
+             * Measured as a single leftover instead, so the divider is included
+             * because it is there rather than because someone remembered it, and
+             * a future column or status bar needs nothing added here. */
             dc.fitNative({
                 width: d.w,
                 height: d.h,
-                // The chat column's measured width (0 when collapsed) so the
-                // screen lands exactly on its native size.
-                agentPanelWidth: Math.round(document.querySelector(".chat").getBoundingClientRect().width),
-                titlebarHeight: titlebarHeight(),
+                chromeWidth: Math.round(document.documentElement.clientWidth - pane.clientWidth),
+                chromeHeight: Math.round(document.documentElement.clientHeight - pane.clientHeight),
             });
             return true;
         }

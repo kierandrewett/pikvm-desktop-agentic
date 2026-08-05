@@ -46,11 +46,14 @@ export interface DesktopConsoleApi {
     onMaximiseChange(cb: (maximised: boolean) => void): () => void;
     /**
      * Resize the window so the live-screen area renders the given native stream
-     * resolution 1:1 (no black bars). The main process accounts for the titlebar
-     * height and the agent panel width (when shown). Pass `agentPanelWidth: 0`
-     * when the panel is collapsed.
+     * resolution 1:1 (no black bars).
+     *
+     * `chromeWidth`/`chromeHeight` are everything in the window that is not the
+     * screen's content box — the agent column, the titlebar, the divider between
+     * them. The renderer measures the leftover in one go rather than listing the
+     * parts, so main adds back exactly what is there.
      */
-    fitNative(opts: { width: number; height: number; agentPanelWidth: number; titlebarHeight: number }): void;
+    fitNative(opts: { width: number; height: number; chromeWidth: number; chromeHeight: number }): void;
     /**
      * Pop a NATIVE Electron context menu built from `items`. The chosen item's
      * `id` is delivered via `onMenuCommand`. `anchor` (optional) positions it;

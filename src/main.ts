@@ -354,28 +354,30 @@ ipcMain.handle("console:is-maximised", (e) => {
 });
 
 // Snap the window so the live-screen area renders the native resolution 1:1. The
-// renderer passes the stream's native size, the agent-panel width (0 if collapsed)
-// and the titlebar height it drew; we add those to the screen size and set the
-// window's CONTENT size (excludes the OS frame — and we're frameless anyway).
-ipcMain.on("console:fit-native", (e, opts: { width?: number; height?: number; agentPanelWidth?: number; titlebarHeight?: number }) => {
+// renderer passes the stream's native size plus the window chrome around the
+// screen's CONTENT box — the agent column, the titlebar, the divider — measured
+// as one leftover rather than listed part by part, which is how the 1px divider
+// used to be missed. We add it back and set the window's CONTENT size (excludes
+// the OS frame — and we're frameless anyway).
+ipcMain.on("console:fit-native", (e, opts: { width?: number; height?: number; chromeWidth?: number; chromeHeight?: number }) => {
     const w = consoleWinFrom(e);
     if (!w) return;
     const nw = Number(opts?.width);
     const nh = Number(opts?.height);
     if (!nw || !nh || nw < 1 || nh < 1) return;
-    const panel = Math.max(0, Math.round(Number(opts?.agentPanelWidth) || 0));
-    const bar = Math.max(0, Math.round(Number(opts?.titlebarHeight) || 0));
+    const chromeW = Math.max(0, Math.round(Number(opts?.chromeWidth) || 0));
+    const chromeH = Math.max(0, Math.round(Number(opts?.chromeHeight) || 0));
     if (w.isMaximized()) w.unmaximize();
-    // The agent panel + titlebar are FIXED-pixel chrome (they don't scale), so we
-    // scale only the SCREEN to fit the work area beside them, then add them back.
-    // This makes the screen column land exactly on the stream aspect — no black bars.
+    // That chrome is FIXED-pixel (it doesn't scale), so we scale only the SCREEN
+    // to fit the work area beside it, then add it back. This makes the screen
+    // column land exactly on the stream aspect — no black bars.
     const area = screen.getDisplayMatching(w.getBounds()).workAreaSize;
-    const availW = Math.max(320, area.width - panel);
-    const availH = Math.max(240, area.height - bar);
+    const availW = Math.max(320, area.width - chromeW);
+    const availH = Math.max(240, area.height - chromeH);
     const scale = Math.min(1, availW / nw, availH / nh);
     const screenW = Math.round(nw * scale);
     const screenH = Math.round(nh * scale);
-    w.setContentSize(screenW + panel, screenH + bar);
+    w.setContentSize(screenW + chromeW, screenH + chromeH);
 });
 
 // Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.
