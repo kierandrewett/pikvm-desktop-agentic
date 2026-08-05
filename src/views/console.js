@@ -242,6 +242,11 @@
         power: { visible: false, on: false, busy: false, label: "Power" },
     };
     var repaintTbState = function () {};
+    /* Pinned macros are a LIST, rebuilt whenever they are edited, so this is a
+     * full re-render rather than an update of known buttons. Declared here with
+     * the rest for the same reason: paintMacroButtons is called from loadMacros
+     * and from every save, both of which can run before the desktop block. */
+    var repaintMacroButtons = function () {};
 
     /* What a keydown means (chord / character / swallow) is decided by key-chord.js —
      * pure, shared by both keyboard paths, and covered by tests. This file keeps the
@@ -819,28 +824,35 @@
         next();
     }
 
-    function paintMacroButtons() {
-        var host = document.getElementById("tb-macros");
-        if (!host) return;
-        host.innerHTML = "";
-        macros
+    /** A macro's own label, as HTML, for the icon slot.
+     *
+     *  Escaped because a macro label is user input and this goes in as markup —
+     *  the icon itself is our own SVG, but the fallback is whatever they typed. */
+    function macroFallbackHtml(text) {
+        return String(text).replace(/[&<>"]/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+        });
+    }
+    function pinnedMacroSpecs() {
+        return macros
             .filter(function (m) {
                 return m.pinned !== false;
             })
-            .forEach(function (m) {
-                var btn = document.createElement("button");
-                btn.type = "button";
-                btn.className = "tb-btn";
-                btn.title = m.label;
-                btn.setAttribute("aria-label", m.label);
+            .map(function (m) {
                 var svg = macroIconSvg(m.icon);
-                if (svg) btn.appendChild(svg);
-                else btn.textContent = m.icon || m.label.slice(0, 2).toUpperCase();
-                btn.addEventListener("click", function () {
-                    runMacro(m);
-                });
-                host.appendChild(btn);
+                return {
+                    id: "macro:" + m.id,
+                    label: m.label,
+                    // macroIconSvg builds a node; the spec wants markup.
+                    icon: svg ? svg.outerHTML : macroFallbackHtml(m.icon || m.label.slice(0, 2).toUpperCase()),
+                    onSelect: function () {
+                        runMacro(m);
+                    },
+                };
             });
+    }
+    function paintMacroButtons() {
+        repaintMacroButtons();
     }
 
     /* ---- editor ---- */
@@ -5549,6 +5561,7 @@
         var panelButtons = null;
         var avButtons = null;
         var statusButtons = null;
+        var macroButtonsRoot = null;
         function viewButtonSpecs() {
             var dims = nativeDims();
             return [
@@ -5594,6 +5607,14 @@
             if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, viewButtonSpecs());
             var panelHost = document.getElementById("tb-actions-panel");
             if (panelHost && !panelButtons) panelButtons = shared.mountIconButtons(panelHost, panelButtonSpecs());
+            var macroHost = document.getElementById("tb-macros");
+            if (macroHost && !macroButtonsRoot) {
+                macroButtonsRoot = shared.mountIconButtons(macroHost, pinnedMacroSpecs());
+                repaintMacroButtons = function () {
+                    if (macroButtonsRoot) macroButtonsRoot.update(pinnedMacroSpecs());
+                };
+                repaintMacroButtons();
+            }
             var statusHost = document.getElementById("tb-actions-status");
             if (statusHost && !statusButtons) {
                 statusButtons = shared.mountIconButtons(statusHost, statusButtonSpecs());
@@ -5610,7 +5631,7 @@
                 };
                 repaintAv();
             }
-            return !!(menuButtons && viewButtons && panelButtons && avButtons && statusButtons);
+            return !!(menuButtons && viewButtons && panelButtons && avButtons && statusButtons && macroButtonsRoot);
         }
         /* The bundle is a module, so it has not run when this line does. Poll
          * briefly rather than racing it; if it never arrives the console is
