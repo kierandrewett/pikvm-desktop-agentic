@@ -233,3 +233,19 @@ test("fit-to-native says when it cannot act instead of doing nothing", () => {
     assert.match(js, /img\.addEventListener\("load", repaintFitButton\)/);
     assert.match(js, /vid\.addEventListener\("resize", repaintFitButton\)/);
 });
+
+test("a chosen theme outranks the OS instead of being overwritten by it", () => {
+    // Boot used to re-apply the OS theme, and applyTheme persists, so every
+    // launch quietly overwrote the user's choice with the system one: the button
+    // worked, the value saved, and it was gone by the next start.
+    assert.match(js, /function storedTheme\(\)/);
+    assert.match(js, /function applyTheme\(t, remember\)/);
+    // Only a deliberate choice is written down.
+    assert.match(js, /if \(remember\) \{\s*\n\s*try \{\s*\n\s*localStorage\.setItem\("pikvm-console-theme", t\)/);
+    assert.match(js, /applyTheme\(currentTheme\(\) === "light" \? "dark" : "light", true\)/);
+    // Following the OS records nothing, and only happens without a choice.
+    assert.match(js, /if \(!storedTheme\(\)\) applyTheme\(e\.matches \? "dark" : "light", false\)/);
+    assert.match(js, /applyTheme\(storedTheme\(\) \|\| \(osThemeMq\.matches \? "dark" : "light"\), false\)/);
+    // The unconditional OS override is gone.
+    assert.doesNotMatch(js, /overrides any stale saved value/);
+});

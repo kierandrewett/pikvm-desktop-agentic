@@ -4872,11 +4872,27 @@
     function currentTheme() {
         return document.documentElement.getAttribute("data-theme") || "dark";
     }
-    function applyTheme(t) {
-        document.documentElement.setAttribute("data-theme", t);
+    /* A saved theme is the user's CHOICE; the OS is only the default when they
+     * have not made one. It used to be the other way round — boot re-applied the
+     * OS theme, and applyTheme persists, so every launch quietly overwrote the
+     * choice with the system one. The button worked and the value saved, and it
+     * was gone by the next start, with nothing to say why. */
+    function storedTheme() {
         try {
-            localStorage.setItem("pikvm-console-theme", t);
-        } catch (e) {}
+            return localStorage.getItem("pikvm-console-theme") || "";
+        } catch (e) {
+            return "";
+        }
+    }
+    function applyTheme(t, remember) {
+        document.documentElement.setAttribute("data-theme", t);
+        // Only a deliberate choice is written down. Following the OS must not
+        // record anything, or the next OS change has a "choice" to fight.
+        if (remember) {
+            try {
+                localStorage.setItem("pikvm-console-theme", t);
+            } catch (e) {}
+        }
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute("content", t === "light" ? "#f5f5f7" : "#0a0a0c");
         /* The desktop conversation is a native child view, not that iframe, so
@@ -4890,7 +4906,7 @@
         if (desk && desk.reportAgentTheme) desk.reportAgentTheme(t);
     }
     themeBtn.addEventListener("click", function () {
-        applyTheme(currentTheme() === "light" ? "dark" : "light");
+        applyTheme(currentTheme() === "light" ? "dark" : "light", true);
     });
     // Follow the OS appearance: switch the whole console (light/dark) live whenever
     // the OS theme changes. In the desktop window this tracks the OS via Electron's
@@ -4898,12 +4914,17 @@
     try {
         var osThemeMq = window.matchMedia("(prefers-color-scheme: dark)");
         var onOsTheme = function (e) {
-            applyTheme(e.matches ? "dark" : "light");
+            // Live OS changes still follow, but only while the user has not
+            // chosen for themselves — otherwise the choice is overridden the
+            // first time the system flips.
+            if (!storedTheme()) applyTheme(e.matches ? "dark" : "light", false);
         };
         if (osThemeMq.addEventListener) osThemeMq.addEventListener("change", onOsTheme);
         else if (osThemeMq.addListener) osThemeMq.addListener(onOsTheme);
-        // Sync to the OS now so we start matching it (overrides any stale saved value).
-        applyTheme(osThemeMq.matches ? "dark" : "light");
+        /* Boot: honour a saved choice, else follow the OS. Applied either way and
+         * not just when it differs, because this is also what tells the native
+         * conversation view beside us which theme to draw. */
+        applyTheme(storedTheme() || (osThemeMq.matches ? "dark" : "light"), false);
     } catch (e) {}
     // First paint of the embedded chat should match; pass the theme on its URL and
     // re-assert on load (in case it booted before the message handler attached).
