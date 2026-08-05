@@ -351,3 +351,13 @@ test("a dialog never opens with focus on a live slider", () => {
     // The old unconditional first-focusable is gone.
     assert.doesNotMatch(js, /var first = focusablesIn\(scrim\)\[0\];/);
 });
+
+test("mass storage does not claim absence from missing data", () => {
+    /* The dialog can be opened before the first msd event arrives, and the
+     * summary treated "no state yet" and "no mass storage" as the same answer —
+     * telling the user their PiKVM has none, about hardware they may well have.
+     * Those are different sentences and only one of them is knowable. */
+    assert.match(js, /if \(!state\) return "Checking the drive…";/);
+    assert.match(js, /if \(!state\.enabled\) return "This PiKVM has no mass storage\.";/);
+    assert.doesNotMatch(js, /if \(!state \|\| !state\.enabled\) return "This PiKVM has no mass storage/);
+});

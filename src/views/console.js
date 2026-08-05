@@ -1680,7 +1680,13 @@
             },
             /** A plain sentence for the top of the dialog. */
             summary: function () {
-                if (!state || !state.enabled) return "This PiKVM has no mass storage.";
+                /* Not knowing yet and knowing there is none are different
+                 * answers, and this said the second for both. The dialog can be
+                 * opened before the first msd event lands, and it then told the
+                 * user their PiKVM has no mass storage — a definite claim built
+                 * from an absence of data, about hardware they may well have. */
+                if (!state) return "Checking the drive…";
+                if (!state.enabled) return "This PiKVM has no mass storage.";
                 if (!state.online) return "The drive is offline.";
                 var d = state.drive;
                 if (!d) return "The drive is idle.";
