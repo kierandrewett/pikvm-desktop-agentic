@@ -1634,11 +1634,27 @@ html.desktop-console .tb-right {
 .screen.ocr-picking {
     cursor: crosshair;
 }
+/* The selection marquee, drawn over the target's picture.
+ *
+ * Its border was --primary, a token that flips with OUR theme while the thing
+ * behind it is whatever the remote machine is showing. Neither value survived
+ * that: #5b8cff measured 2.78:1 on a light desktop and #3b6ef0 4.49:1, but
+ * against a mid-blue one — the Windows default wallpaper — they came out at
+ * 1.49:1 and 1.05:1. A marquee you cannot see while you drag it is not a
+ * marquee.
+ *
+ * Same answer as .kvm-cursor, for the same reason: two tones, one light and
+ * one dark, so whatever is behind it one of them reads. The fill keeps the
+ * accent so the chosen region still looks chosen, pinned rather than themed
+ * because this surface never was ours. */
 .ocr-rect {
     position: absolute;
     z-index: 8;
-    border: 1px solid var(--primary);
-    background: color-mix(in srgb, var(--primary) 18%, transparent);
+    border: 1px solid rgba(255, 255, 255, 0.92);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.62),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+    background: color-mix(in srgb, var(--overlay-accent) 18%, transparent);
     pointer-events: none;
 }
 .ocr-hint {
