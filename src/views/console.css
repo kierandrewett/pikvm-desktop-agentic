@@ -1211,6 +1211,29 @@ html.desktop-console .app.computer-collapsed .chat-resize {
 .dlg-scrim[hidden] {
     display: none;
 }
+/* Minimise, maximise and close belong to the WINDOW, not to the page, so no
+   dialog gets to dim them or swallow their clicks. Being unable to close a
+   window because a popup is open is not a state worth being able to reach.
+   z-index has to clear .dlg-scrim (60), and needs a position to apply at all;
+   the titlebar is position:relative with z-index:auto, so it starts no stacking
+   context of its own and these compete with the scrim directly. */
+html.desktop-console .tb-window {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;
+    position: relative;
+    z-index: 70;
+}
+/* .tb-right used to hold these and pushed itself to the right edge through
+   space-between. It still needs to sit hard right, but now with the window
+   controls after it, so the gap comes from a margin instead. */
+html.desktop-console .titlebar {
+    justify-content: flex-start;
+}
+html.desktop-console .tb-right {
+    margin-left: auto;
+}
 .dlg {
     width: min(560px, 100%);
     /* On a short window (or once mass storage lists a few images) a dialog would
