@@ -81,7 +81,10 @@ test("a frame asking for the theme is answered on every platform", () => {
     const desktopBlockAt = js.indexOf("(function desktopConsole() {");
     assert.ok(desktopBlockAt > 0, "desktop block not found");
 
-    const replies = [...js.matchAll(/type: "subscribe"/g)].map((m) => m.index ?? 0);
+    // Both handlers compare rather than construct: `d.type === "subscribe"` in
+    // the desktop block, `d.type !== "subscribe"` as an early return in the
+    // common one. Match the comparison, not a literal property.
+    const replies = [...js.matchAll(/d\.type [!=]== "subscribe"/g)].map((m) => m.index ?? 0);
     assert.ok(replies.length >= 1, "nothing answers a subscribe");
     assert.ok(
         replies.some((at) => at < desktopBlockAt),
