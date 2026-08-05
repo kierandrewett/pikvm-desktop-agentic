@@ -625,7 +625,13 @@ html.modal-open .screen {
     padding: 12px 14px;
     border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
     border-radius: 10px;
-    background: color-mix(in srgb, var(--card) 92%, transparent);
+    /* 96%, not 92%. This card sits over the live picture, so the fraction that
+       shows through is whatever the target is displaying — and against a bright
+       screen the detail line landed at 4.4966:1, three thousandths under the
+       4.5:1 its 11.5px needs. A miss that small only exists on paper, but it is
+       still a miss, and it was reading as a pass purely because two decimal
+       places round it to 4.50. At 96% it is 5.01 dark and 5.19 light. */
+    background: color-mix(in srgb, var(--card) 96%, transparent);
     box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
