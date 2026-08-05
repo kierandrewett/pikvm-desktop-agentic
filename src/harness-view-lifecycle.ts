@@ -56,12 +56,25 @@ export class HarnessViewLifecycle {
      * off as the streak grows. A harness that will never start was otherwise
      * retried twice a second for as long as the app stayed open.
      */
-    scheduleRetry(reload: () => void): void {
-        if (this.retryTimer) return;
-        const delay = Math.min(
+    /**
+     * How long the next retry would wait, in milliseconds.
+     *
+     * Exposed so the backoff can be asserted on directly. Timing it with a
+     * stopwatch instead made the test flaky: with a 10ms base and a 40ms cap,
+     * an overloaded scheduler can fire the first timer at 45ms and the fourth
+     * at 42ms, and "the fourth waits longer than the first" then fails on a
+     * schedule that is perfectly correct.
+     */
+    nextRetryDelayMs(): number {
+        return Math.min(
             this.retryDelayMs * 2 ** Math.max(0, this.consecutiveFailures - 1),
             this.maxRetryDelayMs,
         );
+    }
+
+    scheduleRetry(reload: () => void): void {
+        if (this.retryTimer) return;
+        const delay = this.nextRetryDelayMs();
         this.retryTimer = setTimeout(() => {
             this.retryTimer = null;
             reload();

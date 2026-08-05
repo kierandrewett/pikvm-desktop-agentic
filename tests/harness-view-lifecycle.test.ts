@@ -68,24 +68,25 @@ test("a harness that never starts is retried more slowly, not twice a second for
     );
     assert.equal(lifecycle.failureCount(), 0);
 
-    const delays: number[] = [];
+    /* Asserted on the SCHEDULE, not on a stopwatch.
+     *
+     * This used to time each retry with Date.now(). With a 10ms base and a 40ms
+     * cap those measurements sit inside the scheduler's own noise: an overloaded
+     * runner can fire the first timer at 45ms and the fourth at 42ms, and
+     * "the fourth waits longer than the first" fails on a backoff that is
+     * perfectly correct. It failed exactly once here, which is the worst kind of
+     * red — enough to distrust the suite, not enough to reproduce. */
+    const scheduled: number[] = [];
     for (let attempt = 0; attempt < 6; attempt++) {
         lifecycle.failed();
-        const started = Date.now();
-        await new Promise<void>((resolve) => {
-            lifecycle.scheduleRetry(() => {
-                delays.push(Date.now() - started);
-                resolve();
-            });
-        });
+        scheduled.push(lifecycle.nextRetryDelayMs());
+        await new Promise<void>((resolve) => lifecycle.scheduleRetry(resolve));
     }
 
     assert.equal(lifecycle.failureCount(), 6);
-    // Doubling from the base delay, then held at the cap so the gap cannot grow
+    // Doubling from the base, then held at the cap so the gap cannot grow
     // without bound either.
-    assert.ok(delays[1]! >= delays[0]!, `expected backoff, got ${delays.join(",")}`);
-    assert.ok(delays[3]! > delays[0]!, `expected backoff, got ${delays.join(",")}`);
-    assert.ok(delays.every((d) => d < 200), `capped, got ${delays.join(",")}`);
+    assert.deepEqual(scheduled, [10, 20, 40, 40, 40, 40]);
 
     // Reaching the harness clears the streak, so a later blip starts fast again.
     lifecycle.loaded();
