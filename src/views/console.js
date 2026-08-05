@@ -987,16 +987,7 @@
                 if (shared && shared.mountButtons) {
                     stepRoots.push(shared.mountButtons(mods, modSpecs));
                 } else {
-                    // Bundle not up yet: plain buttons rather than no controls.
-                    modSpecs.forEach(function (spec) {
-                        var b = document.createElement("button");
-                        b.type = "button";
-                        b.className = spec.className;
-                        b.textContent = spec.label;
-                        b.setAttribute("data-fk", spec.id);
-                        b.addEventListener("click", spec.onSelect);
-                        mods.appendChild(b);
-                    });
+                    renderPlainButtons(mods, modSpecs);
                 }
                 row.appendChild(mods);
 
@@ -1120,17 +1111,7 @@
             if (sharedRow && sharedRow.mountButtons) {
                 stepRoots.push(sharedRow.mountButtons(actions, actionSpecs));
             } else {
-                actionSpecs.forEach(function (spec) {
-                    var b = document.createElement("button");
-                    b.type = "button";
-                    b.className = spec.className;
-                    b.textContent = spec.label;
-                    if (spec.ariaLabel) b.setAttribute("aria-label", spec.ariaLabel);
-                    b.setAttribute("data-fk", spec.id);
-                    b.disabled = !!spec.disabled;
-                    b.addEventListener("click", spec.onSelect);
-                    actions.appendChild(b);
-                });
+                renderPlainButtons(actions, actionSpecs);
             }
             row.appendChild(actions);
             steps.appendChild(row);
@@ -1213,6 +1194,39 @@
      * The bundle is a module and has not run when this file does, so every
      * caller would otherwise write the same poll. Returns nothing: these rows
      * are static, and the ones that are not keep their own update handle. */
+    /* Plain buttons from the same specs, for when the shared component library
+     * is not there.
+     *
+     * It is served from this app's own origin, so "not there" means a build or
+     * packaging fault rather than a slow network — but that is exactly the case
+     * worth surviving: without a fallback a dialog opens with NO buttons at
+     * all, including Done, and the only way out is Escape, which in a KVM
+     * console is a key people reasonably expect to reach the target. A dialog
+     * you cannot leave is worse than an unstyled one.
+     *
+     * Marked data-fk rather than data-tb, matching the other controls this file
+     * builds itself, so focus restoration finds them either way. */
+    function renderPlainButtons(host, specs) {
+        host.innerHTML = "";
+        specs.filter(function (spec) { return !spec.hidden; }).forEach(function (spec) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.className = spec.className || "dlg-btn" + (spec.variant === "default" ? " primary" : "");
+            b.textContent = spec.label;
+            if (spec.ariaLabel) b.setAttribute("aria-label", spec.ariaLabel);
+            if (spec.ariaLabelledBy) b.setAttribute("aria-labelledby", spec.ariaLabelledBy);
+            if (spec.role) {
+                b.setAttribute("role", spec.role);
+                b.setAttribute("aria-checked", spec.checked ? "true" : "false");
+            }
+            b.setAttribute("data-fk", spec.id);
+            b.disabled = !!spec.disabled;
+            b.addEventListener("click", spec.onSelect);
+            host.appendChild(b);
+        });
+        return { update: function (next) { renderPlainButtons(host, next); } };
+    }
+
     function mountDialogActions(hostId, specs) {
         var mounted = null;
         function tryMount() {
@@ -1225,7 +1239,11 @@
         if (!tryMount()) {
             var tries = 0;
             var timer = setInterval(function () {
-                if (tryMount() || ++tries > 100) clearInterval(timer);
+                if (tryMount()) return clearInterval(timer);
+                if (++tries <= 100) return;
+                clearInterval(timer);
+                var host = document.getElementById(hostId);
+                if (host) mounted = renderPlainButtons(host, specs());
             }, 50);
         }
         return { update: function () { if (mounted) mounted.update(specs()); } };
@@ -2518,7 +2536,10 @@
         if (!tryMount()) {
             var tries = 0;
             var timer = setInterval(function () {
-                if (tryMount() || ++tries > 100) clearInterval(timer);
+                if (tryMount()) return clearInterval(timer);
+                if (++tries <= 100) return;
+                clearInterval(timer);
+                mounted = renderPlainButtons(host, specs());
             }, 50);
         }
         return { update: function () { if (mounted) mounted.update(specs()); } };

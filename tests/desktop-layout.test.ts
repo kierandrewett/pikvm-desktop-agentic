@@ -465,7 +465,8 @@ test("the macro step rows are drawn by the shared library", () => {
     assert.match(js, /pendingMacroFocus = \(delta < 0 \? "u" : "n"\) \+ to;/);
     assert.match(js, /stepRoots\.push\(sharedRow\.mountButtons\(actions, actionSpecs\)\)/);
     // A fallback for the window before the bundle has run: buttons drawn the old
-    // way beat a row with none.
-    assert.match(js, /actionSpecs\.forEach\(function \(spec\) \{/);
+    // way beat a row with none. Shared with the dialog rows, which hit the same
+    // problem harder — a dialog with no buttons has no Done either.
+    assert.match(js, /renderPlainButtons\(actions, actionSpecs\)/);
     assert.doesNotMatch(js, /var move = function \(delta, label\)/);
 });
