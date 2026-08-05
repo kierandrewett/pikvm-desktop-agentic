@@ -84,9 +84,28 @@ const HOST_CONFIG =
     if (e.source !== window.parent) return;
     var d = e.data;
     if (!d || d.channel !== "pikvm-panel") return;
+    /* Applied HERE, not only handed to subscribers.
+     *
+     * The app follows the console's theme from a React hook, so the class was
+     * only ever set once the workspace shell had mounted. Everything before
+     * that — and everything if it never mounts, which is exactly what happens
+     * while the daemon is down, a state this window has a status pill for —
+     * kept the hardcoded class="dark" in the markup. A light console with a
+     * black panel beside it.
+     *
+     * This file runs before the app module and needs nothing from it, so the
+     * theme lands on the first paint and survives the app failing to render.
+     * The hook still runs and does the same thing; a duplicate toggle costs
+     * nothing. */
+    if (d.type === "theme") {
+      try { document.documentElement.classList.toggle("dark", d.value !== "light"); } catch (err) {}
+    }
     var list = d.type === "placement" ? placement : d.type === "theme" ? theme : null;
     if (list) list.slice().forEach(function (cb) { try { cb(d.value); } catch (err) {} });
   });
+  /* And ask straight away rather than waiting for the app to subscribe, for the
+   * same reason: the answer has to arrive even when nothing ever subscribes. */
+  post("subscribe");
   var sub = function (list, cb) {
     list.push(cb);
     post("subscribe");

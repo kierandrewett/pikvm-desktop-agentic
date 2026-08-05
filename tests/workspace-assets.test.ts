@@ -205,3 +205,27 @@ test("the shared mounts render synchronously", async () => {
         await s.close();
     }
 });
+
+test("host-config applies the theme itself, without waiting for the app", async () => {
+    /* The app follows the console's theme from a React hook, so the class was
+     * only set once the workspace shell had mounted. Everything before that —
+     * and everything if it never mounts, which is what happens while the daemon
+     * is down, a state this window has a status pill for — kept the hardcoded
+     * class="dark" from the markup: a light console with a black panel beside it.
+     *
+     * This file runs before the app module and needs nothing from it, so the
+     * theme has to land here rather than only being handed to subscribers. And
+     * it has to ASK on load: a reply that only arrives when something subscribes
+     * is no use when nothing ever does. */
+    const s = await listen();
+    try {
+        const cfg = await fetchRaw(s.origin, WORKSPACE_PREFIX + "/host-config.js");
+        assert.equal(cfg.status, 200);
+        assert.match(cfg.body, /classList\.toggle\("dark", d\.value !== "light"\)/);
+        // Asked for unconditionally, not only from inside sub().
+        const outsideSub = cfg.body.slice(cfg.body.indexOf("window.addEventListener"));
+        assert.match(outsideSub, /\n\s*post\("subscribe"\);/);
+    } finally {
+        await s.close();
+    }
+});
