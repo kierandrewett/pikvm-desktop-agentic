@@ -4910,11 +4910,12 @@
 
         // Titlebar Settings opens in its own window. Visible button so it's
         // discoverable (not just in the ⋯ menu).
-        function openPanelWin(id) {
-            if (window.desktopConsole && window.desktopConsole.openAgentPanel) window.desktopConsole.openAgentPanel(id);
+        function openSettingsWindow() {
+            var desk = window.desktopConsole;
+            if (desk && desk.openSettingsWindow) desk.openSettingsWindow();
         }
         var tbSettings = document.getElementById("tb-settings");
-        if (tbSettings) tbSettings.addEventListener("click", function () { openPanelWin("settings"); });
+        if (tbSettings) tbSettings.addEventListener("click", openSettingsWindow);
 
         /* ---- NATIVE context menu (replaces the HTML .more-menu) ----
          * The same actions the web ⋯ menu offers, plus the WebRTC Audio/Mic
@@ -5033,8 +5034,12 @@
             switch (id) {
                 case "history":
                 case "settings":
-                    if (isDesktopWorkspace && window.desktopConsole.openAgentPanel) {
-                        window.desktopConsole.openAgentPanel(id);
+                    /* Only Settings has a window of its own. History belongs to
+                     * the chat, which on the desktop is the harness panel and
+                     * not this iframe, so it never reaches here from the desktop
+                     * menu — that menu offers Settings alone. */
+                    if (isDesktopWorkspace && id === "settings" && window.desktopConsole.openSettingsWindow) {
+                        window.desktopConsole.openSettingsWindow();
                     } else {
                         try { chatFrame.contentWindow.postMessage({ type: "agent-action", action: id }, "*"); } catch (e) {}
                     }

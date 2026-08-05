@@ -70,8 +70,14 @@ export interface DesktopConsoleApi {
     setPikvmOrigin(url: string): void;
     /** Report where the first-party chat workspace belongs in the native shell. */
     reportWorkspaceRect(rect: { x: number; y: number; width: number; height: number }): void;
-    /** Open Settings / Monitor / History in their own window. */
-    openAgentPanel(id: "settings" | "ambient" | "history"): void;
+    /** Open Settings in its own window.
+     *
+     *  This took an id of "settings" | "ambient" | "history" and main ignored
+     *  it, opening Settings whatever arrived. Monitor and History were panels
+     *  of the in-app agent, which now lives in the daemon; no window has
+     *  existed for either for some time, so a caller asking for one would have
+     *  been handed Settings without a word. */
+    openSettingsWindow(): void;
     /** Detach the conversation into its own window. A second call while detached
      *  closes that window instead (a toggle); re-attachment is signalled via
      *  onAgentAttached when the window closes, however it closes. */
@@ -131,7 +137,7 @@ const api: DesktopConsoleApi = {
     setConsoleOrigin: (origin) => ipcRenderer.send("console:set-origin", origin),
     setPikvmOrigin: (url) => ipcRenderer.send("console:set-pikvm-origin", url),
     reportWorkspaceRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:workspace-rect", rect),
-    openAgentPanel: (id) => ipcRenderer.send("console:open-agent-panel", id),
+    openSettingsWindow: () => ipcRenderer.send("console:open-settings"),
     detachAgent: () => ipcRenderer.send("agent:detach"),
     /* Panel placement is driven from the conversation's own header now, so the
      * console answers requests from it rather than owning the only buttons. */

@@ -467,7 +467,7 @@ ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: num
 });
 
 // ── Settings window ──────────────────────────────────────────────────────────
-// The console's gear (and the native menu's "Settings") send console:open-agent-panel.
+// The console's gear (and the native menu's "Settings") send console:open-settings.
 // In the slim app there is no agent panel; open a small native Settings window with
 // the only things a PiKVM client needs: connection URL, keyboard layout, jiggler.
 const settingsFilePath = () => resolve(app.getPath("userData"), "agent-settings.json");
@@ -524,7 +524,7 @@ function openSettingsWindow() {
     });
 }
 
-ipcMain.on("console:open-agent-panel", () => openSettingsWindow());
+ipcMain.on("console:open-settings", () => openSettingsWindow());
 
 // Read current settings for the form (origin lives in the desktop config; layout +
 // jiggler in the SettingsStore file).
