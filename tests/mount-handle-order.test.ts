@@ -54,3 +54,19 @@ test("the mass storage dialog draws its body buttons from state", () => {
     assert.match(js, /msdUploadActions = mountDialogActions\("msd-upload-actions"/);
     assert.match(js, /mountDialogActions\("log-refresh-host"/);
 });
+
+/**
+ * The console and the shared component library both define a colour palette.
+ * The library's token block is emitted UNLAYERED, so it outranks console.css's
+ * :root on document order — which once left the theme toggle resolving light
+ * and dark to identical values, with the whole window stuck light.
+ *
+ * The library keys its palette off a `dark` class, so applying the theme has to
+ * set that class, and color-scheme has to out-specify the library's :root.
+ */
+test("the theme is applied in the form the shared library reads", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/views/console.css"), "utf8");
+    assert.match(js, /classList\.toggle\("dark", t === "dark"\)/);
+    assert.match(css, /html\[data-theme="dark"\]\s*\{\s*color-scheme:\s*dark/);
+    assert.match(css, /html\[data-theme="light"\]\s*\{\s*color-scheme:\s*light/);
+});

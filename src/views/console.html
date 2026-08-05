@@ -16,10 +16,19 @@
         <link rel="icon" href="/_agent/icon.png" />
         <link rel="stylesheet" href="/_agent/console.css" />
         <!-- The conversation's own component library, so the two halves of this
-             window are one interface rather than two that share a frame. Loaded
-             AFTER console.css deliberately: it changes nothing here, because
-             Tailwind v4 emits inside @layer and unlayered author CSS outranks
-             every layer, so console.css keeps winning wherever it has a view. -->
+             window are one interface rather than two that share a frame.
+
+             Loaded AFTER console.css. Its RULES cannot disturb this file:
+             Tailwind v4 emits them inside @layer, and unlayered author CSS
+             outranks every layer. Its TOKENS are a different matter — the :root
+             palette block is emitted unlayered, so it meets console.css's :root
+             at equal specificity and wins on document order. That is why the
+             theme is applied as the `dark` class this stylesheet already keys
+             its palette off, and why console.css pins color-scheme through
+             html[data-theme] rather than :root. Do not "fix" the theme by
+             reordering these two links: .dark carries forty tokens and
+             console.css names nine, so console.css winning gives a half-dark
+             window. -->
         <link rel="stylesheet" href="/_agent/workspace/styles.css" />
         <script type="module" src="/_agent/workspace/shared.js"></script>
         <title>PiKVM Console</title>
