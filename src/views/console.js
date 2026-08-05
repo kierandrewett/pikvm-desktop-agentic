@@ -896,12 +896,32 @@
                 });
                 list.appendChild(btn);
             });
+            /* An empty column with a divider beside it says nothing about what
+               it is or how it gets filled. */
+            if (!macros.length) {
+                var none = document.createElement("p");
+                none.className = "dlg-note macro-list-empty";
+                none.textContent = "No macros yet.";
+                /* The list column says the list is empty; the editor column
+                   beside it says what to do about it. Saying both in both
+                   places just reads as a rendering fault. */
+                list.appendChild(none);
+            }
         }
         var macro = macroById(macroSelected);
         var form = document.getElementById("macro-form");
         var empty = document.getElementById("macro-empty");
         if (form) form.hidden = !macro;
-        if (empty) empty.hidden = !!macro;
+        if (empty) {
+            empty.hidden = !!macro;
+            /* "Select a macro" was shown whether or not there was one to
+               select. With none saved it asked for a choice from an empty list
+               and named no way out of that; the button that makes one is in the
+               actions row, so say what it is called. */
+            empty.textContent = macros.length
+                ? "Select a macro to edit it."
+                : "Use New macro to add one.";
+        }
         if (!macro) return;
 
         var labelEl = document.getElementById("macro-label");
@@ -1291,7 +1311,15 @@
                 { id: "add-chord", label: "Add key combo", onSelect: function () { addStep("chord"); } },
                 { id: "add-text", label: "Add text", onSelect: function () { addStep("text"); } },
                 { id: "add-delay", label: "Add pause", onSelect: function () { addStep("delay"); } },
-                { id: "macro-delete", label: "Delete macro", onSelect: deleteMacro },
+                /* Destructive, and pushed away from the three above it.
+                 *
+                 * It sat fourth in a row reading "Add key combo, Add text, Add
+                 * pause, Delete macro", styled identically to the three that
+                 * add a step and immediately beside the last of them. A slip of
+                 * one button width was the difference between adding a pause
+                 * and destroying the macro. It does confirm, but a confirm is
+                 * not a reason to lay the button out as if it were harmless. */
+                { id: "macro-delete", label: "Delete macro", variant: "destructive", onSelect: deleteMacro },
             ];
         }
         function dialogActionSpecs() {
