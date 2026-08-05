@@ -274,13 +274,18 @@ test("the operator credential is injected on the partition, not on a view", () =
     assert.match(main, /const HARNESS_PARTITION = "pikvm-harness";/);
     const literals = main.match(/partition: "pikvm-harness"/g) ?? [];
     assert.equal(literals.length, 0, "the partition name is written out by hand again");
-    assert.equal((main.match(/partition: HARNESS_PARTITION/g) ?? []).length, 2);
+    /* One consumer now, not two: the embedded view is gone and the detached
+     * conversation window is all that is left on this session. That is exactly
+     * the case the rewrite was moved off the view for — had it still hung there,
+     * this window would have lost its credential the day the view went. */
+    assert.equal((main.match(/partition: HARNESS_PARTITION/g) ?? []).length, 1);
+    assert.doesNotMatch(main, /const agentView = new WebContentsView/);
 
     // Bound to the session itself. Hanging it off one view meant the detached
     // window only got its credential because it happened to share that view's
     // session — and would have lost it silently the day the view went away.
     assert.match(main, /session\.fromPartition\(HARNESS_PARTITION\)\.webRequest\.onBeforeSendHeaders/);
-    assert.doesNotMatch(main, /agentView\.webContents\.session\.webRequest/);
+    assert.doesNotMatch(main, /agentView/);
 });
 
 test("ctrl+scroll belongs to the target on desktop, not to our zoom", () => {

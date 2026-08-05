@@ -619,19 +619,6 @@ function createWindow() {
     // The first-party chat harness is the desktop's sole workspace. Its isolated
     // session lets main inject the operator credential without ever exposing that
     // credential to page JavaScript.
-    const agentView = new WebContentsView({
-        webPreferences: {
-            contextIsolation: true,
-            backgroundThrottling: false,
-            // Only the panel-placement bridge: the conversation's own header
-            // needs to be able to move and detach the panel it lives in.
-            preload: resolve(__dirname, "preload-agent.js"),
-            partition: HARNESS_PARTITION,
-        },
-    });
-    agentView.setBackgroundColor("#0a0a0c");
-    agentView.setVisible(false);
-
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
     const harnessCommand = resolveHarnessCommand(settings.get().harnessCmd);
     const HARNESS_ORIGIN = resolvedHarnessOrigin();
@@ -683,7 +670,6 @@ function createWindow() {
 
     win.contentView.addChildView(overlayView);
     win.contentView.addChildView(mainView);
-    win.contentView.addChildView(agentView);
 
     const layout = () => {
         const [w, h] = win.getContentSize();
@@ -717,123 +703,6 @@ function createWindow() {
         void shell.openExternal(url);
         return true;
     };
-    // Chat harness view: retry on transient startup failure and keep navigation local.
-    // The harness may still be bootstrapping its secret-free provider config.
-    const loadHarness = () => {
-        if (agentView.webContents.isDestroyed()) return;
-        harnessViewLifecycle.beginLoad();
-        void agentView.webContents.loadURL(HARNESS_URL);
-    };
-
-    // Starting the harness is not fast: a Python process has to come up, bind a
-    // port and answer before the view is even asked to load, and only then does
-    // the workspace bundle parse. Until now the panel was simply its background
-    // colour for all of it, which reads as broken rather than busy. Shown from
-    // the moment the view exists, and replaced the instant loadHarness lands.
-    const showHarnessLoading = () => {
-        if (agentView.webContents.isDestroyed()) return;
-        const page = `<!doctype html><meta charset="utf-8"><title>Starting…</title>
-<style>
- :root{color-scheme:dark}
- body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
-      gap:.75em;background:#0a0a0c;color:#8a8a95;font:13px/1.5 system-ui,sans-serif}
- .ring{width:15px;height:15px;border-radius:50%;border:2px solid #26262e;
-       border-top-color:#5b8cff;animation:spin .8s linear infinite}
- @media (prefers-reduced-motion:reduce){
-   /* No rotation: a still spinner reads as hung, so the label breathes instead. */
-   .ring{animation:none;border-top-color:#26262e}
-   p{animation:fade 2s ease-in-out infinite}
- }
- @keyframes spin{to{transform:rotate(360deg)}}
- @keyframes fade{0%,100%{opacity:1}50%{opacity:.55}}
- p{margin:0}
-</style>
-<div class="ring" role="progressbar" aria-label="Starting the agent workspace"></div>
-<p>Starting the agent workspace…</p>`;
-        void agentView.webContents.loadURL(
-            `data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
-        );
-    };
-    showHarnessLoading();
-
-    // A harness that never starts (its port already owned by another instance,
-    // say) used to leave this view exactly as it was created: a black rectangle
-    // filling half the window, with nothing to read and nothing to do. Say what
-    // happened instead. Written straight into the view because the point is to
-    // work when the thing that serves our pages is the thing that is down.
-    const HARNESS_FAILURE_SHOWN_AFTER = 3;
-    let harnessFailureShown = false;
-    const showHarnessFailure = (detail: string, retrying: boolean) => {
-        if (harnessFailureShown || agentView.webContents.isDestroyed()) return;
-        harnessFailureShown = true;
-        const page = `<!doctype html><meta charset="utf-8"><title>Agent workspace unavailable</title>
-<style>
- :root{color-scheme:dark}
- body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
-      background:#0a0a0c;color:#ededf1;font:13px/1.6 system-ui,sans-serif}
- main{max-width:34em;padding:0 2.5em;text-align:left}
- h1{margin:0 0 .6em;font-size:15px;font-weight:600}
- p{margin:0 0 .8em;color:#8a8a95}
- code{font-family:ui-monospace,monospace;color:#ededf1;overflow-wrap:anywhere}
-</style>
-<main>
- <h1>The agent workspace did not start</h1>
- <p>Nothing is answering at <code>${escapeHtml(HARNESS_ORIGIN)}</code>, so this
-    panel has nothing to show. The console, the screen and the keyboard are
-    unaffected.</p>
- <p>This usually means another copy of the app is still running and owns the
-    harness, or the previous one did not shut down cleanly. Closing the other
-    window, or quitting and reopening this one, is normally enough.</p>
- <p>Last error: <code>${escapeHtml(detail)}</code></p>
- <p>${retrying ? "Retrying in the background." : "Reopen the app once the other copy has closed."}</p>
-</main>`;
-        void agentView.webContents.loadURL(
-            `data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
-        );
-    };
-
-    agentView.webContents.on("did-fail-load", (_e, code, desc, url) => {
-        console.error(`[harness-renderer] did-fail-load ${code} ${desc} ${url}`);
-        harnessViewLifecycle.failed();
-        if (agentView.webContents.isDestroyed()) return;
-        if (harnessViewLifecycle.failureCount() >= HARNESS_FAILURE_SHOWN_AFTER) {
-            showHarnessFailure(`${desc || "load failed"} (${code})`, true);
-        }
-        harnessViewLifecycle.scheduleRetry(loadHarness);
-    });
-    agentView.webContents.setWindowOpenHandler(({ url }) => {
-        openUrlExternally(url);
-        return { action: "deny" };
-    });
-    agentView.webContents.on("will-navigate", (e, url) => {
-        if (url.startsWith(`${HARNESS_ORIGIN}/`)) return;
-        e.preventDefault();
-        openUrlExternally(url);
-    });
-
-    // The console reports the chat content rect; the harness view is the only native
-    // child allowed to occupy it. A zero rect hides it while the preview is collapsed.
-    let workspaceRectSeen = false;
-    let lastPanelRect = { x: 0, y: 0, width: 0, height: 0 };
-    const applyWorkspaceView = () => {
-        const { x, y, width, height } = lastPanelRect;
-        const visible = width > 1 && height > 1;
-        agentView.setVisible(visible);
-        if (visible) agentView.setBounds({ x, y, width, height });
-    };
-    ipcMain.on("console:workspace-rect", (_, r: { x?: number; y?: number; width?: number; height?: number }) => {
-        const x = Math.round(Number(r?.x) || 0);
-        const y = Math.round(Number(r?.y) || 0);
-        const width = Math.round(Number(r?.width) || 0);
-        const height = Math.round(Number(r?.height) || 0);
-        lastPanelRect = { x, y, width, height };
-        if (width > 1 && height > 1 && !workspaceRectSeen) {
-            console.log(`[console:workspace-rect] first show ${width}x${height} @${x},${y}`);
-            workspaceRectSeen = true;
-        }
-        applyWorkspaceView();
-    });
-
     // Panel placement, asked for by the conversation's own header and answered by
     // the console, which owns the state. Main only relays: it has no opinion on
     // which side the panel is, and keeping it that way means one source of truth.
@@ -848,9 +717,6 @@ function createWindow() {
     ipcMain.on("panel:request-theme", () => toConsole("console:agent-theme-request"));
     ipcMain.on("console:agent-theme", (_, theme: unknown) => {
         if (theme !== "dark" && theme !== "light") return;
-        if (!agentView.webContents.isDestroyed()) {
-            agentView.webContents.send("panel:theme", theme);
-        }
         if (agentWin && !agentWin.isDestroyed()) {
             agentWin.webContents.send("panel:theme", theme);
         }
@@ -859,9 +725,6 @@ function createWindow() {
         // Both windows show the same conversation and the same header, so both
         // need to know where it currently is — the detached one above all, since
         // its only useful placement control is the one that puts it back.
-        if (!agentView.webContents.isDestroyed()) {
-            agentView.webContents.send("panel:placement", placement);
-        }
         if (agentWin && !agentWin.isDestroyed()) {
             agentWin.webContents.send("panel:placement", placement);
         }
@@ -990,12 +853,14 @@ function createWindow() {
         // The React workspace still uses its normal token-auth client, but only
         // sees a non-secret sentinel. Electron replaces that header inside this
         // isolated session, keeping approval authority out of renderer storage.
-        /* Registered on the partition rather than on agentView.webContents.session.
-         * They are the same object today, so this changes nothing now — but the
-         * detached conversation window was only getting its credential injected
-         * because it happened to share the embedded view's session. Hanging the
-         * rewrite off one view meant the day that view stopped existing, a second
-         * window that still used the partition would quietly lose its authority. */
+        /* Registered on the PARTITION, not on a view.
+         *
+         * That day has now come: the embedded view is gone and the detached
+         * conversation window is the only thing left using this session. Had the
+         * rewrite still hung off the view it was originally attached to, that
+         * window would have lost its credential the moment this commit landed,
+         * and the only symptom would have been an auth prompt nobody could
+         * explain. */
         session.fromPartition(HARNESS_PARTITION).webRequest.onBeforeSendHeaders(
             { urls: [`${HARNESS_ORIGIN}/api/*`] },
             (details, callback) => {
@@ -1007,48 +872,17 @@ function createWindow() {
                 });
             },
         );
-        agentView.webContents.on("did-finish-load", () => {
-            // The failure page loads successfully too. Only the harness itself
-            // answering means the harness is back, so anything else must not
-            // clear the streak and restart the retries at full speed.
-            if (!agentView.webContents.getURL().startsWith(HARNESS_ORIGIN)) return;
-            harnessFailureShown = false;
-            harnessViewLifecycle.loaded();
-            if (
-                !harnessViewLifecycle.shouldBootstrapAuth(
-                    agentView.webContents.getURL(),
-                )
-            ) {
-                return;
-            }
-            void seedHarnessAuth(agentView.webContents);
-        });
     }
 
     if (backend) {
-        /* The conversation is rendered IN the console page now, from
-         * /_agent/workspace/, so this native view is no longer shown — it never
-         * receives a rect, so applyWorkspaceView never makes it visible.
-         *
-         * It must not LOAD either. Left loading, it was a second full copy of
-         * the workspace running invisibly: another React tree, another set of
-         * polls and event streams against the same harness, for a panel nobody
-         * can see. Measured, not assumed — its target was still listed and the
-         * harness was serving two clients.
-         *
-         * The object and its plumbing stay for now so the detached conversation
-         * window, which is still a real native view, keeps its IPC. Removing the
-         * dead remainder is a separate change with no behaviour in it. */
+        /* Nothing to load here any more: the conversation is rendered in the
+         * console page, which waits for the harness itself and retries there.
+         * Still worth reporting, because the console can only say "not yet"
+         * while this knows the harness never started at all. */
         void backend.harnessReady.catch((error: unknown) => {
-            // startProxyAndHarness logs the actionable startup error, but the
-            // user is looking at the panel, not our stdout. This is the path
-            // that left the view exactly as constructed, a black rectangle
-            // filling half the window: the harness never became ready, so
-            // nothing ever asked the view to load and did-fail-load never ran.
             const detail =
                 error instanceof Error ? error.message : String(error ?? "unknown error");
-            console.error(`[harness-renderer] harness never became ready: ${detail}`);
-            showHarnessFailure(detail, false);
+            console.error(`[harness] never became ready: ${detail}`);
         });
     }
 
