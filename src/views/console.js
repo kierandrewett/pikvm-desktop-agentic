@@ -4546,6 +4546,18 @@
         releaseClickMods();
         var m = modsFromEvent(e);
         if (e.shiftKey) m.push("ShiftLeft");
+        /* An on-screen sticky modifier counts as much as a physical one.
+         *
+         * This read only the event, so arming Ctrl in the drawer and clicking
+         * the picture sent a bare click and left the Ctrl armed for whatever
+         * came next — and on a touch device, arming it is the ONLY way to hold
+         * Ctrl, so Ctrl+click had no route at all. Deduped because a user can
+         * hold Ctrl physically AND have it armed, and pressing the same key
+         * twice leaves it stuck down on the target. */
+        armedList().forEach(function (a) {
+            if (m.indexOf(a) < 0) m.push(a);
+        });
+        clearArmed();
         // Anything the user is physically holding is already down and stays down
         // until they let go; synthesising it again would mean releasing it on
         // pointerup while it is still held.
@@ -4619,10 +4631,15 @@
     }
     function tapClick(button) {
         flushMove(); // make sure the cursor is at its latest position first
-        hid.button(button || "left", true);
-        setTimeout(function () {
-            hid.button(button || "left", false);
-        }, 45);
+        // The touch path never went near pressClickMods, so an armed modifier
+        // was dropped here too — and this is the tap a phone actually makes.
+        withArmedMods(function (release) {
+            hid.button(button || "left", true);
+            setTimeout(function () {
+                hid.button(button || "left", false);
+                release();
+            }, 45);
+        });
     }
 
     function centroid() {

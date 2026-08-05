@@ -375,3 +375,37 @@ test("an armed modifier wraps the drawer's clicks and scrolls", () => {
     assert.match(body, /clearArmed\(\)/);
     assert.ok(body.indexOf("clearArmed()") < body.indexOf("act("), "armed must be cleared before the action runs");
 });
+
+/**
+ * The SCREEN's two click paths have to honour an armed modifier too.
+ *
+ * A commit earlier taught the drawer's own buttons this; the picture itself
+ * still did not. pressClickMods built its list from the pointer event, so it
+ * saw physical modifiers and never the armed ones, and the touch path went
+ * through tapClick which had no modifier handling at all.
+ *
+ * Touch is the case that matters: on a phone there IS no physical Ctrl, so
+ * arming it and tapping the picture was the only route to Ctrl+click, and it
+ * sent a bare click.
+ *
+ * Recorded against a harness watching the HID socket:
+ *   mouse, armed   before  mouse_move mouse_button mouse_button
+ *                  after   mouse_move ControlLeft:true mouse_button
+ *                          mouse_button ControlLeft:false
+ *   touch, armed   after   ControlLeft:true mouse_button mouse_button
+ *                          ControlLeft:false
+ * Unchanged: a plain click sends no modifiers, a physical ctrl+click still
+ * works, physical AND armed presses ControlLeft once rather than twice, and a
+ * ctrl+drag holds it across every move until pointerup.
+ */
+test("a click on the picture honours an armed modifier, by mouse and by touch", () => {
+    const press = js.slice(js.indexOf("function pressClickMods(e)"));
+    const body = press.slice(0, press.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /armedList\(\)\.forEach/);
+    assert.match(body, /clearArmed\(\);/);
+    // Deduped: a modifier held physically AND armed must be pressed once.
+    assert.match(body, /if \(m\.indexOf\(a\) < 0\) m\.push\(a\);/);
+
+    const tap = js.slice(js.indexOf("function tapClick(button)"));
+    assert.match(tap.slice(0, tap.indexOf("\n    }")), /withArmedMods\(/);
+});
