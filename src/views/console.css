@@ -34,6 +34,9 @@
        read too, or the divider announces a maximum it can never reach and the
        last stretch of the drag moves nothing. */
     --screen-min: 300px;
+    /* The screen overlay is near-black in BOTH themes, so its surfaces cannot be
+       built from --card, which flips to white. One fixed tone, named once. */
+    --overlay-glass: #121216;
 }
 
 [data-theme="light"] {
@@ -546,7 +549,7 @@ html.modal-open .screen {
    also passes but spends the one thing the colour is carrying. At 96% the
    backdrop barely moves with the picture: 5.61 dark, 4.83 light. */
 .toast.is-error {
-    background: color-mix(in srgb, var(--card) 96%, transparent);
+    background: color-mix(in srgb, var(--overlay-glass) 96%, transparent);
     border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
     color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
 }
@@ -618,12 +621,18 @@ html.modal-open .screen {
     align-items: center;
     justify-content: center;
     /* This overlay is near-black in BOTH themes because it covers the video
-       area, where a light panel would be wrong. So its text cannot follow
-       --foreground: in the light theme that is near-black too, and "Connecting
-       to computer" dropped to 1.12:1 — invisible. Fixed light text instead. */
+       area, where a light panel would be wrong. Its text is therefore fixed
+       light rather than --foreground, which in the light theme is near-black.
+
+       Every layer here has to be fixed for the same reason, and the glow was
+       not: built from --card it turned WHITE in the light theme and painted a
+       vast pale blob across the picture, with the status pill invisible on top
+       of it. Half-fixing a surface that opts out of theming is worse than not
+       opting out at all. --overlay-glass is that one fixed tone, so the pill
+       below cannot drift from it again. */
     color: #ededf1;
     background:
-        radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--card) 74%, transparent), transparent 42%),
+        radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--overlay-glass) 74%, transparent), transparent 42%),
         #07080a;
     padding: 24px;
     pointer-events: none;
@@ -647,7 +656,7 @@ html.modal-open .screen {
        through is whatever the target is displaying, and against a bright screen
        the text landed at 4.4966:1 — three thousandths under the 4.5:1 it needs,
        reading as a pass only because two decimal places round it to 4.50. */
-    background: color-mix(in srgb, var(--card) 96%, transparent);
+    background: color-mix(in srgb, var(--overlay-glass) 96%, transparent);
     box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
