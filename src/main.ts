@@ -332,30 +332,7 @@ function consoleWinFrom(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEve
     return w && !w.isDestroyed() ? w : null;
 }
 
-/** The console origin the desktop loads from (Settings → Connection, or the env
- *  override, else the local server). */
-function resolvedConsoleOrigin(): string {
-    let saved: string | undefined;
-    try {
-        saved = loadConfig().consoleOrigin;
-    } catch {
-        /* no config yet */
-    }
-    return (saved || process.env.PIKVM_CONSOLE_ORIGIN || `http://127.0.0.1:${CONTROL_PORT}`).replace(/\/$/, "");
-}
-
 // ── Console window IPC (only the frameless console carries preload-console) ──
-// Read/write the console origin (a desktop-level setting; changing it relaunches).
-ipcMain.on("console:get-origin", (e) => {
-    const origin = resolvedConsoleOrigin();
-    let pikvmOrigin = "https://pikvm/";
-    try {
-        pikvmOrigin = loadConfig().origin || pikvmOrigin;
-    } catch {
-        /* no config yet */
-    }
-    e.returnValue = { origin, isLocal: origin === `http://127.0.0.1:${CONTROL_PORT}`, envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN, pikvmOrigin };
-});
 ipcMain.on("console:minimise", (e) => consoleWinFrom(e)?.minimize());
 ipcMain.on("console:toggle-maximise", (e) => {
     const w = consoleWinFrom(e);
@@ -399,21 +376,6 @@ ipcMain.on("console:fit-native", (e, opts: { width?: number; height?: number; ag
     const screenW = Math.round(nw * scale);
     const screenH = Math.round(nh * scale);
     w.setContentSize(screenW + panel, screenH + bar);
-});
-
-// Grow/shrink the window by a delta (toggling the agent panel) so the KVM screen
-// keeps its exact size — the window changes width by the panel's width instead.
-ipcMain.on("console:resize-by", (e, opts: { dw?: number; dh?: number }) => {
-    const w = consoleWinFrom(e);
-    if (!w || w.isMaximized()) return; // pointless while maximised
-    const dw = Math.round(Number(opts?.dw) || 0);
-    const dh = Math.round(Number(opts?.dh) || 0);
-    const size = w.getContentSize();
-    const cw = size[0] ?? 0;
-    const ch = size[1] ?? 0;
-    const area = screen.getDisplayMatching(w.getBounds()).workAreaSize;
-    // setContentSize keeps the top-left anchored, so the screen (on the left) stays put.
-    w.setContentSize(Math.max(480, Math.min(area.width, cw + dw)), Math.max(360, Math.min(area.height, ch + dh)));
 });
 
 // Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.

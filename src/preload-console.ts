@@ -51,9 +51,6 @@ export interface DesktopConsoleApi {
      * when the panel is collapsed.
      */
     fitNative(opts: { width: number; height: number; agentPanelWidth: number; titlebarHeight: number }): void;
-    /** Grow/shrink the window content size by a delta (px). Used when toggling the
-     *  agent panel so the KVM screen keeps its size and the window changes width. */
-    resizeBy(dw: number, dh: number): void;
     /**
      * Pop a NATIVE Electron context menu built from `items`. The chosen item's
      * `id` is delivered via `onMenuCommand`. `anchor` (optional) positions it;
@@ -62,8 +59,6 @@ export interface DesktopConsoleApi {
     popupMenu(items: DesktopMenuItem[], anchor?: { x: number; y: number }): void;
     /** Subscribe to native-menu command picks; returns an unsubscribe fn. */
     onMenuCommand(cb: (id: string) => void): () => void;
-    /** The console origin this desktop loads from + the local backend's PiKVM URL. */
-    originConfig: { origin: string; isLocal: boolean; envLocked: boolean; pikvmOrigin: string };
     /** Report where the first-party chat workspace belongs in the native shell. */
     reportWorkspaceRect(rect: { x: number; y: number; width: number; height: number }): void;
     /** Open Settings in its own window.
@@ -122,14 +117,12 @@ const api: DesktopConsoleApi = {
         return () => ipcRenderer.removeListener("console:maximise-change", listener);
     },
     fitNative: (opts) => ipcRenderer.send("console:fit-native", opts),
-    resizeBy: (dw, dh) => ipcRenderer.send("console:resize-by", { dw, dh }),
     popupMenu: (items, anchor) => ipcRenderer.send("console:popup-menu", { items, anchor }),
     onMenuCommand: (cb) => {
         const listener = (_e: unknown, id: string) => cb(id);
         ipcRenderer.on("console:menu-command", listener);
         return () => ipcRenderer.removeListener("console:menu-command", listener);
     },
-    originConfig: ipcRenderer.sendSync("console:get-origin") as { origin: string; isLocal: boolean; envLocked: boolean; pikvmOrigin: string },
     reportWorkspaceRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:workspace-rect", rect),
     openSettingsWindow: () => ipcRenderer.send("console:open-settings"),
     detachAgent: () => ipcRenderer.send("agent:detach"),
