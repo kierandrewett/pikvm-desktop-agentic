@@ -30,7 +30,7 @@ test("a mount handle is never re-initialised after it has been assigned", () => 
         const name = match[1];
         const declaredAt = match.index ?? 0;
         // An assignment to the same name that is not itself a declaration.
-        const assignment = new RegExp(`(?<!var[ \\t]+)\\b${name}[ \\t]*=[ \\t]*mountDialogActions\\(`, "g");
+        const assignment = new RegExp(`(?<!var[ \\t]+)\\b${name}[ \\t]*=[ \\t]*mount(DialogActions|RowButtons)\\(`, "g");
         for (const use of js.matchAll(assignment)) {
             if ((use.index ?? 0) < declaredAt) offenders.push(name);
         }

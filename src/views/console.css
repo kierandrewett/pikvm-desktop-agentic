@@ -1821,3 +1821,10 @@ html.desktop-console.agent-detached .screen {
 html.desktop-console #chat-frame {
     background: var(--background);
 }
+
+/* A GPIO switch reads "On" or "Off", and those are different widths — so
+   toggling one used to resize the button and shift the whole row under the
+   pointer. A floor wide enough for both keeps the column still. */
+[data-tb^="gpio-switch-"] {
+    min-width: 52px;
+}

@@ -127,6 +127,17 @@ export type TextButtonSpec = {
     disabled?: boolean;
     hidden?: boolean;
     className?: string;
+    /** Names the control by pointing at existing text, rather than repeating it.
+     *
+     *  A GPIO row already shows its channel name beside the switch; duplicating
+     *  that into an aria-label means the two can drift apart. */
+    ariaLabelledBy?: string;
+    /** Renders as a switch: the label is the STATE, not the action.
+     *
+     *  A plain button says what it will do; a switch says what is currently
+     *  true and carries `checked` for anything that cannot see the fill. */
+    role?: "switch";
+    checked?: boolean;
     onSelect: () => void;
 };
 
@@ -143,6 +154,8 @@ function TextButtonRow({ buttons }: { buttons: TextButtonSpec[] }) {
                         data-tb={b.id}
                         onClick={b.onSelect}
                         {...(b.ariaLabel ? { "aria-label": b.ariaLabel } : {})}
+                        {...(b.ariaLabelledBy ? { "aria-labelledby": b.ariaLabelledBy } : {})}
+                        {...(b.role ? { role: b.role, "aria-checked": b.checked ? "true" : "false" } : {})}
                         {...(b.className ? { className: b.className } : {})}
                     >
                         {b.label}

@@ -2401,6 +2401,11 @@
         hidToggleState = { attached: !!attached, known: !!known };
         repaintHealthActions();
     }
+    /* Live channel state, read by the specs at repaint. Keyed by channel so a
+     * spec built once when the row was created still sees the current values. */
+    var gpioLive = {};
+    var gpioRows = {};
+
     /* GPIO rows are rebuilt only when the channel set changes; their live state is
      * written on every event, so a toggle reflects the Pi rather than the click. */
     function paintGpio() {
@@ -2418,6 +2423,7 @@
         if (rows.getAttribute("data-set") !== key) {
             rows.setAttribute("data-set", key);
             rows.innerHTML = "";
+            gpioRows = {};
             outs.forEach(function (o) {
                 var row = document.createElement("div");
                 row.className = "dlg-row";
@@ -2426,59 +2432,98 @@
                 label.textContent = o.label;
                 label.id = "gpio-label-" + o.name.replace(/[^A-Za-z0-9_-]/g, "-");
                 row.appendChild(label);
-                if (o.canSwitch) {
-                    var btn = document.createElement("button");
-                    btn.type = "button";
-                    btn.className = "dlg-btn";
-                    // A switch, not a button: the word on it is the STATE, not
-                    // what it does. Without these it announced a bare "On" with
-                    // nothing saying what was on, and the state was carried to
-                    // sighted users by the blue fill alone.
-                    btn.setAttribute("role", "switch");
-                    btn.setAttribute("aria-labelledby", label.id);
-                    btn.setAttribute("data-gpio-switch", o.name);
-                    btn.addEventListener("click", function () {
-                        var cur = gpio.outputs().filter(function (x) {
-                            return x.name === o.name;
-                        })[0];
-                        if (!cur) return;
-                        var warn = GPIO_CONFIRM[o.name];
-                        if (warn && !window.confirm(warn)) return;
-                        gpio.switchTo(o.name, !cur.on);
-                    });
-                    row.appendChild(btn);
-                }
-                if (o.canPulse) {
-                    var pulse = document.createElement("button");
-                    pulse.type = "button";
-                    pulse.className = "dlg-btn";
-                    pulse.textContent = "Pulse";
-                    // Every pulse button says "Pulse", so on their own a list of
-                    // them names nothing you could tell apart.
-                    pulse.setAttribute("aria-label", "Pulse " + o.label);
-                    pulse.setAttribute("data-gpio-pulse", o.name);
-                    pulse.addEventListener("click", function () {
-                        var warn = GPIO_CONFIRM[o.name];
-                        if (warn && !window.confirm(warn)) return;
-                        gpio.pulse(o.name);
-                    });
-                    row.appendChild(pulse);
-                }
+                var host = document.createElement("span");
+                host.className = "dlg-inline-actions";
+                row.appendChild(host);
                 rows.appendChild(row);
+                /* One mount per row, kept so the live state below repaints
+                 * through it. Rebuilt only when the channel SET changes, which
+                 * is why the handle is stored rather than remounted. */
+                gpioRows[o.name] = mountRowButtons(host, gpioSpecsFor(o.name, label.id));
             });
         }
+        gpioLive = {};
         outs.forEach(function (o) {
-            var btn = rows.querySelector('[data-gpio-switch="' + o.name + '"]');
-            if (btn) {
-                btn.textContent = o.on ? "On" : "Off";
-                btn.setAttribute("aria-checked", o.on ? "true" : "false");
-                btn.classList.toggle("primary", o.on);
-                btn.disabled = o.busy || !o.online;
-            }
-            var pulse = rows.querySelector('[data-gpio-pulse="' + o.name + '"]');
-            if (pulse) pulse.disabled = o.busy || !o.online;
+            gpioLive[o.name] = o;
+        });
+        outs.forEach(function (o) {
+            var mounted = gpioRows[o.name];
+            if (mounted) mounted.update();
         });
     }
+    function gpioSpecsFor(name, labelId) {
+        return function () {
+            var o = gpioLive[name];
+            if (!o) return [];
+            var specs = [];
+            /* Pulse first, switch last.
+             *
+             * The switch is the row's STATE, and a column of states can only be
+             * read down if they share an edge. With the switch first, a row that
+             * also pulses pushed its On/Off inboard of every other row's, so the
+             * states no longer lined up with each other. Actions then state
+             * keeps the right edge straight, and tab order still matches what
+             * is on screen. */
+            if (o.canPulse) {
+                specs.push({
+                    id: "gpio-pulse-" + name,
+                    label: "Pulse",
+                    // Every pulse button says "Pulse", so on their own a list of
+                    // them names nothing you could tell apart.
+                    ariaLabel: "Pulse " + o.label,
+                    disabled: o.busy || !o.online,
+                    onSelect: function () {
+                        var warn = GPIO_CONFIRM[name];
+                        if (warn && !window.confirm(warn)) return;
+                        gpio.pulse(name);
+                    },
+                });
+            }
+            if (o.canSwitch) {
+                specs.push({
+                    id: "gpio-switch-" + name,
+                    label: o.on ? "On" : "Off",
+                    // A switch, not a button: the word on it is the STATE, not
+                    // what it does. Named by the row's own label so the two
+                    // cannot drift, and checked so the state is not carried by
+                    // the fill colour alone.
+                    role: "switch",
+                    checked: o.on,
+                    ariaLabelledBy: labelId,
+                    variant: o.on ? "default" : "outline",
+                    disabled: o.busy || !o.online,
+                    onSelect: function () {
+                        var cur = gpioLive[name];
+                        if (!cur) return;
+                        var warn = GPIO_CONFIRM[name];
+                        if (warn && !window.confirm(warn)) return;
+                        gpio.switchTo(name, !cur.on);
+                    },
+                });
+            }
+            return specs;
+        };
+    }
+    /* The same poll-and-mount as mountDialogActions, but the host is created
+     * here rather than looked up by id: a GPIO row exists only once the Pi has
+     * said which channels it has. */
+    function mountRowButtons(host, specs) {
+        var mounted = null;
+        function tryMount() {
+            var shared = window.pikvmShared;
+            if (!shared || !shared.mountButtons || mounted) return !!mounted;
+            mounted = shared.mountButtons(host, specs());
+            return true;
+        }
+        if (!tryMount()) {
+            var tries = 0;
+            var timer = setInterval(function () {
+                if (tryMount() || ++tries > 100) clearInterval(timer);
+            }, 50);
+        }
+        return { update: function () { if (mounted) mounted.update(specs()); } };
+    }
+
     gpio.onChange(function () {
         if (healthDlg && !healthDlg.hidden) paintGpio();
     });
