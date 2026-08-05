@@ -2791,11 +2791,28 @@
             cache: "no-store",
         })
             .then(function (r) {
-                if (!r.ok) toast("Could not change the stream " + name.replace(/_/g, " ") + " (" + r.status + ")", true);
+                if (r.ok) return;
+                toast("Could not change the stream " + name.replace(/_/g, " ") + " (" + r.status + ")", true);
+                revertStreamControls();
             })
             .catch(function (e) {
                 toast("Could not change the stream: " + (e && e.message ? e.message : "network error"), true);
+                revertStreamControls();
             });
+    }
+    /* Put the controls back to what the Pi actually has.
+     *
+     * A rejected change left the slider sitting at the value that was refused:
+     * ask for 60% quality, get a 409, and the dialog went on reading 60% while
+     * the Pi stayed at 80. The toast said it failed and the control said it had
+     * not, and nothing corrected it — kvmd only emits a streamer event when
+     * something really changes, so there was no later update to put it right.
+     *
+     * paintStreamDialog writes every control from streamerState.applied, and
+     * skips any the user is currently holding, so this is safe to call the
+     * moment the answer comes back. */
+    function revertStreamControls() {
+        paintStreamDialog();
     }
 
     var streamDlg = document.getElementById("stream-dlg");

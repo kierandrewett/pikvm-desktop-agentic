@@ -497,3 +497,29 @@ test("the connection chip shows input being offline, not just its tooltip", () =
     const sbody = setState.slice(0, setState.indexOf("\n    }"));
     assert.match(sbody, /overlayLabel\.textContent = d\.label;/);
 });
+
+/**
+ * A rejected stream change has to put its control back.
+ *
+ * sendStreamParam toasted the failure and left the slider sitting at the value
+ * that had just been refused: ask for 60% quality, get a 409, and the dialog
+ * went on reading 60% while the Pi stayed at 80. Nothing corrected it later —
+ * kvmd only emits a streamer event when something really changes, so a
+ * rejected change produces no update at all.
+ *
+ * Measured against a harness answering 409: before, slider 60 / readout "60%"
+ * beside a toast saying it failed; after, slider 80 / readout "80%" with the
+ * same toast. The accepted path is unchanged — the value stays where the user
+ * put it and still stands once the Pi confirms it.
+ */
+test("a refused stream setting snaps back to what the Pi has", () => {
+    const fn = js.slice(js.indexOf("function sendStreamParam(name, value)"));
+    const body = fn.slice(0, fn.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Both answers: a non-ok status and a thrown request.
+    assert.equal((body.match(/revertStreamControls\(\);/g) || []).length, 2);
+    assert.match(body, /if \(r\.ok\) return;/);
+
+    // And it reverts by repainting from the Pi's applied state, not by guessing.
+    const revert = js.slice(js.indexOf("function revertStreamControls()"));
+    assert.match(revert.slice(0, revert.indexOf("\n    }")), /paintStreamDialog\(\);/);
+});
