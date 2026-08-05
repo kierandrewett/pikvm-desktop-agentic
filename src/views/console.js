@@ -5464,12 +5464,22 @@
                         if (d.ocr)
                             parts.push("OCR: " + d.ocr.provider + (d.ocr.available ? "" : " (missing)"));
                         var ready = !!s.ok;
+                        /* The pill names its subject.
+                         *
+                         * It used to read a bare "Ready" / "Starting" /
+                         * "Unavailable", and it sits in the titlebar a few
+                         * hundred pixels from a stream overlay that says
+                         * "Screen unavailable" about something else entirely.
+                         * Two red states both saying "unavailable" about
+                         * different subsystems, with only a tooltip to tell
+                         * them apart, is a question the window should not be
+                         * asking anyone. */
                         setBackend(ready ? "ready" : "starting",
-                                   ready ? "Ready" : "Starting",
-                                   "Target backend — " + parts.join("  ·  "));
+                                   ready ? "Agent ready" : "Agent starting",
+                                   "Agent daemon — " + parts.join("  ·  "));
                     })
                     .catch(function () {
-                        setBackend("down", "Unavailable", "Target backend unreachable (daemon starting or not running)");
+                        setBackend("down", "Agent unavailable", "Agent daemon unreachable (starting, or not running)");
                     });
             };
             pollBackend();
