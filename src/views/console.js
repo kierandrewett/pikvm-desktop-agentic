@@ -2236,11 +2236,12 @@
         var known = connected !== null || online !== null;
         var stateEl = document.getElementById("health-hid-state");
         if (stateEl) stateEl.textContent = !known ? "state unknown" : attached ? "attached" : "detached";
-        var toggle = document.getElementById("hid-toggle");
-        if (toggle) {
-            toggle.textContent = attached ? "Detach" : "Attach";
-            toggle.disabled = !known;
-        }
+        /* The label is the ACTION, so it says what pressing it will do rather
+         * than what is currently true — and it is disabled while that is not
+         * known, because a button offering to detach something that may already
+         * be detached is worse than one that waits. */
+        hidToggleState = { attached: !!attached, known: !!known };
+        repaintHealthActions();
     }
     /* GPIO rows are rebuilt only when the channel set changes; their live state is
      * written on every event, so a toggle reflects the Pi rather than the click. */
@@ -2352,25 +2353,36 @@
         var close = document.getElementById("health-close");
         if (close) close.focus();
     }
+    var hidToggleState = { attached: false, known: false };
+    var healthActions = null;
+    function healthActionSpecs() {
+        return [
+            {
+                id: "hid-toggle",
+                label: hidToggleState.attached ? "Detach" : "Attach",
+                disabled: !hidToggleState.known,
+                onSelect: function () {
+                    // Mirror the label: whatever it says it will do, do that.
+                    var isAttached =
+                        health.hidConnected() === true ||
+                        (health.hidConnected() === null && health.hidOnline() === true);
+                    setHidConnected(!isAttached);
+                },
+            },
+            { id: "hid-reset", label: "Reset", onSelect: resetHid },
+            { id: "health-close", label: "Done", variant: "default", onSelect: closeHealthDialog },
+        ];
+    }
+    function repaintHealthActions() {
+        if (healthActions) healthActions.update(healthActionSpecs());
+    }
+
     function closeHealthDialog() {
         if (healthDlg) healthDlg.hidden = true;
         refocusKbd();
     }
     (function wireHealthDialog() {
-        var close = document.getElementById("health-close");
-        if (close) close.addEventListener("click", closeHealthDialog);
-        var toggle = document.getElementById("hid-toggle");
-        if (toggle) {
-            toggle.addEventListener("click", function () {
-                // Mirror the label: whatever it says it will do, do that.
-                var isAttached =
-                    health.hidConnected() === true ||
-                    (health.hidConnected() === null && health.hidOnline() === true);
-                setHidConnected(!isAttached);
-            });
-        }
-        var reset = document.getElementById("hid-reset");
-        if (reset) reset.addEventListener("click", resetHid);
+        healthActions = mountDialogActions("health-dlg-actions", healthActionSpecs);
         if (healthDlg) {
             healthDlg.addEventListener("mousedown", function (e) {
                 if (e.target === healthDlg) closeHealthDialog();
