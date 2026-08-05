@@ -1,0 +1,213 @@
+"""Text read-back verifier — E1–E6 regression fixtures + algorithm coverage.
+
+These reproduce the incidents that drove the verifier: symbol/case slips that
+must fail (E1), shell-prompt false misses (E4), truncated read-backs (E5), and
+wrong-region reads (E6), plus the lenient OCR-confusable tolerance that must
+never destroy correct prose.
+"""
+
+from __future__ import annotations
+
+from pikvm_agent.core.models import VERIFIED_STATUSES
+from pikvm_agent.executor.verification import (
+    classify_mismatch,
+    compute_verdict,
+    is_exact_text,
+    verify_text,
+)
+
+
+# --------------------------------------------------------------------------- #
+# E1 — find README symbol/case: README→readme and |→~ must NOT verify.
+# --------------------------------------------------------------------------- #
+
+
+def test_e1_symbol_and_case_slip_fails() -> None:
+    res = verify_text(
+        "find . -name 'README*' | sort && echo \"=== ROOT ===\"",
+        "find . -name 'readme*' ~ sort && echo @=== root ===@",
+        "terminal.readline",
+    )
+    assert res.status.startswith("failed_")
+    assert res.safe_to_continue is False
+    assert res.verified is False
+
+
+# --------------------------------------------------------------------------- #
+# E4 — shell prompt false miss: strip a leading prompt before comparing.
+# --------------------------------------------------------------------------- #
+
+
+def test_e4_dollar_prompt_stripped() -> None:
+    assert verify_text("git status", "$ git status", "terminal.readline").verified is True
+
+
+def test_e4_userhost_prompt_stripped() -> None:
+    res = verify_text(
+        "ls -la", "drewettk@HOST MINGW64 ~/p$ ls -la", "terminal.readline"
+    )
+    assert res.verified is True
+
+
+def test_exact_markdown_heading_is_not_stripped_as_shell_prompt() -> None:
+    heading = "# Release 1.0"
+
+    assert compute_verdict(heading, heading, precise=True) == "match"
+    assert verify_text(heading, heading, code=True).status == "verified_exact"
+
+
+# --------------------------------------------------------------------------- #
+# E5 — truncated read-back: a prefix-only read is unverified, NOT a retype.
+# --------------------------------------------------------------------------- #
+
+
+def test_e5_truncated_is_unverified_truncated() -> None:
+    res = verify_text(
+        "clear; wc -l README.md; sed -n '1,45p' image-build/oel9-cis/README.md",
+        "$ clear; wc -l README.md; sed -n '1,45p' image-build",
+        "terminal.readline",
+    )
+    assert res.status == "unverified_truncated"
+    assert res.safe_to_continue is False
+
+
+# --------------------------------------------------------------------------- #
+# E6 — wrong-region read (OCR over a results list), not a typing error.
+# --------------------------------------------------------------------------- #
+
+
+def test_e6_wrong_region_not_failed() -> None:
+    res = verify_text(
+        "oel9-cis/README.md",
+        "® README.md image-build oel9-cis runner RS NE a",
+    )
+    assert res.status in {"unverified_wrong_region", "unverified_ambiguous"}
+    assert not res.status.startswith("failed_")
+
+
+# --------------------------------------------------------------------------- #
+# Keyboard-layout slip (alnum equal, symbols differ).
+# --------------------------------------------------------------------------- #
+
+
+def test_layout_slip_classified() -> None:
+    res = verify_text("ls | sort", "$ ls ~ sort", "terminal.readline")
+    assert res.status == "failed_keyboard_layout"
+    assert res.safe_to_continue is False
+
+
+# --------------------------------------------------------------------------- #
+# Exact (lenient) match of ordinary prose.
+# --------------------------------------------------------------------------- #
+
+
+def test_exact_prose_match() -> None:
+    assert verify_text("Hello there", "Hello there").verified is True
+
+
+def test_extra_visible_space_is_not_accepted_as_normalized_prose() -> None:
+    result = verify_text("exactly one space", "exactly one  space")
+
+    assert result.status == "unverified_whitespace"
+    assert result.safe_to_continue is False
+
+
+def test_case_and_spacing_difference_is_not_reclassified_as_whitespace_only() -> None:
+    result = verify_text("A B", "a  b", code=True)
+
+    assert result.status == "failed_case_mismatch"
+    assert result.safe_to_continue is False
+
+
+def test_visual_line_wrap_is_still_one_space() -> None:
+    result = verify_text("wrapped prose remains exact", "wrapped prose\nremains exact")
+
+    assert result.status == "verified_safe_normalized"
+    assert result.safe_to_continue is True
+
+
+# --------------------------------------------------------------------------- #
+# Confusable tolerance (non-precise): oel9 vs oe19 must NOT be a failure.
+# --------------------------------------------------------------------------- #
+
+
+def test_confusable_tolerance_not_failed() -> None:
+    res = verify_text("oel9 notes", "oe19 notes")
+    assert not res.status.startswith("failed_")
+    assert res.status in VERIFIED_STATUSES or res.status.startswith("unverified_")
+
+
+# --------------------------------------------------------------------------- #
+# Algorithm-level coverage of the helpers / verdict ladder.
+# --------------------------------------------------------------------------- #
+
+
+def test_is_exact_text_triggers() -> None:
+    assert is_exact_text("ls | sort") is True  # pipe + command head
+    assert is_exact_text("git status") is True  # command head
+    assert is_exact_text("cd ~/projects") is True  # tilde + command head
+    assert is_exact_text("https://example.com") is True  # url scheme
+    assert is_exact_text("Hello there") is False  # plain prose
+    assert is_exact_text("name@domain.com") is False  # email stays lenient
+
+
+def test_empty_read_is_unverified() -> None:
+    assert compute_verdict("anything", "") == "unverified"
+    assert verify_text("anything", "").status == "unverified_ambiguous"
+
+
+def test_focused_editor_caret_is_ambiguous_not_a_layout_mismatch() -> None:
+    intended = "IDEMPOTENCY_RETRY_MUST_APPEAR_ONCE_104729"
+    observed = intended + "|"
+
+    assert compute_verdict(intended, observed, precise=True) == "unverified"
+    assert classify_mismatch(intended, observed, precise=True) is None
+    result = verify_text(intended, observed, code=True)
+    assert result.status == "unverified_ambiguous"
+    assert result.safe_to_continue is False
+
+
+def test_contains_is_warning() -> None:
+    res = verify_text("hello", "well hello there friend")
+    assert res.status == "verified_with_warnings"
+    assert res.verified is True
+
+
+def test_precise_contains_is_not_exact_proof() -> None:
+    res = verify_text(
+        "quarterly earnings",
+        "quarterly earningss",
+        code=True,
+    )
+    assert res.status == "unverified_wrong_region"
+    assert res.verified is False
+    assert res.safe_to_continue is False
+
+
+def test_precise_match_is_exact() -> None:
+    res = verify_text("git commit -m fix", "git commit -m fix", code=True)
+    assert res.status == "verified_exact"
+    assert res.verified is True
+
+
+def test_case_only_mismatch_in_precise() -> None:
+    # Letters match case-folded, only the case differs, symbols identical.
+    res = verify_text("MyVar = value;", "myvar = value;", code=True)
+    assert res.status == "failed_case_mismatch"
+    assert res.safe_to_continue is False
+
+
+def test_small_alphanumeric_ocr_noise_is_ambiguous_for_precise_text() -> None:
+    intended = "const retry = (attempt, limit) => attempt < limit;"
+    observed = "const retry = (atteapt, Limit) => attempt < limit;"
+
+    assert compute_verdict(intended, observed, precise=True) == "unverified"
+    result = verify_text(intended, observed, code=True)
+    assert result.status == "unverified_ambiguous"
+    assert result.safe_to_continue is False
+
+
+def test_pipe_is_not_confusable_folded() -> None:
+    # `| -> l` must remain a distinguishing slip, not be hidden as a match.
+    res = verify_text("cat file | wc", "cat file l wc")
+    assert res.verified is False

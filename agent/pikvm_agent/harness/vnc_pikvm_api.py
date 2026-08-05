@@ -1,0 +1,1055 @@
+"""PiKVM-shaped HTTP/WebSocket API backed by an arbitrary RFB/VNC server.
+
+This is a lab adapter, not a second execution runtime. The normal
+``PiKVMBackend`` still connects to ``/api/info``, ``/api/ws``,
+``/api/streamer/snapshot`` and ``/api/hid/print``. This service translates only
+that bounded wire contract to VNC, allowing a completely isolated daemon/MCP
+instance to exercise the production client/runtime against a disposable VM.
+
+The VNC endpoint is supplied at runtime. No target, password, port, or operating
+system is compiled into this module.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import io
+import re
+import shutil
+import tempfile
+import time
+from collections import deque
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
+
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from PIL import Image
+
+from pikvm_agent.harness.vnc_target_lease import (
+    VncTargetLease,
+    normalize_vnc_endpoint,
+)
+from pikvm_agent.pikvm.hid import NORM_MAX, NORM_MIN
+from pikvm_agent.pikvm import keyboard_state as ks
+from pikvm_agent.pikvm.text import flatten_line_breaks
+
+
+@runtime_checkable
+class VncTransport(Protocol):
+    width: int
+    height: int
+
+    async def connect(self) -> None: ...
+    async def close(self) -> None: ...
+    async def screenshot(self) -> bytes: ...
+    async def key(self, code: str, down: bool) -> None: ...
+    async def mouse_move(self, x: int, y: int) -> None: ...
+    async def mouse_button(self, button: str, down: bool) -> None: ...
+    async def mouse_wheel(self, dx: int, dy: int) -> None: ...
+    async def print_text(self, text: str) -> None: ...
+    async def ocr(self, *, left: int, top: int, right: int, bottom: int) -> str: ...
+
+
+def _norm_to_pixel(value: int | float, span: int) -> int:
+    value = max(NORM_MIN, min(NORM_MAX, int(value)))
+    ratio = (value - NORM_MIN) / (NORM_MAX - NORM_MIN)
+    return max(0, min(span - 1, round(ratio * (span - 1))))
+
+
+def initial_state_messages(width: int, height: int, keymap: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "event_type": "hid",
+            "event": {
+                "online": True,
+                "connected": True,
+                "keyboard": {"online": True, "leds": {"caps": False}},
+            },
+        },
+        {
+            "event_type": "hid_keymaps",
+            "event": {"keymaps": {"default": keymap}},
+        },
+        {
+            "event_type": "streamer",
+            "event": {
+                "online": True,
+                "source": {"resolution": {"width": width, "height": height}},
+            },
+        },
+        {
+            "event_type": "ocr",
+            "event": {"enabled": True, "langs": {"default": ["eng"], "available": ["eng"]}},
+        },
+        {"event_type": "clients", "event": {"count": 1}},
+        {"event_type": "loop", "event": None},
+    ]
+
+
+async def dispatch_hid_event(vnc: VncTransport, message: dict[str, Any]) -> None:
+    event_type = message.get("event_type")
+    event = message.get("event") or {}
+    if event_type == "key":
+        await vnc.key(str(event.get("key", "")), bool(event.get("state")))
+    elif event_type == "mouse_move":
+        target = event.get("to") or {}
+        await vnc.mouse_move(
+            _norm_to_pixel(target.get("x", 0), vnc.width),
+            _norm_to_pixel(target.get("y", 0), vnc.height),
+        )
+    elif event_type == "mouse_relative":
+        delta = event.get("delta") or {}
+        # RFB uses absolute pointer coordinates. A relative event cannot be
+        # translated without tracked state, so the real transport owns it.
+        move_relative = getattr(vnc, "mouse_relative", None)
+        if callable(move_relative):
+            await move_relative(int(delta.get("x", 0)), int(delta.get("y", 0)))
+    elif event_type == "mouse_button":
+        await vnc.mouse_button(
+            str(event.get("button", "left")), bool(event.get("state"))
+        )
+    elif event_type == "mouse_wheel":
+        delta = event.get("delta") or {}
+        await vnc.mouse_wheel(int(delta.get("x", 0)), int(delta.get("y", 0)))
+
+
+def create_vnc_pikvm_app(
+    vnc: VncTransport,
+    *,
+    keymap: str = "en-us",
+) -> FastAPI:
+    """Create a PiKVM-compatible lab API around an injected VNC transport."""
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        await vnc.connect()
+        try:
+            yield
+        finally:
+            await vnc.close()
+
+    app = FastAPI(title="VNC PiKVM Lab Adapter", lifespan=lifespan)
+
+    @app.get("/api/info")
+    async def info() -> dict[str, Any]:
+        transport_diagnostics = getattr(
+            vnc,
+            "input_transport_diagnostics",
+            None,
+        )
+        input_transport = (
+            transport_diagnostics()
+            if callable(transport_diagnostics)
+            else None
+        )
+        return {
+            "ok": True,
+            "result": {
+                "system": {"hostname": "vnc-lab-adapter"},
+                "extras": {
+                    "vnc_lab": {
+                        "enabled": True,
+                        "atomic_shifted_print": True,
+                        "keymap": keymap,
+                        "input_transport": input_transport,
+                    }
+                },
+            },
+        }
+
+    @app.get("/api/streamer/snapshot")
+    async def snapshot(request: Request) -> Response:
+        query = request.query_params
+        if query.get("ocr") in ("1", "true", "yes"):
+            text = await vnc.ocr(
+                left=int(query.get("ocr_left", 0)),
+                top=int(query.get("ocr_top", 0)),
+                right=int(query.get("ocr_right", vnc.width)),
+                bottom=int(query.get("ocr_bottom", vnc.height)),
+            )
+            return PlainTextResponse(text)
+        data = await vnc.screenshot()
+        return Response(
+            data,
+            media_type="image/jpeg",
+            headers={
+                "x-ustreamer-width": str(vnc.width),
+                "x-ustreamer-height": str(vnc.height),
+                "cache-control": "no-store",
+            },
+        )
+
+    @app.post("/api/hid/print")
+    async def hid_print(request: Request) -> JSONResponse:
+        body = (await request.body()).decode("utf-8")
+        # Match PiKVM's print endpoint contract: the endpoint types characters
+        # but never treats newlines as a submit gesture.
+        await vnc.print_text(flatten_line_breaks(body))
+        return JSONResponse({"ok": True, "result": {}})
+
+    @app.websocket("/api/ws")
+    async def hid_ws(websocket: WebSocket) -> None:
+        await websocket.accept()
+        for message in initial_state_messages(vnc.width, vnc.height, keymap):
+            await websocket.send_json(message)
+        sequence = 0
+        try:
+            while True:
+                message = await websocket.receive_json()
+                await dispatch_hid_event(vnc, message)
+                sequence += 1
+                # Unknown events are ignored by the real PiKVM client. The ack
+                # makes the emulator deterministic and directly testable.
+                await websocket.send_json(
+                    {"event_type": "lab_ack", "event": {"sequence": sequence}}
+                )
+        except WebSocketDisconnect:
+            return
+
+    return app
+
+
+_CODE_TO_VNC: dict[str, str] = {
+    "ShiftLeft": "shift",
+    "ShiftRight": "shift",
+    "ControlLeft": "ctrl",
+    "ControlRight": "ctrl",
+    "AltLeft": "alt",
+    "AltRight": "alt",
+    "MetaLeft": "super",
+    "MetaRight": "super",
+    "Enter": "enter",
+    "NumpadEnter": "kpenter",
+    # vncdotool accepts any single character by forwarding its ordinal as the
+    # RFB keysym.  Use the X11 keypad keysyms here rather than printable ASCII:
+    # Windows Calculator distinguishes keypad operators from text characters,
+    # and can ignore an ASCII "*" while still accepting the preceding digits.
+    "NumpadAdd": "\uffab",
+    "NumpadSubtract": "\uffad",
+    "NumpadMultiply": "\uffaa",
+    "NumpadDivide": "\uffaf",
+    "NumpadDecimal": "\uffae",
+    "Escape": "esc",
+    "Backspace": "bsp",
+    "Delete": "del",
+    "Insert": "ins",
+    "Home": "home",
+    "End": "end",
+    "PageUp": "pgup",
+    "PageDown": "pgdn",
+    "CapsLock": "caplk",
+    "NumLock": "numlk",
+    "ScrollLock": "scrlk",
+    "Pause": "pause",
+    "PrintScreen": "sysrq",
+    "Tab": "tab",
+    "Space": "space",
+    "ArrowUp": "up",
+    "ArrowDown": "down",
+    "ArrowLeft": "left",
+    "ArrowRight": "right",
+    "Backquote": "`",
+    "Minus": "-",
+    "Equal": "=",
+    "BracketLeft": "[",
+    "BracketRight": "]",
+    "Backslash": "\\",
+    "IntlBackslash": "\\",
+    "Semicolon": ";",
+    "Quote": "'",
+    "Comma": ",",
+    "Period": ".",
+    "Slash": "/",
+}
+
+
+def code_to_vnc_key(code: str) -> str:
+    if code in _CODE_TO_VNC:
+        return _CODE_TO_VNC[code]
+    if re.fullmatch(r"Key[A-Z]", code):
+        return code[-1].lower()
+    if re.fullmatch(r"Digit[0-9]", code):
+        return code[-1]
+    if re.fullmatch(r"F(?:[1-9]|1[0-2])", code):
+        return code.lower()
+    raise ValueError(f"unsupported VNC key code: {code!r}")
+
+
+def shifted_code_to_character(code: str, keymap: str = "en-us") -> str | None:
+    """Return the semantic character for Shift+code on supported layouts."""
+    return code_to_character(code, shifted=True, keymap=keymap)
+
+
+def code_to_character(
+    code: str,
+    *,
+    shifted: bool,
+    keymap: str = "en-us",
+) -> str | None:
+    """Resolve a physical key code to its target-layout printable character."""
+    normalized = keymap.lower()
+    if normalized in {"en-us", "us"}:
+        layout = "us"
+    elif normalized in {"en-gb", "uk"}:
+        layout = "uk"
+    else:
+        return code[-1].upper() if shifted and re.fullmatch(r"Key[A-Z]", code) else (
+            code[-1].lower() if not shifted and re.fullmatch(r"Key[A-Z]", code) else None
+        )
+    mapping = {
+        (info.code, info.shift): character
+        for character, info in ks.CHAR_TO_KEY.items()
+    }
+    if layout == "uk":
+        for character, info in ks.UK_OVERRIDES.items():
+            mapping[(info.code, info.shift)] = character
+    return mapping.get((code, shifted))
+
+
+def _windows_vnc_needs_semantic_alt_code(
+    code: str,
+    character: str | None,
+    keymap: str,
+) -> bool:
+    """Identify ISO keys whose RFB keysym does not preserve the intended glyph.
+
+    ``vncdotool`` sends printable keysyms rather than USB scan codes. On the
+    disposable Windows UK guest, sending the UK hash key as the backslash
+    keysym was translated back to ``Shift+3`` and produced ``£``. Deliver the
+    semantic character for the two ISO backslash positions instead; ordinary
+    layout-invariant punctuation keeps the faster physical-key path.
+    """
+
+    if code == "IntlBackslash":
+        return True
+    return (
+        code == "Backslash"
+        and ks.keymap_to_layout(keymap) == "uk"
+        and character in {"#", "~"}
+    )
+
+
+class VncDotoolTransport:
+    """Real RFB transport, loaded only by the lab CLI.
+
+    ``vncdotool`` runs Twisted in its own thread. Each public method is async and
+    serialised so FastAPI never issues overlapping RFB operations.
+    """
+
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        password: str | None = None,
+        username: str | None = None,
+        ocr_lang: str = "eng",
+        keymap: str = "en-us",
+        keyboard_profile: str = "generic",
+        frame_cache_ttl_s: float = 0.75,
+        capture_timeout_s: float = 5.0,
+    ) -> None:
+        if frame_cache_ttl_s < 0:
+            raise ValueError("frame_cache_ttl_s must be non-negative")
+        if capture_timeout_s <= 0:
+            raise ValueError("capture_timeout_s must be positive")
+        self.endpoint = normalize_vnc_endpoint(endpoint)
+        self.password = password
+        self.username = username
+        self.ocr_lang = ocr_lang
+        self.keymap = keymap
+        self.keyboard_profile = keyboard_profile
+        self.frame_cache_ttl_s = frame_cache_ttl_s
+        self._capture_timeout_s = capture_timeout_s
+        self.width = 1
+        self.height = 1
+        self._client: Any | None = None
+        self._target_lease: VncTargetLease | None = None
+        self._lock = asyncio.Lock()
+        self._mouse_x = 0
+        self._mouse_y = 0
+        self._shift_pending = False
+        self._shift_sent = False
+        self._semantic_shift_keys: dict[str, str] = {}
+        self._synthetic_keyups: set[str] = set()
+        self._active_chord_modifiers: set[str] = set()
+        self._guest_modifiers_may_be_stale = False
+        self._cached_frame: bytes | None = None
+        self._frame_cached_at = 0.0
+        self._print_sequence = 0
+        self._print_history: deque[dict[str, Any]] = deque(maxlen=64)
+        self._hid_character_sequence = 0
+        self._hid_route_counts: dict[str, int] = {}
+
+    def _record_hid_character_route(self, route: str) -> None:
+        self._hid_character_sequence += 1
+        self._hid_route_counts[route] = (
+            self._hid_route_counts.get(route, 0) + 1
+        )
+
+    def input_transport_diagnostics(self) -> dict[str, Any]:
+        """Return content-free proof of the RFB input routes exercised.
+
+        HTTP request hashes plus print and websocket-HID route counters expose
+        which transport implementation a running adapter actually selected
+        without retaining task text or trusting guest OCR as implementation
+        identity. The bounded history is diagnostic evidence only; exact screen
+        and artifact verification remain authoritative.
+        """
+
+        return {
+            "strategy_version": "windows-rfb-print-v3",
+            "keymap": self.keymap,
+            "keyboard_profile": self.keyboard_profile,
+            "coverage": {
+                "print_history": "http_print_requests",
+                "hid_route_counts": "websocket_hid_character_keydowns",
+            },
+            "print_sequence": self._print_sequence,
+            "print_history": [
+                {
+                    **entry,
+                    "routes": dict(entry["routes"]),
+                }
+                for entry in self._print_history
+            ],
+            "hid_character_sequence": self._hid_character_sequence,
+            "hid_route_counts": dict(sorted(self._hid_route_counts.items())),
+        }
+
+    async def connect(self) -> None:
+        if self._client is not None:
+            return
+        lease = VncTargetLease.acquire(self.endpoint)
+        client: Any | None = None
+        try:
+            client = await self._connect_client()
+            self._client = client
+            await asyncio.to_thread(self._release_client_modifiers)
+            await self.screenshot()
+        except BaseException:
+            failure_client, self._client = self._client or client, None
+            if failure_client is not None:
+                await self._disconnect_client_quietly(failure_client)
+            lease.release()
+            raise
+        self._target_lease = lease
+
+    def _connect_client_blocking(self) -> Any:
+        try:
+            from vncdotool import api, client as vnc_client
+        except ImportError as exc:  # pragma: no cover - environment-dependent
+            raise RuntimeError(
+                "VNC lab support is not installed; install pikvm-agent[harness]"
+            ) from exc
+
+        class LabVncFactory(vnc_client.VNCDoToolFactory):
+            # The adapter owns modifier state; vncdotool must not synthesize a
+            # US-layout Shift chord from a semantic character.
+            force_caps = False
+
+        return api.connect(
+            self.endpoint,
+            self.password,
+            LabVncFactory,
+            timeout=30,
+            username=self.username,
+        )
+
+    async def _connect_client(self) -> Any:
+        connect_task = asyncio.create_task(
+            asyncio.to_thread(self._connect_client_blocking)
+        )
+        try:
+            return await asyncio.shield(connect_task)
+        except asyncio.CancelledError:
+            # Cancelling ``to_thread`` only abandons the await; the VNC
+            # connection continues in its worker. Keep the lease until the
+            # bounded attempt finishes, then close any client it created.
+            try:
+                client = await asyncio.shield(connect_task)
+            except Exception:
+                client = None
+            if client is not None:
+                await self._disconnect_client_quietly(client)
+            raise
+
+    @staticmethod
+    async def _disconnect_client_quietly(client: Any) -> None:
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.disconnect),
+                timeout=2.0,
+            )
+        except Exception:
+            # A client whose screen request timed out can also stall during
+            # disconnect. It must not prevent a fresh connection or strand the
+            # target lease during adapter shutdown.
+            pass
+
+    async def _reconnect_locked(self) -> None:
+        previous, self._client = self._client, None
+        self._invalidate_frame()
+        if previous is not None:
+            await self._disconnect_client_quietly(previous)
+        client = await self._connect_client()
+        self._client = client
+        await asyncio.to_thread(self._release_client_modifiers)
+
+    def _release_client_modifiers(self) -> None:
+        client = self._require()
+        for modifier in ("shift", "ctrl", "alt", "super"):
+            client.keyUp(modifier)
+        self._shift_pending = False
+        self._shift_sent = False
+        self._semantic_shift_keys.clear()
+        self._synthetic_keyups.clear()
+        self._active_chord_modifiers.clear()
+        self._guest_modifiers_may_be_stale = False
+
+    @staticmethod
+    def _settle_windows_guest_modifiers(client: Any) -> None:
+        """Clear a possibly coalesced chord release before printable input."""
+
+        for modifier in ("shift", "ctrl", "alt", "super"):
+            client.keyUp(modifier)
+        time.sleep(0.075)
+
+    @staticmethod
+    def _type_windows_alt_code(client: Any, character: str) -> None:
+        try:
+            encoded = character.encode("cp1252")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                "Windows VNC keyboard transport cannot safely type "
+                f"{character!r}"
+            ) from exc
+        if len(encoded) != 1:
+            raise ValueError(
+                "Windows VNC keyboard transport requires one CP1252 byte"
+            )
+        # Always select the ANSI/Windows code-page form. Bare Alt+nnn uses the
+        # OEM code page and has produced layout-dependent glyphs on real VNC
+        # Windows guests (notably Alt+92 becoming "#" instead of "\\").
+        digits = f"0{encoded[0]:03d}"
+        client.keyDown("alt")
+        try:
+            time.sleep(0.075)
+            for digit in digits:
+                client.keyPress(f"kp{digit}")
+                time.sleep(0.035)
+            time.sleep(0.075)
+        finally:
+            client.keyUp("alt")
+            # Windows commits the composed character on Alt release. Without
+            # this post-release dwell the first following printable key can be
+            # swallowed while the guest is still resolving the Alt sequence.
+            time.sleep(0.100)
+            # One release event plus the dwell was still insufficient for two
+            # consecutive UK hash characters on the disposable Windows guest:
+            # RFB acknowledged both sequences, but the first composed glyph was
+            # absent. Reassert only Alt-up after the commit window, then leave a
+            # short barrier before another character. This cannot duplicate a
+            # glyph and does not release an unrelated held chord modifier.
+            client.keyUp("alt")
+            time.sleep(0.075)
+
+    @staticmethod
+    def _type_windows_physical_shifted_key(
+        client: Any,
+        key: str,
+    ) -> None:
+        """Deliver one layout-invariant Shift chord with real key spacing.
+
+        Windows accepts ``Shift+;`` for ``:`` on both US and UK layouts.  That
+        physical chord is deterministic across reboots, unlike numeric Alt
+        codes whose success depends on the guest's Num Lock state. A measured
+        35/20/35 ms chord still delivered ``)`` as ``0`` on the disposable
+        Windows VNC guest. Keep a full human modifier dwell so an RFB server
+        cannot coalesce the modifier and printable key.
+        """
+
+        client.keyDown("shift")
+        try:
+            time.sleep(0.100)
+            client.keyDown(key)
+            try:
+                time.sleep(0.075)
+            finally:
+                client.keyUp(key)
+        finally:
+            time.sleep(0.100)
+            client.keyUp("shift")
+
+    @staticmethod
+    def _tap_windows_printable_key(
+        client: Any,
+        key: str,
+    ) -> None:
+        """Deliver one unmodified printable tap without an RFB coalescing window.
+
+        The disposable Windows VNC guest accepted only two of four leading
+        Space key pairs and later dropped an ordinary ``u`` even though the
+        websocket sender observed every event and left a human inter-key gap.
+        Keep each matching down/up pair inside one serial adapter transaction
+        with a measured dwell. This is limited to unmodified printable keys;
+        chords keep their normal held-key semantics.
+        """
+
+        client.keyDown(key)
+        try:
+            time.sleep(0.075)
+        finally:
+            client.keyUp(key)
+        time.sleep(0.075)
+
+    async def close(self) -> None:
+        async with self._lock:
+            client, self._client = self._client, None
+            self._invalidate_frame()
+            lease, self._target_lease = self._target_lease, None
+        try:
+            if client is not None:
+                await self._disconnect_client_quietly(client)
+                # The adapter is the only VNC consumer in this process. Stopping
+                # vncdotool's reactor lets uvicorn terminate cleanly on Ctrl+C.
+                from vncdotool import api
+
+                await asyncio.to_thread(api.shutdown)
+        finally:
+            if lease is not None:
+                lease.release()
+
+    def _require(self) -> Any:
+        if self._client is None:
+            raise RuntimeError("VNC transport is not connected")
+        return self._client
+
+    def _invalidate_frame(self) -> None:
+        self._cached_frame = None
+        self._frame_cached_at = 0.0
+
+    async def screenshot(self) -> bytes:
+        async with self._lock:
+            now = time.monotonic()
+            if (
+                self._cached_frame is not None
+                and now - self._frame_cached_at <= self.frame_cache_ttl_s
+            ):
+                return self._cached_frame
+
+            def capture(client: Any) -> tuple[bytes, int, int]:
+                output = io.BytesIO()
+                client.captureScreen(output, format="PNG")
+                output.seek(0)
+                image = Image.open(output).convert("RGB")
+                encoded = io.BytesIO()
+                image.save(encoded, "JPEG", quality=90)
+                return encoded.getvalue(), image.width, image.height
+
+            if self._client is None:
+                await self._reconnect_locked()
+            try:
+                data, self.width, self.height = await asyncio.wait_for(
+                    asyncio.to_thread(capture, self._require()),
+                    timeout=self._capture_timeout_s,
+                )
+            except TimeoutError:
+                # Guest reboots can leave the TCP/RFB client alive but unable
+                # to answer captures. Replace that stale client once and retry
+                # this read-only request; never replay keyboard or pointer I/O.
+                await self._reconnect_locked()
+                data, self.width, self.height = await asyncio.wait_for(
+                    asyncio.to_thread(capture, self._require()),
+                    timeout=self._capture_timeout_s,
+                )
+            self._cached_frame = data
+            self._frame_cached_at = time.monotonic()
+            return data
+
+    async def key(self, code: str, down: bool) -> None:
+        async with self._lock:
+            self._invalidate_frame()
+            client = self._require()
+            key = code_to_vnc_key(code)
+            if code in {"ShiftLeft", "ShiftRight"}:
+                if down:
+                    # Delay the physical modifier until the following key is
+                    # known. Windows VNC servers often mishandle Shift plus a
+                    # lowercase letter keysym, but accept an uppercase keysym.
+                    self._shift_pending = True
+                else:
+                    if self._shift_sent:
+                        await asyncio.to_thread(client.keyUp, "shift")
+                        self._guest_modifiers_may_be_stale = True
+                    self._shift_pending = False
+                    self._shift_sent = False
+                return
+
+            semantic = self._semantic_shift_keys.get(code)
+            if not down and semantic is not None:
+                self._semantic_shift_keys.pop(code, None)
+                await asyncio.to_thread(client.keyUp, semantic)
+                return
+            if not down and code in self._synthetic_keyups:
+                self._synthetic_keyups.discard(code)
+                return
+            shifted_character = shifted_code_to_character(
+                code,
+                self.keymap,
+            )
+            character = (
+                shifted_character
+                if self._shift_pending
+                else code_to_character(
+                    code,
+                    shifted=False,
+                    keymap=self.keymap,
+                )
+            )
+            if (
+                down
+                and self.keyboard_profile == "windows"
+                and self._shift_pending
+                and re.fullmatch(r"Key[A-Z]", code) is None
+                and shifted_character is not None
+                and shifted_character
+                == shifted_code_to_character(code, "en-us")
+            ):
+                self._record_hid_character_route(
+                    "windows_physical_shifted"
+                )
+                self._synthetic_keyups.add(code)
+                await asyncio.to_thread(
+                    self._type_windows_physical_shifted_key,
+                    client,
+                    code_to_vnc_key(code),
+                )
+                return
+            semantic_alt_code = _windows_vnc_needs_semantic_alt_code(
+                code,
+                character,
+                self.keymap,
+            )
+            shifted_alt_code = (
+                self._shift_pending
+                and re.fullmatch(r"Key[A-Z]", code) is None
+                and shifted_code_to_character(code, self.keymap) is not None
+            )
+            if (
+                down
+                and self.keyboard_profile == "windows"
+                and (semantic_alt_code or shifted_alt_code)
+            ):
+                if self._guest_modifiers_may_be_stale:
+                    await asyncio.to_thread(
+                        self._settle_windows_guest_modifiers,
+                        client,
+                    )
+                    self._guest_modifiers_may_be_stale = False
+                character = character or ("\\" if code == "IntlBackslash" else key)
+                self._record_hid_character_route(
+                    "windows_semantic_alt_code"
+                    if semantic_alt_code
+                    else "windows_shifted_alt_code"
+                )
+                self._synthetic_keyups.add(code)
+                await asyncio.to_thread(
+                    self._type_windows_alt_code,
+                    client,
+                    character,
+                )
+                return
+            if (
+                down
+                and self.keyboard_profile == "windows"
+                and not self._shift_pending
+                and not self._active_chord_modifiers
+                and code != "IntlBackslash"
+                and code_to_character(
+                    code,
+                    shifted=False,
+                    keymap=self.keymap,
+                )
+                is not None
+            ):
+                if self._guest_modifiers_may_be_stale:
+                    await asyncio.to_thread(
+                        self._settle_windows_guest_modifiers,
+                        client,
+                    )
+                    self._guest_modifiers_may_be_stale = False
+                self._record_hid_character_route(
+                    "windows_atomic_printable"
+                )
+                self._synthetic_keyups.add(code)
+                await asyncio.to_thread(
+                    self._tap_windows_printable_key,
+                    client,
+                    key,
+                )
+                return
+            semantic_shift = shifted_code_to_character(code, self.keymap)
+            if (
+                self.keyboard_profile != "windows"
+                and re.fullmatch(r"Key[A-Z]", code) is None
+            ):
+                semantic_shift = None
+            if (
+                down
+                and self._shift_pending
+                and not self._shift_sent
+                and semantic_shift is not None
+            ):
+                self._record_hid_character_route(
+                    "generic_semantic_shifted"
+                )
+                semantic = semantic_shift
+                self._semantic_shift_keys[code] = semantic
+                await asyncio.to_thread(client.keyDown, semantic)
+                return
+            if down and self._shift_pending and not self._shift_sent:
+                await asyncio.to_thread(client.keyDown, "shift")
+                self._shift_sent = True
+
+            modifier = (
+                "ctrl"
+                if code in {"ControlLeft", "ControlRight"}
+                else "alt"
+                if code in {"AltLeft", "AltRight"}
+                else "super"
+                if code in {"MetaLeft", "MetaRight"}
+                else None
+            )
+            if modifier is not None:
+                if down:
+                    self._active_chord_modifiers.add(modifier)
+                else:
+                    self._active_chord_modifiers.discard(modifier)
+                method = client.keyDown if down else client.keyUp
+                await asyncio.to_thread(method, modifier)
+                if not down and self.keyboard_profile == "windows":
+                    self._guest_modifiers_may_be_stale = True
+                return
+
+            method = client.keyDown if down else client.keyUp
+            if down and character is not None:
+                self._record_hid_character_route("generic_hid_character")
+            await asyncio.to_thread(method, key)
+
+    async def mouse_move(self, x: int, y: int) -> None:
+        async with self._lock:
+            self._invalidate_frame()
+            self._mouse_x, self._mouse_y = x, y
+            await asyncio.to_thread(self._require().mouseMove, x, y)
+
+    async def mouse_relative(self, dx: int, dy: int) -> None:
+        await self.mouse_move(
+            max(0, min(self.width - 1, self._mouse_x + dx)),
+            max(0, min(self.height - 1, self._mouse_y + dy)),
+        )
+
+    async def mouse_button(self, button: str, down: bool) -> None:
+        number = {"left": 1, "middle": 2, "right": 3}.get(button, 1)
+        async with self._lock:
+            self._invalidate_frame()
+            method = self._require().mouseDown if down else self._require().mouseUp
+            await asyncio.to_thread(method, number)
+
+    async def mouse_wheel(self, dx: int, dy: int) -> None:
+        async with self._lock:
+            self._invalidate_frame()
+            client = self._require()
+
+            def wheel() -> None:
+                vertical = 4 if dy > 0 else 5
+                horizontal = 7 if dx > 0 else 6
+                for _ in range(abs(dy)):
+                    client.mousePress(vertical)
+                for _ in range(abs(dx)):
+                    client.mousePress(horizontal)
+
+            await asyncio.to_thread(wheel)
+
+    async def print_text(self, text: str) -> None:
+        async with self._lock:
+            self._invalidate_frame()
+            client = self._require()
+            layout = ks.keymap_to_layout(self.keymap) or "us"
+            if (
+                self.keyboard_profile == "windows"
+                and self._guest_modifiers_may_be_stale
+            ):
+                await asyncio.to_thread(
+                    self._settle_windows_guest_modifiers,
+                    client,
+                )
+                self._guest_modifiers_may_be_stale = False
+            routes: dict[str, int] = {}
+
+            def record_route(route: str) -> None:
+                routes[route] = routes.get(route, 0) + 1
+
+            def type_all() -> None:
+                for char in text:
+                    key_info = ks.key_for(char, layout)
+                    if key_info is None:
+                        if self.keyboard_profile == "windows":
+                            record_route("windows_alt_fallback")
+                            self._type_windows_alt_code(client, char)
+                        else:
+                            record_route("generic_semantic_printable")
+                            client.keyPress(char)
+                    else:
+                        key = code_to_vnc_key(key_info.code)
+                        if (
+                            self.keyboard_profile == "windows"
+                            and key_info.shift
+                            and re.fullmatch(
+                                r"Key[A-Z]",
+                                key_info.code,
+                            )
+                            is None
+                            and char
+                            == shifted_code_to_character(
+                                key_info.code,
+                                "en-us",
+                            )
+                        ):
+                            record_route("windows_physical_shifted")
+                            self._type_windows_physical_shifted_key(
+                                client,
+                                key,
+                            )
+                            time.sleep(0.020)
+                            continue
+                        semantic_alt_code = (
+                            self.keyboard_profile == "windows"
+                            and _windows_vnc_needs_semantic_alt_code(
+                                key_info.code,
+                                char,
+                                self.keymap,
+                            )
+                        )
+                        shifted_alt_code = (
+                            self.keyboard_profile == "windows"
+                            and (
+                                key_info.shift
+                                and re.fullmatch(
+                                    r"Key[A-Z]",
+                                    key_info.code,
+                                )
+                                is None
+                            )
+                        )
+                        if semantic_alt_code or shifted_alt_code:
+                            record_route(
+                                "windows_semantic_alt_code"
+                                if semantic_alt_code
+                                else "windows_shifted_alt_code"
+                            )
+                            self._type_windows_alt_code(client, char)
+                            time.sleep(0.020)
+                            continue
+                        semantic_shift = key_info.shift and (
+                            re.fullmatch(r"Key[A-Z]", key_info.code)
+                            is not None
+                            or self.keyboard_profile == "windows"
+                        )
+                        if semantic_shift:
+                            key = char
+                        elif key_info.shift:
+                            client.keyDown("shift")
+                        if (
+                            self.keyboard_profile == "windows"
+                            and (not key_info.shift or semantic_shift)
+                        ):
+                            # The guarded print endpoint must use the same
+                            # atomic printable-key contract as websocket HID.
+                            # Otherwise the supposedly faster path can report
+                            # every character as issued while a Windows RFB
+                            # guest silently drops an entire row.
+                            record_route("windows_atomic_printable")
+                            self._tap_windows_printable_key(client, key)
+                            continue
+                        record_route(
+                            "generic_shifted_printable"
+                            if key_info.shift
+                            else "generic_printable"
+                        )
+                        try:
+                            client.keyDown(key)
+                            try:
+                                if self.keyboard_profile == "windows":
+                                    time.sleep(0.015)
+                            finally:
+                                client.keyUp(key)
+                        finally:
+                            if key_info.shift and not semantic_shift:
+                                client.keyUp("shift")
+                    # Some RFB servers silently coalesce/drop back-to-back key
+                    # events. PiKVM's slow printer is about 20 ms/character, so
+                    # preserve that timing contract in the emulator. Windows
+                    # needs a wider gap plus the short key hold above; measured
+                    # 35 ms total spacing still dropped the final character of
+                    # a nine-character focus probe on the disposable VM.
+                    time.sleep(
+                        0.035
+                        if self.keyboard_profile == "windows"
+                        else 0.020
+                    )
+
+            await asyncio.to_thread(type_all)
+            self._print_sequence += 1
+            self._print_history.append(
+                {
+                    "sequence": self._print_sequence,
+                    "characters": len(text),
+                    "text_sha256": hashlib.sha256(
+                        text.encode("utf-8")
+                    ).hexdigest(),
+                    "routes": dict(sorted(routes.items())),
+                }
+            )
+
+    async def ocr(self, *, left: int, top: int, right: int, bottom: int) -> str:
+        if shutil.which("tesseract") is None:
+            return ""
+        data = await self.screenshot()
+
+        def prepare() -> Path:
+            image = Image.open(io.BytesIO(data))
+            crop = image.crop(
+                (
+                    max(0, left),
+                    max(0, top),
+                    min(image.width, right),
+                    min(image.height, bottom),
+                )
+            )
+            handle = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            handle.close()
+            path = Path(handle.name)
+            crop.save(path)
+            return path
+
+        path = await asyncio.to_thread(prepare)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "tesseract",
+                str(path),
+                "stdout",
+                "-l",
+                self.ocr_lang,
+                "--psm",
+                "6",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await proc.communicate()
+            return stdout.decode("utf-8", errors="replace").strip()
+        finally:
+            path.unlink(missing_ok=True)

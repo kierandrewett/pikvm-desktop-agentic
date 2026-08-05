@@ -1,0 +1,435 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "tw-shimmer";
+
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+    U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* The console's LIGHT palette, value for value (pikvm-desktop-agentic
+     src/views/console.css [data-theme="light"]), exactly as .dark mirrors its
+     dark one. This block used to be stock shadcn neutral — a pure white page
+     against the console's #eef0f4 — which only showed once the panel started
+     following the console's theme at all. */
+  color-scheme: light;
+  --background: #eef0f4;
+  --foreground: #17171c;
+  --card: #ffffff;
+  --card-foreground: #17171c;
+  --popover: #ffffff;
+  --popover-foreground: #17171c;
+  --primary: #3b6ef0;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f2f6;
+  --secondary-foreground: #17171c;
+  --muted: #f1f2f6;
+  --muted-foreground: #666672;
+  --accent: #e6e7ee;
+  --accent-foreground: #17171c;
+  /* The console's own light danger (#d6453f) reads 3.85:1 on this background,
+     under the 4.5 small text needs; darkened until it clears on both the page
+     and the card. */
+  --destructive: #bd332d;
+  --evidence: #2faa5b;
+  --evidence-foreground: #1c6a39;
+  --evidence-soft: #e4f6eb;
+  --caution: #b9831a;
+  --caution-foreground: #7a5610;
+  --caution-soft: #fbf1dd;
+  --info: #3b6ef0;
+  --info-foreground: #24479c;
+  --info-soft: #e6edfd;
+  --border: #dcdde4;
+  --input: #dcdde4;
+  --ring: #3b6ef0;
+  --chart-1: #3b6ef0;
+  --chart-2: #666672;
+  --chart-3: #2faa5b;
+  --chart-4: #b9831a;
+  --chart-5: #d6453f;
+  --radius: 0.5rem;
+  --sidebar: #e8eaf0;
+  --sidebar-foreground: #17171c;
+  --sidebar-primary: #3b6ef0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f1f2f6;
+  --sidebar-accent-foreground: #17171c;
+  --sidebar-border: #dcdde4;
+  --sidebar-ring: #3b6ef0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 320px;
+  margin: 0;
+  overflow: hidden;
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: 'Geist Variable', sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-evidence: var(--evidence);
+  --color-evidence-foreground: var(--evidence-foreground);
+  --color-evidence-soft: var(--evidence-soft);
+  --color-caution: var(--caution);
+  --color-caution-foreground: var(--caution-foreground);
+  --color-caution-soft: var(--caution-soft);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  @keyframes collapsible-down {
+  from {
+    height: 0;
+    }
+  to {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  }
+  @keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  to {
+    height: 0;
+    }
+  }
+}
+
+.dark {
+  /* The PiKVM console's palette, value for value (pikvm-desktop-agentic
+     src/views/console.css). The agent panel is rendered INSIDE the console
+     window, so anything else reads as a second app bolted on. The previous
+     values were stock shadcn neutral grey with a near-white primary — no brand
+     colour anywhere, which is what made it look bland next to the console. */
+  --background: #0a0a0c;
+  --foreground: #ededf1;
+  --card: #121216;
+  --card-foreground: #ededf1;
+  --popover: #16161c;
+  --popover-foreground: #ededf1;
+  /* The console blue now carries primary actions and selection, instead of a
+     white button that belongs to no product. */
+  --primary: #5b8cff;
+  --primary-foreground: #ffffff;
+  --secondary: #1a1a20;
+  --secondary-foreground: #ededf1;
+  --muted: #1a1a20;
+  --muted-foreground: #8a8a95;
+  --accent: #23232b;
+  --accent-foreground: #ededf1;
+  --destructive: #f25555;
+  /* Semantic trio matched to the console's --ok / --warn / --danger. */
+  --evidence: #46c773;
+  --evidence-foreground: #9fe3ba;
+  --evidence-soft: #14301f;
+  --caution: #e0a52b;
+  --caution-foreground: #f0cd86;
+  --caution-soft: #33280f;
+  --info: #5b8cff;
+  --info-foreground: #b3c8ff;
+  --info-soft: #16203a;
+  --border: #26262e;
+  --input: #26262e;
+  --ring: #5b8cff;
+  --chart-1: #5b8cff;
+  --chart-2: #8a8a95;
+  --chart-3: #46c773;
+  --chart-4: #e0a52b;
+  --chart-5: #f25555;
+  /* The rail is a shade off the conversation, as in the console. */
+  --sidebar: #0e0e12;
+  --sidebar-foreground: #ededf1;
+  --sidebar-primary: #5b8cff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1a1a20;
+  --sidebar-accent-foreground: #ededf1;
+  --sidebar-border: #26262e;
+  --sidebar-ring: #5b8cff;
+}
+
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    /* assistant-ui's thread viewport sets overflow-y: scroll rather than auto so
+       text does not shift sideways as messages stream in. That reserves a real
+       system scrollbar, and left alone Chromium paints a 15px light GTK bar with
+       arrow buttons down the edge of a dark panel docked next to the console.
+       Keep the reserved gutter, lose the system look. */
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent) transparent;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* A tool panel docked beside a remote desktop wants VS Code's density,
+       not a consumer chat app's. Everything below is sized in rem off this. */
+    font-size: 13px;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+@custom-variant data-checked (&:where([data-state="checked"], [data-checked]:not([data-checked="false"])));
+
+@custom-variant data-disabled (&:where([data-disabled="true"], [data-disabled]:not([data-disabled="false"])));
+
+@custom-variant data-active (&:where([data-state="active"], [data-active]:not([data-active="false"])));
+
+@custom-variant data-horizontal (&:where([data-orientation="horizontal"]));
+
+@custom-variant data-vertical (&:where([data-orientation="vertical"]));
+
+@layer components {
+  .workspace-shell {
+    @apply grid h-dvh min-h-0 grid-cols-1 overflow-hidden bg-sidebar md:grid-cols-[13.5rem_minmax(0,1fr)];
+  }
+
+  .workspace-rail {
+    @apply hidden min-h-0 flex-col border-r bg-sidebar md:flex;
+  }
+
+  /* Matches the console's own titlebar: same 38px height, same --card fill and
+     bottom border, same 4px end padding. The two bars sit side by side in one
+     window, so anything that differs reads as a seam. */
+  .workspace-header {
+    @apply flex h-[38px] items-center justify-between gap-2 border-b bg-card px-1;
+  }
+
+  .workspace-thread {
+    @apply relative flex h-[calc(100dvh-38px)] min-h-0 flex-col overflow-hidden;
+  }
+
+  .aui-md {
+    max-width: 68ch;
+    text-wrap: pretty;
+  }
+
+  .aui-run-activity {
+    @apply mt-1.5 flex min-h-7 w-fit max-w-full items-center gap-2 rounded-md bg-muted/45 px-2 py-1 text-[12.5px] text-muted-foreground;
+  }
+
+  .workspace-error {
+    @apply absolute top-3 left-1/2 z-20 w-[min(42rem,calc(100%-2rem))] -translate-x-1/2 shadow-lg;
+  }
+
+  .workspace-mode-banner {
+    @apply z-10 mx-auto mt-3 w-[min(48rem,calc(100%-2rem))] shrink-0 shadow-sm;
+  }
+
+  .computer-sheet {
+    width: min(96vw, 96rem) !important;
+    max-width: none !important;
+    gap: 0;
+  }
+
+  .showcase-sheet {
+    width: min(96vw, 96rem) !important;
+    max-width: none !important;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .showcase-header {
+    @apply flex min-h-14 shrink-0 flex-row items-center justify-between gap-4 border-b px-4 py-2 pr-12;
+  }
+
+  .showcase-summary {
+    @apply flex shrink-0 items-center gap-3 text-xs tabular-nums text-muted-foreground;
+  }
+
+  .showcase-loading {
+    @apply flex min-h-0 flex-1 flex-col items-center justify-center gap-5 p-8;
+  }
+
+  .showcase-empty {
+    @apply flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-8 text-center text-sm text-muted-foreground;
+  }
+
+  .showcase-layout {
+    @apply grid min-h-0 flex-1 grid-cols-[20rem_minmax(0,1fr)];
+  }
+
+  .showcase-task-list {
+    @apply min-h-0 overflow-y-auto border-r bg-sidebar py-1;
+  }
+
+  .showcase-task-row {
+    @apply flex w-full items-center gap-3 border-b border-transparent px-3 py-2.5 text-left outline-none transition-colors duration-150 hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
+  }
+
+  .showcase-task-row[data-selected="true"] {
+    @apply bg-accent text-accent-foreground;
+    box-shadow: inset 2px 0 var(--color-primary);
+  }
+
+  .showcase-task-number {
+    @apply font-mono text-[10px] tabular-nums text-muted-foreground;
+  }
+
+  .showcase-detail {
+    @apply min-h-0 overflow-y-auto bg-background;
+  }
+
+  .showcase-player {
+    @apply bg-black;
+  }
+
+  .showcase-player-bar {
+    @apply flex h-9 items-center justify-between border-b border-white/10 px-3 text-xs text-white/70;
+  }
+
+  .showcase-player-stage {
+    @apply flex aspect-video max-h-[68dvh] w-full items-center justify-center bg-black;
+  }
+
+  .showcase-player-stage img,
+  .showcase-player-stage video {
+    @apply block size-full object-contain;
+  }
+
+  .showcase-player-placeholder {
+    @apply flex size-full items-center justify-center px-8 text-center text-sm text-white/60;
+  }
+
+  .showcase-task-copy {
+    @apply mx-auto flex max-w-4xl flex-col gap-3 px-5 py-5 text-sm;
+  }
+
+  .showcase-task-copy > p {
+    @apply max-w-[72ch] leading-relaxed text-muted-foreground;
+    text-wrap: pretty;
+  }
+
+  .showcase-task-facts {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground;
+  }
+
+  .showcase-task-facts > span {
+    @apply flex items-center gap-1.5;
+  }
+
+  .showcase-task-facts svg {
+    @apply size-3.5;
+  }
+
+  .showcase-task-error {
+    @apply rounded-md bg-destructive/10 px-3 py-2 text-destructive;
+  }
+
+  .computer-action-list {
+    counter-reset: computer-action;
+  }
+
+  .computer-action-step {
+    counter-increment: computer-action;
+  }
+
+  .computer-action-index::before {
+    content: counter(computer-action, decimal-leading-zero);
+  }
+
+  /* Reduced motion, by default rather than by list.
+   *
+   * This used to name the specific things to calm — the action steps, the run
+   * activity spinner, the showcase rows. Everything named obeyed and everything
+   * else carried on: measured against the running panel with the preference
+   * emulated, six animations were still running, including the fade-and-slide
+   * every message part and the action bar enter on. Those come from the
+   * animation library rather than from this file, so they were never going to
+   * appear in a list maintained here.
+   *
+   * Inverted: everything stops, and the exceptions are named instead. There is
+   * one, and it earns it — a spinner frozen mid-turn does not read as "motion
+   * respected", it reads as "hung", which is the opposite of informative. It
+   * keeps turning; it just stops being the only thing moving. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    /* Progress is the exception: still turning, so it still says "working". */
+    .animate-spin {
+      animation-duration: 1.2s !important;
+      animation-iteration-count: infinite !important;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .showcase-layout {
+      @apply grid-cols-1 grid-rows-[12rem_minmax(0,1fr)];
+    }
+
+    .showcase-task-list {
+      @apply border-r-0 border-b;
+    }
+
+    .showcase-summary {
+      @apply hidden;
+    }
+  }
+}

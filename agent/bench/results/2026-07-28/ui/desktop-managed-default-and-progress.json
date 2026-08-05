@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-28T07:55:42+01:00",
+  "source_revisions": {
+    "pikvm_agent": "03b8d74585163d0200a70588bdaf9c805c48488f",
+    "pikvm_desktop_agentic": "2e3ac067d3ef1a68039c39d8b22fbed7a5a60e99"
+  },
+  "environment": {
+    "kind": "isolated-electron-fake-target",
+    "production_touched": false,
+    "remote_target_contacted": false,
+    "screenshot_captured": false
+  },
+  "desktop_mcp_launcher": {
+    "runtime_schema_version": 3,
+    "runtime_mode": "0600",
+    "default_control_mode": "managed",
+    "tools": [
+      "computer_abort",
+      "computer_continue",
+      "computer_pause",
+      "computer_start_task",
+      "computer_status"
+    ],
+    "tool_count": 5,
+    "raw_pikvm_tool_count": 0,
+    "direct_mode_requires_explicit_argument": true,
+    "runtime_contains_agent_capability": true,
+    "runtime_contains_browser_operator_capability": false,
+    "runtime_contains_daemon_approval_capability": false
+  },
+  "live_chat_progress": {
+    "task": "Say hello without using the computer.",
+    "provider_kind": "subprocess_json_fixture",
+    "provider_hold_ms": 3048,
+    "request_stage_visible_ms": 20,
+    "observed_live_label": "Waiting for a response",
+    "assistant_replies": 1,
+    "conversation_messages": 2,
+    "computer_sessions": 0,
+    "computer_events": 0,
+    "branch_counters": 0,
+    "duplicate_planning_rows": 0,
+    "terminal_controls": 0,
+    "horizontal_overflow_px": 0,
+    "navigation_duration_ms": 33
+  },
+  "automated_tests": {
+    "supported_client_acceptance": {
+      "clients_passed": 4,
+      "clients_requested": 4,
+      "external_provider_calls": 0,
+      "computer_target_contacted": false,
+      "report": "../safety/managed-client-acceptance.json"
+    },
+    "desktop": {
+      "passed": 19,
+      "failed": 0,
+      "build": "passed"
+    },
+    "frontend": {
+      "passed": 137,
+      "failed": 0,
+      "build": "passed"
+    }
+  },
+  "evaluator": {
+    "identity": "automated Electron Chromium CDP DOM audit plus real stdio MCP inventory",
+    "raw_log": "not published; the report retains the complete non-secret result projection",
+    "reproduction_commands": [
+      "npm test",
+      "npm run build",
+      "PIKVM_CDP_PORT=<isolated-cdp-port> node scripts/inspect-electron-cdp.mjs",
+      "pikvm-agent harness client-acceptance --out <mode-0600-report>"
+    ]
+  }
+}

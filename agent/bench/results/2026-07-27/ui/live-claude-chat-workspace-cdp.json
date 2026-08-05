@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-27T19:33:38Z",
+  "source_commit_before_change": "078d43013604b3aa4e11f3e26489a0a4598e471d",
+  "route": "isolated Electron chat workspace -> Claude CLI OAuth -> visible MCP research",
+  "cases_requested": 4,
+  "cases_passed": 4,
+  "provider_calls": 8,
+  "provider": {
+    "alias": "claude-account",
+    "model": "opus",
+    "adapter": "claude_cli",
+    "credential_owner": "provider_cli",
+    "credential": "owned-by-cli",
+    "ready": true,
+    "failures": 0
+  },
+  "cases": [
+    {
+      "name": "exact greeting",
+      "status": "completed",
+      "run_wall_ms": 4622,
+      "provider_calls": 1,
+      "exact_response": true,
+      "response": "Hello from the isolated harness.",
+      "session_created": false,
+      "computer_events": 0
+    },
+    {
+      "name": "official-source web research",
+      "status": "completed",
+      "run_wall_ms": 35227,
+      "provider_calls": 3,
+      "tool_calls": [
+        "web.search_text",
+        "web.extract_content"
+      ],
+      "citation_hosts": [
+        "www.python.org"
+      ],
+      "answer": "Python 3.14.6",
+      "session_created": false,
+      "computer_events": 0
+    },
+    {
+      "name": "ordinary knowledge response with full UI sampling",
+      "status": "completed",
+      "run_wall_ms": 6698,
+      "cdp_observed_wall_ms": 7012,
+      "first_visible_progress_ms": 136,
+      "provider_calls": 1,
+      "maximum_simultaneous_progress_indicators": 1,
+      "maximum_assistant_message_roots": 1,
+      "maximum_branch_counters": 0,
+      "progress_labels": [
+        "Thinking opus"
+      ],
+      "session_created": false,
+      "computer_events": 0
+    },
+    {
+      "name": "official-source web research with full UI sampling",
+      "status": "completed",
+      "run_id": "bf6246f8-1831-4138-bdb7-0fdfa70133c0",
+      "run_wall_ms": 32984,
+      "first_visible_progress_ms": 112,
+      "first_visible_tool_ms": 9760,
+      "provider_calls": 3,
+      "tool_calls": [
+        "web.search_text",
+        "web.extract_content"
+      ],
+      "tool_state_sequence": [
+        "web.search_text: running",
+        "web.search_text: completed",
+        "web.search_text -> web.extract_content: running",
+        "web.search_text -> web.extract_content: completed"
+      ],
+      "maximum_simultaneous_progress_indicators": 1,
+      "maximum_assistant_message_roots": 1,
+      "maximum_branch_counters": 0,
+      "citation_hosts": [
+        "www.python.org"
+      ],
+      "answer": "Python 3.14.6",
+      "session_created": false,
+      "computer_events": 0
+    }
+  ],
+  "tool_visibility": {
+    "active_group_default_open": false,
+    "completed_group_default_open": false,
+    "collapsed_label": "web.search_text -> web.extract_content",
+    "collapsed_count": "2 tool calls",
+    "collapsed_state": "Done",
+    "accessible_label": "web.search_text then web.extract_content, 2 tool calls, completed",
+    "exact_tool_names_visible_without_expansion": true,
+    "arguments_and_results_available_on_expansion": true,
+    "approval_required_groups_open_automatically": true,
+    "running_refused_failed_completed_states_covered": true
+  },
+  "browser_audit": {
+    "surface": "isolated Electron over CDP",
+    "browser_profile": "temporary",
+    "main_desktop_profile_used": false,
+    "screenshots_captured": 0,
+    "composer_empty_after_each_case": true,
+    "branch_counters_after_reload": 0,
+    "narrow_viewport": {
+      "width": 390,
+      "height": 844,
+      "horizontal_overflow_pixels": 0,
+      "tool_trigger_width": 344,
+      "tool_label_truncated": false,
+      "tool_count_visible": false,
+      "tool_count_in_accessible_label": true,
+      "branch_counters": 0
+    }
+  },
+  "contracts": {
+    "frontend_full_suite": {
+      "passed": 111,
+      "total": 111
+    },
+    "focused_tool_visibility": {
+      "passed": 10,
+      "total": 10
+    },
+    "production_build": "passed",
+    "typescript_typecheck": "passed",
+    "diff_check": "passed",
+    "typescript_similarity": "no new source duplication concern"
+  },
+  "resource_envelope": {
+    "javascript_raw_bytes": 815445,
+    "javascript_gzip_9_bytes": 241944,
+    "css_raw_bytes": 109080,
+    "css_gzip_9_bytes": 18075
+  },
+  "safety": {
+    "computer_control": "disabled",
+    "vnc_contact": false,
+    "pikvm_contact": false,
+    "production_daemon_contact": false,
+    "computer_session_created": false,
+    "computer_events": 0,
+    "hid_submitted": false,
+    "approval_submitted": false,
+    "external_model_called": true,
+    "read_only_web_tools_called": true
+  },
+  "limitations": [
+    "This proves the first-party chat workspace with one live OAuth provider, not the API-provider matrix.",
+    "The server intentionally had no computer adapter, so this does not prove Windows, Office, OCR, or HID behavior.",
+    "The first research run was inspected after its initial tool phase; a second research run was sampled from submission through both visible tool states.",
+    "No screenshot was captured or retained."
+  ]
+}

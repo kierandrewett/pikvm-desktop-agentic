@@ -1,0 +1,4152 @@
+{
+  "schema_version": 1,
+  "report": "codex-50-live-progress",
+  "recorded_at": "2026-08-04T15:14:05Z",
+  "manifest": "bench/codex-50-tasks.yaml",
+  "environment": {
+    "target": "authorized disposable Windows VNC VM",
+    "production_target_contacted": false,
+    "endpoint_retained": false,
+    "reboot_after_every_test": true
+  },
+  "model_route": {
+    "provider": "codex-fast",
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "low"
+  },
+  "progress": {
+    "planned": 50,
+    "unique_passed": 33,
+    "pending": 17,
+    "completion_percent": 66.0,
+    "categories": {
+      "Observation": {
+        "passed": 5,
+        "planned": 5
+      },
+      "Calculator": {
+        "passed": 10,
+        "planned": 10
+      },
+      "Text entry": {
+        "passed": 10,
+        "planned": 10
+      },
+      "Code entry": {
+        "passed": 8,
+        "planned": 10
+      },
+      "File management": {
+        "passed": 0,
+        "planned": 5
+      },
+      "Microsoft Excel": {
+        "passed": 0,
+        "planned": 5
+      },
+      "Microsoft Word": {
+        "passed": 0,
+        "planned": 5
+      }
+    },
+    "canonical_passes": [
+      "observe-01",
+      "observe-02",
+      "observe-03",
+      "observe-04",
+      "observe-05",
+      "calc-01",
+      "calc-02",
+      "calc-03",
+      "calc-04",
+      "calc-05",
+      "calc-06",
+      "calc-07",
+      "calc-08",
+      "calc-09",
+      "calc-10",
+      "text-01",
+      "text-02",
+      "text-03",
+      "text-04",
+      "text-05",
+      "text-06",
+      "text-07",
+      "text-08",
+      "text-09",
+      "text-10",
+      "code-01",
+      "code-02",
+      "code-03",
+      "code-04",
+      "code-05",
+      "code-06",
+      "code-07",
+      "code-08"
+    ]
+  },
+  "canonical_campaigns": [
+    {
+      "campaign_id": "codex-windows-50-gate-after-warmup-fix-20260731",
+      "tasks": [
+        "observe-01",
+        "observe-02",
+        "observe-03"
+      ],
+      "campaign_sha256": "4d1508ec5758092a04ff692274857670931a4a02f5185322bcaef61c9ceea5bd"
+    },
+    {
+      "campaign_id": "codex-taskmgr-edge-fix-v1-20260731",
+      "tasks": [
+        "observe-04"
+      ],
+      "campaign_sha256": "1d33f4d5ddfee13bc75fbece06f263bad1ab35f78135eac28317583d4453823d"
+    },
+    {
+      "campaign_id": "codex-windows-explorer-exe-gate-v3-20260731",
+      "tasks": [
+        "observe-05"
+      ],
+      "campaign_sha256": "9ce1f21f4dcc7cdf3f6b3613cf90df983522899ddd9f8ba2ed87e28e84fbce59"
+    },
+    {
+      "campaign_id": "codex-windows-calc-primary-consensus-speed-gate-20260731",
+      "tasks": [
+        "calc-01"
+      ],
+      "campaign_sha256": "c97fb9fe9fe263ea2b76110064f1ea886f2686d4ad913da79527872ef04cd1cc"
+    },
+    {
+      "campaign_id": "codex-calculator-fastpath-v3-20260731",
+      "tasks": [
+        "calc-02",
+        "calc-03"
+      ],
+      "campaign_sha256": "8469ab35b5fc36943b641a16ceffa6231b5e39317888b192d0183f60060ff292"
+    },
+    {
+      "campaign_id": "codex-calculator-fastpath-v2-20260731",
+      "tasks": [
+        "calc-04"
+      ],
+      "campaign_sha256": "f7a4f89ba0900dd06e818c2996f3e70abc6e698996adeb648b54f164df664a10"
+    },
+    {
+      "campaign_id": "codex-calculator-fastpath-v4-20260731",
+      "tasks": [
+        "calc-05",
+        "calc-06",
+        "calc-07",
+        "calc-10"
+      ],
+      "campaign_sha256": "4a71bf51ea4a1762e45e723bd78c57eaffd802f17eea5119a8681140d39e6fa4"
+    },
+    {
+      "campaign_id": "codex-calculator-fastpath-v5-20260731",
+      "tasks": [
+        "calc-08"
+      ],
+      "campaign_sha256": "9f1f3d474a2ab8a7b5ccae8a6ffe70d2aaf85c0714ff8f42b36da68f8ab75772"
+    },
+    {
+      "campaign_id": "codex-calculator-calc09-v1-20260731",
+      "tasks": [
+        "calc-09"
+      ],
+      "campaign_sha256": "e3bd27b932397f7fcdeecf429427f6be9c5e723b697e9bbdbbbee0b029391c84"
+    },
+    {
+      "campaign_id": "codex-text-entry-v17-20260731",
+      "tasks": [
+        "text-01"
+      ],
+      "campaign_sha256": "7c6f8e70ee7dfa4f51e3b4fa71a5934a499170b743233acf03145ad3bcd49cb1"
+    },
+    {
+      "campaign_id": "codex-text-entry-text02-v6-20260731",
+      "tasks": [
+        "text-02"
+      ],
+      "campaign_sha256": "f588d1b79fa241b7dae387486cce91f88e125632b4166cbfb04ac0a1519a5cd4"
+    },
+    {
+      "campaign_id": "codex-text-entry-text03-v6-20260731",
+      "tasks": [
+        "text-03"
+      ],
+      "campaign_sha256": "1ff02cfdaf5d7c434808aff091c93e53824de154967f85b166976dcc6d4b1718"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v13-20260801",
+      "tasks": [
+        "text-04"
+      ],
+      "campaign_sha256": "28c480138fc3ba720a2c58062927edd91b51e2f71b74c4d542b5355f189da208"
+    },
+    {
+      "campaign_id": "codex-text-entry-text05-v2-20260801",
+      "tasks": [
+        "text-05"
+      ],
+      "campaign_sha256": "ee744da68b5a2d99d28f1596f0307fc5cb0ee89b1d3e802f76ea015ca40f2a3c"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v9-20260801",
+      "tasks": [
+        "text-06"
+      ],
+      "campaign_sha256": "a782dc0408ef6322c8795f895070af2e19abe58b8eb41c442a03de9be0d6a95e"
+    },
+    {
+      "campaign_id": "codex-text-entry-text07-v3-20260801",
+      "tasks": [
+        "text-07"
+      ],
+      "campaign_sha256": "515ee07ec357bbcc8c1e71a8f546c545b8077f4672ff1f0379396e0f0e5e9393"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v10-20260801",
+      "tasks": [
+        "text-08"
+      ],
+      "campaign_sha256": "b11703b2ad01f6a12cb1252bf4ff22ab9180a4e06aadc1678b95f2faadcfdbe8"
+    },
+    {
+      "campaign_id": "codex-text-entry-text09-v6-20260801",
+      "tasks": [
+        "text-09"
+      ],
+      "campaign_sha256": "69e652c33bb7ecd243a7b7af42dfba0f95577557c3f5f869a82e50414dfa0f94"
+    },
+    {
+      "campaign_id": "codex-text-entry-text10-v4-20260801",
+      "tasks": [
+        "text-10"
+      ],
+      "campaign_sha256": "abf112e221bf1ed464ec2a75add0fe49540552d19bc5045dd85fb37fa588ca3d"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v48-20260802",
+      "tasks": [
+        "code-01"
+      ],
+      "campaign_sha256": "51121f119be6f46c8540f33e97405a7770d8faa1cdfb4278c2c009dd56ca71fb"
+    },
+    {
+      "campaign_id": "codex-code-entry-code02-v7-20260802",
+      "tasks": [
+        "code-02"
+      ],
+      "campaign_sha256": "393545a608eb5d3ce2355d2c964aac8a683569660cbab96a5df6291730f65a25"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v8-20260802",
+      "tasks": [
+        "code-03"
+      ],
+      "campaign_sha256": "8f71fe476ed13f80e6213a588b9fd247fb94d85898a68ff7666a682c836dccdc"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v9-20260802",
+      "tasks": [
+        "code-04"
+      ],
+      "campaign_sha256": "815301670be6de1d622347c67c8793b1c2209d85a66e705a14fa4943619cb6d0"
+    },
+    {
+      "campaign_id": "codex-code-entry-code05-v10-20260802",
+      "tasks": [
+        "code-05"
+      ],
+      "campaign_sha256": "f0868f7a347406760dc44c60a32e93361dd631b211b140bb5c24509ef8058318"
+    },
+    {
+      "campaign_id": "codex-code-entry-code06-v9-20260803",
+      "tasks": [
+        "code-06"
+      ],
+      "campaign_sha256": "4a85c4b86c58bcacf829d27ce4c2bb76be56fa2c39533858f6bad7e14f6c09cf"
+    },
+    {
+      "campaign_id": "codex-code-entry-code07-v2-20260803",
+      "tasks": [
+        "code-07"
+      ],
+      "campaign_sha256": "ead7dadee0df70bab3f13b4f48f5babc810347d43a313c56df8e88e5610189cd"
+    },
+    {
+      "campaign_id": "codex-code-entry-code08-v29-20260804",
+      "tasks": [
+        "code-08"
+      ],
+      "campaign_sha256": "1448fe01016def393789b227954e7f24e6a8ea9ad4501a1c3ae156af57e22160"
+    }
+  ],
+  "calc_09_acceptance": {
+    "task": "Convert 23 degrees Celsius to Fahrenheit in Windows Calculator",
+    "result": "passed",
+    "run_id": "a3bea594-9eef-4f91-a3e0-1d60fd4d00a0",
+    "visible_result": "23 \u00b0C = 73.4 \u00b0F",
+    "reason": "The final Calculator frame visibly showed the requested Celsius input and Fahrenheit conversion after verifier-detected recovery from one ineffective mode click and one incomplete numeric entry.",
+    "wall_clock_ms": 141228,
+    "provider_wait_ms": 75412,
+    "action_execution_ms": 62054,
+    "evidence_capture_ms": 1911,
+    "provider_calls": 15,
+    "actions_attempted": 7,
+    "actions_completed": 7,
+    "completion_efficiency": 1.0,
+    "same_run_recoveries": 2,
+    "reboot_ms": 102497,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-calculator-calc09-v1-20260731/calc-09/recording.webm",
+      "sha256": "2bb55ea939df76e57f5604a9c1a3c8b1cab5a21584fa7d5759e1038791ccf68d",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 222000,
+      "size_bytes": 724540
+    },
+    "poster": {
+      "relative_path": "codex-calculator-calc09-v1-20260731/calc-09/poster.jpg",
+      "sha256": "c1846e05f1fa548e891605c70bdc1b2cfbffcd85f86fd47c58402ea5224994dd"
+    },
+    "campaign_sha256": "e3bd27b932397f7fcdeecf429427f6be9c5e723b697e9bbdbbbee0b029391c84"
+  },
+  "text_01_acceptance": {
+    "task": "Save a short exact sentence, reopen it, and verify it",
+    "result": "passed",
+    "run_id": "d69a96b2-6b36-4cb3-926f-12c2f818195e",
+    "wall_clock_ms": 475492,
+    "provider_wait_ms": 263924,
+    "action_execution_ms": 381636,
+    "provider_calls": 30,
+    "actions_attempted": 15,
+    "actions_completed": 12,
+    "reboot_ms": 200654,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-v17-20260731/text-01-fast-editor-recheck/recording.webm",
+      "sha256": "b6fbfc71c52e882c20872fd0ed19ec29a91e2a26920c00b1004aa7fe868a8542",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 569000,
+      "size_bytes": 1320620
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-v17-20260731/text-01-fast-editor-recheck/poster.jpg",
+      "sha256": "6da80fa6f4ff6c1724059e24780d38f50022f4a0ef6265a41c2b88dc4f883c97"
+    }
+  },
+  "text_01_speed_validation": {
+    "task": "Repeat the accepted exact-text flow after filename-readback localization",
+    "result": "passed",
+    "run_id": "c007ab8e-ed3d-46ad-b3e3-663d7693196e",
+    "wall_clock_ms": 259245,
+    "provider_wait_ms": 129658,
+    "action_execution_ms": 123297,
+    "provider_calls": 25,
+    "actions_attempted": 13,
+    "actions_completed": 13,
+    "completion_efficiency": 1.0,
+    "longest_action_ms": 33207.672,
+    "reboot_ms": 76924,
+    "reboot_transition_observed": true,
+    "improvement_over_acceptance_percent": 45.48,
+    "recording": {
+      "relative_path": "codex-text-entry-v19-20260731/text-01-saveas-speed-recheck/recording.webm",
+      "sha256": "3760b15c3e7e13023faec6512c56354661b76ac805e69f17a8fc6fe83a3c278a",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 319500,
+      "size_bytes": 1031796
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-v19-20260731/text-01-saveas-speed-recheck/poster.jpg",
+      "sha256": "f95480144bfd7d4770e6eefc811d0f39c9a06eff8d9429896cd5f7ae9feafa28"
+    },
+    "campaign_sha256": "463c8bea4ff2198803715aedb3b30844167c9af66ac5d70e0bbf122597224e0d"
+  },
+  "text_01_attempts": [
+    {
+      "campaign_id": "codex-text-entry-v13-20260731",
+      "reported_status": "passed",
+      "accepted_status": "invalid",
+      "reason": "The application remaining open after Save was incorrectly accepted as a separate reopen.",
+      "wall_clock_ms": 211135,
+      "campaign_sha256": "c202a3336dddd51cc459f909227d15a1527559e53e83a40cb815c0200b606d4c"
+    },
+    {
+      "campaign_id": "codex-text-entry-v14-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "A delayed Save As replacement confirmation was not grounded, so the consequential Enter remained blocked.",
+      "wall_clock_ms": 369767,
+      "campaign_sha256": "7681a2f720dc95dd6467d1ca1f532e03aba4e04f3f1628541744ff0e65c48d1e"
+    },
+    {
+      "campaign_id": "codex-text-entry-v15-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "Noisy OCR of the replacement confirmation was correctly treated as unknown.",
+      "wall_clock_ms": 232527,
+      "campaign_sha256": "d9277c15ab33b08a5715b5bc52fd49c083fbfb0c982e5dbd34a6641439096f3e"
+    },
+    {
+      "campaign_id": "codex-text-entry-v16-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "The file was saved and genuinely reopened, but the running completion gate did not recognize the verified replacement-save transition and timed out.",
+      "wall_clock_ms": 898842,
+      "provider_wait_ms": 730959,
+      "provider_calls": 145,
+      "campaign_sha256": "4c44f5816d04d1342634ef4521a3e8ea4ebd6972a24f93dc4c04ae71aea82595"
+    },
+    {
+      "campaign_id": "codex-text-entry-v17-20260731",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "reason": "A verified replacement save was followed by a later, separately verified Open action and exact visible sentence.",
+      "wall_clock_ms": 475492,
+      "provider_wait_ms": 263924,
+      "provider_calls": 30,
+      "campaign_sha256": "7c6f8e70ee7dfa4f51e3b4fa71a5934a499170b743233acf03145ad3bcd49cb1"
+    },
+    {
+      "campaign_id": "codex-text-entry-v18-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "The filename was selected and replaced correctly, but the readback crop included the adjacent Save as type control and rejected the exact visible basename.",
+      "wall_clock_ms": 377666,
+      "provider_wait_ms": 193716,
+      "action_execution_ms": 175776,
+      "provider_calls": 36,
+      "reboot_ms": 132690,
+      "campaign_sha256": "6ee29ce4de5a48590e409d27de095e694a9b5cd9d1df88d5bfabd28793e39d0f"
+    },
+    {
+      "campaign_id": "codex-text-entry-v19-20260731",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "reason": "The broad filename observation localized the matching stem, then a fresh independent OCR read of the refined crop verified the exact basename.",
+      "wall_clock_ms": 259245,
+      "provider_wait_ms": 129658,
+      "action_execution_ms": 123297,
+      "provider_calls": 25,
+      "actions_attempted": 13,
+      "actions_completed": 13,
+      "reboot_ms": 76924,
+      "campaign_sha256": "463c8bea4ff2198803715aedb3b30844167c9af66ac5d70e0bbf122597224e0d"
+    }
+  ],
+  "text_02_acceptance": {
+    "task": "Preserve an em dash, curly quotes, commas, a semicolon, and ordinary prose through save and independent reopen",
+    "result": "passed",
+    "run_id": "5addb68d-9e42-40c6-a3ff-19f7e2ec0c1e",
+    "requested_characters": 78,
+    "native_readback_characters": 78,
+    "native_readback_verdict": "match",
+    "wall_clock_ms": 279940,
+    "provider_wait_ms": 175644,
+    "action_execution_ms": 149769,
+    "provider_calls": 28,
+    "actions_attempted": 13,
+    "actions_completed": 12,
+    "completion_efficiency": 0.9230769230769231,
+    "reboot_ms": 96101,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text02-v6-20260731/text-02-punctuation/recording.webm",
+      "sha256": "b8e23ecf416d4cb05a94e5303398c0528e58acd8cc64bc75fad698b094c22cd0",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 354000,
+      "size_bytes": 1043428
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text02-v6-20260731/text-02-punctuation/poster.jpg",
+      "sha256": "deefcdf502b537d8832348d0cc5bc2ddc92de037a7f150437f0715c8e2906e24"
+    },
+    "campaign_sha256": "f588d1b79fa241b7dae387486cce91f88e125632b4166cbfb04ac0a1519a5cd4"
+  },
+  "text_02_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text02-v1-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "The visible Windows Run dialog did not open during preflight after three attempts; no task input was sent.",
+      "reboot_ms": 93738,
+      "campaign_sha256": "29abd481f0221433f0546d3834980bb0804c2b47bb77f25dd5abb181be91d0c6"
+    },
+    {
+      "campaign_id": "codex-text-entry-text02-v2-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "The VNC transport dropped the em dash and both curly quote characters; exact readback prevented the file from being accepted.",
+      "wall_clock_ms": 201877,
+      "provider_wait_ms": 77927,
+      "action_execution_ms": 118102,
+      "provider_calls": 13,
+      "reboot_ms": 72953,
+      "campaign_sha256": "6f6973fb457ecb2614bcd3686a7bba38ad376854969a3e048a65d70b818adafb"
+    },
+    {
+      "campaign_id": "codex-text-entry-text02-v3-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "CP1252 Alt-code transport preserved the punctuation, but the rapid ordinary-key stream dropped one letter; exact readback stopped before save.",
+      "wall_clock_ms": 144675,
+      "provider_wait_ms": 15449,
+      "action_execution_ms": 128288,
+      "provider_calls": 2,
+      "reboot_ms": 76936,
+      "campaign_sha256": "16b451dc2f5a5566adffdcc59c76217babd895138486c58ae2fa78dead9a4763"
+    },
+    {
+      "campaign_id": "codex-text-entry-text02-v4-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "Spaced ordinary-key delivery reached all 78 characters, but downscaled OCR repeatedly read the visible em dash as a hyphen; exact verification failed closed.",
+      "wall_clock_ms": 141125,
+      "provider_wait_ms": 16833,
+      "action_execution_ms": 123215,
+      "provider_calls": 2,
+      "reboot_ms": 97322,
+      "campaign_sha256": "636fb70235533980c74f272db5a1af706f8ff2abf55b6729fc7a7a78b07eec97"
+    },
+    {
+      "campaign_id": "codex-text-entry-text02-v5-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "Native field recapture achieved an exact 78-character match, but the model used bare Enter to commit Save As and the unknown-action safety gate correctly stopped it.",
+      "wall_clock_ms": 147421,
+      "provider_wait_ms": 69078,
+      "action_execution_ms": 76393,
+      "provider_calls": 10,
+      "reboot_ms": 108068,
+      "campaign_sha256": "011c40b2b4cbef01076f531f04d9da6d2b315f72c5ea302e57e10ac7ed643670"
+    },
+    {
+      "campaign_id": "codex-text-entry-text02-v6-20260731",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "reason": "Native exact readback matched all 78 characters, a visibly labelled Save button grounded the commit, and a separate Open action restored the exact saved sentence.",
+      "wall_clock_ms": 279940,
+      "provider_wait_ms": 175644,
+      "action_execution_ms": 149769,
+      "provider_calls": 28,
+      "actions_attempted": 13,
+      "actions_completed": 12,
+      "reboot_ms": 96101,
+      "campaign_sha256": "f588d1b79fa241b7dae387486cce91f88e125632b4166cbfb04ac0a1519a5cd4"
+    }
+  ],
+  "text_03_invalid_v4": {
+    "task": "Preserve two exact paragraphs with one blank line through save and independent reopen",
+    "result": "invalid",
+    "invalid_reason": "The run never executed an actual Open action. An unexecuted checkpoint whose intent mentioned reopening was incorrectly associated with later verification and satisfied the old completion gate.",
+    "run_id": "e462ff6b-0f20-42b0-8c2a-d1db3c01a32e",
+    "first_paragraph": {
+      "requested_characters": 79,
+      "issued_characters": 79,
+      "observed_characters": 79,
+      "verdict": "match",
+      "sha256": "2f5f2880ff39fc3da25fb67af22a4c637f0d7363b52e33ee8009e0ed0ef3b76a"
+    },
+    "second_paragraph": {
+      "requested_characters": 74,
+      "issued_characters": 74,
+      "observed_characters": 74,
+      "verdict": "match",
+      "sha256": "c441d8ca209414945288809385dd0996971ea2678a4d7de4b8a3eeecd3ebdc38"
+    },
+    "wall_clock_ms": 277952,
+    "provider_wait_ms": 141648,
+    "action_execution_ms": 204741,
+    "evidence_capture_ms": 22916,
+    "provider_calls": 22,
+    "actions_attempted": 10,
+    "actions_completed": 9,
+    "completion_efficiency": 0.9,
+    "same_run_recoveries": 2,
+    "reboot_ms": 94193,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text03-v4-20260731/text-03-two-paragraphs/recording.webm",
+      "sha256": "ef2288a312cb0832d520ed71cbcc22a163a7551d6a729bb7bd397024464c304d",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 353500,
+      "size_bytes": 1043659
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text03-v4-20260731/text-03-two-paragraphs/poster.jpg",
+      "sha256": "f68470c670633c8619d30ed9f2e58e7b9669eaebeff9135a20837d89035fd818"
+    },
+    "campaign_sha256": "28f7c6d579371d8e958809fc7b776a206ae8a045056f018524727357dd90919a"
+  },
+  "text_03_acceptance": {
+    "task": "Preserve two exact paragraphs with one blank line through save and independent reopen",
+    "result": "passed",
+    "run_id": "504e343d-a8de-4e22-abde-9c5777230b1d",
+    "reason": "Both exact paragraph receipts were preserved, the file was saved through a grounded replacement confirmation, and a later completed Ctrl+O flow reopened the saved file for independent verification.",
+    "wall_clock_ms": 380612,
+    "provider_wait_ms": 208161,
+    "action_execution_ms": 243335,
+    "evidence_capture_ms": 3283,
+    "provider_calls": 34,
+    "actions_attempted": 18,
+    "actions_completed": 15,
+    "completion_efficiency": 0.8333333333333334,
+    "same_run_recoveries": 2,
+    "reboot_ms": 101101,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text03-v6-20260731/text-03-two-paragraphs/recording.webm",
+      "sha256": "8cd07a5253afae35e5c76b4d5f5e5cbe04e45bc9c4a36f0ab36f8f51042aec14",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 448500,
+      "size_bytes": 1399650
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text03-v6-20260731/text-03-two-paragraphs/poster.jpg",
+      "sha256": "06f355d14731416d9825eb9e0ac89938725e8e82439f1ce40c0c47e1f0d87760"
+    },
+    "campaign_sha256": "1ff02cfdaf5d7c434808aff091c93e53824de154967f85b166976dcc6d4b1718"
+  },
+  "text_03_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text03-v1-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "Modern Notepad restored an earlier tab; the controller refused to overwrite it, then could not ground a blank-area focus click.",
+      "wall_clock_ms": 55296,
+      "provider_wait_ms": 30803,
+      "action_execution_ms": 23820,
+      "provider_calls": 5,
+      "reboot_ms": 90120,
+      "campaign_sha256": "b6d27bcfd5e3535534fc321f10f534e0976ad93eb3f39580e983c383422a9afa"
+    },
+    {
+      "campaign_id": "codex-text-entry-text03-v2-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "The first eight characters landed after delayed VNC video, but focus verification stopped the remaining text and the model exhausted structured-output recovery.",
+      "wall_clock_ms": 256615,
+      "provider_wait_ms": 184617,
+      "action_execution_ms": 222929,
+      "provider_calls": 29,
+      "reboot_ms": 79416,
+      "campaign_sha256": "0e98b16f10d03ab6840bb2d06b80da3646ac7f5733fc63d71199f61714d74818"
+    },
+    {
+      "campaign_id": "codex-text-entry-text03-v3-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "The diagnostic exposed that embedded newlines violate the type_text control-character schema; no unsafe relaxation or blind retry was allowed.",
+      "wall_clock_ms": 238927,
+      "provider_wait_ms": 186912,
+      "action_execution_ms": 40664,
+      "provider_calls": 28,
+      "reboot_ms": 79605,
+      "campaign_sha256": "d3fa7b1e682040b669a46c766f29acc484809c456e3335873daa23b389065aa1"
+    },
+    {
+      "campaign_id": "codex-text-entry-text03-v4-20260731",
+      "reported_status": "passed",
+      "accepted_status": "invalid",
+      "reason": "The paragraph receipts and save were valid, but no actual Open action occurred; an unexecuted checkpoint containing the word reopening was incorrectly accepted as durable transition evidence.",
+      "wall_clock_ms": 277952,
+      "provider_wait_ms": 141648,
+      "action_execution_ms": 204741,
+      "provider_calls": 22,
+      "actions_attempted": 10,
+      "actions_completed": 9,
+      "reboot_ms": 94193,
+      "campaign_sha256": "28f7c6d579371d8e958809fc7b776a206ae8a045056f018524727357dd90919a"
+    },
+    {
+      "campaign_id": "codex-text-entry-text03-v5-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "reason": "The run stopped safely because a grounded Yes button on the existing-file replacement dialog was still classified as unknown. It also reproduced multi-second VNC publication lag after the first chunk of both paragraphs.",
+      "wall_clock_ms": 328031,
+      "provider_wait_ms": 190962,
+      "action_execution_ms": 123844,
+      "provider_calls": 32,
+      "actions_attempted": 16,
+      "actions_completed": 12,
+      "reboot_ms": 95490,
+      "campaign_sha256": "40857a10a170c093e5baa9a1365c8227ace698a92c8a861b9716416672a0505f"
+    },
+    {
+      "campaign_id": "codex-text-entry-text03-v6-20260731",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "reason": "The saved document was reopened through a completed native Open flow and visibly verified with both exact paragraphs and one blank line. Two delayed-video focus failures were recovered without replaying either payload.",
+      "wall_clock_ms": 380612,
+      "provider_wait_ms": 208161,
+      "action_execution_ms": 243335,
+      "provider_calls": 34,
+      "actions_attempted": 18,
+      "actions_completed": 15,
+      "same_run_recoveries": 2,
+      "reboot_ms": 101101,
+      "campaign_sha256": "1ff02cfdaf5d7c434808aff091c93e53824de154967f85b166976dcc6d4b1718"
+    }
+  ],
+  "text_04_acceptance": {
+    "task": "Create and reopen an exact four-line numbered checklist",
+    "result": "passed",
+    "run_id": "32aca2aa-c250-48d5-9195-364607e0c310",
+    "reason": "All four numbered lines and text-04.txt were emitted exactly once with matching requested, delivery, issued, emitted, and readback hashes. The native workflow durably verified Save, replacement, Open, file selection, and the final commit; the verifier then saw the reopened document with all four requested lines exactly.",
+    "wall_clock_ms": 276097,
+    "provider_wait_ms": 163741,
+    "provider_serial_equivalent_ms": 193361,
+    "provider_overlap_ms": 29620,
+    "action_execution_ms": 105278,
+    "evidence_capture_ms": 3491,
+    "provider_calls": 30,
+    "actions_attempted": 16,
+    "actions_completed": 16,
+    "completion_efficiency": 1.0,
+    "same_run_recoveries": 0,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "reboot_ms": 76818,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text04-v13-20260801/text-04/recording.webm",
+      "sha256": "4b492040ed46cc6160931f44979fa5cf0a968c04a1ee24fc0395a1e3813a5277",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 337000,
+      "size_bytes": 1094698
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text04-v13-20260801/text-04/poster.jpg",
+      "sha256": "46a1f98169a9bba0a2885a64c22f9ee5b93769458c547ea6783950c61bf684bc"
+    },
+    "campaign_sha256": "28c480138fc3ba720a2c58062927edd91b51e2f71b74c4d542b5355f189da208"
+  },
+  "text_04_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text04-v1-20260731",
+      "reported_status": "aborted",
+      "accepted_status": "failed",
+      "run_id": "fb334d4f-6edf-4de1-b11d-d213af1afc0b",
+      "reason": "The first exact line was issued once and repeatedly read back as `1. Observe`, but its list-marker punctuation prevented the single visible gap from receiving independent geometric spacing evidence. The exact-input safety gate correctly blocked all follow-up mutations; the unchanged refusal then consumed 26 provider calls before the diagnostic was deliberately aborted.",
+      "wall_clock_ms": 281108,
+      "provider_wait_ms": 162479,
+      "action_execution_ms": 108199,
+      "provider_calls": 26,
+      "actions_attempted": 6,
+      "actions_completed": 4,
+      "reboot_ms": 122768,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v1-20260731/text-04-numbered-checklist/recording.webm",
+        "sha256": "5a971c238c79cde610ce4f8c33c1556a9442f7d306f014519fec37055297341e",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 359500,
+        "size_bytes": 855482
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v1-20260731/text-04-numbered-checklist/poster.jpg",
+        "sha256": "7d4cb1f7add79f1eb346f151a3a2d38326c0fabcc8f9bf6a496a18c93c4b1a9f"
+      },
+      "campaign_sha256": "03e03493a622a4d23de8a3adaf905cce8405666a082236f18cd817bf7a68af81"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v2-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "a0307b24-f94a-4cff-a207-5b752011385e",
+      "reason": "The numbered-marker spacing fix verified `1. Observe` and its line break. The six-character `2. Act` payload was then issued exactly once, but its video delta arrived after the immediate capture and the old delayed-localization threshold did not cover exact payloads below eight characters. A guarded undo removed Notepad's grouped edit, including the first line, and the controller stopped without replaying an unknown draft.",
+      "wall_clock_ms": 143924,
+      "provider_wait_ms": 98502,
+      "action_execution_ms": 40421,
+      "provider_calls": 13,
+      "actions_attempted": 6,
+      "actions_completed": 5,
+      "completion_efficiency": 0.8333333333333334,
+      "same_run_recoveries": 4,
+      "reboot_ms": 97802,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v2-20260731/text-04/recording.webm",
+        "sha256": "01666ceb68e0f50c00fd427111d8b9fd54d37d2fca285b00665256b16e661662",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 233500,
+        "size_bytes": 651722
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v2-20260731/text-04/poster.jpg",
+        "sha256": "b4c4a5f85acfebbbba58a498cd2c263b609ef7206c7d71028578858f8ee3a525"
+      },
+      "campaign_sha256": "f1768c15f3b3abb9f3dde77a329d00341cbc8324e8822f65501ad372f14ce14d"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v3-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "957daed1-d2d5-4133-b21f-a8685e18bcc0",
+      "reason": "The delayed localization loop ran for the visibly present `2. Act`, but its ordinary full-screen OCR fallback missed the small second line. A later Escape was incorrectly treated as cancelling the unverified editor draft even though Escape does not remove text already emitted into Notepad; this allowed an unsafe progression toward `3. Verify` without a verified line break. The next exact input stopped unverified and no payload was replayed.",
+      "wall_clock_ms": 221300,
+      "provider_wait_ms": 143225,
+      "action_execution_ms": 70902,
+      "provider_calls": 18,
+      "actions_attempted": 7,
+      "actions_completed": 5,
+      "completion_efficiency": 0.7142857142857143,
+      "same_run_recoveries": 4,
+      "reboot_ms": 94108,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v3-20260731/text-04/recording.webm",
+        "sha256": "068a6c0af0ccb57114e3708d05ee9ed5ee83fb3caa31d97b23ba808ebcd9e1e3",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 291000,
+        "size_bytes": 778270
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v3-20260731/text-04/poster.jpg",
+        "sha256": "d4d29a1502caf0765ac634dd9ca290efc81f1abd03958811adbb4d6c6f587cb4"
+      },
+      "campaign_sha256": "30bc7623e458111b8772e2776a62624416ceaf3083d5c4f7eedb5f27ba3667b9"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v4-20260731",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "bea4ab0b-8f4f-4492-8474-cadef0b50602",
+      "reason": "The exact `2. Act` payload was emitted once and remained visibly present, but the dense causal locator found two similarly sized line-shaped changes and refused to choose between them. The strengthened editor-draft guard then refused every attempt to proceed, so no third-line payload was emitted.",
+      "wall_clock_ms": 197206,
+      "provider_wait_ms": 135140,
+      "action_execution_ms": 55304,
+      "provider_calls": 19,
+      "actions_attempted": 7,
+      "actions_completed": 6,
+      "completion_efficiency": 0.8571428571428571,
+      "same_run_recoveries": 4,
+      "reboot_ms": 107469,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v4-20260731/text-04/recording.webm",
+        "sha256": "e1ce1d7186cb3305800d064f6fadbab53b705d993bfba580e7954a4f75fb6d3d",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 282000,
+        "size_bytes": 716469
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v4-20260731/text-04/poster.jpg",
+        "sha256": "250d66a554306ab1c2a76cc3cdda07080d1e1c73cacda33ec1020a2caab70b8f"
+      },
+      "campaign_sha256": "9db5e1c529497094404b1c5ce27a12eddd1268b97b0e34de21f88ca52f7bd11b"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v5-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "101eb3e8-9963-4633-b8a7-b7779dbea4f1",
+      "reason": "The exact `2. Act` payload was emitted once, but the coarse locator selected Notepad's changing status row and the strongest dense candidate was also that unrelated row. Exact OCR spent 104.821 seconds rereading the wrong crop and returned no observed characters. The editor guard blocked all progression and the repeated-paused-error circuit stopped further retries.",
+      "wall_clock_ms": 246080,
+      "provider_wait_ms": 99188,
+      "action_execution_ms": 141702,
+      "provider_calls": 16,
+      "actions_attempted": 6,
+      "actions_completed": 5,
+      "completion_efficiency": 0.8333333333333334,
+      "same_run_recoveries": 3,
+      "reboot_ms": 77617,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v5-20260801/text-04/recording.webm",
+        "sha256": "8646726240ac03ac7ab9941e6184b33a8babea6a618dfc86fea45c1a4211b2b1",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 289000,
+        "size_bytes": 716271
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v5-20260801/text-04/poster.jpg",
+        "sha256": "eaa2fa821b679cef9c857ec400c18ad3516433e9844e9d4810c17398fc8a6c51"
+      },
+      "campaign_sha256": "c77e6afe8fda3017d68efa2ba8bf34f15961546c4acbd2e7eeba444b21853d3f"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v6-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "9936922c-3a55-4f79-97c8-f3ec9409c23e",
+      "reason": "The causal candidate scan verified `2. Act` exactly in 7.256 seconds. `3. Verify` was then emitted exactly once, but the settled read retained the candidate's larger changed-pixel box and returned the adjacent `2. Act\\n3. Verify` rows. The editor guard blocked all progression and the repeated-paused-error circuit stopped further retries.",
+      "wall_clock_ms": 193196,
+      "provider_wait_ms": 115925,
+      "action_execution_ms": 71226,
+      "provider_calls": 15,
+      "actions_attempted": 7,
+      "actions_completed": 6,
+      "completion_efficiency": 0.8571428571428571,
+      "same_run_recoveries": 3,
+      "reboot_ms": 104803,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v6-20260801/text-04/recording.webm",
+        "sha256": "32242adb0bc49dfa9d2d4525be25e1eeff1e1ad5dbb6d307fe0c434a31eaad66",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 282000,
+        "size_bytes": 774235
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v6-20260801/text-04/poster.jpg",
+        "sha256": "82a2d693009c40c25037140c64a21156a85fa9eec4447ce4810bd34814804247"
+      },
+      "campaign_sha256": "e75beb8f50178bf9742aa11ec723e4c590bcf0eb9026d6399aeff0c4cea783a1"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v7-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "c7701f68-1329-4944-a9e5-bbfba624de14",
+      "reason": "The row refinement isolated `2. Act`, and the delayed causal scan independently verified its visible space. Five later reads returned the exact six characters at 0.8949 mean confidence, just below the 0.90 geometric spacing threshold, so the receipt remained empty. The editor guard blocked all progression and the repeated-paused-error circuit stopped further retries.",
+      "wall_clock_ms": 206436,
+      "provider_wait_ms": 113232,
+      "action_execution_ms": 86325,
+      "provider_calls": 16,
+      "actions_attempted": 5,
+      "actions_completed": 4,
+      "completion_efficiency": 0.8,
+      "same_run_recoveries": 4,
+      "reboot_ms": 75904,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v7-20260801/text-04/recording.webm",
+        "sha256": "c5727ce082f187069ff0f206e0369877e54c438834b3d8f07e5e99fdcbc3571a",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 259000,
+        "size_bytes": 870868
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v7-20260801/text-04/poster.jpg",
+        "sha256": "2a83aa43937706ac4d907d071ad623834b1dac3a3bbf6e434617d6eb1f04a8f8"
+      },
+      "campaign_sha256": "aa0d2d18c5c9d95f5a2b1ed9f8fb5f30ea84df1fc4c828abfdc57268f9fea49d"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v8-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "5a01ee4a-264d-43d6-b749-ddd537a01379",
+      "reason": "All four checklist lines were emitted exactly once with verified_exact receipts and matching requested, emitted, and readback hashes. Save As then returned the exact basename inside `File name:` and `Save as type:` labelled rows, which the bounded filename parser did not recognize. The controller refused Save and retried only reversible dismissal/reopen workflows until the recovery limit stopped the run.",
+      "wall_clock_ms": 465937,
+      "provider_wait_ms": 282646,
+      "action_execution_ms": 310821,
+      "provider_calls": 45,
+      "actions_attempted": 23,
+      "actions_completed": 19,
+      "completion_efficiency": 0.8260869565217391,
+      "same_run_recoveries": 4,
+      "approval_count": 3,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "reboot_ms": 82716,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v8-20260801/text-04/recording.webm",
+        "sha256": "e91c0c106ca7bb2ae2d16366d20a36a856b815805565809f4e46cc34824e4d68",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 509000,
+        "size_bytes": 1351639
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v8-20260801/text-04/poster.jpg",
+        "sha256": "b22bec0feb4ae419e9dcbca06e283aed27e17184cb3b6348e7e6fdc4e843708d"
+      },
+      "campaign_sha256": "edc3aec39591048114702aada86a1ae46d2bbb76a8bf378645d0f9db6eefb29b"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v9-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "d5777c00-03f5-42b0-b2cb-5df6cba32cb4",
+      "reason": "The labelled Save As parser verified the exact basename and Save completed. A real Ctrl+O action opened the file picker, selected the saved file, and later Notepad visibly showed all four lines. Immediate post-click video lag made the first Open verification stale, however, and later visual checks could not prove the full path. The run exhausted four same-run recoveries. The `1. Observe` receipt also incorrectly reported verified_exact after OCR segmented the single visual row as `1.\\nObserve`; its own exact-byte hash correctly disagreed, so the task cannot be accepted.",
+      "wall_clock_ms": 485353,
+      "provider_wait_ms": 346155,
+      "action_execution_ms": 310728,
+      "provider_calls": 61,
+      "actions_attempted": 20,
+      "actions_completed": 18,
+      "completion_efficiency": 0.9,
+      "same_run_recoveries": 4,
+      "approval_count": 2,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "reboot_ms": 190309,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v9-20260801/text-04/recording.webm",
+        "sha256": "3496a3220e71e0fbc62d697942386aaf1f9f806963a1c1d1b2089c69e0bc3c39",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 604500,
+        "size_bytes": 1451545
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v9-20260801/text-04/poster.jpg",
+        "sha256": "fc8cdd12ef5c54fc200642f7d4c02857ce643cfa91bc8c85cf2e2c4daf9ab3cd"
+      },
+      "campaign_sha256": "f548a1e6c9c497f31f149d16f0582ccbf76b36efc9ce78d3b763f8fa45c3d534"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v10-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "c5efd0ce-5fd9-4c44-bf9a-b6f24f96ceb5",
+      "reason": "All four checklist lines and text-04.txt were emitted exactly once with matching requested, emitted, and observed hashes. Save, overwrite confirmation, Ctrl+O, and selection of text-04.txt reached the disposable VM, and a later frame showed the reopened four-line document. Immediate post-action verification repeatedly received the pre-click frame, however, so neither Save nor overwrite had durable current-run verification. The completion gate correctly rejected the older file's possible contamination and the campaign timed out.",
+      "wall_clock_ms": 597410,
+      "provider_wait_ms": 443365,
+      "action_execution_ms": 441687,
+      "provider_calls": 87,
+      "actions_attempted": 16,
+      "actions_completed": 15,
+      "completion_efficiency": 0.9375,
+      "same_run_recoveries": 4,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "reboot_ms": 77360,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v10-20260801/text-04/recording.webm",
+        "sha256": "d7ac9d7ba8749662e542d7ee3fe8ac289f574ce0d7b9c5578c4a30e35289aa81",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 577000,
+        "size_bytes": 1577077
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v10-20260801/text-04/poster.jpg",
+        "sha256": "276ecfa2151e08bddb85a35f70a141a01cb2bf47fb5e9ac62fad9fd3241b187b"
+      },
+      "campaign_sha256": "c444b9f091ed15eed83520bd62c950081aa2a98f3c0164e883e6cda37336b0b7"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v11-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "ff0840d3-11de-4bbe-af39-227048dcecb7",
+      "reason": "HID emitted `1. Observe` exactly once and the recorded frame visibly contained all 10 characters, but the receipt observed only `Observe`. The causal OCR pass had read the complete row; its crop-relative bbox was translated from the changed-pixel candidate instead of the actual OCR crop, moving the trusted region from approximately x=59 to x=111 and narrowing it to 12px. The editor guard rejected all proposed focus clicks and the repeated-paused-error circuit stopped the run before Save.",
+      "wall_clock_ms": 149361,
+      "provider_wait_ms": 86185,
+      "action_execution_ms": 55663,
+      "provider_calls": 14,
+      "actions_attempted": 4,
+      "actions_completed": 3,
+      "completion_efficiency": 0.75,
+      "same_run_recoveries": 3,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "reboot_ms": 101945,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v11-20260801/text-04/recording.webm",
+        "sha256": "5b126ea7158a2cd9a3731c1a1d0db7fdf5928425aecc820fd7e50195f157b416",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 238500,
+        "size_bytes": 636862
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v11-20260801/text-04/poster.jpg",
+        "sha256": "1572564d90f2effa2c23111330fc032292dba9d881eaca262b7062047b146024"
+      },
+      "campaign_sha256": "188032bc347e3b98dc34844c1a87ecfa3c75e1db9bb5e297b97165a0e07edb9e"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v12-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "56e18d38-ecf2-4907-9378-fc20119496a4",
+      "reason": "The corrected crop geometry gave `1. Observe` a verified_exact receipt with 10/10 observed characters, exact-once emission, and matching hashes. The causal before/after crop then independently read `2. Act` exactly with verified spacing, but the typer discarded that proof and paid for noisier multi-line reads that alternated between `Act` and `observe\\nAct`. The editor guard stopped the repeated correction attempts before line 3.",
+      "wall_clock_ms": 197757,
+      "provider_wait_ms": 111367,
+      "action_execution_ms": 80376,
+      "provider_calls": 16,
+      "actions_attempted": 6,
+      "actions_completed": 5,
+      "completion_efficiency": 0.8333333333333334,
+      "same_run_recoveries": 3,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "reboot_ms": 81952,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v12-20260801/text-04/recording.webm",
+        "sha256": "592c619336e255ed6297f1bd15cc9290fbffba360094f5e543690d45b131aebb",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 258000,
+        "size_bytes": 781129
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v12-20260801/text-04/poster.jpg",
+        "sha256": "72702520e5dfd952d388e54be6ed50c58439294578881ccc225c61f06e8ae1fc"
+      },
+      "campaign_sha256": "a55bf75031ba7f5fe188217356b9fbb4c75dbf654a617eceda25bf76e23346b1"
+    },
+    {
+      "campaign_id": "codex-text-entry-text04-v13-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "32aca2aa-c250-48d5-9195-364607e0c310",
+      "reason": "All four numbered lines and text-04.txt received verified_exact receipts with exact-once emission and matching requested, delivery, issued, emitted, and readback hashes. The delayed-frame handoff durably verified the replacement Save and native Open flow; the final verifier saw the reopened four-line document exactly.",
+      "wall_clock_ms": 276097,
+      "provider_wait_ms": 163741,
+      "action_execution_ms": 105278,
+      "provider_calls": 30,
+      "actions_attempted": 16,
+      "actions_completed": 16,
+      "completion_efficiency": 1.0,
+      "same_run_recoveries": 0,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "reboot_ms": 76818,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text04-v13-20260801/text-04/recording.webm",
+        "sha256": "4b492040ed46cc6160931f44979fa5cf0a968c04a1ee24fc0395a1e3813a5277",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 337000,
+        "size_bytes": 1094698
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text04-v13-20260801/text-04/poster.jpg",
+        "sha256": "46a1f98169a9bba0a2885a64c22f9ee5b93769458c547ea6783950c61bf684bc"
+      },
+      "campaign_sha256": "28c480138fc3ba720a2c58062927edd91b51e2f71b74c4d542b5355f189da208"
+    }
+  ],
+  "text_05_acceptance": {
+    "task": "Type and reopen an exact symbol-heavy Windows path line",
+    "result": "passed",
+    "run_id": "9de1a910-c23e-4dee-9159-56d403ae3412",
+    "reason": "Windows ANSI Alt code 0092 delivered both backslashes independently of the EN-GB physical layout. The full 78-character payload and text-05.txt received verified_exact receipts with zero corrections or retries, exact-once emission, and matching requested, delivery, issued, emitted, and readback hashes. The native Save/Open workflow then reopened the file and independently verified every symbol.",
+    "wall_clock_ms": 250155,
+    "provider_wait_ms": 149122,
+    "provider_serial_equivalent_ms": 197287,
+    "provider_overlap_ms": 48165,
+    "action_execution_ms": 95246,
+    "evidence_capture_ms": 2719,
+    "provider_calls": 26,
+    "actions_attempted": 12,
+    "actions_completed": 12,
+    "completion_efficiency": 1.0,
+    "same_run_recoveries": 1,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "reboot_ms": 78736,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text05-v2-20260801/text-05/recording.webm",
+      "sha256": "3b3776d7a0ddb90bc0fd4c1da223478e46f0fe30d376a177b6902629d0d43474",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 316000,
+      "size_bytes": 1027312
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text05-v2-20260801/text-05/poster.jpg",
+      "sha256": "08a264ed3450bc4f813e1cffa483471e46b9d5b343268c455824d742f724e79e"
+    },
+    "campaign_sha256": "ee744da68b5a2d99d28f1596f0307fc5cb0ee89b1d3e802f76ea015ca40f2a3c"
+  },
+  "text_05_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text05-v1-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "4aee0ad1-b4a6-4a9b-bf19-0bcf62cb176a",
+      "reason": "The complete 78-character payload reached the Windows EN-GB target, but both requested backslashes appeared as #. Independent readback reported edit distance 2 and failed_keyboard_layout; the automatic correction also failed, so the receipt records 94 emitted characters, one correction, and emitted_exactly_once false. The corrupted draft was cleared and never saved. A visible On-Screen Keyboard exploration did not obtain a new verified input path before the repeated-paused-error circuit stopped the run.",
+      "wall_clock_ms": 214737,
+      "provider_wait_ms": 123498,
+      "provider_serial_equivalent_ms": 141872,
+      "provider_overlap_ms": 18374,
+      "action_execution_ms": 85076,
+      "evidence_capture_ms": 1209,
+      "provider_calls": 19,
+      "actions_attempted": 6,
+      "actions_completed": 5,
+      "completion_efficiency": 0.8333333333333334,
+      "same_run_recoveries": 3,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "reboot_ms": 75704,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text05-v1-20260801/text-05/recording.webm",
+        "sha256": "fd0fef9cb56d81eab4b125500c9d65213435064050b420f188b2a9bca5886f87",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 270500,
+        "size_bytes": 852143
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text05-v1-20260801/text-05/poster.jpg",
+        "sha256": "3564ae895fb46718e2eb94a18bb42272517e0dfd8a300191a4897a7459ff7d5d"
+      },
+      "campaign_sha256": "bfd90217b7de16150ba94cab474cc19241dcc5916761c7f00178087df87afe23"
+    },
+    {
+      "campaign_id": "codex-text-entry-text05-v2-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "9de1a910-c23e-4dee-9159-56d403ae3412",
+      "reason": "Windows ANSI Alt code 0092 delivered both backslashes correctly. The complete 78-character payload and text-05.txt received verified_exact receipts with edit distance zero, zero corrections or retries, exact-once emission, and matching hashes. The completed native Save/Open flow reopened the saved file and independently verified every symbol.",
+      "wall_clock_ms": 250155,
+      "provider_wait_ms": 149122,
+      "action_execution_ms": 95246,
+      "provider_calls": 26,
+      "actions_attempted": 12,
+      "actions_completed": 12,
+      "completion_efficiency": 1.0,
+      "same_run_recoveries": 1,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "reboot_ms": 78736,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text05-v2-20260801/text-05/recording.webm",
+        "sha256": "3b3776d7a0ddb90bc0fd4c1da223478e46f0fe30d376a177b6902629d0d43474",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 316000,
+        "size_bytes": 1027312
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text05-v2-20260801/text-05/poster.jpg",
+        "sha256": "08a264ed3450bc4f813e1cffa483471e46b9d5b343268c455824d742f724e79e"
+      },
+      "campaign_sha256": "ee744da68b5a2d99d28f1596f0307fc5cb0ee89b1d3e802f76ea015ca40f2a3c"
+    }
+  ],
+  "text_06_acceptance": {
+    "task": "Write, save, reopen, and verify a 120\u2013160-word Macbeth paragraph",
+    "result": "passed",
+    "run_id": "a193d48c-fc13-4417-90da-786939aac547",
+    "reason": "Four exact editor transactions delivered 817 characters and 134 words with natural word boundaries, required leading spaces on every continuation, exact-once emission, and no replay. The first transaction used caret-stabilized OCR; later appends remained suffix-grounded while OCR observed the accumulated document. Save As required one bounded workspace-edit approval, the native Open dialog selected the saved file, and an independent final verifier confirmed the complete reopened paragraph.",
+    "wall_clock_ms": 476878,
+    "provider_wait_ms": 230336,
+    "provider_serial_equivalent_ms": 295995,
+    "provider_overlap_ms": 65659,
+    "action_execution_ms": 239315,
+    "evidence_capture_ms": 3011,
+    "provider_calls": 32,
+    "actions_attempted": 13,
+    "actions_completed": 13,
+    "completion_efficiency": 1.0,
+    "same_run_recoveries": 1,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 74941,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text06-v9-20260801/text-06/recording.webm",
+      "sha256": "6312d45ec84926fd29331aa520ddb722c20e6bf3a6f935faa2a5becc80c1a720",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 485500,
+      "size_bytes": 1718001
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text06-v9-20260801/text-06/poster.jpg",
+      "sha256": "ddf571624606c510f86ac7a7b9044e46ce8e4a78f3c7e671fda598faf28949ec"
+    },
+    "campaign_sha256": "a782dc0408ef6322c8795f895070af2e19abe58b8eb41c442a03de9be0d6a95e"
+  },
+  "text_06_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text06-v1-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "34212454-e656-4423-b0b5-d184c4bdb21b",
+      "reason": "The first 240-character prose transaction received a verified_exact receipt with exact-once emission and matching hashes. The second 240-character transaction was also emitted exactly once, and OCR returned the correct 480-character concatenation of the proven prefix plus the new suffix. The receipt returned unverified_wrong_region because the full-screen suffix locator was skipped when the initial read already contained the requested text. The editor guard prevented the unfinished ending and the document was never saved.",
+      "wall_clock_ms": 347954,
+      "provider_wait_ms": 179058,
+      "provider_serial_equivalent_ms": 209762,
+      "provider_overlap_ms": 30704,
+      "action_execution_ms": 316273,
+      "evidence_capture_ms": 3803,
+      "provider_calls": 25,
+      "actions_attempted": 7,
+      "actions_completed": 5,
+      "completion_efficiency": 0.7142857142857143,
+      "same_run_recoveries": 3,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "reboot_ms": 73058,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v1-20260801/text-06/recording.webm",
+        "sha256": "08c598901be43f857f047fce23626f448578e83d5f18cb307056900d24bec7a6",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 377500,
+        "size_bytes": 990395
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v1-20260801/text-06/poster.jpg",
+        "sha256": "3f39731e15286235c03fea524ad21cf48d3b06d84af1b0a30bd9f6f460f9e2df"
+      },
+      "campaign_sha256": "d44b5aea36edc8bdbe5ad0e8b61a80fc1e11b92981baa8030a8a7f8ea838202b"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v2-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "da4001e9-2f0f-4846-8daf-d771c3a8d502",
+      "reason": "The first 240-character prose transaction was emitted exactly once with zero corrections, retries, or edit distance. Bounded full-screen OCR found all requested characters but inserted a newline at the visual word-wrap boundary between `he` and `begins`. Semantic normalization returned match while the raw readback hash differed, so the receipt failed closed as unverified_exact_hash_mismatch. Four same-run recovery checkpoints were exhausted, the editor guard blocked further mutation, and the incomplete document was never saved.",
+      "wall_clock_ms": 257596,
+      "provider_wait_ms": 142053,
+      "provider_serial_equivalent_ms": 159582,
+      "provider_overlap_ms": 17529,
+      "action_execution_ms": 226565,
+      "evidence_capture_ms": 802,
+      "provider_calls": 21,
+      "actions_attempted": 5,
+      "actions_completed": 3,
+      "completion_efficiency": 0.6,
+      "same_run_recoveries": 4,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "reboot_ms": 81107,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v2-20260801/text-06/recording.webm",
+        "sha256": "09ff6c4e453156981cc1d804162670604a0354452412541cc4f9be97499787b8",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 305500,
+        "size_bytes": 856246
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v2-20260801/text-06/poster.jpg",
+        "sha256": "89a9438e0899fae4b06d5e0081528e14c0a3aa6fb8d998b303424a2a5605cd0a"
+      },
+      "campaign_sha256": "b744c6ae2c09a1a1f8b4e5cee63df77ba1c6c7c0902b6ec7002736740b3e04ef"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v3-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "9ee71fcd-ca28-4970-86ac-a827cdc382cb",
+      "reason": "The visual-wrap correction live-passed the first 240-character transaction with exact-once emission, zero edit distance, zero corrections or retries, and matching hashes. The second 240-character append was also emitted exactly once, and its grounded field read returned the correct 480-character document with two OCR-inserted visual-wrap newlines. The verifier retained that complete field as a contains read and returned unverified_wrong_region because it did not run bounded suffix localization against the grounded field read itself. Three recoveries ended at the editor guard and the incomplete document was never saved.",
+      "wall_clock_ms": 360083,
+      "provider_wait_ms": 153617,
+      "provider_serial_equivalent_ms": 178909,
+      "provider_overlap_ms": 25292,
+      "action_execution_ms": 319615,
+      "evidence_capture_ms": 1041,
+      "provider_calls": 24,
+      "actions_attempted": 6,
+      "actions_completed": 4,
+      "completion_efficiency": 0.6666666666666666,
+      "same_run_recoveries": 3,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "reboot_ms": 79726,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v3-20260801/text-06/recording.webm",
+        "sha256": "02022132d680bd5d5277dbd1cf5a90950fb3680159ecc125f2455fe756d25055",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 394500,
+        "size_bytes": 1266295
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v3-20260801/text-06/poster.jpg",
+        "sha256": "f63e7bf982d5ba219c4474c60210025e4b50de1453a90a3f22fde4e723437791"
+      },
+      "campaign_sha256": "78e9574694ff55804f3d3be8670395e0df6f55d925a7f9a73be283b9e891af16"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v4-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "3706223e-06b7-4eec-ad18-3e83f858b2d8",
+      "reason": "The first 240-character transaction passed all exact-once gates. The second was emitted exactly once, but grounded OCR rendered three ASCII apostrophes as typographic apostrophes and precise suffix localization failed closed. The 226.201-second action caused two 120-second client timeouts; replay under the same idempotency key did not retype. The unverified-editor guard then incorrectly allowed approved Ctrl+Shift+S to open Save As, although no filename or save commit followed. A concurrent run-state read hit SQLite database is locked and made the showcase runner record HTTP 500 before the run later paused. The mandatory reboot discarded the incomplete draft.",
+      "wall_clock_ms": 532763,
+      "provider_wait_ms": 130926,
+      "provider_serial_equivalent_ms": 154632,
+      "provider_overlap_ms": 23706,
+      "action_execution_ms": 370235,
+      "evidence_capture_ms": 1054,
+      "provider_calls": 20,
+      "actions_attempted": 8,
+      "actions_completed": 5,
+      "completion_efficiency": 0.8333333333333334,
+      "same_run_recoveries": 4,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "reboot_ms": 77941,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v4-20260801/text-06/recording.webm",
+        "sha256": "fe6572605f5cfdaefc780e8649ebab4b683c28a2790aa633c4169dd97ce1f640",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 481500,
+        "size_bytes": 1459303
+      },
+      "poster": null,
+      "campaign_sha256": "f8ddc12964fc04765d07ed0cd9e839a13d78ffb5de30b9bd18ab010708e5e8e6"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v5-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "e7e60ac9-b03e-47ad-84d8-2e967359cc19",
+      "reason": "The v4 safety, SQLite, and smart-apostrophe remediations all held live. The first two 240-character bursts and a third 239-character burst each passed exact readback with matching requested, emitted, observed, and readback hashes and exact-once emission. The second burst completed in 52.038 seconds. The third spent about four minutes in remote readback, crossed the fixed 120-second client deadline twice, and returned the cached result on the third call without duplicate typing. The final 21-character suffix was emitted once, but short exact-editor OCR omitted its leading word-boundary space and returned 20 observed characters. That path failed closed, Escape did not clear the unverified-input latch, all save mutations remained blocked, and the unsaved draft was discarded by the mandatory reboot. No SQLite lock or unsafe Save As transition recurred.",
+      "wall_clock_ms": 575968,
+      "provider_wait_ms": 131346,
+      "provider_serial_equivalent_ms": 172821,
+      "provider_overlap_ms": 41475,
+      "action_execution_ms": 540184,
+      "evidence_capture_ms": 1556,
+      "provider_calls": 21,
+      "actions_attempted": 10,
+      "actions_completed": 6,
+      "completion_efficiency": 0.75,
+      "same_run_recoveries": 4,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "reboot_ms": 76245,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v5-20260801/text-06/recording.webm",
+        "sha256": "fceb27688f3be8841135aa692148a39843d4aa3d0065b346b5ae975651e23148",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 551000,
+        "size_bytes": 1666147
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v5-20260801/text-06/poster.jpg",
+        "sha256": "7d5b62018c72eea4c839289c331522b33d1c0be60a533f25783da150d44ea12b"
+      },
+      "campaign_sha256": "cdbc5365faba3c229134218cdca2ed07b5efac4fed2dd55bd17b1f8d61211ad0"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v6-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "d6a00b57-16e1-435d-aea2-128468e9e2b7",
+      "reason": "The paragraph, save, and native Open flow reached the disposable VM, and a delayed current frame proved the selected file had reopened. The completion gate evaluated that current verifier result before recording its model.completed event, so the current reopen evidence was invisible and completion was rejected. Four recoveries ended at a paused checkpoint; this pre-lifecycle-fix run required an explicit abort before its mandatory reboot.",
+      "wall_clock_ms": 682475,
+      "provider_wait_ms": 260716,
+      "provider_serial_equivalent_ms": 330889,
+      "provider_overlap_ms": 70173,
+      "action_execution_ms": 646516,
+      "evidence_capture_ms": 3118,
+      "provider_calls": 42,
+      "actions_attempted": 16,
+      "actions_completed": 14,
+      "completion_efficiency": 0.9333333333333333,
+      "same_run_recoveries": 4,
+      "approval_count": 2,
+      "approval_scopes": [
+        "bounded_workspace_edit",
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "manual_abort_before_reboot",
+      "reboot_ms": 76691,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v6-20260801/text-06/recording.webm",
+        "sha256": "391ba5a0db0400a4aa356ca01832f5dc0e25588fab7dad3e6e68946bfe4b9f5e",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 652500,
+        "size_bytes": 2282779
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v6-20260801/text-06/poster.jpg",
+        "sha256": "a040668a36877a49ac80e7504992153e9e870f9c207dbcc761d0687d5671dc44"
+      },
+      "campaign_sha256": "9c7a6a11172d8b32c31762efefa0c6384c727b359bbe02b1b59ba7487f978358"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v7-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "0b7c17ea-eef6-4031-9138-f18693438678",
+      "reason": "The controller filled a 240-character payload by concatenating `ownfear` without its word-boundary space. The VNC status bar showed all 240 requested characters, and an identical retry joined the original idempotent task without duplicate input, but OCR returned a 241-character normalized reading and exact verification failed closed. The unverified-editor guard rejected clicks, cancellation, selection, and retyping. Quiescence was confirmed before the mandatory reboot.",
+      "wall_clock_ms": 316036,
+      "provider_wait_ms": 136824,
+      "provider_serial_equivalent_ms": 148692,
+      "provider_overlap_ms": 11868,
+      "action_execution_ms": 269719,
+      "evidence_capture_ms": 571,
+      "provider_calls": 16,
+      "actions_attempted": 5,
+      "actions_completed": 2,
+      "completion_efficiency": 0.5,
+      "same_run_recoveries": 4,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 92328,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v7-20260801/text-06/recording.webm",
+        "sha256": "f1955c06a72ebb8efc20a3cba84b9f27c90665296dc0c0ceef7472f3c35771bc",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 340500,
+        "size_bytes": 1051477
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v7-20260801/text-06/poster.jpg",
+        "sha256": "9c0b8042aad7607815a1b861564961ff37d06d8e359b2d1a3fc3d1b5407451cc"
+      },
+      "campaign_sha256": "dec65792c220bcbb5ccd082a9e2951f55a9ac16fc7d384bfe1e01227abb6c349"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v8-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "7e55ce79-0569-4db3-be72-ef55134a5031",
+      "reason": "Caret-stabilized OCR reduced the first exact transaction from v7's 133.485 seconds to 33.485 seconds and verified all 238 characters without generic screen OCR. The second 237-character append was emitted exactly once, but Ctrl+Home exposed the accumulated document while the verifier still compared against only the new suffix; the correct append was classified as an exact-hash mismatch. An idempotent retry did not duplicate text. The host clock or process scheduling then discontinuously advanced during one provider timeout, so the derived 27,000,618 ms run wall metric is invalid and must not be used for speed comparison. The run quiesced before reboot.",
+      "wall_clock_ms": null,
+      "reported_wall_clock_ms": 27000618,
+      "wall_clock_valid": false,
+      "provider_wait_ms": null,
+      "action_execution_ms": 254376,
+      "evidence_capture_ms": 970,
+      "provider_calls": 17,
+      "actions_attempted": 6,
+      "actions_completed": 4,
+      "completion_efficiency": 0.8,
+      "same_run_recoveries": 4,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 84039,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v8-20260801/text-06/recording.webm",
+        "sha256": "ae7f51d63ca2ac88a5cb9fcb833a1021c304daf4c08dc78293ef1ccd6b618178",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 436000,
+        "size_bytes": 1182267
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v8-20260801/text-06/poster.jpg",
+        "sha256": "bc47743cc0d4a658e707c362095ef383f35afbcdd5968ae29ce87b1225b9081d"
+      },
+      "campaign_sha256": "5099eba9266217901d2728ad7a886b487b3bc385be700b6a0c73070282e05723"
+    },
+    {
+      "campaign_id": "codex-text-entry-text06-v9-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "a193d48c-fc13-4417-90da-786939aac547",
+      "reason": "The controller emitted four word-bounded exact editor segments of 240, 240, 238, and 99 characters, totaling 817 characters and 134 words. The initial segment used Ctrl+Home/End caret stabilization; continuation segments retained their leading whitespace and stayed grounded to the newly emitted suffix while OCR also saw the accumulated document. All 13 actions completed without retry or model failure. Save required one bounded workspace-edit approval, native Open independently reopened the saved file, quiescence was confirmed, and the mandatory reboot observed a real transition.",
+      "wall_clock_ms": 476878,
+      "provider_wait_ms": 230336,
+      "provider_serial_equivalent_ms": 295995,
+      "provider_overlap_ms": 65659,
+      "action_execution_ms": 239315,
+      "evidence_capture_ms": 3011,
+      "provider_calls": 32,
+      "actions_attempted": 13,
+      "actions_completed": 13,
+      "completion_efficiency": 1.0,
+      "same_run_recoveries": 1,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 74941,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text06-v9-20260801/text-06/recording.webm",
+        "sha256": "6312d45ec84926fd29331aa520ddb722c20e6bf3a6f935faa2a5becc80c1a720",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 485500,
+        "size_bytes": 1718001
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text06-v9-20260801/text-06/poster.jpg",
+        "sha256": "ddf571624606c510f86ac7a7b9044e46ce8e4a78f3c7e671fda598faf28949ec"
+      },
+      "campaign_sha256": "a782dc0408ef6322c8795f895070af2e19abe58b8eb41c442a03de9be0d6a95e"
+    }
+  ],
+  "text_07_acceptance": {
+    "task": "Write, save, reopen, and verify a 150\u2013200-word product brief with Problem, Users, Promise, and Proof headings",
+    "result": "passed",
+    "run_id": "8d52075f-c186-4e2f-b012-2fbc66a1e4e5",
+    "reason": "The reopened Notepad file visibly retained all four requested headings and 157 words of generated product-brief content. Every prose transaction and heading received an exact visual readback with exact-once emission. The previously failing Proof heading was independently verified in 6.004 seconds with matching requested, emitted, and readback hashes. Save required one bounded workspace-edit approval, native Open selected the saved file, quiescence was confirmed, and the mandatory reboot observed a real transition.",
+    "word_count": 157,
+    "wall_clock_ms": 809359,
+    "provider_wait_ms": 358773,
+    "provider_serial_equivalent_ms": 485782,
+    "provider_overlap_ms": 127009,
+    "action_execution_ms": 774461,
+    "evidence_capture_ms": 7329,
+    "provider_calls": 61,
+    "actions_attempted": 26,
+    "actions_completed": 25,
+    "completion_efficiency": 0.9615384615384616,
+    "repeated_actions_stopped": 1,
+    "same_run_recoveries": 2,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 77098,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text07-v3-20260801/text-07/recording.webm",
+      "sha256": "e2c7223dcd1655c849e2f12e0034322e79eaae362bf62f8824640b1155ef8053",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 762500,
+      "size_bytes": 2255231
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text07-v3-20260801/text-07/poster.jpg",
+      "sha256": "bb8d0531dd1234dde58669e7d37faa95e970f909d7f6fcbe9a950126c5227b3b"
+    },
+    "campaign_sha256": "515ee07ec357bbcc8c1e71a8f546c545b8077f4672ff1f0379396e0f0e5e9393"
+  },
+  "text_07_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text07-v1-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "86fe8246-ac5b-437c-918e-f604addca1bf",
+      "reason": "The controller used bare Enter after the Proof heading. The runner refused the unknown, potentially submitting key action and did not auto-approve it. No file was saved. Quiescence was confirmed and the reboot transition was observed, but the 180-second campaign ready gate expired before the later read-only health check found the clean desktop.",
+      "wall_clock_ms": 172896,
+      "provider_wait_ms": 108917,
+      "provider_serial_equivalent_ms": 166789,
+      "provider_overlap_ms": 57872,
+      "action_execution_ms": 140414,
+      "evidence_capture_ms": 2309,
+      "provider_calls": 21,
+      "actions_attempted": 11,
+      "actions_completed": 9,
+      "completion_efficiency": 0.8181818181818182,
+      "same_run_recoveries": 0,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 181491,
+      "reboot_transition_observed": true,
+      "reboot_ready_observed_within_gate": false,
+      "recording": {
+        "relative_path": "codex-text-entry-text07-v1-20260801/text-07/recording.webm",
+        "sha256": "59afe3466c3ade2cc7204a432ef229de4284f9e2f34c56ff04c08a356c767629",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 303500,
+        "size_bytes": 718862
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text07-v1-20260801/text-07/poster.jpg",
+        "sha256": "70ee3b2ca6f2617eaadab0f4be8a1828b376fb6e2161633f383070d6246c664a"
+      },
+      "campaign_sha256": "35ef447b634f594a6665c14bcb45dee7d778f90cf52651bbb7b2ea6e00e1d9ce"
+    },
+    {
+      "campaign_id": "codex-text-entry-text07-v2-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "2c59a146-1de2-4c5f-9567-4a1d5b1fe417",
+      "reason": "Shift+Enter correctly produced non-submitting editor newlines. A 235-character Promise transaction then lost its final visible character under the original 10ms/25ms Windows key cadence, and suffix-only recovery completed without replay. Later, Proof was visibly present and emitted exactly once, but the coarse OCR locator repeatedly read Notepad's changing status row for 86.754 seconds. The editor guard blocked progression and the same-run recovery limit stopped the run.",
+      "wall_clock_ms": 616768,
+      "provider_wait_ms": 248196,
+      "provider_serial_equivalent_ms": 340877,
+      "provider_overlap_ms": 92681,
+      "action_execution_ms": 585059,
+      "evidence_capture_ms": 3787,
+      "provider_calls": 42,
+      "actions_attempted": 18,
+      "actions_completed": 15,
+      "completion_efficiency": 0.8333333333333334,
+      "same_run_recoveries": 4,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 111995,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text07-v2-20260801/text-07/recording.webm",
+        "sha256": "930c741ffa76480f742ea676d84a77a0c74c5d3b74c9e2e0fbcf52c063281612",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 641500,
+        "size_bytes": 1636482
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text07-v2-20260801/text-07/poster.jpg",
+        "sha256": "65f31628ecb00e07047ffc2ac31a2b0007d0e837d96bbaaf1cdb406db8908484"
+      },
+      "campaign_sha256": "b26f1a9c7a67d91c83700f31e21692a2b6ab85e3d47685647a8cbdfe880478ff"
+    },
+    {
+      "campaign_id": "codex-text-entry-text07-v3-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "8d52075f-c186-4e2f-b012-2fbc66a1e4e5",
+      "reason": "All four headings and 157 words of generated brief content were emitted exactly once, saved, reopened through the native Open dialog, and independently verified. Non-submitting line breaks used Shift+Enter. The slower 15ms key hold and 35ms inter-key cadence retained the complete prose, while the full-screen exact matcher grounded Proof against the correct dense causal delta in 6.004 seconds. One speculative duplicate newline was discarded before HID and the repeated-action circuit replanned safely.",
+      "wall_clock_ms": 809359,
+      "provider_wait_ms": 358773,
+      "provider_serial_equivalent_ms": 485782,
+      "provider_overlap_ms": 127009,
+      "action_execution_ms": 774461,
+      "evidence_capture_ms": 7329,
+      "provider_calls": 61,
+      "actions_attempted": 26,
+      "actions_completed": 25,
+      "completion_efficiency": 0.9615384615384616,
+      "repeated_actions_stopped": 1,
+      "same_run_recoveries": 2,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 77098,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text07-v3-20260801/text-07/recording.webm",
+        "sha256": "e2c7223dcd1655c849e2f12e0034322e79eaae362bf62f8824640b1155ef8053",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 762500,
+        "size_bytes": 2255231
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text07-v3-20260801/text-07/poster.jpg",
+        "sha256": "bb8d0531dd1234dde58669e7d37faa95e970f909d7f6fcbe9a950126c5227b3b"
+      },
+      "campaign_sha256": "515ee07ec357bbcc8c1e71a8f546c545b8077f4672ff1f0379396e0f0e5e9393"
+    }
+  ],
+  "text_08_acceptance": {
+    "task": "Create, save, reopen, and verify three lines containing exactly two, three, and four consecutive spaces",
+    "result": "passed",
+    "run_id": "bbedb77f-eb6f-4325-aced-c20c4fb5909c",
+    "visible_result": [
+      "alpha  beta",
+      "gamma   delta",
+      "epsilon    zeta"
+    ],
+    "reason": "The saved and independently reopened Notepad file visibly retained the requested two, three, and four consecutive spaces. All 13 actions completed without recoverable input failure or replay. Save required one bounded workspace-edit approval, quiescence was confirmed, and the mandatory reboot observed a real transition.",
+    "wall_clock_ms": 328464,
+    "provider_wait_ms": 180157,
+    "provider_serial_equivalent_ms": 246422,
+    "provider_overlap_ms": 66265,
+    "action_execution_ms": 143669,
+    "evidence_capture_ms": 2910,
+    "provider_calls": 30,
+    "controller_calls": 15,
+    "verifier_calls": 14,
+    "reasoner_calls": 1,
+    "actions_attempted": 13,
+    "actions_completed": 13,
+    "completion_efficiency": 1.0,
+    "autonomous_resumes": 1,
+    "same_run_recoveries": 0,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 75134,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-text-entry-text08-v10-20260801/text-08/recording.webm",
+      "sha256": "9bca6bec3a050e65ef7ef7dc8637345ac8efa1fe2bb7998f25cb874cd06df88f",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 373000,
+      "size_bytes": 1122879
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text08-v10-20260801/text-08/poster.jpg",
+      "sha256": "fb08948e9833c24e04c6e1306aabe6a33f1980291110015ae0596eaf3c8f6bae"
+    },
+    "campaign_sha256": "b11703b2ad01f6a12cb1252bf4ff22ab9180a4e06aadc1678b95f2faadcfdbe8"
+  },
+  "text_08_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text08-v1-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "585d4c3f-577e-4103-919a-cf885561d1ea",
+      "reason": "The validator correctly refused both deliberate repeated-space payloads because the controller labelled them as ordinary editor prose. No repeated-space HID input was emitted. The run stopped after its bounded navigation-replan budget, quiesced, and completed the mandatory reboot. The controller now marks load-bearing repeated-space text as exact code-like input.",
+      "wall_clock_ms": 183948,
+      "provider_wait_ms": 133228,
+      "provider_serial_equivalent_ms": 151638,
+      "provider_overlap_ms": 18410,
+      "action_execution_ms": 153570,
+      "evidence_capture_ms": 808,
+      "provider_calls": 20,
+      "actions_attempted": 7,
+      "actions_completed": 3,
+      "completion_efficiency": 0.42857142857142855,
+      "reboot_ms": 100461,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v1-20260801/text-08/recording.webm",
+        "sha256": "97a57c642619ecf007968b373ec9e9f616259745c665f5f7de772ae52793d5ad",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 255500,
+        "size_bytes": 748316
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v1-20260801/text-08/poster.jpg",
+        "sha256": "a03da3b55f7723c34e8bf708ebe14c84b722cb534a4df63e52a0eec7fc348509"
+      },
+      "campaign_sha256": "7a87c11b56fa86e6e8486bb262e81956f5d067939ffa45e7add3031cb82c6916"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v2-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "af43713e-d1f5-4021-86a5-753a3a3b8fbe",
+      "reason": "The first exact line was visibly emitted once, but the immediate readback was classified as failed_focus_lost. The exact-once guard prevented replay and the run stopped safely. A bounded delayed-frame retry was added before focus-loss classification.",
+      "wall_clock_ms": 202516,
+      "provider_wait_ms": 139686,
+      "provider_serial_equivalent_ms": 164334,
+      "provider_overlap_ms": 24648,
+      "action_execution_ms": 178275,
+      "evidence_capture_ms": 758,
+      "provider_calls": 21,
+      "actions_attempted": 5,
+      "actions_completed": 3,
+      "completion_efficiency": 0.6,
+      "reboot_ms": 77052,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v2-20260801/text-08/recording.webm",
+        "sha256": "e0e51854e17ae96f41dac255d2fbe5931059c61f530d48782355785adad20ac3",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 253500,
+        "size_bytes": 627761
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v2-20260801/text-08/poster.jpg",
+        "sha256": "8059f43c017ab3db9596b7c00bc586eeaaffb2a7d44c315c809e774a83e626f9"
+      },
+      "campaign_sha256": "6b771fdbcef0c88b9d6fa19804b91ad932e3206be993ae5379595a2fcc2075ae"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v3-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "1d869fd4-2197-49b8-ac14-43bcea88a532",
+      "reason": "The delayed frame still used a coarse causal crop containing editor borders and unrelated visual noise. The line remained visible and exact-once, but OCR could not prove it. Candidate crops are now inset to the causal content region.",
+      "wall_clock_ms": 204888,
+      "provider_wait_ms": 132607,
+      "provider_serial_equivalent_ms": 151150,
+      "provider_overlap_ms": 18543,
+      "action_execution_ms": 67376,
+      "evidence_capture_ms": 798,
+      "provider_calls": 18,
+      "actions_attempted": 4,
+      "actions_completed": 3,
+      "completion_efficiency": 0.75,
+      "reboot_ms": 73813,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v3-20260801/text-08/recording.webm",
+        "sha256": "44bac142d64a67d5630062c31e813213433137c216cf1e63ecb6f17c0df0e0f6",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 252500,
+        "size_bytes": 641765
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v3-20260801/text-08/poster.jpg",
+        "sha256": "4040efadad869e1af6fc2a43026e345eb96242a804a84117ddf8e3107a32b891"
+      },
+      "campaign_sha256": "96594df9b1dd17d533f246c9da042b54eeed23aa893095f83349464518afc34f"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v4-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "1d54fd85-8329-46c0-a3b7-82293a8e01ee",
+      "reason": "An OCR alternative preserved the exact repeated-space geometry, while the primary candidate collapsed it. The transaction failed closed instead of treating normalized whitespace as proof. Exact-spacing alternatives are now eligible to become the canonical readback only when their literal content matches.",
+      "wall_clock_ms": 204650,
+      "provider_wait_ms": 119269,
+      "provider_serial_equivalent_ms": 140799,
+      "provider_overlap_ms": 21530,
+      "action_execution_ms": 79961,
+      "evidence_capture_ms": 806,
+      "provider_calls": 18,
+      "actions_attempted": 4,
+      "actions_completed": 3,
+      "completion_efficiency": 0.75,
+      "reboot_ms": 81102,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v4-20260801/text-08/recording.webm",
+        "sha256": "68967b1d4eb5aa025787b1b6ef0a6da7ee11ffbb2fb20d0e75c2c0d1e3f7a0bf",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 264500,
+        "size_bytes": 846291
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v4-20260801/text-08/poster.jpg",
+        "sha256": "d16eac510195955bd39555cfc1758694ec81415f19c47739fd317a1edbfc38c2"
+      },
+      "campaign_sha256": "6f0c916cc8bd83643e88573b624b16e366915857e68a8ba141a2c7c2de1d7c0e"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v5-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "47554e49-4526-4348-92c9-64a810419582",
+      "reason": "The exact-spacing alternative included a separate caret/noise row and read as a leading 1 before the correct text. It was not accepted. Canonicalization now ignores one unrelated single-glyph row while preserving the requested line geometry.",
+      "wall_clock_ms": 209376,
+      "provider_wait_ms": 142797,
+      "provider_serial_equivalent_ms": 166137,
+      "provider_overlap_ms": 23340,
+      "action_execution_ms": 171265,
+      "evidence_capture_ms": 799,
+      "provider_calls": 19,
+      "actions_attempted": 5,
+      "actions_completed": 3,
+      "completion_efficiency": 0.6,
+      "reboot_ms": 73949,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v5-20260801/text-08/recording.webm",
+        "sha256": "3bc81bd392e44aba67a4a8b706e6cf0c2b6b51209ff62be632add183b759f122",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 260000,
+        "size_bytes": 890027
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v5-20260801/text-08/poster.jpg",
+        "sha256": "59b2fba87c9d98cc3fc2e05435d3f0632074ae01301642545e01cfe1e187c93b"
+      },
+      "campaign_sha256": "501fc34d3d7c4596b8c53ed105286348cebef7737224769d2622b368dc8ae895"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v6-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "f6983caa-08a6-40fa-af4b-fc7212ba0182",
+      "reason": "The two-space line passed, but control-level OCR split gamma and delta into separate boxes at the wider three-space gap. The second line was visibly emitted once and not replayed. Same-row OCR controls are now retained as one collinear candidate.",
+      "wall_clock_ms": 178443,
+      "provider_wait_ms": 119799,
+      "provider_serial_equivalent_ms": 132792,
+      "provider_overlap_ms": 12993,
+      "action_execution_ms": 53558,
+      "evidence_capture_ms": 570,
+      "provider_calls": 15,
+      "actions_attempted": 3,
+      "actions_completed": 2,
+      "completion_efficiency": 0.6666666666666666,
+      "reboot_ms": 74379,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v6-20260801/text-08/recording.webm",
+        "sha256": "3aa5e07bf17ed5ee995307ada70f477a3a0517404a5ae5f543d32f0b34838a9e",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 225000,
+        "size_bytes": 627995
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v6-20260801/text-08/poster.jpg",
+        "sha256": "6dbd2d80e9113adaf45762279df99a481a1c65004d676e66329dbe7ba1c9ed57"
+      },
+      "campaign_sha256": "d6ebbc74bb05410cd967d8b4c778a1d751d3d6b47242b72871f57f5c1119849d"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v7-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "09667410-5127-491b-85f9-d485e7c6c0de",
+      "reason": "Compression noise still contaminated the first line's coarse crop even though an exact text row could be isolated. The run failed closed. A bounded second OCR pass now refines an identified line to its row bounds.",
+      "wall_clock_ms": 162421,
+      "provider_wait_ms": 101121,
+      "provider_serial_equivalent_ms": 112029,
+      "provider_overlap_ms": 10908,
+      "action_execution_ms": 56000,
+      "evidence_capture_ms": 589,
+      "provider_calls": 15,
+      "actions_attempted": 3,
+      "actions_completed": 2,
+      "completion_efficiency": 0.6666666666666666,
+      "reboot_ms": 77091,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v7-20260801/text-08/recording.webm",
+        "sha256": "29d109aa60c29bb8a7c18be03d57a19268d4ef2f04130cfbc1a0d2560ac3c3ce",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 219500,
+        "size_bytes": 680613
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v7-20260801/text-08/poster.jpg",
+        "sha256": "07bc9be387846aa209bb0889b161ecf39c689b9c43d1683ffd281d05fa1363ec"
+      },
+      "campaign_sha256": "a7fcb474b8a688718b45315263f6f9de45030773654ea832561e2aefbe4bd081"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v8-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "91daff4c-90ea-4d14-8c85-f0a620508a92",
+      "reason": "The hybrid OCR candidate selected the two words as separate high-confidence boxes, so the single-line refiner did not run. No text was replayed. Collinear hybrid boxes are now combined before exact-spacing refinement.",
+      "wall_clock_ms": 162716,
+      "provider_wait_ms": 97716,
+      "provider_serial_equivalent_ms": 115455,
+      "provider_overlap_ms": 17739,
+      "action_execution_ms": 58961,
+      "evidence_capture_ms": 757,
+      "provider_calls": 17,
+      "actions_attempted": 4,
+      "actions_completed": 3,
+      "completion_efficiency": 0.75,
+      "reboot_ms": 75397,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v8-20260801/text-08/recording.webm",
+        "sha256": "32f62be3037167c1f7b0d890ee68212b1aa94fe469ea50769c8a4626b187d182",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 218500,
+        "size_bytes": 700337
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v8-20260801/text-08/poster.jpg",
+        "sha256": "4e60ef7a25fc8c089dec97b8732c0ec9b4ce19910604e8e384c54fb9f414f001"
+      },
+      "campaign_sha256": "e563b3988e81e4d19cdfc18449919dabbb63649c8409cc95efee71e17b668b95"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v9-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "aaf374f4-2df2-4613-ad8d-336ae66cc0ed",
+      "reason": "The two- and three-space lines passed. The four-space line was visibly emitted once, but the OCR selector chose sparse page segmentation and split the words, exhausting the bounded same-run recovery ceiling. Tight single-line OCR is now used for a causal row whose requested gap is four spaces.",
+      "wall_clock_ms": 273440,
+      "provider_wait_ms": 174629,
+      "provider_serial_equivalent_ms": 206496,
+      "provider_overlap_ms": 31867,
+      "action_execution_ms": 246557,
+      "evidence_capture_ms": 1374,
+      "provider_calls": 27,
+      "actions_attempted": 8,
+      "actions_completed": 6,
+      "completion_efficiency": 0.75,
+      "same_run_recoveries": 4,
+      "reboot_ms": 122076,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v9-20260801/text-08/recording.webm",
+        "sha256": "58ef14bdc0734318d8509129680c2d37dd68026696083f6938fe8570c8482e4f",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 357500,
+        "size_bytes": 782816
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v9-20260801/text-08/poster.jpg",
+        "sha256": "b4f3195436147653b1a626cc52a04b73c57538a83f5846a6b67b2a41af583910"
+      },
+      "campaign_sha256": "d82d62ef09c78a092706083d5babc499f7e77615b1f58f90f3ca318a7aaa923b"
+    },
+    {
+      "campaign_id": "codex-text-entry-text08-v10-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "bbedb77f-eb6f-4325-aced-c20c4fb5909c",
+      "reason": "All three deliberate-spacing lines received exact visual readback, were saved, independently reopened, and visibly retained their two, three, and four consecutive spaces. All 13 actions completed without recoverable failure or replay. One autonomous continuation followed the bounded provider-call slice, Save required one bounded workspace-edit approval, quiescence was confirmed, and the mandatory reboot reached readiness after a real transition.",
+      "wall_clock_ms": 328464,
+      "provider_wait_ms": 180157,
+      "provider_serial_equivalent_ms": 246422,
+      "provider_overlap_ms": 66265,
+      "action_execution_ms": 143669,
+      "evidence_capture_ms": 2910,
+      "provider_calls": 30,
+      "actions_attempted": 13,
+      "actions_completed": 13,
+      "completion_efficiency": 1.0,
+      "autonomous_resumes": 1,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 75134,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text08-v10-20260801/text-08/recording.webm",
+        "sha256": "9bca6bec3a050e65ef7ef7dc8637345ac8efa1fe2bb7998f25cb874cd06df88f",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 373000,
+        "size_bytes": 1122879
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text08-v10-20260801/text-08/poster.jpg",
+        "sha256": "fb08948e9833c24e04c6e1306aabe6a33f1980291110015ae0596eaf3c8f6bae"
+      },
+      "campaign_sha256": "b11703b2ad01f6a12cb1252bf4ff22ab9180a4e06aadc1678b95f2faadcfdbe8"
+    }
+  ],
+  "text_09_acceptance": {
+    "task": "Create, save, reopen, and verify a five-line CSV sample",
+    "result": "passed",
+    "run_id": "7a3f0ee9-8acb-466f-9935-fff6673af7c7",
+    "visible_result": [
+      "quarter,revenue,cost",
+      "Q1,120000,84000",
+      "Q2,135000,91000",
+      "Q3,148000,96000",
+      "Q4,162000,101000"
+    ],
+    "reason": "Five fresh editor transactions covered every requested CSV character with zero edit distance, exact-once emission, and matching requested, delivery, issued, emitted, observed, and readback hashes. Save As was committed, native Open independently reopened text-09.csv, and the final verifier visibly confirmed the header and all four rows. Quiescence was confirmed before the mandatory reboot.",
+    "wall_clock_ms": 441397,
+    "model_active_ms": 369291,
+    "provider_wait_ms": 268139,
+    "provider_serial_equivalent_ms": 369621,
+    "provider_overlap_ms": 101482,
+    "action_execution_ms": 421126,
+    "evidence_capture_ms": 5235,
+    "provider_calls": 52,
+    "controller_calls": 25,
+    "verifier_calls": 23,
+    "reasoner_calls": 4,
+    "actions_attempted": 22,
+    "actions_completed": 21,
+    "completion_efficiency": 0.9545454545454546,
+    "autonomous_resumes": 3,
+    "same_run_recoveries": 3,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 78573,
+    "reboot_transition_observed": true,
+    "ready_frame_sha256": "cd88aa021a63489c83c876f5c625a85b775aede935d8b028f78622fbaf4c4a87",
+    "fresh_editor_receipts": [
+      {
+        "text": "quarter,revenue,cost",
+        "sha256": "1ec6de20d9688881fe2fafb43432db5069ca42326dbadde08c07a927ffd725e2",
+        "result": "verified_exact",
+        "edit_distance": 0,
+        "emitted_exactly_once": true
+      },
+      {
+        "text": "Q1,120000,84000",
+        "sha256": "5b65c19ff42c6af730c5b48b6fbf159112e926b9c09a9db2de489cab6f8bdcad",
+        "result": "verified_exact",
+        "edit_distance": 0,
+        "emitted_exactly_once": true
+      },
+      {
+        "text": "Q2,135000,91000",
+        "sha256": "adb221c2455aa8faed613e35f92311303ecf3af3457103c4455a02ab14755b38",
+        "result": "verified_exact",
+        "edit_distance": 0,
+        "emitted_exactly_once": true
+      },
+      {
+        "text": "Q3,148000,96000",
+        "sha256": "519bbdb3ad83e7ea946e198b82f3a1f8fa7b26e91db8d3d75b395fda2d067769",
+        "result": "verified_exact",
+        "edit_distance": 0,
+        "emitted_exactly_once": true
+      },
+      {
+        "text": "Q4,162000,101000",
+        "sha256": "f2707dd08e5ab7b99356d39811cc8c20fe78ee4d0030b6efc860b9ae49f2d1c6",
+        "result": "verified_exact",
+        "edit_distance": 0,
+        "emitted_exactly_once": true
+      }
+    ],
+    "recording": {
+      "relative_path": "codex-text-entry-text09-v6-20260801/text-09/recording.webm",
+      "sha256": "74c36f1537fc9367375aed1c55234d26073a1f129b42840d157d9370c58f76a9",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 475000,
+      "size_bytes": 1429915
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text09-v6-20260801/text-09/poster.jpg",
+      "sha256": "9a7308d2bbd48cbc61a316b30587f147dc77bb06a5f2bb8775d1c6a3b114953a"
+    },
+    "campaign_sha256": "69e652c33bb7ecd243a7b7af42dfba0f95577557c3f5f869a82e50414dfa0f94"
+  },
+  "text_09_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text09-v1-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "21dee080-ffcd-4b0f-b7db-b598dcf63a80",
+      "reason": "The CSV was freshly typed, saved, reopened, and visibly correct, but the completion gate did not classify either the committed Save As intent or opening a file from the native Open dialog as lifecycle evidence. It rejected completion repeatedly until the 1,371-event provider loop was manually aborted. The run then quiesced and rebooted cleanly.",
+      "wall_clock_ms": 828931,
+      "provider_wait_ms": 699748,
+      "provider_serial_equivalent_ms": 779292,
+      "provider_overlap_ms": 79544,
+      "action_execution_ms": 802859,
+      "evidence_capture_ms": 3924,
+      "provider_calls": 136,
+      "actions_attempted": 19,
+      "actions_completed": 18,
+      "completion_efficiency": 0.9473684210526315,
+      "same_run_recoveries": 0,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "manual_abort_then_confirmed",
+      "reboot_ms": 75389,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text09-v1-20260801/text-09/recording.webm",
+        "sha256": "f73991e862dee116b0f02936870d24305b16ab284c4ccc28e50fb62a1288ca37",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 749000,
+        "size_bytes": 1731962
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text09-v1-20260801/text-09/poster.jpg",
+        "sha256": "9c749e57f6ffe171947ea0b9182aefa590469c53d1553593b4abce6b4ae408f5"
+      },
+      "campaign_sha256": "3b28326b261af7b23ff7d2b28670eae60c88cb534f858abc5ba34e66ce12bfa0"
+    },
+    {
+      "campaign_id": "codex-text-entry-text09-v2-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "d0e2d0d2-687d-4256-9d83-3f6a3368dc2c",
+      "reason": "The lifecycle classifier fix passed, but the outer campaign runner read an older paused error while an autonomous continuation was already executing Ctrl+O. It reacted to that stale state and aborted the active managed action. Active activity now takes precedence over paused-state recovery.",
+      "wall_clock_ms": 222767,
+      "provider_wait_ms": 166378,
+      "provider_serial_equivalent_ms": 186782,
+      "provider_overlap_ms": 20404,
+      "action_execution_ms": 196462,
+      "evidence_capture_ms": 939,
+      "provider_calls": 23,
+      "actions_attempted": 8,
+      "actions_completed": 6,
+      "completion_efficiency": 0.75,
+      "same_run_recoveries": 4,
+      "approval_count": 3,
+      "approval_scopes": [
+        "bounded_workspace_edit",
+        "bounded_workspace_edit",
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 136686,
+      "reboot_attempts": 2,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text09-v2-20260801/text-09/recording.webm",
+        "sha256": "ecce87f38282ecf1fadabfd94274da02d31158fae09410cedc40334b9390f80f",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 326000,
+        "size_bytes": 1184999
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text09-v2-20260801/text-09/poster.jpg",
+        "sha256": "14fd45cf53c2988d5ed8545349442facc69901639e1d92c19bba294c039d3551"
+      },
+      "campaign_sha256": "555a1f58b1025828d996e22e03845031bd9810e91fcba52f1817778d3e7cea7d"
+    },
+    {
+      "campaign_id": "codex-text-entry-text09-v3-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "387ed7c7-4421-4a9e-85bf-3768c64ee990",
+      "reason": "The CSV content was freshly typed, but the target file already existed. The replacement confirmation was not covered by the campaign allowlist, so the run correctly stopped fail-closed without silently overwriting the file.",
+      "wall_clock_ms": 290063,
+      "provider_wait_ms": 187471,
+      "provider_serial_equivalent_ms": 259500,
+      "provider_overlap_ms": 72029,
+      "action_execution_ms": 262646,
+      "evidence_capture_ms": 3149,
+      "provider_calls": 36,
+      "actions_attempted": 17,
+      "actions_completed": 15,
+      "completion_efficiency": 0.8823529411764706,
+      "same_run_recoveries": 1,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 87461,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text09-v3-20260801/text-09/recording.webm",
+        "sha256": "da58a29df609eb84663a730d635754905e12f02a3c093cdf6effcf949e66c088",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 356000,
+        "size_bytes": 1004490
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text09-v3-20260801/text-09/poster.jpg",
+        "sha256": "602bb3e1ab3614ec3889593066f25061b58dfb69f5be3856afa5e755c4f44c69"
+      },
+      "campaign_sha256": "a35917d6594eddec9410910870711f9172957217390a6b482e676cea9e92b91e"
+    },
+    {
+      "campaign_id": "codex-text-entry-text09-v4-20260801",
+      "reported_status": "passed",
+      "accepted_status": "invalid",
+      "run_id": "e42ac654-bb67-48ea-8bed-71fa57ac22af",
+      "reason": "The run saved and reopened the exact requested CSV, but Notepad had restored that complete content from a prior attempt. Only launcher and filename text were entered in the current run; there were no fresh editor receipts for the CSV payload. This reported pass is retained but excluded from the score. Text and code campaigns now require fresh exact input coverage.",
+      "wall_clock_ms": 207162,
+      "provider_wait_ms": 142281,
+      "provider_serial_equivalent_ms": 192847,
+      "provider_overlap_ms": 50566,
+      "action_execution_ms": 59115,
+      "evidence_capture_ms": 2511,
+      "provider_calls": 28,
+      "actions_attempted": 11,
+      "actions_completed": 11,
+      "completion_efficiency": 1.0,
+      "same_run_recoveries": 1,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 72832,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text09-v4-20260801/text-09/recording.webm",
+        "sha256": "03438b61fb7fd3e0416f1bb836940fb0ec71c5d9063c268aaa7d8ca2b7bd11ca",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 265000,
+        "size_bytes": 1129103
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text09-v4-20260801/text-09/poster.jpg",
+        "sha256": "e64ec1534c4036bad7e369ac448e399b57218021b31c86b627bae6b5d7006772"
+      },
+      "campaign_sha256": "c29a9081ed1f3ec3fcc0bda8a3f7f60775de9f47fab06c421e046edc4514ccd7"
+    },
+    {
+      "campaign_id": "codex-text-entry-text09-v5-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "7a3b76d7-c72c-4c21-9f8e-d8b11670690e",
+      "reason": "After the old CSV was recoverably archived, Notepad restored a tab pointing to the missing path and showed a file-not-found dialog. Dismissing its OK button was grounded but not allowlisted for autonomous mutation, so the run stopped fail-closed before any editor payload.",
+      "wall_clock_ms": 73079,
+      "provider_wait_ms": 36944,
+      "provider_serial_equivalent_ms": 48011,
+      "provider_overlap_ms": 11067,
+      "action_execution_ms": 30221,
+      "evidence_capture_ms": 581,
+      "provider_calls": 7,
+      "actions_attempted": 3,
+      "actions_completed": 2,
+      "completion_efficiency": 0.6666666666666666,
+      "same_run_recoveries": 0,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 72389,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text09-v5-20260801/text-09/recording.webm",
+        "sha256": "bf77fa3f3d1ffdcab1d85e5fbd8db8b004907ec2c1ef9ed4b7d58cb128cb4574",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 140000,
+        "size_bytes": 713191
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text09-v5-20260801/text-09/poster.jpg",
+        "sha256": "937cddd4a05633c0368166cb2502e682827f2215e1a7b0ff4f1c237cfcb7746f"
+      },
+      "campaign_sha256": "67247ef3a8e3de3b719be4b4aee91a8e791c105e67d10c3b758d3e75e5910f40"
+    },
+    {
+      "campaign_id": "codex-text-entry-text09-v6-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "7a3f0ee9-8acb-466f-9935-fff6673af7c7",
+      "reason": "The fresh-input guard held: a new blank editor received all five requested CSV lines in five exact-once transactions, each with zero edit distance and matching hashes. Save As committed text-09.csv, native Open independently reopened it, the final verifier visibly confirmed all values, quiescence was confirmed, and the mandatory reboot reached readiness after a real transition.",
+      "wall_clock_ms": 441397,
+      "model_active_ms": 369291,
+      "provider_wait_ms": 268139,
+      "provider_serial_equivalent_ms": 369621,
+      "provider_overlap_ms": 101482,
+      "action_execution_ms": 421126,
+      "evidence_capture_ms": 5235,
+      "provider_calls": 52,
+      "controller_calls": 25,
+      "verifier_calls": 23,
+      "reasoner_calls": 4,
+      "actions_attempted": 22,
+      "actions_completed": 21,
+      "completion_efficiency": 0.9545454545454546,
+      "autonomous_resumes": 3,
+      "same_run_recoveries": 3,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 78573,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text09-v6-20260801/text-09/recording.webm",
+        "sha256": "74c36f1537fc9367375aed1c55234d26073a1f129b42840d157d9370c58f76a9",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 475000,
+        "size_bytes": 1429915
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text09-v6-20260801/text-09/poster.jpg",
+        "sha256": "9a7308d2bbd48cbc61a316b30587f147dc77bb06a5f2bb8775d1c6a3b114953a"
+      },
+      "campaign_sha256": "69e652c33bb7ecd243a7b7af42dfba0f95577557c3f5f869a82e50414dfa0f94"
+    }
+  ],
+  "text_10_acceptance": {
+    "task": "Type, save, reopen, and verify one 189-character exact payload",
+    "result": "passed",
+    "run_id": "085686e4-7c9c-431a-973c-bc470a1e20f1",
+    "visible_result": "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow. 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz.",
+    "reason": "A fresh blank Notepad document received all 189 requested characters in one exact transaction with zero edit distance, exact-once emission, and matching requested, delivery, issued, emitted, observed, and readback hashes. The preflight preserved the prior target under a unique name rather than deleting it, Save As committed a free target, native Open independently reopened text-10-exact.txt, quiescence was confirmed, and the mandatory reboot observed a real transition.",
+    "wall_clock_ms": 350558,
+    "model_active_ms": 229053,
+    "provider_wait_ms": 180148,
+    "provider_serial_equivalent_ms": 229751,
+    "provider_overlap_ms": 49603,
+    "action_execution_ms": 160070,
+    "evidence_capture_ms": 2905,
+    "provider_calls": 31,
+    "controller_calls": 15,
+    "verifier_calls": 14,
+    "reasoner_calls": 2,
+    "actions_attempted": 14,
+    "actions_completed": 13,
+    "completion_efficiency": 0.9285714285714286,
+    "autonomous_resumes": 1,
+    "same_run_recoveries": 2,
+    "approval_count": 2,
+    "approval_scopes": [
+      "bounded_workspace_edit",
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 77464,
+    "reboot_transition_observed": true,
+    "ready_frame_sha256": "00fb1ed280f34e458be015140d960be6fbd6ae8454c316fde0609e5a2201ac07",
+    "fresh_artifact_preflight": {
+      "path": "C:\\PiKVM-Harness\\workspace\\codex-50\\text-10-exact.txt",
+      "preserved_as": "C:\\PiKVM-Harness\\workspace\\codex-50\\text-10-exact.txt.pikvm-prior-dd1604d97de042abafe22281228f5021"
+    },
+    "fresh_editor_receipts": [
+      {
+        "characters": 189,
+        "sha256": "65ab4063c84a23d67c4ab22b65780e22f22bf0ad53cd8282126eab7cbfb6e1c0",
+        "result": "verified_exact",
+        "edit_distance": 0,
+        "emitted_exactly_once": true
+      }
+    ],
+    "recording": {
+      "relative_path": "codex-text-entry-text10-v4-20260801/text-10/recording.webm",
+      "sha256": "3a40c37e493fa11d3f1540043ce4ff0bab05b5d3131ac62362f81256e57fa5b1",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 392000,
+      "size_bytes": 1641963
+    },
+    "poster": {
+      "relative_path": "codex-text-entry-text10-v4-20260801/text-10/poster.jpg",
+      "sha256": "235b73954cd7442b301ccf8e8a434dd3cc8f425e388655bdc062c8f42e667e20"
+    },
+    "campaign_sha256": "abf112e221bf1ed464ec2a75add0fe49540552d19bc5045dd85fb37fa588ca3d"
+  },
+  "text_10_attempts": [
+    {
+      "campaign_id": "codex-text-entry-text10-v1-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "a0689ae4-ec18-456b-b1fa-2162b0cbc85b",
+      "reason": "The first 189-character burst delivered the exact payload but exceeded its 120-second request boundary while awaiting watched readback. A same-key retry waited behind slow preflight, then missed both the original in-flight claim and the newly completed receipt and delivered the full payload again. Notepad visibly reached 378 characters. The controller cleared the doubled draft and stopped; no file was saved. Per-key runtime locking now atomically rechecks completed receipts and in-flight claims immediately before HID.",
+      "wall_clock_ms": 366339,
+      "model_active_ms": 103489,
+      "provider_wait_ms": 89925,
+      "provider_serial_equivalent_ms": 103595,
+      "provider_overlap_ms": 13670,
+      "action_execution_ms": 328768,
+      "evidence_capture_ms": 1237,
+      "provider_calls": 15,
+      "actions_attempted": 7,
+      "actions_completed": 5,
+      "completion_efficiency": 0.8333333333333334,
+      "same_run_recoveries": 4,
+      "approval_count": 0,
+      "approval_scopes": [],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 78416,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text10-v1-20260801/text-10/recording.webm",
+        "sha256": "a16d9eb7324abe4d3cf5d498b9b2206e000897dc60a82aa8f6a1f93e15dd05e0",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 386500,
+        "size_bytes": 1086210
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text10-v1-20260801/text-10/poster.jpg",
+        "sha256": "43a50d80658ddfbf3420f55ed4b3357e5a19c17fd23e41ed97b3a3396669eaa9"
+      },
+      "campaign_sha256": "c7fe0a5c103446f297a5ad11f1570a9125047fc969cdd8b5195898b221ea7b27"
+    },
+    {
+      "campaign_id": "codex-text-entry-text10-v2-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed_noncanonical",
+      "run_id": "af3caa3b-db4e-433a-907c-4796688d3b02",
+      "reason": "The fresh 189-character editor transaction was exact once, the file was saved and genuinely reopened, and all 12 actions completed. The completion classifier did not recognize the model's wording 'in the native Open dialog', so it caused 14 redundant autonomous continuations before a differently worded Open commit satisfied the same gate. This correct but slower pass is retained; the classifier now accepts completed selections from, in, or using the native Open dialog.",
+      "wall_clock_ms": 521520,
+      "model_active_ms": 412966,
+      "provider_wait_ms": 379130,
+      "provider_serial_equivalent_ms": 413986,
+      "provider_overlap_ms": 34856,
+      "action_execution_ms": 123281,
+      "evidence_capture_ms": 2937,
+      "provider_calls": 61,
+      "actions_attempted": 12,
+      "actions_completed": 12,
+      "completion_efficiency": 1.0,
+      "autonomous_resumes": 14,
+      "same_run_recoveries": 0,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 84520,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text10-v2-20260801/text-10/recording.webm",
+        "sha256": "c27fd8dcf2511e2188bdb66e24dfed882fde12d6e067979f1672ea118ddf247f",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 525000,
+        "size_bytes": 1840644
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text10-v2-20260801/text-10/poster.jpg",
+        "sha256": "d4bcc3f59285933112377ec4cea66a47a1adbd0ab5387917be11cecc65b574ad"
+      },
+      "campaign_sha256": "e421f06efbf6741077b1315cf02abf9e0258bf47714ec6c7ce76932ca770d780"
+    },
+    {
+      "campaign_id": "codex-text-entry-text10-v3-20260801",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "f7e5cf13-0d83-4a63-bfdd-6d89fe7ca916",
+      "reason": "The fresh 189-character editor transaction was exact once, but the target from v2 still existed. The resulting Confirm Save As Yes click was classified unknown and the campaign correctly stopped at the non-allowlisted approval. The run was quiesced and rebooted without weakening the approval boundary.",
+      "wall_clock_ms": 214735,
+      "model_active_ms": 124228,
+      "provider_wait_ms": 99093,
+      "provider_serial_equivalent_ms": 125061,
+      "provider_overlap_ms": 25968,
+      "action_execution_ms": 109992,
+      "evidence_capture_ms": 1590,
+      "provider_calls": 16,
+      "actions_attempted": 8,
+      "actions_completed": 7,
+      "completion_efficiency": 0.875,
+      "same_run_recoveries": 1,
+      "approval_count": 1,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 76380,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text10-v3-20260801/text-10/recording.webm",
+        "sha256": "975f7e2e2ec1be65862a1ca5575c42f48af916a0cc1392ebd183adcff5b2d1d1",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 265500,
+        "size_bytes": 1148924
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text10-v3-20260801/text-10/poster.jpg",
+        "sha256": "b08aa74f9dded958ebc3543ce52e16357debbef30d365d96e3828bdd101a7877"
+      },
+      "campaign_sha256": "7cbd5f215ca508788522be9cce792fe15bbbe8b4744a20bc9f8b4cf27674480c"
+    },
+    {
+      "campaign_id": "codex-text-entry-text10-v4-20260801",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "085686e4-7c9c-431a-973c-bc470a1e20f1",
+      "reason": "The new bounded preflight preserved the prior target under a unique sibling name, then a blank editor received all 189 characters with one exact-once receipt and zero edit distance. Save As committed a free target, native Open reopened it, the final verifier confirmed the complete visible payload, quiescence completed, and the mandatory reboot reached readiness after a real transition. One filename-field OCR mismatch still caused a recoverable save-dialog detour.",
+      "wall_clock_ms": 350558,
+      "model_active_ms": 229053,
+      "provider_wait_ms": 180148,
+      "provider_serial_equivalent_ms": 229751,
+      "provider_overlap_ms": 49603,
+      "action_execution_ms": 160070,
+      "evidence_capture_ms": 2905,
+      "provider_calls": 31,
+      "actions_attempted": 14,
+      "actions_completed": 13,
+      "completion_efficiency": 0.9285714285714286,
+      "autonomous_resumes": 1,
+      "same_run_recoveries": 2,
+      "approval_count": 2,
+      "approval_scopes": [
+        "bounded_workspace_edit",
+        "bounded_workspace_edit"
+      ],
+      "quiescence_status": "confirmed",
+      "reboot_ms": 77464,
+      "reboot_transition_observed": true,
+      "recording": {
+        "relative_path": "codex-text-entry-text10-v4-20260801/text-10/recording.webm",
+        "sha256": "3a40c37e493fa11d3f1540043ce4ff0bab05b5d3131ac62362f81256e57fa5b1",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2,
+        "duration_ms": 392000,
+        "size_bytes": 1641963
+      },
+      "poster": {
+        "relative_path": "codex-text-entry-text10-v4-20260801/text-10/poster.jpg",
+        "sha256": "235b73954cd7442b301ccf8e8a434dd3cc8f425e388655bdc062c8f42e667e20"
+      },
+      "campaign_sha256": "abf112e221bf1ed464ec2a75add0fe49540552d19bc5045dd85fb37fa588ca3d"
+    }
+  ],
+  "code_01_acceptance": {
+    "task": "Write, save, reopen, and visually verify a Python FizzBuzz function in Notepad",
+    "result": "passed",
+    "run_id": "3a7b24cc-2a7d-4718-870b-a1609c672801",
+    "reason": "A fresh blank Notepad document received all 12 requested code rows. The run retained 15 verified-exact input receipts, saved code-01.py through one bounded workspace approval, reopened it through the native Open dialog, and completed only after the verifier visibly checked indentation and punctuation. All 32 attempted actions completed with zero corrections, unverified inputs, recoverable failures, or provider failures.",
+    "wall_clock_ms": 637551,
+    "model_active_ms": 227893,
+    "provider_wait_ms": 204892,
+    "provider_serial_equivalent_ms": 228418,
+    "provider_overlap_ms": 23526,
+    "action_execution_ms": 425520,
+    "evidence_capture_ms": 4387,
+    "provider_calls": 30,
+    "reasoner_calls": 1,
+    "controller_calls": 8,
+    "verifier_calls": 21,
+    "actions_attempted": 32,
+    "actions_completed": 32,
+    "completion_efficiency": 1.0,
+    "exact_input_receipts": 15,
+    "input_receipt_totals": {
+      "requested_characters": 352,
+      "issued_characters": 352,
+      "observed_characters": 352,
+      "all_zero_edit_distance": true,
+      "all_zero_corrections": true,
+      "all_zero_delivery_retries": true,
+      "all_emitted_exactly_once": true
+    },
+    "unverified_inputs": 0,
+    "typing_corrections": 0,
+    "same_run_recoveries": 0,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 77605,
+    "reboot_transition_observed": true,
+    "recording": {
+      "relative_path": "codex-code-entry-code01-v48-20260802/code-01/recording.webm",
+      "sha256": "dadc964f7ccdffd20ba281f5406be716d7893d242b425eb102c2e4e171a036f7",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 679500,
+      "size_bytes": 1871775
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code01-v48-20260802/code-01/poster.jpg",
+      "sha256": "49bbfeaf24c8ee8033bce90ed3a19133bf53b12b8b224049579c8f529dd6c727"
+    },
+    "campaign_sha256": "51121f119be6f46c8540f33e97405a7770d8faa1cdfb4278c2c009dd56ca71fb"
+  },
+  "code_01_attempts": [
+    {
+      "campaign_id": "codex-code-entry-code01-v39-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "b441bead-cf94-41bc-9c60-465c8bd47629",
+      "reason": "The FizzBuzz append row remained unverified. The editor guard blocked any mutation or execution of the unread draft and stopped the repeated provider loop.",
+      "wall_clock_ms": 356031,
+      "provider_wait_ms": 169670,
+      "action_execution_ms": 178983,
+      "provider_calls": 20,
+      "actions_attempted": 11,
+      "actions_completed": 10,
+      "same_run_recoveries": 4,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 73140,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "285aece785ceebf6deb86165bd01a32906a6965a7fe9aa8ab5095d971a1838ad"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v40-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "7b992853-9b91-4d94-8f89-b7c46eb430a6",
+      "reason": "The same unverified FizzBuzz punctuation boundary reproduced under the old loaded process. The guard again stopped before unsafe editor mutation.",
+      "wall_clock_ms": 341264,
+      "provider_wait_ms": 165369,
+      "action_execution_ms": 168119,
+      "provider_calls": 20,
+      "actions_attempted": 11,
+      "actions_completed": 10,
+      "same_run_recoveries": 4,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 101212,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "c32a7c7f8d95069be97af2381d6d1e28420127565a06ecdb55ea3e41dbc2467a"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v41-20260802",
+      "reported_status": "failed",
+      "accepted_status": "invalid",
+      "run_id": "fb4cf695-1b65-4301-baeb-f7ee5084e7ab",
+      "reason": "The isolated daemon was restarted while verification was active. The connection failure is retained but cannot measure the candidate code path.",
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 78111,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "b9a1e5b8d333be22020219ff24a8ca80f4871e950c124a5449a80eb8b6d89ac0"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v42-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "e509b412-7427-487e-acf7-a8c0e244d6ce",
+      "reason": "Restored Notepad state produced a local missing-file error. Bare Enter dismissal was correctly held at a non-allowlisted approval.",
+      "wall_clock_ms": 94023,
+      "provider_wait_ms": 57434,
+      "action_execution_ms": 33059,
+      "provider_calls": 7,
+      "actions_attempted": 3,
+      "actions_completed": 2,
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 73807,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "3d5b3fd336baf729f66db72a5b68ead622a3d44e00bc4b6bea632e294caa20a8"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v43-20260802",
+      "reported_status": "failed",
+      "accepted_status": "invalid",
+      "run_id": "f30747d0-f1e0-42e8-8e6f-ecae6e5215ba",
+      "reason": "A second isolated-service restart interrupted the live run before it could test the candidate behavior.",
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 77172,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "30234cbae73c9ebfa8884c275f6bf314971738153056f23e12bb5ad5056db83d"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v44-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "2283c84f-6621-4abe-9275-7d91a7f7d5c0",
+      "reason": "The requested range row was emitted as limit 1+ because bulk text overtook the shifted plus on a second transport. Exact readback caught the reordered characters and blocked continuation.",
+      "wall_clock_ms": 254368,
+      "provider_wait_ms": 104308,
+      "action_execution_ms": 145690,
+      "provider_calls": 12,
+      "actions_attempted": 7,
+      "actions_completed": 6,
+      "same_run_recoveries": 2,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 91419,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "b615d0bbd7e7e86ea0665b84192856f43b867521821d4601bcb244d38add9205"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v45-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "d9da6303-7ebb-441b-b1f9-6ebebad65540",
+      "reason": "All source rows were exact, but a blank File name field produced a near-zero-confidence OCR hallucination. A coordinate click was correctly stopped at an unknown approval.",
+      "wall_clock_ms": 592586,
+      "provider_wait_ms": 187987,
+      "action_execution_ms": 397790,
+      "provider_calls": 29,
+      "actions_attempted": 32,
+      "actions_completed": 31,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 78225,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "2a09d3b2494ad4e004b4c4e182149bd89ee7b0dca619f488d560a7bb5f3ccff3"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v46-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "e4b88267-7d4f-40c7-be3e-61d8719246f3",
+      "reason": "The visible missing-file OK button was grounded, but noisy surface OCR concatenated the path suffix and policy redundantly required a second OK read. The click stopped fail-closed.",
+      "wall_clock_ms": 80005,
+      "provider_wait_ms": 40516,
+      "action_execution_ms": 36419,
+      "provider_calls": 5,
+      "actions_attempted": 3,
+      "actions_completed": 2,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 76383,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "f0a269f416dfe3019cbe9fe75d1c90b425ba84e7b96d083c8568a809e23a4407"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v47-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "eb177869-d495-4c24-8b50-7f40431ec2b5",
+      "reason": "Ten source rows were exact, then one of eight requested leading spaces in the else row did not reach Notepad. The visible suffix still read else:, but the foreground status bar reported column 13 instead of 14. The editor guard blocked mutation and preserved the evidence.",
+      "wall_clock_ms": 509073,
+      "provider_wait_ms": 147017,
+      "action_execution_ms": 357309,
+      "provider_calls": 16,
+      "actions_attempted": 21,
+      "actions_completed": 20,
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 109578,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "b548b45c13ae7e19bdaa5a5b31c5970a1e5938fc4c1097b3f5361e99d90a8cfe"
+    },
+    {
+      "campaign_id": "codex-code-entry-code01-v48-20260802",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "3a7b24cc-2a7d-4718-870b-a1609c672801",
+      "reason": "Repeated-space pacing prevented the measured indentation loss. All 12 source rows, the Save As filename, and the Open-dialog filename verified exactly; the saved file was reopened and visibly checked before quiescence and reboot.",
+      "wall_clock_ms": 637551,
+      "provider_wait_ms": 204892,
+      "action_execution_ms": 425520,
+      "provider_calls": 30,
+      "actions_attempted": 32,
+      "actions_completed": 32,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 77605,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "51121f119be6f46c8540f33e97405a7770d8faa1cdfb4278c2c009dd56ca71fb"
+    }
+  ],
+  "code_01_attempt_summary": {
+    "total_runs": 49,
+    "failed_runs": 48,
+    "passed_runs": 1,
+    "version_labels": 48,
+    "failure_terminal_outcomes": {
+      "same_run_recovery_limit": 16,
+      "unverified_draft_guard": 15,
+      "connectivity_or_quiescence": 6,
+      "non_allowlisted_approval": 4,
+      "aborted": 4,
+      "computer_interrupted": 2,
+      "initial_exact_header_unverified": 1
+    },
+    "full_ledger": "bench/results/2026-08-02/live-vnc/code-01-attempts.json"
+  },
+  "code_02_acceptance": {
+    "task": "Write, save, reopen, and visually verify structured JSON in Notepad",
+    "result": "passed",
+    "run_id": "ebf150b4-7050-40f8-8308-cc1446c897b9",
+    "reason": "A fresh blank document received valid JSON with the requested name, enabled, retries, and models values. The run retained eight verified-exact input receipts, saved code-02.json through one bounded workspace approval, reopened it through the native Open dialog, and completed only after the verifier visibly checked the persisted JSON. All 22 attempted actions completed with zero corrections, delivery retries, recoverable failures, provider failures, or same-run recovery.",
+    "wall_clock_ms": 433040,
+    "model_active_ms": 189959,
+    "provider_wait_ms": 153022,
+    "provider_serial_equivalent_ms": 190400,
+    "provider_overlap_ms": 37378,
+    "action_execution_ms": 274562,
+    "evidence_capture_ms": 3629,
+    "provider_calls": 27,
+    "reasoner_calls": 1,
+    "controller_calls": 10,
+    "verifier_calls": 16,
+    "actions_attempted": 22,
+    "actions_completed": 22,
+    "completion_efficiency": 1.0,
+    "exact_input_receipts": 8,
+    "input_receipt_totals": {
+      "requested_characters": 128,
+      "issued_characters": 128,
+      "observed_characters": 128,
+      "all_zero_edit_distance": true,
+      "all_zero_corrections": true,
+      "all_zero_delivery_retries": true,
+      "all_emitted_exactly_once": true
+    },
+    "unverified_inputs": 0,
+    "typing_corrections": 0,
+    "same_run_recoveries": 0,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 83834,
+    "reboot_transition_observed": true,
+    "longest_action_ms": 69153,
+    "recording": {
+      "relative_path": "codex-code-entry-code02-v7-20260802/code-02/recording.webm",
+      "sha256": "9b48087d9455acc8320e239ba390d8d9e73d36bf05fbd3c5a71abb83c672c9ec",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 490500,
+      "size_bytes": 1452355
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code02-v7-20260802/code-02/poster.jpg",
+      "sha256": "bc2999d393e03a92fbed0dddd1e04e994eb574c8f54fef45aca807385d32a5cc"
+    },
+    "campaign_sha256": "393545a608eb5d3ce2355d2c964aac8a683569660cbab96a5df6291730f65a25"
+  },
+  "code_02_attempts": [
+    {
+      "campaign_id": "codex-code-entry-code02-v1-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "07bf2acc-0616-458d-99a3-2bd60fdc4293",
+      "reason": "The correct retries row was clipped by the refined OCR crop; the unverified-draft guard blocked continuation.",
+      "wall_clock_ms": 351476,
+      "provider_wait_ms": 128101,
+      "action_execution_ms": 217100,
+      "provider_calls": 14,
+      "actions_attempted": 9,
+      "actions_completed": 8,
+      "same_run_recoveries": 2,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 120627,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "d0f5a96452e12a32d731a7492be8b2f1c6fef289b746a192ac049d0e2bbe69e1"
+    },
+    {
+      "campaign_id": "codex-code-entry-code02-v2-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "afb28ecd-ea00-4cc0-bf58-def8c2398a48",
+      "reason": "The enabled-row crop included the prior name row and failed with an exact wrong-region receipt.",
+      "wall_clock_ms": 172206,
+      "provider_wait_ms": 40041,
+      "action_execution_ms": 130574,
+      "provider_calls": 6,
+      "actions_attempted": 7,
+      "actions_completed": 6,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 79108,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "2728e1eaab3177e7bff2d2da83eec02b140bc2f8a7d813b3c00fb22f3de9c1b4"
+    },
+    {
+      "campaign_id": "codex-code-entry-code02-v3-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "06b79366-8775-42c6-a078-66d5b7291f87",
+      "reason": "All ordinary rows were exact, but the one-character closing brace sat below the precise-localization length gate.",
+      "wall_clock_ms": 241414,
+      "provider_wait_ms": 116442,
+      "action_execution_ms": 119560,
+      "provider_calls": 15,
+      "actions_attempted": 13,
+      "actions_completed": 12,
+      "same_run_recoveries": 2,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 76693,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "cc4e8cbff0689786ef7446c0e3435b0019a42433519e18ef86f0ca338808fd9d"
+    },
+    {
+      "campaign_id": "codex-code-entry-code02-v4-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "2f8c24a0-d53f-428d-bef6-b945c0c64453",
+      "reason": "The visible closing brace was rejected because its compact pixel delta was not line-shaped.",
+      "wall_clock_ms": 281260,
+      "provider_wait_ms": 94255,
+      "action_execution_ms": 182908,
+      "provider_calls": 12,
+      "actions_attempted": 13,
+      "actions_completed": 12,
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 84418,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "0488b6a8329a9c507c0e80920ea155d2132d08d14bab827e7bd0b2e4dd0e4644"
+    },
+    {
+      "campaign_id": "codex-code-entry-code02-v5-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "f1152ec3-b354-4094-9216-804403d078a5",
+      "reason": "Nine rows verified exactly; the indented array close remained below the four-character structural gate.",
+      "wall_clock_ms": 335815,
+      "provider_wait_ms": 116934,
+      "action_execution_ms": 214040,
+      "provider_calls": 15,
+      "actions_attempted": 19,
+      "actions_completed": 18,
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 94995,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "f461d31511c46afdedaf8d3bda4bfea8c19e2d6d91af36c0178108a3a6221e3e"
+    },
+    {
+      "campaign_id": "codex-code-entry-code02-v6-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "7792e464-f4e3-48de-b486-b3d20c3a3073",
+      "reason": "The exact closing bracket produced only a 62-pixel delta, so the locator followed the larger Notepad status repaint and failed closed.",
+      "wall_clock_ms": 347389,
+      "provider_wait_ms": 97261,
+      "action_execution_ms": 246718,
+      "provider_calls": 12,
+      "actions_attempted": 19,
+      "actions_completed": 18,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 87391,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "7af4b751d0187825e607aa0bd584ca81ae6e846792f6742c0e682e9696c2c3d8"
+    },
+    {
+      "campaign_id": "codex-code-entry-code02-v7-20260802",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "ebf150b4-7050-40f8-8308-cc1446c897b9",
+      "reason": "Eight exact receipts covered valid structured JSON and the filename; save, native reopen, final visual verification, quiescence, and reset-ready all passed.",
+      "wall_clock_ms": 433040,
+      "provider_wait_ms": 153022,
+      "action_execution_ms": 274562,
+      "provider_calls": 27,
+      "actions_attempted": 22,
+      "actions_completed": 22,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 83834,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "393545a608eb5d3ce2355d2c964aac8a683569660cbab96a5df6291730f65a25"
+    }
+  ],
+  "code_02_attempt_summary": {
+    "total_runs": 7,
+    "failed_runs": 6,
+    "passed_runs": 1,
+    "failure_terminal_outcomes": {
+      "incorrect_or_clipped_ocr_region": 2,
+      "structural_glyph_localization": 4
+    },
+    "full_ledger": "bench/results/2026-08-02/live-vnc/code-02-attempts.json"
+  },
+  "code_03_acceptance": {
+    "task": "Write, save, reopen, and visually verify a PowerShell file-digest function in Notepad",
+    "result": "passed",
+    "run_id": "9ce2be0d-3021-42ac-8e3c-bef0e2455c6a",
+    "reason": "A fresh blank document received the requested seven-line Get-FileDigest function. The run retained ten verified-exact input receipts, saved code-03.ps1 through one bounded workspace approval, reopened it through the native Open dialog, and completed only after the verifier visibly checked the persisted function, mandatory Path parameter, and SHA256 Get-FileHash call. All 22 attempted actions completed with zero corrections, delivery retries, recoverable failures, provider failures, or same-run recovery.",
+    "wall_clock_ms": 474102,
+    "model_active_ms": 219880,
+    "provider_wait_ms": 190319,
+    "provider_serial_equivalent_ms": 221405,
+    "provider_overlap_ms": 31086,
+    "action_execution_ms": 276106,
+    "evidence_capture_ms": 3799,
+    "provider_calls": 27,
+    "reasoner_calls": 1,
+    "controller_calls": 9,
+    "verifier_calls": 17,
+    "actions_attempted": 22,
+    "actions_completed": 22,
+    "completion_efficiency": 1.0,
+    "exact_input_receipts": 10,
+    "input_receipt_totals": {
+      "requested_characters": 167,
+      "issued_characters": 167,
+      "observed_characters": 167,
+      "all_zero_edit_distance": true,
+      "all_zero_corrections": true,
+      "all_zero_delivery_retries": true,
+      "all_emitted_exactly_once": true
+    },
+    "unverified_inputs": 0,
+    "typing_corrections": 0,
+    "same_run_recoveries": 0,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 78950,
+    "reboot_transition_observed": true,
+    "longest_action_ms": 44875,
+    "recording": {
+      "relative_path": "codex-code-entry-code03-v8-20260802/code-03/recording.webm",
+      "sha256": "49b5ff4e093adf6681fc34d2842184a266c9716b6a12a65c4149b89ffbea5d93",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2,
+      "duration_ms": 464000,
+      "size_bytes": 1376006
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code03-v8-20260802/code-03/poster.jpg",
+      "sha256": "a052014247a81a10a3642f01ac91ef4e78295311152f55348e49d5673d1c1d3d"
+    },
+    "campaign_sha256": "8f71fe476ed13f80e6213a588b9fd247fb94d85898a68ff7666a682c836dccdc"
+  },
+  "code_03_attempts": [
+    {
+      "campaign_id": "codex-code-entry-code03-v1-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "ba666dbc-f89d-4779-a320-0ec43935c87f",
+      "reason": "The indented closing parenthesis was issued once after five exact receipts but returned an empty readback and failed closed.",
+      "wall_clock_ms": 353982,
+      "provider_wait_ms": 60444,
+      "action_execution_ms": 290632,
+      "provider_calls": 8,
+      "actions_attempted": 11,
+      "actions_completed": 10,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 82431,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "235186a68810d936c6754d3e5c3a0c36ae6f0da181289b0d9540b7721e347fbe"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v2-20260802",
+      "reported_status": "passed",
+      "accepted_status": "invalid",
+      "run_id": "9f879897-9a6b-4acc-961e-8b5d72a8cc90",
+      "reason": "The correct saved file was reopened, but the param row required a full-row replay; correction_count=1 and emitted_exactly_once=false violate the clean-pass contract.",
+      "wall_clock_ms": 409558,
+      "provider_wait_ms": 178975,
+      "action_execution_ms": 222680,
+      "provider_calls": 29,
+      "actions_attempted": 23,
+      "actions_completed": 23,
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 83622,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "42cd20664790a4d83e1a4fb3c3c2cda087be005c037a063dbd4e91de4080d1ec"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v3-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "ba34fe10-b4d7-4b56-8d2d-26dcf4aa4cfc",
+      "reason": "The five-character closing parenthesis was issued once, but its crop included adjacent rows and returned 59 characters for a five-character intent.",
+      "wall_clock_ms": 290762,
+      "provider_wait_ms": 58311,
+      "action_execution_ms": 229777,
+      "provider_calls": 8,
+      "actions_attempted": 11,
+      "actions_completed": 10,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 99175,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "1b66266a898dcffad91f81d0ef543d5b4c1ac9fe53c3a52dde5f33d0b2cc8f83"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v4-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "0a3ec959-bf60-4afe-a8c0-4c5e134bcd6a",
+      "reason": "After the expected missing-file audit, the visible fresh header still produced an empty OCR read and the unverified-draft guard blocked continuation.",
+      "wall_clock_ms": 266587,
+      "provider_wait_ms": 132180,
+      "action_execution_ms": 120975,
+      "provider_calls": 19,
+      "actions_attempted": 6,
+      "actions_completed": 5,
+      "same_run_recoveries": 3,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 210927,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "2f5ad78850c7a69d8fabf9d8d787b7909a67a57cb21c0580ba70ed7039cf24ad"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v5-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "f8b8c49c-21da-41e1-b50f-21de8e5632f4",
+      "reason": "The VNC transport delivered two of four repeated leading spaces in the param row, and exact readback rejected the resulting indentation loss.",
+      "wall_clock_ms": 208652,
+      "provider_wait_ms": 99646,
+      "action_execution_ms": 104497,
+      "provider_calls": 12,
+      "actions_attempted": 5,
+      "actions_completed": 4,
+      "same_run_recoveries": 2,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 87248,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "f8f50b8043dd9e553550bb70fac4f78418fc5ab9352fa51f656ff63a0faa717b"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v6-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "3d3b741d-ab11-49e0-9512-a148ff342605",
+      "reason": "Four ordinary rows were exact, but the visible indented closing parenthesis produced only a 37-pixel delta below the compact locator floor.",
+      "wall_clock_ms": 319724,
+      "provider_wait_ms": 98811,
+      "action_execution_ms": 216242,
+      "provider_calls": 12,
+      "actions_attempted": 11,
+      "actions_completed": 10,
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 79955,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "dc433adfbad947ad461fd853679f10dc225175b7fa5e8a113d727520f5ca022f"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v7-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "84f05243-9db3-4836-ac28-0b64dced4197",
+      "reason": "The exact first row and its Ln 1, Col 26 status proof were visible, but broad status OCR ran to deadline. Reboot attempt one lost capture readiness; cleanup recovery completed attempt two after bounded capture reconnect.",
+      "wall_clock_ms": 128300,
+      "provider_wait_ms": 37119,
+      "action_execution_ms": 90113,
+      "provider_calls": 4,
+      "actions_attempted": 3,
+      "actions_completed": 2,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 437064,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "2f1d9f4f4c58625e6d973f998b22d45534819e84de7aa03de42ba580c471de92"
+    },
+    {
+      "campaign_id": "codex-code-entry-code03-v8-20260802",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "9ce2be0d-3021-42ac-8e3c-bef0e2455c6a",
+      "reason": "Ten exact receipts covered the complete function and both filenames; save, native reopen, final visual verification, quiescence, and reset-ready all passed without correction or replay.",
+      "wall_clock_ms": 474102,
+      "provider_wait_ms": 190319,
+      "action_execution_ms": 276106,
+      "provider_calls": 27,
+      "actions_attempted": 22,
+      "actions_completed": 22,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 78950,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "8f71fe476ed13f80e6213a588b9fd247fb94d85898a68ff7666a682c836dccdc"
+    }
+  ],
+  "code_03_attempt_summary": {
+    "total_runs": 8,
+    "failed_runs": 6,
+    "invalid_runs": 1,
+    "passed_runs": 1,
+    "failure_terminal_outcomes": {
+      "unclean_self_correction": 1,
+      "incorrect_or_empty_ocr_region": 3,
+      "physical_repeated_space_loss": 1,
+      "structural_glyph_localization": 1,
+      "status_ocr_deadline_and_capture_recovery": 1
+    },
+    "full_ledger": "bench/results/2026-08-02/live-vnc/code-03-attempts.json"
+  },
+  "verdict": {
+    "accuracy": "The campaign is 33/50. All ten Text entry tasks and the first eight Code entry tasks pass. Code-08 v29 remains canonical with exact current and genuinely preserved prior observer bytes. Code-09 v6 exercised the maximized-editor native readback fix and completed 18 actions with zero recoveries or provider failures, but timed out before Save As. Its post-run observer launch failed closed after stale Run-field readback and a missing client response caused one accidental replay; no current-file observer claim is made. All 29 Code-08 attempts and all six Code-09 task attempts remain retained.",
+    "speed": "Code-08 v29 still passes the product target at 241.303 seconds. Code-09 v6 failed its 300-second target at 292.012 seconds of managed model/action time before completion; the full task record including preflight and reboot lasted 440.893 seconds.",
+    "dominant_cost": "On Code-09 v6, guarded action execution consumed 191.727 seconds (65.7% of managed wall) and provider wait consumed 95.974 seconds (32.9%) across 12 calls. Ten serial verifier calls and 10.517-second median action latency dominated; there were zero provider failures, fallbacks, schema repairs, or recovery cycles.",
+    "next": "Fix causal Run-field receipts and missing-response idempotency before relying on observer launch evidence, then make one bounded latency optimization that reduces repeated exact-line verification without weakening exact input, permissions, quiescence, installed-observer, recording, or reboot gates."
+  },
+  "code_04_acceptance": {
+    "task": "Write, save, reopen, and visually verify a grouped customer-value SQL query in Notepad",
+    "result": "passed",
+    "run_id": "fc2d2ccc-93f3-4dfe-af36-ec70a8cb87d9",
+    "reason": "A fresh blank document received the requested seven-line SQL query. Ten exact receipts covered launch, all seven SQL rows, Save As basename, and Open basename with zero corrections or retries. Save and Open committed deterministically; the reopened file was independently verified, quiesced, recorded, and rebooted after a visible transition.",
+    "wall_clock_ms": 416335,
+    "model_active_ms": 148814,
+    "provider_wait_ms": 149451,
+    "provider_serial_equivalent_ms": 149451,
+    "provider_overlap_ms": 0,
+    "action_execution_ms": 260336,
+    "evidence_capture_ms": 4048,
+    "provider_calls": 20,
+    "reasoner_calls": 1,
+    "controller_calls": 2,
+    "verifier_calls": 17,
+    "actions_attempted": 24,
+    "actions_completed": 24,
+    "completion_efficiency": 1.0,
+    "exact_input_receipts": 10,
+    "input_receipt_totals": {
+      "requested_characters": 176,
+      "issued_characters": 176,
+      "observed_characters": 176,
+      "all_zero_edit_distance": true,
+      "all_zero_corrections": true,
+      "all_zero_delivery_retries": true,
+      "all_emitted_exactly_once": true
+    },
+    "unverified_inputs": 0,
+    "typing_corrections": 0,
+    "same_run_recoveries": 0,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 94638,
+    "reboot_transition_observed": true,
+    "longest_action_ms": 56604,
+    "recording": {
+      "sha256": "0bebf0651da541046cc1c722e44b245b54b637fbe6a4cc02548790d7219243b8",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2.0,
+      "duration_ms": 484000,
+      "size_bytes": 1408294,
+      "relative_path": "codex-code-entry-code04-v9-20260802/code-04/recording.webm"
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code04-v9-20260802/code-04/poster.jpg",
+      "sha256": "e099a960e4f7f1e6bb91a1cb256e31ba082f868ddefde46eaa094a64144a41b8"
+    },
+    "campaign_sha256": "815301670be6de1d622347c67c8793b1c2209d85a66e705a14fa4943619cb6d0"
+  },
+  "code_04_attempt_summary": {
+    "total_runs": 9,
+    "failed_runs": 7,
+    "invalid_runs": 1,
+    "passed_runs": 1,
+    "canonical_campaign_id": "codex-code-entry-code04-v9-20260802",
+    "failure_terminal_outcomes": {
+      "unclean_recovery_pass": 1,
+      "missing_file_modal_nonallowlisted_approval": 1,
+      "post_open_verification_spiral": 1,
+      "unverified_save_commit": 2,
+      "unverified_open_commit": 2,
+      "native_dialog_chrome_wrong_region": 1
+    },
+    "full_ledger": "bench/results/2026-08-02/live-vnc/code-04-attempts.json"
+  },
+  "code_04_attempts": [
+    {
+      "campaign_id": "codex-code-entry-code04-v1-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "ca23771b-32a5-4b6b-b044-cc7c06f2ad12",
+      "reason": "Nine exact receipts covered launch, all SQL rows, and the Save As basename. Save completed, but the Open-dialog basename draft could not be grounded for commit; four bounded recoveries exhausted the same-run limit without opening or falsely claiming verification.",
+      "wall_clock_ms": 604791,
+      "provider_wait_ms": 272083,
+      "action_execution_ms": 318003,
+      "provider_calls": 40,
+      "actions_attempted": 26,
+      "actions_completed": 25,
+      "same_run_recoveries": 4,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 94071,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "5090f0fb86fc442a1c2efa636c34d54a978fceda083c5ec802e4f5a816b8fe93"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v2-20260802",
+      "reported_status": "passed",
+      "accepted_status": "invalid",
+      "run_id": "f9e23276-eaf3-4fd4-b459-d068e474ae1a",
+      "reason": "The SQL file was saved, reopened, and visibly correct with ten exact receipts, but the run required two same-run recoveries. It therefore violates the clean-pass contract and remains invalid.",
+      "wall_clock_ms": 576671,
+      "provider_wait_ms": 206787,
+      "action_execution_ms": 354540,
+      "provider_calls": 30,
+      "actions_attempted": 25,
+      "actions_completed": 25,
+      "same_run_recoveries": 2,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 75354,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "ea2f66c15f044c7bac02185365defd24865bcc721f47b602c6ce0b1bd4a9de6d"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v3-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "f9dfc749-5021-4b85-96d7-4bd51d7a31fd",
+      "reason": "Startup restored a stale missing-file modal. The first launch receipt was exact, but dismissing the modal reached a non-allowlisted approval; the campaign stopped before entering or saving SQL.",
+      "wall_clock_ms": 82538,
+      "provider_wait_ms": 43352,
+      "action_execution_ms": 33326,
+      "provider_calls": 6,
+      "actions_attempted": 3,
+      "actions_completed": 2,
+      "same_run_recoveries": 1,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 75189,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "dd5ffe1f05152889b58f4400ef57ad6eb197d4ac45c197cca658d7fb08383deb"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v4-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "fcd5fbbf-def0-49f2-8748-94ed413f3d63",
+      "reason": "All SQL rows and both basenames verified exactly once, and the file was saved and reopened. Post-open verification then spiralled through repeated verifier-more-work checkpoints; four campaign recoveries were exhausted without a clean terminal completion.",
+      "wall_clock_ms": 1164614,
+      "provider_wait_ms": 923929,
+      "action_execution_ms": 997195,
+      "provider_calls": 134,
+      "actions_attempted": 29,
+      "actions_completed": 28,
+      "same_run_recoveries": 4,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 81476,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "9ba1875a1b42238e0020701f7aa7b52685be629bfb3f87b81d5a3305cf416580"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v5-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "221030c2-6b09-4f1f-8260-6c2dc9dd288a",
+      "reason": "All SQL rows verified exactly once with no campaign recovery. The final Save commit lacked deterministic native-dialog grounding and was surfaced as a non-allowlisted approval, so the campaign stopped without pressing Enter.",
+      "wall_clock_ms": 400120,
+      "provider_wait_ms": 102825,
+      "action_execution_ms": 292159,
+      "provider_calls": 13,
+      "actions_attempted": 19,
+      "actions_completed": 18,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 82771,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "810024d0f756c1fb16415d0a8ac7aee96a1ddfb89682dedfc6e7044e493c0703"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v6-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "c9ac06d6-50c1-4b41-bc6c-0ff4098d9595",
+      "reason": "All SQL rows and the Save As basename verified exactly once with no campaign recovery. A fresh readback JPEG differed from the grounded post-type frame, so the final Save Enter failed closed as an unknown commit rather than relying on stale pixels.",
+      "wall_clock_ms": 291738,
+      "provider_wait_ms": 98010,
+      "action_execution_ms": 187454,
+      "provider_calls": 13,
+      "actions_attempted": 19,
+      "actions_completed": 18,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 82078,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "0a9aa9f79c7270430efe1b1eb1f1bf8c7c9238f47684887479d6079c5d1353d9"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v7-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "8a2e6256-62e5-4134-8c1f-94e6961462a6",
+      "reason": "All SQL rows and both basenames verified exactly once with no campaign recovery. Save committed successfully, but the final Open Enter lacked an Open-dialog deterministic commit recognizer and was stopped at a non-allowlisted approval.",
+      "wall_clock_ms": 438186,
+      "provider_wait_ms": 161865,
+      "action_execution_ms": 267790,
+      "provider_calls": 20,
+      "actions_attempted": 24,
+      "actions_completed": 23,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 76311,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "ecfa543e9fbd891a45fa9ea4d7ea86528c93a0fffd2218271f75c859353b6e08"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v8-20260802",
+      "reported_status": "failed",
+      "accepted_status": "failed",
+      "run_id": "f3e52fb4-e57a-42da-a982-d97bcbb3ed20",
+      "reason": "All six chosen SQL rows verified exactly once. Save As OCR returned the exact basename and type row plus native `Hide Folders` chrome; the strict two-row parser classified it as wrong-region, three recoveries were retained, and the unverified-draft guard blocked. The first mandatory reboot invocation then failed before producing an attempt record; an explicit verified reset and a campaign-owned reboot-only reconciliation paid the isolation gate while preserving this attempt as failed.",
+      "wall_clock_ms": 481710,
+      "provider_wait_ms": 179077,
+      "action_execution_ms": 291555,
+      "provider_calls": 24,
+      "actions_attempted": 20,
+      "actions_completed": 18,
+      "same_run_recoveries": 3,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 77857,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "3066e29cadfd5436765c352d95b731f2ac5c8a618e53728a29f3c0b9308c8ae1"
+    },
+    {
+      "campaign_id": "codex-code-entry-code04-v9-20260802",
+      "reported_status": "passed",
+      "accepted_status": "passed",
+      "run_id": "fc2d2ccc-93f3-4dfe-af36-ec70a8cb87d9",
+      "reason": "A fresh blank document received the requested seven-line SQL query. Ten exact receipts covered launch, all seven SQL rows, Save As basename, and Open basename with zero corrections or retries. Save and Open committed deterministically; the reopened file was independently verified, quiesced, recorded, and rebooted after a visible transition.",
+      "wall_clock_ms": 416335,
+      "provider_wait_ms": 149451,
+      "action_execution_ms": 260336,
+      "provider_calls": 20,
+      "actions_attempted": 24,
+      "actions_completed": 24,
+      "same_run_recoveries": 0,
+      "quiescence_status": "confirmed",
+      "reboot_ms": 94638,
+      "reboot_transition_observed": true,
+      "campaign_sha256": "815301670be6de1d622347c67c8793b1c2209d85a66e705a14fa4943619cb6d0"
+    }
+  ],
+  "code_05_acceptance": {
+    "task": "Write, save, reopen, and visually verify a minimal accessible HTML waitlist form in Notepad",
+    "result": "passed",
+    "run_id": "9280dc32-accf-4fe9-916a-d29ed76bab8c",
+    "reason": "A fresh blank document received the complete accessible HTML document. Sixteen exact receipts covered launch, all content rows, Save As basename, and Open basename with zero corrections or retries. Save and Open committed deterministically; the reopened file was independently verified, quiesced, recorded, and rebooted after a visible transition.",
+    "wall_clock_ms": 670347,
+    "model_active_ms": 272981,
+    "provider_wait_ms": 240278,
+    "provider_serial_equivalent_ms": 273889,
+    "provider_overlap_ms": 33611,
+    "action_execution_ms": 419511,
+    "evidence_capture_ms": 5972,
+    "provider_calls": 37,
+    "reasoner_calls": 1,
+    "controller_calls": 11,
+    "verifier_calls": 25,
+    "actions_attempted": 38,
+    "actions_completed": 38,
+    "completion_efficiency": 1.0,
+    "exact_input_receipts": 16,
+    "input_receipt_totals": {
+      "all_zero_corrections": true,
+      "all_zero_delivery_retries": true,
+      "all_emitted_exactly_once": true
+    },
+    "unverified_inputs": 0,
+    "typing_corrections": 0,
+    "same_run_recoveries": 0,
+    "approval_count": 1,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 83206,
+    "reboot_transition_observed": true,
+    "recording": {
+      "sha256": "fc000d2404d5a88065203e08ab9303d9e4ac90f41e309075e2183f83e053d362",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2.0,
+      "duration_ms": 697000,
+      "size_bytes": 1909608,
+      "relative_path": "codex-code-entry-code05-v10-20260802/code-05/recording.webm"
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code05-v10-20260802/code-05/poster.jpg",
+      "sha256": "a9c34fd9f657ab49b607041beefc99604ecf881b1e09b234a6b7d2865ba0df47"
+    },
+    "campaign_sha256": "f0868f7a347406760dc44c60a32e93361dd631b211b140bb5c24509ef8058318"
+  },
+  "code_05_attempt_summary": {
+    "total_runs": 10,
+    "failed_runs": 9,
+    "invalid_runs": 0,
+    "passed_runs": 1,
+    "diagnostic_runs": 6,
+    "canonical_campaign_id": "codex-code-entry-code05-v10-20260802",
+    "failure_terminal_outcomes": {
+      "ambiguous_or_lost_row_readback": 3,
+      "incorrect_communication_policy_classification": 1,
+      "unclean_self_correction": 1,
+      "wrong_region_status_ocr": 2,
+      "unverified_save_commit": 1,
+      "preflight_timeout": 1
+    },
+    "full_ledger": "bench/results/2026-08-02/live-vnc/code-05-attempts.json"
+  },
+  "code_06_acceptance": {
+    "task": "Write, save, reopen, and visually verify a JavaScript debounce implementation in Notepad",
+    "result": "passed",
+    "run_id": "76d26aa9-e9cf-4145-81a9-472515cdbd83",
+    "reason": "A fresh blank document received the complete debounce implementation. Twelve exact receipts covered launch, all nine code rows, and the Save As basename. The live structural-row crop narrowed `  };` from the raw changed region to the after-frame punctuation band and combined its two visible glyphs with independent leading-space proof. The saved file was reopened and independently verified, then quiesced, recorded, and rebooted after a visible transition.",
+    "wall_clock_ms": 455964,
+    "task_duration_ms": 607519,
+    "model_active_ms": 128859,
+    "provider_wait_ms": 123109,
+    "provider_serial_equivalent_ms": 129011,
+    "provider_overlap_ms": 5902,
+    "action_execution_ms": 327511,
+    "evidence_capture_ms": 3452,
+    "provider_calls": 19,
+    "reasoner_calls": 1,
+    "controller_calls": 2,
+    "verifier_calls": 16,
+    "actions_attempted": 26,
+    "actions_completed": 26,
+    "completion_efficiency": 1.0,
+    "exact_input_receipts": 12,
+    "input_receipt_totals": {
+      "requested_characters": 222,
+      "issued_characters": 222,
+      "observed_characters": 222,
+      "all_zero_edit_distance": true,
+      "all_zero_corrections": true,
+      "all_zero_delivery_retries": true,
+      "all_emitted_exactly_once": true,
+      "all_exact_readback_sha256_match": true
+    },
+    "structural_row": {
+      "requested_text": "  };",
+      "raw_region": {
+        "x": 69,
+        "y": 213,
+        "width": 35,
+        "height": 33
+      },
+      "readback_region": {
+        "x": 86,
+        "y": 219,
+        "width": 18,
+        "height": 22
+      },
+      "visible_ocr_characters": 2,
+      "leading_spaces_proved": 2,
+      "receipt_status": "verified_exact"
+    },
+    "unverified_inputs": 0,
+    "typing_corrections": 0,
+    "same_run_recoveries": 0,
+    "approval_count": 2,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 82486,
+    "reboot_transition_observed": true,
+    "recording": {
+      "sha256": "a1612a691088df7f2c05a430571a6f5492742e5af3d00b8ad11d8e8f4bf171d7",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2.0,
+      "duration_ms": 502500,
+      "size_bytes": 1345043,
+      "relative_path": "codex-code-entry-code06-v9-20260803/codex-windows-50/code-06/recording.webm"
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code06-v9-20260803/codex-windows-50/code-06/poster.jpg",
+      "sha256": "59bb4556f83bb3da93c6557e4a2d558f67ff5617b1e4743fd4278c539fac40e2"
+    },
+    "campaign_sha256": "4a85c4b86c58bcacf829d27ce4c2bb76be56fa2c39533858f6bad7e14f6c09cf"
+  },
+  "code_06_attempt_summary": {
+    "total_runs": 9,
+    "failed_runs": 8,
+    "invalid_runs": 0,
+    "passed_runs": 1,
+    "canonical_campaign_id": "codex-code-entry-code06-v9-20260803",
+    "failure_terminal_outcomes": {
+      "empty_or_caret_corrupted_structural_readback": 4,
+      "partial_transport_delivery": 1,
+      "unverified_timer_declaration": 1,
+      "adjacent_editor_row_in_crop": 1,
+      "horizontal_causal_band_fallback": 1
+    },
+    "excluded_scope_runs": 1,
+    "full_ledger": "bench/results/2026-08-03/live-vnc/code-06-attempts.json"
+  },
+  "code_07_acceptance": {
+    "task": "Write, save, reopen, and visually verify a YAML service definition in Notepad",
+    "result": "passed",
+    "run_id": "c750fb5c-7577-413a-aafd-56ec6551293c",
+    "reason": "After a retained v1 restored-session focus failure, v2 waited for Notepad session restoration to settle, created a fresh task-owned document, entered seven indentation-sensitive YAML rows, saved and reopened `code-07.yaml`, and completed only after independent content verification. Quiescence and a transition-observed reboot both passed.",
+    "wall_clock_ms": 526062,
+    "task_duration_ms": 902528,
+    "preflight_ms": 59812,
+    "model_active_ms": 197074,
+    "provider_wait_ms": 197626,
+    "provider_serial_equivalent_ms": 197626,
+    "provider_overlap_ms": 0,
+    "action_execution_ms": 317297,
+    "evidence_capture_ms": 3807,
+    "provider_calls": 27,
+    "reasoner_calls": 3,
+    "controller_calls": 4,
+    "verifier_calls": 20,
+    "actions_attempted": 24,
+    "actions_completed": 24,
+    "completion_efficiency": 1.0,
+    "exact_input_receipts": 10,
+    "input_receipt_totals": {
+      "requested_characters": 154,
+      "issued_characters": 154,
+      "observed_characters": 154,
+      "all_zero_edit_distance": true,
+      "all_zero_corrections": true,
+      "all_zero_delivery_retries": true,
+      "all_emitted_exactly_once": true,
+      "all_exact_readback_sha256_match": true
+    },
+    "verified_yaml_rows": [
+      "services:",
+      "  observer:",
+      "    image: observer:1.0",
+      "    restart: unless-stopped",
+      "    environment:",
+      "      LOG_LEVEL: info",
+      "      PORT: 8080"
+    ],
+    "unverified_inputs": 0,
+    "typing_corrections": 0,
+    "same_run_recoveries": 1,
+    "approval_count": 2,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "quiescence_status": "confirmed",
+    "reboot_ms": 307747,
+    "reboot_transition_observed": true,
+    "recording": {
+      "sha256": "4b23816747d510babd65f3ba4ad896c8ee53df41cdff9811e67af8b6d93119bd",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2.0,
+      "duration_ms": 704000,
+      "size_bytes": 1646548,
+      "relative_path": "codex-code-entry-code07-v2-20260803/codex-windows-50/code-07/recording.webm"
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code07-v2-20260803/codex-windows-50/code-07/poster.jpg",
+      "sha256": "d6c3f21feddf9d9ef9f6eef4e78323da92f39a94a53ca64a659d201708bec9a6"
+    },
+    "campaign_sha256": "ead7dadee0df70bab3f13b4f48f5babc810347d43a313c56df8e88e5610189cd"
+  },
+  "code_07_attempt_summary": {
+    "total_runs": 2,
+    "failed_runs": 1,
+    "invalid_runs": 0,
+    "passed_runs": 1,
+    "canonical_campaign_id": "codex-code-entry-code07-v2-20260803",
+    "failure_terminal_outcomes": {
+      "delayed_notepad_session_restore_focus_loss": 1
+    },
+    "full_ledger": "bench/results/2026-08-03/live-vnc/code-07-attempts.json"
+  },
+  "code_08_acceptance": {
+    "task": "Write, save, reopen, and verify a Windows batch health check in Notepad",
+    "result": "passed",
+    "run_id": "596fef67-5e55-4436-b1cc-6b4a3a254201",
+    "source_commit": "cec12a3",
+    "reason": "v29 supersedes the retained v23 accuracy pass. The filtered native Open dialog and exact workspace breadcrumb verified without treating a hidden .cmd listing as file absence; Save and Open each retained an exact basename receipt, the grounded Open commit completed, and all 10 actions completed without recovery. Independent observer captures exactly matched the current and genuinely preserved prior artifacts. Accuracy, safety, and the sub-300-second speed gate all pass.",
+    "wall_clock_ms": 241303,
+    "task_duration_ms": 422788,
+    "preflight_ms": 97791,
+    "model_active_ms": 96557,
+    "provider_wait_ms": 97198,
+    "provider_serial_equivalent_ms": 97198,
+    "provider_overlap_ms": 0,
+    "action_execution_ms": 140685,
+    "evidence_capture_ms": 2239,
+    "unclassified_overhead_ms": 1000,
+    "provider_calls": 12,
+    "reasoner_calls": 1,
+    "controller_calls": 1,
+    "verifier_calls": 10,
+    "actions_attempted": 10,
+    "actions_completed": 10,
+    "completion_efficiency": 1.0,
+    "document_payload_batches": 1,
+    "accepted_saved_payload_action_index": 2,
+    "same_run_recoveries": 0,
+    "approval_count": 2,
+    "approval_scopes": [
+      "bounded_workspace_edit"
+    ],
+    "observer_exact_artifact_proof": {
+      "transport": "guarded MCP visual matrix",
+      "protocol": "pikvm-observer.v1",
+      "newline_normalization": "Windows CRLF",
+      "expected_sha256": "c5e247fcb3f17892938d047673cab4efbc6588140cd5d6b5047c553a8349ced4",
+      "current": {
+        "path": "C:/PiKVM-Harness/workspace/codex-50/code-08.cmd",
+        "expected_bytes": 127,
+        "observed_bytes": 127,
+        "observed_sha256": "c5e247fcb3f17892938d047673cab4efbc6588140cd5d6b5047c553a8349ced4",
+        "exact_match": true,
+        "pages": 4
+      },
+      "preserved_prior": {
+        "path": "C:/PiKVM-Harness/workspace/codex-50/pikvmpriore5ac64ebb7d7412e9e2d990209671c95.cmd",
+        "expected_bytes": 127,
+        "observed_bytes": 127,
+        "observed_sha256": "c5e247fcb3f17892938d047673cab4efbc6588140cd5d6b5047c553a8349ced4",
+        "exact_match": true,
+        "pages": 4
+      },
+      "dangerous_commit_count": 0,
+      "comparison_report": "bench/results/2026-08-03/live-vnc/code-08-v29-observer-comparison.json"
+    },
+    "reboot_ms": 78929,
+    "reboot_transition_observed": true,
+    "post_observer_reset_ms": 79083,
+    "post_observer_reset_transition_observed": true,
+    "recording": {
+      "sha256": "dfc9290fa3e302364745819a7a6ff282bc563a51ea87bc776f4b4c36ce127af8",
+      "codec": "vp9",
+      "width": 2048,
+      "height": 1280,
+      "fps": 2.0,
+      "duration_ms": 296500,
+      "size_bytes": 1494825,
+      "relative_path": "codex-code-entry-code08-v29-20260804/codex-windows-50/code-08/recording.webm"
+    },
+    "poster": {
+      "relative_path": "codex-code-entry-code08-v29-20260804/codex-windows-50/code-08/poster.jpg",
+      "sha256": "2498e2610c6d4c9f5d37441e3e29b18a864b727674180b60283766185cb17a76"
+    },
+    "campaign_sha256": "1448fe01016def393789b227954e7f24e6a8ea9ad4501a1c3ae156af57e22160"
+  },
+  "code_08_attempt_summary": {
+    "recorded_attempts": 29,
+    "valid_full_task_runs": 22,
+    "failed_runs": 19,
+    "infrastructure_invalid_runs": 7,
+    "passed_runs": 3,
+    "canonical_campaign_id": "codex-code-entry-code08-v29-20260804",
+    "post_pass_speed_attempts": 19,
+    "post_pass_state": "v11-v28 remain retained with every repeated Save-field, keymap, OCR, content-contract, preflight, policy, localization, and filtered-list failure. v29 exercised the bounded native Open evidence fix live, retained separate exact Save and Open basename receipts, completed without recovery in 241.303 seconds, and independently matched both current and genuinely preserved-prior 127-byte artifacts. Code-08 accuracy, safety, and speed gates now pass.",
+    "latest_post_pass_attempt": {
+      "campaign_id": "codex-code-entry-code08-v29-20260804",
+      "accepted_status": "passed",
+      "campaign_reported_status": "passed",
+      "run_id": "596fef67-5e55-4436-b1cc-6b4a3a254201",
+      "source_commit": "cec12a3",
+      "wall_clock_ms": 241303,
+      "task_duration_ms": 422788,
+      "model_active_ms": 96557,
+      "provider_wait_ms": 97198,
+      "provider_serial_equivalent_ms": 97198,
+      "provider_overlap_ms": 0,
+      "provider_calls": 12,
+      "actions_attempted": 10,
+      "actions_completed": 10,
+      "action_execution_ms": 140685,
+      "evidence_capture_ms": 2239,
+      "unclassified_overhead_ms": 1000,
+      "same_run_recoveries": 0,
+      "approval_requests": 2,
+      "approval_scopes": [
+        "bounded_workspace_edit"
+      ],
+      "filtered_open_remediation_exercised": true,
+      "save_filename_receipt": {
+        "requested": "code-08.cmd",
+        "observed": "code-08.cmd",
+        "status": "verified_exact",
+        "edit_distance": 0,
+        "correction_count": 0,
+        "delivery_retries": 0
+      },
+      "open_filename_receipt": {
+        "requested": "code-08.cmd",
+        "observed": "code-08.cmd",
+        "status": "verified_exact",
+        "edit_distance": 0,
+        "correction_count": 0,
+        "delivery_retries": 0,
+        "grounded_open_committed": true
+      },
+      "reboot_ms": 78929,
+      "reboot_transition_observed": true,
+      "post_observer_reset_ms": 79083,
+      "post_observer_reset_transition_observed": true,
+      "observer_comparison": "Separate four-page checksum-valid captures returned exactly 127 current bytes and 127 genuinely preserved-prior bytes with the immutable SHA-256 and zero dangerous commits.",
+      "comparison_report": "bench/results/2026-08-03/live-vnc/code-08-v29-observer-comparison.json",
+      "recording": {
+        "sha256": "dfc9290fa3e302364745819a7a6ff282bc563a51ea87bc776f4b4c36ce127af8",
+        "codec": "vp9",
+        "width": 2048,
+        "height": 1280,
+        "fps": 2.0,
+        "duration_ms": 296500,
+        "size_bytes": 1494825,
+        "relative_path": "codex-code-entry-code08-v29-20260804/codex-windows-50/code-08/recording.webm"
+      },
+      "poster": {
+        "relative_path": "codex-code-entry-code08-v29-20260804/codex-windows-50/code-08/poster.jpg",
+        "sha256": "2498e2610c6d4c9f5d37441e3e29b18a864b727674180b60283766185cb17a76"
+      },
+      "campaign_sha256": "1448fe01016def393789b227954e7f24e6a8ea9ad4501a1c3ae156af57e22160"
+    },
+    "full_ledger": "bench/results/2026-08-03/live-vnc/code-08-attempts.json"
+  },
+  "code_09_attempt_summary": {
+    "recorded_attempts": 6,
+    "valid_full_task_runs": 6,
+    "failed_runs": 6,
+    "infrastructure_invalid_runs": 0,
+    "passed_runs": 0,
+    "canonical_campaign_id": null,
+    "current_state": "v1-v5 failed closed while successively isolating policy, UK hash transport, receipt scope, downscaled OCR, tab-title localization, native editor-body OCR, and maximized status-edge evidence. Pushed 82cb017 returned the exact 13-character heading hash twice from the native body at 0.9143 confidence, and pushed d85dd65 added a bounded native bottom-status-edge proof. A live exact-heading gate passed with zero corrections or retries, so recorded v6 ran. v6 completed 18 actions with zero recoveries or provider failures and exact native heading hashes, but exceeded the 300-second SLA before Save As. Action execution consumed 191.727 seconds and provider wait consumed 95.974 seconds. It quiesced, recorded, and rebooted after a visible transition. The post-run installed-observer launch then failed independently: guarded Run-field readback returned stale or empty evidence, a completed Enter receipt did not match the later frame, and a missing client response caused one accidental replay of the direct observer command. The command was cancelled without execution and a second 77.479-second reboot observed a real transition. Pushed 8d7fcc1 now joins identical in-flight semantic work across regenerated keys and replays unsafe post-HID receipts without issuing HID again. A smallest-safe live dropped-response probe exercised that path: the retry exposed both alias replay flags, one requested character was emitted exactly once, and a fresh frame showed exactly one visible glyph. No Enter or command execution occurred; exact Run-field OCR remained empty and ambiguous. Its mandatory 106.742-second reset observed a real transition. No prior artifact was claimed, and no v6 current-file observer result is asserted.",
+    "latest_attempt": {
+      "campaign_id": "codex-code-entry-code09-v6-20260804",
+      "accepted_status": "failed",
+      "campaign_reported_status": "failed",
+      "run_id": "5a327953-45cd-423a-8bdf-7744ff5ac499",
+      "source_commit": "d85dd6579c2de0c4764b4084c09ec8d35d32a24a",
+      "wall_clock_ms": 292012,
+      "task_duration_ms": 440893,
+      "preflight_ms": 57226,
+      "model_active_ms": 94929,
+      "provider_wait_ms": 95974,
+      "action_execution_ms": 191727,
+      "evidence_capture_ms": 2605,
+      "provider_calls": 12,
+      "actions_attempted": 19,
+      "actions_completed": 18,
+      "action_recoverable_failures": 0,
+      "same_run_recoveries": 0,
+      "maximized_editor_native_readback_fix_exercised": true,
+      "maximized_editor_native_readback_fix_effective": true,
+      "heading_input_emitted": true,
+      "input_transport": {
+        "strategy_version": "windows-rfb-print-v2",
+        "keymap": "en-gb",
+        "keyboard_profile": "windows",
+        "pre_reboot_print_sequence": 21,
+        "requested_heading_sha256": "a09f21ee71a9b858aefacb390fbac6f29ce0e0c7523918d4e4bb691c29b4e3db",
+        "requested_heading_present": true,
+        "receipt_scope": "http_print_requests",
+        "routes": {
+          "windows_atomic_printable": 12,
+          "windows_semantic_alt_code": 1
+        }
+      },
+      "heading_native_readback_sha256": "a09f21ee71a9b858aefacb390fbac6f29ce0e0c7523918d4e4bb691c29b4e3db",
+      "heading_native_readback_verdict": "match",
+      "failed_input_status": null,
+      "task_error": "task exceeded the campaign time limit",
+      "slowest_action_ms": 37797.53,
+      "approval_requests": 0,
+      "reboot_ms": 77358,
+      "reboot_transition_observed": true,
+      "post_observer_reset_ms": 77479,
+      "post_observer_reset_transition_observed": true,
+      "observer_comparison": "Capture failed before the observer executable was launched; no current-file or dangerous-commit result is asserted.",
+      "comparison_report": "bench/results/2026-08-04/live-vnc/code-09-v6-observer-comparison.json",
+      "recording": {
+        "sha256": "20675156e855a84632b12325ebff49c972040509684d6fd13ecf3d7ae63fa0fa",
+        "codec": "vp9",
+        "duration_ms": 356000,
+        "size_bytes": 1572351,
+        "relative_path": "codex-code-entry-code09-v6-20260804/codex-windows-50/code-09/recording.webm"
+      },
+      "poster": {
+        "relative_path": "codex-code-entry-code09-v6-20260804/codex-windows-50/code-09/poster.jpg",
+        "sha256": "8a9f1a744648ab6c57c0477d602cf90cb9de6cb4e53b72b2e00c01b393768694"
+      },
+      "campaign_sha256": "6c2320385705eda4d05fb1980e9be89e8f76dc6f9f1f1d04c758aa41e9fb8ee2"
+    },
+    "diagnostic_probes": "bench/results/2026-08-04/live-vnc/code-09-native-readback-probes.json",
+    "idempotency_probe": "bench/results/2026-08-04/live-vnc/code-09-v6-idempotency-probe.json",
+    "next_gate": "Fix the remaining causal Run-field OCR/readback defect without replaying input, then reduce repeated exact-line verification latency in one bounded slice and run recorded Code-09 v7 only after both changes are exercised live.",
+    "full_ledger": "bench/results/2026-08-04/live-vnc/code-09-attempts.json"
+  }
+}
