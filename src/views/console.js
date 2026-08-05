@@ -5026,6 +5026,22 @@
         }
         pollWorkspace();
 
+        /* Dev convenience: main watches the workspace build directory and tells
+         * us when a rebuild lands, so the frame picks it up without restarting
+         * the app. It used to reload the native view directly, which after the
+         * move would have refreshed the copy nobody looks at. */
+        if (window.desktopConsole.onWorkspaceReload) {
+            window.desktopConsole.onWorkspaceReload(function () {
+                if (workspaceShown && chatFrame.contentWindow) {
+                    try {
+                        chatFrame.contentWindow.location.reload();
+                    } catch (e) {
+                        chatFrame.src = WORKSPACE_URL;
+                    }
+                }
+            });
+        }
+
         // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
         // colour the titlebar dot. Tooltip enumerates each dependency the daemon needs.
         var bsEl = document.getElementById("backend-status");

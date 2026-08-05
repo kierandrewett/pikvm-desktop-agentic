@@ -965,11 +965,18 @@ function createWindow() {
     const harnessAssetsWatcher = harnessAssetDirectory
         ? watch(harnessAssetDirectory, { persistent: false }, () => {
               harnessViewLifecycle.scheduleAssetReload(() => {
-                  if (agentView.webContents.isDestroyed()) return;
                   console.log(
                       `[harness-renderer] reloading rebuilt UI from ${harnessAssetDirectory}`,
                   );
-                  agentView.webContents.reloadIgnoringCache();
+                  /* The workspace is a frame in the console now, so the console
+                   * reloads it. Left pointing at the native view, a rebuild
+                   * would have refreshed the copy nobody looks at and left the
+                   * visible one stale — a dev convenience that quietly stopped
+                   * conveniencing anything. */
+                  toConsole("console:workspace-reload");
+                  if (agentWin && !agentWin.isDestroyed()) {
+                      agentWin.webContents.reloadIgnoringCache();
+                  }
               });
           })
         : null;
@@ -1019,7 +1026,20 @@ function createWindow() {
     }
 
     if (backend) {
-        void backend.harnessReady.then(loadHarness).catch((error: unknown) => {
+        /* The conversation is rendered IN the console page now, from
+         * /_agent/workspace/, so this native view is no longer shown — it never
+         * receives a rect, so applyWorkspaceView never makes it visible.
+         *
+         * It must not LOAD either. Left loading, it was a second full copy of
+         * the workspace running invisibly: another React tree, another set of
+         * polls and event streams against the same harness, for a panel nobody
+         * can see. Measured, not assumed — its target was still listed and the
+         * harness was serving two clients.
+         *
+         * The object and its plumbing stay for now so the detached conversation
+         * window, which is still a real native view, keeps its IPC. Removing the
+         * dead remainder is a separate change with no behaviour in it. */
+        void backend.harnessReady.catch((error: unknown) => {
             // startProxyAndHarness logs the actionable startup error, but the
             // user is looking at the panel, not our stdout. This is the path
             // that left the view exactly as constructed, a black rectangle

@@ -80,6 +80,9 @@ export interface DesktopConsoleApi {
     reportAgentTheme(theme: "dark" | "light"): void;
     /** The conversation asking, on its first paint, which theme to be in. */
     onAgentThemeRequest(cb: () => void): () => void;
+    /** A rebuilt workspace bundle is on disk; reload the frame showing it. Dev
+     *  only — main watches the build directory. */
+    onWorkspaceReload(cb: () => void): () => void;
     /** Tell the conversation's own header where it currently sits. */
     reportAgentPlacement(placement: { side: "left" | "right"; detached: boolean }): void;
     /** Placement asks coming FROM that header: move to a side, detach/re-attach,
@@ -135,6 +138,11 @@ const api: DesktopConsoleApi = {
         ipcRenderer.send("console:agent-placement", placement),
     reportAgentTheme: (theme: "dark" | "light") =>
         ipcRenderer.send("console:agent-theme", theme),
+    onWorkspaceReload: (cb) => {
+        const listener = () => cb();
+        ipcRenderer.on("console:workspace-reload", listener);
+        return () => ipcRenderer.removeListener("console:workspace-reload", listener);
+    },
     onAgentThemeRequest: (cb) => {
         const listener = () => cb();
         ipcRenderer.on("console:agent-theme-request", listener);
