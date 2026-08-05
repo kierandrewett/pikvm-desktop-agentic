@@ -24,7 +24,13 @@ test("desktop keeps chat primary while the target preview is collapsible", () =>
     assert.match(css, /grid-column:\s*1;[\s\S]*?\.screen\s*\{[\s\S]*?grid-column:\s*2;/);
     assert.match(css, /\.app\.computer-collapsed/);
     assert.doesNotMatch(css, /\.app\.panel-collapsed/);
-    assert.match(html, /aria-label="Hide target preview"/);
+    /* The toggle is drawn by the shared component library now, so its label
+     * lives in a spec rather than in the markup. It is the ACTION, not the
+     * state — "Hide target preview" while the preview is showing — with
+     * aria-pressed carrying the state separately. */
+    assert.match(js, /label: shown \? "Hide target preview" : "Show target preview"/);
+    assert.match(js, /pressed: shown,/);
+    assert.match(html, /id="tb-actions-panel"/);
     assert.match(js, /pikvm-chat-workspace-width-v2/);
 });
 

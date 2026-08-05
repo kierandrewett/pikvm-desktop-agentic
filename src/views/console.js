@@ -5370,17 +5370,27 @@
         }
 
         /* ---- supporting computer preview collapse (titlebar-left toggle) ---- */
-        var tbPanel = document.getElementById("tb-panel");
         function panelShown() {
             return !app.classList.contains("computer-collapsed");
         }
-        function paintPanelToggle() {
-            if (!tbPanel) return;
+        /* Drawn by the shared component library, so this hands it new props
+         * rather than writing four attributes onto a node. The label is the
+         * ACTION, not the state — "Hide target preview" while it is showing —
+         * which is why aria-pressed carries the state separately. */
+        function panelButtonSpecs() {
             var shown = panelShown();
-            tbPanel.classList.toggle("active", shown);
-            tbPanel.setAttribute("aria-pressed", String(shown));
-            tbPanel.setAttribute("aria-label", shown ? "Hide target preview" : "Show target preview");
-            tbPanel.title = shown ? "Hide target preview" : "Show target preview";
+            return [
+                {
+                    id: "panel",
+                    label: shown ? "Hide target preview" : "Show target preview",
+                    icon: TB_ICONS.panel,
+                    pressed: shown,
+                    onSelect: function () { setPanel(!panelShown()); },
+                },
+            ];
+        }
+        function paintPanelToggle() {
+            if (panelButtons) panelButtons.update(panelButtonSpecs());
         }
         function setPanel(show) {
             if (show === panelShown()) return;
@@ -5392,7 +5402,6 @@
             repaintPanelDivider();
         }
         paintPanelToggle();
-        if (tbPanel) tbPanel.addEventListener("click", function () { setPanel(!panelShown()); });
 
         /* ---- fit to native resolution ---- */
         function nativeDims() {
@@ -5452,6 +5461,7 @@
             more: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"5\" cy=\"12\" r=\"1\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/></svg>",
             keys: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\"/><path d=\"M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12\"/></svg>",
             fit: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 9 4 4M4 9V4h5\"/><path d=\"m15 9 5-5M15 4h5v5\"/><path d=\"M9 15l-5 5M4 15v5h5\"/><path d=\"m15 15 5 5M20 15v5h-5\"/></svg>",
+            panel: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8M12 18v3\"/></svg>",
             settings: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z\"/></svg>",
         };
         function tbRect(id) {
@@ -5460,6 +5470,7 @@
         }
         var menuButtons = null;
         var viewButtons = null;
+        var panelButtons = null;
         function viewButtonSpecs() {
             var dims = nativeDims();
             return [
@@ -5503,7 +5514,9 @@
                 ]);
             }
             if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, viewButtonSpecs());
-            return !!(menuButtons && viewButtons);
+            var panelHost = document.getElementById("tb-actions-panel");
+            if (panelHost && !panelButtons) panelButtons = shared.mountIconButtons(panelHost, panelButtonSpecs());
+            return !!(menuButtons && viewButtons && panelButtons);
         }
         /* The bundle is a module, so it has not run when this line does. Poll
          * briefly rather than racing it; if it never arrives the console is

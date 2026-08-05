@@ -42,10 +42,9 @@
              buttons opt out with -webkit-app-region:no-drag (set in CSS). -->
         <div class="titlebar" id="titlebar">
             <div class="tb-left">
-                <button class="tb-btn active" id="tb-panel" title="Hide target preview" aria-label="Hide target preview" aria-pressed="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M8 21h8M12 18v3" /></svg>
-                </button>
+                <!-- Preview toggle, drawn by the conversation's icon button.
+                     console.js owns the collapse; this is told the state. -->
+                <span class="tb-shared" id="tb-actions-panel"></span>
                 <!-- Target backend readiness (daemon + OmniParser + PiKVM + OCR).
                      Polls the daemon's /status via the proxy; tooltip lists each. -->
                 <div class="backend-status" id="backend-status" data-state="unknown" role="status" aria-live="polite" title="Target backend">
