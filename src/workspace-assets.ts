@@ -62,7 +62,43 @@ const HOST_CONFIG =
      * which is how the native views do it: this file already runs before the
      * app module for the API base, so the value is simply there when the app
      * first looks, with no reload to undo a prompt that already appeared. */
-    `try { sessionStorage.setItem("pikvm-harness-token", "desktop-managed"); } catch (e) {}\n`;
+    `try { sessionStorage.setItem("pikvm-harness-token", "desktop-managed"); } catch (e) {}\n` +
+    /* And the placement bridge the workspace header expects.
+     *
+     * As a native view it got this from a preload. A frame cannot have one, and
+     * the app reads window.pikvmPanel while it mounts — so installing it from
+     * the console on the frame's load event is already too late, and the header
+     * simply drops the controls it cannot see. "Move to the left" and "Open in
+     * its own window" disappeared with no error anywhere: the app degrades
+     * gracefully, which is exactly what hid it.
+     *
+     * This file runs before the app module, so the bridge is there when it
+     * looks. Same origin, so it is a plain postMessage to the console, which
+     * owns the placement and the theme and already has the real IPC. */
+    `(function () {
+  var placement = [], theme = [];
+  var post = function (type, value) {
+    try { window.parent.postMessage({ channel: "pikvm-panel", type: type, value: value }, window.location.origin); } catch (e) {}
+  };
+  window.addEventListener("message", function (e) {
+    if (e.source !== window.parent) return;
+    var d = e.data;
+    if (!d || d.channel !== "pikvm-panel") return;
+    var list = d.type === "placement" ? placement : d.type === "theme" ? theme : null;
+    if (list) list.slice().forEach(function (cb) { try { cb(d.value); } catch (err) {} });
+  });
+  var sub = function (list, cb) {
+    list.push(cb);
+    post("subscribe");
+    return function () { var i = list.indexOf(cb); if (i >= 0) list.splice(i, 1); };
+  };
+  window.pikvmPanel = {
+    setSide: function (side) { post("set-side", side); },
+    toggleDetached: function () { post("toggle-detached"); },
+    onPlacement: function (cb) { return sub(placement, cb); },
+    onTheme: function (cb) { return sub(theme, cb); }
+  };
+})();\n`;
 const HOST_CONFIG_FILE = "host-config.js";
 
 /** Resolve a request path inside the build output, or null if it escapes. */

@@ -88,6 +88,19 @@ test("the document tells the bundle where its API is, without an inline script",
          * it came up asking for a token nobody has. Not a secret: the proxy
          * attaches the real credential and discards whatever a page sends. */
         assert.match(cfg.body, /sessionStorage\.setItem\("pikvm-harness-token", "desktop-managed"\)/);
+        /* And the placement bridge. As a native view the workspace got this from
+         * a preload; a frame cannot have one, and the app reads window.pikvmPanel
+         * while it mounts — so installing it from the console on the frame's load
+         * event is already too late and the header silently drops the controls.
+         * It has to be here, before the app module. */
+        assert.match(cfg.body, /window\.pikvmPanel = \{/);
+        for (const method of ["setSide", "toggleDetached", "onPlacement", "onTheme"]) {
+            assert.match(cfg.body, new RegExp(`${method}: function`), `bridge is missing ${method}`);
+        }
+        // It only ever talks to its own parent, at its own origin.
+        assert.match(cfg.body, /window\.parent\.postMessage\(/);
+        assert.match(cfg.body, /window\.location\.origin/);
+        assert.match(cfg.body, /if \(e\.source !== window\.parent\) return;/);
     } finally {
         await s.close();
     }

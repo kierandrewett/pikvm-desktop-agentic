@@ -4922,6 +4922,18 @@
          * because it is the last statement in the handler. */
         var desk = window.desktopConsole;
         if (desk && desk.reportAgentTheme) desk.reportAgentTheme(t);
+        /* And the embedded conversation, which is a same-origin frame rather
+         * than a native view now. Its markup hardcodes class="dark", so without
+         * this the console going light left half of one window in the wrong
+         * theme — the exact fault the native path already had a channel for. */
+        try {
+            if (chatFrame && chatFrame.contentWindow) {
+                chatFrame.contentWindow.postMessage(
+                    { channel: "pikvm-panel", type: "theme", value: t },
+                    location.origin,
+                );
+            }
+        } catch (e) {}
     }
     themeBtn.addEventListener("click", function () {
         applyTheme(currentTheme() === "light" ? "dark" : "light", true);
@@ -5101,13 +5113,41 @@
         /* The conversation's own header carries these controls, so it has to be
          * told where things stand — on its first paint and after every change,
          * whoever made it. The console stays the single owner of the state. */
-        function publishAgentPlacement() {
-            if (!dc.reportAgentPlacement) return;
-            dc.reportAgentPlacement({
-                side: agentOnRight() ? "right" : "left",
-                detached: agentDetached(),
-            });
+        function currentPlacement() {
+            return { side: agentOnRight() ? "right" : "left", detached: agentDetached() };
         }
+        /* The conversation is a same-origin frame now, not a native view with a
+         * preload, so its placement bridge is a postMessage rather than IPC. Both
+         * are told: the detached WINDOW is still a native view and still needs the
+         * IPC, and the two must never disagree about which side we are on. */
+        function postToWorkspace(type, value) {
+            var w = chatFrame && chatFrame.contentWindow;
+            if (!w) return;
+            try {
+                w.postMessage({ channel: "pikvm-panel", type: type, value: value }, location.origin);
+            } catch (e) {}
+        }
+        function publishAgentPlacement() {
+            postToWorkspace("placement", currentPlacement());
+            if (!dc.reportAgentPlacement) return;
+            dc.reportAgentPlacement(currentPlacement());
+        }
+        /* Requests coming back the other way. Only from our own frame and our own
+         * origin: this moves the panel and can open a window, so a message from
+         * anywhere else is not a control input. */
+        window.addEventListener("message", function (e) {
+            if (!chatFrame || e.source !== chatFrame.contentWindow) return;
+            if (e.origin !== location.origin) return;
+            var d = e.data;
+            if (!d || d.channel !== "pikvm-panel") return;
+            if (d.type === "set-side") setAgentSide(d.value === "left" ? "left" : "right");
+            else if (d.type === "toggle-detached") toggleAgentDetached();
+            else if (d.type === "subscribe") {
+                // It has just mounted and wants the current state, not the next change.
+                postToWorkspace("placement", currentPlacement());
+                postToWorkspace("theme", currentTheme());
+            }
+        });
         function setAgentSide(side) {
             document.documentElement.classList.toggle("agent-right", side === "right");
             try { localStorage.setItem(AGENT_SIDE_KEY, side); } catch (e) {}
