@@ -1592,8 +1592,26 @@
         if (btn) btn.hidden = !ocrAvailable();
     }
 
+    /** Is there actually a picture on screen to aim at?
+     *
+     *  Set when a frame has painted, and kept while a frozen one is held, so it
+     *  answers "is there something to look at" rather than "is the stream live". */
+    function screenHasPicture() {
+        return !!(pane && pane.classList.contains("has-frame"));
+    }
     function startOcrPick() {
         if (!ocrAvailable() || ocrPicking) return;
+        /* The request itself would work — it carries allow_offline=1, so the Pi
+         * answers from its own frame whatever the local stream is doing, the
+         * same as Save screenshot. The PICKING is what does not: this asks the
+         * user to drag a rectangle over the text they want, and with nothing on
+         * screen they would be choosing coordinates on a picture they cannot
+         * see. Screenshot needs no aiming, which is why it stays available and
+         * this does not. */
+        if (!screenHasPicture()) {
+            toast("No picture to read from yet", true);
+            return;
+        }
         ocrPicking = true;
         pane.classList.add("ocr-picking");
         ocrHint = document.createElement("div");
@@ -6230,7 +6248,11 @@
             items.push({ id: "screenshot", label: "Save screenshot" });
             items.push({ id: "health", label: "System, GPIO & health…" });
             if (msd.available()) items.push({ id: "msd", label: "Mass storage…" });
-            if (ocrAvailable()) items.push({ id: "ocr", label: "Read text from the screen…" });
+            // enabled, not omitted: the entry is a property of this Pi, and
+            // dropping it entirely would make it look unsupported. Same shape
+            // as "Fit to native resolution" above, for the same reason.
+            if (ocrAvailable())
+                items.push({ id: "ocr", label: "Read text from the screen…", enabled: screenHasPicture() });
             items.push({ id: "log", label: "PiKVM log…" });
             items.push({ id: "macros", label: "Macros…" });
             items.push({ id: "theme", label: "Toggle theme" });
