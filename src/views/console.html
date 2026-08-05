@@ -404,29 +404,36 @@
                 <div class="chat-resize" id="chat-resize" title="Resize chat workspace"
                     role="separator" tabindex="0" aria-orientation="vertical"
                     aria-label="Conversation panel width"></div>
+                <!-- Every key whose FACE is not a name carries one.
+                     title is only a description: the accessible name comes from
+                     the content first, so "⌫" was announced as an erase-to-the-left
+                     character and "⤞" as nothing anyone could act on, no matter
+                     what the tooltip said. The keys whose face is already a word
+                     (Tab, Ctrl, Alt, Win, Del, Home, End) are left as they are.
+                     Same call as the macro editor's reorder arrows. -->
                 <div class="bar-keys" id="drawer">
-                    <button class="ibtn" data-click="left" title="Left click">L</button>
-                    <button class="ibtn" data-click="middle" title="Middle click">M</button>
-                    <button class="ibtn" data-click="right" title="Right click">R</button>
-                    <button class="ibtn" id="drag-lock" title="Hold left (drag)">⤞</button>
+                    <button class="ibtn" data-click="left" title="Left click" aria-label="Left click">L</button>
+                    <button class="ibtn" data-click="middle" title="Middle click" aria-label="Middle click">M</button>
+                    <button class="ibtn" data-click="right" title="Right click" aria-label="Right click">R</button>
+                    <button class="ibtn" id="drag-lock" title="Hold left (drag)" aria-label="Hold the left mouse button down, to drag">⤞</button>
                     <span class="sep"></span>
-                    <button class="ibtn" data-key="Escape">Esc</button>
+                    <button class="ibtn" data-key="Escape" aria-label="Escape">Esc</button>
                     <button class="ibtn" data-key="Tab">Tab</button>
                     <button class="ibtn" data-mod="ControlLeft">Ctrl</button>
                     <button class="ibtn" data-mod="AltLeft">Alt</button>
                     <button class="ibtn" data-mod="MetaLeft">Win</button>
-                    <button class="ibtn" data-key="ArrowLeft">←</button>
-                    <button class="ibtn" data-key="ArrowUp">↑</button>
-                    <button class="ibtn" data-key="ArrowDown">↓</button>
-                    <button class="ibtn" data-key="ArrowRight">→</button>
-                    <button class="ibtn" data-key="Backspace">⌫</button>
-                    <button class="ibtn" data-key="Enter">⏎</button>
+                    <button class="ibtn" data-key="ArrowLeft" aria-label="Left arrow">←</button>
+                    <button class="ibtn" data-key="ArrowUp" aria-label="Up arrow">↑</button>
+                    <button class="ibtn" data-key="ArrowDown" aria-label="Down arrow">↓</button>
+                    <button class="ibtn" data-key="ArrowRight" aria-label="Right arrow">→</button>
+                    <button class="ibtn" data-key="Backspace" aria-label="Backspace">⌫</button>
+                    <button class="ibtn" data-key="Enter" aria-label="Enter">⏎</button>
                     <button class="ibtn" data-key="Delete">Del</button>
                     <button class="ibtn" data-key="Home">Home</button>
                     <button class="ibtn" data-key="End">End</button>
-                    <button class="ibtn" id="cad" title="Ctrl+Alt+Del">C-A-D</button>
-                    <button class="ibtn" data-scroll="up" title="Scroll up">▲</button>
-                    <button class="ibtn" data-scroll="down" title="Scroll down">▼</button>
+                    <button class="ibtn" id="cad" title="Ctrl+Alt+Del" aria-label="Ctrl+Alt+Del">C-A-D</button>
+                    <button class="ibtn" data-scroll="up" title="Scroll up" aria-label="Scroll up">▲</button>
+                    <button class="ibtn" data-scroll="down" title="Scroll down" aria-label="Scroll down">▼</button>
                 </div>
                 <!-- Holds the shared terminal on web and mobile. In the desktop console it
                      stays blank and only reserves the rect that main floats the native
