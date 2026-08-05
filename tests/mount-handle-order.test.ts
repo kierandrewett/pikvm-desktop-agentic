@@ -439,3 +439,30 @@ test("the web overflow menu can run a pinned macro, not only edit them", () => {
     const paint = js.slice(js.indexOf("function paintMacroButtons()"));
     assert.match(paint.slice(0, paint.indexOf("\n    }")), /paintMacroMenu\(\)/);
 });
+
+/**
+ * Losing the window mid-drag has to release what is held, on every platform.
+ *
+ * These listeners sat inside the desktopConsole block, which returns early at
+ * `if (!dc) return;` — so on web and mobile they were never registered. Tab or
+ * app away mid-drag and the left button and any click modifiers stayed down on
+ * the target, with no pointerup ever coming to clear them.
+ *
+ * Measured on the web path: mouse_button down and ControlLeft down while held,
+ * then NOTHING on blur. Now the button and the modifier both come back up, and
+ * the desktop — which also drives this from the main process's window focus —
+ * still releases exactly once, since both helpers check what is actually held
+ * before sending.
+ */
+test("a blur releases held input outside the desktop-only block", () => {
+    const desktopBlockAt = js.indexOf("(function desktopConsole() {");
+    assert.ok(desktopBlockAt > 0, "desktop block not found");
+    for (const fn of ["releaseAllMods", "releaseHeldMouseButtons", "releaseClickMods"]) {
+        const at = js.indexOf(`window.addEventListener("blur", ${fn});`);
+        assert.ok(at > 0, `nothing releases ${fn} on blur`);
+        assert.ok(
+            at < desktopBlockAt,
+            `${fn} is only released inside the desktop-only block, so web and mobile never get it`,
+        );
+    }
+});

@@ -4576,6 +4576,25 @@
         });
         releaseClickMods();
     }
+    /* Losing the window mid-drag releases whatever is still down on the target.
+     *
+     * These used to sit inside the desktop block, which returns early when there
+     * is no desktopConsole — so on web and mobile they were never registered at
+     * all. Switching tab or app while dragging left the left button AND any
+     * click modifiers held down on the target, with no pointerup ever coming to
+     * clear them: measured on the web path as mouse_button down, ControlLeft
+     * down, then nothing on blur.
+     *
+     * The reasoning was never desktop-specific. A button left down on the target
+     * is worse than a dropped one — the remote window carries on following a
+     * cursor with nothing held over here — and switching away mid-gesture is
+     * MORE likely on a phone, not less. The desktop path also drives these from
+     * the main process's window focus; releasing twice is harmless, since both
+     * of these check what is actually held before sending anything. */
+    window.addEventListener("blur", releaseAllMods);
+    window.addEventListener("blur", releaseHeldMouseButtons);
+    window.addEventListener("blur", releaseClickMods);
+
     // Modifiers held on the HOST across a click. The chord queue only ever synthesises
     // modifiers around KEYS, and a bare modifier keydown is never forwarded, so without
     // this the target sees a plain click: Shift+click range-select and Ctrl+click
@@ -5987,12 +6006,6 @@
         document.addEventListener("keyup", function (e) {
             if (e.code) releaseMod(e.code);
         });
-        window.addEventListener("blur", releaseAllMods);
-        /* Same argument for the mouse. Losing the window mid-drag is exactly when
-         * the release goes somewhere we cannot see it, and a button left down on
-         * the target is worse than a dropped one: the remote window carries on
-         * following the cursor with nothing held over here. */
-        window.addEventListener("blur", releaseHeldMouseButtons);
 
         // The MAIN desktop window keeps the original ui.html titlebar ABOVE the
         // console (?shell=native) — hide the console's own titlebar then, but keep all
