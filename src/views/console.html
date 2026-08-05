@@ -373,20 +373,15 @@
                     </div>
                 </div>
 
+                <!-- Deliberately one spinner and one word. The state machine knows
+                     six states, but the only thing the person in front of it can
+                     act on is whether a picture is coming, so the overlay says
+                     that and nothing else. The status chip in the bar still
+                     carries the precise state for anyone who wants it. -->
                 <div class="overlay" role="status" aria-live="polite">
                     <div class="stream-state">
-                        <div class="stream-state-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                                stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="4" width="18" height="13" rx="2" />
-                                <path d="M8 21h8M12 17v4" />
-                            </svg>
-                        </div>
-                        <div class="stream-state-copy">
-                            <strong id="overlay-title">Connecting to the target</strong>
-                            <span id="overlay-detail">Waiting for the first screen frame.</span>
-                        </div>
-                        <button id="overlay-retry" class="stream-retry" type="button" hidden>Retry now</button>
+                        <div class="stream-spinner" id="overlay-spinner" aria-hidden="true"></div>
+                        <span id="overlay-label">Connecting</span>
                     </div>
                 </div>
             </div>

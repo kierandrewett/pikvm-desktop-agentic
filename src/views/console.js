@@ -2874,9 +2874,8 @@
         var el = streamEl();
         return (webrtcActive ? el.videoHeight : el.naturalHeight) || 9;
     }
-    var overlayTitle = document.getElementById("overlay-title");
-    var overlayDetail = document.getElementById("overlay-detail");
-    var overlayRetry = document.getElementById("overlay-retry");
+    var overlayLabel = document.getElementById("overlay-label");
+    var overlaySpinner = document.getElementById("overlay-spinner");
     var conn = document.getElementById("conn");
     var connText = document.getElementById("conn-text");
     var titleText = document.getElementById("tb-title");
@@ -2959,42 +2958,26 @@
         connecting: {
             tone: "",
             label: "Connecting",
-            title: "Connecting to the target",
-            detail: "Waiting for the first screen frame.",
         },
         live: {
             tone: "ok",
             label: "Live",
-            title: "Screen connected",
-            detail: "",
         },
         nosignal: {
             tone: "warn",
             label: "No signal",
-            title: "No display signal",
-            detail: "The target is connected, but it is not producing a picture.",
-            retry: true,
         },
         offline: {
             tone: "bad",
             label: "Reconnecting",
-            title: "Screen paused",
-            detail: "Keeping the last frame visible while the screen reconnects.",
-            retry: true,
         },
         reconnecting: {
             tone: "",
             label: "Reconnecting",
-            title: "Reconnecting to the target",
-            detail: "The next screen frame will appear automatically.",
-            retry: true,
         },
         disconnected: {
             tone: "bad",
             label: "Screen unavailable",
-            title: "Screen preview unavailable",
-            detail: "The target did not return a frame. Retrying automatically.",
-            retry: true,
         },
     };
     function setState(s) {
@@ -3009,9 +2992,11 @@
             pane.classList.remove("offline");
         } else {
             pane.classList.add("offline");
-            if (overlayTitle) overlayTitle.textContent = d.title;
-            if (overlayDetail) overlayDetail.textContent = d.detail;
-            if (overlayRetry) overlayRetry.hidden = !d.retry;
+            /* One line, reusing the chip's own label so a state cannot be
+             * described two different ways. The spinner means "a picture is
+             * still coming"; no signal is a settled answer, not a wait. */
+            if (overlayLabel) overlayLabel.textContent = d.label;
+            if (overlaySpinner) overlaySpinner.hidden = s === "nosignal";
         }
     }
     function loadStream() {
@@ -3214,26 +3199,6 @@
             });
     }
 
-    if (overlayRetry) {
-        overlayRetry.addEventListener("click", function (event) {
-            event.stopPropagation();
-            serverDown = false;
-            retryMs = 800;
-            if (streamMode === "snapshot") {
-                snapshotFailures = 0;
-                setState("reconnecting");
-                scheduleSnapshot(0);
-                return;
-            }
-            if (reconnectTimer) {
-                clearTimeout(reconnectTimer);
-                reconnectTimer = null;
-            }
-            setState("reconnecting");
-            loadStream();
-            pollHealth();
-        });
-    }
 
     hid.setStatus(function () {
         // Refresh the input note without changing the stream state.

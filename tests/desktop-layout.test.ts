@@ -115,10 +115,21 @@ test("state pushes never rewrite a control the user is holding", () => {
     assert.equal(direct.length, 1, "an ad-hoc activeElement guard crept back in");
 });
 
-test("screen failures keep the last frame and offer a deliberate retry", () => {
+test("screen failures keep the last frame under a one-line overlay", () => {
     assert.match(html, /alt="Remote target screen"/);
-    assert.match(html, /id="overlay-retry"/);
-    assert.doesNotMatch(html, /class="spinner"/);
-    assert.match(js, /Screen preview unavailable/);
+    // A spinner and one word. Every state used to carry a title, a body line and
+    // its own retry button; none of that is actionable when the reconnect is
+    // automatic, and the status chip already names the state precisely.
+    assert.match(html, /id="overlay-spinner"/);
+    assert.match(html, /id="overlay-label"/);
+    assert.doesNotMatch(html, /id="overlay-retry"/);
+    assert.doesNotMatch(js, /Waiting for the first screen frame/);
+    assert.doesNotMatch(js, /Screen preview unavailable/);
+    // The label comes from the chip's own string, so a state cannot be described
+    // two different ways in two places.
+    assert.match(js, /overlayLabel\.textContent = d\.label/);
+    // No spinner on "no signal": that is a settled answer, not a wait.
+    assert.match(js, /overlaySpinner\.hidden = s === "nosignal"/);
+    // The last good frame still shows through underneath rather than going black.
     assert.match(css, /\.screen\.has-frame \.overlay/);
 });

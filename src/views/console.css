@@ -623,95 +623,58 @@ html.modal-open .screen {
     background: linear-gradient(to top, rgba(5, 6, 8, 0.78), rgba(5, 6, 8, 0.08) 42%);
 }
 .stream-state {
-    display: grid;
-    grid-template-columns: 34px minmax(0, 1fr) auto;
+    display: flex;
     align-items: center;
-    gap: 12px;
-    width: min(420px, 100%);
-    padding: 12px 14px;
+    gap: 10px;
+    padding: 10px 14px;
     border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
     border-radius: 10px;
-    /* 96%, not 92%. This card sits over the live picture, so the fraction that
-       shows through is whatever the target is displaying — and against a bright
-       screen the detail line landed at 4.4966:1, three thousandths under the
-       4.5:1 its 11.5px needs. A miss that small only exists on paper, but it is
-       still a miss, and it was reading as a pass purely because two decimal
-       places round it to 4.50. At 96% it is 5.01 dark and 5.19 light. */
+    /* 96%, not 92%. This sits over the live picture, so the fraction that shows
+       through is whatever the target is displaying, and against a bright screen
+       the text landed at 4.4966:1 — three thousandths under the 4.5:1 it needs,
+       reading as a pass only because two decimal places round it to 4.50. */
     background: color-mix(in srgb, var(--card) 96%, transparent);
     box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+    /* No colour of its own on purpose: the overlay behind it is near-black in
+       BOTH themes, so it sets a fixed light colour that this must inherit.
+       Following --foreground would make this invisible in the light theme, which
+       is the exact trap the overlay rule above documents. */
 }
-.stream-state-icon {
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    border-radius: 8px;
-    color: var(--muted-foreground);
-    background: var(--secondary);
+.stream-spinner {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+    border-top-color: var(--primary);
+    animation: stream-spin 0.7s linear infinite;
 }
-.stream-state-icon svg {
-    width: 18px;
-    height: 18px;
+.stream-spinner[hidden] {
+    display: none;
 }
-.screen[data-stream-state="connecting"] .stream-state-icon,
-.screen[data-stream-state="reconnecting"] .stream-state-icon {
-    color: var(--primary);
-    animation: stream-pulse 1.5s ease-in-out infinite;
-}
-.screen[data-stream-state="nosignal"] .stream-state-icon {
+.screen[data-stream-state="nosignal"] .stream-state {
     color: var(--warn);
 }
-.screen[data-stream-state="offline"] .stream-state-icon,
-.screen[data-stream-state="disconnected"] .stream-state-icon {
+.screen[data-stream-state="offline"] .stream-state,
+.screen[data-stream-state="disconnected"] .stream-state {
     color: var(--danger);
 }
-.stream-state-copy {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    text-align: left;
-}
-.stream-state-copy strong {
-    font-size: 13px;
-    line-height: 1.35;
-    font-weight: 650;
-}
-.stream-state-copy span {
-    color: var(--muted-foreground);
-    font-size: 11.5px;
-    line-height: 1.4;
-}
-.stream-retry {
-    pointer-events: auto;
-    min-height: 30px;
-    padding: 0 10px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--secondary);
-    color: var(--foreground);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-}
-.stream-retry:hover {
-    background: var(--accent);
-}
-.stream-retry:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-}
-@keyframes stream-pulse {
-    50% {
-        opacity: 0.48;
+@keyframes stream-spin {
+    to {
+        transform: rotate(360deg);
     }
 }
 @media (prefers-reduced-motion: reduce) {
-    .stream-state-icon {
+    /* Still a ring, just not a turning one — the state is carried by the label
+       and by whether the ring is there at all, never by the motion. */
+    .stream-spinner {
         animation: none !important;
+        border-top-color: var(--primary);
     }
 }
 
