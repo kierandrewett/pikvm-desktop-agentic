@@ -213,6 +213,7 @@
         fracInBox: fracInBox,
         macroKeyGroups: macroKeyGroups,
         MACRO_MODS: MACRO_MODS,
+        macroGlyph: macroGlyph,
     };
     if (typeof module !== "undefined" && module.exports) module.exports = pure;
     if (typeof window === "undefined") return; // node test: stop before DOM wiring
@@ -841,6 +842,25 @@
      *
      *  Escaped because a macro label is user input and this goes in as markup —
      *  the icon itself is our own SVG, but the fallback is whatever they typed. */
+    /** What to draw when the icon name did not resolve to one of ours.
+     *
+     *  This used to be `m.icon || initials`, which reads the wrong question. A
+     *  MISSING icon fell through to the label's initials, correctly — but an
+     *  UNRECOGNISED one is a non-empty string, so it short-circuited and the
+     *  name itself was drawn into a 15px box: a titlebar button rendering
+     *  "not-a-real-icon" clipped inside 30px. Unrecognised is the likelier of
+     *  the two in practice, since it is what a macro written by another version
+     *  of this app, or an icon since dropped from MACRO_ICONS, looks like.
+     *
+     *  A one or two character value is kept as-is, so a literal glyph still
+     *  works; anything longer is data we cannot draw, and the label's initials
+     *  say more about the macro than a broken name does. */
+    function macroGlyph(macro) {
+        var icon = typeof macro.icon === "string" ? macro.icon.trim() : "";
+        if (icon && Array.from(icon).length <= 2) return icon;
+        return macro.label.slice(0, 2).toUpperCase();
+    }
+
     function macroFallbackHtml(text) {
         return String(text).replace(/[&<>"]/g, function (c) {
             return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
@@ -857,7 +877,7 @@
                     id: "macro:" + m.id,
                     label: m.label,
                     // macroIconSvg builds a node; the spec wants markup.
-                    icon: svg ? svg.outerHTML : macroFallbackHtml(m.icon || m.label.slice(0, 2).toUpperCase()),
+                    icon: svg ? svg.outerHTML : macroFallbackHtml(macroGlyph(m)),
                     onSelect: function () {
                         runMacro(m);
                     },

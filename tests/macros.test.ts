@@ -138,3 +138,30 @@ test("every key the macro editor offers survives the server's validation", () =>
     const [withMods] = cleanMacros([{ label: "x", steps: [{ type: "chord", mods, code: "KeyL" }] }]);
     assert.deepEqual((withMods!.steps[0] as { mods: string[] }).mods, mods);
 });
+
+
+
+/**
+ * A titlebar macro is an icon-only button, so what goes in it when the icon
+ * name is not one of ours decides whether it renders as anything at all.
+ *
+ * This used to ask `m.icon || initials`, which is the wrong question. A MISSING
+ * icon fell through to the initials correctly, but an UNRECOGNISED one is a
+ * non-empty string, so it short-circuited and the name itself was drawn into a
+ * 15px box — a button rendering "not-a-real-icon" clipped inside 30px.
+ * Unrecognised is the likelier case: it is what a macro written by another
+ * version, or an icon since dropped from MACRO_ICONS, looks like.
+ */
+test("a macro glyph falls back to the label unless the icon is drawable", () => {
+    const { macroGlyph } = require("../src/views/console.js") as {
+        macroGlyph: (m: { icon?: string; label: string }) => string;
+    };
+
+    // An icon name we cannot draw says less about the macro than its own label.
+    assert.equal(macroGlyph({ icon: "not-a-real-icon", label: "Short 0" }), "SH");
+    assert.equal(macroGlyph({ label: "Reboot now" }), "RE");
+    assert.equal(macroGlyph({ icon: "   ", label: "Reboot now" }), "RE");
+    // One or two characters is a glyph someone meant, so it is kept.
+    assert.equal(macroGlyph({ icon: "\u26a1", label: "Reboot now" }), "\u26a1");
+    assert.equal(macroGlyph({ icon: "OK", label: "Reboot now" }), "OK");
+});
