@@ -348,7 +348,12 @@
                 <div class="dlg-scrim" id="paste-dlg" hidden>
                     <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="paste-dlg-title">
                         <h2 class="dlg-title" id="paste-dlg-title">Paste text to the target</h2>
+                        <!-- Labelled explicitly, for the same reason the OCR field is: the
+                             dialog title names the DIALOG, so the field itself was announced
+                             as a bare "text area". The placeholder is not a label — it is a
+                             fallback, and it disappears the moment anything is typed. -->
                         <textarea id="paste-text" class="dlg-input" rows="6" spellcheck="false"
+                            aria-label="Text to type on the target"
                             placeholder="Text to type on the target…"></textarea>
                         <div class="dlg-row">
                             <label class="dlg-label" for="paste-keymap">Keymap</label>
