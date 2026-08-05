@@ -3,6 +3,9 @@
     "description": "PiKVM desktop client — a managed agent chat with live computer context",
     "version": "1.12.3",
     "main": "main.js",
+    "bin": {
+        "pikvm": "bin/pikvm"
+    },
     "repository": "https://github.com/kierandrewett/pikvm-desktop-agentic",
     "author": "kierandrewett <kieran@drewett.dev>",
     "license": "MIT",
