@@ -1152,24 +1152,73 @@
         refocusKbd();
     }
     (function wireMacroEditor() {
-        var close = document.getElementById("macro-close");
-        if (close) close.addEventListener("click", closeMacroEditor);
-        var add = document.getElementById("macro-new");
-        if (add) {
-            add.addEventListener("click", function () {
-                var macro = {
-                    id: "macro-" + Date.now().toString(36),
-                    label: "New macro",
-                    icon: "command",
-                    pinned: true,
-                    steps: [{ type: "chord", mods: [], code: "" }],
-                };
-                macros.push(macro);
-                macroSelected = macro.id;
-                // Not saved yet: a step with no key is dropped by the server's
-                // validation, so it only persists once it does something.
-                paintMacroEditor();
+        /* The dialog's buttons are drawn by the shared component library, so a
+         * dialog action looks the same here as it does in the conversation. The
+         * console keeps owning what each one does; the specs only say what to
+         * draw and when it is available. */
+        function addStep(kind) {
+            var macro = macroById(macroSelected);
+            if (!macro) return;
+            if (kind === "chord") macro.steps.push({ type: "chord", mods: [], code: "" });
+            else if (kind === "text") macro.steps.push({ type: "text", text: "" });
+            else macro.steps.push({ type: "delay", ms: 200 });
+            paintMacroEditor();
+        }
+        function newMacro() {
+            var macro = {
+                id: "macro-" + Date.now().toString(36),
+                label: "New macro",
+                icon: "command",
+                pinned: true,
+                steps: [{ type: "chord", mods: [], code: "" }],
+            };
+            macros.push(macro);
+            macroSelected = macro.id;
+            // Not saved yet: a step with no key is dropped by the server's
+            // validation, so it only persists once it does something.
+            paintMacroEditor();
+        }
+        function deleteMacro() {
+            var macro = macroById(macroSelected);
+            if (!macro) return;
+            if (!window.confirm('Delete the macro "' + macro.label + '"?')) return;
+            macros = macros.filter(function (m) {
+                return m.id !== macro.id;
             });
+            macroSelected = macros.length ? macros[0].id : null;
+            void saveMacros();
+        }
+        function stepActionSpecs() {
+            return [
+                { id: "add-chord", label: "Add key combo", onSelect: function () { addStep("chord"); } },
+                { id: "add-text", label: "Add text", onSelect: function () { addStep("text"); } },
+                { id: "add-delay", label: "Add pause", onSelect: function () { addStep("delay"); } },
+                { id: "macro-delete", label: "Delete macro", onSelect: deleteMacro },
+            ];
+        }
+        function dialogActionSpecs() {
+            return [
+                { id: "macro-new", label: "New macro", onSelect: newMacro },
+                // The one affirmative action in the row, so the one filled button.
+                { id: "macro-close", label: "Done", variant: "default", onSelect: closeMacroEditor },
+            ];
+        }
+        var macroStepActions = null;
+        var macroDialogActions = null;
+        function mountMacroButtons() {
+            var shared = window.pikvmShared;
+            if (!shared || !shared.mountButtons) return false;
+            var stepHost = document.getElementById("macro-step-actions");
+            var actionHost = document.getElementById("macro-dlg-actions");
+            if (stepHost && !macroStepActions) macroStepActions = shared.mountButtons(stepHost, stepActionSpecs());
+            if (actionHost && !macroDialogActions) macroDialogActions = shared.mountButtons(actionHost, dialogActionSpecs());
+            return !!(macroStepActions && macroDialogActions);
+        }
+        if (!mountMacroButtons()) {
+            var tries = 0;
+            var timer = setInterval(function () {
+                if (mountMacroButtons() || ++tries > 100) clearInterval(timer);
+            }, 50);
         }
         var labelInput = document.getElementById("macro-label");
         if (labelInput) {
@@ -1200,19 +1249,6 @@
                 paintMacroEditor();
             });
         });
-        var del = document.getElementById("macro-delete");
-        if (del) {
-            del.addEventListener("click", function () {
-                var macro = macroById(macroSelected);
-                if (!macro) return;
-                if (!window.confirm('Delete the macro "' + macro.label + '"?')) return;
-                macros = macros.filter(function (m) {
-                    return m.id !== macro.id;
-                });
-                macroSelected = macros.length ? macros[0].id : null;
-                void saveMacros();
-            });
-        }
         if (macroDlg) {
             macroDlg.addEventListener("mousedown", function (e) {
                 if (e.target === macroDlg) closeMacroEditor();

@@ -236,19 +236,14 @@
                                     </div>
                                     <div class="macro-steps" id="macro-steps"></div>
                                     <p class="dlg-note macro-unsaved" id="macro-unsaved" hidden></p>
-                                    <div class="dlg-row">
-                                        <button type="button" class="dlg-btn" data-add-step="chord">Add key combo</button>
-                                        <button type="button" class="dlg-btn" data-add-step="text">Add text</button>
-                                        <button type="button" class="dlg-btn" data-add-step="delay">Add pause</button>
-                                        <button type="button" class="dlg-btn" id="macro-delete">Delete macro</button>
-                                    </div>
+                                    <!-- Drawn by the conversation's Button, so a
+                                         dialog action looks like a dialog action
+                                         everywhere in this window. -->
+                                    <div class="dlg-row" id="macro-step-actions"></div>
                                 </div>
                             </div>
                         </div>
-                        <div class="dlg-actions">
-                            <button type="button" class="dlg-btn" id="macro-new">New macro</button>
-                            <button type="button" class="dlg-btn primary" id="macro-close">Done</button>
-                        </div>
+                        <div class="dlg-actions" id="macro-dlg-actions"></div>
                     </div>
                 </div>
 
