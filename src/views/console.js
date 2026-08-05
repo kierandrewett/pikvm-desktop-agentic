@@ -1298,6 +1298,26 @@
      * has arrived — and a new window or a close aborts the one in flight
      * instead of leaving tens of megabytes downloading into a closed dialog. */
     var logAbort = null;
+    var logHasText = false;
+    var logActions = null;
+    function logActionSpecs() {
+        return [
+            {
+                id: "log-copy",
+                label: "Copy",
+                disabled: !logHasText,
+                onSelect: function () {
+                    var body = document.getElementById("log-body");
+                    if (body && logHasText) copyText(body.textContent, "Log copied");
+                },
+            },
+            { id: "log-close", label: "Done", variant: "default", onSelect: closeLogDialog },
+        ];
+    }
+    function repaintLogActions() {
+        if (logActions) logActions.update(logActionSpecs());
+    }
+
     function loadLog() {
         var body = document.getElementById("log-body");
         var seekEl = document.getElementById("log-seek");
@@ -1306,6 +1326,8 @@
         var controller = new AbortController();
         logAbort = controller;
         var seek = seekEl ? seekEl.value : "3600";
+        logHasText = false;
+        repaintLogActions();
         body.textContent = "Loading…";
         // follow=0: a snapshot, not a stream. The real UI opens a following tab, which
         // never ends and is the wrong shape for a dialog opened to answer one question.
@@ -1338,11 +1360,21 @@
             })
             .then(function (t) {
                 if (controller.signal.aborted) return;
-                body.textContent = capLog(t) || "(nothing in this window)";
+                var capped = capLog(t);
+                /* "Loading…", "(nothing in this window)" and the error below are
+                 * all MESSAGES in the same box the log lands in. Copy used to
+                 * take whichever was showing and report "Log copied", so a user
+                 * who pressed it early got the word "Loading…" on their
+                 * clipboard and no sign anything was wrong. */
+                logHasText = !!capped;
+                repaintLogActions();
+                body.textContent = capped || "(nothing in this window)";
                 body.scrollTop = body.scrollHeight; // newest last
             })
             .catch(function (e) {
                 if (e && e.name === "AbortError") return;
+                logHasText = false;
+                repaintLogActions();
                 body.textContent = "Could not read the log: " + (e && e.message ? e.message : "network error");
             });
     }
@@ -1380,19 +1412,7 @@
         if (refresh) refresh.addEventListener("click", loadLog);
         var seek = document.getElementById("log-seek");
         if (seek) seek.addEventListener("change", loadLog);
-        mountDialogActions("log-dlg-actions", function () {
-            return [
-                {
-                    id: "log-copy",
-                    label: "Copy",
-                    onSelect: function () {
-                        var body = document.getElementById("log-body");
-                        if (body) copyText(body.textContent, "Log copied");
-                    },
-                },
-                { id: "log-close", label: "Done", variant: "default", onSelect: closeLogDialog },
-            ];
-        });
+        logActions = mountDialogActions("log-dlg-actions", logActionSpecs);
         if (logDlg) {
             logDlg.addEventListener("mousedown", function (e) {
                 if (e.target === logDlg) closeLogDialog();

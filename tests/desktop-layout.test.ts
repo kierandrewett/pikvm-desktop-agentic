@@ -371,3 +371,17 @@ test("OCR will not copy its own 'nothing here' message", () => {
     assert.match(js, /disabled: !ocrHasText,/);
     assert.match(js, /if \(out && ocrHasText\) copyText\(out\.value, "Text copied"\);/);
 });
+
+test("the log will not copy its own status messages", () => {
+    /* "…", "Loading…", "Loading… 546 KB", "(nothing in this window)" and the
+     * read error all land in the same <pre> the log lands in. Copy took
+     * whichever was showing and reported "Log copied", so pressing it early put
+     * the word "Loading…" on the clipboard with nothing to say it had. */
+    assert.match(js, /var logHasText = false;/);
+    assert.match(js, /logHasText = !!capped;/);
+    assert.match(js, /disabled: !logHasText,/);
+    assert.match(js, /if \(body && logHasText\) copyText\(body\.textContent, "Log copied"\);/);
+    // Cleared again when a fresh load starts and when one fails.
+    const cleared = js.match(/logHasText = false;\s*\n\s*repaintLogActions\(\);/g) ?? [];
+    assert.ok(cleared.length >= 2, "a failed or restarted load must disable Copy again");
+});
