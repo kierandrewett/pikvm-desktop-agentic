@@ -465,7 +465,11 @@
                     <button class="ibtn" data-scroll="up" title="Scroll up">▲</button>
                     <button class="ibtn" data-scroll="down" title="Scroll down">▼</button>
                 </div>
-                <iframe id="chat-frame" title="Chat workspace"></iframe>
+                <!-- Holds the shared terminal on web and mobile. In the desktop console it
+                     stays blank and only reserves the rect that main floats the native
+                     conversation view over, so console.js hides it from assistive tech
+                     there. Named for what it holds, which was never the chat. -->
+                <iframe id="chat-frame" title="Terminal"></iframe>
             </div>
         </div>
 

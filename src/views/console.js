@@ -4431,14 +4431,6 @@
         window.addEventListener("resize", paintResizeValue);
     }
 
-    /* ---- merged bar: drive the embedded terminal (e.g. "new tab") ---- */
-    document.querySelectorAll("[data-agent]").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            try {
-                chatFrame.contentWindow.postMessage({ type: "agent-action", action: btn.getAttribute("data-agent") }, "*");
-            } catch (e) {}
-        });
-    });
     window.addEventListener("message", function (e) {
         var d = e.data;
         if (!d) return;
@@ -4566,6 +4558,12 @@
         // this panel. Report only the content bounds; there is no secondary terminal
         // workspace or mode switch.
         chatFrame.src = "about:blank";
+        /* Nothing is ever rendered in here on the desktop: the frame is a spacer
+         * whose rect tells main where to float the native conversation view. An
+         * empty frame that announces itself as a workspace is worse than one
+         * that says nothing, so take it out of the accessibility tree. */
+        chatFrame.setAttribute("aria-hidden", "true");
+        chatFrame.removeAttribute("title");
         var reportTermRect = function () {
             try {
                 var r = chatFrame.getBoundingClientRect();
@@ -4619,6 +4617,7 @@
         // server; this page connects to the /_agent/terminal WebSocket and sees the same tabs
         // + live output as every other device (full control). No native view needed here.
         chatFrame.src = "/_agent/terminal.html";
+        chatFrame.title = "Terminal";
     }
 
     /* ---- pick up the server's keyboard layout (so symbols map right) ---- */
