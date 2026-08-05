@@ -54,8 +54,6 @@ app.commandLine.appendSwitch("disable-renderer-backgrounding");
 /** Port for the local control server (MCP + sidebar chat bridge). Overridable via
  *  PIKVM_CONTROL_PORT so a dev build can run alongside an installed instance. */
 const CONTROL_PORT = Number(process.env.PIKVM_CONTROL_PORT) || 25650;
-const SIDEBAR_MIN = 300;
-const SIDEBAR_MAX = 640;
 
 // The unified web console (/_agent/console) is the PRIMARY desktop UI: the main
 // window loads it and the console draws its own titlebar/chrome (via the console
@@ -931,15 +929,6 @@ function createWindow() {
     });
 
     // Drag-to-resize the sidebar: the renderer sends the desired width.
-    ipcMain.on("sidebar:resize", (_, width: number) => {
-        const next = Math.round(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width)));
-        if (!sidebarOpen || next === sidebarWidth) return;
-        const [w, h] = win.getContentSize();
-        win.setContentSize(w! + (next - sidebarWidth), h!);
-        sidebarWidth = next;
-        settings.patch({ sidebarWidth: next });
-        layout();
-    });
 
     // Start the local backend (PiKVM control core for the proxy + the shared
     // terminal + the control server) — UNLESS we're a thin client pointing at a
@@ -1015,9 +1004,6 @@ function createWindow() {
         });
     }
 
-    ipcMain.on("open-external", (_, url: string) => {
-        if (typeof url === "string" && /^https?:\/\//.test(url)) void shell.openExternal(url);
-    });
 
     win.on("resize", layout);
     layout();
