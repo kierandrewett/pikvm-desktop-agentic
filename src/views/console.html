@@ -410,11 +410,18 @@
                      character and "⤞" as nothing anyone could act on, no matter
                      what the tooltip said. The keys whose face is already a word
                      (Tab, Ctrl, Alt, Win, Del, Home, End) are left as they are.
-                     Same call as the macro editor's reorder arrows. -->
+                     Same call as the macro editor's reorder arrows.
+
+                     Where a face IS speakable text — L, M, R, C-A-D — the name
+                     keeps it and adds to it. Replacing "L" with "Left click"
+                     would have named it something nobody can see, so speech
+                     control would no longer match what is written on it. The
+                     pure glyphs have no speakable face, so there is nothing to
+                     preserve there. -->
                 <div class="bar-keys" id="drawer">
-                    <button class="ibtn" data-click="left" title="Left click" aria-label="Left click">L</button>
-                    <button class="ibtn" data-click="middle" title="Middle click" aria-label="Middle click">M</button>
-                    <button class="ibtn" data-click="right" title="Right click" aria-label="Right click">R</button>
+                    <button class="ibtn" data-click="left" title="Left click" aria-label="L, left click">L</button>
+                    <button class="ibtn" data-click="middle" title="Middle click" aria-label="M, middle click">M</button>
+                    <button class="ibtn" data-click="right" title="Right click" aria-label="R, right click">R</button>
                     <button class="ibtn" id="drag-lock" title="Hold left (drag)" aria-label="Hold the left mouse button down, to drag">⤞</button>
                     <span class="sep"></span>
                     <button class="ibtn" data-key="Escape" aria-label="Escape">Esc</button>
@@ -431,7 +438,7 @@
                     <button class="ibtn" data-key="Delete">Del</button>
                     <button class="ibtn" data-key="Home">Home</button>
                     <button class="ibtn" data-key="End">End</button>
-                    <button class="ibtn" id="cad" title="Ctrl+Alt+Del" aria-label="Ctrl+Alt+Del">C-A-D</button>
+                    <button class="ibtn" id="cad" title="Ctrl+Alt+Del" aria-label="C-A-D, send Ctrl+Alt+Del">C-A-D</button>
                     <button class="ibtn" data-scroll="up" title="Scroll up" aria-label="Scroll up">▲</button>
                     <button class="ibtn" data-scroll="down" title="Scroll down" aria-label="Scroll down">▼</button>
                 </div>
