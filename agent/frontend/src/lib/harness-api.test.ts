@@ -176,3 +176,57 @@ describe("harnessEventStream", () => {
     });
   });
 });
+
+describe("API base", () => {
+  /* The same built bundle is served by two hosts. Standalone, the harness serves
+   * it and its API is on the same origin at /api/*. The desktop serves it from
+   * ITS origin, where /api/* is already the kvmd proxy the console uses for HID
+   * and streaming — so the desktop supplies a prefix and the two cannot collide.
+   * The base is read once at module load, so each case needs a fresh import. */
+  const withBase = async (base: unknown) => {
+    vi.resetModules();
+    if (base === undefined) {
+      delete (globalThis as Record<string, unknown>).__PIKVM_HARNESS_API_BASE__;
+    } else {
+      (globalThis as Record<string, unknown>).__PIKVM_HARNESS_API_BASE__ = base;
+    }
+    return (await import("@/lib/harness-api")).harnessUrl;
+  };
+
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).__PIKVM_HARNESS_API_BASE__;
+    vi.resetModules();
+  });
+
+  it("leaves paths alone when no base is set", async () => {
+    const harnessUrl = await withBase(undefined);
+    expect(harnessUrl("/api/runs")).toBe("/api/runs");
+  });
+
+  it("prefixes root-relative API paths when the host supplies a base", async () => {
+    const harnessUrl = await withBase("/_agent/harness");
+    expect(harnessUrl("/api/runs")).toBe("/_agent/harness/api/runs");
+    expect(harnessUrl("/api/runs/abc/steer")).toBe(
+      "/_agent/harness/api/runs/abc/steer",
+    );
+  });
+
+  it("does not double the separator on a trailing slash", async () => {
+    const harnessUrl = await withBase("/_agent/harness/");
+    expect(harnessUrl("/api/runs")).toBe("/_agent/harness/api/runs");
+  });
+
+  it("leaves an already-absolute URL exactly as the caller wrote it", async () => {
+    const harnessUrl = await withBase("/_agent/harness");
+    expect(harnessUrl("http://127.0.0.1:47616/api/runs")).toBe(
+      "http://127.0.0.1:47616/api/runs",
+    );
+  });
+
+  it("ignores a base that is not a usable string", async () => {
+    for (const bad of ["", 42, null, {}]) {
+      const harnessUrl = await withBase(bad);
+      expect(harnessUrl("/api/runs")).toBe("/api/runs");
+    }
+  });
+});

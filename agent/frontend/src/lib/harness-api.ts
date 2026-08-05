@@ -137,6 +137,37 @@ const responseMessage = async (response: Response) => {
   return `${response.status} ${response.statusText}`.trim();
 };
 
+/**
+ * Where the harness API lives, relative to wherever this app was served from.
+ *
+ * Empty in the standalone case: the harness serves this app itself, so its API
+ * is on the same origin at /api/*. The desktop serves it from ITS origin, and
+ * there /api/* is already the kvmd proxy the console uses for HID and streaming
+ * — the two would collide, so the desktop supplies a prefix instead.
+ *
+ * Read from a global the host page sets before this bundle runs, rather than
+ * from an env define, because the same built asset is served by both hosts. One
+ * lookup at module load, so none of the ~96 call sites has to know it exists.
+ */
+function readApiBase(): string {
+  const raw = (globalThis as { __PIKVM_HARNESS_API_BASE__?: unknown })
+    .__PIKVM_HARNESS_API_BASE__;
+  if (typeof raw !== "string" || raw === "") return "";
+  return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+}
+
+const API_BASE = readApiBase();
+
+/**
+ * Resolve an API path against that base.
+ *
+ * Only root-relative paths are rebased. Anything already absolute is a
+ * deliberate choice by the caller and is left exactly as it is.
+ */
+export function harnessUrl(path: string): string {
+  return API_BASE && path.startsWith("/") ? `${API_BASE}${path}` : path;
+}
+
 export async function harnessJson<T>(
   token: string,
   path: string,
@@ -147,7 +178,7 @@ export async function harnessJson<T>(
   if (init.body != null && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, {
+  const response = await fetch(harnessUrl(path), {
     ...init,
     headers,
     cache: "no-store",
@@ -163,7 +194,7 @@ export async function harnessBlob(
   path: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const response = await fetch(path, {
+  const response = await fetch(harnessUrl(path), {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
     signal,
@@ -219,7 +250,7 @@ export async function harnessEventStream(
   const headers = new Headers();
   headers.set("Authorization", `Bearer ${token}`);
   headers.set("Accept", "text/event-stream");
-  const response = await fetch(path, {
+  const response = await fetch(harnessUrl(path), {
     headers,
     cache: "no-store",
     signal: options.signal,
