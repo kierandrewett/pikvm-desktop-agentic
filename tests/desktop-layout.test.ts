@@ -275,26 +275,26 @@ test("the daemon and the harness resolve one pikvm-agent installation", () => {
     assert.match(main, /agentExecutables\(configured, process\.env\.PIKVM_HARNESS_CMD, process\.env\.PIKVM_AGENT_DAEMON_CMD\)/);
 });
 
-test("the operator credential is injected on the partition, not on a view", () => {
-    /* The harness runs in an isolated session so main can swap a non-secret
-     * sentinel for the real operator token before a request leaves — the
-     * credential that authorises computer input never reaches renderer JS.
-     * Two things use that partition: the embedded panel and the detached window. */
-    assert.match(main, /const HARNESS_PARTITION = "pikvm-harness";/);
-    const literals = main.match(/partition: "pikvm-harness"/g) ?? [];
-    assert.equal(literals.length, 0, "the partition name is written out by hand again");
-    /* One consumer now, not two: the embedded view is gone and the detached
-     * conversation window is all that is left on this session. That is exactly
-     * the case the rewrite was moved off the view for — had it still hung there,
-     * this window would have lost its credential the day the view went. */
-    assert.equal((main.match(/partition: HARNESS_PARTITION/g) ?? []).length, 1);
-    assert.doesNotMatch(main, /const agentView = new WebContentsView/);
-
-    // Bound to the session itself. Hanging it off one view meant the detached
-    // window only got its credential because it happened to share that view's
-    // session — and would have lost it silently the day the view went away.
-    assert.match(main, /session\.fromPartition\(HARNESS_PARTITION\)\.webRequest\.onBeforeSendHeaders/);
+test("the operator credential never reaches a renderer", () => {
+    /* It used to be a sentinel in the page swapped for the real token by a
+     * session header rewrite, which meant the credential existed in the
+     * renderer's network stack even if never in its JavaScript.
+     *
+     * Both hosts of the conversation now load from OUR origin and reach the
+     * harness through the /_agent/harness proxy, which drops whatever
+     * Authorization a renderer sent and attaches the desktop's own — so the
+     * token is only ever in the main process. The rewrite is gone because it
+     * could no longer fire, and a rule that cannot fire is not defence in
+     * depth, it is a claim about auth that stopped being true. */
+    assert.doesNotMatch(main, /onBeforeSendHeaders/);
+    assert.doesNotMatch(main, /withHarnessAuthorization/);
+    assert.doesNotMatch(main, /seedHarnessAuth/);
     assert.doesNotMatch(main, /agentView/);
+    // One URL for both, on our origin.
+    assert.match(main, /function workspaceUrl\(\)/);
+    assert.match(main, /agentWin\.loadURL\(workspaceUrl\(\)\)/);
+    // And the proxy that carries the capability is still wired with both halves.
+    assert.match(main, /harnessOrigin,\n\s+harnessToken: harness\.accessToken,/);
 });
 
 test("ctrl+scroll belongs to the target on desktop, not to our zoom", () => {

@@ -26,10 +26,7 @@ import { SettingsStore } from "./settings";
 import { TerminalSessions } from "./terminal-server";
 import { ManagedService } from "./service-manager";
 import { HarnessManager } from "./harness-manager";
-import {
-    activeManagedClientRuntimePath,
-    withHarnessAuthorization,
-} from "./harness-runtime";
+import { activeManagedClientRuntimePath } from "./harness-runtime";
 import { HarnessViewLifecycle } from "./harness-view-lifecycle";
 import { WORKSPACE_PREFIX } from "./workspace-assets";
 import { requestAttention } from "./taskbar-attention";
@@ -831,25 +828,14 @@ function createWindow() {
         // The React workspace still uses its normal token-auth client, but only
         // sees a non-secret sentinel. Electron replaces that header inside this
         // isolated session, keeping approval authority out of renderer storage.
-        /* Registered on the PARTITION, not on a view.
-         *
-         * That day has now come: the embedded view is gone and the detached
-         * conversation window is the only thing left using this session. Had the
-         * rewrite still hung off the view it was originally attached to, that
-         * window would have lost its credential the moment this commit landed,
-         * and the only symptom would have been an auth prompt nobody could
-         * explain. */
-        session.fromPartition(HARNESS_PARTITION).webRequest.onBeforeSendHeaders(
-            { urls: [`${HARNESS_ORIGIN}/api/*`] },
-            (details, callback) => {
-                callback({
-                    requestHeaders: withHarnessAuthorization(
-                        details.requestHeaders,
-                        backend.harness.accessToken,
-                    ),
-                });
-            },
-        );
+        /* The session header rewrite lived here, swapping a sentinel for the
+         * real operator token on requests to the harness origin. Nothing in a
+         * renderer talks to that origin any more: both the embedded frame and
+         * the detached window load from ours, and their API goes through the
+         * /_agent/harness proxy, which attaches the credential server-side and
+         * never lets it reach a page at all. A rewrite that can no longer fire
+         * is not defence in depth, it is a claim about how auth works that
+         * stopped being true. */
     }
 
     if (backend) {
