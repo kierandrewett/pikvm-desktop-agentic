@@ -283,3 +283,30 @@ test("a hidden target preview stops the keyboard reaching the target", () => {
     assert.match(body, /if \(!windowFocused\) return;/);
     assert.match(body, /if \(modalOpen\(\)\) \{/);
 });
+
+/**
+ * The web/mobile overflow menu has to fit the screen it opens on.
+ *
+ * placeMenu clamps where the menu STARTS so it cannot open off-screen, but
+ * nothing stopped it being taller than the viewport. At thirteen items it is
+ * 490px and a phone in landscape has about 390px of height, so the clamp
+ * pinned it to its 8px margin and the last three items — Reset among them —
+ * sat below the fold with overflow:visible and no way to reach them.
+ *
+ * Measured at 844x390, 740x360, 667x375 and 430x480: every one cut off the
+ * same 108px. With a cap the menu now ends inside the viewport, and the last
+ * item comes into view either by scrolling or by tabbing to it.
+ */
+test("the overflow menu can never be taller than the screen", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/views/console.css"), "utf8");
+    const at = css.indexOf(".more-menu {");
+    const rule = css.slice(at, css.indexOf("}", at));
+    assert.match(rule, /max-height:\s*calc\(100dvh - 16px\)/);
+    // vh first, dvh second: dvh has to win where it is supported, and on a
+    // phone vh is the tallest chrome state rather than the current one.
+    assert.ok(
+        rule.indexOf("100vh") < rule.indexOf("100dvh"),
+        "the dvh max-height must come after the vh fallback to override it",
+    );
+    assert.match(rule, /overflow-y:\s*auto/);
+});

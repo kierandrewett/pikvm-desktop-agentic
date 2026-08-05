@@ -342,6 +342,23 @@ body {
         0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
         0 12px 32px -8px rgb(0 0 0 / 55%);
     padding: 5px;
+    /* Never taller than the viewport it has to fit in.
+     *
+     * placeMenu clamps the menu's TOP so it cannot start off-screen, but there
+     * was nothing stopping it being taller than the screen: at 13 items it is
+     * 490px, and a phone in landscape has about 390px of height. The clamp then
+     * pinned it to the 8px margin and the last three items — Reset among them —
+     * sat below the fold with no way to reach them, because this had
+     * overflow:visible and no max-height.
+     *
+     * dvh after vh so it wins where supported: on a phone the browser chrome
+     * comes and goes, and vh is the tallest of those states rather than the
+     * current one. The items are buttons, so tabbing to one that is scrolled
+     * out brings it into view the same way the key drawer does. */
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     animation: dlg-rise 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 @media (prefers-reduced-motion: reduce) {
