@@ -5290,6 +5290,21 @@
     }
     function applyTheme(t, remember) {
         document.documentElement.setAttribute("data-theme", t);
+        /* The shared component library keys its palette off a `dark` CLASS, and
+         * its token block is NOT inside a Tailwind layer — so it sits unlayered
+         * at the same specificity as this file's :root and simply comes later in
+         * the document, which meant it won every colour the two of them name.
+         *
+         * The effect was that the theme toggle did nothing at all: light and
+         * dark resolved to identical values and the whole window was stuck in
+         * the library's light palette, buttons and dialogs alike.
+         *
+         * Setting the class is the fix rather than reordering the two sheets,
+         * because .dark carries forty tokens and this file only names nine of
+         * them. Reordering would have flipped those nine and left --input,
+         * --muted, --ring and the rest light, which is a half-dark window. The
+         * values in the two dark palettes already agree. */
+        document.documentElement.classList.toggle("dark", t === "dark");
         // Only a deliberate choice is written down. Following the OS must not
         // record anything, or the next OS change has a "choice" to fight.
         if (remember) {

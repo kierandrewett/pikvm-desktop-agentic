@@ -1828,3 +1828,15 @@ html.desktop-console #chat-frame {
 [data-tb^="gpio-switch-"] {
     min-width: 52px;
 }
+
+/* color-scheme has to out-specify the shared library's own :root, which sets it
+   to light unconditionally and loads after this file. Without this the form
+   controls, scrollbars and focus rings stayed light in the dark theme even once
+   every colour token had flipped. html[data-theme] is one id-less step above
+   :root, so it wins on specificity rather than on load order. */
+html[data-theme="dark"] {
+    color-scheme: dark;
+}
+html[data-theme="light"] {
+    color-scheme: light;
+}
