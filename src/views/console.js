@@ -5374,7 +5374,7 @@
         function paintMax(maxed) {
             windowMaximised = !!maxed;
             if (titlebar) titlebar.classList.toggle("is-maximised", !!maxed);
-            if (windowButtons) windowButtons.update(windowButtonSpecs());
+            if (windowButtons) windowButtons.update(withTbClass(windowButtonSpecs()));
         }
         Promise.resolve(dc.isMaximised && dc.isMaximised()).then(paintMax).catch(function () {});
         if (dc.onMaximiseChange) dc.onMaximiseChange(paintMax);
@@ -5428,6 +5428,30 @@
          * rather than writing four attributes onto a node. The label is the
          * ACTION, not the state — "Hide target preview" while it is showing —
          * which is why aria-pressed carries the state separately. */
+        /* Every titlebar button carries .tb-btn, drawn by the shared component
+         * or not.
+         *
+         * Two things live on that class and neither is decoration. It sets
+         * -webkit-app-region:no-drag: the titlebar IS the window drag region,
+         * and a button inside one without this is a surface the window manager
+         * takes the click from — which CDP cannot catch, because dispatched
+         * input goes straight to the renderer and never meets the compositor.
+         * And it carries the focus ring; the component's own ring resolves
+         * against a --ring this document does not define, so it came out fully
+         * transparent. Measured: the window controls showed a solid 2px ring
+         * because they kept .tb-btn, and the twelve that had lost it showed
+         * rgba(0,0,0,0).
+         *
+         * Applied in one place so a new button cannot quietly miss it. */
+        function withTbClass(specs) {
+            return specs.map(function (spec) {
+                var extra = spec.className ? " " + spec.className : "";
+                var out = {};
+                for (var k in spec) if (Object.prototype.hasOwnProperty.call(spec, k)) out[k] = spec[k];
+                out.className = "tb-btn" + extra;
+                return out;
+            });
+        }
         function statusButtonSpecs() {
             var h = tbState.health;
             var p = tbState.power;
@@ -5492,7 +5516,7 @@
             ];
         }
         function paintPanelToggle() {
-            if (panelButtons) panelButtons.update(panelButtonSpecs());
+            if (panelButtons) panelButtons.update(withTbClass(panelButtonSpecs()));
         }
         function setPanel(show) {
             if (show === panelShown()) return;
@@ -5606,7 +5630,7 @@
             var menusHost = document.getElementById("tb-actions-menus");
             var viewHost = document.getElementById("tb-actions-view");
             if (menusHost && !menuButtons) {
-                menuButtons = shared.mountIconButtons(menusHost, [
+                menuButtons = shared.mountIconButtons(menusHost, withTbClass([
                     {
                         id: "more",
                         label: "More actions",
@@ -5625,34 +5649,34 @@
                             popSendKeys({ x: r.left, y: r.bottom });
                         },
                     },
-                ]);
+                ]));
             }
-            if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, viewButtonSpecs());
+            if (viewHost && !viewButtons) viewButtons = shared.mountIconButtons(viewHost, withTbClass(viewButtonSpecs()));
             var panelHost = document.getElementById("tb-actions-panel");
-            if (panelHost && !panelButtons) panelButtons = shared.mountIconButtons(panelHost, panelButtonSpecs());
+            if (panelHost && !panelButtons) panelButtons = shared.mountIconButtons(panelHost, withTbClass(panelButtonSpecs()));
             var windowHost = document.getElementById("tb-window");
-            if (windowHost && !windowButtons) windowButtons = shared.mountIconButtons(windowHost, windowButtonSpecs());
+            if (windowHost && !windowButtons) windowButtons = shared.mountIconButtons(windowHost, withTbClass(windowButtonSpecs()));
             var macroHost = document.getElementById("tb-macros");
             if (macroHost && !macroButtonsRoot) {
-                macroButtonsRoot = shared.mountIconButtons(macroHost, pinnedMacroSpecs());
+                macroButtonsRoot = shared.mountIconButtons(macroHost, withTbClass(pinnedMacroSpecs()));
                 repaintMacroButtons = function () {
-                    if (macroButtonsRoot) macroButtonsRoot.update(pinnedMacroSpecs());
+                    if (macroButtonsRoot) macroButtonsRoot.update(withTbClass(pinnedMacroSpecs()));
                 };
                 repaintMacroButtons();
             }
             var statusHost = document.getElementById("tb-actions-status");
             if (statusHost && !statusButtons) {
-                statusButtons = shared.mountIconButtons(statusHost, statusButtonSpecs());
+                statusButtons = shared.mountIconButtons(statusHost, withTbClass(statusButtonSpecs()));
                 repaintTbState = function () {
-                    if (statusButtons) statusButtons.update(statusButtonSpecs());
+                    if (statusButtons) statusButtons.update(withTbClass(statusButtonSpecs()));
                 };
                 repaintTbState();
             }
             var avHost = document.getElementById("tb-actions-av");
             if (avHost && !avButtons) {
-                avButtons = shared.mountIconButtons(avHost, avButtonSpecs());
+                avButtons = shared.mountIconButtons(avHost, withTbClass(avButtonSpecs()));
                 repaintAv = function () {
-                    if (avButtons) avButtons.update(avButtonSpecs());
+                    if (avButtons) avButtons.update(withTbClass(avButtonSpecs()));
                 };
                 repaintAv();
             }
@@ -5674,7 +5698,7 @@
         repaintFitButton = function () {
             // The button is drawn by the shared component library now, so this
             // hands it new props rather than reaching for a DOM node.
-            if (viewButtons) viewButtons.update(viewButtonSpecs());
+            if (viewButtons) viewButtons.update(withTbClass(viewButtonSpecs()));
         };
         repaintFitButton();
         // The dimensions can change without the stream state changing at all.

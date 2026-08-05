@@ -233,7 +233,7 @@ test("fit-to-native says when it cannot act instead of doing nothing", () => {
     assert.match(js, /function viewButtonSpecs\(\)/);
     assert.match(js, /disabled: !dims,/);
     assert.match(js, /waiting for a picture/);
-    assert.match(js, /viewButtons\.update\(viewButtonSpecs\(\)\)/);
+    assert.match(js, /viewButtons\.update\(withTbClass\(viewButtonSpecs\(\)\)\)/);
     // Named the size it would fit to, which is the one thing the label cannot say.
     assert.match(js, /"Fit to native resolution \(" \+ dims\.w \+ " x " \+ dims\.h \+ "\)"/);
     // Repainted from the state machine AND from the sources, because the
@@ -309,4 +309,27 @@ test("ctrl+scroll belongs to the target on desktop, not to our zoom", () => {
     // key-chord is still the thing that ignores bare modifiers, which is why.
     const chord = readFileSync(resolve(root, "src/views/key-chord.js"), "utf8");
     assert.match(chord, /BARE_MODIFIER\.test\(code\)\) return \{ kind: "ignore"/);
+});
+
+test("every titlebar button keeps the console's own button class", () => {
+    /* Two things live on .tb-btn and neither is decoration.
+     *
+     * -webkit-app-region:no-drag — the titlebar IS the window drag region, so a
+     * button inside one without this is a surface the window manager takes the
+     * click from. CDP cannot catch that: dispatched input goes straight to the
+     * renderer and never meets the compositor, so a real click and a scripted
+     * one disagree exactly here.
+     *
+     * And the focus ring. The shared component's own ring resolves against a
+     * --ring this document does not define, so it computed to rgba(0,0,0,0) —
+     * measured against the window controls, which had kept .tb-btn and showed a
+     * solid 2px ring. Twelve buttons had no visible focus at all. */
+    assert.match(js, /function withTbClass\(specs\)/);
+    assert.match(js, /out\.className = "tb-btn" \+ extra;/);
+    // Applied at every mount and every update, so a new button cannot miss it.
+    const wrapped = js.match(/withTbClass\(/g) ?? [];
+    assert.ok(wrapped.length >= 13, `only ${wrapped.length} spec sites go through it`);
+    assert.doesNotMatch(js, /mountIconButtons\([A-Za-z]+Host, [a-zA-Z]+Specs\(\)\)/);
+    // The class that carries it must still say why.
+    assert.match(css, /-webkit-app-region: no-drag/);
 });
