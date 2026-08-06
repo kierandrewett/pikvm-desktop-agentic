@@ -1810,14 +1810,28 @@ html.desktop-console.agent-detached .screen {
     display: grid;
     grid-template-columns: minmax(140px, 34%) minmax(0, 1fr);
     gap: 14px;
-    min-height: 260px;
+    /* One number, used twice: the row's floor and the panes' floor.
+     *
+     * The row is held open at this height so a Pi with two macros does not draw
+     * a dialog three lines tall, and the panes are capped at 46vh so a Pi with
+     * sixty does not draw one taller than the screen. Below about a 565px-tall
+     * viewport those two stopped agreeing — 46vh fell under the floor, the panes
+     * capped short, and the row stayed open at its minimum around them.
+     * Measured on a landscape phone (844x390): body 260px, both panes 179px,
+     * 81px of nothing underneath, and BOTH panes scrolling. Twenty-three per
+     * cent of the dialog left empty in the one layout with no room to spare.
+     *
+     * Declared here rather than repeated so the floor and the cap cannot drift
+     * apart again, the same reason --screen-min is a token. */
+    --macro-pane-min: 260px;
+    min-height: var(--macro-pane-min);
 }
 .macro-list {
     display: flex;
     flex-direction: column;
     gap: 2px;
     overflow-y: auto;
-    max-height: 46vh;
+    max-height: max(46vh, var(--macro-pane-min));
     padding-right: 4px;
     border-right: 1px solid var(--border);
 }
@@ -1882,7 +1896,7 @@ html.desktop-console.agent-detached .screen {
     flex-direction: column;
     gap: 10px;
     overflow-y: auto;
-    max-height: 46vh;
+    max-height: max(46vh, var(--macro-pane-min));
 }
 .macro-steps {
     display: flex;

@@ -1115,3 +1115,23 @@ test("the macro editor stacks instead of hiding its buttons on a phone", () => {
        the row of buttons under it never got the same treatment. */
     assert.match(css, /\.macro-step \{[\s\S]*?flex-wrap: wrap;/);
 });
+
+test("the macro editor's panes fill the row they are given", () => {
+    /* The row is held open at a floor so a Pi with two macros does not draw a
+       dialog three lines tall, and the panes are capped at 46vh so a Pi with
+       sixty does not draw one taller than the screen. Below about a 565px-tall
+       viewport those two stopped agreeing: 46vh fell under the floor, the panes
+       capped short, and the row stayed open around them. Measured on a
+       landscape phone (844x390):
+           body 260px, list 179px, edit 179px, dead band 81px, BOTH scrolling
+       — 23% of the dialog empty in the one layout with no room to spare. */
+    assert.match(css, /\.macro-body \{[\s\S]*?--macro-pane-min: 260px;\s*min-height: var\(--macro-pane-min\);/);
+    assert.match(css, /\.macro-list \{[\s\S]*?max-height: max\(46vh, var\(--macro-pane-min\)\);/);
+    assert.match(css, /\.macro-edit \{[\s\S]*?max-height: max\(46vh, var\(--macro-pane-min\)\);/);
+    /* One number used twice, so the floor and the cap cannot drift apart again —
+       the same reason --screen-min is a token rather than a repeated literal. A
+       bare 46vh reintroduced on either pane brings the dead band back. */
+    const paneRules = css.slice(css.indexOf(".macro-body {"), css.indexOf(".macro-steps {"));
+    assert.doesNotMatch(paneRules, /max-height: 46vh;/, "a pane cap escaped the shared floor");
+    // Verified after: 0px dead band at 844x390, and 1024x600 / 1400x900 unchanged.
+});
