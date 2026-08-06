@@ -280,6 +280,35 @@
     /** kvmd's own keymap set ({default, available}) from the hid_keymaps event. */
     var kvmdKeymaps = null;
 
+    /* The keymap text is typed with, wherever it is typed from.
+     *
+     * The paste dialog sent keymap=<chosen> and a macro's text step did not, so
+     * the same string typed two ways came out two ways: the dialog honoured the
+     * layout you picked, the macro fell back to whatever kvmd defaults to. On a
+     * target that is not the default layout that is wrong characters, and the
+     * macro path's own comment said it was "layout-correct".
+     *
+     * The choice is a fact about the TARGET, not about the dialog it happens to
+     * be chosen in — and the select deliberately keeps the pick across rebuilds
+     * for exactly that reason. So both paths read it here.
+     *
+     * By id at call time rather than off the cached element: that handle is
+     * assigned some three thousand lines below the macro runner, and reaching
+     * back for it would make this depend on load order for no gain. */
+    function typingKeymap() {
+        var el = document.getElementById("paste-keymap");
+        return el && el.value ? el.value : null;
+    }
+    /** Query string for POST /api/hid/print — the one place its shape is decided. */
+    function printQuery() {
+        // 20ms between keys: kvmd's own default, slow enough that a target under
+        // load does not drop characters.
+        var q = ["limit=0", "delay=0.02"];
+        var km = typingKeymap();
+        if (km) q.push("keymap=" + encodeURIComponent(km));
+        return q.join("&");
+    }
+
     var hid = (function () {
         var ws = null;
         var open = false;
@@ -1060,8 +1089,9 @@
                 return;
             }
             if (step.type === "text") {
-                // kvmd types it with its own keymap — faster and layout-correct.
-                fetch("/api/hid/print?limit=0&delay=0.02", {
+                // kvmd types it, with the same keymap the paste dialog uses —
+                // faster than sending keys, and layout-correct for real now.
+                fetch("/api/hid/print?" + printQuery(), {
                     method: "POST",
                     cache: "no-store",
                     headers: { "Content-Type": "text/plain" },
@@ -4006,12 +4036,6 @@
             toast(macroRunning.label + " is still running", true);
             return;
         }
-        var keymap = pasteKeymap && pasteKeymap.value ? pasteKeymap.value : null;
-        var q = ["limit=0"];
-        if (keymap) q.push("keymap=" + encodeURIComponent(keymap));
-        // 20ms between keys — kvmd's own default, and slow enough that a target under
-        // load does not drop characters.
-        q.push("delay=0.02");
         pasteBusy = true;
         repaintPasteActions();
         /* Say that it is happening, for as long as it takes.
@@ -4032,7 +4056,7 @@
          * It also survives Cancel, which is the point: closing the dialog no
          * longer hides the fact that the target is still being typed into. */
         toast("Typing " + text.length + (text.length === 1 ? " character" : " characters") + " on the target…", false, true);
-        fetch("/api/hid/print?" + q.join("&"), {
+        fetch("/api/hid/print?" + printQuery(), {
             method: "POST",
             cache: "no-store",
             headers: { "Content-Type": "text/plain" },

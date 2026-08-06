@@ -1806,3 +1806,33 @@ test("save screenshot reports what the download did, not that it started", () =>
        The Electron will-download half is covered by shape here, not by a live
        run of the packaged app. */
 });
+
+test("text is typed with the same keymap wherever it is typed from", () => {
+    /* The paste dialog sent keymap=<chosen>; a macro's text step did not. The
+       same string typed two ways came out two ways — the dialog honoured the
+       layout you picked, the macro fell back to whatever kvmd defaults to,
+       which on a target that is not the default layout is wrong characters.
+       The macro path's own comment called it "layout-correct".
+
+       Measured on the wire with the Pi offering en-us/en-gb/de/fr and "de"
+       chosen in the dialog:
+         before  paste  print:limit=0&keymap=de&delay=0.02:grussen
+                 macro  print:limit=0&delay=0.02:hello
+         after   paste  print:limit=0&delay=0.02&keymap=de:grussen
+                 macro  print:limit=0&delay=0.02&keymap=de:hello */
+    assert.match(js, /function printQuery\(\) \{/);
+    assert.match(js, /if \(km\) q\.push\("keymap=" \+ encodeURIComponent\(km\)\);/);
+    assert.equal((js.match(/fetch\("\/api\/hid\/print\?" \+ printQuery\(\)/g) ?? []).length, 2,
+        "the paste dialog and the macro text step, and nothing else");
+    assert.doesNotMatch(js, /\/api\/hid\/print\?limit=0&delay=0\.02/, "no hand-built print query");
+
+    /* The choice is a fact about the TARGET, not about the dialog it is chosen
+       in — which is why the select already keeps the pick across rebuilds. Read
+       by id at call time rather than off the cached element: that handle is
+       assigned some three thousand lines below the macro runner, and reaching
+       back for it would make this depend on load order for no gain. */
+    assert.match(js, /function typingKeymap\(\) \{\s*var el = document\.getElementById\("paste-keymap"\);/);
+    const decl = js.indexOf("function typingKeymap()");
+    const macroUse = js.indexOf('fetch("/api/hid/print?" + printQuery()');
+    assert.ok(decl > 0 && decl < macroUse, "declared before the first caller reads it");
+});
