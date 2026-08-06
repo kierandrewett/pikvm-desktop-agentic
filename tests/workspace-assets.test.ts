@@ -229,3 +229,51 @@ test("host-config applies the theme itself, without waiting for the app", async 
         await s.close();
     }
 });
+
+/**
+ * A render error in the panel must not leave the pane blank.
+ *
+ * There was no error boundary anywhere in this app, so a single throw during
+ * render unmounted the whole tree: #root with zero children, no message, no
+ * retry, indistinguishable from a pane that had not loaded. Reproduced by
+ * answering /api/runs with an object where the frontend types RunSummary[] —
+ * "runs.map is not a function" inside a useMemo — which is the realistic
+ * failure, since this bundle ships in the desktop app while the daemon is a
+ * separate process on its own cadence.
+ *
+ * What makes it worse than an ordinary crash is the titlebar beside it: the
+ * readiness pill polls /daemon/status, which answers fine, so the window read
+ * "Agent ready" over a pane showing nothing. Verified after: the pane shows the
+ * message and a Try again button, and the pill still says "Agent ready" —
+ * which is now a disagreement the user can see rather than one they cannot.
+ */
+test("the conversation panel says so when it cannot render", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const root = process.cwd();
+    const main = readFileSync(resolve(root, "agent/frontend/src/main.tsx"), "utf8");
+    const boundary = readFileSync(
+        resolve(root, "agent/frontend/src/components/workspace/workspace-error-boundary.tsx"),
+        "utf8",
+    );
+
+    // Wrapped OUTSIDE the shell: the throw that prompted this came from a
+    // useMemo inside it, so a boundary within would have gone down with it.
+    assert.match(main, /<WorkspaceErrorBoundary>\s*<WorkspaceShell \/>\s*<\/WorkspaceErrorBoundary>/);
+    assert.match(boundary, /static getDerivedStateFromError/);
+    assert.match(boundary, /componentDidCatch/);
+    // An alert, so it is announced rather than only drawn.
+    assert.match(boundary, /role="alert"/);
+    // It names the likely cause instead of shrugging, and shows what threw.
+    assert.match(boundary, /The conversation could not be displayed/);
+    assert.match(boundary, /version mismatch/);
+    assert.match(boundary, /\{error\.message\}/);
+    // And offers a way out that does not need the window restarting.
+    assert.match(boundary, /Try again/);
+    assert.match(boundary, /this\.setState\(\{ error: null \}\)/);
+    // The built bundle is what actually ships, so it has to carry the string.
+    const built = readFileSync(resolve(root, "agent/pikvm_agent/harness_ui/app.js"), "utf8");
+    assert.ok(
+        built.includes("The conversation could not be displayed"),
+        "the workspace bundle is stale — rebuild agent/frontend",
+    );
+});
