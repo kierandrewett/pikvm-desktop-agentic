@@ -666,7 +666,13 @@ test("falling back to MJPEG does nothing when MJPEG is already running", () => {
 test("a single outage does not make the overlay thrash", () => {
     const load = js.indexOf("function loadStream() {");
     assert.ok(load > 0, "loadStream not found");
-    const body = js.slice(load, load + 2200).replace(/\/\*[\s\S]*?\*\//g, "");
+    /* To the next function, not a fixed byte count: a 2200-character window
+       silently stopped covering the assertion below the moment loadStream grew
+       a comment, which is a test failing for a reason that has nothing to do
+       with what it checks. */
+    const body = js
+        .slice(load, js.indexOf("function scheduleReconnect() {", load))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
     assert.match(body, /if \(streamState !== "live" && !serverDown\) setState\(/);
     const sched = js.indexOf("function scheduleReconnect() {");
     assert.ok(sched > 0, "scheduleReconnect not found");
@@ -3415,4 +3421,43 @@ test("the microphone and the speaker are pinned to a device, not to the system d
     const bare = js.replace(/\/\*[\s\S]*?\*\//g, "");
     const toggle = bare.slice(bare.indexOf("if (micBtn) {"), bare.indexOf("var MIC_DEVICE_KEY"));
     assert.ok(!/getUserMedia\(\{ audio: true \}\)/.test(toggle), "the mic toggle is pre-flighting an unpinned device again");
+});
+
+/**
+ * A collapsed preview kept streaming a picture with no width.
+ *
+ * Collapsing takes the pane off screen but left the MJPEG connection open
+ * behind it — 3.97 MB over six seconds for a pane nobody can see. The full UI
+ * already refuses to stream behind an opaque frame for the same reason; a
+ * zero-width pane is the same situation reached a different way.
+ *
+ * The reason this sat unfixed is that it looked like a three-way conflict:
+ * screen-change alerts SAMPLE this stream, so stopping it would have made the
+ * "pulse the taskbar when the screen changes" checkbox a lie. It is not a
+ * conflict, because alerts only ever fire when the desktop window is in the
+ * BACKGROUND — which is exactly when nobody can see the pane anyway.
+ * watchingForChange() is already that condition, so the rule is one predicate:
+ *
+ *     stop the stream when the picture is not on screen
+ *     AND nothing is watching it for changes
+ *
+ * Focus is half of that condition, so it has to be re-evaluated on focus as
+ * well as on collapse. Measured over CDP at 1300x800 with the desktop shim:
+ *
+ *     expanded          OPEN
+ *     collapsed         closed
+ *     collapsed + blur  OPEN      <- alerts can fire, so the stream is needed
+ *     collapsed + focus closed
+ *     expanded again    OPEN
+ */
+test("a collapsed preview stops streaming unless alerts are watching", () => {
+    // One predicate for both ways the picture can be off screen.
+    assert.match(js, /function pictureHidden\(\) \{\s*\n\s*return !!fullUiOn \|\| app\.classList\.contains\("computer-collapsed"\);/);
+    assert.match(js, /if \(pictureHidden\(\) && !watchingForChange\(\)\) return;/);
+    // Applied in both directions, not just on the way down.
+    assert.match(js, /function applyStreamNeed\(\) \{[\s\S]*?if \(img\.getAttribute\("src"\)\) img\.removeAttribute\("src"\);[\s\S]*?if \(!img\.getAttribute\("src"\)\) loadStream\(\);/);
+    // Collapse changes the answer...
+    assert.match(js, /app\.classList\.toggle\("computer-collapsed", !show\);\s*\n\s*\/\/ The picture just appeared or disappeared; the stream follows\.\s*\n\s*applyStreamNeed\(\);/);
+    // ...and so does focus, because it is half of watchingForChange().
+    assert.match(js, /windowFocused = focused;[\s\S]{0,260}?applyStreamNeed\(\);/);
 });

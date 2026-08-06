@@ -5157,6 +5157,24 @@
         if (freezeCanvas) pane.classList.remove("frozen");
     }
 
+    /* Nothing can see the picture: either the Pi's own UI is framed over it, or
+     * the preview is collapsed to nothing. Read off the class rather than
+     * panelShown(), which lives in the desktop-only block further down. */
+    function pictureHidden() {
+        return !!fullUiOn || app.classList.contains("computer-collapsed");
+    }
+    /* Bring the stream in line with whether anyone needs it. Called when the
+     * preview collapses or expands and when the window gains or loses focus,
+     * because the answer changes with both. */
+    function applyStreamNeed() {
+        if (streamMode !== "native") return;
+        if (pictureHidden() && !watchingForChange()) {
+            if (img.getAttribute("src")) img.removeAttribute("src");
+            return;
+        }
+        if (!img.getAttribute("src")) loadStream();
+    }
+
     function loadStream() {
         if (streamMode !== "native" || mjpegPaused) return; // WebRTC owns the picture; don't open an MJPEG conn
         /* The full PiKVM UI is up and streaming the same camera over the same
@@ -5167,6 +5185,22 @@
          * behind the frame. This is the only place the MJPEG connection is
          * opened, so it is the only place that has to know. */
         if (fullUiOn) return;
+        /* Nor while the preview is collapsed and nothing is watching it.
+         *
+         * Collapsing the preview takes the picture off screen but left the MJPEG
+         * connection open behind it — measured at 3.97 MB over six seconds for a
+         * pane with no width at all. The full UI already refuses to stream
+         * behind an opaque frame for the same reason; a zero-width pane is the
+         * same situation reached a different way.
+         *
+         * The exception is what makes this safe to do. Screen-change alerts
+         * sample this stream, and they only ever fire when the desktop window is
+         * in the BACKGROUND, which is exactly when nobody can see the pane
+         * anyway. watchingForChange() is already that condition — alerts
+         * available, alerts on, window not focused — so keeping the stream
+         * precisely then leaves the feature working rather than making the
+         * checkbox a lie. */
+        if (pictureHidden() && !watchingForChange()) return;
         /* While the server is known down, its verdict is the only one shown.
          *
          * Three writers describe the same "no picture, retrying" situation with
@@ -8626,6 +8660,10 @@
         // window must not let a passing cursor drive the remote pointer.
         function applyWinFocus(focused) {
             windowFocused = focused;
+            /* Focus is half of watchingForChange(), so losing or regaining it can
+             * be the difference between a collapsed preview needing the stream
+             * for alerts and not needing it at all. */
+            applyStreamNeed();
             document.documentElement.classList.toggle("win-blur", !focused);
             // Drop the simulated cursor blob and restore the real OS cursor over the
             // screen, so an unfocused window shows a normal pointer instead of nothing.
@@ -8902,6 +8940,8 @@
         function setPanel(show) {
             if (show === panelShown()) return;
             app.classList.toggle("computer-collapsed", !show);
+            // The picture just appeared or disappeared; the stream follows.
+            applyStreamNeed();
             paintPanelToggle();
             /* The conversation's width changes with the collapse, and the divider
              * announces that width. Repaint after the class change so it never
