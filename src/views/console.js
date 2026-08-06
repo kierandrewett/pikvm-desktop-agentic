@@ -861,6 +861,7 @@
         noteManualKvmInput();
         macroRunning = macro;
         paintMacroButtons();
+        repaintPasteActions(); // the paste dialog may be open on top of this
         var i = 0;
         var next = function () {
             if (i >= macro.steps.length) {
@@ -871,6 +872,7 @@
                  * cannot stall and leave macros disabled for good. */
                 macroRunning = null;
                 paintMacroButtons();
+                repaintPasteActions();
                 // A macro's whole effect happens on the OTHER machine, so without
                 // this the click has no visible consequence here at all — and a
                 // chord the target ignored looks identical to one never sent.
@@ -3370,7 +3372,19 @@
                 id: "paste-send",
                 label: "Paste",
                 variant: "default",
-                disabled: !pasteHasText || pasteBusy,
+                /* Also while a macro is playing. A paste and a macro are both
+                 * bulk input to the same target, and overlapping them garbles
+                 * both — which is the judgement ce3cd25 already made about two
+                 * macros. Started a macro of "Ctrl+Alt+Delete, pause, type
+                 * hello, Enter" and pasted during its pause; the target got:
+                 *
+                 *     CAD  INTERLEAVED  hello  Enter
+                 *
+                 * so on a log-in macro the pasted text lands in the field
+                 * before the password does. The macro strip greys out while one
+                 * runs and this did not, which made the two say different things
+                 * about the same busy target. */
+                disabled: !pasteHasText || pasteBusy || !!macroRunning,
                 onSelect: sendPaste,
             },
         ];
@@ -3475,6 +3489,13 @@
         if (!pasteText) return;
         var text = pasteText.value;
         if (!text) return;
+        if (macroRunning) {
+            /* Ctrl/Cmd+Enter reaches here without touching the disabled button,
+             * so the guard cannot live in the spec alone. Same shape as the
+             * send-keys menu route into runMacro. */
+            toast(macroRunning.label + " is still running", true);
+            return;
+        }
         var keymap = pasteKeymap && pasteKeymap.value ? pasteKeymap.value : null;
         var q = ["limit=0"];
         if (keymap) q.push("keymap=" + encodeURIComponent(keymap));

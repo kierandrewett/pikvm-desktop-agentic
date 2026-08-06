@@ -1158,3 +1158,40 @@ test("a dialog opening ends an armed OCR pick", () => {
     const up = js.slice(js.indexOf("function ocrPointerUp(e) {"), js.indexOf("function runOcr("));
     assert.match(up, /endOcrPick\(\);\s*\n\s*runOcr\(left, top, right, bottom\);/);
 });
+
+/**
+ * A paste cannot land in the middle of a running macro.
+ *
+ * A paste and a macro are both bulk input to the same target, and overlapping
+ * them garbles both — which is the judgement ce3cd25 already made about two
+ * macros. Nothing said so here. Started a macro of "Ctrl+Alt+Delete, pause
+ * 2.5s, type hello, Enter" and pasted during its pause; the target got:
+ *
+ *     CAD  INTERLEAVED  hello  Enter
+ *
+ * so on a log-in macro the pasted text lands in the field before the password
+ * does. The macro strip greys out while one runs and the paste dialog did not,
+ * so the two said different things about the same busy target.
+ *
+ * Both halves are needed: Ctrl/Cmd+Enter reaches sendPaste without touching
+ * the button, so a disabled spec alone would not hold — the same shape as the
+ * send-keys menu route into runMacro. Measured:
+ *
+ *     no macro        : Paste enabled
+ *     macro started   : Paste disabled, live, with the dialog already open
+ *     ctrl+enter      : blocked with a toast, 0 pastes sent
+ *     macro finished  : Paste enabled again
+ *     paste now works : 1 paste sent
+ */
+test("a paste is held back while a macro is running", () => {
+    const spec = js.slice(js.indexOf("function pasteActionSpecs() {"), js.indexOf("function repaintPasteActions()"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(spec, /disabled: !pasteHasText \|\| pasteBusy \|\| !!macroRunning,/);
+    const body = js.slice(js.indexOf("function sendPaste() {"), js.indexOf("function sendPaste() {") + 900)
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /if \(macroRunning\) \{[\s\S]*?toast\(macroRunning\.label \+ " is still running", true\);[\s\S]*?return;/);
+    /* The open dialog has to follow the macro, not just its own state — the
+     * macro can start after the dialog is already up. */
+    assert.match(js, /macroRunning = macro;\s*\n\s*paintMacroButtons\(\);\s*\n\s*repaintPasteActions\(\);/);
+    assert.match(js, /macroRunning = null;\s*\n\s*paintMacroButtons\(\);\s*\n\s*repaintPasteActions\(\);/);
+});
