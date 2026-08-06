@@ -9,7 +9,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { parseEndpoint } from "../src/endpoint";
 import {
+    bindArguments,
     HarnessManager,
     harnessDaemonSelectorEnvironment,
 } from "../src/harness-manager";
@@ -157,6 +159,79 @@ test("fails closed when another credential-bound harness owns the port", async (
         await assert.rejects(() => manager.start(), /already owns/);
         assert.equal(existsSync(runtimePath), false);
         assert.equal(existsSync(managedClientRuntimePath), false);
+    } finally {
+        manager.stop();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+/**
+ * The two local services moved off fixed loopback ports onto unix sockets, so a
+ * port collision stops being a class of failure at all. The harness was the one
+ * that kept doing it: an orphan from a previous run owning 47616, this app
+ * correctly refusing credential-blind adoption, and every workspace call coming
+ * back 401 while it could not spawn its own.
+ *
+ * Measured on a real start with its own user-data-dir:
+ *
+ *     [harness] starting: …/pikvm-agent harness serve --config
+ *         /tmp/pkvm-udd/harness.yaml --uds /tmp/pkvm-udd/run/harness.sock
+ *     [harness] Chat workspace: unix:/tmp/pkvm-udd/run/harness.sock (/app/)
+ *     ss -lx:   u_str LISTEN 2048 /tmp/pkvm-udd/run/harness.sock
+ *     GET :25692/_agent/harness/api/runs?limit=1  ->  200
+ *
+ * with no port anywhere in either child's arguments.
+ */
+test("a socket endpoint is passed to the child as --uds, a port as --listen", () => {
+    assert.deepEqual(
+        bindArguments(parseEndpoint("unix:/home/you/.config/PiKVM Desktop/run/harness.sock")),
+        ["--uds", "/home/you/.config/PiKVM Desktop/run/harness.sock"],
+    );
+    // The space survives: the endpoint is read by prefix, not through URL,
+    // which would have percent-encoded it into a path no bind can open.
+    assert.deepEqual(bindArguments(parseEndpoint("http://127.0.0.1:47616")), [
+        "--listen",
+        "127.0.0.1:47616",
+    ]);
+    // IPv6 loopback keeps the bare form `harness init` writes.
+    assert.deepEqual(bindArguments(parseEndpoint("http://[::1]:47616")), [
+        "--listen",
+        "::1:47616",
+    ]);
+});
+
+test("a socket harness seeds no listen address into the generated config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pikvm-harness-manager-"));
+    const configPath = join(dir, "harness.yaml");
+    const socketPath = join(dir, "harness.sock");
+    const initCalls: string[][] = [];
+    const service = new FakeService();
+    const manager = new HarnessManager({
+        origin: `unix:${socketPath}`,
+        daemonOrigin: `unix:${join(dir, "daemon.sock")}`,
+        command: "/opt/pikvm/bin/pikvm-agent",
+        configPath,
+        runtimePath: join(dir, "harness-runtime.json"),
+        managedClientRuntimePath: join(dir, "managed", "managed-client-runtime.json"),
+        cwd: dir,
+        runInit: async (_command, args) => {
+            initCalls.push(args);
+            writeFileSync(configPath, "providers: {}\n");
+        },
+        service: service as unknown as ManagedService,
+    });
+    try {
+        await manager.start();
+        // No --listen at all: a socket has no host:port to seed one with, and
+        // `harness serve --uds` never reads that field to bind. The generated
+        // default stays in the file because the workspace's cross-origin
+        // allowlist is still derived from it.
+        assert.deepEqual(initCalls, [
+            ["harness", "init", "--out", configPath, "--oauth-clis", "auto"],
+        ]);
+        const runtime = readHarnessRuntime(join(dir, "harness-runtime.json"));
+        assert.equal(runtime.harnessOrigin, `unix:${socketPath}`);
+        assert.equal(runtime.daemonOrigin, `unix:${join(dir, "daemon.sock")}`);
     } finally {
         manager.stop();
         rmSync(dir, { recursive: true, force: true });

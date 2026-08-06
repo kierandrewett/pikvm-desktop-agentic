@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { promisify } from "node:util";
+import { parseEndpoint, type Endpoint } from "./endpoint";
 import {
     ManagedService,
     type ManagedServiceStart,
@@ -52,6 +53,23 @@ function listenAddress(origin: string): string {
     return `${host}:${url.port}`;
 }
 
+/* Where THIS run's harness listens, as the child's own arguments.
+ *
+ * Two forms, one decision, made here rather than in the config file: --uds for
+ * a socket we own, --listen for a port. Both are one run's bind and neither
+ * rewrites the YAML, which carries the operator's provider settings.
+ *
+ * ensureConfig() writes the config's listen address only when the file does not
+ * already exist, so on any install that has run once that port is fixed.
+ * Without an override the app could pick a free origin and the child would
+ * still charge at the old one — exactly the "[Errno 98] address already in use"
+ * crash loop the daemon had before it was told its port. */
+export function bindArguments(endpoint: Endpoint): string[] {
+    return endpoint.kind === "unix"
+        ? ["--uds", endpoint.socketPath]
+        : ["--listen", listenAddress(endpoint.value)];
+}
+
 export class HarnessManager {
     readonly accessToken = randomBytes(32).toString("base64url");
     readonly agentToken = randomBytes(32).toString("base64url");
@@ -77,18 +95,13 @@ export class HarnessManager {
                 origin: deps.origin,
                 healthPath: "/api/health",
                 command: deps.command,
-                /* --listen, so the child binds where WE decided rather than where
-                 * its config file says.
-                 *
-                 * ensureConfig() writes the YAML's listen address only when the
-                 * file does not already exist, so on any install that has run
-                 * once that port is fixed. Without this the app could pick a
-                 * free origin and the child would still charge at the old one —
-                 * exactly the "[Errno 98] address already in use" crash loop the
-                 * daemon had before it was told its port. The override does not
-                 * rewrite the config: that file carries the operator's provider
-                 * settings, and this is one run's bind, not a new default. */
-                args: ["harness", "serve", "--config", deps.configPath, "--listen", listenAddress(deps.origin)],
+                args: [
+                    "harness",
+                    "serve",
+                    "--config",
+                    deps.configPath,
+                    ...bindArguments(parseEndpoint(deps.origin)),
+                ],
                 cwd: deps.cwd,
                 env: {
                     ...harnessDaemonSelectorEnvironment(deps.daemonOrigin),
@@ -122,9 +135,13 @@ export class HarnessManager {
     private async ensureConfig(): Promise<void> {
         if (existsSync(this.deps.configPath)) return;
         this.log("creating secret-free BYO-provider config");
-        const origin = new URL(this.deps.origin);
-        const listenHost =
-            origin.hostname === "[::1]" ? "::1" : origin.hostname;
+        /* A socket has no host:port to seed the config with, and it does not
+         * need one: `harness serve --uds` never reads that field to bind. What
+         * still reads it is the workspace's cross-origin allowlist, so the
+         * generated default (loopback 47616) is left in place rather than
+         * emptied — the harness is reached through the desktop's own proxy, and
+         * an allowlist of nothing would refuse every request it receives. */
+        const endpoint = parseEndpoint(this.deps.origin);
         await this.runInit(
             this.deps.command,
             [
@@ -134,8 +151,9 @@ export class HarnessManager {
                 this.deps.configPath,
                 "--oauth-clis",
                 "auto",
-                "--listen",
-                `${listenHost}:${origin.port}`,
+                ...(endpoint.kind === "unix"
+                    ? []
+                    : ["--listen", listenAddress(endpoint.value)]),
             ],
             { cwd: this.deps.cwd, env: process.env },
         );

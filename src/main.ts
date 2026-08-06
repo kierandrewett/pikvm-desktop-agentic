@@ -11,8 +11,10 @@ import {
     Menu,
 } from "electron";
 import {
+    chmodSync,
     readFileSync,
     existsSync,
+    mkdirSync,
     writeFileSync,
     statSync,
     realpathSync,
@@ -21,6 +23,7 @@ import {
 import { createServer as createProbeServer } from "net";
 import { get as httpGet } from "node:http";
 import { resolve, isAbsolute, extname } from "path";
+import { parseEndpoint, unixEndpointValue } from "./endpoint";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
 import { startControlServer } from "./server";
@@ -170,6 +173,58 @@ function resolvedHarnessOrigin(): string {
         /\/$/,
         "",
     );
+}
+
+/* Where the two LOCAL services listen by default: a socket in a directory we
+ * own, not a fixed loopback port.
+ *
+ * The daemon and the harness are ours — we spawn them, and both refuse
+ * credential-blind adoption — so a fixed port bought them nothing and cost the
+ * usual thing: an orphan of a previous run holding 47615 or 47616, this app
+ * correctly refusing to talk to it, and the port walk above having to route
+ * around it. A socket cannot be squatted by anything that does not have this
+ * directory, and the directory is ours.
+ *
+ * NOT the control server, which stays on TCP and binds 0.0.0.0 on purpose: a
+ * phone on the LAN loads the console from it, and there is no URL a browser can
+ * put in its address bar that reaches a unix socket.
+ *
+ * uvicorn's --uds needs AF_UNIX, which CPython does not have on Windows, so the
+ * port walk remains the answer there. */
+const LOCAL_SOCKETS_SUPPORTED = process.platform !== "win32";
+
+/** The private directory holding this app's service sockets.
+ *
+ *  0700 because it is the only boundary there is: uvicorn chmods a socket to
+ *  0666 AFTER binding it, so the socket's own mode is not ours to set. The
+ *  bearer tokens are still the real check; this stops the socket from even
+ *  being openable by another user on the box. We may set the mode because we
+ *  chose the path — the daemon may not, since it can be handed /tmp. */
+function serviceSocketDirectory(settings: SettingsStore): string {
+    const directory = resolve(settings.dir(), "run");
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") chmodSync(directory, 0o700);
+    return directory;
+}
+
+/** `unix:<directory>/<name>`, or null if that path is too long to bind.
+ *
+ *  sun_path holds 108 bytes on Linux and 104 on macOS, NUL included. Past that
+ *  the bind fails inside uvicorn with an errno nobody would trace back to a
+ *  long settings directory, so the caller falls back to a port instead. */
+function socketEndpoint(directory: string, name: string): string | null {
+    const path = resolve(directory, name);
+    if (Buffer.byteLength(path) > 100) {
+        /* Said out loud, because the fallback is otherwise invisible: the first
+         * real run of this used a settings directory 118 bytes deep and quietly
+         * went back to ports, which looks exactly like the socket work not
+         * having landed. */
+        console.log(
+            `[sockets] ${path} is ${Buffer.byteLength(path)} bytes, too long for a unix socket — using a port instead`,
+        );
+        return null;
+    }
+    return unixEndpointValue(path);
 }
 
 /** The same loopback origin, moved to the first free port at or after its own.
@@ -323,6 +378,14 @@ async function startProxyAndHarness(
     // The desktop owns both local services and creates two non-interchangeable
     // daemon capabilities. Guarded-direct clients receive only the action
     // capability; the harness-only approval capability stays in child env.
+    /* Our own default is a socket now; see LOCAL_SOCKETS_SUPPORTED.
+     *
+     * Everything below still applies to the fallbacks — a Windows build, or a
+     * settings directory too long for sun_path — and to an explicitly
+     * configured TCP origin, which is why none of it has gone. */
+    const socketDirectory = LOCAL_SOCKETS_SUPPORTED
+        ? serviceSocketDirectory(settings)
+        : null;
     /* Walk past a port some stranger already holds — but only our OWN default.
      *
      * These two are ours: we spawn them, and the daemon is configured
@@ -340,9 +403,10 @@ async function startProxyAndHarness(
      * instruction about where the service lives, and wandering off it would be
      * ignoring the user rather than helping them. */
     const configuredDaemon = process.env.PIKVM_AGENT_DAEMON || settings.get().daemonUrl;
+    const daemonSocket = socketDirectory && socketEndpoint(socketDirectory, "daemon.sock");
     const daemonOrigin = configuredDaemon
         ? configuredDaemon.replace(/\/$/, "")
-        : await originOnFreePort("daemon", "http://127.0.0.1:47615");
+        : daemonSocket || (await originOnFreePort("daemon", "http://127.0.0.1:47615"));
     /* The harness walks too, now that its child can be told where to go.
      *
      * This used to be pinned, because the harness takes its bind address from
@@ -359,9 +423,11 @@ async function startProxyAndHarness(
      * credential-blind adoption, and no way to put its own harness anywhere
      * else. Same rule as the daemon: only our own default walks, because a URL
      * from PIKVM_HARNESS_ORIGIN is an instruction about where the service lives. */
+    const harnessSocket = socketDirectory && socketEndpoint(socketDirectory, "harness.sock");
     const harnessOrigin = process.env.PIKVM_HARNESS_ORIGIN
         ? resolvedHarnessOrigin()
-        : await originOnFreePort("harness", resolvedHarnessOrigin());
+        : harnessSocket ||
+          (await originOnFreePort("harness", resolvedHarnessOrigin()));
     const configuredHarnessPath =
         process.env.PIKVM_HARNESS_CONFIG || settings.get().harnessConfig;
     const harnessConfig = configuredHarnessPath
@@ -422,8 +488,13 @@ async function startProxyAndHarness(
      * 47615 over and over, hit the same orphan the walk existed to avoid, and
      * died five times before giving up. The origin is decided here, so it has to
      * be passed here. */
-    const daemonUrlForChild = new URL(daemonOrigin);
-    const daemonArgs = [...args, "--host", daemonUrlForChild.hostname, "--port", daemonUrlForChild.port];
+    const daemonEndpoint = parseEndpoint(daemonOrigin);
+    const daemonArgs = [
+        ...args,
+        ...(daemonEndpoint.kind === "unix"
+            ? ["--uds", daemonEndpoint.socketPath]
+            : ["--host", daemonEndpoint.hostname, "--port", daemonEndpoint.port]),
+    ];
     const daemon = new ManagedService({
         name: "daemon",
         origin: daemonOrigin,

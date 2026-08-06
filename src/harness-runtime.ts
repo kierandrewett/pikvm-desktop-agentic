@@ -12,6 +12,7 @@ import {
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { isUnixEndpointValue, parseEndpoint } from "./endpoint";
 
 const TOKEN_MIN_LENGTH = 32;
 const MAX_RUNTIME_BYTES = 64 * 1024;
@@ -19,6 +20,17 @@ const CALLER_LABEL = /^[A-Za-z0-9_-]{1,64}$/;
 const ACTIVE_MANAGED_RUNTIME_ENV = "PIKVM_MANAGED_CLIENT_RUNTIME";
 const MANAGED_AGENT_TOKEN_ENV = "PIKVM_HARNESS_AGENT_TOKEN";
 const MANAGED_RUNTIME_NAME = "managed-client-runtime.json";
+/**
+ * How an MCP child is told where the running harness actually is.
+ *
+ * The child loads the same harness YAML we do, and that file's `listen` is only
+ * where the harness would bind by DEFAULT. We move it — to a free port when the
+ * configured one is taken, and now onto a unix socket — without rewriting a
+ * file that carries the operator's provider settings. A child left to infer the
+ * address from the YAML therefore sends every managed and direct MCP call at an
+ * address nothing is listening on. This is the desktop saying where it put it.
+ */
+const HARNESS_ENDPOINT_ENV = "PIKVM_HARNESS_ENDPOINT";
 
 export interface HarnessRuntime {
     version: 3;
@@ -76,8 +88,33 @@ export function withHarnessAuthorization(
     return replaced;
 }
 
-function requireLoopbackOrigin(value: unknown, field: string): string {
+/**
+ * Where a local service is, as recorded in the handoff file.
+ *
+ * This file is read by processes that are not this one — dist/mcp-launcher.js
+ * runs as a child of whatever MCP client the user configured — so what it
+ * accepts is the contract, and both transports have to be in it. A unix
+ * endpoint is at least as local as a loopback port: a socket path names one
+ * service on this machine and cannot be reached from anywhere else at all.
+ * Anything else is still refused, so a runtime file pointing at a remote host
+ * cannot turn an MCP client into a proxy for someone else's computer.
+ */
+function requireLocalEndpoint(value: unknown, field: string): string {
     if (typeof value !== "string") throw new Error(`${field} is missing`);
+    if (isUnixEndpointValue(value)) {
+        let endpoint;
+        try {
+            endpoint = parseEndpoint(value);
+        } catch {
+            throw new Error(`${field} must name an absolute socket path`);
+        }
+        // Relative resolves against whatever working directory the MCP client
+        // happened to have, which is not a selection of anything.
+        if (endpoint.kind !== "unix" || !isAbsolute(endpoint.socketPath)) {
+            throw new Error(`${field} must name an absolute socket path`);
+        }
+        return endpoint.value;
+    }
     let url: URL;
     try {
         url = new URL(value);
@@ -88,7 +125,7 @@ function requireLoopbackOrigin(value: unknown, field: string): string {
         url.protocol !== "http:" ||
         !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
     ) {
-        throw new Error(`${field} must use loopback HTTP`);
+        throw new Error(`${field} must use loopback HTTP or a unix socket`);
     }
     return url.toString().replace(/\/$/, "");
 }
@@ -144,11 +181,8 @@ function validateRuntime(value: unknown): HarnessRuntime {
     return {
         version: 3,
         desktopPid: raw.desktopPid,
-        harnessOrigin: requireLoopbackOrigin(
-            raw.harnessOrigin,
-            "harnessOrigin",
-        ),
-        daemonOrigin: requireLoopbackOrigin(raw.daemonOrigin, "daemonOrigin"),
+        harnessOrigin: requireLocalEndpoint(raw.harnessOrigin, "harnessOrigin"),
+        daemonOrigin: requireLocalEndpoint(raw.daemonOrigin, "daemonOrigin"),
         harnessExecutable: raw.harnessExecutable,
         harnessConfig: raw.harnessConfig,
         agentToken: raw.agentToken,
@@ -352,6 +386,7 @@ export function buildDirectMcpLaunch(
             ...withoutScopedCapabilities(),
             PIKVM_AGENT_DAEMON: validated.daemonOrigin,
             PIKVM_AGENT_DAEMON_TOKEN: validated.daemonActionToken,
+            [HARNESS_ENDPOINT_ENV]: validated.harnessOrigin,
             PIKVM_HARNESS_OBSERVER_TOKEN: validated.observerToken,
         },
     };
@@ -377,6 +412,7 @@ export function buildManagedMcpLaunch(
         ],
         env: {
             ...withoutScopedCapabilities(),
+            [HARNESS_ENDPOINT_ENV]: validated.harnessOrigin,
             PIKVM_HARNESS_AGENT_TOKEN: validated.agentToken,
         },
     };

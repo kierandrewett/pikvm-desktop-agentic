@@ -219,3 +219,102 @@ test("desktop auth replaces the renderer sentinel case-insensitively", () => {
         },
     );
 });
+
+/**
+ * The handoff file is read by processes that are not this one — the MCP
+ * launcher runs as a child of whatever client the user configured — so what it
+ * accepts IS the contract. Moving the two local services onto unix sockets
+ * therefore had to move through here first: a runtime file naming
+ * `unix:/…/harness.sock` used to be rejected as "must use loopback HTTP",
+ * which would have broken the managed MCP handoff the moment the app started
+ * using sockets.
+ *
+ * Observed with the app running on its own user-data-dir, harness-runtime.json
+ * holding `"harnessOrigin": "unix:/tmp/pkvm-udd/run/harness.sock"`. Driving
+ * dist/mcp-launcher.js over stdio: initialize answered, then
+ *
+ *     computer_status {"run_id":"does-not-exist"}
+ *       ->  "managed harness run was not found"
+ *
+ * which is a 404 from the harness, so the whole chain — launcher, runtime file,
+ * managed-mcp child, socket — carried a real HTTP round trip.
+ */
+test("a unix endpoint is as local as a loopback port, and nothing else is", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pikvm-runtime-"));
+    const path = join(dir, "harness-runtime.json");
+    const socketRuntime = {
+        ...fixture(),
+        harnessOrigin: "unix:/home/you/.config/PiKVM Desktop/run/harness.sock",
+        daemonOrigin: "unix:/home/you/.config/PiKVM Desktop/run/daemon.sock",
+    };
+    try {
+        writeHarnessRuntime(path, socketRuntime);
+        const read = readHarnessRuntime(path, { requireLiveDesktop: false });
+        // The space in the settings directory survives the round trip.
+        assert.equal(
+            read.harnessOrigin,
+            "unix:/home/you/.config/PiKVM Desktop/run/harness.sock",
+        );
+        assert.equal(
+            read.daemonOrigin,
+            "unix:/home/you/.config/PiKVM Desktop/run/daemon.sock",
+        );
+        // A relative socket path resolves against whatever working directory
+        // the MCP client happened to have, which is not a selection of
+        // anything, and a remote origin must still be refused outright.
+        assert.throws(
+            () =>
+                writeHarnessRuntime(path, {
+                    ...fixture(),
+                    harnessOrigin: "unix:run/harness.sock",
+                }),
+            /absolute socket path/,
+        );
+        assert.throws(
+            () =>
+                writeHarnessRuntime(path, {
+                    ...fixture(),
+                    daemonOrigin: "http://198.51.100.7:47615",
+                }),
+            /loopback HTTP or a unix socket/,
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+/**
+ * The child loads the same harness YAML the desktop does, and that file's
+ * `listen` is only where the harness would bind by DEFAULT. The desktop moves
+ * it — to a free port when the configured one is taken, and now onto a socket —
+ * without rewriting a file that carries the operator's provider settings. A
+ * child left to infer the address from the YAML sends every managed and direct
+ * MCP call at an address nothing is listening on, which is a bug that predates
+ * the sockets and only became unmissable with them.
+ */
+test("both MCP launches tell the child where the harness actually is", () => {
+    const socketRuntime = {
+        ...fixture(),
+        harnessOrigin: "unix:/home/you/.config/PiKVM Desktop/run/harness.sock",
+        daemonOrigin: "unix:/home/you/.config/PiKVM Desktop/run/daemon.sock",
+    };
+    const managed = buildManagedMcpLaunch(socketRuntime, "claude-cli");
+    const direct = buildDirectMcpLaunch(socketRuntime, "claude-cli");
+
+    assert.equal(
+        managed.env.PIKVM_HARNESS_ENDPOINT,
+        "unix:/home/you/.config/PiKVM Desktop/run/harness.sock",
+    );
+    assert.equal(
+        direct.env.PIKVM_HARNESS_ENDPOINT,
+        "unix:/home/you/.config/PiKVM Desktop/run/harness.sock",
+    );
+    // The daemon selection travels the same way it always has, socket or not.
+    assert.equal(
+        direct.env.PIKVM_AGENT_DAEMON,
+        "unix:/home/you/.config/PiKVM Desktop/run/daemon.sock",
+    );
+    // Still no capability the caller did not earn.
+    assert.equal(managed.env.PIKVM_AGENT_DAEMON_TOKEN, undefined);
+    assert.equal(direct.env.PIKVM_HARNESS_AGENT_TOKEN, undefined);
+});
