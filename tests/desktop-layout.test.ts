@@ -3167,3 +3167,35 @@ test("a chord step wraps its key list, not its step controls", () => {
     assert.ok(!/flex-wrap/.test(rowRule), "the row must not wrap — that is what dropped the actions");
     assert.match(rowRule, /align-items: flex-start;/);
 });
+
+/**
+ * Mount stayed live while an image was still being written to storage.
+ *
+ * Every other control in the mass-storage dialog is gated on `settable`, whose
+ * comment states the rule: while the drive cannot take a change "kvmd rejects
+ * any change, so the controls that would make one are disabled rather than left
+ * to fail". canConnect was the one flag that did not include !msdUpload, so
+ * mounting the PREVIOUS image on the target in the middle of an upload was
+ * offered — a change kvmd will not perform.
+ *
+ * Measured with an upload in flight against the harness (which holds
+ * /api/msd/write_remote open for 30s for exactly this):
+ *
+ *     before   Mount on the target            Delete image [disabled]
+ *              Abort                          Reset drive  [disabled]
+ *     after    Mount on the target [disabled] Delete image [disabled]
+ *              Abort                          Reset drive  [disabled]
+ *
+ * The URL field was already disabled and Start upload already flipped to Abort,
+ * so Mount was the single control left out of an otherwise complete set.
+ */
+test("mounting is refused while an upload is still running", () => {
+    assert.match(
+        js,
+        /msdBody\.canConnect = !!\(online && d\.image && !connected && !busy && !msdUpload\);/,
+    );
+    // The neighbours it now matches, so the set stays complete if one changes.
+    assert.match(js, /var settable = online && !connected && !busy && !msdUpload;/);
+    assert.match(js, /msdBody\.canRemove = !!\(settable && d\.image && d\.image\.removable\);/);
+    assert.match(js, /msdResetEnabled = online && !busy && !msdUpload;/);
+});

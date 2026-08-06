@@ -3186,7 +3186,17 @@
          * directly, so mounting them through the shared component library is a
          * matter of writing the flags down here and repainting. */
         msdBody.connected = connected;
-        msdBody.canConnect = !!(online && d.image && !connected && !busy);
+        /* ...and not while an upload is running, which this alone was missing.
+         *
+         * Every other control in this dialog goes through `settable`, whose
+         * comment gives the rule: kvmd rejects a change the drive cannot make,
+         * "so the controls that would make one are disabled rather than left to
+         * fail". Writing an image to storage is exactly such a moment, and
+         * mounting the PREVIOUS image on the target in the middle of it is a
+         * change kvmd will not do. Measured with an upload in flight: Delete
+         * image and Reset drive both correctly disabled, Start upload correctly
+         * flipped to Abort, and "Mount on the target" sitting there live. */
+        msdBody.canConnect = !!(online && d.image && !connected && !busy && !msdUpload);
         msdBody.canDisconnect = !!(online && connected && !busy);
         msdBody.canRemove = !!(settable && d.image && d.image.removable);
         msdBody.uploading = !!msdUpload;
