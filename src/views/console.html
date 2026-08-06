@@ -351,7 +351,13 @@
             <!-- One thin control bar. Drag the grip/status to resize (smooth). Just
                  the essentials; everything else lives in the ⋯ menu so it fits. -->
             <div class="bar" id="bar">
-                <div class="grip" id="grip" title="Drag to resize"></div>
+                <!-- A separator, not a decoration: it splits the screen from the panel
+                     below it and can be moved with the arrow keys as well as dragged.
+                     Horizontal orientation because the two regions are stacked; the
+                     desktop divider is the vertical one. -->
+                <div class="grip" id="grip" title="Drag to resize"
+                    role="separator" tabindex="0" aria-orientation="horizontal"
+                    aria-label="Target preview height"></div>
                 <div class="bar-main" id="bar-main">
                     <span class="dot" id="conn" title="Connection"></span>
                     <span class="status" id="conn-text">Connecting…</span>

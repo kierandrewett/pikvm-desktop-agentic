@@ -6362,6 +6362,72 @@
         el.addEventListener("pointercancel", resizeEnd);
     });
 
+    /* The same split, from the keyboard.
+     *
+     * The grip was drag-only — a bare div with a title — so on the stacked
+     * layout the balance between the live screen and the panel under it could
+     * not be changed without a pointer, and a screen reader was told nothing
+     * about it at all. That is not only a phone problem: a browser window
+     * narrower than 900px gets this layout too. The desktop divider beside it
+     * has been a role=separator with an announced range since it had the same
+     * fault; this is that control for the other axis.
+     *
+     * The range comes out of clampH rather than repeating its numbers, so the
+     * ends the arrows reach are by construction the ends the drag is held to.
+     *
+     * stopPropagation matters for the reason it does on the divider: the
+     * console forwards stray keystrokes straight to the TARGET and only skips
+     * its own editable fields — a focusable div is not one, so without this
+     * every arrow press would also arrive on the remote machine. */
+    var gripEl = document.getElementById("grip");
+    /* `known` is the height just asked for, when there is one.
+     *
+     * --sh is transitioned outside a drag — which is why resizeStart adds
+     * .resizing to kill it — so reading pane.offsetHeight straight after
+     * writing the property returns the value it is animating AWAY from.
+     * Announcing that reported the previous step every time: measured
+     * ArrowDown taking the pane to 405px while aria-valuenow still said 394.
+     * The handler already knows what it asked for, so it says that; the
+     * caller with nothing to pass reads the DOM, which is right for a window
+     * resize or the end of a drag. */
+    function paintGripValue(known) {
+        if (!gripEl) return;
+        setAttr(gripEl, "aria-valuemin", String(clampH(0)));
+        setAttr(gripEl, "aria-valuemax", String(clampH(Number.MAX_SAFE_INTEGER)));
+        setAttr(gripEl, "aria-valuenow", String(clampH(known == null ? pane.offsetHeight : known)));
+    }
+    if (gripEl) {
+        gripEl.addEventListener("keydown", function (e) {
+            // Hidden on the desktop layout, where there is no vertical split at
+            // all — but the guard is cheap and matches what resizeStart does.
+            if (isDesktop()) return;
+            var step = e.shiftKey ? 48 : 12;
+            var current = pane.offsetHeight;
+            var next = null;
+            if (e.key === "ArrowUp") next = current - step;
+            else if (e.key === "ArrowDown") next = current + step;
+            else if (e.key === "Home") next = clampH(0);
+            else if (e.key === "End") next = clampH(Number.MAX_SAFE_INTEGER);
+            if (next === null) return;
+            e.preventDefault();
+            e.stopPropagation();
+            userResized = true; // same as a drag: stop auto-fit for this session
+            var h = clampH(next);
+            app.style.setProperty("--sh", h.toFixed(0) + "px");
+            paintGripValue(h);
+        });
+        /* Wrapped, not passed directly: these hand their Event to the first
+         * argument, which is the "height just asked for" — clamping an Event
+         * yields NaN and the control would announce nothing at all. */
+        gripEl.addEventListener("pointerup", function () {
+            paintGripValue();
+        });
+        window.addEventListener("resize", function () {
+            paintGripValue();
+        });
+        paintGripValue();
+    }
+
     /* ---- desktop: drag the chat workspace's right edge to balance it against
      * the supporting computer preview. */
     var chatResize = document.getElementById("chat-resize");

@@ -255,6 +255,17 @@ body {
     cursor: row-resize;
     touch-action: none;
 }
+/* The ring goes on the handle itself, not only its ::after line — the handle is
+   the tab stop, and an indicator that exists only on a pseudo-element is one I
+   cannot prove is there. Same call the desktop divider already makes. */
+.grip:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+}
+.grip:focus-visible::after {
+    background: var(--primary);
+    opacity: 1;
+}
 .grip::after {
     content: "";
     width: 44px;

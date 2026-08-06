@@ -1189,3 +1189,35 @@ test("the resize grip is not shown on a layout that cannot be resized", () => {
     assert.ok(base > css.indexOf(".bar > .grip"), ".grip's base rule must still come after the override");
     assert.match(css.slice(base, base + 220), /display: flex;/);
 });
+
+test("the stacked layout's split can be moved without a pointer", () => {
+    /* The grip was drag-only — a bare div with a title — so the balance between
+       the live screen and the panel under it could not be changed from the
+       keyboard, and a screen reader was told nothing about it. Not only a phone
+       problem: any browser window narrower than 900px gets this layout. The
+       desktop divider has been a role=separator with an announced range since
+       it had the same fault. */
+    assert.match(html, /id="grip"[\s\S]{0,140}?role="separator" tabindex="0" aria-orientation="horizontal"/);
+    assert.match(html, /aria-label="Target preview height"/);
+    assert.match(js, /if \(e\.key === "ArrowUp"\) next = current - step;/);
+    assert.match(js, /else if \(e\.key === "End"\) next = clampH\(Number\.MAX_SAFE_INTEGER\);/);
+    assert.match(js, /userResized = true; \/\/ same as a drag/);
+    /* The ends the arrows reach come out of clampH rather than repeating its
+       numbers, so they are by construction the ends the drag is held to. */
+    assert.match(js, /setAttr\(gripEl, "aria-valuemin", String\(clampH\(0\)\)\);/);
+    assert.match(js, /setAttr\(gripEl, "aria-valuemax", String\(clampH\(Number\.MAX_SAFE_INTEGER\)\)\);/);
+    /* --sh is transitioned outside a drag, so reading offsetHeight straight
+       after writing it returns the value being animated AWAY from — measured
+       ArrowDown moving the pane to 405px while aria-valuenow still said 394.
+       The handler announces what it asked for. Verified settled: Home 110/110,
+       End 740/740, ArrowUp 728/728. */
+    assert.match(js, /paintGripValue\(h\);/);
+    assert.match(js, /String\(clampH\(known == null \? pane\.offsetHeight : known\)\)/);
+    // Wrapped, or the Event lands in `known` and clamping it announces NaN.
+    assert.match(js, /addEventListener\("pointerup", function \(\) \{\s*paintGripValue\(\);/);
+    // Keys must not also reach the target: a focusable div is not an editable field.
+    const fn = js.slice(js.indexOf('gripEl.addEventListener("keydown"'));
+    assert.match(fn.slice(0, fn.indexOf("\n        });")), /e\.preventDefault\(\);\s*e\.stopPropagation\(\);/);
+    // A tab stop needs a visible ring, and one on a pseudo-element alone is not provable.
+    assert.match(css, /\.grip:focus-visible \{\s*outline: none;\s*box-shadow: 0 0 0 2px/);
+});
