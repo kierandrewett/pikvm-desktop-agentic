@@ -1899,9 +1899,28 @@
         function addStep(kind) {
             var macro = macroById(macroSelected);
             if (!macro) return;
-            if (kind === "chord") macro.steps.push({ type: "chord", mods: [], code: "" });
-            else if (kind === "text") macro.steps.push({ type: "text", text: "" });
-            else macro.steps.push({ type: "delay", ms: 200 });
+            /* Land on the step just made.
+             *
+             * Focus stayed on the Add button, and the new row is rendered ABOVE
+             * that row of buttons — so the only way to the field you had just
+             * asked for was Shift+Tab, backwards, past however many controls
+             * the previous steps had. Measured: Add text, Add pause and Add key
+             * combo all left focus on the button pressed.
+             *
+             * The list already restores focus by data-fk after every repaint;
+             * this just names the control that should have it. k/t/d match the
+             * keys the rows are built with. */
+            var index = macro.steps.length;
+            if (kind === "chord") {
+                macro.steps.push({ type: "chord", mods: [], code: "" });
+                pendingMacroFocus = "k" + index;
+            } else if (kind === "text") {
+                macro.steps.push({ type: "text", text: "" });
+                pendingMacroFocus = "t" + index;
+            } else {
+                macro.steps.push({ type: "delay", ms: 200 });
+                pendingMacroFocus = "d" + index;
+            }
             paintMacroEditor();
         }
         function newMacro() {
@@ -1917,6 +1936,17 @@
             // Not saved yet: a step with no key is dropped by the server's
             // validation, so it only persists once it does something.
             paintMacroEditor();
+            /* Into the name, selected. The label is a placeholder — the literal
+             * words "New macro" — so the first thing anyone does is replace it,
+             * and focus was left on the button that had just been pressed.
+             * Selecting means typing replaces it rather than appending to it.
+             * Safe to do straight after the repaint: a new macro is deliberately
+             * not saved yet, so nothing repaints again underneath this. */
+            var name = document.getElementById("macro-label");
+            if (name) {
+                name.focus();
+                name.select();
+            }
         }
         function deleteMacro() {
             var macro = macroById(macroSelected);

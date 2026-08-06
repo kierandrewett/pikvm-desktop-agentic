@@ -2078,3 +2078,36 @@ test("the macro icon picker has the keyboard model its role promises", () => {
          Home / End        -> "No icon" / settings
        and clicking an icon still selects it. */
 });
+
+test("the macro editor lands on the control it just created", () => {
+    /* Every creating action left focus on the button pressed, and the new row
+       renders ABOVE that row of buttons — so the only way to the field you had
+       just asked for was Shift+Tab, backwards, past however many controls the
+       earlier steps carry. Measured in the editor: New macro, Add text, Add
+       pause and Add key combo all reported focus still on a BUTTON. */
+    assert.match(js, /var index = macro\.steps\.length;/);
+    assert.match(js, /pendingMacroFocus = "k" \+ index;/);
+    assert.match(js, /pendingMacroFocus = "t" \+ index;/);
+    assert.match(js, /pendingMacroFocus = "d" \+ index;/);
+    /* k/t/d are the keys the rows are already built with, and the list already
+       restores focus by data-fk after every repaint — this only names the
+       control that should have it. */
+    assert.match(js, /keySel\.setAttribute\("data-fk", "k" \+ index\);/);
+    assert.match(js, /text\.setAttribute\("data-fk", "t" \+ index\);/);
+    assert.match(js, /ms\.setAttribute\("data-fk", "d" \+ index\);/);
+
+    /* A new macro's label is the literal placeholder "New macro", so the first
+       thing anyone does is replace it. Selected, not just focused, or typing
+       would append to the placeholder instead of replacing it. */
+    assert.match(js, /var name = document\.getElementById\("macro-label"\);\s*if \(name\) \{\s*name\.focus\(\);\s*name\.select\(\);/);
+    assert.match(js, /label: "New macro",/);
+
+    /* Driven in the editor after the fix:
+         New macro      -> INPUT#macro-label, with "New macro" selected whole
+         Add text       -> INPUT "Text for step 2"
+         Add pause      -> INPUT "Pause for step 3, milliseconds"
+         Add key combo  -> SELECT "Key for step 4"
+       Removing a step was checked too and deliberately left as it was: focus
+       lands on the Remove of the row that took its place, which is the ordinary
+       convention for deleting down a list. */
+});
