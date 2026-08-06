@@ -488,14 +488,14 @@ test("a blur releases held input outside the desktop-only block", () => {
 test("the connection chip shows input being offline, not just its tooltip", () => {
     const fn = js.slice(js.indexOf("function paintConnStatus()"));
     const body = fn.slice(0, fn.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "");
-    assert.match(body, /connText\.textContent = d\.label \+ inputNote/);
+    assert.match(body, /setText\(connText, d\.label \+ inputNote\)/);
     assert.match(body, /conn\.title = d\.label \+ inputNote/);
     // Repainted when the socket changes, not only when the stream state does.
     assert.match(js, /hid\.setStatus\(paintConnStatus\);/);
     // The overlay pill stays about the PICTURE: no input state on it.
     const setState = js.slice(js.indexOf("function setState(s) {"));
     const sbody = setState.slice(0, setState.indexOf("\n    }"));
-    assert.match(sbody, /overlayLabel\.textContent = d\.label;/);
+    assert.match(sbody, /setText\(overlayLabel, d\.label\);/);
 });
 
 /**
@@ -748,7 +748,7 @@ test("the health dialog does not claim all-clear before the Pi has reported", ()
     // Still hidden by a real problem, as before.
     assert.match(body, /ok\.hidden = problems\.length > 0;/);
     // But the wording now says which of the two empty states this is.
-    assert.match(body, /ok\.textContent = health\.reported\(\)\s*\?\s*"Everything looks fine\."\s*:\s*"Nothing reported from the PiKVM yet\.";/);
+    assert.match(body, /setText\(ok, health\.reported\(\)\s*\?\s*"Everything looks fine\."\s*:\s*"Nothing reported from the PiKVM yet\."\);/);
     // reported() is the "have we heard anything at all" signal, not a problem count.
     const mod = js.slice(js.indexOf("reported: function () {"));
     assert.match(mod.slice(0, 120), /return !!\(info \|\| source \|\| hidState\);/);
@@ -828,7 +828,7 @@ test("a GPIO row distinguishes offline from busy", () => {
     assert.match(body, /gpioRows = \{\};\s*\n\s*gpioNotes = \{\};/);
     // And written on every repaint, beside the mounted.update() that repaints
     // the controls — the two states have different words.
-    assert.match(body, /note\.textContent = !o\.online \? "offline" : o\.busy \? "busy" : "";/);
+    assert.match(body, /setText\(note, !o\.online \? "offline" : o\.busy \? "busy" : ""\);/);
     assert.match(body, /note\.hidden = !note\.textContent;/);
 });
 
@@ -1446,12 +1446,54 @@ test("the overflow menu's open state cannot drift from its button", () => {
 test("the health dialog only rewrites what actually changed", () => {
     const about = js.slice(js.indexOf("function paintAbout() {"), js.indexOf("health.onChange(paintHealth);"))
         .replace(/\/\*[\s\S]*?\*\//g, "");
-    assert.match(about, /var line = bits\.join\("  ·  "\);\s*\n\s*if \(el\.textContent !== line\) el\.textContent = line;/);
+    assert.match(about, /setText\(el, bits\.join\("  ·  "\)\);/);
     // The empty case too, or a Pi that reports nothing rewrites "" for ever.
-    assert.match(about, /if \(el\.textContent !== ""\) el\.textContent = "";/);
+    assert.match(about, /setText\(el, ""\);/);
     const list = js.slice(js.indexOf('var list = document.getElementById("health-list");'), js.indexOf("paintGpio();"))
         .replace(/\/\*[\s\S]*?\*\//g, "");
     // Keyed on level AND text, so a warning becoming an error still rebuilds.
     assert.match(list, /return p\.level \+ ":" \+ p\.text;/);
     assert.match(list, /if \(list\.getAttribute\("data-set"\) !== listKey\) \{\s*\n\s*list\.setAttribute\("data-set", listKey\);\s*\n\s*list\.innerHTML = "";/);
+});
+
+/**
+ * Repaints write text only when it differs.
+ *
+ * The repaint functions run on every kvmd event — info, hid, streamer, msd,
+ * gpio — and a real Pi sends those constantly. Reassigning textContent
+ * replaces the text node even when the string is identical, which throws away
+ * any selection inside it and, in a live region, announces again. Swept the
+ * document with a MutationObserver while pushing five rounds of IDENTICAL
+ * state, with each dialog open in turn:
+ *
+ *     health-ok          30 rewrites
+ *     health-hid-state   30
+ *     sp-*-value         15 each
+ *     msd-status          5
+ *     msd-free            5
+ *
+ * none of which had changed. b767219 fixed two of these one at a time; this is
+ * the same rule in one helper, so the next repaint added here gets it by
+ * default rather than by someone remembering. After: every one of those is 0.
+ *
+ * Deliberately NOT applied to paths that rebuild on a user action — the macro
+ * editor list, the log body — which rebuild wholesale by design.
+ */
+test("repaint paths do not rewrite unchanged text", () => {
+    const helper = js.slice(js.indexOf("function setText(el, text) {"), js.indexOf("function toast("));
+    assert.match(helper, /if \(el && el\.textContent !== text\) el\.textContent = text;/);
+    /* Every repaint that writes a status string goes through it. Listed by the
+     * element each one targets, so a bare write reintroduced at any of these
+     * fails here rather than being caught by another MutationObserver sweep. */
+    for (const call of [
+        /setText\(status, msd\.summary\(\)\);/,
+        /setText\(free, f === null \? "" : humanBytes\(f\) \+ " free"\);/,
+        /setText\(ok, health\.reported\(\)/,
+        /setText\(stateEl, !known \? "state unknown"/,
+        /setText\(note, !o\.online \? "offline"/,
+        /setText\(val, text\);/,
+        /setText\(connText, d\.label \+ inputNote\);/,
+        /setText\(overlayLabel, d\.label\);/,
+        /setText\(el, bits\.join\("  ·  "\)\);/,
+    ]) assert.match(js, call);
 });

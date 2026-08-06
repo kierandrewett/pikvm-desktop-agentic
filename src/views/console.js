@@ -532,6 +532,31 @@
      *  longer, because a failed power action is worth actually reading.
      *  `sticky` keeps it up until something replaces or clears it — for work
      *  that outlasts the normal dwell and would otherwise look abandoned. */
+    /* Write text only when it differs.
+     *
+     * The repaint functions run on every kvmd event — info, hid, streamer, msd,
+     * gpio — and a real Pi sends those constantly. Reassigning textContent
+     * replaces the text node even when the string is identical, which throws
+     * away any selection inside it and, in a live region, announces again.
+     * Swept the document with a MutationObserver while pushing five rounds of
+     * IDENTICAL state:
+     *
+     *     health-ok          30 rewrites
+     *     health-hid-state   30
+     *     sp-*-value         15 each
+     *     msd-status          5
+     *     msd-free            5
+     *
+     * none of which had changed. b767219 fixed two of these one at a time; this
+     * is the same rule in one place so the next repaint added here gets it by
+     * default rather than by remembering.
+     *
+     * Only for repaint paths. Somewhere that rebuilds on a user action — the
+     * macro editor, the log body — is not this, and should not pretend to be. */
+    function setText(el, text) {
+        if (el && el.textContent !== text) el.textContent = text;
+    }
+
     function toast(msg, error, sticky) {
         if (!toastEl) return;
         /* An error and a confirmation were both announced politely, which means
@@ -2476,7 +2501,7 @@
         var settable = online && !connected && !busy && !msdUpload;
 
         var status = document.getElementById("msd-status");
-        if (status) status.textContent = msd.summary();
+        setText(status, msd.summary());
 
         var sel = document.getElementById("msd-image");
         if (sel && !controlBusy(sel, paintMsd)) {
@@ -2536,7 +2561,7 @@
         var free = document.getElementById("msd-free");
         if (free) {
             var f = msd.free();
-            free.textContent = f === null ? "" : humanBytes(f) + " free";
+            setText(free, f === null ? "" : humanBytes(f) + " free");
         }
 
         /* A remote download's progress belongs to the Pi, so it arrives here on
@@ -2586,7 +2611,7 @@
             if (typeof pct === "number") bar.value = pct;
             else if (pct !== null) bar.removeAttribute("value");
         }
-        if (val) val.textContent = label || "";
+        setText(val, label || "");
     }
 
     /* Uploads use XMLHttpRequest, not fetch: fetch still cannot report upload progress,
@@ -2882,7 +2907,7 @@
              * Two different states were being reported as the good one. Say
              * which it is instead of asserting a result we do not have. */
             ok.hidden = problems.length > 0;
-            ok.textContent = health.reported() ? "Everything looks fine." : "Nothing reported from the PiKVM yet.";
+            setText(ok, health.reported() ? "Everything looks fine." : "Nothing reported from the PiKVM yet.");
         }
 
         paintGpio();
@@ -2899,7 +2924,7 @@
         var attached = connected === true || (connected === null && online === true);
         var known = connected !== null || online !== null;
         var stateEl = document.getElementById("health-hid-state");
-        if (stateEl) stateEl.textContent = !known ? "state unknown" : attached ? "attached" : "detached";
+        setText(stateEl, !known ? "state unknown" : attached ? "attached" : "detached");
         /* The label is the ACTION, so it says what pressing it will do rather
          * than what is currently true — and it is disabled while that is not
          * known, because a button offering to detach something that may already
@@ -2992,7 +3017,7 @@
         outs.forEach(function (o) {
             var note = gpioNotes[o.name];
             if (note) {
-                note.textContent = !o.online ? "offline" : o.busy ? "busy" : "";
+                setText(note, !o.online ? "offline" : o.busy ? "busy" : "");
                 note.hidden = !note.textContent;
             }
             var mounted = gpioRows[o.name];
@@ -3091,7 +3116,7 @@
         if (!el) return;
         var i = health.info();
         if (!i) {
-            if (el.textContent !== "") el.textContent = "";
+            setText(el, "");
             return;
         }
         var bits = [];
@@ -3114,8 +3139,7 @@
         if (i.system && i.system.streamer && i.system.streamer.version) bits.push((i.system.streamer.app || "streamer") + " " + i.system.streamer.version);
         if (i.health && i.health.temp && typeof i.health.temp.cpu === "number") bits.push(i.health.temp.cpu.toFixed(0) + "°C");
         if (i.fan && i.fan.monitored && i.fan.state && i.fan.state.hall && i.fan.state.hall.available) bits.push(i.fan.state.hall.rpm + " rpm");
-        var line = bits.join("  ·  ");
-        if (el.textContent !== line) el.textContent = line;
+        setText(el, bits.join("  ·  "));
     }
 
     health.onChange(paintHealth);
@@ -3254,7 +3278,7 @@
      * slider and its label drift apart. */
     function paintSliderValue(cfg, el, val) {
         var text = cfg.fmt(Number(el.value));
-        if (val) val.textContent = text;
+        setText(val, text);
         el.setAttribute("aria-valuetext", text);
     }
 
@@ -4124,7 +4148,7 @@
         var d = STATUS[streamState] || STATUS.connecting;
         var inputNote = hid.isOpen() ? "" : " · input offline";
         conn.className = "dot " + d.tone;
-        if (connText) connText.textContent = d.label + inputNote;
+        setText(connText, d.label + inputNote);
         conn.title = d.label + inputNote;
     }
 
@@ -4148,7 +4172,7 @@
             /* One line, reusing the chip's own label so a state cannot be
              * described two different ways. The spinner means "a picture is
              * still coming"; no signal is a settled answer, not a wait. */
-            if (overlayLabel) overlayLabel.textContent = d.label;
+            setText(overlayLabel, d.label);
             if (overlaySpinner) overlaySpinner.hidden = s === "nosignal";
         }
     }
