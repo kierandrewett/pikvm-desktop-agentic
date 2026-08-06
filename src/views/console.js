@@ -3951,6 +3951,25 @@
      * were not looking at. There is no stacking design to preserve here — the
      * equal z-index is the proof — so the fix is to make the singular
      * assumption true rather than teach four consumers to cope with it. */
+    /* Where focus should come BACK to, which is not always where it is now.
+     *
+     * A ⋯ menu item is display:none'd by the very click that opens the dialog,
+     * and focusing a hidden element does nothing — so remembering the item and
+     * restoring to it later lands on the body. Measured on the web layout,
+     * opening each dialog from the menu and pressing Escape:
+     *
+     *     msd -> BODY    stream -> BODY    log -> BODY
+     *
+     * The button that owns the menu is still there when the dialog closes, and
+     * it is where the user was a moment before, so that is the anchor. The
+     * desktop pops a native menu instead and never reaches this branch. */
+    function focusAnchor() {
+        var a = document.activeElement;
+        if (!a || a === document.body) return null;
+        if (a.closest && a.closest(".more-menu")) return document.getElementById("more-btn") || a;
+        return a;
+    }
+
     function closeOtherDialogs(keep) {
         /* Remember where focus was BEFORE the dialog can take it.
          *
@@ -3974,7 +3993,7 @@
          * cleared and before any focus() of its own. Only when nothing is open
          * yet — opening a second dialog must keep the focus from before the
          * FIRST, not park it on a control that is about to be hidden. */
-        if (!openScrim()) focusBeforeModal = document.activeElement;
+        if (!openScrim()) focusBeforeModal = focusAnchor();
         document.querySelectorAll(".dlg-scrim").forEach(function (el) {
             if (el !== keep && !el.hidden) el.hidden = true;
         });
@@ -4051,7 +4070,7 @@
             var scrim = openScrim();
             if (scrim && !scrim.contains(document.activeElement)) {
                 // Remember where focus was so closing returns it, not the body.
-                if (!focusBeforeModal) focusBeforeModal = document.activeElement;
+                if (!focusBeforeModal) focusBeforeModal = focusAnchor();
                 var first = initialFocusIn(scrim);
                 if (first) first.focus();
             } else if (!scrim && focusBeforeModal) {

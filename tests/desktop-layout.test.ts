@@ -1221,3 +1221,23 @@ test("the stacked layout's split can be moved without a pointer", () => {
     // A tab stop needs a visible ring, and one on a pseudo-element alone is not provable.
     assert.match(css, /\.grip:focus-visible \{\s*outline: none;\s*box-shadow: 0 0 0 2px/);
 });
+
+test("a dialog opened from the overflow menu gives focus back to the menu button", () => {
+    /* closeOtherDialogs remembers where focus was so closing can return it, and
+       what it remembered on the web layout was the ⋯ MENU ITEM the user had
+       just clicked — an element the same click display:none's. Focusing a
+       hidden element does nothing, so the restore silently landed on the body.
+       Measured, opening each from the menu and pressing Escape:
+           msd -> BODY    stream -> BODY    log -> BODY
+       and after: all three -> #more-btn. */
+    assert.match(js, /function focusAnchor\(\) \{[\s\S]*?if \(a\.closest && a\.closest\("\.more-menu"\)\) return document\.getElementById\("more-btn"\) \|\| a;/);
+    // Both record sites go through it, or the two disagree about the anchor.
+    assert.match(js, /if \(!openScrim\(\)\) focusBeforeModal = focusAnchor\(\);/);
+    assert.match(js, /if \(!focusBeforeModal\) focusBeforeModal = focusAnchor\(\);/);
+    const bare = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    assert.doesNotMatch(bare, /focusBeforeModal = document\.activeElement/, "a record site bypassed focusAnchor");
+    /* The desktop pops a native menu and never reaches that branch, so its
+       trigger is still the anchor — re-verified across all nine dialog/close
+       combinations after this change. */
+    assert.match(js, /if \(restore && restore\.focus && document\.contains\(restore\)\) restore\.focus\(\);/);
+});

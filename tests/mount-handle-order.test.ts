@@ -1280,12 +1280,14 @@ test("stale queued input is dropped, but releases never are", () => {
 test("closing a dialog returns focus to whatever opened it", () => {
     const body = js.slice(js.indexOf("function closeOtherDialogs(keep) {"), js.indexOf("/** The dialog currently up"))
         .replace(/\/\*[\s\S]*?\*\//g, "");
-    assert.match(body, /if \(!openScrim\(\)\) focusBeforeModal = document\.activeElement;/);
+    // Through focusAnchor now, which maps a ⋯ menu item to the button that owns
+    // the menu — the item is hidden by the same click and cannot take focus back.
+    assert.match(body, /if \(!openScrim\(\)\) focusBeforeModal = focusAnchor\(\);/);
     // It has to come before anything is hidden or shown.
-    assert.ok(body.indexOf("focusBeforeModal = document.activeElement") < body.indexOf("querySelectorAll"),
+    assert.ok(body.indexOf("focusBeforeModal = focusAnchor()") < body.indexOf("querySelectorAll"),
         "focus must be captured before the scrims are touched");
     // The observer still restores it, and still does not clobber a saved anchor.
-    assert.match(js, /if \(!focusBeforeModal\) focusBeforeModal = document\.activeElement;/);
+    assert.match(js, /if \(!focusBeforeModal\) focusBeforeModal = focusAnchor\(\);/);
     assert.match(js, /\} else if \(!scrim && focusBeforeModal\) \{[\s\S]*?restore\.focus\(\);/);
 });
 
