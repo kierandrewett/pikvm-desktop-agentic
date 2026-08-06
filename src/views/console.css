@@ -939,9 +939,13 @@ html.desktop-console .tb-macros {
    viewport, so maximise and close were simply gone and the window could not be
    closed from its own titlebar.
 
-   Clipping them is the right trade. Every macro is still listed by name in the
-   send-keys menu, which is a complete way to reach them; a missing close button
-   has no such alternative. */
+   Clipping them is the right trade, but only because there is another complete
+   route to every one of them: the ⋯ menu lists all the pinned macros by name.
+   That was written here as though it were already true of the send-keys menu,
+   which lists keyboard shortcuts and never listed a macro — so until the menu
+   entries went in, a macro past the clip edge had no mouse route at all. A
+   missing close button would have no alternative of any kind, which is why the
+   macros are still the ones that give way. */
 html.desktop-console .tb-macros {
     /* flex-shrink, or none of the above happens.
      *

@@ -526,3 +526,33 @@ test("a macro tabbed to at the clip edge is scrolled fully into view", () => {
     // Only for buttons in this strip, so a focus elsewhere never moves it.
     assert.match(body, /macroHost\.contains\(btn\)/);
 });
+
+/**
+ * Every pinned macro is reachable with the mouse, not just the ones that fit.
+ *
+ * The titlebar strip clips so it can give way instead of pushing the window
+ * controls off the bar, so a user who pins more than fit has some that are
+ * simply not on screen. On the web that is covered: paintMacroMenu puts the
+ * same list in the HTML overflow menu, precisely because "the titlebar does
+ * not exist anywhere else". The desktop's native menu is the equivalent and it
+ * only ever offered "Macros…", which opens the EDITOR — so a pinned macro past
+ * the clip edge could be created, named, given an icon and then never run.
+ *
+ * runCommand has answered "macro:<id>" all along, so only the entries were
+ * missing. Measured at 900px with sixty pinned macros: 17 visible in the strip,
+ * 60 entries in the menu, and picking macro:m41 — one of the clipped ones —
+ * produced the macro's HID write. With none pinned the block is skipped
+ * entirely: 16 items, no adjacent separators, no trailing separator.
+ */
+test("the desktop menu can run every pinned macro, including the clipped ones", () => {
+    const at = js.indexOf('items.push({ id: "macros", label: "Macros…" });');
+    assert.ok(at > 0, "the macros entry is not in buildMenu");
+    const body = js.slice(at, at + 1600).replace(/\/\*[\s\S]*?\*\//g, "");
+    // The same pinned filter the strip itself uses, so the two cannot diverge.
+    assert.match(body, /macros\.filter\(function \(m\) \{\s*return m\.pinned !== false;/);
+    // Ids runCommand already dispatches, labelled by name.
+    assert.match(body, /items\.push\(\{ id: "macro:" \+ m\.id, label: m\.label \}\)/);
+    // And nothing at all when there is nothing to list, so no stray separators.
+    assert.match(body, /if \(runnable\.length\) \{/);
+    assert.match(js, /if \(id\.indexOf\("macro:"\) === 0\) \{\s*\n\s*runMacro\(macroById\(id\.slice\(6\)\)\);/);
+});

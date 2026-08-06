@@ -6604,6 +6604,30 @@
                 items.push({ id: "ocr", label: "Read text from the screen…", enabled: screenHasPicture() });
             items.push({ id: "log", label: "PiKVM log…" });
             items.push({ id: "macros", label: "Macros…" });
+            /* Every pinned macro, by name — the only route to the ones the
+             * titlebar cannot show.
+             *
+             * The strip clips so it can give way instead of pushing the window
+             * controls off the bar, which means a user who pins more than fit
+             * has some that are simply not on screen. On the web that is fine:
+             * paintMacroMenu puts the same list in the HTML overflow menu. This
+             * menu is the desktop's equivalent and it only ever offered
+             * "Macros…", which opens the EDITOR — so a pinned macro past the
+             * clip edge could be created, named, given an icon and then never
+             * run with the mouse. Tab reaches it, and nothing else did.
+             *
+             * runCommand has answered "macro:<id>" all along; the entries were
+             * the missing half. Flat with a separator, to match the web menu. */
+            var runnable = macros.filter(function (m) {
+                return m.pinned !== false;
+            });
+            if (runnable.length) {
+                items.push({ type: "separator" });
+                runnable.forEach(function (m) {
+                    items.push({ id: "macro:" + m.id, label: m.label });
+                });
+                items.push({ type: "separator" });
+            }
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
                 items.push({ type: "separator" });
