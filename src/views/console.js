@@ -6000,6 +6000,9 @@
             video: vid,
             wantAudio: true, // audio output ON by default (mic stays off for privacy)
             wantMic: false,
+            // Pinned from the start, so the first capture after a reconnect uses
+            // the chosen device rather than whatever the OS calls default today.
+            micDeviceId: micChoice.id,
             onStatus: function (st) {
                 // "connecting" / "live" / "error". We only surface this quietly; the
                 // visible status is driven by activate/fallback below.
@@ -6173,7 +6176,7 @@
                 return;
             }
             navigator.mediaDevices
-                .getUserMedia(micConstraints())
+                .getUserMedia(withMicDevice(micConstraints()))
                 .then(function (s) {
                     s.getTracks().forEach(function (t) {
                         try {
@@ -6347,21 +6350,25 @@
         out.audio = merged;
         return out;
     }
-    /* Kept so the one call that must NOT be pinned can still be made: asking for
-     * any microphone at all, purely to unlock the device labels. Pinning that
-     * one would make it fail for exactly the user who needs it most — someone
-     * whose saved device is unplugged, trying to read the list well enough to
-     * pick a different one. */
-    var rawGetUserMedia = null;
-    (function pinMicDevice() {
+    /* getUserMedia, unwrapped, because nothing here wraps it any more.
+     *
+     * The first version of this pinned the device by monkey-patching
+     * navigator.mediaDevices.getUserMedia, since webrtc.js hardcoded `capture`
+     * as a boolean and there was no other point both calls passed through. That
+     * worked and was the wrong shape: a global patch on a browser API, reaching
+     * every caller on the page including ones that have nothing to do with the
+     * KVM, to influence one of them. webrtc.js has setMicDevice(id) now, so the
+     * device goes to the capture that uses it and this file asks for its own
+     * microphone in the ordinary way.
+     *
+     * Named rather than inlined because the DIFFERENCE matters: the label call
+     * below deliberately does not pin, and a bare navigator.mediaDevices.
+     * getUserMedia at two call sites would not show which is which. */
+    function rawGetUserMedia(constraints) {
         var md = navigator.mediaDevices;
-        if (!md || typeof md.getUserMedia !== "function") return;
-        var real = md.getUserMedia.bind(md);
-        rawGetUserMedia = real;
-        md.getUserMedia = function (constraints) {
-            return real(withMicDevice(constraints));
-        };
-    })();
+        if (!md || typeof md.getUserMedia !== "function") return Promise.reject(new Error("no getUserMedia"));
+        return md.getUserMedia(constraints);
+    }
 
     function sinkIdSupported() {
         return !!(vid && typeof vid.setSinkId === "function");
@@ -6513,15 +6520,19 @@
             micChoice = choice;
             writeDeviceChoice(MIC_DEVICE_KEY, choice);
             reportMissingDevices(false);
-            /* A running capture does not change device on its own.
+            /* Tell the wrapper, which owns the capture.
              *
-             * setMic tears the Janus session down and brings it back up — see
-             * webrtc.js's restart() — which re-runs createAnswer and so re-runs
-             * getUserMedia, now with the new constraint. So the track being sent
-             * really becomes the one just picked, rather than the choice taking
-             * effect the next time the mic happens to be toggled. With the mic
-             * off there is nothing running to restart. */
-            if (micOn && stream) stream.setMic(true);
+             * setMicDevice records the device and, if the mic is live, tears the
+             * Janus session down and brings it back — see webrtc.js's restart()
+             * — so createAnswer runs again and getUserMedia is called with the
+             * new constraint. The track being sent really becomes the one just
+             * picked, rather than the choice taking effect the next time the mic
+             * happens to be toggled. With the mic off there is nothing to
+             * restart and the id simply waits for the next capture.
+             *
+             * Guarded because the harness swaps webrtc.js for a stub, and a
+             * fixture without this method must not take the console down. */
+            if (stream && stream.setMicDevice) stream.setMicDevice(choice.id);
             toast(id ? "Microphone: " + name : "The microphone follows the system default");
         } else {
             outChoice = choice;
@@ -6538,7 +6549,7 @@
      * so enumerateDevices starts filling names in. Deliberately NOT pinned; see
      * rawGetUserMedia above. */
     function nameDevices() {
-        if (!rawGetUserMedia || namingDevices) return;
+        if (namingDevices) return;
         namingDevices = true;
         repaintAudioActions();
         rawGetUserMedia({ audio: true })
@@ -6574,7 +6585,7 @@
                 {
                     id: "ad-name",
                     label: "Name the devices",
-                    disabled: namingDevices || !rawGetUserMedia || devicesLabelled(),
+                    disabled: namingDevices || devicesLabelled(),
                     onSelect: nameDevices,
                 },
                 { id: "ad-close", label: "Done", variant: "default", onSelect: closeAudioDialog },

@@ -3360,9 +3360,23 @@ test("the microphone and the speaker are pinned to a device, not to the system d
     // capture janus.js opens.
     assert.match(js, /return micChoice\.id \? \{ audio: \{ deviceId: \{ exact: micChoice\.id \} \} \} : \{ audio: true \};/);
     assert.match(js, /merged\.deviceId = \{ exact: micChoice\.id \};/);
-    assert.match(js, /md\.getUserMedia = function \(constraints\) \{\s*\n\s*return real\(withMicDevice\(constraints\)\);/);
-    // The pre-flight goes through the same pin, so it fails where the capture would.
-    assert.match(js, /\.getUserMedia\(micConstraints\(\)\)/);
+    /* The device reaches the capture through the wrapper that owns it, NOT by
+       patching a browser API. The first version of this monkey-patched
+       navigator.mediaDevices.getUserMedia, because webrtc.js hardcoded `capture`
+       as a boolean and there was no other shared point; that reached every
+       caller on the page to influence one of them. */
+    const webrtc = readFileSync(resolve(root, "src/views/webrtc.js"), "utf8");
+    assert.match(webrtc, /setMicDevice: function \(deviceId\) \{/);
+    assert.match(webrtc, /capture: allowMic\s*\n\s*\? micDeviceId\s*\n\s*\? \{ deviceId: \{ exact: micDeviceId \} \}\s*\n\s*: true\s*\n\s*: false,/);
+    assert.match(js, /micDeviceId: micChoice\.id,/);
+    assert.match(js, /if \(stream && stream\.setMicDevice\) stream\.setMicDevice\(choice\.id\);/);
+    // ...and nothing reassigns getUserMedia any more.
+    assert.ok(
+        !/mediaDevices\.getUserMedia\s*=/.test(js.replace(/\/\*[\s\S]*?\*\//g, "")),
+        "getUserMedia is being monkey-patched again",
+    );
+    // The pre-flight pins explicitly, so it fails where the capture would.
+    assert.match(js, /\.getUserMedia\(withMicDevice\(micConstraints\(\)\)\)/);
 
     // A "default"/"communications" entry is an alias for the moving target, not
     // a device, so pinning to one would have been the same drift wearing a name.
@@ -3378,7 +3392,9 @@ test("the microphone and the speaker are pinned to a device, not to the system d
 
     // A change while the mic is running re-runs the capture rather than waiting
     // for the next toggle.
-    assert.match(js, /if \(micOn && stream\) stream\.setMic\(true\);/);
+    /* Superseded: the restart is setMicDevice's job now, since it is the wrapper
+       that knows whether a capture is live and what it was capturing from. */
+    assert.match(webrtc, /if \(allowMic && \(janus \|\| handle\)\) restart\(\);/);
     // Output is this window's <video>, so it is pinned directly.
     assert.match(js, /vid\.setSinkId\(want\)/);
 

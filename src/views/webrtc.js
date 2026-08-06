@@ -41,6 +41,12 @@
         var stopped = false;
         var allowAudio = !!opts.wantAudio;
         var allowMic = !!opts.wantMic;
+        /* Which microphone, not just whether. Empty means "any", which is what
+         * this asked for before and is still the right answer when the user has
+         * not pinned one. janus.js puts track.capture straight into
+         * constraints.audio, so an object here becomes the getUserMedia
+         * constraint verbatim. */
+        var micDeviceId = opts.micDeviceId || "";
         var allowCam = false;
         var retry = null;
         var video = opts.video;
@@ -129,7 +135,22 @@
                         // speaker) gated on audio — and added when EITHER is on (so mic
                         // works even with the speaker off, and both work together).
                         var tracks = [{ type: "video", capture: allowCam, recv: true, add: true }];
-                        if (allowAudio || allowMic) tracks.push({ type: "audio", capture: allowMic, recv: allowAudio, add: true });
+                        if (allowAudio || allowMic)
+                            tracks.push({
+                                type: "audio",
+                                /* true = any microphone; an object = that one and no
+                                 * other. `exact` on purpose: a pinned device that has
+                                 * been unplugged must fail rather than silently hand
+                                 * back whatever the OS considers default now, which
+                                 * is the drift the pinning exists to stop. */
+                                capture: allowMic
+                                    ? micDeviceId
+                                        ? { deviceId: { exact: micDeviceId } }
+                                        : true
+                                    : false,
+                                recv: allowAudio,
+                                add: true,
+                            });
                         handle.createAnswer({
                             jsep: jsep,
                             tracks: tracks,
@@ -243,6 +264,13 @@
             setMic: function (on) {
                 allowMic = !!on;
                 if (janus || handle) restart();
+            },
+            /** Pin capture to one device ("" = any). Restarts if it changed while live. */
+            setMicDevice: function (deviceId) {
+                var next = deviceId || "";
+                if (next === micDeviceId) return;
+                micDeviceId = next;
+                if (allowMic && (janus || handle)) restart();
             },
             hasVideo: function () {
                 return !!(video.srcObject && video.srcObject.getVideoTracks().length);
