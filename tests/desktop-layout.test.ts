@@ -1522,7 +1522,9 @@ test("the terminal says when its socket is down instead of swallowing clicks", (
     assert.match(term, /"Terminal disconnected — reconnecting…"/);
     // Both ends of the socket's life drive it, and it starts closed so the
     // button never invites a click it would swallow.
-    assert.match(term, /ws\.onopen = \(\) => \{\s*setLinkUp\(true\);/);
+    // Not pinned to the first line of onopen: the reconnect backoff resets
+    // there too. What matters is that opening the socket says so.
+    assert.match(term, /ws\.onopen = \(\) => \{[\s\S]{0,240}?setLinkUp\(true\);/);
     assert.match(term, /ws\.onclose = \(\) => \{\s*ws = null;\s*setLinkUp\(false\);/);
     // It runs once at module scope, before the first connect, not only inside
     // the two socket handlers.
@@ -1695,4 +1697,38 @@ test("the terminal tab strip keeps New shell and its notices on screen", () => {
     /* Re-measured after the fix, eighteen shells in a 399px panel: strip
        8..173 scrolled to its end, selected tab 84..173 in view, New shell
        179..209, hint 213..391 in full. */
+});
+
+test("every socket to the Pi backs off instead of hammering it", () => {
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    /* Three sockets talk to the same host: the video stream, the HID socket and
+       the terminal. Only the stream backed off — 800ms grown by 1.7 to a 8s
+       ceiling, reset on success. The other two retried flat, forever: 1200ms
+       and 1000ms. A Pi that is off, rebooting, or behind a dropped VPN took
+       roughly 100 failed connects a minute between them for as long as the
+       window stayed open, on a device with one core. */
+    assert.match(js, /var HID_RETRY_MIN_MS = 1200;/);
+    assert.match(js, /var HID_RETRY_MAX_MS = 8000;/);
+    assert.match(js, /\}, retryMs\);\s*retryMs = Math\.min\(Math\.round\(retryMs \* 1\.7\), HID_RETRY_MAX_MS\);/);
+    assert.match(term, /const RECONNECT_MIN_MS = 1000;/);
+    assert.match(term, /const RECONNECT_MAX_MS = 8000;/);
+    assert.match(term, /\}, reconnectMs\);\s*reconnectMs = Math\.min\(Math\.round\(reconnectMs \* 1\.7\), RECONNECT_MAX_MS\);/);
+    // The stream's own loop is what these copy; it must keep its shape.
+    assert.match(js, /retryMs = Math\.min\(Math\.round\(retryMs \* 1\.7\), 8000\);/);
+    // Neither may go back to a constant.
+    assert.doesNotMatch(js, /\n\s*\}, 1200\);/);
+    assert.doesNotMatch(term, /\n\s*\}, 1000\);/);
+
+    /* A connection that lands starts the next outage from the short wait again,
+       so a brief blip still recovers promptly. Without this the first drop
+       would leave every later one waiting 8s. */
+    assert.match(js, /retryMs = HID_RETRY_MIN_MS;\s*if \(onStatus\) onStatus\(true\);/);
+    assert.match(term, /reconnectMs = RECONNECT_MIN_MS;\s*setLinkUp\(true\);/);
+
+    /* Measured over CDP by killing each socket server-side and counting
+       Network.webSocketCreated:
+         HID       6 attempts in 30s, gaps 2.1 3.4 6 8 8 (was ~25 at a flat 1.2s)
+         terminal  5 attempts in 26s, gaps 1.7 2.9 4.9 8 (was 26 at a flat 1s)
+       and with the terminal server allowed back: status hidden, then the first
+       retry of the next outage at 1.0s again. */
 });

@@ -707,10 +707,24 @@ const onMessage = (msg: ServerMsg): void => {
     }
 };
 
+/* Back off, matching the console's video stream and its HID socket.
+ *
+ * This retried every second forever. A host that is off, rebooting, or behind a
+ * dropped VPN got sixty failed connects a minute for as long as the window
+ * stayed open, and the "Terminal disconnected — reconnecting…" notice made that
+ * loop visible without making it any less wasteful. Same 1.7 curve and 8s
+ * ceiling as the two sockets in the console, so panes talking to the same host
+ * do not drift apart. */
+const RECONNECT_MIN_MS = 1000;
+const RECONNECT_MAX_MS = 8000;
+let reconnectMs = RECONNECT_MIN_MS;
 let reconnectTimer: number | undefined;
 const connect = (): void => {
     ws = new WebSocket(wsUrl);
     ws.onopen = () => {
+        // A connection that lands starts the next outage from the short wait
+        // again, so a brief blip still recovers promptly.
+        reconnectMs = RECONNECT_MIN_MS;
         setLinkUp(true);
         // On (re)connect, clear existing terms so the server's replayed buffer redraws clean.
         for (const v of views.values()) v.term.reset();
@@ -730,7 +744,8 @@ const connect = (): void => {
         reconnectTimer = window.setTimeout(() => {
             reconnectTimer = undefined;
             connect();
-        }, 1000);
+        }, reconnectMs);
+        reconnectMs = Math.min(Math.round(reconnectMs * 1.7), RECONNECT_MAX_MS);
     };
     ws.onerror = () => ws?.close();
 };

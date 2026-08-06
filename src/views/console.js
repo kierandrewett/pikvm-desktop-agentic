@@ -325,6 +325,18 @@
         }
         var onStatus = null;
         var retry = null;
+        /* Back off, like the video stream in this same file already does.
+         *
+         * This retried every 1200ms forever. A Pi that is off, rebooting, or
+         * behind a dropped VPN gets hit forty-odd times a minute for as long as
+         * the window stays open, and every one of those is a failed TCP connect
+         * on a device with one core. The stream's loop next door has always
+         * grown its wait 800ms -> 8s and reset on success; this one and the
+         * terminal's were the two that never did. Same curve, so the two
+         * sockets to the same host do not drift apart. */
+        var HID_RETRY_MIN_MS = 1200;
+        var HID_RETRY_MAX_MS = 8000;
+        var retryMs = HID_RETRY_MIN_MS;
         // The TARGET's real Caps Lock state, read from the Pi's keyboard LED reports
         // (the ground truth). `capsKnown` stays false until the Pi actually sends one,
         // so we can fall back safely on setups that don't report LEDs.
@@ -357,6 +369,9 @@
                 open = true;
                 everSettled = true;
                 connecting = false;
+                // A connection that lands starts the next outage from the short
+                // wait again, so a brief blip still recovers promptly.
+                retryMs = HID_RETRY_MIN_MS;
                 if (onStatus) onStatus(true);
                 var q = queue;
                 queue = [];
@@ -454,7 +469,8 @@
             retry = setTimeout(function () {
                 retry = null;
                 connect();
-            }, 1200);
+            }, retryMs);
+            retryMs = Math.min(Math.round(retryMs * 1.7), HID_RETRY_MAX_MS);
         }
         function raw(obj) {
             try {
