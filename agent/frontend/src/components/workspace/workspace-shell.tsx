@@ -327,6 +327,11 @@ export function WorkspaceShell() {
         remoteId: run.run_id,
         status: "regular",
         title: run.task,
+        /* When it last moved and how it ended, so the list can tell similar
+           tasks apart. ExternalStoreThreadData carries no lastMessageAt field —
+           only this custom record — which is why the list's own relative time
+           and its Today/Yesterday grouping had never once rendered. */
+        custom: { updatedAt: run.updated_at, runStatus: run.status },
       })),
       archivedThreads: [],
       onSwitchToNewThread: () => {

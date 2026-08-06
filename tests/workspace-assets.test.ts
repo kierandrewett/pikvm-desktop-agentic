@@ -401,3 +401,42 @@ test("a sheet that cannot render fails inside itself, not over the workspace", (
        "Evidence feed unavailable" with the version-mismatch line, its Close
        focused, and the conversation, sidebar and composer intact behind it. */
 });
+
+test("the task list can tell one run from another", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const root = process.cwd();
+    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
+    const listPath = resolve(root, "agent/frontend/src/components/assistant-ui/thread-list.tsx");
+    const threadList = readFileSync(listPath, "utf8");
+    /* The task list is the one place you go to find a task again, and it showed
+       nothing but a truncated title. Seen with five runs open — failed,
+       aborted, blocked, rejected and paused — as five identical rows.
+
+       Its relative time and its Today/Yesterday grouping were already written
+       and styled, both reading item.lastMessageAt. ExternalStoreThreadData has
+       no such field, so the external-store runtime can never set it: two
+       features had been dark since the day they were added. */
+    assert.doesNotMatch(threadList, /item\.lastMessageAt/, "the runtime can never set it");
+    assert.match(shell, /custom: \{ updatedAt: run\.updated_at, runStatus: run\.status \}/);
+    assert.match(threadList, /runUpdatedAt\(itemsById\.get\(id\)\?\.custom\)/);
+    assert.match(threadList, /useThreadListItem\(\(item\) => runUpdatedAtRaw\(item\.custom\)\)/);
+    assert.match(threadList, /useThreadListItem\(\(item\) => runStateLabel\(item\.custom\)\)/);
+
+    /* The selector hands back the raw string, not a Date. useThreadListItem
+       compares what the selector returns, and a fresh object every call
+       re-rendered forever — measured: the panel came up on the root error
+       boundary instead of a task list. */
+    assert.match(threadList, /export const runUpdatedAtRaw = \(custom: Record<string, unknown> \| undefined\) =>\s*typeof custom\?\.updatedAt === "string" \? custom\.updatedAt : undefined;/);
+
+    // Only the states worth interrupting a scan for; queued, running and
+    // finished say nothing, or the marker would mean nothing.
+    for (const [status, label] of [["needs_approval", "Review"], ["failed", "Failed"],
+        ["blocked", "Blocked"], ["rejected", "Denied"], ["aborted", "Stopped"], ["paused", "Paused"]]) {
+        assert.match(threadList, new RegExp(`${status}: \\{ label: "${label}"`), `${status} needs a marker`);
+    }
+    assert.doesNotMatch(threadList, /\b(running|completed|queued): \{ label:/);
+    /* Rendered over CDP at 400px with all six seeded: a "Today" header, then
+       Review / Paused / Denied / Blocked / Stopped / Failed each beside a "1m",
+       measured at 5.07–5.69:1 in the dark theme and 4.71–5.71:1 in the light —
+       AA at 11px in both. */
+});

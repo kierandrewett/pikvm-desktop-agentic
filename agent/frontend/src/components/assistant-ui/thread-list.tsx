@@ -138,7 +138,9 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
 
   const { filteredIndices, groups } = useMemo(() => {
     const itemsById = new Map(threadItems.map((item) => [item.id, item]));
-    const dates = threadIds.map((id) => itemsById.get(id)?.lastMessageAt);
+    const dates = threadIds.map((id) =>
+      runUpdatedAt(itemsById.get(id)?.custom),
+    );
     const filteredIndices = threadIds
       .map((id, index) => ({ id, index }))
       .filter(
@@ -264,6 +266,51 @@ const ThreadListSkeleton: FC = () => {
   );
 };
 
+/* When a task last moved, and how it ended.
+ *
+ * ExternalStoreThreadData has no lastMessageAt field, so the item below read one
+ * the external-store runtime can never set: the relative time and the
+ * Today/Yesterday grouping above it were both written, styled, and dark. Seen
+ * with five runs open — failed, aborted, blocked, rejected and paused — as five
+ * identical rows carrying nothing but a truncated title, in the one place you go
+ * to find a task again.
+ *
+ * `custom` is the field the adapter can actually populate, so both travel there.
+ */
+/* Returns the raw string, not a Date. useThreadListItem compares what the
+ * selector returns, so handing back a fresh object every call re-rendered
+ * forever — the panel came up on the root error boundary rather than a task
+ * list. The Date is built by the caller, outside the selector. */
+export const runUpdatedAtRaw = (custom: Record<string, unknown> | undefined) =>
+  typeof custom?.updatedAt === "string" ? custom.updatedAt : undefined;
+
+const runUpdatedAt = (custom: Record<string, unknown> | undefined) => {
+  const raw = runUpdatedAtRaw(custom);
+  if (raw === undefined) return undefined;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+};
+
+/* Only the states worth interrupting a scan for. Queued, running and finished
+ * say nothing here: marking every row would make the marker mean nothing, and
+ * these are the ones you are looking for when you open the list at all. */
+const RUN_STATE_LABELS: Record<
+  string,
+  { label: string; tone: "attention" | "muted" }
+> = {
+  needs_approval: { label: "Review", tone: "attention" },
+  failed: { label: "Failed", tone: "attention" },
+  blocked: { label: "Blocked", tone: "attention" },
+  rejected: { label: "Denied", tone: "muted" },
+  aborted: { label: "Stopped", tone: "muted" },
+  paused: { label: "Paused", tone: "muted" },
+};
+
+export const runStateLabel = (custom: Record<string, unknown> | undefined) => {
+  const status = custom?.runStatus;
+  return typeof status === "string" ? RUN_STATE_LABELS[status] : undefined;
+};
+
 /** "2m", "3h", "5d" — short enough to sit inline without pushing the title. */
 const relativeTime = (date: Date | undefined) => {
   if (!date) return "";
@@ -281,7 +328,8 @@ const relativeTime = (date: Date | undefined) => {
 /** When each task last moved, so a list of similar titles is still scannable —
  *  several of these tasks are called the same thing. */
 const ThreadListItemTime: FC = () => {
-  const lastMessageAt = useThreadListItem((item) => item.lastMessageAt);
+  const raw = useThreadListItem((item) => runUpdatedAtRaw(item.custom));
+  const lastMessageAt = raw === undefined ? undefined : new Date(raw);
   const label = relativeTime(lastMessageAt);
   if (!label) return null;
   return (
@@ -291,6 +339,26 @@ const ThreadListItemTime: FC = () => {
       title={lastMessageAt?.toLocaleString()}
     >
       {label}
+    </span>
+  );
+};
+
+/** How the task ended, for the states that need chasing. Sits before the time
+ *  so the two read as one right-hand column. */
+const ThreadListItemRunState: FC = () => {
+  const state = useThreadListItem((item) => runStateLabel(item.custom));
+  if (!state) return null;
+  return (
+    <span
+      data-slot="aui_thread-list-item-run-state"
+      className={cn(
+        "ms-2 shrink-0 text-[11px] font-medium",
+        state.tone === "attention"
+          ? "text-destructive"
+          : "text-muted-foreground",
+      )}
+    >
+      {state.label}
     </span>
   );
 };
@@ -311,6 +379,7 @@ export const ThreadListItem: FC = () => {
         >
           <ThreadListItemPrimitive.Title fallback="New Chat" />
         </span>
+        <ThreadListItemRunState />
         <ThreadListItemTime />
       </ThreadListItemPrimitive.Trigger>
       <ThreadListItemMore />
