@@ -557,6 +557,27 @@
         if (el && el.textContent !== text) el.textContent = text;
     }
 
+    /* The same rule for attributes, where one of them is not merely wasted work.
+     *
+     * aria-valuetext is what a screen reader reads for a slider, and Chromium
+     * raises a value-changed event on the WRITE, not on the value differing. The
+     * stream sliders are repainted by every streamer event, and controlBusy only
+     * skips a control the user is actively dragging — so a slider that is merely
+     * FOCUSED got its value re-announced on each event while sitting untouched.
+     * Measured: six identical streamer pushes, six announcements of "80%".
+     *
+     * Same family as the pill that re-announced itself every five seconds, and
+     * fixed the same way. min, max and hidden are properties rather than
+     * attributes but reflect onto one, so they get the same guard — those are
+     * only churn, but the rule is easier to keep than to remember to apply. */
+    function setAttr(el, name, value) {
+        if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
+    }
+
+    function setProp(el, name, value) {
+        if (el && el[name] !== value) el[name] = value;
+    }
+
     function toast(msg, error, sticky) {
         if (!toastEl) return;
         /* An error and a confirmation were both announced politely, which means
@@ -3018,7 +3039,7 @@
             var note = gpioNotes[o.name];
             if (note) {
                 setText(note, !o.online ? "offline" : o.busy ? "busy" : "");
-                note.hidden = !note.textContent;
+                setProp(note, "hidden", !note.textContent);
             }
             var mounted = gpioRows[o.name];
             if (mounted) mounted.update();
@@ -3279,7 +3300,7 @@
     function paintSliderValue(cfg, el, val) {
         var text = cfg.fmt(Number(el.value));
         setText(val, text);
-        el.setAttribute("aria-valuetext", text);
+        setAttr(el, "aria-valuetext", text);
     }
 
     function paintStreamDialog() {
@@ -3292,7 +3313,7 @@
         var resSel = document.getElementById("sp-resolution");
         if (resRow && resSel) {
             var hasRes = !!f.resolution && !!(l.available_resolutions && l.available_resolutions.length);
-            resRow.hidden = !hasRes;
+            setProp(resRow, "hidden", !hasRes);
             /* This is the one that bit: the sliders below already refuse to write
              * to the control the user is holding, but the resolution list did not,
              * so every unrelated streamer event slammed its dropdown shut. */
@@ -3321,7 +3342,7 @@
             var val = document.getElementById(cfg.el + "-value");
             if (!row || !el) continue;
             var have = cfg.feature ? !!f[cfg.feature] : a[cfg.param] !== undefined;
-            row.hidden = !have;
+            setProp(row, "hidden", !have);
             if (!have) continue;
             anything = true;
             /* Don't fight the user mid-drag. The value was already guarded, but the
@@ -3329,14 +3350,15 @@
              * surely. The input handler keeps the label live while they hold it. */
             if (controlBusy(el, paintStreamDialog)) continue;
             var range = cfg.limit ? l[cfg.limit] : null;
-            if (range && typeof range.min === "number") el.min = range.min;
-            if (range && typeof range.max === "number") el.max = range.max;
+            // String, because el.min reads back as one and a number never matches.
+            if (range && typeof range.min === "number") setProp(el, "min", String(range.min));
+            if (range && typeof range.max === "number") setProp(el, "max", String(range.max));
             if (a[cfg.param] !== undefined) el.value = a[cfg.param];
             paintSliderValue(cfg, el, val);
         }
 
         var empty = document.getElementById("sp-empty");
-        if (empty) empty.hidden = anything;
+        setProp(empty, "hidden", anything);
     }
 
     (function wireStreamDialog() {

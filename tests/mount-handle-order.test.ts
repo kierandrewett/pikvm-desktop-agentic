@@ -829,7 +829,7 @@ test("a GPIO row distinguishes offline from busy", () => {
     // And written on every repaint, beside the mounted.update() that repaints
     // the controls — the two states have different words.
     assert.match(body, /setText\(note, !o\.online \? "offline" : o\.busy \? "busy" : ""\);/);
-    assert.match(body, /note\.hidden = !note\.textContent;/);
+    assert.match(body, /setProp\(note, "hidden", !note\.textContent\);/);
 });
 
 /**

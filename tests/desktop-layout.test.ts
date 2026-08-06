@@ -826,3 +826,28 @@ test("the titlebar status buttons skip re-renders that would not change", () => 
     assert.ok(body.indexOf("if (key === lastTbKey) return;") < body.indexOf("statusButtons.update"),
         "the re-render must happen only after the change check");
 });
+
+test("a repaint never rewrites an attribute with the value it already has", () => {
+    // aria-valuetext is what a screen reader reads for a slider, and Chromium
+    // raises a value-changed event on the write rather than on the value
+    // differing. Every streamer event repaints the stream dialog, and
+    // controlBusy only skips a control being DRAGGED, so a slider that was
+    // merely focused had its value re-announced on each event. Measured before
+    // the fix: six identical pushes, six announcements of an unchanged "80%".
+    assert.match(js, /function setAttr\(el, name, value\) \{\s*if \(el && el\.getAttribute\(name\) !== value\) el\.setAttribute\(name, value\);/);
+    assert.match(js, /function setProp\(el, name, value\) \{\s*if \(el && el\[name\] !== value\) el\[name\] = value;/);
+    assert.match(js, /setAttr\(el, "aria-valuetext", text\)/);
+    // And the churn siblings that shared the same repaint.
+    assert.match(js, /setProp\(el, "min", String\(range\.min\)\)/);
+    assert.match(js, /setProp\(el, "max", String\(range\.max\)\)/);
+    assert.match(js, /setProp\(row, "hidden", !have\)/);
+    assert.match(js, /setProp\(resRow, "hidden", !hasRes\)/);
+    assert.match(js, /setProp\(empty, "hidden", anything\)/);
+    assert.match(js, /setProp\(note, "hidden", !note\.textContent\)/);
+    // String, not number: el.min reads back as a string, so an unguarded
+    // numeric compare never matches and the guard silently does nothing.
+    assert.doesNotMatch(js, /setProp\(el, "m(in|ax)", range\.m(in|ax)\)/);
+    // No unguarded aria-valuetext write anywhere.
+    const raw = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    assert.doesNotMatch(raw, /setAttribute\("aria-valuetext"/);
+});
