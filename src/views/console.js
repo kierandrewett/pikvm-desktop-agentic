@@ -5857,11 +5857,18 @@
         sendChord(["ControlLeft", "AltLeft"], "Delete", false);
     });
     var dragBtn = document.getElementById("drag-lock");
+    /* Latched or not is a STATE, and it was only a class — the same gap the
+     * sticky modifiers had. This one latches the target's LEFT BUTTON DOWN, so
+     * "is it on" decides whether the next tap drags or clicks, and the target is
+     * holding a button either way. Measured before: class "ibtn on", and the
+     * accessibility node carried no pressed state at all. */
+    dragBtn.setAttribute("aria-pressed", dragLock ? "true" : "false");
     dragBtn.addEventListener("click", function () {
         if (agentActing) return;
         noteManualKvmInput();
         dragLock = !dragLock;
         dragBtn.classList.toggle("on", dragLock);
+        dragBtn.setAttribute("aria-pressed", dragLock ? "true" : "false");
     });
 
     function refocusKbd() {
@@ -5870,9 +5877,16 @@
 
     /* ---- keyboard toggle ---- */
     var kbdBtn = document.getElementById("kbd-btn");
+    /* This one DISCLOSES a region rather than flipping a setting, so it is
+     * aria-expanded rather than aria-pressed, and it names the region it
+     * controls. Before, opening the drawer changed a class and nothing else:
+     * the button read "Controls" whether the keys were on screen or not. */
+    kbdBtn.setAttribute("aria-controls", "drawer");
+    kbdBtn.setAttribute("aria-expanded", app.classList.contains("keys-open") ? "true" : "false");
     kbdBtn.addEventListener("click", function () {
         var openK = app.classList.toggle("keys-open");
         kbdBtn.classList.toggle("on", openK);
+        kbdBtn.setAttribute("aria-expanded", openK ? "true" : "false");
         if (openK) kbd.focus({ preventScroll: true });
         else kbd.blur();
     });

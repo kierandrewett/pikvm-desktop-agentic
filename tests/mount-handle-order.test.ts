@@ -1320,3 +1320,47 @@ test("a sticky modifier's armed state reaches assistive technology", () => {
         .replace(/\/\*[\s\S]*?\*\//g, "");
     assert.match(wire, /btn\.setAttribute\("aria-pressed", armed\[codeName\] \? "true" : "false"\);/);
 });
+
+/**
+ * The drawer's other two toggles announce their state as well.
+ *
+ * 7c4530c gave the sticky modifiers an aria-pressed and stopped there. Two
+ * siblings in the same drawer had the same gap — state carried by the "on"
+ * class and nothing else. Measured through the accessibility tree with each
+ * turned on, against the fixed Ctrl button as a control:
+ *
+ *     Ctrl        class "ibtn on"  state=pressed=true
+ *     drag lock   class "ibtn on"  state=  NONE
+ *     keyboard    class "ibtn on"  state=  NONE
+ *
+ * Drag lock matters most of the three: it latches the target's LEFT BUTTON
+ * DOWN, so whether it is on decides if the next tap drags or clicks — and the
+ * target is holding a button the whole time it is engaged.
+ *
+ * They take different attributes because they are different controls. Drag lock
+ * flips a setting, so aria-pressed like the modifiers. The keyboard button
+ * DISCLOSES the drawer, so aria-expanded, plus aria-controls naming the region
+ * it opens. After:
+ *
+ *     drag lock   state=pressed=true
+ *     keyboard    state=expanded=true,controls=drawer
+ *
+ * The audio and mic entries were checked too and are NOT part of this: their
+ * pip is inside the button, so "Audio output Off" is the accessible name and
+ * the state is already in it, which is what paintToggle's comment describes.
+ */
+test("the drag lock and keyboard drawer announce their state", () => {
+    const drag = js.slice(js.indexOf('var dragBtn = document.getElementById("drag-lock");'),
+                          js.indexOf("function refocusKbd()")).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Announced before first use, and kept in step with the class after.
+    const dragSets = drag.match(/dragBtn\.setAttribute\("aria-pressed", dragLock \? "true" : "false"\);/g) ?? [];
+    assert.equal(dragSets.length, 2, "drag lock must announce on init and on toggle");
+    assert.match(drag, /dragBtn\.classList\.toggle\("on", dragLock\);\s*\n\s*dragBtn\.setAttribute\("aria-pressed"/);
+    const kbd = js.slice(js.indexOf('var kbdBtn = document.getElementById("kbd-btn");'),
+                         js.indexOf('/* ---- size the split')).replace(/\/\*[\s\S]*?\*\//g, "");
+    // A disclosure, not a setting: expanded, and it names what it opens.
+    assert.match(kbd, /kbdBtn\.setAttribute\("aria-controls", "drawer"\);/);
+    assert.match(kbd, /kbdBtn\.setAttribute\("aria-expanded", app\.classList\.contains\("keys-open"\) \? "true" : "false"\);/);
+    assert.match(kbd, /kbdBtn\.classList\.toggle\("on", openK\);\s*\n\s*kbdBtn\.setAttribute\("aria-expanded", openK \? "true" : "false"\);/);
+    assert.doesNotMatch(kbd, /aria-pressed/);
+});
