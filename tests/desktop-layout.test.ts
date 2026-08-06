@@ -742,3 +742,45 @@ test("nothing touches the desktop bridge before the web/mobile guard", () => {
     const uses = before.match(/\bdc\s*[.[]/g) ?? [];
     assert.deepEqual(uses, [], `dc is dereferenced ${uses.length} time(s) before the guard`);
 });
+
+/**
+ * The agent pill announces changes, not the passage of time.
+ *
+ * It is role="status" aria-live="polite" and VISIBLE on the desktop, so every
+ * write to its text is an announcement. pollBackend runs every five seconds
+ * and called setBackend unconditionally with whatever it found, so reassigning
+ * the same string re-created the text node and announced it again. Counted
+ * with a MutationObserver over 22 seconds against a steady Pi:
+ *
+ *     backend-status  5 mutations   text "Agent ready" throughout
+ *     overlay         0
+ *     toast           0
+ *
+ * A screen reader said "Agent ready" every five seconds for as long as the
+ * window stayed open. The two live regions that behave are the ones that only
+ * write on a real change, which is what this now does.
+ *
+ * Re-measured across a real transition:
+ *
+ *     12s steady         0 announcements
+ *     daemon goes down   1  ("Agent unavailable")
+ *     11s still down     1  (does not repeat)
+ *     daemon returns     2  ("Agent ready")
+ *
+ * dataset.state stays outside the guard: it drives the CSS, an attribute write
+ * does not announce, and there is no reason to let the styling drift out of
+ * step with the poll.
+ */
+test("the agent status pill only speaks when it has something new to say", () => {
+    const at = js.indexOf("var lastBackend = null;");
+    assert.ok(at > 0, "setBackend has no change guard");
+    const body = js.slice(at, js.indexOf("var pollBackend", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // The styling is unconditional; only the announcing writes are guarded.
+    assert.match(body, /bsEl\.dataset\.state = state;\s*\n\s*var key = state \+ "\\n" \+ label \+ "\\n" \+ tip;/);
+    assert.match(body, /if \(key === lastBackend\) return;\s*\n\s*lastBackend = key;/);
+    // And the text write is after the guard, or the guard protects nothing.
+    assert.ok(body.indexOf("if (key === lastBackend) return;") < body.indexOf("bsText.textContent = label"),
+        "the text must be written only after the change check");
+    // The element really is a live region, which is why this matters at all.
+    assert.match(html, /id="backend-status"[^>]*role="status"[^>]*aria-live="polite"/);
+});

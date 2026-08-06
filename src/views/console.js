@@ -6427,8 +6427,32 @@
         var bsEl = document.getElementById("backend-status");
         var bsText = document.getElementById("bs-text");
         if (bsEl) {
+            /* Only write when something actually changed.
+             *
+             * This pill is role="status" aria-live="polite" and it is VISIBLE on
+             * the desktop, so every write to its text is an announcement.
+             * pollBackend runs every five seconds and called this unconditionally
+             * with whatever it found, so reassigning the same string re-created
+             * the text node and announced it again. Counted with a
+             * MutationObserver over 22 seconds against a steady Pi:
+             *
+             *     backend-status  5 mutations   text "Agent ready" throughout
+             *     overlay         0
+             *     toast           0
+             *
+             * A screen reader therefore said "Agent ready" every five seconds
+             * for as long as the window was open, and the two live regions that
+             * behave were the ones that only write on a real change.
+             *
+             * dataset.state is still set every time: it drives the CSS and an
+             * attribute write does not announce, so there is no reason to let it
+             * drift out of step with the poll. */
+            var lastBackend = null;
             var setBackend = function (state, label, tip) {
                 bsEl.dataset.state = state;
+                var key = state + "\n" + label + "\n" + tip;
+                if (key === lastBackend) return;
+                lastBackend = key;
                 if (bsText) bsText.textContent = label;
                 bsEl.title = tip;
             };
