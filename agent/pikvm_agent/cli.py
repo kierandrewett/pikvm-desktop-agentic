@@ -86,9 +86,19 @@ def daemon(
         parent = os.path.dirname(uds)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        # Ours alone: the socket is the capability boundary now that there is no
-        # port for the token to be the only thing guarding.
-        os.umask(0o077)
+        # NOT a private socket, and saying so because the obvious assumption is
+        # wrong. uvicorn sets uds_perms = 0o666 and chmods the socket AFTER
+        # binding (uvicorn/server.py), so a umask here is simply overwritten -
+        # and because the unlink above means the path never pre-exists, its
+        # branch that would have preserved an existing mode never runs either.
+        # A socket that survived this ends up srw-rw-rw-.
+        #
+        # What gates access is therefore the DIRECTORY the caller chose, and the
+        # caller is the one who has to make that private - we cannot chmod it
+        # from here without the risk of doing it to something like /tmp that was
+        # passed in by mistake. The bearer token remains the real check either
+        # way; this note exists so nobody reads "unix socket" as "already
+        # protected" and drops it.
         uvicorn.run(
             "pikvm_agent.daemon:app",
             uds=uds,
@@ -132,6 +142,11 @@ def harness_serve(
         readable=True,
         help="Harness YAML (provider routes and env-var names; no secrets).",
     ),
+    listen: str = typer.Option(
+        "",
+        "--listen",
+        help="Bind this host:port for this run instead of the config's.",
+    ),
 ) -> None:
     """Run the authenticated local chat workspace and control API."""
     import uvicorn
@@ -143,7 +158,20 @@ def harness_serve(
     from pikvm_agent.harness.server import build_harness_app
 
     settings = load_harness_settings(config)
-    ensure_safe_bind(settings)
+    if listen:
+        # For this run only. The config file carries the operator's provider
+        # settings, so a caller routing around a listener that already owns the
+        # configured port moves the bind rather than rewriting that file. It is
+        # still a bind, so it goes through the same loopback check as the
+        # configured value, and the derived allowed origins follow it.
+        settings = settings.model_copy(update={"listen": listen})
+        try:
+            ensure_safe_bind(settings)
+        except ValueError as exc:
+            typer.echo(f"harness serve refused: --listen {listen}: {exc}", err=True)
+            raise typer.Exit(2)
+    else:
+        ensure_safe_bind(settings)
     host, port = settings.host_port()
     typer.echo(f"Chat workspace: http://{host}:{port}/app/")
     operator_app = build_harness_app(
