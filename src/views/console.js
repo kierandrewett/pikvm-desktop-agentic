@@ -2224,7 +2224,40 @@
      * own dropdown while the user was reading it. Skip the control while it has
      * focus and repaint once it lets go, so nothing ends up stale either. */
     function controlBusy(el, repaint) {
-        if (!el || document.activeElement !== el) return false;
+        if (!el) return false;
+        /* Focus is not the same thing as the dropdown being open.
+         *
+         * This skipped the control whenever it merely HELD focus, and a dialog
+         * gives its first control focus as it opens — so the MSD image picker
+         * was frozen from the moment the dialog appeared, before the user had
+         * touched anything. Open Mass storage, then finish an upload:
+         *
+         *     dialog open, storage empty : focus=msd-image, "no images uploaded"
+         *     two images arrive          : focus=msd-image, "no images uploaded"
+         *     2.5s later                 : focus=msd-image, "no images uploaded"
+         *     after focus moves off      : 3 options, "— select an image —"
+         *
+         * The list never caught up while the picker sat there focused, and
+         * nothing on screen said the way out was to click somewhere else. Same
+         * for anything else tabbed to and left alone — the stream dialog's
+         * resolution select and its sliders go through here too.
+         *
+         * A press is what can open a dropdown or start a drag, so that is what
+         * marks the control as engaged; focus alone never opens anything. Keys
+         * count because Alt+Down opens the list and the arrows work a slider.
+         * Cleared on blur, which is also when the catch-up repaint runs. */
+        if (el.getAttribute("data-busy-wired") !== "1") {
+            el.setAttribute("data-busy-wired", "1");
+            var engage = function () {
+                el.setAttribute("data-engaged", "1");
+            };
+            el.addEventListener("pointerdown", engage);
+            el.addEventListener("keydown", engage);
+            el.addEventListener("blur", function () {
+                el.removeAttribute("data-engaged");
+            });
+        }
+        if (document.activeElement !== el || el.getAttribute("data-engaged") !== "1") return false;
         if (el.getAttribute("data-catchup") !== "1") {
             el.setAttribute("data-catchup", "1");
             el.addEventListener(

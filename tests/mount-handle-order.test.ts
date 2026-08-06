@@ -639,3 +639,44 @@ test("a focused console control keeps its keystrokes instead of forwarding them"
     // FOCUSABLE is the set the dialog focus traps already use.
     assert.match(js, /var FOCUSABLE = 'button:not\(\[disabled\]\), \[href\]/);
 });
+
+/**
+ * A control the user has not touched is not "busy".
+ *
+ * controlBusy exists for a real reason: a native <select> shuts its dropdown
+ * the moment anything rewrites it, and kvmd pushes MSD and streamer state
+ * continuously, so a dialog that repainted on every event closed its own list
+ * under the pointer. But it treated plain FOCUS as the signal, and a dialog
+ * hands its first control focus as it opens — so the MSD image picker was
+ * frozen from the moment the dialog appeared, before the user had touched
+ * anything. Open Mass storage against empty storage, then finish an upload:
+ *
+ *     dialog open, storage empty : focus=msd-image, "no images uploaded"
+ *     two images arrive          : focus=msd-image, "no images uploaded"
+ *     2.5s later                 : focus=msd-image, "no images uploaded"
+ *     after focus moves off      : 3 options, "— select an image —"
+ *
+ * The images were there and the picker said there were none, with nothing on
+ * screen to say the way out was to click elsewhere. The stream dialog's
+ * resolution select and its sliders go through the same helper.
+ *
+ * A press is what opens a dropdown or starts a drag, so that is the signal
+ * now. Re-measured: the picker fills the instant the images arrive while it
+ * still holds focus, and pressing it still defers — pushed a second image
+ * while engaged and the option list stayed put, then caught up to three on
+ * blur. So the original protection survives.
+ */
+test("controlBusy defers for a control being worked, not one merely focused", () => {
+    const at = js.indexOf("function controlBusy(el, repaint) {");
+    assert.ok(at > 0, "controlBusy not found");
+    const body = js.slice(at, js.indexOf("\n    function paintMsd()", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Focus on its own no longer makes a control busy.
+    assert.doesNotMatch(body, /if \(!el \|\| document\.activeElement !== el\) return false;/);
+    assert.match(body, /document\.activeElement !== el \|\| el\.getAttribute\("data-engaged"\) !== "1"/);
+    // A press or a key is what marks it engaged; both open a list or move a slider.
+    assert.match(body, /addEventListener\("pointerdown", engage\)/);
+    assert.match(body, /addEventListener\("keydown", engage\)/);
+    // And letting go clears it, alongside the catch-up repaint that already ran on blur.
+    assert.match(body, /removeAttribute\("data-engaged"\)/);
+    assert.match(body, /el\.removeAttribute\("data-catchup"\);\s*\n\s*repaint\(\);/);
+});
