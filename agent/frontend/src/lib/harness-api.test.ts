@@ -35,6 +35,38 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
+describe("selected run storage", () => {
+  it("ignores and clears a stored id that is not one", () => {
+    // setItem stringifies, so one call with undefined leaves the literal
+    // "undefined" behind — truthy, so every later load fetched
+    // /api/runs/undefined, took the 404 and left the panel with no composer.
+    for (const rubbish of ["undefined", "null", ""]) {
+      sessionStorage.setItem("pikvm-harness-selected-run", rubbish);
+      expect(readStoredRunId()).toBe("");
+      // Removed rather than stepped over: with no runs yet nothing overwrites
+      // it, and a key reading "undefined" is a puzzle for whoever looks next.
+      expect(sessionStorage.getItem("pikvm-harness-selected-run")).toBeNull();
+    }
+  });
+
+  it("refuses to write one", () => {
+    storeRunId("r7");
+    expect(sessionStorage.getItem("pikvm-harness-selected-run")).toBe("r7");
+    for (const rubbish of [undefined, null, "", "undefined", "null"]) {
+      storeRunId(rubbish as unknown as string);
+      expect(sessionStorage.getItem("pikvm-harness-selected-run")).toBeNull();
+      storeRunId("r7");
+    }
+  });
+
+  it("keeps a real id", () => {
+    storeRunId("run-2026-08-06");
+    expect(readStoredRunId()).toBe("run-2026-08-06");
+    clearStoredRunId();
+    expect(readStoredRunId()).toBe("");
+  });
+});
+
 describe("workspace token storage", () => {
   it("keeps connection flow usable when session storage is unavailable", () => {
     vi.stubGlobal("sessionStorage", undefined);
