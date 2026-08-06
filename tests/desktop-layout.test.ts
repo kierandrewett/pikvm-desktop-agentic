@@ -665,3 +665,40 @@ test("a single outage does not make the overlay thrash", () => {
     assert.match(js, /serverDown = true;\s*\n\s*streamUp = false;\s*\n\s*if \(!mjpegPaused\) setState\("disconnected"\);/);
     assert.match(js, /var wasDown = serverDown;\s*\n\s*serverDown = false;/);
 });
+
+/**
+ * Every menu command reaches something that exists.
+ *
+ * runCommand's switch delegates several entries to a control elsewhere in the
+ * console — audio and mic click their toggles, theme clicks its button — and
+ * "fit" delegated to a variable named tbFit that is declared nowhere. One
+ * occurrence in the whole file: the read. So choosing "Fit to native
+ * resolution" from the ⋯ menu threw ReferenceError and did nothing, while the
+ * item sat there enabled whenever the stream reported dimensions.
+ *
+ * Found by watching Runtime.exceptionThrown while driving every menu command
+ * in turn, rather than by reading — the line looks exactly like its working
+ * siblings.
+ *
+ * It now calls fitNativeNow, which is what the titlebar's own fit button
+ * calls, rather than a button standing in for it. Both routes verified to
+ * produce the identical payload:
+ *
+ *     titlebar button -> [{"width":1280,"height":720,"chromeWidth":641,"chromeHeight":38}]
+ *     ⋯ menu "fit"    -> [{"width":1280,"height":720,"chromeWidth":641,"chromeHeight":38}]
+ *
+ * with no exception from either.
+ */
+test("the fit menu command calls something that exists", () => {
+    const sw = js.slice(js.indexOf('case "settings":'), js.indexOf('case "full-ui":'));
+    const bare = sw.replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(bare, /case "fit":\s*\n\s*fitNativeNow\(\);/);
+    assert.doesNotMatch(bare, /tbFit/);
+    /* The names the other cases delegate to have to exist too. Each is asserted
+     * as a declaration rather than merely present, since the bug was a name
+     * that appeared exactly once — at its use. */
+    for (const name of ["audioBtnEl", "micBtnEl", "themeBtn"]) {
+        assert.ok(new RegExp(`\\bvar ${name}\\b`).test(js), `${name} is used by a menu case but never declared`);
+    }
+    assert.match(js, /function fitNativeNow\(\) \{/);
+});

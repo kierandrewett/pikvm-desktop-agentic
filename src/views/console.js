@@ -7208,7 +7208,16 @@
                     setScreenAlerts(!screenAlertsEnabled());
                     break;
                 case "fit":
-                    if (tbFit) tbFit.click();
+                    /* This read a variable named tbFit, and tbFit is declared
+                     * nowhere — one occurrence in the file, the read. So this
+                     * threw ReferenceError every time and the ⋯ menu's "Fit to
+                     * native resolution" did nothing, while sitting there
+                     * enabled whenever the stream reported dimensions. The
+                     * sibling cases delegate to real elements (audioBtnEl,
+                     * micBtnEl, themeBtn all exist); this one delegated to a
+                     * name that never did. Calls what the titlebar button
+                     * calls, rather than a button standing in for it. */
+                    fitNativeNow();
                     break;
                 case "theme":
                     if (themeBtn) themeBtn.click();
