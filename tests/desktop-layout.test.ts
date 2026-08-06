@@ -1303,3 +1303,23 @@ test("the macro editor says which modifiers are in the chord", () => {
     // And the touch drawer's sticky modifiers, which are direct DOM nodes.
     assert.match(js, /btn\.setAttribute\("aria-pressed", on \? "true" : "false"\)/);
 });
+
+test("deleting the last macro leaves focus somewhere in the dialog", () => {
+    /* Deleting the LAST macro hides the whole form and takes the button that
+       was just pressed with it, so focus fell to the body while the dialog was
+       still open. Measured with one macro, Delete macro focused and clicked:
+           list 0, "No macros yet.", form hidden, activeElement BODY
+       Every other action here already lands somewhere — removing a step goes to
+       the row that replaced it, and Delete keeps its own button while other
+       macros remain (re-verified: macro-new, add-chord, add-delay, Remove step
+       1, macro-delete). After: focus lands on macro-new. */
+    assert.match(js, /var emptied = !macros\.length;\s*saveMacros\(\)\.then\(function \(\) \{\s*if \(!emptied\) return;/);
+    assert.match(js, /var add = dialogControl\("macro-new"\);\s*if \(add && add\.focus\) add\.focus\(\);/);
+    /* dialogControl, not getElementById: these buttons are drawn by the shared
+       component library as data-tb and by the fallback as data-fk, so a plain id
+       lookup resolves nothing. */
+    assert.match(js, /function dialogControl\(key\) \{[\s\S]*?document\.querySelector\('\[data-tb="' \+ key \+ '"\]'\)[\s\S]*?document\.querySelector\('\[data-fk="' \+ key \+ '"\]'\)/);
+    // The step-level machinery that could not cover this case.
+    assert.match(js, /pendingMacroFocus \|\|\s*\(active && steps\.contains\(active\)/);
+    assert.match(js, /\{ id: "macro-new", label: "New macro", onSelect: newMacro \}/);
+});

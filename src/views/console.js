@@ -1706,7 +1706,26 @@
                 return m.id !== macro.id;
             });
             macroSelected = macros.length ? macros[0].id : null;
-            void saveMacros();
+            /* Deleting the LAST one takes the whole form away, and with it the
+             * button that was just pressed — so focus fell to the body while the
+             * dialog was still open. Measured with one macro, Delete macro
+             * focused and clicked: activeElement BODY, the dialog up, and
+             * nothing but the Tab trap to climb back in with.
+             *
+             * Every other action here already lands somewhere: removing a step
+             * goes to the row that took its place, and Delete keeps its own
+             * button while other macros remain. pendingMacroFocus cannot cover
+             * this one because it is consumed by the step repaint, which does
+             * not run when there are no steps to draw.
+             *
+             * New macro is where it goes, because that is what the empty state
+             * left behind tells you to press. */
+            var emptied = !macros.length;
+            saveMacros().then(function () {
+                if (!emptied) return;
+                var add = dialogControl("macro-new");
+                if (add && add.focus) add.focus();
+            });
         }
         function stepActionSpecs() {
             return [
