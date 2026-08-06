@@ -14,6 +14,13 @@ is in `docs/web-client-migration.md`.
 - [ ] Gesture feel on a real touch device (the trackpad now scales with zoom,
       which changes how it feels at 3x).
 - [ ] Install over HTTPS: service-worker registration and add-to-home-screen.
+- [ ] **Terminal copy/paste in the packaged app.** `src/preload-terminal.ts`
+      exposed a `termClipboard` bridge for a terminal that ran in its own
+      WebContentsView. The terminal is an iframe now, an iframe cannot carry a
+      preload, and no window ever loaded it — so it has been deleted and the
+      only live path is `navigator.clipboard`. That preload's own comment said
+      `readText()` is unreliable behind Electron's permission model, so paste in
+      particular wants trying on a real desktop build.
 
 ## Known and deliberately not done
 

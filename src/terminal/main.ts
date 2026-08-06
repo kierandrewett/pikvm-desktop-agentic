@@ -298,9 +298,20 @@ let activateNextCreated = false;
 let activateNextCreatedUntil = 0;
 let knownIdsBeforeCreate = new Set<string>();
 
-// System clipboard. Prefer the Electron bridge exposed by the terminal preload (works in
-// the sandboxed WebContentsView regardless of permission prompts); fall back to the async
-// Clipboard API on plain web / mobile.
+/* System clipboard.
+ *
+ * The bridge below is currently never present, and the fallback is the only
+ * live path. src/preload-terminal.ts exposed `termClipboard` for a terminal
+ * that ran in its own WebContentsView; the terminal is an iframe in the console
+ * now, and an iframe cannot carry a preload — those attach to a view, not to a
+ * frame. The preload was still being built (the build discovers preloads rather
+ * than listing them) but no window ever loaded it, so it has been deleted.
+ *
+ * The check stays because it costs nothing and says what would be needed if a
+ * native terminal view ever comes back. What it does NOT do is work today, and
+ * that matters: the preload's own note was that navigator.clipboard.readText()
+ * is unreliable behind Electron's permission model, which is exactly what this
+ * now depends on. Worth checking paste in the packaged app — see TODO.md. */
 const sysClipboard = {
     write(text: string): void {
         if (!text) return;
