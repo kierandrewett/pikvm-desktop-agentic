@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { countOf } from "@/lib/plural";
 import type { RunSnapshot } from "@/types";
 
 type DiagnosticsSheetProps = {
@@ -37,7 +38,7 @@ export function DiagnosticsSheet({
           </SheetDescription>
           {run ? (
             <div className="flex flex-wrap gap-2 pt-2">
-              <Badge variant="outline">{run.event_count} events</Badge>
+              <Badge variant="outline">{countOf(run.event_count, "event")}</Badge>
               <Badge variant="secondary">cursor {run.event_cursor}</Badge>
               {run.events.length > visibleEvents.length ? (
                 <Badge variant="outline">
@@ -104,6 +105,19 @@ export function DiagnosticsSheet({
             {!run ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 Select a conversation to inspect its events.
+              </p>
+            ) : visibleEvents.length === 0 ? (
+              /* There was an empty state for "no run selected" and none for a
+                 run with nothing to show, so the sheet was a blank void under a
+                 badge that said how many events there were. Seen against a
+                 snapshot carrying event_count 1 and an empty events array —
+                 which the daemon can legitimately send, since the count is the
+                 run's and the array is only what this snapshot carried. Saying
+                 which of the two it is beats saying nothing. */
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {run.event_count > 0
+                  ? "This snapshot carried no events. They arrive with the next update."
+                  : "No events recorded for this task yet."}
               </p>
             ) : null}
           </div>

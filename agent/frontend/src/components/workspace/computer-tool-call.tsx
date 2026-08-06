@@ -51,6 +51,7 @@ import {
   useComputerToolEnvironment,
 } from "@/components/workspace/computer-tool-environment";
 import { harnessBlob } from "@/lib/harness-api";
+import { countOf } from "@/lib/plural";
 import {
   parseModelReceipt,
   type ModelReceipt,
@@ -275,7 +276,7 @@ const actionLabel = (action: JsonRecord) => {
     const steps = number(action.amount);
     const delta = number(action.delta_y) ?? number(action.dy);
     if (direction) {
-      return `Scroll ${direction}${steps != null ? ` ${steps} steps` : ""}`;
+      return `Scroll ${direction}${steps != null ? ` ${countOf(steps, "step")}` : ""}`;
     }
     return delta == null
       ? "Scroll"
@@ -357,7 +358,7 @@ const summarize = (toolName: string, args: JsonRecord) => {
   }
   if (actions.length > 1) {
     return {
-      title: `${actions.length} inputs · ${compactActionSequence(actions)}`,
+      title: `${countOf(actions.length, "input")} · ${compactActionSequence(actions)}`,
       detail: actionSequence(actions),
       actions,
     };
@@ -794,7 +795,7 @@ function ActionExactInput({
         <div className="overflow-x-auto rounded-md border border-border/70">
           <table
             className="w-full border-separate border-spacing-0 font-mono text-[11px]"
-            aria-label={`Spreadsheet grid input: ${rows.length} rows by ${columns} columns`}
+            aria-label={`Spreadsheet grid input: ${countOf(rows.length, "row")} by ${countOf(columns, "column")}`}
           >
             <tbody>
               {rows.map((row, rowIndex) => (
