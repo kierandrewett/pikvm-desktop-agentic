@@ -20,11 +20,14 @@ recovery. Guarded direct MCP remains available only with the explicit
 ## Development
 
 ```bash
-npm install
-npm run build
-npm test
-npm start
+yarn install
+yarn build
+yarn test
+yarn start
 ```
+
+Yarn, not npm: `yarn.lock` is the lockfile under version control, and a stray
+`package-lock.json` from an `npm install` is how the two drift apart.
 
 `PIKVM_AGENT_DAEMON`, `PIKVM_HARNESS_ORIGIN`, `PIKVM_AGENT_CONFIG`, and
 `PIKVM_HARNESS_CONFIG` select local runtime services without hard-coding a
