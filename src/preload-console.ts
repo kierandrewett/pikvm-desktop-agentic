@@ -106,6 +106,16 @@ export interface DesktopConsoleApi {
      * the window is focused, and clears the pulse as soon as the user focuses.
      */
     signalScreenChange(): void;
+    /**
+     * What actually happened to a download, once the download machinery is done
+     * with it — completed, cancelled by the user at a save dialog, or
+     * interrupted. Save screenshot used to claim success on the click that
+     * merely started it. Absent in the web build, which has no main process to
+     * ask; the console keeps its own fallback for that.
+     */
+    onDownloadDone(
+        cb: (info: { name: string; state: "completed" | "cancelled" | "interrupted"; path: string }) => void,
+    ): () => void;
 }
 
 const api: DesktopConsoleApi = {
@@ -172,6 +182,14 @@ const api: DesktopConsoleApi = {
         return () => ipcRenderer.removeListener("kvm:input-enabled", listener);
     },
     signalScreenChange: () => ipcRenderer.send("console:screen-activity"),
+    onDownloadDone: (cb) => {
+        const listener = (
+            _e: unknown,
+            info: { name: string; state: "completed" | "cancelled" | "interrupted"; path: string },
+        ) => cb(info);
+        ipcRenderer.on("console:download-done", listener);
+        return () => ipcRenderer.removeListener("console:download-done", listener);
+    },
 };
 
 contextBridge.exposeInMainWorld("desktopConsole", api);

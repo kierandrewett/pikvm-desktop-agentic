@@ -3780,6 +3780,46 @@
      * there are two ways in — the stream dialog and the ⋯ menu — and only one
      * of them has a control that can be disabled. */
     var screenshotBusy = false;
+    /* Report what the download actually did, not what starting it implied.
+     *
+     * a.click() HANDS the file to the download machinery and returns. In the
+     * desktop app that can open a save dialog the user cancels, or fail on a
+     * full or read-only disk, and this said "Screenshot saved" on the next line
+     * either way — the one place in the console that reported an outcome it
+     * never observed.
+     *
+     * The main process now forwards the DownloadItem's own "done" state, so the
+     * desktop build waits for it. The web build has no main process and no such
+     * event, so it keeps the immediate toast: there the browser owns the
+     * download UI and reports its own failures. The timeout covers the desktop
+     * case where the event never arrives for some reason — silence would be a
+     * worse regression than the claim this replaces. */
+    var DOWNLOAD_WAIT_MS = 20_000;
+    var pendingShot = null;
+    if (window.desktopConsole && window.desktopConsole.onDownloadDone) {
+        window.desktopConsole.onDownloadDone(function (info) {
+            if (!pendingShot || !info || info.name !== pendingShot.name) return;
+            clearTimeout(pendingShot.timer);
+            pendingShot = null;
+            if (info.state === "completed") toast("Screenshot saved");
+            else if (info.state === "cancelled") toast("Screenshot not saved");
+            else toast("Screenshot save failed", true);
+        });
+    }
+    function awaitScreenshotSave(name) {
+        if (!window.desktopConsole || !window.desktopConsole.onDownloadDone) {
+            toast("Screenshot saved");
+            return;
+        }
+        if (pendingShot) clearTimeout(pendingShot.timer);
+        pendingShot = {
+            name: name,
+            timer: setTimeout(function () {
+                pendingShot = null;
+                toast("Screenshot saved");
+            }, DOWNLOAD_WAIT_MS),
+        };
+    }
     /** Pull a full-resolution JPEG straight from the streamer and save it. */
     function saveScreenshot() {
         if (screenshotBusy) return;
@@ -3794,14 +3834,15 @@
                 var url = URL.createObjectURL(blob);
                 var a = document.createElement("a");
                 a.href = url;
-                a.download = "pikvm-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
+                var name = "pikvm-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
+                a.download = name;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
                 setTimeout(function () {
                     URL.revokeObjectURL(url);
                 }, 10_000);
-                toast("Screenshot saved");
+                awaitScreenshotSave(name);
             })
             .catch(function (e) {
                 toast("Screenshot failed: " + (e && e.message ? e.message : "network error"), true);

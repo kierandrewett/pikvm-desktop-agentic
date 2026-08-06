@@ -1365,6 +1365,28 @@ function createWindow() {
         allowedPermissions.has(permission)
     );
 
+    /* Tell the console whether a download actually landed.
+     *
+     * Save screenshot builds a blob, calls click() on an <a download>, and
+     * toasts "Screenshot saved" on the next line. click() only HANDS the file
+     * to the download machinery: in the desktop app that can open a save
+     * dialog the user cancels, or fail on a full or read-only disk, and the
+     * console said it had saved either way. It is the one place in this app
+     * that reports an outcome it never observed.
+     *
+     * The renderer keeps its own fallback for the web build, where there is no
+     * main process and no event like this to wait for. */
+    session.defaultSession.on("will-download", (_event, item, webContents) => {
+        item.once("done", (_doneEvent, state) => {
+            if (webContents.isDestroyed()) return;
+            webContents.send("console:download-done", {
+                name: item.getFilename(),
+                state,
+                path: state === "completed" ? item.getSavePath() : "",
+            });
+        });
+    });
+
     if (
         process.env.NODE_ENV === "development" ||
         process.env.DEVTOOLS === "1"

@@ -1765,3 +1765,44 @@ test("both console disclosures name the region they open", () => {
          #more-menu  group | name "More actions"
        where before they were generic/"" and generic/"More actions". */
 });
+
+test("save screenshot reports what the download did, not that it started", () => {
+    const preload = readFileSync(resolve(root, "src/preload-console.ts"), "utf8");
+    /* a.click() HANDS the file to the download machinery and returns. The next
+       line toasted "Screenshot saved" — so a save dialog the user cancelled, or
+       a full or read-only disk, still reported success. It was the one place in
+       the console that reported an outcome it never observed. */
+    assert.doesNotMatch(js, /a\.click\(\);[\s\S]{0,200}?toast\("Screenshot saved"\)/);
+    assert.match(js, /awaitScreenshotSave\(name\);/);
+
+    // The main process forwards the DownloadItem's own terminal state.
+    assert.match(main, /session\.defaultSession\.on\("will-download", \(_event, item, webContents\) => \{/);
+    assert.match(main, /item\.once\("done", \(_doneEvent, state\) => \{/);
+    assert.match(main, /webContents\.send\("console:download-done", \{/);
+    assert.match(main, /if \(webContents\.isDestroyed\(\)\) return;/);
+    assert.match(preload, /onDownloadDone\(\s*cb: \(info: \{ name: string; state: "completed" \| "cancelled" \| "interrupted"; path: string \}\) => void,\s*\): \(\) => void;/);
+    assert.match(preload, /ipcRenderer\.on\("console:download-done", listener\);/);
+
+    // Matched by filename, because will-download fires for any download.
+    assert.match(js, /if \(!pendingShot \|\| !info \|\| info\.name !== pendingShot\.name\) return;/);
+    assert.match(js, /if \(info\.state === "completed"\) toast\("Screenshot saved"\);/);
+    assert.match(js, /else if \(info\.state === "cancelled"\) toast\("Screenshot not saved"\);/);
+    assert.match(js, /else toast\("Screenshot save failed", true\);/);
+
+    /* Two fallbacks, both deliberate. The web build has no main process and no
+       such event, so it keeps the immediate toast — there the browser owns the
+       download UI and reports its own failures. And on desktop, an event that
+       never arrives times out into the old wording, because silence would be a
+       worse regression than the claim this replaces. */
+    assert.match(js, /if \(!window\.desktopConsole \|\| !window\.desktopConsole\.onDownloadDone\) \{\s*toast\("Screenshot saved"\);\s*return;\s*\}/);
+    assert.match(js, /var DOWNLOAD_WAIT_MS = 20_000;/);
+
+    /* Driven over CDP against a stand-in bridge, in desktop mode, invoking the
+       real "screenshot" menu command: no toast on the click, then
+         completed    -> "Screenshot saved"
+         cancelled    -> "Screenshot not saved"
+         interrupted  -> "Screenshot save failed"
+       and with no bridge at all the immediate "Screenshot saved" is unchanged.
+       The Electron will-download half is covered by shape here, not by a live
+       run of the packaged app. */
+});
