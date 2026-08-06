@@ -526,3 +526,51 @@ test("a macro tabbed to at the clip edge is scrolled fully into view", () => {
     // Only for buttons in this strip, so a focus elsewhere never moves it.
     assert.match(body, /macroHost\.contains\(btn\)/);
 });
+
+/**
+ * The simulated cursor does not follow the pointer into the letterbox.
+ *
+ * .screen is cursor:none, so the blob is the only pointer on screen over the
+ * picture — the CSS says as much where it is defined. The drag path already
+ * refuses to follow the host pointer out into the letterbox, because the blob
+ * is meant to show where the TARGET's cursor is. Hovering had no such rule, so
+ * the blob tracked out over the bars while nothing was being sent at all.
+ * Measured with a 1280x720 picture letterboxed into a 759x775 box:
+ *
+ *     inside the picture  : blob shown, 1 move sent
+ *     letterbox bar above : blob shown at y=53,  0 moves sent
+ *     letterbox bar below : blob shown at y=788, 0 moves sent
+ *
+ * The one thing telling the user where their input goes, saying it in a place
+ * no input goes.
+ *
+ * Hiding it alone would leave the bars with no pointer at all, so the real one
+ * comes back with it — outside the picture you get your own cursor, which is
+ * the honest signal that you are off the target. Clamping to the edge instead
+ * would be its own lie: no move was sent, so the target's pointer is still
+ * wherever it was. After:
+ *
+ *     inside the picture  : blob block, pane cursor none,    1 move
+ *     letterbox bar above : blob none,  pane cursor default, 0 moves
+ *     letterbox bar below : blob none,  pane cursor default, 0 moves
+ *     back inside         : blob block, pane cursor none,    1 move
+ *
+ * And the drag is untouched, which is the regression that mattered: pressed
+ * inside then dragged into the bar still pins the blob to the picture edge
+ * (y=207 against a picture starting at 212) with the real cursor still hidden,
+ * and the press/release pair still reaches the target.
+ */
+test("hovering the letterbox hides the blob and gives back the real cursor", () => {
+    const at = js.indexOf("function paintCursor(clientX, clientY, dragging) {");
+    assert.ok(at > 0, "paintCursor not found");
+    const body = js.slice(at, js.indexOf("pane.addEventListener(\"pointerleave\"", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Only when NOT dragging — the drag keeps steering from the edge.
+    assert.match(body, /if \(!dragging && offPicture\) \{/);
+    assert.match(body, /clientX < offPicture\.left \|\|[\s\S]*?clientY > offPicture\.top \+ offPicture\.h;/);
+    // Blob away, real pointer back.
+    assert.match(body, /kvmCursor\.style\.display = "none";\s*\n\s*pane\.style\.cursor = "default";/);
+    // And restored on the way back in, so the inline style cannot stick.
+    assert.match(body, /pane\.style\.cursor = "";/);
+    // The drag clamp it defers to is still there.
+    assert.match(body, /if \(dragging\) \{[\s\S]*?pictureBox\(\)/);
+});

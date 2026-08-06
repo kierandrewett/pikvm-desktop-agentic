@@ -5066,14 +5066,51 @@
         // A dialog owns the pointer; the blob would sit under it as a ghost.
         if (modalOpen()) {
             kvmCursor.style.display = "none";
+            pane.style.cursor = "";
             return;
         }
         // Background desktop window: the cursor isn't driving the target, so don't
         // paint the blob (a passing pointer must not leave a ghost cursor).
         if (window.desktopConsole && !windowFocused) {
             kvmCursor.style.display = "none";
+            pane.style.cursor = "";
             return;
         }
+        /* Off the picture and not dragging: the blob is not the pointer here.
+         *
+         * The drag path below already refuses to follow the host pointer into
+         * the letterbox, because the blob is meant to show where the TARGET's
+         * cursor is. Hovering had no such rule, so the blob tracked out over the
+         * bars while nothing at all was being sent. Measured with a 1280x720
+         * picture letterboxed into a 759x775 box:
+         *
+         *     inside the picture  : blob shown, 1 move sent
+         *     letterbox bar above : blob shown at y=53,  0 moves sent
+         *     letterbox bar below : blob shown at y=788, 0 moves sent
+         *
+         * And .screen is cursor:none, so that blob is the only pointer on
+         * screen there — the one thing telling the user where their input goes,
+         * saying it in a place no input goes.
+         *
+         * Hiding it alone would leave the bars with no pointer at all, so the
+         * real one comes back: outside the picture you get your own cursor,
+         * which is the honest signal that you are off the target. Clamping to
+         * the edge instead would be its own lie, since no move was sent and the
+         * target's pointer is still wherever it was. */
+        var offPicture = pictureBox();
+        if (!dragging && offPicture) {
+            var outside =
+                clientX < offPicture.left ||
+                clientX > offPicture.left + offPicture.w ||
+                clientY < offPicture.top ||
+                clientY > offPicture.top + offPicture.h;
+            if (outside) {
+                kvmCursor.style.display = "none";
+                pane.style.cursor = "default";
+                return;
+            }
+        }
+        pane.style.cursor = "";
         // Pinned to the picture while dragging, so the blob sits where the
         // target's cursor actually is rather than following the host pointer out
         // into the letterbox.
