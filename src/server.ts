@@ -70,7 +70,20 @@ function readBody(req: IncomingMessage): Promise<string> {
     });
 }
 
-export function startControlServer(deps: ServerDeps, port: number, host = "127.0.0.1"): ReturnType<typeof createServer> {
+export function startControlServer(
+    deps: ServerDeps,
+    port: number,
+    host = "127.0.0.1",
+    /* Told, not thrown.
+     *
+     * server.listen() reports asynchronously through an "error" event, and with
+     * nothing listening for it Node re-raises it as an uncaught exception. In
+     * the main process of an Electron app that is the raw "A JavaScript error
+     * occurred in the main process" box with a node:net stack in it, which
+     * tells the user nothing they can act on. The caller owns the UI, so it
+     * gets to say what a failure to bind means. */
+    onListenError?: (err: NodeJS.ErrnoException) => void,
+): ReturnType<typeof createServer> {
     const { control, settings } = deps;
     // User macros live beside the other settings so they can be hand-edited and
     // copied between machines. Served here so web and desktop share one list.
@@ -316,6 +329,10 @@ export function startControlServer(deps: ServerDeps, port: number, host = "127.0
         void proxy.handleUpgrade(req, socket, head);
     });
 
+    server.on("error", (err: NodeJS.ErrnoException) => {
+        if (onListenError) onListenError(err);
+        else console.error(`[control] server error: ${err.message}`);
+    });
     server.listen(port, host);
     return server;
 }

@@ -18,6 +18,7 @@ import {
     realpathSync,
     watch,
 } from "fs";
+import { createServer as createProbeServer } from "net";
 import { resolve, isAbsolute, extname } from "path";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
@@ -51,7 +52,32 @@ app.commandLine.appendSwitch("disable-renderer-backgrounding");
 
 /** Port for the local control server (MCP + sidebar chat bridge). Overridable via
  *  PIKVM_CONTROL_PORT so a dev build can run alongside an installed instance. */
-const CONTROL_PORT = Number(process.env.PIKVM_CONTROL_PORT) || 25650;
+let CONTROL_PORT = Number(process.env.PIKVM_CONTROL_PORT) || 25650;
+
+/** The first free port at or after `from`.
+ *
+ *  The single-instance lock stops US colliding with ourselves, but it cannot
+ *  help when something else is on 25650 — an orphaned server from a copy that
+ *  was killed rather than closed, a dev build run with a different user data
+ *  dir, or an unrelated program. Any of those used to be fatal at boot. Walking
+ *  up to the next free port costs nothing and every URL in the app is built
+ *  from CONTROL_PORT, which is why this has to settle BEFORE anything reads it.
+ *
+ *  A probe is not a reservation: something could still take the port between
+ *  the close here and the real listen. That race is far smaller than the case
+ *  this fixes, and the listen error is handled now rather than thrown. */
+async function firstFreePort(from: number, host: string, tries = 20): Promise<number> {
+    for (let port = from; port < from + tries; port++) {
+        const free = await new Promise<boolean>((done) => {
+            const probe = createProbeServer();
+            probe.once("error", () => done(false));
+            probe.once("listening", () => probe.close(() => done(true)));
+            probe.listen(port, host);
+        });
+        if (free) return port;
+    }
+    throw new Error(`no free port between ${from} and ${from + tries - 1}`);
+}
 
 // The unified web console (/_agent/console) is the PRIMARY desktop UI: the main
 // window loads it and the console draws its own titlebar/chrome (via the console
@@ -137,7 +163,7 @@ function escapeHtml(value: string): string {
 }
 
 /** Start the PiKVM backend, first-party harness, and local console proxy. */
-function startProxyAndHarness(
+async function startProxyAndHarness(
     origin: string,
     settings: SettingsStore,
     harnessCommand: string,
@@ -168,6 +194,14 @@ function startProxyAndHarness(
     // PIKVM_BIND_HOST overrides the persisted setting (e.g. 0.0.0.0 to test from a
     // phone with a dev build, without flipping the setting the installed app shares).
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
+
+    // Settle the port before anything builds a URL out of it: the terminal
+    // sessions, the workspace origin and the desktop proxy origin all read
+    // CONTROL_PORT, and all of them are constructed below.
+    const wantedPort = CONTROL_PORT;
+    CONTROL_PORT = await firstFreePort(wantedPort, bindHost);
+    if (CONTROL_PORT !== wantedPort)
+        console.log(`[control] ${wantedPort} is in use, serving on ${CONTROL_PORT} instead`);
 
     // Keep the optional browser/mobile shell service available for compatibility.
     // The desktop app does not create or render a terminal WebContentsView.
@@ -252,6 +286,19 @@ function startProxyAndHarness(
         },
         CONTROL_PORT,
         bindHost,
+        (err) => {
+            /* Say which port, and say what to do about it. The old behaviour
+             * here was an uncaught EADDRINUSE and Electron's raw error box. */
+            const busy = err.code === "EADDRINUSE";
+            dialog.showErrorBox(
+                busy ? "PiKVM Desktop could not start its server" : "PiKVM Desktop server error",
+                busy
+                    ? `Port ${CONTROL_PORT} on ${bindHost} is already in use, and no free port was found near it.\n\n` +
+                      "Another copy of PiKVM Desktop is probably still running. Close it and start this one again, " +
+                      "or set a different port with PIKVM_CONTROL_PORT."
+                    : `${err.message}\n\nThe local server is not running, so the console will not load.`,
+            );
+        },
     );
     console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
 
@@ -558,7 +605,7 @@ function attachContextMenu(wc: Electron.WebContents) {
     });
 }
 
-function createWindow() {
+async function createWindow() {
     console.log("Creating window");
 
     const config = loadConfig();
@@ -821,7 +868,7 @@ function createWindow() {
     // remote console, where the remote host owns the proxy + terminal.
     const backend = remoteConsole
         ? null
-        : startProxyAndHarness(origin, settings, harnessCommand);
+        : await startProxyAndHarness(origin, settings, harnessCommand);
     const harnessAssetDirectory =
         !app.isPackaged && backend
             ? resolveDevHarnessAssetDirectory(harnessCommand)
@@ -1398,9 +1445,53 @@ function createWindow() {
     mainView.webContents.focus();
 }
 
-app.whenReady().then(() => {
-    console.log("Electron ready");
-    app.commandLine.appendSwitch("ignore-certificate-errors");
+/* One app, one control server.
+ *
+ * There was no lock, so a second launch was allowed to boot all the way to
+ * server.listen() on a port the first copy already held. listen() has no error
+ * handler, EADDRINUSE came out as an uncaught exception, and the user got
+ * Electron's raw "A JavaScript error occurred in the main process" box with a
+ * node:net stack in it. Nothing about that says "it is already running".
+ *
+ * A second launch is almost always someone trying to get to the window they
+ * already have, so hand them that instead of a second copy: two copies would
+ * mean two control servers, two managed daemons and two harnesses fighting
+ * over the same ports and the same runtime files. */
+/* Anything that still gets through arrives as a sentence, not a stack.
+ *
+ * Electron's default for an uncaught exception in the main process is a modal
+ * box titled "A JavaScript error occurred in the main process" containing the
+ * raw stack — node:net frames and all. It is accurate and useless: it names no
+ * cause the user can act on, and it appears before the window does, so there is
+ * nothing else on screen to give it context. */
+function reportFatal(scope: string, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[fatal] ${scope}: ${message}`);
+    try {
+        dialog.showErrorBox("PiKVM Desktop hit a problem", `${message}\n\n(${scope})`);
+    } catch {
+        /* before app ready, or no display — the log line above is the record */
+    }
+}
+process.on("uncaughtException", (err) => reportFatal("uncaught exception", err));
+process.on("unhandledRejection", (err) => reportFatal("unhandled rejection", err));
 
-    createWindow();
-});
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on("second-instance", () => {
+        const [win] = BrowserWindow.getAllWindows();
+        if (!win) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+    });
+
+    app.whenReady().then(() => {
+        console.log("Electron ready");
+        app.commandLine.appendSwitch("ignore-certificate-errors");
+
+        createWindow().catch((err) => reportFatal("starting the window", err));
+    });
+}

@@ -2658,3 +2658,72 @@ test("reading the screen is refused, not armed, under the full UI", () => {
     // And a pick already running does not outlive the picture being covered.
     assert.match(js, /endOcrPick\(\); \/\/ a half-finished region pick cannot outlive the picture/);
 });
+
+/**
+ * Launching a second copy killed it with a raw stack trace.
+ *
+ * There was no single-instance lock, so a second launch booted all the way to
+ * server.listen() on a port the first copy already held. listen() reports
+ * asynchronously through an "error" event and nothing was listening for it, so
+ * Node re-raised EADDRINUSE as an uncaught exception — which in an Electron
+ * main process is the modal "A JavaScript error occurred in the main process"
+ * box, containing:
+ *
+ *     Error: listen EADDRINUSE: address already in use 0.0.0.0:25650
+ *         at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+ *
+ * Accurate and useless. It names nothing the user can act on, and it arrives
+ * before any window does, so there is no context around it either.
+ *
+ * Three separate things had to be true for that to be the outcome, so all
+ * three are fixed: the lock (a second launch is someone reaching for the
+ * window they already have), the port walk (something ELSE can hold 25650 —
+ * an orphan from a copy that was killed rather than closed), and a listen
+ * error that is reported rather than thrown.
+ *
+ * Measured against a real busy port, with 1.12.3 holding 0.0.0.0:25650:
+ *
+ *     [control] 25650 is in use, serving on 25651 instead
+ *     PiKVM backend listening on http://0.0.0.0:25651
+ *
+ * and a second copy of the new build exited 0 at once, starting no server,
+ * while the first carried on.
+ */
+test("a second launch focuses the first instead of crashing on the port", () => {
+    // The lock, and a real handler for the launch it turns away.
+    assert.match(main, /const gotSingleInstanceLock = app\.requestSingleInstanceLock\(\);/);
+    assert.match(main, /if \(!gotSingleInstanceLock\) \{\s*\n\s*app\.quit\(\);/);
+    assert.match(main, /app\.on\("second-instance", \(\) => \{[\s\S]*?win\.isMinimized\(\)\) win\.restore\(\);[\s\S]*?win\.focus\(\);/);
+    // Everything that used to run unconditionally now hangs off holding it.
+    const bootstrap = main.slice(main.indexOf("const gotSingleInstanceLock"));
+    assert.ok(bootstrap.indexOf("app.whenReady()") > bootstrap.indexOf("} else {"), "whenReady must be inside the lock branch");
+});
+
+test("a port already in use is walked past, not fatal", () => {
+    assert.match(main, /async function firstFreePort\(from: number, host: string, tries = 20\): Promise<number> \{/);
+    // A probe that closes itself, so it never holds what it is testing.
+    assert.match(main, /probe\.once\("listening", \(\) => probe\.close\(\(\) => done\(true\)\)\);/);
+    assert.match(main, /probe\.once\("error", \(\) => done\(false\)\);/);
+    // CONTROL_PORT has to settle BEFORE anything builds a URL from it, and it
+    // cannot be a const any more for that to be possible.
+    assert.match(main, /^let CONTROL_PORT = Number\(process\.env\.PIKVM_CONTROL_PORT\) \|\| 25650;/m);
+    assert.match(main, /CONTROL_PORT = await firstFreePort\(wantedPort, bindHost\);/);
+    const start = main.indexOf("CONTROL_PORT = await firstFreePort");
+    assert.ok(start > 0 && start < main.indexOf("new TerminalSessions("), "the port must settle before TerminalSessions reads it");
+    assert.ok(start < main.indexOf("startControlServer("), "the port must settle before the server binds");
+});
+
+test("a listen failure is reported, not thrown", () => {
+    const server = readFileSync(resolve(root, "src/server.ts"), "utf8");
+    assert.match(server, /onListenError\?: \(err: NodeJS\.ErrnoException\) => void,/);
+    assert.match(server, /server\.on\("error", \(err: NodeJS\.ErrnoException\) => \{[\s\S]*?onListenError\(err\);/);
+    // Registered before listen, or the first failure still escapes.
+    assert.ok(server.indexOf('server.on("error"') < server.indexOf("server.listen(port, host);"), "the handler must precede listen");
+    // And the caller says something a person can act on.
+    assert.match(main, /err\.code === "EADDRINUSE"/);
+    assert.match(main, /is already in use, and no free port was found near it/);
+    // Nothing reaches the user as a bare stack any more.
+    assert.match(main, /process\.on\("uncaughtException", \(err\) => reportFatal\("uncaught exception", err\)\);/);
+    assert.match(main, /process\.on\("unhandledRejection", \(err\) => reportFatal\("unhandled rejection", err\)\);/);
+    assert.match(main, /createWindow\(\)\.catch\(\(err\) => reportFatal\("starting the window", err\)\);/);
+});
