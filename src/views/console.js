@@ -6768,6 +6768,18 @@
          * Tab, not arrow keys (checked — ArrowDown does not move between items),
          * so claiming menu semantics would promise a keyboard model that is not
          * there. A labelled group of real buttons is what it actually is. */
+        /* role=group, because aria-label alone was never reaching anyone.
+         *
+         * A bare <div> maps to role=generic, and ARIA prohibits naming a
+         * generic — so the label below was a name on an element that must not
+         * carry one. Chrome's own tree happened to compute it (measured:
+         * role generic, name "More actions"), but that is Chrome being lenient,
+         * not a guarantee any screen reader repeats it.
+         *
+         * group is exactly what the comment above already claims this is: a
+         * labelled set of real buttons. Unlike menu it promises no arrow-key
+         * model, so the Tab-walked behaviour stays honest. */
+        moreMenu.setAttribute("role", "group");
         moreMenu.setAttribute("aria-label", "More actions");
         moreBtn.setAttribute("aria-controls", moreMenu.id || "more-menu");
         function setMenuOpen(open) {

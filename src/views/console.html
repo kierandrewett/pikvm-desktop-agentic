@@ -446,7 +446,14 @@
                      control would no longer match what is written on it. The
                      pure glyphs have no speakable face, so there is nothing to
                      preserve there. -->
-                <div class="bar-keys" id="drawer">
+                <!-- Named, because the button that opens it points here with
+                     aria-controls and the region itself had no name at all
+                     (measured: role generic, name ""). Activating "Controls"
+                     announced "expanded" and then dropped you into a run of
+                     buttons with nothing saying where you were. group rather
+                     than region: it is a set of related controls inside the
+                     bar, not a landmark of its own. -->
+                <div class="bar-keys" id="drawer" role="group" aria-label="Controls">
                     <button class="ibtn" data-click="left" title="Left click" aria-label="L, left click">L</button>
                     <button class="ibtn" data-click="middle" title="Middle click" aria-label="M, middle click">M</button>
                     <button class="ibtn" data-click="right" title="Right click" aria-label="R, right click">R</button>

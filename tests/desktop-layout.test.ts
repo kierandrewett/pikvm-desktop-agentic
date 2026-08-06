@@ -1732,3 +1732,36 @@ test("every socket to the Pi backs off instead of hammering it", () => {
        and with the terminal server allowed back: status hidden, then the first
        retry of the next outage at 1.0s again. */
 });
+
+test("both console disclosures name the region they open", () => {
+    /* The console's two chrome buttons each declare aria-controls and each
+       pointed at an unnamed generic.
+
+       #drawer had no accessible name at all — measured role generic, name "".
+       Activating "Controls" announced "expanded" and then dropped you into a
+       run of L / M / R / Escape / Tab / Ctrl buttons with nothing saying where
+       you were.
+
+       #more-menu did carry aria-label="More actions", but on a bare <div>,
+       which maps to role=generic — and ARIA prohibits naming a generic. Chrome
+       computed the name anyway (measured: role generic, name "More actions"),
+       which is Chrome being lenient rather than a guarantee any screen reader
+       repeats it. */
+    assert.match(html, /<div class="bar-keys" id="drawer" role="group" aria-label="Controls">/);
+    assert.match(js, /moreMenu\.setAttribute\("role", "group"\);\s*moreMenu\.setAttribute\("aria-label", "More actions"\);/);
+
+    /* group, not menu: the menu is walked with Tab, not arrow keys, and the
+       existing comment says so. group carries a name without promising a
+       keyboard model that is not there. And not region either — these are sets
+       of related controls inside the bar, not landmarks. */
+    assert.doesNotMatch(js, /moreMenu\.setAttribute\("role", "menu"\)/);
+    assert.doesNotMatch(html, /id="drawer"[^>]*role="region"/);
+
+    // The triggers were already right and must stay that way.
+    assert.match(js, /kbdBtn\.setAttribute\("aria-controls", "drawer"\);/);
+    assert.match(js, /moreBtn\.setAttribute\("aria-controls", moreMenu\.id \|\| "more-menu"\);/);
+    /* Re-read from the accessibility tree over CDP with both open:
+         #drawer     group | name "Controls"
+         #more-menu  group | name "More actions"
+       where before they were generic/"" and generic/"More actions". */
+});
