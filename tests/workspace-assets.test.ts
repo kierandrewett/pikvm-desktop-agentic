@@ -315,3 +315,43 @@ test("a bad stored run id is neither written nor obeyed", () => {
        library's callback — the guard stops a pointless request as well. */
     assert.match(hook, /if \(!runId\) return;\s*autoFollowExternalRunRef\.current = false;/);
 });
+
+test("an unrestorable task is reported once, by the surface that can act on it", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const root = process.cwd();
+    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
+    const card = readFileSync(resolve(root, "agent/frontend/src/components/workspace/task-restore-state.tsx"), "utf8");
+    /* One failure, told three times: a destructive "Task unavailable" badge in
+       the header, the restore card, and between them an Alert carrying whatever
+       string the daemon put in `detail`. Reproduced by restarting the daemon
+       with a run id still in sessionStorage, which is the ordinary way to reach
+       this state — the loudest text on screen was "no such run", lowercase and
+       unpunctuated, above a card that explained the same thing in English. */
+    assert.match(shell, /workspace\.error && workspace\.connected && !selectedRunPending \?/);
+    // The daemon's words survive as the card's detail, because they are the one
+    // useful lead in a bug report — just not as the headline.
+    assert.match(shell, /detail=\{workspace\.error\}/);
+    assert.match(card, /\{!restoring && detail \?/);
+
+    /* The copy named two actions the screen did not offer. The composer is
+       disabled while a task is unrestorable, so "retry it or start a new task"
+       was advice with nothing to press. */
+    assert.match(card, /Try again/);
+    assert.match(card, /Start a new task/);
+    assert.match(shell, /onRetry=\{\(\) => \{[\s\S]*?void workspace\.selectRun\(workspace\.selectedId\);/);
+    assert.match(shell, /onNewTask=\{workspace\.newThread\}/);
+    // An unrestorable task is an alert; one still coming back is only a status.
+    assert.match(card, /role=\{restoring \? "status" : "alert"\}/);
+
+    /* And it has no title to show: selectedTaskTitle falls back to the literal
+       words "New task", which printed in the card read as the task's own name.
+       The id is the one thing actually known about it. */
+    assert.match(shell, /task=\{\s*workspace\.selectedRun\?\.task \|\| selectedSummary\?\.task\s*\}/);
+    assert.match(shell, /runId=\{workspace\.selectedId\}/);
+    assert.match(card, /\) : runId \? \(/);
+    /* Driven over CDP with a stale id seeded into sessionStorage: the card came
+       up as role=alert reading "Task unavailable / r-gone-42 / The saved
+       conversation could not be loaded… / no such run", no banner beside it,
+       Try again re-attempted and landed back on the same card, and Start a new
+       task cleared the stored id and returned an enabled composer. */
+});

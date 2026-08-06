@@ -67,6 +67,7 @@ import {
   usesManagedControlLoop,
 } from "@/components/workspace/run-control-mode";
 import { RunProvenance } from "@/components/workspace/run-provenance";
+import { TaskRestoreState } from "@/components/workspace/task-restore-state";
 import { UiUpdateBadge } from "@/components/workspace/ui-update-badge";
 import { useHarnessWorkspace } from "@/hooks/use-harness-workspace";
 import { useConsoleTheme, usePanelPlacement } from "@/hooks/use-panel-placement";
@@ -196,34 +197,6 @@ function SheetLoading({
         </div>
       </SheetContent>
     </Sheet>
-  );
-}
-
-function TaskRestoreState({
-  task,
-  restoring,
-}: {
-  task: string;
-  restoring: boolean;
-}) {
-  return (
-    <div
-      className="mx-auto flex h-full w-full max-w-(--thread-max-width) flex-col justify-center px-6"
-      role={restoring ? "status" : undefined}
-      aria-label={restoring ? "Restoring task" : "Task unavailable"}
-    >
-      <div className="mx-auto w-full max-w-md rounded-xl border border-border/70 bg-muted/20 p-5">
-        <p className="text-sm font-medium">
-          {restoring ? "Restoring task" : "Task unavailable"}
-        </p>
-        <p className="mt-2 truncate text-sm text-foreground">{task}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {restoring
-            ? "Loading the saved conversation. No model work will restart."
-            : "The saved conversation could not be loaded. Retry it from the task list or start a new task."}
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -528,15 +501,25 @@ export function WorkspaceShell() {
           </header>
 
           <section className="workspace-thread" aria-label="Agent conversation">
-            {workspace.error && workspace.connected ? (
+            {workspace.error && workspace.connected && !selectedRunPending ? (
               <Alert variant="destructive" className="workspace-error">
                 <AlertDescription>{workspace.error}</AlertDescription>
               </Alert>
             ) : null}
             {selectedRunPending ? (
               <TaskRestoreState
-                task={selectedTaskTitle}
+                task={
+                  workspace.selectedRun?.task || selectedSummary?.task
+                }
+                runId={workspace.selectedId}
                 restoring={workspace.restoringRun}
+                detail={workspace.error}
+                onRetry={() => {
+                  if (workspace.selectedId) {
+                    void workspace.selectRun(workspace.selectedId);
+                  }
+                }}
+                onNewTask={workspace.newThread}
               />
             ) : (
               <>
