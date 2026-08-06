@@ -187,16 +187,6 @@ async function originOnFreePort(name: string, origin: string): Promise<string> {
     return moved;
 }
 
-/** Text into an HTML document. Used for the harness view's failure page, whose
- *  only variable parts are a local origin and an Electron error description. */
-function escapeHtml(value: string): string {
-    return value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-}
-
 /** Start the PiKVM backend, first-party harness, and local console proxy. */
 async function startProxyAndHarness(
     origin: string,
