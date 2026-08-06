@@ -1259,3 +1259,23 @@ test("the upload progress bar says what it is measuring", () => {
     // Hidden between uploads, so none of it is left in the tree to be read.
     assert.match(html, /<div class="dlg-row" id="msd-progress-row" hidden>/);
 });
+
+test("aborting your own upload is a confirmation, not an error", () => {
+    /* xhr.onabort reported through the error channel, so pressing Abort answered
+       with a red toast at role=alert and aria-live=assertive held for six
+       seconds. Measured before and after, aborting a genuinely in-flight
+       request:
+           before  role=alert   live=assertive  is-error=true
+           after   role=status  live=polite     is-error=false
+       toast itself states the rule — errors interrupt, everything else waits —
+       and nothing else here treats a deliberate cancel as a fault: closing the
+       log mid-load and escaping an OCR pick both say nothing at all. */
+    assert.match(js, /xhr\.onabort = function \(\) \{[\s\S]*?done\("Upload aborted", null\);/);
+    // The real failures stay errors — verified: a 500 still gives role=alert.
+    assert.match(js, /else done\(null, "Upload failed \(" \+ xhr\.status \+ "\)"\);/);
+    assert.match(js, /xhr\.onerror = function \(\) \{\s*done\(null, "Upload failed: network error"\);/);
+    // The routing that makes the distinction mean something.
+    assert.match(js, /if \(errMsg\) toast\(errMsg, true\);\s*else if \(okMsg\) toast\(okMsg\);/);
+    assert.match(js, /toastEl\.setAttribute\("role", error \? "alert" : "status"\);/);
+    assert.match(js, /toastEl\.setAttribute\("aria-live", error \? "assertive" : "polite"\);/);
+});

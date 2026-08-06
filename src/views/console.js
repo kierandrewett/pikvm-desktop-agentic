@@ -2823,7 +2823,18 @@
             done(null, "Upload failed: network error");
         };
         xhr.onabort = function () {
-            done(null, "Upload aborted");
+            /* A confirmation, not a failure.
+             *
+             * This went through the error channel, so pressing Abort answered
+             * with a red toast at role=alert and aria-live=assertive, held for
+             * six seconds — measured exactly that. The rule is written on toast
+             * itself: errors interrupt, everything else waits its turn. An
+             * abort the user just asked for is the second kind, and nothing
+             * else in this file treats a deliberate cancel as a fault — closing
+             * the log mid-load and escaping an OCR pick both say nothing at
+             * all. This one still speaks, because an upload is long enough that
+             * confirming it stopped is worth a line, but politely. */
+            done("Upload aborted", null);
         };
         xhr.send(remote ? null : picked);
     }
