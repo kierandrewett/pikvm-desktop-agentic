@@ -423,13 +423,32 @@
             <!-- Overflow menu (anchored to the ⋯ button). -->
             <div class="more-menu" id="more-menu">
                 <!-- WebRTC audio/mic. Hidden until the WebRTC path is live (MJPEG has
-                     no audio); off by default. Toggling these never closes the menu. -->
-                <button class="more-item toggle" id="audio-btn" hidden>
-                    <span>Audio output</span><span class="more-pip" id="audio-pip">Off</span>
-                </button>
-                <button class="more-item toggle" id="mic-btn" hidden>
-                    <span>Microphone</span><span class="more-pip" id="mic-pip">Off</span>
-                </button>
+                     no audio); off by default. Toggling these never closes the menu.
+
+                     Split rows: the chevron beside each toggle is its OWN button,
+                     because the toggle means "on/off" and has to keep meaning it.
+                     Two controls, two names — "Microphone" and "Choose microphone" —
+                     so neither hit area nor accessible name is shared. The chevron
+                     is a shortcut to the same choice the Audio devices dialog
+                     makes, not a replacement for it. -->
+                <div class="more-split" id="audio-row" hidden>
+                    <button class="more-item toggle" id="audio-btn" hidden>
+                        <span>Audio output</span><span class="more-pip" id="audio-pip">Off</span>
+                    </button>
+                    <button class="more-item more-chev" id="out-dev-chev" aria-label="Choose audio output" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                    </button>
+                </div>
+                <div class="more-split" id="mic-row" hidden>
+                    <button class="more-item toggle" id="mic-btn" hidden>
+                        <span>Microphone</span><span class="more-pip" id="mic-pip">Off</span>
+                    </button>
+                    <button class="more-item more-chev" id="mic-dev-chev" aria-label="Choose microphone" hidden>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                    </button>
+                </div>
                 <button class="more-item" id="audio-dev-btn" hidden>Audio devices…</button>
                 <div class="more-sep" id="av-sep" hidden></div>
                 <!-- Paste-as-keys: kvmd types the string with its own keymap. -->
@@ -461,6 +480,16 @@
                      console". The ⤢ went with the href: nothing opens elsewhere. -->
                 <button class="more-item" id="full-ui">Full PiKVM UI</button>
             </div>
+
+            <!-- Device popout, shared by both chevrons and both mount points: the
+                 ⋯ menu's split rows on web, the titlebar's split pair on the
+                 desktop. One element because it is one list at a time, and a
+                 second copy would be a second thing to keep in step with the
+                 dialog. Filled by paintDevMenu; role=group + aria-label for the
+                 same reason .more-menu carries them — the items are Tab-walked,
+                 not arrow-walked, so role=menu would promise a keyboard model
+                 that is not there. -->
+            <div class="dev-menu" id="av-dev-menu" role="group" aria-label="Choose microphone"></div>
 
             <!-- Chat workspace. The keys/mouse row
                  overlays the TOP of the chat when ⌨ is tapped — never the stream,

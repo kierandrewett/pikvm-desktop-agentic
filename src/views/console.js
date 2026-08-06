@@ -4650,6 +4650,18 @@
          * cleared and before any focus() of its own. Only when nothing is open
          * yet — opening a second dialog must keep the focus from before the
          * FIRST, not park it on a control that is about to be hidden. */
+        /* The device popout goes with them, and it has to go through here
+         * rather than through its own outside-click: it sits at z-index 101 and
+         * the scrim at 60, so it would float ON TOP of a modal that had just
+         * put everything else out of reach. The desktop is where that shows —
+         * "Audio devices…" comes off a NATIVE menu, so no pointerdown ever
+         * lands in this document to dismiss it.
+         *
+         * Before the focus save, not after: the save reads activeElement, and
+         * an item in a list that is about to be display:none'd is exactly the
+         * anchor that restores to nothing. Closing first puts focus back on the
+         * chevron, which is still there when the dialog goes. */
+        closeDevMenu(true);
         if (!openScrim()) focusBeforeModal = focusAnchor();
         document.querySelectorAll(".dlg-scrim").forEach(function (el) {
             if (el !== keep && !el.hidden) el.hidden = true;
@@ -5950,11 +5962,27 @@
         // The device picker goes with them: which microphone is being sent is a
         // property of the audio session, so it has nothing to say on a stream
         // that carries no audio at all.
-        [audioBtn, micBtn, audioDevBtn, avSep, document.querySelector(".tb-av-sep")].forEach(function (el) {
+        // The split rows go with them: the wrapper AND the toggle inside it,
+        // because avAvailable() on the desktop reads audioBtn.hidden to decide
+        // whether the native menu offers audio at all.
+        [
+            audioBtn,
+            micBtn,
+            audioDevBtn,
+            avSep,
+            document.getElementById("audio-row"),
+            document.getElementById("mic-row"),
+            document.getElementById("out-dev-chev"),
+            document.getElementById("mic-dev-chev"),
+            document.querySelector(".tb-av-sep"),
+        ].forEach(function (el) {
             if (!el) return;
             if (on) el.removeAttribute("hidden");
             else el.setAttribute("hidden", "");
         });
+        // A picker anchored to a chevron that has just gone is a list pinned to
+        // nothing, and WebRTC dropping is exactly when that happens unasked.
+        if (!on) closeDevMenu(false);
         // Their titlebar twins are rendered, so visibility is a prop, not an attribute.
         avState.visible = !!on;
         repaintAv();
@@ -6541,6 +6569,11 @@
         }
         setText(adNote, notes.join(" "));
         repaintAudioActions();
+        // The popout is the same two choices in a different shape, so it
+        // repaints from the same place the dialog does and neither can show a
+        // device the other has already dropped.
+        paintDevMenu();
+        paintDevPickers();
     }
 
     var audioActions = null;
@@ -6548,10 +6581,18 @@
         if (audioActions) audioActions.update();
     }
 
-    function chooseDevice(which, sel) {
+    /* Takes an ID, not the <select> it came from.
+     *
+     * Two surfaces choose a device now — this dialog and the chevron popout on
+     * each toggle — and only one of them has a <select> to read. Everything
+     * after the id is identical, and it is everything that matters: the write to
+     * localStorage, the restart that makes the running capture use the new
+     * device, the setSinkId, the missing-device recheck, the repaint. Passing
+     * the id is what lets the popout be a shortcut rather than a second
+     * implementation of the same choice. */
+    function chooseDevice(which, id) {
         var mic = which === "mic";
         var list = mic ? audioInputs : audioOutputs;
-        var id = sel.value;
         var label = "";
         for (var i = 0; i < list.length; i++) {
             if (list[i].id === id) label = deviceLabel(list, i, mic ? "audioinput" : "audiooutput");
@@ -6586,6 +6627,257 @@
         paintAudioDialog();
     }
 
+    /* ---- the chevron on each toggle: the same choice, without the dialog -----
+     *
+     * Switching from the headset to the webcam microphone is a two-item list,
+     * and reaching it was the ⋯ menu, a menu item and a modal. The dialog earns
+     * that — it is where the whole story lives: what has gone missing, why the
+     * names are numbers, how to fill them in — but it is the wrong shape for the
+     * one thing people do most often, so it stays and this is the shortcut.
+     *
+     * A SPLIT control. The chevron is a separate button with its own accessible
+     * name — "Choose microphone" beside "Microphone" — because the toggle means
+     * on/off and has to keep meaning it; a picker that also toggled, or a toggle
+     * that swallowed a click meant for the picker, would be the bug. The two
+     * never share a hit area on either surface.
+     *
+     * ONE popout element serves both chevrons and both mount points (the ⋯
+     * menu's split rows on web, the titlebar's split pairs on the desktop),
+     * because only one list is ever open. It is a labelled group of real
+     * buttons, NOT role=menu, for the same reason .more-menu is not: the items
+     * are Tab-walked, and arrow keys do not move between them.
+     *
+     * Nothing here decides anything. The list comes from the same
+     * audioInputs/audioOutputs the dialog fills its selects from, and a pick
+     * calls the same chooseDevice, so the choice is persisted, applied to the
+     * live capture and reported identically whichever surface made it — and
+     * changing it in one place repaints the other, because both repaint from
+     * paintAudioDialog. */
+    var devMenu = document.getElementById("av-dev-menu");
+    var devMenuWhich = ""; // "mic" | "out", empty when closed
+    var devMenuAnchor = null;
+
+    // Both surfaces carry a chevron per device; only one of them is on screen at
+    // a time, and neither knows which, so state is written to both.
+    function devChevrons(which) {
+        return [document.getElementById(which + "-dev-chev"), document.querySelector('[data-tb="' + which + '-dev"]')];
+    }
+    function devMenuContains(node) {
+        return !!(devMenu && devMenuWhich && devMenu.contains(node));
+    }
+    function devMenuAnchoredIn(host) {
+        return !!(devMenuWhich && devMenuAnchor && host && host.contains(devMenuAnchor));
+    }
+    /* A picker with nothing to pick from is disabled rather than opening on an
+     * empty list — the same two facts the dialog disables its selects on. Both
+     * are properties of the browser and the <video> element, so they are settled
+     * for the life of the page and no repaint has to watch them. */
+    function devPickerDisabled(which) {
+        var haveApi = !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices);
+        return which === "mic" ? !haveApi : !haveApi || !sinkIdSupported();
+    }
+    /* aria-expanded is stamped rather than declared, on BOTH surfaces.
+     *
+     * The titlebar twin is drawn by the shared component library, whose spec
+     * carries aria-haspopup but no expanded state — the three titlebar controls
+     * that predate this open NATIVE menus, where there is no element to point at
+     * and no open state this side to report. This popout is an ordinary element
+     * in this document, so expanded is sayable, and it is written after each
+     * render (see repaintAv) rather than the library growing a prop for one
+     * caller. React leaves attributes it was never given alone.
+     *
+     * haspopup is deliberately NOT set: it means role=menu, and this is a group. */
+    function paintDevPickers() {
+        ["mic", "out"].forEach(function (which) {
+            var open = devMenuWhich === which;
+            devChevrons(which).forEach(function (el) {
+                if (!el) return;
+                setAttr(el, "aria-expanded", open ? "true" : "false");
+                setAttr(el, "aria-controls", "av-dev-menu");
+            });
+            // Only the in-page one; the titlebar's disabled comes from its spec.
+            setProp(document.getElementById(which + "-dev-chev"), "disabled", devPickerDisabled(which));
+        });
+    }
+
+    function paintDevMenu() {
+        if (!devMenu || !devMenuWhich) return;
+        var mic = devMenuWhich === "mic";
+        var list = mic ? audioInputs : audioOutputs;
+        var choice = mic ? micChoice : outChoice;
+        var kind = mic ? "audioinput" : "audiooutput";
+        var rows = [{ id: "", text: "Follow the system default", gone: false }];
+        for (var i = 0; i < list.length; i++) rows.push({ id: list[i].id, text: deviceLabel(list, i, kind), gone: false });
+        /* Same rule as the dialog's select, for the same reason: a choice whose
+         * device has gone STAYS on the list and says so. Dropping it would leave
+         * nothing marked current, which reads as "the system default is in
+         * force" — the quiet fallback this whole block exists to stop. */
+        if (mic ? micDeviceMissing() : outDeviceMissing()) {
+            rows.push({ id: choice.id, text: (choice.label || "The device you chose") + " (not connected)", gone: true });
+        }
+        setAttr(devMenu, "aria-label", mic ? "Choose microphone" : "Choose audio output");
+        /* Keyed like fillDeviceSelect, and for the same reason: devicechange
+         * fires for a webcam or a second monitor's speakers, and rebuilding the
+         * list under someone who is Tab-walking it drops their focus on the
+         * body. Only the structure is keyed — aria-current is stamped every
+         * paint, since it is the one thing that changes without the list doing. */
+        var key = devMenuWhich + "|" + rows.map(function (r) { return r.id + " " + r.text; }).join("|");
+        if (devMenu.getAttribute("data-set") !== key) {
+            devMenu.setAttribute("data-set", key);
+            devMenu.innerHTML = "";
+            rows.forEach(function (r) {
+                var b = document.createElement("button");
+                b.type = "button";
+                b.className = "more-item dev-item" + (r.gone ? " gone" : "");
+                b.setAttribute("data-id", r.id);
+                var tick = document.createElement("span");
+                tick.className = "dev-tick";
+                tick.setAttribute("aria-hidden", "true");
+                var name = document.createElement("span");
+                name.className = "dev-name";
+                name.textContent = r.text;
+                b.appendChild(tick);
+                b.appendChild(name);
+                devMenu.appendChild(b);
+            });
+        }
+        /* aria-current, not aria-selected. Same call the pinned-macro list
+         * makes: selected belongs to a listbox, and this is a group of buttons
+         * with no listbox keyboard model behind it. */
+        var items = devMenu.querySelectorAll(".dev-item");
+        for (var j = 0; j < items.length; j++) {
+            if (items[j].getAttribute("data-id") === choice.id) setAttr(items[j], "aria-current", "true");
+            else items[j].removeAttribute("aria-current");
+        }
+    }
+
+    function openDevMenu(which, anchor) {
+        if (!devMenu || !anchor || devPickerDisabled(which)) return;
+        devMenuWhich = which;
+        devMenuAnchor = anchor;
+        // .open BEFORE the paint: it is display:none until then, and a menu with
+        // no box measures 0x0, which would place it against the wrong corner.
+        devMenu.classList.add("open");
+        paintDevMenu();
+        paintDevPickers();
+        placePopover(anchor, devMenu);
+        /* Focus goes IN, unlike the ⋯ menu, and it has to.
+         *
+         * One popout serves four chevrons — two in the ⋯ menu, two in the
+         * titlebar — so it lives at the end of the document rather than beside
+         * any of them, and Tab follows the DOM. Measured from the mic chevron
+         * with the list open:
+         *
+         *     Tab   -> "Audio devices…"
+         *     Tab   -> "Paste text to the target…"   (Enter here opened Paste)
+         *
+         * The list was reachable only after walking the whole menu behind it,
+         * and the next Enter did something else entirely. Landing on the item
+         * that is CURRENT rather than the first is what a device list should do
+         * anyway: it says which one is in force before anything is read out.
+         * Escape puts focus back on the chevron, which is the pair to this. */
+        var start = devMenu.querySelector('.dev-item[aria-current="true"]') || devMenu.querySelector(".dev-item");
+        if (start) start.focus();
+        // The list may be stale — a device plugged in since the last enumerate —
+        // and this repaints through paintAudioDialog when it lands.
+        refreshAudioDevices(false);
+    }
+    /* Returns whether it had anything to close, so Escape can peel one layer and
+     * leave the ⋯ menu underneath alone. */
+    function closeDevMenu(restoreFocus) {
+        if (!devMenu || !devMenuWhich) return false;
+        var anchor = devMenuAnchor;
+        devMenuWhich = "";
+        devMenuAnchor = null;
+        /* Only when focus is actually inside it. Picking a device closes this
+         * too, and restoring unconditionally there would be right — but the
+         * dialog-opening precedent next door shows why the guard matters: a
+         * handler that has already moved focus somewhere deliberate must not
+         * have it snatched back. Before the class comes off, so there is no
+         * moment where focus sits on a display:none'd button. */
+        if (restoreFocus && devMenu.contains(document.activeElement) && anchor && anchor.getClientRects().length) anchor.focus();
+        devMenu.classList.remove("open");
+        paintDevPickers();
+        return true;
+    }
+    function toggleDevMenu(which, anchor) {
+        if (devMenuWhich === which) {
+            closeDevMenu(true);
+            return;
+        }
+        openDevMenu(which, anchor);
+    }
+
+    (function wireDevMenu() {
+        ["mic", "out"].forEach(function (which) {
+            var chev = document.getElementById(which + "-dev-chev");
+            if (!chev) return;
+            // stopPropagation for the same reason the toggles do it: this click
+            // is inside the ⋯ menu, which closes on any click that is not one of
+            // its own toggles.
+            chev.addEventListener("click", function (e) {
+                e.stopPropagation();
+                toggleDevMenu(which, chev);
+            });
+        });
+        if (!devMenu) return;
+        devMenu.addEventListener("click", function (e) {
+            var item = e.target.closest ? e.target.closest(".dev-item") : null;
+            if (!item) return;
+            var which = devMenuWhich;
+            var id = item.getAttribute("data-id");
+            var current = (which === "mic" ? micChoice : outChoice).id;
+            closeDevMenu(true);
+            /* Picking what is already picked does nothing, deliberately.
+             *
+             * The dialog's <select> cannot fire change on the value it already
+             * has, so this is the same behaviour rather than a shortcut. It also
+             * covers the "(not connected)" row, which carries the same id as the
+             * stored choice: re-choosing it would look the label up in a list
+             * the device is by definition not in, come back empty, and overwrite
+             * the remembered name with nothing — losing the one thing that lets
+             * the warning say WHICH device is missing. */
+            if (id !== current) chooseDevice(which, id);
+        });
+        /* Tabbing off the end closes it, which the ⋯ menu does not need to do.
+         *
+         * That menu is the thing you were heading for; this is a transient list
+         * layered on it, and there is nothing after its last item. Measured:
+         * Tab from the last device landed in the conversation iframe, and
+         * Escape from there never reaches this document, so the list sat open
+         * over the menu with no way to dismiss it from the keyboard.
+         *
+         * Read from activeElement a tick later rather than from relatedTarget:
+         * the element after the last item is the conversation IFRAME, and
+         * focusout across a document boundary reports relatedTarget as null —
+         * which is also what a window blur reports, so the two are
+         * indistinguishable at that moment. document.hasFocus() afterwards
+         * tells them apart, and alt-tabbing away to read a device name off the
+         * back of the headset must not dismiss the list. */
+        devMenu.addEventListener("focusout", function () {
+            if (!devMenuWhich) return;
+            setTimeout(function () {
+                if (!devMenuWhich || !document.hasFocus()) return;
+                var a = document.activeElement;
+                if (devMenu.contains(a)) return;
+                if (devMenuAnchor && devMenuAnchor.contains(a)) return;
+                closeDevMenu(false);
+            }, 0);
+        });
+        // Outside-pointerdown and resize, matching the ⋯ menu. Escape is handled
+        // once, in that menu's own handler, so the two cannot both act on it.
+        document.addEventListener("pointerdown", function (e) {
+            if (!devMenuWhich) return;
+            if (devMenu.contains(e.target)) return;
+            if (devMenuAnchor && devMenuAnchor.contains(e.target)) return;
+            closeDevMenu(false);
+        });
+        window.addEventListener("resize", function () {
+            if (devMenuWhich && devMenuAnchor) placePopover(devMenuAnchor, devMenu);
+        });
+        paintDevPickers();
+    })();
+
     /* Labels are a permission, not a list. Ask for any microphone and throw the
      * stream away immediately — the same pre-flight the mic toggle does — purely
      * so enumerateDevices starts filling names in. Deliberately NOT pinned; see
@@ -6614,12 +6906,12 @@
     (function wireAudioDialog() {
         if (micSel) {
             micSel.addEventListener("change", function () {
-                chooseDevice("mic", micSel);
+                chooseDevice("mic", micSel.value);
             });
         }
         if (outSel) {
             outSel.addEventListener("change", function () {
-                chooseDevice("out", outSel);
+                chooseDevice("out", outSel.value);
             });
         }
         audioActions = mountDialogActions("audio-dlg-actions", function () {
@@ -8046,17 +8338,24 @@
      * pick/outside. Flips above/below by available room and clamps on-screen. */
     var moreBtn = document.getElementById("more-btn");
     var moreMenu = document.getElementById("more-menu");
-    function placeMenu() {
+    /* Right edges aligned to the trigger, flipped above or below by whichever
+     * side has the room, clamped inside the viewport.
+     *
+     * Shared with the audio device popouts rather than copied: they anchor to a
+     * chevron that can sit in the ⋯ menu near the bottom of a phone or in the
+     * titlebar at the very top, which is exactly the flip this already does. A
+     * second placer would be a second set of edge cases to get wrong. */
+    function placePopover(anchor, menu) {
         var GAP = 6;
         var M = 8; // viewport margin
-        var r = moreBtn.getBoundingClientRect();
+        var r = anchor.getBoundingClientRect();
         var vw = window.innerWidth;
         var vh = window.innerHeight;
         // Measure with left/top anchoring (it's position:fixed, so size is stable).
-        moreMenu.style.right = "auto";
-        moreMenu.style.bottom = "auto";
-        var mw = moreMenu.offsetWidth;
-        var mh = moreMenu.offsetHeight;
+        menu.style.right = "auto";
+        menu.style.bottom = "auto";
+        var mw = menu.offsetWidth;
+        var mh = menu.offsetHeight;
         // Horizontal: align the menu's right edge to the button, clamp on-screen.
         var left = Math.max(M, Math.min(r.right - mw, vw - mw - M));
         // Vertical: prefer above the button; flip below if there's more room there.
@@ -8064,8 +8363,11 @@
         var below = r.bottom + GAP;
         var top = r.top - GAP >= mh || r.top > vh - r.bottom ? above : below;
         top = Math.max(M, Math.min(top, vh - mh - M));
-        moreMenu.style.left = left + "px";
-        moreMenu.style.top = top + "px";
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+    }
+    function placeMenu() {
+        placePopover(moreBtn, moreMenu);
     }
     if (moreBtn && moreMenu) {
         /* Open-ness through ONE helper, because four separate places close this
@@ -8116,6 +8418,11 @@
              * snatch focus straight back out of the dialog the user just asked
              * for. Moved before the class toggle so there is no moment where
              * focus sits on a hidden button. */
+            /* The device popout hangs off a chevron INSIDE this menu, so it
+             * cannot outlive it: leaving it up would anchor a live list to a
+             * button that has just been display:none'd. Before the focus
+             * restore, so the chevron is still there to take focus back. */
+            if (!open && devMenuAnchoredIn(moreMenu)) closeDevMenu(true);
             if (!open && moreMenu.contains(document.activeElement)) moreBtn.focus();
             moreMenu.classList.toggle("open", open);
             moreBtn.setAttribute("aria-expanded", open ? "true" : "false");
@@ -8127,21 +8434,33 @@
             if (setMenuOpen(!moreMenu.classList.contains("open"))) placeMenu();
         });
         // Picking an item closes it — EXCEPT the audio/mic toggles, which stay open
-        // so you can flip both without the menu vanishing (the original bug).
+        // so you can flip both without the menu vanishing (the original bug), and
+        // their device chevrons, which open a popout anchored to themselves.
         moreMenu.addEventListener("click", function (e) {
-            if (e.target.closest && e.target.closest(".more-item.toggle")) return;
+            if (e.target.closest && e.target.closest(".more-item.toggle, .more-chev")) return;
             setMenuOpen(false);
         });
         // Click/tap-outside detection: anything that isn't the menu or the button
-        // dismisses it (pointerdown so it's snappy + reliable on touch).
+        // dismisses it (pointerdown so it's snappy + reliable on touch). The
+        // device popout is outside the menu in the DOM but belongs to it, so
+        // picking a device there must not take the menu down with it.
         document.addEventListener("pointerdown", function (e) {
             if (!moreMenu.classList.contains("open")) return;
             if (moreMenu.contains(e.target) || moreBtn.contains(e.target)) return;
+            if (devMenuContains(e.target)) return;
             setMenuOpen(false);
         });
-        // Escape closes it too.
+        /* Escape closes it too, ONE LAYER AT A TIME.
+         *
+         * Both this and the device popout listen on the document, so the order
+         * they were registered in would otherwise decide whether Escape closed
+         * one or both — and closing both hides the chevron the popout is
+         * returning focus to, which drops it on the body. Routed through the
+         * single handler that already owns Escape for this menu instead. */
         document.addEventListener("keydown", function (e) {
-            if (e.key === "Escape") setMenuOpen(false);
+            if (e.key !== "Escape") return;
+            if (closeDevMenu(true)) return;
+            setMenuOpen(false);
         });
         window.addEventListener("resize", function () {
             if (moreMenu.classList.contains("open")) placeMenu();
@@ -8910,10 +9229,14 @@
             ];
         }
         function avButtonSpecs() {
-            return ["audio", "mic"].map(function (which) {
+            var specs = [];
+            ["audio", "mic"].forEach(function (which) {
                 var st = avState[which];
                 var base = which === "mic" ? "Microphone" : "Audio output";
-                return {
+                // The picker names the device kind, not the button: "mic"/"out"
+                // is what chooseDevice and the popout call them.
+                var pick = which === "mic" ? "mic" : "out";
+                specs.push({
                     id: which,
                     /* The in-page twin spells the state out beside it — "On",
                      * "Denied", "No mic". This has room for none of that, so it
@@ -8927,8 +9250,24 @@
                         var b = document.getElementById(which === "mic" ? "mic-btn" : "audio-btn");
                         if (b) b.click();
                     },
-                };
+                });
+                /* Its own button, beside the toggle rather than folded into it.
+                 * A titlebar icon is 30px of target with no room for two
+                 * meanings, so the picker gets its own — narrow, pulled in, and
+                 * named for what it does rather than what it controls. */
+                specs.push({
+                    id: pick + "-dev",
+                    label: which === "mic" ? "Choose microphone" : "Choose audio output",
+                    icon: TB_ICONS.chevron,
+                    hidden: !avState.visible,
+                    disabled: devPickerDisabled(pick),
+                    className: "tb-av-dev",
+                    onSelect: function () {
+                        toggleDevMenu(pick, document.querySelector('[data-tb="' + pick + '-dev"]'));
+                    },
+                });
             });
+            return specs;
         }
         function panelButtonSpecs() {
             var shown = panelShown();
@@ -9018,6 +9357,9 @@
             fit: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 9 4 4M4 9V4h5\"/><path d=\"m15 9 5-5M15 4h5v5\"/><path d=\"M9 15l-5 5M4 15v5h5\"/><path d=\"m15 15 5 5M20 15v5h-5\"/></svg>",
             audio: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 5 6 9H2v6h4l5 4V5z\"/><path class=\"wave\" d=\"M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14\"/></svg>",
             mic: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"2\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 10a7 7 0 0 0 14 0M12 17v4\"/></svg>",
+            // The device picker beside each AV toggle. Heavier stroke than its
+            // neighbours because it is drawn at 11px, not 15px.
+            chevron: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg>",
             health: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3 2 20h20L12 3z\"/><path d=\"M12 10v4M12 17h.01\"/></svg>",
             power: "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v9\"/><path d=\"M18.4 6.6a9 9 0 1 1-12.8 0\"/></svg>",
             winmin: "<svg viewBox=\"0 0 16 16\" fill=\"currentColor\"><path d=\"m 4 10.007812 h 8 v 1.988282 h -8 z m 0 0\"/></svg>",
@@ -9168,6 +9510,10 @@
                 avButtons = shared.mountIconButtons(avHost, withTbClass(avButtonSpecs()));
                 repaintAv = function () {
                     if (avButtons) avButtons.update(withTbClass(avButtonSpecs()));
+                    // The chevrons' expanded state is not in the library's spec,
+                    // so it is written back on after each render. Safe to do
+                    // synchronously: mountIconButtons renders with flushSync.
+                    paintDevPickers();
                 };
                 repaintAv();
             }

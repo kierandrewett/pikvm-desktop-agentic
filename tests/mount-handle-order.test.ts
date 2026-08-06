@@ -299,7 +299,10 @@ test("a hidden target preview stops the keyboard reaching the target", () => {
  */
 test("the overflow menu can never be taller than the screen", () => {
     const css = readFileSync(resolve(process.cwd(), "src/views/console.css"), "utf8");
-    const at = css.indexOf(".more-menu {");
+    // The audio device popout shares this rule rather than carrying a second
+    // copy of the surface, so the selector is a group and the cap covers both.
+    const at = css.indexOf(".more-menu,\n.dev-menu {");
+    assert.ok(at >= 0, "the overflow menu's rule must still exist to be capped");
     const rule = css.slice(at, css.indexOf("}", at));
     assert.match(rule, /max-height:\s*calc\(100dvh - 16px\)/);
     // vh first, dvh second: dvh has to win where it is supported, and on a

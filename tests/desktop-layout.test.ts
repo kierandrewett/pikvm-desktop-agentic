@@ -1106,9 +1106,96 @@ test("dismissing the overflow menu returns focus to the button that opened it", 
         "focus must move before the items are hidden",
     );
     assert.doesNotMatch(bare, /^\s*moreBtn\.focus\(\);/m, "the restore must stay conditional");
-    // The four close paths all go through this one helper.
-    assert.match(js, /if \(e\.key === "Escape"\) setMenuOpen\(false\);/);
-    assert.match(js, /if \(moreMenu\.contains\(e\.target\) \|\| moreBtn\.contains\(e\.target\)\) return;\s*setMenuOpen\(false\);/);
+    /* The four close paths all go through this one helper. Escape peels one
+       layer — the audio device popout is layered on this menu — and then falls
+       through to it; the pointerdown path exempts that popout, which is outside
+       the menu in the DOM but belongs to it. */
+    assert.match(js, /if \(e\.key !== "Escape"\) return;\s*if \(closeDevMenu\(true\)\) return;\s*setMenuOpen\(false\);/);
+    assert.match(
+        js,
+        /if \(moreMenu\.contains\(e\.target\) \|\| moreBtn\.contains\(e\.target\)\) return;\s*if \(devMenuContains\(e\.target\)\) return;\s*setMenuOpen\(false\);/,
+    );
+});
+
+test("switching microphone takes a chevron, not the dialog, and never toggles the mic", () => {
+    /* Changing which microphone is being sent used to cost four steps: ⋯ ->
+       "Audio devices…" -> a modal -> a <select>. The list itself is two entries
+       on a normal machine. So each toggle grew a chevron that opens the same
+       choice in place, and the dialog stays for everything the popout has no
+       room for — what is missing, why the names are numbered, how to fill them
+       in.
+
+       The crux is that it is a SPLIT control, two buttons, not one button that
+       guesses. Measured over CDP with a stubbed four-device set, opening the mic
+       picker from the ⋯ menu and reading the computed accessible NAME out of
+       Accessibility.getPartialAXTree rather than textContent:
+
+           #mic-btn        role=button  name="Microphone Off"
+           #mic-dev-chev   role=button  name="Choose microphone"  expanded=true
+                                        controls="av-dev-menu"
+           #av-dev-menu    role=group   name="Choose microphone"
+           .dev-item       role=button  name="Logitech C920 microphone"
+
+       and the toggle stayed untouched across the whole flow — pip "Off",
+       webrtc setMic never called (micCalls 0) — which is the thing that would
+       break if the chevron shared a hit area with it.
+
+       The titlebar carries the same pair, drawn by the shared library:
+       data-tb audio(30px) / out-dev(16px) / mic(30px) / mic-dev(16px), names
+       "Audio output" / "Choose audio output" / "Microphone" / "Choose
+       microphone".
+
+       A pick goes through chooseDevice, the same call the dialog's <select>
+       change makes, so it persists and applies identically. Verified both ways
+       round: picking MIC-WEBCAM in the popout left #ad-mic reading "Logitech
+       C920 microphone", and changing #ad-mic to MIC-WEBCAM moved the popout's
+       aria-current onto that row. */
+    const bare = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+    // Two controls with two names, in both mount points.
+    assert.match(html, /id="mic-dev-chev" aria-label="Choose microphone"/);
+    assert.match(html, /id="out-dev-chev" aria-label="Choose audio output"/);
+    assert.match(bare, /label: which === "mic" \? "Choose microphone" : "Choose audio output"/);
+    // The chevron opens the picker; only the toggle's own handler toggles.
+    assert.match(bare, /toggleDevMenu\(which, chev\)/);
+    assert.doesNotMatch(bare, /mic-dev-chev"\)[\s\S]{0,200}?micBtn\.click\(\)/);
+
+    /* One path to the choice. chooseDevice takes an id, not the <select> it came
+       from, which is what lets the popout reuse it rather than reimplement the
+       persistence, the setMicDevice restart and the setSinkId. */
+    assert.match(bare, /function chooseDevice\(which, id\) \{/);
+    assert.match(bare, /chooseDevice\("mic", micSel\.value\)/);
+    assert.match(bare, /chooseDevice\("out", outSel\.value\)/);
+    assert.match(bare, /if \(id !== current\) chooseDevice\(which, id\);/);
+    // Both surfaces repaint from the one painter, so neither can go stale.
+    assert.match(bare, /paintDevMenu\(\);\s*paintDevPickers\(\);/);
+
+    /* aria-current, not aria-selected — a group of buttons with no listbox
+       keyboard model behind it, same call the pinned-macro list makes. */
+    assert.match(bare, /setAttr\(items\[j\], "aria-current", "true"\)/);
+    assert.doesNotMatch(bare, /aria-selected/);
+    assert.match(html, /id="av-dev-menu" role="group"/);
+    assert.doesNotMatch(bare, /aria-haspopup/);
+
+    // A device that has gone stays on the list and says so, as in the dialog.
+    assert.match(bare, /text: \(choice\.label \|\| "The device you chose"\) \+ " \(not connected\)", gone: true/);
+    assert.match(css, /\.dev-item\.gone \.dev-name \{\s*color: var\(--warn\);/);
+
+    /* Keyboard. Focus goes INTO the list on open, because one popout serves
+       four chevrons and so lives at the end of the document — measured before
+       that: Tab from the mic chevron landed on "Audio devices…" and the next
+       Enter opened the Paste dialog. Escape puts it back on the chevron. */
+    assert.match(bare, /devMenu\.querySelector\('\.dev-item\[aria-current="true"\]'\) \|\| devMenu\.querySelector\("\.dev-item"\)/);
+    assert.match(bare, /if \(restoreFocus && devMenu\.contains\(document\.activeElement\) && anchor && anchor\.getClientRects\(\)\.length\) anchor\.focus\(\);/);
+    // Tabbing off the end closes it; a window blur must not.
+    assert.match(bare, /if \(!devMenuWhich \|\| !document\.hasFocus\(\)\) return;/);
+
+    // The ⋯ menu's placement is shared rather than copied for the popout.
+    assert.match(bare, /function placePopover\(anchor, menu\)/);
+    assert.match(bare, /placePopover\(anchor, devMenu\)/);
+    // The dialog is a shortcut FROM, not a replacement: it is still wired.
+    assert.match(html, /id="audio-dev-btn"/);
+    assert.match(bare, /audioDevBtn\.addEventListener\("click", openAudioDialog\)/);
 });
 
 test("the macro editor stacks instead of hiding its buttons on a phone", () => {
@@ -3006,10 +3093,10 @@ test("a harness that refuses our token says so where the panel would be", () => 
  * with zero Errno 98 and no exits.
  */
 test("the daemon walks past a taken port and the child is told where it went", () => {
-    assert.match(main, /const daemonUrlForChild = new URL\(daemonOrigin\);/);
+    assert.match(main, /const daemonEndpoint = parseEndpoint\(daemonOrigin\);/);
     assert.match(
         main,
-        /const daemonArgs = \[\.\.\.args, "--host", daemonUrlForChild\.hostname, "--port", daemonUrlForChild\.port\];/,
+        /\? \["--uds", daemonEndpoint\.socketPath\]\s*\n\s*: \["--host", daemonEndpoint\.hostname, "--port", daemonEndpoint\.port\]/,
     );
     // ...and those are the args actually spawned, not the bare ones.
     const svc = main.slice(main.indexOf('name: "daemon",'));
@@ -3017,7 +3104,10 @@ test("the daemon walks past a taken port and the child is told where it went", (
     // Only our own default walks. An explicitly configured URL is an
     // instruction about where the service lives, not a starting point.
     assert.match(main, /const configuredDaemon = process\.env\.PIKVM_AGENT_DAEMON \|\| settings\.get\(\)\.daemonUrl;/);
-    assert.match(main, /: await originOnFreePort\("daemon", "http:\/\/127\.0\.0\.1:47615"\)/);
+    assert.match(
+        main,
+        /: daemonSocket \|\| \(await originOnFreePort\("daemon", "http:\/\/127\.0\.0\.1:47615"\)\);/,
+    );
 });
 
 
@@ -3303,14 +3393,15 @@ test("the harness walks past an orphaned port and its child is told where", () =
     // Only our own default walks; an explicit origin is an instruction.
     assert.match(
         main,
-        /const harnessOrigin = process\.env\.PIKVM_HARNESS_ORIGIN\s*\n\s*\? resolvedHarnessOrigin\(\)\s*\n\s*: await originOnFreePort\("harness", resolvedHarnessOrigin\(\)\);/,
+        /const harnessOrigin = process\.env\.PIKVM_HARNESS_ORIGIN\s*\n\s*\? resolvedHarnessOrigin\(\)\s*\n\s*: harnessSocket \|\|\s*\n\s*\(await originOnFreePort\("harness", resolvedHarnessOrigin\(\)\)\);/,
     );
     const hm = readFileSync(resolve(root, "src/harness-manager.ts"), "utf8");
     // ...and the child is told, or the walk is a lie — the daemon's lesson.
     assert.match(
         hm,
-        /args: \["harness", "serve", "--config", deps\.configPath, "--listen", listenAddress\(deps\.origin\)\],/,
+        /\.\.\.bindArguments\(parseEndpoint\(deps\.origin\)\),/,
     );
+    assert.match(hm, /: \["--listen", listenAddress\(endpoint\.value\)\];/);
     // IPv6 loopback keeps the bare form ensureConfig() writes.
     assert.match(hm, /const host = url\.hostname === "\[::1\]" \? "::1" : url\.hostname;/);
     assert.match(hm, /return `\$\{host\}:\$\{url\.port\}`;/);
@@ -3497,4 +3588,51 @@ test("only what is wrong goes in the audio dialog's live region", () => {
     assert.match(js, /setText\(adNote, notes\.join\(" "\)\);/);
     // The warn styling follows the live one, since that is what carries a fault.
     assert.match(js, /adStatus\.classList\.toggle\("is-warn", wrong\.length > 0\);/);
+});
+
+/**
+ * The two LOCAL services live on unix sockets, in a directory the app makes
+ * 0700. The control server does NOT: it binds 0.0.0.0 on purpose so a phone on
+ * the LAN can load the console from it, and there is no address a browser can
+ * put in its address bar that reaches a socket.
+ *
+ * Measured on a real start (`npx electron dist --user-data-dir=/tmp/pkvm-udd`):
+ *
+ *     PiKVM backend listening on http://127.0.0.1:25692 (… daemon
+ *         unix:/tmp/pkvm-udd/run/daemon.sock)
+ *     [daemon]  starting: …/pikvm-agent daemon --uds /tmp/pkvm-udd/run/daemon.sock
+ *     [harness] starting: …/pikvm-agent harness serve --config … --uds
+ *                         /tmp/pkvm-udd/run/harness.sock
+ *
+ *     ss -lx   u_str LISTEN 2048 /tmp/pkvm-udd/run/daemon.sock
+ *              u_str LISTEN 2048 /tmp/pkvm-udd/run/harness.sock
+ *     stat     drwx------ 700 /tmp/pkvm-udd/run
+ *              srw-rw-rw- 666 /tmp/pkvm-udd/run/{daemon,harness}.sock
+ *
+ *     GET :25692/_agent/harness/api/runs?limit=1  ->  200
+ *     GET :25692/_agent/daemon/healthz            ->  200
+ *
+ * The sockets themselves are world read/write and that is not an oversight:
+ * uvicorn chmods a uds to 0666 AFTER binding it, so the directory is the only
+ * boundary available and the bearer tokens remain the real check.
+ */
+test("the two local services get sockets in a 0700 directory, the control server keeps its port", () => {
+    assert.match(main, /const LOCAL_SOCKETS_SUPPORTED = process\.platform !== "win32";/);
+    assert.match(main, /mkdirSync\(directory, \{ recursive: true, mode: 0o700 \}\);/);
+    assert.match(main, /if \(process\.platform !== "win32"\) chmodSync\(directory, 0o700\);/);
+    assert.match(main, /const daemonSocket = socketDirectory && socketEndpoint\(socketDirectory, "daemon\.sock"\);/);
+    assert.match(main, /const harnessSocket = socketDirectory && socketEndpoint\(socketDirectory, "harness\.sock"\);/);
+    // sun_path holds 108 bytes. The first real run of this used a settings
+    // directory 118 bytes deep, silently went back to ports, and looked exactly
+    // like the socket work not having landed — hence the log line.
+    assert.match(main, /if \(Buffer\.byteLength\(path\) > 100\) \{/);
+    assert.match(main, /too long for a unix socket — using a port instead/);
+    // The control server is untouched: still a port, still the bind host.
+    assert.match(main, /CONTROL_PORT,\s*\n\s*bindHost,/);
+    // Comments first, or this file's own prose about sockets trips it.
+    const source = main.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    assert.equal(/socketEndpoint\([^)]*control/i.test(source), false);
+    // The scheme is never hand-spliced; one place builds it, so one place
+    // decides what an endpoint string looks like.
+    assert.equal(source.includes('"unix:'), false);
 });

@@ -444,8 +444,12 @@ html.desktop-console .tb-macros.more-before.more-after {
     margin: 0 2px;
 }
 
-/* Overflow menu (positioned by JS near the ⋯ button). */
-.more-menu {
+/* Overflow menu (positioned by JS near the ⋯ button).
+   The audio device popout is the same surface anchored to a different trigger,
+   so it shares the rule rather than carrying a second copy of the treatment.
+   It sits one layer up because it opens ON this menu from the split rows. */
+.more-menu,
+.dev-menu {
     position: fixed;
     z-index: 100;
     display: none;
@@ -480,12 +484,21 @@ html.desktop-console .tb-macros.more-before.more-after {
     animation: dlg-rise 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 @media (prefers-reduced-motion: reduce) {
-    .more-menu {
+    .more-menu,
+    .dev-menu {
         animation: none;
     }
 }
-.more-menu.open {
+.more-menu.open,
+.dev-menu.open {
     display: flex;
+}
+.dev-menu {
+    z-index: 101;
+    /* Device names run long — "Jabra Evolve 65 headset", and USB adapters
+       worse — so they wrap rather than being cut off. A truncated name in a
+       list whose whole job is telling two devices apart is no name at all. */
+    max-width: min(360px, calc(100vw - 16px));
 }
 .more-item {
     appearance: none;
@@ -550,6 +563,88 @@ html.desktop-console .tb-macros.more-before.more-after {
     color: #1a1407;
     background: var(--warn);
     border-color: var(--warn);
+}
+
+/* ---- split rows: a toggle and its device picker ----------------------------
+   Two buttons on one line, not one button doing two jobs. The toggle keeps the
+   full width it had minus the chevron's 32px, so the row still reads as the
+   toggle it always was and the chevron is the addition. */
+.more-split {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+}
+.more-split[hidden] {
+    display: none;
+}
+.more-split > .more-item.toggle {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.more-chev {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    padding: 0;
+    color: var(--muted-foreground);
+}
+.more-chev svg {
+    width: 14px;
+    height: 14px;
+    pointer-events: none;
+    transition: transform 0.14s;
+}
+/* Open reads as open on the trigger itself, not only in the popout that
+   appeared: the popout can be placed ABOVE the row, where nothing else says
+   which of the two chevrons it belongs to. */
+.more-chev[aria-expanded="true"] {
+    background: var(--accent);
+    color: var(--foreground);
+}
+.more-chev[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+}
+.more-chev:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+.more-chev:disabled:hover {
+    background: transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+    .more-chev svg {
+        transition: none;
+    }
+}
+
+/* ---- the device popout's rows ---------------------------------------------
+   .more-item for the padding, hover and focus ring; this adds the tick column
+   so the names stay left-aligned whether or not one of them is current. */
+.dev-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+}
+.dev-tick {
+    flex: none;
+    width: 14px;
+    text-align: center;
+    color: var(--primary);
+}
+.dev-item[aria-current="true"] .dev-tick::before {
+    content: "✓";
+}
+.dev-item[aria-current="true"] {
+    font-weight: 700;
+}
+/* A device that has gone still appears, and says so — same rule as the dialog's
+   select, where dropping it would have left nothing marked and read as though
+   the system default were in force. */
+.dev-item.gone .dev-name {
+    color: var(--warn);
 }
 
 .dot {
@@ -1289,6 +1384,33 @@ html.desktop-console .tb-av {
     position: relative;
     isolation: isolate;
     overflow: hidden;
+}
+/* The device picker beside each of them. Narrow and pulled in so the pair reads
+   as one split control rather than four equal buttons: at the full 30px the
+   titlebar's AV cluster went from 60px to 120px wide and the chevrons looked
+   like toggles of their own. Squared off on the inner edge for the same reason.
+   The level meter is a .tb-av thing, so this deliberately is not one. */
+html.desktop-console .tb-btn.tb-av-dev {
+    width: 16px;
+    margin-left: -3px;
+    border-radius: 8px;
+}
+html.desktop-console .tb-btn.tb-av-dev svg {
+    width: 11px;
+    height: 11px;
+    transition: transform 0.14s;
+}
+html.desktop-console .tb-btn.tb-av-dev[aria-expanded="true"] {
+    color: var(--foreground);
+    background: color-mix(in srgb, currentColor 16%, transparent);
+}
+html.desktop-console .tb-btn.tb-av-dev[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+    html.desktop-console .tb-btn.tb-av-dev svg {
+        transition: none;
+    }
 }
 html.desktop-console .tb-av::before {
     content: "";
