@@ -1406,8 +1406,10 @@ test("the overflow menu's open state cannot drift from its button", () => {
     const at = js.indexOf("if (moreBtn && moreMenu) {");
     assert.ok(at > 0, "the overflow menu is not wired");
     const body = js.slice(at, js.indexOf('window.addEventListener("resize"', at)).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-    // One helper owns both the class and the announced state.
-    assert.match(body, /function setMenuOpen\(open\) \{\s*\n\s*moreMenu\.classList\.toggle\("open", open\);\s*\n\s*moreBtn\.setAttribute\("aria-expanded", open \? "true" : "false"\);/);
+    // One helper owns the class, the announced state and — added later — giving
+    // focus back before the items are hidden. Anchored on the two writes being
+    // adjacent rather than on the whole body, so the helper can grow.
+    assert.match(body, /function setMenuOpen\(open\) \{[\s\S]*?moreMenu\.classList\.toggle\("open", open\);\s*\n\s*moreBtn\.setAttribute\("aria-expanded", open \? "true" : "false"\);/);
     /* And nothing bypasses it. This is the assertion that matters: a fifth
      * close path added later must go through the helper or fail here. */
     assert.doesNotMatch(body, /moreMenu\.classList\.(remove|add)\("open"\)/);

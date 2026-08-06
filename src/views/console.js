@@ -6488,6 +6488,22 @@
         moreMenu.setAttribute("aria-label", "More actions");
         moreBtn.setAttribute("aria-controls", moreMenu.id || "more-menu");
         function setMenuOpen(open) {
+            /* Closing with focus still inside it drops that focus on the floor.
+             *
+             * The items are display:none'd along with the class, so the browser
+             * resets activeElement to the body — open the menu, Tab to an item,
+             * change your mind and press Escape, and you are dumped to the top
+             * of the document with a full Tab walk back. Every dialog here
+             * already returns focus to the control that opened it; this is the
+             * one dismissable thing that did not.
+             *
+             * Only when focus is actually inside: picking an ITEM also closes
+             * the menu, and by the time this runs that item's own handler has
+             * opened a dialog and focused it. Restoring unconditionally would
+             * snatch focus straight back out of the dialog the user just asked
+             * for. Moved before the class toggle so there is no moment where
+             * focus sits on a hidden button. */
+            if (!open && moreMenu.contains(document.activeElement)) moreBtn.focus();
             moreMenu.classList.toggle("open", open);
             moreBtn.setAttribute("aria-expanded", open ? "true" : "false");
             return open;

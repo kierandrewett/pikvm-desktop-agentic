@@ -1066,3 +1066,30 @@ test("the conversation pane is never a white slab waiting for the daemon", () =>
        on screen. */
     assert.match(css, /\[hidden\] \{\s*display: none !important;/);
 });
+
+test("dismissing the overflow menu returns focus to the button that opened it", () => {
+    /* The items are display:none'd along with the .open class, so closing with
+       focus still inside dropped it on the floor: open the menu, Tab to an item,
+       press Escape, and activeElement was the body — a full Tab walk back from
+       the top of the document. Measured before the fix:
+           focusedItem "Paste text to the target…"  ->  Escape  ->  BODY
+       Every dialog here already restores focus to its trigger; this was the one
+       dismissable thing that did not. */
+    assert.match(js, /if \(!open && moreMenu\.contains\(document\.activeElement\)\) moreBtn\.focus\(\);/);
+    /* Guarded on focus actually being inside, and placed BEFORE the class
+       toggle. Picking an ITEM also closes the menu, and by then that item's
+       handler has opened a dialog and focused it — restoring unconditionally
+       would snatch focus straight back out. Verified: choosing "Paste text to
+       the target…" leaves focus on #paste-text with the dialog open. */
+    const fn = js.slice(js.indexOf("function setMenuOpen(open) {"));
+    const body = fn.slice(0, fn.indexOf("\n        }"));
+    const bare = body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    assert.ok(
+        bare.indexOf("moreBtn.focus()") < bare.indexOf("classList.toggle"),
+        "focus must move before the items are hidden",
+    );
+    assert.doesNotMatch(bare, /^\s*moreBtn\.focus\(\);/m, "the restore must stay conditional");
+    // The four close paths all go through this one helper.
+    assert.match(js, /if \(e\.key === "Escape"\) setMenuOpen\(false\);/);
+    assert.match(js, /if \(moreMenu\.contains\(e\.target\) \|\| moreBtn\.contains\(e\.target\)\) return;\s*setMenuOpen\(false\);/);
+});
