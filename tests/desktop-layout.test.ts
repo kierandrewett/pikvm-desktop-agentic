@@ -1454,3 +1454,26 @@ test("the overflow menu's macro list greys while a macro plays", () => {
     assert.match(js, /macroRunning = macro;\s*paintMacroButtons\(\);/);
     assert.match(js, /macroRunning = null;\s*paintMacroButtons\(\);/);
 });
+
+test("every route to a macro shows when one is already playing", () => {
+    /* There are three ways to start a macro and they disagreed. Recorded
+       through a macro with a 2.5s pause, with popupMenu intercepted so no
+       native menu opened:
+           titlebar strip     off, off, off
+           ⋯ menu list        greyed (fixed in 496f5d3)
+           send-keys menu     every entry enabled: undefined
+       runMacro refuses either way and says so; these are the affordance, so the
+       answer arrives before the press rather than as an apology after it. */
+    assert.match(js, /items\.push\(\{ id: "macro:" \+ m\.id, label: m\.label, enabled: !macroRunning \}\);/);
+    // The two it now matches.
+    assert.match(js, /disabled: !!macroRunning,\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
+    assert.match(js, /var busy = !!macroRunning;\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
+    // And the guard behind all three, which is what actually protects the target.
+    assert.match(js, /if \(macroRunning\) \{[\s\S]{0,400}?toast\(macroRunning\.label \+ " is still running", true\);/);
+    /* A single shortcut from that same menu is deliberately NOT gated: the rule
+       here is about BULK input — a second macro, or a paste — not about one
+       chord the user chose, which is no different from typing. */
+    const fn = js.slice(js.indexOf("function runShortcut(sid)"));
+    assert.doesNotMatch(fn.slice(0, fn.indexOf("\n        }")), /macroRunning/);
+    assert.match(js, /disabled: !pasteHasText \|\| pasteBusy \|\| !!macroRunning,/);
+});

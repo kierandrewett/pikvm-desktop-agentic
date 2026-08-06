@@ -8023,7 +8023,18 @@
             if (macros.length) {
                 items.push({ type: "separator" });
                 macros.forEach(function (m) {
-                    items.push({ id: "macro:" + m.id, label: m.label });
+                    /* Greyed while one plays, like the other two routes to the
+                     * same function. pinnedMacroSpecs calls its own disabled
+                     * flag "the only feedback that one is running", the ⋯ list
+                     * now matches it, and this menu — the third way in — showed
+                     * nothing. Recorded through a macro with a 2.5s pause: the
+                     * titlebar strip read off, off, off while every entry here
+                     * came back enabled undefined.
+                     *
+                     * runMacro still refuses and says so; this is the
+                     * affordance, so the answer arrives before the press rather
+                     * than as an apology after it. */
+                    items.push({ id: "macro:" + m.id, label: m.label, enabled: !macroRunning });
                 });
             }
             items.push({ type: "separator" });
