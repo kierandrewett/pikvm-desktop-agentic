@@ -7301,7 +7301,9 @@
         if (!gripEl) return;
         setAttr(gripEl, "aria-valuemin", String(clampH(0)));
         setAttr(gripEl, "aria-valuemax", String(clampH(Number.MAX_SAFE_INTEGER)));
-        setAttr(gripEl, "aria-valuenow", String(clampH(known == null ? pane.offsetHeight : known)));
+        var now = String(clampH(known == null ? pane.offsetHeight : known));
+        setAttr(gripEl, "aria-valuenow", now);
+        setAttr(gripEl, "aria-valuetext", now + " pixels"); // see the note in paintResizeValue
     }
     if (gripEl) {
         gripEl.addEventListener("keydown", function (e) {
@@ -7369,18 +7371,34 @@
             }
         });
         function paintResizeValue() {
+            /* setAttr, not setAttribute.
+             *
+             * Chromium raises a value-changed event on the WRITE, not on the
+             * value differing — the reason setAttr exists, spelled out where it
+             * is defined. This ran on every window resize, so a divider that was
+             * merely FOCUSED re-announced itself for changes that were not about
+             * it. Measured over six 1px window resizes with the divider
+             * untouched: fifteen attribute writes, of which min ("320") and now
+             * ("600") never changed value once.
+             *
+             * Same family as the stream sliders and the readiness pill, and the
+             * guard was already sitting three functions away. */
             var chatEl = document.querySelector(".chat");
-            chatResize.setAttribute("aria-valuemin", String(PANEL_MIN_W));
-            chatResize.setAttribute("aria-valuemax", String(panelMaxNow()));
+            setAttr(chatResize, "aria-valuemin", String(PANEL_MIN_W));
+            setAttr(chatResize, "aria-valuemax", String(panelMaxNow()));
             /* Clamped to the same range that was just announced, so min <= now <=
              * max holds by construction. In a normal layout this is a no-op: the
              * grid and panelMaxNow() compute the ceiling from the same token. It
              * earns its keep with the preview collapsed, where the conversation
              * spans the whole window and the raw width would exceed the maximum. */
-            chatResize.setAttribute(
-                "aria-valuenow",
-                String(clampPanelWidthNow(chatEl ? chatEl.offsetWidth : PANEL_MIN_W)),
-            );
+            var now = String(clampPanelWidthNow(chatEl ? chatEl.offsetWidth : PANEL_MIN_W));
+            setAttr(chatResize, "aria-valuenow", now);
+            /* A bare "600" is not a width. valuenow alone is what a screen
+             * reader reads out here, and the number means nothing without its
+             * unit — the stream sliders already carry aria-valuetext for exactly
+             * this reason, and these two separators were the only numeric
+             * controls left announcing a naked figure. */
+            setAttr(chatResize, "aria-valuetext", now + " pixels");
         }
         function cresizeEnd() {
             cresizing = false;

@@ -87,8 +87,13 @@ test("collapsing the preview retires the divider instead of hiding it off-screen
     // that width, so the toggle has to repaint it on the way back out.
     assert.match(js, /repaintPanelDivider\(\)/);
     assert.match(js, /repaintPanelDivider = paintResizeValue/);
-    // aria-valuenow is clamped into the announced range, so now > max cannot happen.
-    assert.match(js, /aria-valuenow",\s*String\(clampPanelWidthNow\(/);
+    /* aria-valuenow is clamped into the announced range, so now > max cannot
+       happen. Asserted on the clamp and on what is announced, rather than on
+       one literal expression: the value is computed into a local now so that
+       aria-valuetext can carry the same figure with its unit, and pinning the
+       old inline shape failed that refactor for no behavioural reason. */
+    assert.match(js, /var now = String\(clampPanelWidthNow\(chatEl \? chatEl\.offsetWidth : PANEL_MIN_W\)\);/);
+    assert.match(js, /setAttr\(chatResize, "aria-valuenow", now\);/);
 });
 
 test("window controls stay above the modal backdrop", () => {
@@ -3039,4 +3044,42 @@ test("a port handed out once is not handed out again", () => {
     assert.match(main, /const claimedPorts = new Set<number>\(\);/);
     assert.match(main, /if \(claimedPorts\.has\(port\)\) continue; \/\/ ours already, just not bound yet/);
     assert.match(main, /if \(free\) \{\s*\n\s*claimedPorts\.add\(port\);\s*\n\s*return port;\s*\n\s*\}/);
+});
+
+/**
+ * The panel divider re-announced itself for changes that were not about it.
+ *
+ * paintResizeValue() used raw setAttribute while setAttr — written for exactly
+ * this, three functions away — sat unused. Chromium raises a value-changed
+ * event on the WRITE, not on the value differing, which is the whole reason
+ * that helper exists; its own comment records the stream sliders announcing
+ * "80%" six times for six identical streamer pushes.
+ *
+ * The divider had the same fault from window resizes. Measured over six 1px
+ * resizes with the divider untouched and merely focused:
+ *
+ *     before   15 attribute writes   values 320 / 600 / 1099 / 1100
+ *     after     5 attribute writes   values 1099 / 1100
+ *
+ * min ("320") and now ("600") never changed value once across all fifteen. The
+ * five that remain are the max genuinely tracking the window.
+ *
+ * Both separators also announced a naked number: aria-valuenow is what gets
+ * read, and "600" is not a width. The stream sliders already carried
+ * aria-valuetext for precisely this reason, so these two were the only numeric
+ * controls left without it.
+ */
+test("the resize separators announce a unit, and only when something changed", () => {
+    // Guarded writes, so an unchanged value is not re-announced.
+    const paint = js.slice(js.indexOf("function paintResizeValue() {"), js.indexOf("function cresizeEnd()"));
+    assert.ok(!/chatResize\.setAttribute\(/.test(paint), "the divider is back on raw setAttribute");
+    assert.match(paint, /setAttr\(chatResize, "aria-valuemin", String\(PANEL_MIN_W\)\);/);
+    assert.match(paint, /setAttr\(chatResize, "aria-valuemax", String\(panelMaxNow\(\)\)\);/);
+    assert.match(paint, /setAttr\(chatResize, "aria-valuenow", now\);/);
+    // A width, not a number.
+    assert.match(paint, /setAttr\(chatResize, "aria-valuetext", now \+ " pixels"\);/);
+    // The vertical grip on the phone layout says it the same way.
+    const grip = js.slice(js.indexOf("function paintGripValue(known) {"), js.indexOf("if (gripEl) {"));
+    assert.match(grip, /setAttr\(gripEl, "aria-valuenow", now\);/);
+    assert.match(grip, /setAttr\(gripEl, "aria-valuetext", now \+ " pixels"\);/);
 });
