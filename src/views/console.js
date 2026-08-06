@@ -1096,6 +1096,10 @@
             toast("A paste is still typing on the target", true);
             return;
         }
+        if (macroBlocked(macro)) {
+            toast(macro.label + " has key steps and input is offline", true);
+            return;
+        }
         noteManualKvmInput();
         macroRunning = macro;
         paintMacroButtons();
@@ -1251,6 +1255,29 @@
         return !!macroRunning || !!pasteBusy;
     }
 
+    /* A macro that cannot reach the target right now.
+     *
+     * Chord steps go over the HID socket; text steps POST to /api/hid/print and
+     * are unaffected by it. So with the socket down a chord-only macro sent
+     * nothing at all and still toasted "<label> sent" — measured, an empty wire
+     * and a positive claim that the keys had arrived.
+     *
+     * The run cannot notice afterwards: sendChord queues and drainKeys fires
+     * from a timer whatever the socket is doing, which is what keeps a run from
+     * stalling. So the check has to happen before it starts.
+     *
+     * Per macro rather than for all of them, because a text-only macro works
+     * perfectly well over the print endpoint with the socket down, and refusing
+     * it would block something that would have succeeded. */
+    function macroNeedsInput(macro) {
+        var steps = (macro && macro.steps) || [];
+        for (var i = 0; i < steps.length; i++) if (steps[i].type === "chord") return true;
+        return false;
+    }
+    function macroBlocked(macro) {
+        return macroNeedsInput(macro) && !hid.isOpen();
+    }
+
     /* The macro playing right now, or null.
      *
      * runMacro builds a per-run chain with its own step index, and nothing
@@ -1287,7 +1314,7 @@
                      * garbles both. It is also the only feedback that one is
                      * running, which is the same answer the paste dialog and
                      * the MSD upload already give for an action in flight. */
-                    disabled: typingBusy(),
+                    disabled: typingBusy() || macroBlocked(m),
                     onSelect: function () {
                         runMacro(m);
                     },
@@ -1330,6 +1357,9 @@
                 btn.type = "button";
                 btn.className = "more-item";
                 btn.textContent = m.label;
+                // Remembered so the enable pass below can ask about THIS macro,
+                // not just about whether anything is running.
+                btn.__macro = m;
                 btn.addEventListener("click", function () {
                     runMacro(m);
                 });
@@ -1350,9 +1380,14 @@
          * all until the run finished and toasted. Outside the rebuild above
          * because the set of macros has not changed — only whether they can be
          * pressed — and that branch returns early when the labels match. */
+        /* And grey a macro whose keys cannot arrive at all. With the HID socket
+           down a chord macro sent nothing and still toasted "<label> sent";
+           runMacro refuses it now, and this is that refusal made visible. A
+           text-only macro is left alone — it goes over the print endpoint and
+           works regardless. */
         var busy = typingBusy();
         [].forEach.call(host.querySelectorAll("button"), function (btn) {
-            setProp(btn, "disabled", busy);
+            setProp(btn, "disabled", busy || macroBlocked(btn.__macro));
         });
     }
 
@@ -5266,6 +5301,8 @@
         // And the titlebar/health view of it, which is the desktop's only one.
         paintHealth();
         paintDrawerEnabled();
+        // Chord macros go dead with the socket, so the pins and the list follow.
+        paintMacroButtons();
     });
     paintDrawerEnabled();
     hid.connect();
@@ -8500,7 +8537,7 @@
                      * runMacro still refuses and says so; this is the
                      * affordance, so the answer arrives before the press rather
                      * than as an apology after it. */
-                    items.push({ id: "macro:" + m.id, label: m.label, enabled: !typingBusy() });
+                    items.push({ id: "macro:" + m.id, label: m.label, enabled: !typingBusy() && !macroBlocked(m) });
                 });
             }
             items.push({ type: "separator" });

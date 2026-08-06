@@ -1446,9 +1446,9 @@ test("the overflow menu's macro list greys while a macro plays", () => {
            web menu        all four :on  throughout, no toast, nothing
        so on the layout where the feedback matters most there was none until the
        run finished. After: both grey and both restore. */
-    assert.match(js, /var busy = typingBusy\(\);\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
+    assert.match(js, /var busy = typingBusy\(\);\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy \|\| macroBlocked\(btn\.__macro\)\);/)
     // The titlebar's equivalent, which this mirrors.
-    assert.match(js, /disabled: typingBusy\(\),\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
+    assert.match(js, /disabled: typingBusy\(\) \|\| macroBlocked\(m\),\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
     /* Outside the rebuild branch. The set of macros has not changed while one
        plays — only whether they can be pressed — and that branch returns early
        when the labels match, so a disabled flag set inside it would never run. */
@@ -1473,10 +1473,10 @@ test("every route to a macro shows when one is already playing", () => {
            send-keys menu     every entry enabled: undefined
        runMacro refuses either way and says so; these are the affordance, so the
        answer arrives before the press rather than as an apology after it. */
-    assert.match(js, /items\.push\(\{ id: "macro:" \+ m\.id, label: m\.label, enabled: !typingBusy\(\) \}\);/);
+    assert.match(js, /items\.push\(\{ id: "macro:" \+ m\.id, label: m\.label, enabled: !typingBusy\(\) && !macroBlocked\(m\) \}\);/);
     // The two it now matches.
-    assert.match(js, /disabled: typingBusy\(\),\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
-    assert.match(js, /var busy = typingBusy\(\);\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
+    assert.match(js, /disabled: typingBusy\(\) \|\| macroBlocked\(m\),\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
+    assert.match(js, /var busy = typingBusy\(\);\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy \|\| macroBlocked\(btn\.__macro\)\);/)
     // And the guard behind all three, which is what actually protects the target.
     assert.match(js, /if \(macroRunning\) \{[\s\S]{0,400}?toast\(macroRunning\.label \+ " is still running", true\);/);
     /* A single shortcut from that same menu is deliberately NOT gated: the rule
@@ -1992,8 +1992,9 @@ test("a macro cannot start while a paste is still typing", () => {
        busy means. */
     assert.match(js, /function typingBusy\(\) \{\s*return !!macroRunning \|\| !!pasteBusy;\s*\}/);
     assert.equal((js.match(/typingBusy\(\)/g) ?? []).length, 5,
-        "the declaration, its guard in runMacro, and the three surfaces that start one");
+        "the declaration, the three surfaces that start a macro, and the comment naming it");
     assert.doesNotMatch(js, /disabled: !!macroRunning,/);
+    assert.doesNotMatch(js, /disabled: typingBusy\(\),$/m);
     assert.doesNotMatch(js, /var busy = !!macroRunning;/);
     assert.doesNotMatch(js, /enabled: !macroRunning \}/);
 
@@ -2269,7 +2270,7 @@ test("the on-screen keys stop offering clicks that cannot reach the target", () 
     assert.match(js, /setProp\(b, "disabled", !up\);/);
     // Driven by the same status hook that already refreshes the chip, and run
     // once at startup so a console that opens with the socket down is right.
-    assert.match(js, /paintHealth\(\);\s*paintDrawerEnabled\(\);\s*\}\);\s*paintDrawerEnabled\(\);/);
+    assert.match(js, /paintHealth\(\);\s*paintDrawerEnabled\(\);[\s\S]{0,140}?\}\);\s*paintDrawerEnabled\(\);/);
 
     /* Driven over CDP: socket up, 21 buttons and 0 disabled; socket killed, 21
        and 21 disabled with the chip reading "Live · input offline"; socket
@@ -2281,4 +2282,42 @@ test("the on-screen keys stop offering clicks that cannot reach the target", () 
        which is worse than the chip they already have. Worth revisiting if that
        chip proves too quiet. */
     assert.doesNotMatch(js, /setProp\(kbd, "disabled"/);
+});
+
+test("a macro whose keys cannot arrive is refused, not reported as sent", () => {
+    /* Chord steps go over the HID socket; text steps POST to /api/hid/print and
+       are unaffected by it. So with the socket killed, a chord-only macro put
+       NOTHING on the wire and the console toasted "…cluster 3 sent" — a
+       positive claim that the keys had reached the target.
+
+       Same family as two things already fixed here. The macro's own text step
+       used to toast "sent" on a 500 — "a positive claim that the text reached
+       the target when nothing had been typed at all" — and Save screenshot
+       reported a disk write it never observed. This was the socket half of the
+       same macro, still claiming. */
+    assert.match(js, /function macroNeedsInput\(macro\) \{[\s\S]*?if \(steps\[i\]\.type === "chord"\) return true;/);
+    assert.match(js, /function macroBlocked\(macro\) \{\s*return macroNeedsInput\(macro\) && !hid\.isOpen\(\);/);
+    assert.match(js, /if \(macroBlocked\(macro\)\) \{\s*toast\(macro\.label \+ " has key steps and input is offline", true\);/);
+
+    /* Checked before the run starts, because it cannot be noticed afterwards:
+       sendChord queues and drainKeys fires from a timer whatever the socket is
+       doing, which is exactly what stops a run stalling. */
+    assert.match(js, /drainKeys always fires from a timer/);
+
+    /* Per macro, not for all of them. A text-only macro works perfectly well
+       over the print endpoint with the socket down, and refusing it would block
+       something that would have succeeded. */
+    assert.match(js, /disabled: typingBusy\(\) \|\| macroBlocked\(m\),/);
+    assert.match(js, /enabled: !typingBusy\(\) && !macroBlocked\(m\) \}/);
+    assert.match(js, /setProp\(btn, "disabled", busy \|\| macroBlocked\(btn\.__macro\)\);/);
+    // Repainted from the same hook that greys the drawer.
+    assert.match(js, /paintDrawerEnabled\(\);\s*\/\/ Chord macros go dead with the socket[\s\S]{0,60}?paintMacroButtons\(\);/);
+
+    /* Driven over CDP with the socket killed, six macros seeded:
+         chord-only          [off], and clicking it did nothing
+         chord + text        [off]
+         text-only           [on], ran, wire carried its print, "Short 4 sent"
+       and after the socket recovered every one was [on] again with the chip
+       back to "Live". Before the fix the chord-only one was [on], sent nothing,
+       and toasted "…cluster 3 sent". */
 });
