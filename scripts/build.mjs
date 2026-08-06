@@ -49,7 +49,15 @@ await build({
 // 2. Static assets and views.
 cpSync(resolve(root, "package.json"), resolve(dist, "package.json"));
 cpSync(resolve(root, "src/static"), resolve(dist, "static"), { recursive: true });
-cpSync(resolve(root, "src/views"), resolve(dist, "views"), { recursive: true });
+/* Views, minus documentation. src/views is copied wholesale, so a .md written
+   beside the files it describes would otherwise be served to browsers and
+   packaged into the RPM. VENDOR.md did exactly that the moment it was added.
+   Keeping the note next to what it documents is worth more than moving it out
+   of the way, so the copy skips it instead. */
+cpSync(resolve(root, "src/views"), resolve(dist, "views"), {
+    recursive: true,
+    filter: (src) => !src.endsWith(".md"),
+});
 cpSync(resolve(root, "src/assets"), resolve(dist, "assets"), { recursive: true });
 
 // 3a. Terminal renderer (xterm.js) → dist/views/terminal.js, beside its
