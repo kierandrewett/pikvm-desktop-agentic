@@ -3014,26 +3014,6 @@ test("the daemon walks past a taken port and the child is told where it went", (
     assert.match(main, /: await originOnFreePort\("daemon", "http:\/\/127\.0\.0\.1:47615"\)/);
 });
 
-/**
- * The harness must NOT walk, and that is the finding rather than an omission.
- *
- * Its bind address lives in the harness YAML, which ensureConfig() writes with
- * --listen only when the file does not already exist. On any install that has
- * run once that port is fixed, so choosing a different origin would leave the
- * app expecting one port while the child bound another — the same Errno 98
- * crash loop measured for the daemon above, except unfixable from this side
- * without rewriting a config file that carries the user's provider settings.
- *
- * So a harness orphaned on 47616 still produces a 401, and the console note
- * added alongside this is what makes that legible instead of an empty panel.
- */
-test("the harness keeps its configured port rather than walking off it", () => {
-    assert.match(main, /const harnessOrigin = resolvedHarnessOrigin\(\);/);
-    assert.ok(
-        !/originOnFreePort\("harness"/.test(main),
-        "the harness must not walk — its child reads the port from a config this does not rewrite",
-    );
-});
 
 /**
  * Two probes run back to back both see the same port as free, because a probe
@@ -3281,4 +3261,56 @@ test("only the three buttons the HID can carry are sent", () => {
     // The protocol this is matching stays the source of truth.
     const control = readFileSync(resolve(root, "src/pikvm-control.ts"), "utf8");
     assert.match(control, /export type MouseButton = "left" \| "right" \| "middle";/);
+});
+
+/**
+ * The harness can route around an orphaned port now that its child can be told.
+ *
+ * This is the failure that took the agent panel down: a harness left running
+ * from a previous session still owned 47616, the app correctly refused
+ * credential-blind adoption of it, and could not spawn its own on a taken port —
+ * so every workspace call was signed with a token that harness had never seen
+ * and came back 401, with the panel simply absent.
+ *
+ * The daemon's port walk could not be copied here at the time, because the
+ * harness takes its bind address from a YAML that ensureConfig() writes only
+ * when the file does not already exist. On any install that had run once, the
+ * app would have picked a free origin while the child charged at the old one —
+ * the same "[Errno 98] address already in use" crash loop the daemon had before
+ * it was told its port.
+ *
+ * `harness serve --listen HOST:PORT` closes that: one run's bind, no rewrite of
+ * a file that carries the operator's provider settings. Measured with both
+ * orphans still holding their ports:
+ *
+ *     [daemon]  127.0.0.1:47615 is in use, using http://127.0.0.1:47617 instead
+ *     [harness] 127.0.0.1:47616 is in use, using http://127.0.0.1:47618 instead
+ *     [harness] starting: …/pikvm-agent harness serve --config … --listen 127.0.0.1:47618
+ *
+ *     GET /_agent/harness/api/runs?limit=1   ->  200   (was 401)
+ *     GET 47618/api/health                   ->  200
+ *
+ * with zero Errno 98, zero adoption refusals and zero startup failures in the
+ * log.
+ */
+test("the harness walks past an orphaned port and its child is told where", () => {
+    // Only our own default walks; an explicit origin is an instruction.
+    assert.match(
+        main,
+        /const harnessOrigin = process\.env\.PIKVM_HARNESS_ORIGIN\s*\n\s*\? resolvedHarnessOrigin\(\)\s*\n\s*: await originOnFreePort\("harness", resolvedHarnessOrigin\(\)\);/,
+    );
+    const hm = readFileSync(resolve(root, "src/harness-manager.ts"), "utf8");
+    // ...and the child is told, or the walk is a lie — the daemon's lesson.
+    assert.match(
+        hm,
+        /args: \["harness", "serve", "--config", deps\.configPath, "--listen", listenAddress\(deps\.origin\)\],/,
+    );
+    // IPv6 loopback keeps the bare form ensureConfig() writes.
+    assert.match(hm, /const host = url\.hostname === "\[::1\]" \? "::1" : url\.hostname;/);
+    assert.match(hm, /return `\$\{host\}:\$\{url\.port\}`;/);
+    // The flag has to exist on the Python side for any of this to work.
+    const cli = readFileSync(resolve(root, "agent/pikvm_agent/cli.py"), "utf8");
+    assert.match(cli, /"--listen",\s*\n\s*help="Bind this host:port for this run instead of the config's\.",/);
+    // Checked before binding, so the override cannot dodge the loopback rule.
+    assert.match(cli, /settings = settings\.model_copy\(update=\{"listen": listen\}\)\s*\n\s*try:\s*\n\s*ensure_safe_bind\(settings\)/);
 });

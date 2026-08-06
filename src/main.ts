@@ -294,20 +294,25 @@ async function startProxyAndHarness(
     const daemonOrigin = configuredDaemon
         ? configuredDaemon.replace(/\/$/, "")
         : await originOnFreePort("daemon", "http://127.0.0.1:47615");
-    /* The harness deliberately does NOT walk.
+    /* The harness walks too, now that its child can be told where to go.
      *
-     * Its bind address lives in the harness YAML, which ensureConfig() writes
-     * with --listen only when the file does not already exist. On any install
-     * that has run once, the port in that file is fixed, so choosing a
-     * different origin here would leave the app expecting one port while the
-     * child bound another - measured as exactly that: repeated
-     * "[Errno 98] address already in use" and a give-up. Rewriting a user's
-     * harness config to fix it is not this function's business; it carries
-     * their provider settings.
+     * This used to be pinned, because the harness takes its bind address from
+     * the YAML that ensureConfig() writes only when the file does not already
+     * exist — so on any install that had run once, choosing a different origin
+     * here left the app waiting on one port while the child charged at the old
+     * one, the same "[Errno 98] address already in use" crash loop the daemon
+     * had before it was told its port. `harness serve --listen HOST:PORT` closes
+     * that gap: one run's bind, no rewrite of a config file that carries the
+     * operator's provider settings.
      *
-     * A harness orphaned on this port therefore still produces a 401, which the
-     * console now explains rather than showing an empty panel about. */
-    const harnessOrigin = resolvedHarnessOrigin();
+     * This is the failure that took the agent panel down — a harness left over
+     * from a previous run owning the port, an app that correctly refuses
+     * credential-blind adoption, and no way to put its own harness anywhere
+     * else. Same rule as the daemon: only our own default walks, because a URL
+     * from PIKVM_HARNESS_ORIGIN is an instruction about where the service lives. */
+    const harnessOrigin = process.env.PIKVM_HARNESS_ORIGIN
+        ? resolvedHarnessOrigin()
+        : await originOnFreePort("harness", resolvedHarnessOrigin());
     const configuredHarnessPath =
         process.env.PIKVM_HARNESS_CONFIG || settings.get().harnessConfig;
     const harnessConfig = configuredHarnessPath

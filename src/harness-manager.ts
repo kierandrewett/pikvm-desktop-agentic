@@ -44,6 +44,14 @@ export function harnessDaemonSelectorEnvironment(
     };
 }
 
+/** host:port for `harness serve --listen`, from the origin we intend to use.
+ *  IPv6 loopback keeps its bare form, matching what ensureConfig() writes. */
+function listenAddress(origin: string): string {
+    const url = new URL(origin);
+    const host = url.hostname === "[::1]" ? "::1" : url.hostname;
+    return `${host}:${url.port}`;
+}
+
 export class HarnessManager {
     readonly accessToken = randomBytes(32).toString("base64url");
     readonly agentToken = randomBytes(32).toString("base64url");
@@ -69,7 +77,18 @@ export class HarnessManager {
                 origin: deps.origin,
                 healthPath: "/api/health",
                 command: deps.command,
-                args: ["harness", "serve", "--config", deps.configPath],
+                /* --listen, so the child binds where WE decided rather than where
+                 * its config file says.
+                 *
+                 * ensureConfig() writes the YAML's listen address only when the
+                 * file does not already exist, so on any install that has run
+                 * once that port is fixed. Without this the app could pick a
+                 * free origin and the child would still charge at the old one —
+                 * exactly the "[Errno 98] address already in use" crash loop the
+                 * daemon had before it was told its port. The override does not
+                 * rewrite the config: that file carries the operator's provider
+                 * settings, and this is one run's bind, not a new default. */
+                args: ["harness", "serve", "--config", deps.configPath, "--listen", listenAddress(deps.origin)],
                 cwd: deps.cwd,
                 env: {
                     ...harnessDaemonSelectorEnvironment(deps.daemonOrigin),
