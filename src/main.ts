@@ -66,15 +66,34 @@ let CONTROL_PORT = Number(process.env.PIKVM_CONTROL_PORT) || 25650;
  *  A probe is not a reservation: something could still take the port between
  *  the close here and the real listen. That race is far smaller than the case
  *  this fixes, and the listen error is handled now rather than thrown. */
+/* Ports this process has already picked but may not have bound yet.
+ *
+ * A probe closes its socket before returning, so two probes run back to back
+ * both see the same port as free. The control server, the daemon and the
+ * harness all walk from their own defaults, and the first run of this handed
+ * the daemon and the harness the SAME port:
+ *
+ *     [daemon]  127.0.0.1:47615 is in use, using http://127.0.0.1:47617
+ *     [harness] 127.0.0.1:47616 is in use, using http://127.0.0.1:47617
+ *
+ * which is a worse failure than the orphaned port it was written to route
+ * around. Remembering what has been handed out is what makes the walks
+ * independent of each other as well as of whatever else is on the box. */
+const claimedPorts = new Set<number>();
+
 async function firstFreePort(from: number, host: string, tries = 20): Promise<number> {
     for (let port = from; port < from + tries; port++) {
+        if (claimedPorts.has(port)) continue; // ours already, just not bound yet
         const free = await new Promise<boolean>((done) => {
             const probe = createProbeServer();
             probe.once("error", () => done(false));
             probe.once("listening", () => probe.close(() => done(true)));
             probe.listen(port, host);
         });
-        if (free) return port;
+        if (free) {
+            claimedPorts.add(port);
+            return port;
+        }
     }
     throw new Error(`no free port between ${from} and ${from + tries - 1}`);
 }
@@ -150,6 +169,22 @@ function resolvedHarnessOrigin(): string {
         /\/$/,
         "",
     );
+}
+
+/** The same loopback origin, moved to the first free port at or after its own.
+ *
+ *  A no-op in the ordinary case, where the default port is free and this
+ *  returns exactly what it was given. */
+async function originOnFreePort(name: string, origin: string): Promise<string> {
+    const url = new URL(origin);
+    const wanted = Number(url.port);
+    if (!wanted) return origin.replace(/\/$/, "");
+    const free = await firstFreePort(wanted, url.hostname);
+    if (free === wanted) return origin.replace(/\/$/, "");
+    url.port = String(free);
+    const moved = url.toString().replace(/\/$/, "");
+    console.log(`[${name}] ${url.hostname}:${wanted} is in use, using ${moved} instead`);
+    return moved;
 }
 
 /** Text into an HTML document. Used for the harness view's failure page, whose
@@ -249,7 +284,39 @@ async function startProxyAndHarness(
     // The desktop owns both local services and creates two non-interchangeable
     // daemon capabilities. Guarded-direct clients receive only the action
     // capability; the harness-only approval capability stays in child env.
-    const daemonOrigin = (process.env.PIKVM_AGENT_DAEMON || settings.get().daemonUrl || "http://127.0.0.1:47615").replace(/\/$/, "");
+    /* Walk past a port some stranger already holds — but only our OWN default.
+     *
+     * These two are ours: we spawn them, and the daemon is configured
+     * adoptExisting:false precisely so we never talk to one whose credential we
+     * cannot prove. That refusal was correct and the outcome was not: a harness
+     * left behind by a previous run still owned 47616, the fresh token this run
+     * generated was not the one it was started with, and every workspace call
+     * came back 401 while the app could not spawn its own on a taken port.
+     * Observed with an app started at 14:30 and a harness surviving from 20:33
+     * the night before.
+     *
+     * Moving to the next free port routes around the orphan instead of losing
+     * to it. Only when the value is our built-in default: a URL that came from
+     * PIKVM_AGENT_DAEMON, PIKVM_HARNESS_ORIGIN or Settings is a deliberate
+     * instruction about where the service lives, and wandering off it would be
+     * ignoring the user rather than helping them. */
+    const configuredDaemon = process.env.PIKVM_AGENT_DAEMON || settings.get().daemonUrl;
+    const daemonOrigin = configuredDaemon
+        ? configuredDaemon.replace(/\/$/, "")
+        : await originOnFreePort("daemon", "http://127.0.0.1:47615");
+    /* The harness deliberately does NOT walk.
+     *
+     * Its bind address lives in the harness YAML, which ensureConfig() writes
+     * with --listen only when the file does not already exist. On any install
+     * that has run once, the port in that file is fixed, so choosing a
+     * different origin here would leave the app expecting one port while the
+     * child bound another - measured as exactly that: repeated
+     * "[Errno 98] address already in use" and a give-up. Rewriting a user's
+     * harness config to fix it is not this function's business; it carries
+     * their provider settings.
+     *
+     * A harness orphaned on this port therefore still produces a 401, which the
+     * console now explains rather than showing an empty panel about. */
     const harnessOrigin = resolvedHarnessOrigin();
     const configuredHarnessPath =
         process.env.PIKVM_HARNESS_CONFIG || settings.get().harnessConfig;
@@ -303,12 +370,22 @@ async function startProxyAndHarness(
     console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
 
     const { command, args } = resolveDaemonCommand(settings.get().daemonCmd);
+    /* Tell the child WHERE, or the walk above is a lie.
+     *
+     * `pikvm-agent daemon` takes its host and port from its own config file, so
+     * spawning it with a bare "daemon" while this side had moved to another port
+     * left the two disagreeing: the app waited on 47617 while the child tried
+     * 47615 over and over, hit the same orphan the walk existed to avoid, and
+     * died five times before giving up. The origin is decided here, so it has to
+     * be passed here. */
+    const daemonUrlForChild = new URL(daemonOrigin);
+    const daemonArgs = [...args, "--host", daemonUrlForChild.hostname, "--port", daemonUrlForChild.port];
     const daemon = new ManagedService({
         name: "daemon",
         origin: daemonOrigin,
         healthPath: "/healthz",
         command,
-        args,
+        args: daemonArgs,
         env: {
             PIKVM_AGENT_DAEMON_TOKEN: harness.daemonActionToken,
             PIKVM_AGENT_HARNESS_TOKEN: harness.daemonHarnessToken,

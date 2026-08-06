@@ -2962,3 +2962,81 @@ test("a harness that refuses our token says so where the panel would be", () => 
     assert.match(css, /\.ws-note \{\s*\n\s*position: absolute;\s*\n\s*inset: 0;/);
     assert.match(html, /<div class="ws-note" id="ws-note" role="status" aria-live="polite" hidden>/);
 });
+
+/**
+ * A daemon orphaned on 47615 took the whole agent stack down with it.
+ *
+ * The daemon is configured adoptExisting:false on purpose - it must never talk
+ * to one whose credential it cannot prove - so a leftover from a previous run
+ * holding the port meant the app could neither adopt it nor spawn its own, and
+ * the agent panel never appeared.
+ *
+ * It walks to the next free port now, and the WALK IS NOT ENOUGH ON ITS OWN.
+ * `pikvm-agent daemon` reads its host and port from its own config file, so
+ * spawning a bare "daemon" while this side had moved left the two disagreeing.
+ * Measured, before the args were passed:
+ *
+ *     [daemon] 127.0.0.1:47615 is in use, using http://127.0.0.1:47617 instead
+ *     [daemon] starting: …/pikvm-agent daemon
+ *     [daemon] ERROR: [Errno 98] … bind on address ('127.0.0.1', 47615) …
+ *     [daemon] exited unexpectedly (code=1 signal=null)      x5, then gave up
+ *
+ * The app waited on 47617 while the child kept charging at the very orphan the
+ * walk existed to avoid. After passing --host/--port:
+ *
+ *     [daemon] starting: …/pikvm-agent daemon --host 127.0.0.1 --port 47617
+ *     [daemon] Uvicorn running on http://127.0.0.1:47617
+ *
+ * with zero Errno 98 and no exits.
+ */
+test("the daemon walks past a taken port and the child is told where it went", () => {
+    assert.match(main, /const daemonUrlForChild = new URL\(daemonOrigin\);/);
+    assert.match(
+        main,
+        /const daemonArgs = \[\.\.\.args, "--host", daemonUrlForChild\.hostname, "--port", daemonUrlForChild\.port\];/,
+    );
+    // ...and those are the args actually spawned, not the bare ones.
+    const svc = main.slice(main.indexOf('name: "daemon",'));
+    assert.match(svc.slice(0, svc.indexOf("adoptExisting")), /args: daemonArgs,/);
+    // Only our own default walks. An explicitly configured URL is an
+    // instruction about where the service lives, not a starting point.
+    assert.match(main, /const configuredDaemon = process\.env\.PIKVM_AGENT_DAEMON \|\| settings\.get\(\)\.daemonUrl;/);
+    assert.match(main, /: await originOnFreePort\("daemon", "http:\/\/127\.0\.0\.1:47615"\)/);
+});
+
+/**
+ * The harness must NOT walk, and that is the finding rather than an omission.
+ *
+ * Its bind address lives in the harness YAML, which ensureConfig() writes with
+ * --listen only when the file does not already exist. On any install that has
+ * run once that port is fixed, so choosing a different origin would leave the
+ * app expecting one port while the child bound another — the same Errno 98
+ * crash loop measured for the daemon above, except unfixable from this side
+ * without rewriting a config file that carries the user's provider settings.
+ *
+ * So a harness orphaned on 47616 still produces a 401, and the console note
+ * added alongside this is what makes that legible instead of an empty panel.
+ */
+test("the harness keeps its configured port rather than walking off it", () => {
+    assert.match(main, /const harnessOrigin = resolvedHarnessOrigin\(\);/);
+    assert.ok(
+        !/originOnFreePort\("harness"/.test(main),
+        "the harness must not walk — its child reads the port from a config this does not rewrite",
+    );
+});
+
+/**
+ * Two probes run back to back both see the same port as free, because a probe
+ * closes its socket before returning. The first version of the walk handed the
+ * daemon and the harness the SAME port:
+ *
+ *     [daemon]  127.0.0.1:47615 is in use, using http://127.0.0.1:47617
+ *     [harness] 127.0.0.1:47616 is in use, using http://127.0.0.1:47617
+ *
+ * which is a worse failure than the orphan it was written to route around.
+ */
+test("a port handed out once is not handed out again", () => {
+    assert.match(main, /const claimedPorts = new Set<number>\(\);/);
+    assert.match(main, /if \(claimedPorts\.has\(port\)\) continue; \/\/ ours already, just not bound yet/);
+    assert.match(main, /if \(free\) \{\s*\n\s*claimedPorts\.add\(port\);\s*\n\s*return port;\s*\n\s*\}/);
+});
