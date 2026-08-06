@@ -831,3 +831,49 @@ test("a GPIO row distinguishes offline from busy", () => {
     assert.match(body, /note\.textContent = !o\.online \? "offline" : o\.busy \? "busy" : "";/);
     assert.match(body, /note\.hidden = !note\.textContent;/);
 });
+
+/**
+ * The desktop had no way of saying input was not reaching the Pi.
+ *
+ * paintConnStatus appends " · input offline" to the connection chip, and its
+ * comment explains why that matters: a console whose HID socket has dropped
+ * otherwise shows a plain "Live" and looks perfectly healthy while every
+ * keystroke and click goes nowhere. But that chip is #conn/#conn-text inside
+ * #bar-main — the web/mobile bar, which the desktop console does not paint.
+ * Measured at 1200x760 with the socket killed: 45 painted text nodes, not one
+ * mentioning it, and no visible title or aria-label carrying it either. The
+ * fix had landed on the surface with a chip and not on the one without.
+ *
+ * It goes in paintHealth rather than health.problems(): that module reports
+ * what the PI says, and a socket that is not up is a fact about this client.
+ * First in the list, because it is the most actionable thing on it.
+ *
+ * The signal is "an attempt has RESOLVED and we are not open", not simply
+ * "not open" — otherwise every cold start would show an error for as long as
+ * the first connection took. Both resolved outcomes count: a socket that
+ * worked and stopped, and one refused from the start because kvmd is down or
+ * the credentials are wrong. Input is equally dead either way. Measured:
+ *
+ *     healthy          : no titlebar button, "Everything looks fine."
+ *     socket dropped   : button, is-error, "Health: Keyboard and mouse input
+ *                        is not reaching the PiKVM", all-clear line hidden
+ *     refused from load: same, rather than staying silent
+ *     socket back      : button gone, "Everything looks fine." again
+ *
+ * And no cold-start flash: watched the badge count every frame for 12s across
+ * three healthy loads and it never left 0.
+ */
+test("the desktop says when input is not reaching the Pi", () => {
+    const at = js.indexOf("function paintHealth() {");
+    assert.ok(at > 0, "paintHealth not found");
+    const body = js.slice(at, at + 1800).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /if \(hid\.everSettled\(\) && !hid\.isOpen\(\)\) \{/);
+    assert.match(body, /\{ level: "error", text: "Keyboard and mouse input is not reaching the PiKVM" \}\]\.concat\(problems\)/);
+    // Settled means an attempt resolved either way, so a refused socket counts.
+    const mod = js.slice(js.indexOf("var hid = (function ()"));
+    assert.match(mod.slice(0, 4000), /open = true;\s*\n\s*everSettled = true;/);
+    assert.match(mod.slice(0, 4000), /open = false;[\s\S]{0,180}?everSettled = true;/);
+    // And the socket changing has to repaint it, or it would only update when
+    // some unrelated health event happened to arrive.
+    assert.match(js, /setState\(streamState \|\| "connecting"\);\s*\n[^\n]*\n\s*paintHealth\(\);/);
+});

@@ -283,6 +283,16 @@
     var hid = (function () {
         var ws = null;
         var open = false;
+        /* Whether this socket has ever reached a definite outcome.
+         *
+         * "Not open" means two different things: still making the very first
+         * connection, which is normal and already has a "Connecting" overlay,
+         * or an attempt that has actually resolved — opened, or been refused
+         * or dropped. Only the second is worth reporting, and both halves of
+         * it are: a socket that worked and stopped, and one that never came up
+         * at all because kvmd is down or the credentials are wrong. Input is
+         * equally dead either way. */
+        var everSettled = false;
         var connecting = false;
         var queue = [];
         var onStatus = null;
@@ -317,6 +327,7 @@
             }
             ws.onopen = function () {
                 open = true;
+                everSettled = true;
                 connecting = false;
                 if (onStatus) onStatus(true);
                 var q = queue;
@@ -325,6 +336,9 @@
             };
             ws.onclose = function () {
                 open = false;
+                // A refused connection closes too, which is exactly the signal
+                // wanted: the attempt resolved, and the answer was no.
+                everSettled = true;
                 connecting = false;
                 if (onStatus) onStatus(false);
                 schedule();
@@ -419,6 +433,10 @@
             connect: connect,
             isOpen: function () {
                 return open;
+            },
+            /** Has a connection attempt ever resolved? See `everSettled`. */
+            everSettled: function () {
+                return everSettled;
             },
             setStatus: function (cb) {
                 onStatus = cb;
@@ -2623,6 +2641,24 @@
 
     function paintHealth() {
         var problems = health.problems();
+        /* Input not reaching the Pi is a problem the desktop never showed.
+         *
+         * paintConnStatus puts " · input offline" on the connection chip, and
+         * that chip lives in #bar-main — the web/mobile bar, which the desktop
+         * console does not paint. Measured at 1200x760 with the HID socket
+         * killed: 45 painted text nodes, not one of them mentioning it, and no
+         * visible title or aria-label carrying it either. So on the desktop
+         * every keystroke and click went nowhere while the window looked
+         * perfectly healthy — the exact failure paintConnStatus's own comment
+         * describes, still live on the surface that has no chip.
+         *
+         * It belongs here rather than in health.problems(): that module reports
+         * what the PI says, and a socket that is not up is a fact about this
+         * client. First in the list because it is the most actionable thing on
+         * it, and because the titlebar's label joins them in order. */
+        if (hid.everSettled() && !hid.isOpen()) {
+            problems = [{ level: "error", text: "Keyboard and mouse input is not reaching the PiKVM" }].concat(problems);
+        }
         var worst = problems.some(function (p) {
             return p.level === "error";
         });
@@ -4042,6 +4078,8 @@
     hid.setStatus(function () {
         // Refresh the input note without changing the stream state.
         setState(streamState || "connecting");
+        // And the titlebar/health view of it, which is the desktop's only one.
+        paintHealth();
     });
     hid.connect();
     setState("connecting");
