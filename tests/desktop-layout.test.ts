@@ -702,3 +702,43 @@ test("the fit menu command calls something that exists", () => {
     }
     assert.match(js, /function fitNativeNow\(\) \{/);
 });
+
+/**
+ * The desktop block really is skipped off the desktop.
+ *
+ * Its header comment says it "runs ONLY inside the Electron desktop window" and
+ * that "on any phone or browser this whole block is skipped". The guard that
+ * would do that sat ninety-eight lines into the IIFE, after three
+ * `if (dc.onAgentAttached)`-style subscriptions that dereference dc at LOAD
+ * time. On web and mobile dc is undefined, so the block did not skip — it threw
+ * on every page load:
+ *
+ *     TypeError: Cannot read properties of undefined (reading 'onAgentAttached')
+ *
+ * and the guard below was then unreachable, so the mechanism the comment
+ * describes never ran at all. It was benign only by luck: this IIFE is the last
+ * thing in the file, so the abort took nothing else with it. Anything appended
+ * to console.js later would have silently not run on web.
+ *
+ * Moving it was safe because the two statements it now skips do not matter off
+ * the desktop: the panel-message listener is answered for EVERY platform by the
+ * copy near applyTheme, whose own comment explains that it exists precisely
+ * because this block is skipped in a browser; and every html.agent-right rule
+ * in console.css is scoped to html.desktop-console, so setting that class on a
+ * phone styled nothing. Confirmed after the move: the phone console loads with
+ * no exceptions across repeated runs, and the desktop is unchanged.
+ *
+ * Asserted as a scan rather than a line number, so a dereference added above
+ * the guard later fails here instead of throwing on every phone.
+ */
+test("nothing touches the desktop bridge before the web/mobile guard", () => {
+    const at = js.indexOf("(function desktopConsole() {");
+    assert.ok(at > 0, "the desktop block is not there");
+    const guard = js.indexOf("if (!dc) return;", at);
+    assert.ok(guard > at, "the desktop block has no web/mobile guard");
+    const before = js.slice(at, guard).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    // Only the assignment may mention dc above the guard.
+    assert.match(before, /var dc = window\.desktopConsole;/);
+    const uses = before.match(/\bdc\s*[.[]/g) ?? [];
+    assert.deepEqual(uses, [], `dc is dereferenced ${uses.length} time(s) before the guard`);
+});

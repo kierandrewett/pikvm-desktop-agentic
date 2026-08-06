@@ -6452,6 +6452,29 @@
      * ===================================================================== */
     (function desktopConsole() {
         var dc = window.desktopConsole;
+        /* The guard the comment above promises, at the top where it belongs.
+         *
+         * It used to sit ninety-eight lines further down, after three
+         * `if (dc.onAgentAttached)`-style subscriptions that dereference dc at
+         * load time. On web and mobile dc is undefined, so the block did not
+         * skip — it threw:
+         *
+         *     TypeError: Cannot read properties of undefined
+         *       (reading 'onAgentAttached')
+         *
+         * on every page load, and the guard itself was then unreachable. The
+         * effect was benign only by luck: this IIFE is the last thing in the
+         * file, so the abort took nothing else with it, and everything above
+         * the throw is either a function declaration or desktop-only. Anything
+         * appended to this file later would have silently not run on web.
+         *
+         * Safe to move because the two statements it now skips do not matter
+         * off the desktop: the panel-message listener below is answered for
+         * EVERY platform by the copy near applyTheme (its own comment says
+         * why), and every html.agent-right rule in console.css is scoped to
+         * html.desktop-console, so setting that class on a phone styled
+         * nothing. */
+        if (!dc) return; // web/mobile: nothing below runs
 
         /* ---- conversation placement: which side, or its own window ----
          * Side is a lasting preference (localStorage, like the theme and panel
@@ -6549,7 +6572,6 @@
                 else publishAgentPlacement();
             });
         }
-        if (!dc) return; // web/mobile: nothing below runs
 
         /* How much vertical space fit-native has to reserve above the picture.
          *
