@@ -14,6 +14,19 @@ is in `docs/web-client-migration.md`.
 - [ ] Gesture feel on a real touch device (the trackpad now scales with zoom,
       which changes how it feels at 3x).
 - [ ] Install over HTTPS: service-worker registration and add-to-home-screen.
+- [ ] **Confirm the taskbar groups the window with its launcher icon.**
+      `build/desktop.ejs` hardcodes `StartupWMClass=pikvm-desktop-agentic` (the
+      package.json name), but the packaged binary is `pikvm-desktop` and
+      `main.ts` calls `app.setName("PiKVM Desktop")` — three candidate names, and
+      Electron's Linux WM_CLASS could be any of them. If it does not match, the
+      window appears in the taskbar as its own unnamed entry instead of under the
+      app icon. One command with the app running:
+
+          xprop WM_CLASS   (then click the window)
+
+      Whatever it prints must equal the StartupWMClass line. Not changed blind:
+      scripts/make-rpm.mjs exists purely to inject that value, so it was almost
+      certainly observed once and is probably right.
 - [ ] **Terminal copy/paste in the packaged app.** `src/preload-terminal.ts`
       exposed a `termClipboard` bridge for a terminal that ran in its own
       WebContentsView. The terminal is an iframe now, an iframe cannot carry a
