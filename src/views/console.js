@@ -1078,6 +1078,19 @@
             toast(macroRunning.label + " is still running", true);
             return;
         }
+        /* And the same the other way round.
+         *
+         * sendPaste has always refused while a macro runs; nothing refused a
+         * macro while a paste was in flight. A paste can hold the target for
+         * minutes — 12,000 characters is over four — and starting a macro
+         * during one puts a second POST on /api/hid/print, so kvmd types both
+         * and the target receives them interleaved. A macro like "type the
+         * username, Tab, type the password, Enter" landing inside a paste is
+         * exactly the hazard the macro-vs-macro guard above was written for. */
+        if (pasteBusy) {
+            toast("A paste is still typing on the target", true);
+            return;
+        }
         noteManualKvmInput();
         macroRunning = macro;
         paintMacroButtons();
@@ -1228,6 +1241,11 @@
             return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
         });
     }
+    /** Anything already typing on the target, so a second macro cannot start. */
+    function typingBusy() {
+        return !!macroRunning || !!pasteBusy;
+    }
+
     /* The macro playing right now, or null.
      *
      * runMacro builds a per-run chain with its own step index, and nothing
@@ -1264,7 +1282,7 @@
                      * garbles both. It is also the only feedback that one is
                      * running, which is the same answer the paste dialog and
                      * the MSD upload already give for an action in flight. */
-                    disabled: !!macroRunning,
+                    disabled: typingBusy(),
                     onSelect: function () {
                         runMacro(m);
                     },
@@ -1327,7 +1345,7 @@
          * all until the run finished and toasted. Outside the rebuild above
          * because the set of macros has not changed — only whether they can be
          * pressed — and that branch returns early when the labels match. */
-        var busy = !!macroRunning;
+        var busy = typingBusy();
         [].forEach.call(host.querySelectorAll("button"), function (btn) {
             setProp(btn, "disabled", busy);
         });
@@ -4146,6 +4164,10 @@
         }
         pasteBusy = true;
         repaintPasteActions();
+        // The macro controls read pasteBusy through typingBusy(), so they have to
+        // be repainted at both ends of a paste or they would stay clickable
+        // through it and only refuse on the click.
+        paintMacroButtons();
         /* Say that it is happening, for as long as it takes.
          *
          * kvmd types the string itself at 20ms a key and answers when it is
@@ -4197,6 +4219,7 @@
             })
             .then(function () {
                 pasteBusy = false;
+                paintMacroButtons();
                 repaintPasteActions();
             });
     }
@@ -8245,7 +8268,7 @@
                      * runMacro still refuses and says so; this is the
                      * affordance, so the answer arrives before the press rather
                      * than as an apology after it. */
-                    items.push({ id: "macro:" + m.id, label: m.label, enabled: !macroRunning });
+                    items.push({ id: "macro:" + m.id, label: m.label, enabled: !typingBusy() });
                 });
             }
             items.push({ type: "separator" });

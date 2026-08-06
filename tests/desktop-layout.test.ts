@@ -1444,16 +1444,16 @@ test("the overflow menu's macro list greys while a macro plays", () => {
            web menu        all four :on  throughout, no toast, nothing
        so on the layout where the feedback matters most there was none until the
        run finished. After: both grey and both restore. */
-    assert.match(js, /var busy = !!macroRunning;\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
+    assert.match(js, /var busy = typingBusy\(\);\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
     // The titlebar's equivalent, which this mirrors.
-    assert.match(js, /disabled: !!macroRunning,\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
+    assert.match(js, /disabled: typingBusy\(\),\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
     /* Outside the rebuild branch. The set of macros has not changed while one
        plays — only whether they can be pressed — and that branch returns early
        when the labels match, so a disabled flag set inside it would never run. */
     const fn = js.slice(js.indexOf("function paintMacroMenu()"));
     const body = fn.slice(0, fn.indexOf("\n    }"));
     assert.ok(
-        body.indexOf('host.setAttribute("data-set", key)') < body.indexOf("var busy = !!macroRunning"),
+        body.indexOf('host.setAttribute("data-set", key)') < body.indexOf("var busy = typingBusy()"),
         "the disabled pass must come after the rebuild branch, not inside it",
     );
     assert.match(body, /if \(host\.getAttribute\("data-set"\) !== key\) \{/);
@@ -1471,10 +1471,10 @@ test("every route to a macro shows when one is already playing", () => {
            send-keys menu     every entry enabled: undefined
        runMacro refuses either way and says so; these are the affordance, so the
        answer arrives before the press rather than as an apology after it. */
-    assert.match(js, /items\.push\(\{ id: "macro:" \+ m\.id, label: m\.label, enabled: !macroRunning \}\);/);
+    assert.match(js, /items\.push\(\{ id: "macro:" \+ m\.id, label: m\.label, enabled: !typingBusy\(\) \}\);/);
     // The two it now matches.
-    assert.match(js, /disabled: !!macroRunning,\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
-    assert.match(js, /var busy = !!macroRunning;\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
+    assert.match(js, /disabled: typingBusy\(\),\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
+    assert.match(js, /var busy = typingBusy\(\);\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
     // And the guard behind all three, which is what actually protects the target.
     assert.match(js, /if \(macroRunning\) \{[\s\S]{0,400}?toast\(macroRunning\.label \+ " is still running", true\);/);
     /* A single shortcut from that same menu is deliberately NOT gated: the rule
@@ -1966,4 +1966,40 @@ test("a slow macro says it is running, like a long paste does", () => {
          2.5s delay + 4 steps    "Running …cluster 1 — about 3s…"
          5,000-character text    "Running …cluster 5 — about 2 min…"
        and after that last one finished, "…cluster 5 sent". */
+});
+
+test("a macro cannot start while a paste is still typing", () => {
+    /* The guard existed in one direction only. sendPaste has always refused
+       while a macro runs; nothing refused a macro while a paste was in flight —
+       and a paste holds the target for as long as it takes, over four minutes
+       for 12,000 characters.
+
+       Reproduced over CDP with the print request held open server-side: start a
+       paste, press Cancel (which closes the dialog and, by design, leaves the
+       paste typing), then run a macro from the ⋯ menu. The wire carried both
+         print:limit=0&delay=0.02:the quick brown fox
+         print:limit=0&delay=0.02:xxxxxxxx…
+       at once, so kvmd typed them into the target interleaved. A macro like
+       "type the username, Tab, type the password, Enter" landing inside a paste
+       is exactly the hazard the macro-vs-macro guard was written for. */
+    assert.match(js, /if \(pasteBusy\) \{\s*toast\("A paste is still typing on the target", true\);\s*return;\s*\}/);
+
+    /* And made visible, not just refused on the click. One predicate behind all
+       three surfaces that can start a macro — the pinned buttons, the rendered
+       list, and the native send-keys menu — so they cannot disagree about what
+       busy means. */
+    assert.match(js, /function typingBusy\(\) \{\s*return !!macroRunning \|\| !!pasteBusy;\s*\}/);
+    assert.equal((js.match(/typingBusy\(\)/g) ?? []).length, 5,
+        "the declaration, its guard in runMacro, and the three surfaces that start one");
+    assert.doesNotMatch(js, /disabled: !!macroRunning,/);
+    assert.doesNotMatch(js, /var busy = !!macroRunning;/);
+    assert.doesNotMatch(js, /enabled: !macroRunning \}/);
+
+    /* Repainted at both ends of a paste, or the controls would stay clickable
+       through it and only refuse on the click. */
+    assert.match(js, /pasteBusy = true;\s*repaintPasteActions\(\);[\s\S]{0,400}?paintMacroButtons\(\);/);
+    assert.match(js, /pasteBusy = false;\s*paintMacroButtons\(\);/);
+    /* Re-run after the fix, same sequence: the macro item came up disabled, the
+       click did nothing, and the wire carried one request. Once the paste
+       finished the item was enabled again. */
 });

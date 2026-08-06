@@ -1042,7 +1042,7 @@ test("a second macro cannot start while one is still playing", () => {
     // And the strip shows it, for any macro rather than just the running one.
     const spec = js.slice(js.indexOf("function pinnedMacroSpecs() {"), js.indexOf("function paintMacroButtons()"))
         .replace(/\/\*[\s\S]*?\*\//g, "");
-    assert.match(spec, /disabled: !!macroRunning,/);
+    assert.match(spec, /disabled: typingBusy\(\),/);
 });
 
 /**
