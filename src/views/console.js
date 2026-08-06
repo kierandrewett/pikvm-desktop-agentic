@@ -786,10 +786,45 @@
                 stored.forEach(function (m) {
                     byId[m.id] = m;
                 });
+                /* Put back the steps the server dropped, where they were.
+                 *
+                 * The draft rule above is applied to whole MACROS and stops
+                 * there, so a half-built step inside a macro the server does
+                 * store was adopted away mid-edit. cleanStep returns null for a
+                 * chord with no code, so the natural way to build one — add the
+                 * combo, pick the modifiers, then pick the key — deleted itself
+                 * on the first modifier press:
+                 *
+                 *     add key combo : ["text x", "chord key='' "]
+                 *     press Ctrl    : ["text x"]
+                 *
+                 * The step was gone with nothing said, and the only order that
+                 * worked was key first, which nothing tells you. A new text
+                 * step and a zero pause have the same problem.
+                 *
+                 * Re-inserted at the index it had rather than appended: a macro
+                 * is a sequence and putting a step back in the wrong place is
+                 * its own kind of wrong. Ascending order, so each splice lands
+                 * before the later ones are placed. */
+                var withDrafts = function (stored, local) {
+                    var drafts = [];
+                    (local.steps || []).forEach(function (st, i) {
+                        if (!stepWouldPersist(st)) drafts.push({ at: i, step: st });
+                    });
+                    if (!drafts.length) return stored;
+                    var steps = (stored.steps || []).slice();
+                    drafts.forEach(function (d) {
+                        steps.splice(Math.min(d.at, steps.length), 0, d.step);
+                    });
+                    var out = {};
+                    for (var k in stored) if (Object.prototype.hasOwnProperty.call(stored, k)) out[k] = stored[k];
+                    out.steps = steps;
+                    return out;
+                };
                 var merged = [];
                 macros.forEach(function (m) {
                     if (byId[m.id]) {
-                        merged.push(byId[m.id]);
+                        merged.push(withDrafts(byId[m.id], m));
                         delete byId[m.id];
                     } else if (!macroWouldPersist(m)) {
                         merged.push(m);

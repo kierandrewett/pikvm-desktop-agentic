@@ -929,3 +929,52 @@ test("a Pi-side image download reports its progress", () => {
     assert.match(js, /msdUploadRemote = !picked && !!remote;/);
     assert.match(js, /msdUpload = null;\s*\n\s*msdUploadRemote = false;/);
 });
+
+/**
+ * A half-built step survives the save that happens while you build it.
+ *
+ * The server drops any step it cannot use — src/macros.ts cleanStep returns
+ * null for a chord with no code, for empty text and for a zero delay, and
+ * line 96 filters those out. saveMacros already knows this and holds back a
+ * whole MACRO that would not persist, but it stopped there: for a macro the
+ * server DOES store, it adopted the server's answer wholesale, and the
+ * half-built step inside it was adopted away mid-edit.
+ *
+ * Every edit saves, so the natural way to build a chord — add the combo, pick
+ * the modifiers, then pick the key — deleted itself on the first modifier
+ * press:
+ *
+ *     add key combo : ["text x", "chord key=''"]
+ *     press Ctrl    : ["text x"]
+ *
+ * The step vanished with nothing said, and the only order that worked was key
+ * first, which nothing tells you. A new text step and a zero pause go the
+ * same way.
+ *
+ * Re-measured with two drafts, one of them in the middle so the ordering is
+ * actually exercised:
+ *
+ *     combo + new text : ["text(x)","chord(-)","text(-)"]
+ *     Ctrl on the combo: ["text(x)","chord(-)","text(-)"]
+ *     key picked       : ["text(x)","chord(KeyB)","text(-)"], chord rows = 1
+ *
+ * So the drafts hold their positions, and finishing one promotes it in place
+ * rather than leaving a second copy behind.
+ */
+test("building a chord does not delete the step you are building", () => {
+    const at = js.indexOf("var withDrafts = function (stored, local) {");
+    assert.ok(at > 0, "draft steps are not preserved across a save");
+    const body = js.slice(at, js.indexOf("var merged = [];", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // The same rule the whole-macro draft check already mirrors from the server.
+    assert.match(body, /if \(!stepWouldPersist\(st\)\) drafts\.push\(\{ at: i, step: st \}\);/);
+    // Back where it was, not appended: a macro is a sequence.
+    assert.match(body, /steps\.splice\(Math\.min\(d\.at, steps\.length\), 0, d\.step\)/);
+    // Nothing to put back means the server's answer is taken unchanged.
+    assert.match(body, /if \(!drafts\.length\) return stored;/);
+    // And it is actually used by the merge.
+    assert.match(js, /merged\.push\(withDrafts\(byId\[m\.id\], m\)\);/);
+    // stepWouldPersist still mirrors cleanStep, or the above puts back the wrong things.
+    const rule = js.slice(js.indexOf("function stepWouldPersist(step) {"), js.indexOf("function macroWouldPersist"));
+    assert.match(rule, /if \(step\.type === "chord"\) return !!step\.code;/);
+    assert.match(rule, /if \(step\.type === "delay"\) return Number\(step\.ms\) > 0;/);
+});
