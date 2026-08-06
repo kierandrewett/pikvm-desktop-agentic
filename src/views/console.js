@@ -7198,8 +7198,27 @@
             var statusHost = document.getElementById("tb-actions-status");
             if (statusHost && !statusButtons) {
                 statusButtons = shared.mountIconButtons(statusHost, withTbClass(statusButtonSpecs()));
+                /* Re-render only when the state behind these buttons moved.
+                 *
+                 * paintHealth and the ATX painter both end in this, and both run
+                 * on every event of their kind — so an unchanged Pi still
+                 * re-rendered the health and power buttons continuously. Counted
+                 * titlebar mutations for six IDENTICAL events of each type:
+                 *
+                 *     msd 0   streamer 0   gpio 0
+                 *     info 6   atx 6   hid 6
+                 *
+                 * The three that churned are exactly the three that reach here.
+                 * The specs are built from tbState alone, so comparing that is
+                 * the same question as "would the render differ", without having
+                 * to compare specs that carry functions. */
+                var lastTbKey = null;
                 repaintTbState = function () {
-                    if (statusButtons) statusButtons.update(withTbClass(statusButtonSpecs()));
+                    if (!statusButtons) return;
+                    var key = JSON.stringify([tbState.health, tbState.power]);
+                    if (key === lastTbKey) return;
+                    lastTbKey = key;
+                    statusButtons.update(withTbClass(statusButtonSpecs()));
                 };
                 repaintTbState();
             }

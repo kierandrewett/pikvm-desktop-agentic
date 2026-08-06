@@ -784,3 +784,45 @@ test("the agent status pill only speaks when it has something new to say", () =>
     // The element really is a live region, which is why this matters at all.
     assert.match(html, /id="backend-status"[^>]*role="status"[^>]*aria-live="polite"/);
 });
+
+/**
+ * The titlebar's status buttons re-render only when their state moved.
+ *
+ * paintHealth and the ATX painter both end in repaintTbState, and both run on
+ * every event of their kind, so an unchanged Pi re-rendered the health and
+ * power buttons continuously. Counted titlebar mutations for six IDENTICAL
+ * events of each type:
+ *
+ *     msd 0   streamer 0   gpio 0
+ *     info 6   atx 6   hid 6
+ *
+ * The three that churned are exactly the three that reach here. After, all six
+ * are 0.
+ *
+ * Compared on tbState rather than on the specs: the specs are built from
+ * tbState alone, so it answers the same question — would the render differ —
+ * without having to compare objects that carry functions.
+ *
+ * Real changes still land, which is the failure mode a key-based guard has.
+ * Walked the states and checked the button labels each time:
+ *
+ *     power off -> on            "Power — target is off" -> "target is on"
+ *     hid detached               health button appears, is-error
+ *     + undervolted              label GROWS to carry both problems
+ *     atx busy                   "Power — busy"
+ *     all clear                  health button gone
+ *
+ * That fourth step is the one worth checking: both labels start with the same
+ * fifty characters, so a guard keyed on anything shorter than the whole string
+ * would have swallowed it.
+ */
+test("the titlebar status buttons skip re-renders that would not change", () => {
+    const at = js.indexOf("var lastTbKey = null;");
+    assert.ok(at > 0, "repaintTbState has no change guard");
+    const body = js.slice(at, js.indexOf("repaintTbState();", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /var key = JSON\.stringify\(\[tbState\.health, tbState\.power\]\);/);
+    assert.match(body, /if \(key === lastTbKey\) return;\s*\n\s*lastTbKey = key;/);
+    // The update must be after the guard, or it protects nothing.
+    assert.ok(body.indexOf("if (key === lastTbKey) return;") < body.indexOf("statusButtons.update"),
+        "the re-render must happen only after the change check");
+});
