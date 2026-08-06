@@ -964,3 +964,25 @@ test("the keyboard and mouse row shows when the Pi is working on it", () => {
     assert.doesNotMatch(reset, /disabled:/, "hid Reset must stay reachable while the Pi reports busy");
     assert.match(js, /msdResetEnabled = online && !busy && !msdUpload;/, "MSD reset is the counterpart that does gate");
 });
+
+test("the paste keymap list follows the Pi instead of only the dialog opening", () => {
+    // fillKeymaps ran only from openPasteDialog, so a hid_keymaps event that
+    // landed while the dialog was already open never reached the select — it
+    // stayed hidden for the life of that dialog. kvmd sends this on every ws
+    // connection, so it happens on the first one if the dialog is opened
+    // quickly, and again on every reconnect.
+    // Comments sit between the two statements, so strip them before asserting
+    // the call actually follows the assignment rather than only appearing near it.
+    const bare = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    assert.match(bare, /kvmdKeymaps = ed\.keymaps;\s*fillKeymaps\(\);/);
+    // Now that an event can drive it, it obeys the same rule as every other
+    // native select here: rebuilding one shuts its dropdown under the pointer.
+    assert.match(js, /function fillKeymaps\(\) \{\s*if \(!pasteKeymap\) return;[\s\S]{0,400}?if \(controlBusy\(pasteKeymap, fillKeymaps\)\) return;/);
+    // Which makes it the fourth select through the one guard, not a new rule.
+    for (const call of [
+        /if \(!controlBusy\(resSel, paintStreamDialog\)\)/,
+        /sel && !controlBusy\(sel, paintMsd\)/,
+        /mode && !controlBusy\(mode, paintMsd\)/,
+        /if \(controlBusy\(pasteKeymap, fillKeymaps\)\) return;/,
+    ]) assert.match(js, call);
+});

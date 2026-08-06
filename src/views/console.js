@@ -392,7 +392,25 @@
                     if (d && d.event_type === "atx") atx.setState(ed);
                     // The Pi's configured keymaps — paste-as-keys needs the name kvmd
                     // itself uses, not our send-side US/UK layout.
-                    if (d && d.event_type === "hid_keymaps" && ed && ed.keymaps) kvmdKeymaps = ed.keymaps;
+                    if (d && d.event_type === "hid_keymaps" && ed && ed.keymaps) {
+                        kvmdKeymaps = ed.keymaps;
+                        /* And repaint the control, rather than waiting for the
+                         * next time the paste dialog is opened.
+                         *
+                         * fillKeymaps only ran from openPasteDialog, so a
+                         * keymaps event that landed while the dialog was
+                         * already open never reached the select — it stayed
+                         * hidden for the life of that dialog. kvmd sends this
+                         * on every ws connection, so it happens on the first
+                         * one if the dialog is opened quickly enough, and again
+                         * on every reconnect, which is exactly when someone may
+                         * be sitting in the dialog composing text.
+                         *
+                         * Every other subsystem already repaints its dialog
+                         * from an event; this control was the one reading a
+                         * value nothing told it had changed. */
+                        fillKeymaps();
+                    }
                     // Streamer features/limits/applied — what the settings dialog drives.
                     if (d && d.event_type === "streamer") setStreamerState(ed);
                     // Pi health (throttling, fan) and the source/HID online flags feed
@@ -3615,6 +3633,11 @@
     }
     function fillKeymaps() {
         if (!pasteKeymap) return;
+        /* Not while the user has the list open. Now that a kvmd event can call
+         * this and not just the dialog opening, it is subject to the same rule
+         * as every other native select here: rebuilding one shuts its dropdown
+         * under the pointer. controlBusy repaints it again on blur. */
+        if (controlBusy(pasteKeymap, fillKeymaps)) return;
         var km = kvmdKeymaps || {};
         /* kvmd's `available` is a MAP of name -> details, not a list of names.
          *
