@@ -3242,3 +3242,43 @@ test("character counts are formatted like every other quantity", () => {
         "a raw count is back in one of the paste messages",
     );
 });
+
+/**
+ * A mouse's thumb buttons sent left clicks to the target.
+ *
+ * The mapping was `e.button === 2 ? "right" : e.button === 1 ? "middle" :
+ * "left"`, which is not a mapping so much as "left unless proven otherwise".
+ * Most mice have two more buttons — 3 and 4, the thumb pair browsers use for
+ * back and forward — and both fell through to "left". Measured on the wire,
+ * pressing each of them over the remote screen:
+ *
+ *     back     mouse_button:left:true, mouse_button:left:false
+ *     forward  mouse_button:left:true, mouse_button:left:false
+ *
+ * On a KVM that is not cosmetic. It lands wherever the pointer happens to be,
+ * on a machine someone is usually part-way through something on, and the press
+ * that caused it was aimed at the browser rather than at the target at all.
+ *
+ * MouseButton in pikvm-control.ts is "left" | "right" | "middle" and kvmd takes
+ * no more, so there is nothing to forward these to. null, and both callers do
+ * nothing with it.
+ */
+test("only the three buttons the HID can carry are sent", () => {
+    assert.match(
+        js,
+        /function hidButtonFor\(e\) \{\s*\n\s*if \(e\.button === 0\) return "left";\s*\n\s*if \(e\.button === 1\) return "middle";\s*\n\s*if \(e\.button === 2\) return "right";\s*\n\s*return null;\s*\n\s*\}/,
+    );
+    // Press: nothing is sent and nothing is recorded as held.
+    assert.match(js, /var b = hidButtonFor\(e\);\s*\n\s*if \(!b\) return; \/\/ a thumb button the target's HID cannot carry/);
+    // Release: nothing was pressed for it, so nothing is released.
+    assert.match(js, /var b = hidButtonFor\(e\);\s*\n\s*if \(!b\) return; \/\/ nothing was pressed for it, so nothing to release/);
+    // The old fall-through must not come back on either path.
+    const bare = js.replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.ok(
+        !/e\.button === 2 \? "right" : e\.button === 1 \? "middle" : "left"/.test(bare),
+        "the left-unless-proven-otherwise mapping is back",
+    );
+    // The protocol this is matching stays the source of truth.
+    const control = readFileSync(resolve(root, "src/pikvm-control.ts"), "utf8");
+    assert.match(control, /export type MouseButton = "left" \| "right" \| "middle";/);
+});

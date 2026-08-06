@@ -6451,6 +6451,31 @@
         moveDirty = true;
         if (!moveRaf) moveRaf = raf(flushMove);
     }
+    /* The three buttons the target's HID can actually take, or null.
+     *
+     * This was `e.button === 2 ? "right" : e.button === 1 ? "middle" : "left"`,
+     * which is not a mapping so much as "left unless proven otherwise". Most
+     * mice have two more: button 3 and button 4, the thumb pair that browsers
+     * use for back and forward. Both fell through to "left", so pressing the
+     * back button over the remote screen sent a LEFT CLICK to the target —
+     * measured on the wire as mouse_button:left:true/false for each of them.
+     *
+     * On a KVM an unintended left click is not cosmetic. It lands wherever the
+     * pointer happens to be, on a machine the user is often part-way through
+     * something on, and the press that caused it was aimed at the browser
+     * rather than at the target at all.
+     *
+     * MouseButton in pikvm-control.ts is "left" | "right" | "middle" and kvmd
+     * takes no more, so there is nothing to forward these to. Null, and the
+     * callers do nothing — the honest answer for a button this link cannot
+     * carry. */
+    function hidButtonFor(e) {
+        if (e.button === 0) return "left";
+        if (e.button === 1) return "middle";
+        if (e.button === 2) return "right";
+        return null;
+    }
+
     function relMove(dx, dy) {
         /* Measure against the same pictureBox() the absolute path maps through,
          * not the element's layout box. offsetWidth ignores the zoom transform, so
@@ -6646,7 +6671,8 @@
                 } else {
                     kbd.focus({ preventScroll: true });
                 }
-                var b = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
+                var b = hidButtonFor(e);
+                if (!b) return; // a thumb button the target's HID cannot carry
                 moveTo(e.clientX, e.clientY, true);
                 paintCursor(e.clientX, e.clientY);
                 heldMouseButtons[b] = true;
@@ -6803,7 +6829,8 @@
         if (!pts.has(e.pointerId)) return;
         pts.delete(e.pointerId);
         if (e.pointerType === "mouse") {
-            var b = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
+            var b = hidButtonFor(e);
+            if (!b) return; // nothing was pressed for it, so nothing to release
             hid.button(b, false);
             delete heldMouseButtons[b];
             releaseClickMods();
