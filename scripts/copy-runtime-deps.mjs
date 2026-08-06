@@ -63,3 +63,26 @@ for (const name of seen) {
 console.log(
     `copy-runtime-deps: shipped ${seen.size} packages into the app: ${[...seen].sort().join(", ")}`,
 );
+
+/* The conversation panel's build, which electron-packager also leaves behind.
+ *
+ * workspace-assets resolves it as `resolve(__dirname, "..", "agent",
+ * "pikvm_agent", "harness_ui")`. In the repo __dirname is dist/, so that lands
+ * on agent/ at the root and everything works under `yarn start`. In the package
+ * __dirname is resources/app, so it looks for resources/agent/… — which nothing
+ * ever put there. The server has no fallback: it answers "workspace build not
+ * found" with a 404, so the panel was simply dead in the RPM while being
+ * perfectly fine in development. The same shape as the native addon above, and
+ * the same reason it goes unnoticed.
+ *
+ * Copied to the path the app already computes rather than changing that path,
+ * so dev and packaged stay one code path. */
+const uiFrom = join(root, "agent", "pikvm_agent", "harness_ui");
+const uiTo = join(root, "builds/pikvm-desktop-linux-x64/resources/agent/pikvm_agent/harness_ui");
+if (!existsSync(uiFrom)) {
+    console.error("copy-runtime-deps: no workspace build at " + uiFrom + " — run the frontend build first");
+    process.exit(1);
+}
+mkdirSync(dirname(uiTo), { recursive: true });
+cpSync(uiFrom, uiTo, { recursive: true, dereference: true });
+console.log("copy-runtime-deps: shipped the conversation panel build into resources/agent/");
