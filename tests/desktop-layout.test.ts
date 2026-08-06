@@ -895,3 +895,25 @@ test("a macro whose text step is refused stops and says so", () => {
         "macroRunning is cleared in exactly one place",
     );
 });
+
+test("a Pi with no mass storage is not shown the whole drive form greyed out", () => {
+    // It said "This PiKVM has no mass storage." and then drew image, mode,
+    // writable, mount, delete, upload and image URL underneath it, disabled —
+    // 438px of controls for a device that is not fitted, plus a Reset drive
+    // button for it. The stream dialog answers the same question the other way,
+    // which is what sp-empty is for. Measured after: 139px, one sentence, Done.
+    assert.match(html, /<div class="dlg-form" id="msd-form">/);
+    assert.match(js, /var have = msd\.available\(\);\s*setProp\(document\.getElementById\("msd-form"\), "hidden", !have\);/);
+    // Resetting a drive that is not fitted is not a disabled action.
+    assert.match(js, /id: "msd-reset",[\s\S]{0,220}?hidden: !msdAvailable,\s*disabled: !msdResetEnabled,/);
+    assert.match(js, /msdAvailable = have;/);
+    /* .dlg is a flex column with a 14px gap and these rows used to be its direct
+       children. Boxing them up makes them ONE flex child, so the wrapper has to
+       carry the same column layout or the spacing between the rows vanishes —
+       verified live at 14px between rows, unchanged. */
+    const dlgGap = css.match(/^\.dlg \{[\s\S]*?gap: (\d+)px;/m);
+    const formGap = css.match(/^\.dlg-form \{[\s\S]*?gap: (\d+)px;/m);
+    assert.ok(dlgGap && formGap, ".dlg and .dlg-form must both set a column gap");
+    assert.equal(formGap![1], dlgGap![1], ".dlg-form must reproduce .dlg's own row spacing");
+    assert.match(css, /^\.dlg-form \{[\s\S]*?flex-direction: column;/m);
+});

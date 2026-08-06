@@ -172,45 +172,50 @@
                         <h2 class="dlg-title" id="msd-dlg-title">Mass storage</h2>
                         <p class="dlg-note" id="msd-status">…</p>
 
-                        <div class="dlg-row">
-                            <label class="dlg-label" for="msd-image">Image</label>
-                            <select id="msd-image" class="dlg-select dlg-grow"></select>
-                        </div>
-                        <div class="dlg-row">
-                            <label class="dlg-label" for="msd-mode">Mode</label>
-                            <select id="msd-mode" class="dlg-select">
-                                <option value="1">CD/DVD</option>
-                                <option value="0">Flash drive</option>
-                            </select>
-                            <label class="dlg-check"><input type="checkbox" id="msd-rw" /> Writable</label>
-                        </div>
-                        <div class="dlg-row">
-                            <span class="dlg-inline-actions" id="msd-drive-actions"></span>
-                        </div>
+                        <!-- Every control that needs the hardware, in one box so a Pi
+                             with no mass storage can be shown the sentence saying so
+                             instead of the whole form greyed out beneath it. -->
+                        <div class="dlg-form" id="msd-form">
+                            <div class="dlg-row">
+                                <label class="dlg-label" for="msd-image">Image</label>
+                                <select id="msd-image" class="dlg-select dlg-grow"></select>
+                            </div>
+                            <div class="dlg-row">
+                                <label class="dlg-label" for="msd-mode">Mode</label>
+                                <select id="msd-mode" class="dlg-select">
+                                    <option value="1">CD/DVD</option>
+                                    <option value="0">Flash drive</option>
+                                </select>
+                                <label class="dlg-check"><input type="checkbox" id="msd-rw" /> Writable</label>
+                            </div>
+                            <div class="dlg-row">
+                                <span class="dlg-inline-actions" id="msd-drive-actions"></span>
+                            </div>
 
-                        <hr class="dlg-hr" />
+                            <hr class="dlg-hr" />
 
-                        <div class="dlg-row">
-                            <label class="dlg-label" for="msd-file">Upload</label>
-                            <input type="file" id="msd-file" class="dlg-file" accept=".iso,.img,.bin,application/octet-stream" />
-                        </div>
-                        <div class="dlg-row">
-                            <!-- "or image URL" rather than "or URL": this label IS the
-                                 input's accessible name, and on its own "or URL" is a
-                                 fragment that says nothing about what the URL is for.
-                                 Keeping the leading "or" preserves the visual reading
-                                 under Upload, and the name still contains the visible
-                                 text. -->
-                            <label class="dlg-label" for="msd-url">or image URL</label>
-                            <input type="text" id="msd-url" class="dlg-text dlg-grow" placeholder="https://…/image.iso" spellcheck="false" />
-                        </div>
-                        <div class="dlg-row" id="msd-progress-row" hidden>
-                            <progress id="msd-progress" class="dlg-grow" max="100" value="0"></progress>
-                            <span class="dlg-hint" id="msd-progress-value"></span>
-                        </div>
-                        <div class="dlg-row">
-                            <span class="dlg-inline-actions" id="msd-upload-actions"></span>
-                            <span class="dlg-hint" id="msd-free"></span>
+                            <div class="dlg-row">
+                                <label class="dlg-label" for="msd-file">Upload</label>
+                                <input type="file" id="msd-file" class="dlg-file" accept=".iso,.img,.bin,application/octet-stream" />
+                            </div>
+                            <div class="dlg-row">
+                                <!-- "or image URL" rather than "or URL": this label IS the
+                                     input's accessible name, and on its own "or URL" is a
+                                     fragment that says nothing about what the URL is for.
+                                     Keeping the leading "or" preserves the visual reading
+                                     under Upload, and the name still contains the visible
+                                     text. -->
+                                <label class="dlg-label" for="msd-url">or image URL</label>
+                                <input type="text" id="msd-url" class="dlg-text dlg-grow" placeholder="https://…/image.iso" spellcheck="false" />
+                            </div>
+                            <div class="dlg-row" id="msd-progress-row" hidden>
+                                <progress id="msd-progress" class="dlg-grow" max="100" value="0"></progress>
+                                <span class="dlg-hint" id="msd-progress-value"></span>
+                            </div>
+                            <div class="dlg-row">
+                                <span class="dlg-inline-actions" id="msd-upload-actions"></span>
+                                <span class="dlg-hint" id="msd-free"></span>
+                            </div>
                         </div>
 
                         <div class="dlg-actions" id="msd-dlg-actions"></div>

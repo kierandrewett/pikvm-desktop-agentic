@@ -1415,6 +1415,15 @@ html.desktop-console .tb-right {
     align-items: center;
     gap: 8px;
 }
+/* A group of .dlg-rows that is shown or hidden as one.
+   .dlg is a flex column with a 14px gap, so the wrapper has to carry the same
+   column layout — otherwise boxing the rows up turns them into a single flex
+   child and the spacing between them disappears. */
+.dlg-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
 .dlg-label {
     font-size: 12px;
     color: var(--muted-foreground);

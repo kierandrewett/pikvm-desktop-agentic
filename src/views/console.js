@@ -2558,6 +2558,20 @@
 
     function paintMsd() {
         if (!msdDlg || msdDlg.hidden) return;
+        /* Nothing below this works without the hardware.
+         *
+         * The dialog said "This PiKVM has no mass storage." and then drew the
+         * whole form under it — image, mode, writable, mount, delete, upload,
+         * image URL — greyed out, 438px of controls for a device that is not
+         * fitted. The stream dialog next door already answers this exact
+         * question the other way: when the Pi reports nothing adjustable it
+         * collapses to the one sentence, which is why it has sp-empty.
+         *
+         * available() is false before the first msd event too, and the note
+         * says "Checking the drive…" then rather than claiming there is none,
+         * so an unknown drive reads as unknown rather than as absent. */
+        var have = msd.available();
+        setProp(document.getElementById("msd-form"), "hidden", !have);
         var online = msd.online();
         var busy = msd.busy();
         var d = msd.drive() || {};
@@ -2622,6 +2636,7 @@
         msdBody.canUpload = !!(settable && ((file && file.files && file.files.length) || (url && url.value.trim())));
         repaintMsdBody();
         msdResetEnabled = online && !busy && !msdUpload;
+        msdAvailable = have;
         repaintMsdActions();
 
         var free = document.getElementById("msd-free");
@@ -2758,6 +2773,7 @@
     var msdDriveActions = null;
     var msdUploadActions = null;
     var msdResetEnabled = false;
+    var msdAvailable = false;
     var msdActions = null;
 
     (function wireMsdDialog() {
@@ -2867,6 +2883,9 @@
             {
                 id: "msd-reset",
                 label: "Reset drive",
+                // Resetting a drive that is not fitted is not a disabled
+                // action, it is not an action. Done is left on its own.
+                hidden: !msdAvailable,
                 disabled: !msdResetEnabled,
                 onSelect: function () {
                     if (!window.confirm("Reset the mass storage drive?\n\nAnything mounted is unmounted.")) return;
