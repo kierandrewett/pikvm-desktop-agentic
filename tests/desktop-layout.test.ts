@@ -1917,7 +1917,7 @@ test("a paste says how long it will take before you commit to it", () => {
 
     /* Quiet under ten seconds: a number beside every short paste is noise, and
        noise would make the ones that matter easier to miss. */
-    assert.match(js, /if \(ms < 10000\) return "";/);
+    assert.match(js, /return ms < 10000 \? "" : humanDuration\(ms\);/);
     assert.match(js, /if \(secs < 90\) return "about " \+ secs \+ "s";/);
 
     /* Driven over CDP at three lengths, reading the count row:
@@ -1926,4 +1926,44 @@ test("a paste says how long it will take before you commit to it", () => {
          12805 chars  "12805 characters · about 4 min"
        and with the request held open, the sticky toast read
        "Typing 12805 characters on the target — about 4 min…". */
+});
+
+test("a slow macro says it is running, like a long paste does", () => {
+    /* A macro's text step posts to the same endpoint at the same rate as the
+       paste dialog, so a macro carrying 5,000 characters occupies the target
+       for a minute and a half. The paste dialog says so; a macro run said
+       nothing at all until it finished and toasted "<label> sent". The only
+       sign it was running was the macro buttons going disabled — invisible from
+       the ⋯ menu and from the send-keys menu, both of which can start one.
+
+       Same sibling-paths divergence as the keymap: two ways into one operation,
+       only one of them telling the truth about it. */
+    assert.match(js, /function macroDuration\(macro\) \{/);
+    assert.match(js, /else if \(s\.type === "text"\) ms \+= String\(s\.text \|\| ""\)\.length \* PASTE_DELAY_S \* 1000;/,
+        "a text step costs what the same text costs the paste dialog");
+    assert.match(js, /if \(s\.type === "delay"\) ms \+= Number\(s\.ms\) \|\| 0;/);
+    assert.match(js, /else ms \+= MACRO_CHORD_MS;/);
+    assert.match(js, /toast\("Running " \+ macro\.label \+ " — " \+ humanDuration\(runFor\) \+ "…", false, true\);/);
+
+    /* Only when it is slow enough to be worth a word: Ctrl+Alt+Delete is over
+       in a tenth of a second, and a notice appearing and being overwritten in
+       that time is a flicker, not information. */
+    assert.match(js, /var MACRO_NOTICE_MS = 2000;/);
+    assert.match(js, /if \(runFor >= MACRO_NOTICE_MS\) \{/);
+    /* Sticky, and always replaced: both endings toast — "<label> sent" and
+       "<label> stopped: …" — and toast() clears the pending timer as it writes,
+       so it never needs an explicit hide. */
+    assert.match(js, /toast\(macro\.label \+ " sent"\);/);
+    assert.match(js, /macro\.label \+ " stopped: " \+ problem/);
+
+    // One formatter behind both this and the paste estimate.
+    assert.match(js, /function humanDuration\(ms\) \{/);
+    assert.match(js, /return ms < 10000 \? "" : humanDuration\(ms\);/);
+
+    /* Driven over CDP with the print request held open server-side, reading the
+       toast mid-run:
+         1 chord (~0.12s)        "…cluster 3 sent"          — no notice at all
+         2.5s delay + 4 steps    "Running …cluster 1 — about 3s…"
+         5,000-character text    "Running …cluster 5 — about 2 min…"
+       and after that last one finished, "…cluster 5 sent". */
 });

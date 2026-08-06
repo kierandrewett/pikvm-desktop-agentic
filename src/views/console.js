@@ -324,12 +324,41 @@
      *
      * Nothing under ten seconds says anything, because a number beside every
      * short paste is noise and would make the ones that matter easier to miss. */
-    function pasteDuration(n) {
-        var ms = n * PASTE_DELAY_S * 1000;
-        if (ms < 10000) return "";
+    function humanDuration(ms) {
         var secs = Math.round(ms / 1000);
         if (secs < 90) return "about " + secs + "s";
         return "about " + Math.round(secs / 60) + " min";
+    }
+    function pasteDuration(n) {
+        var ms = n * PASTE_DELAY_S * 1000;
+        return ms < 10000 ? "" : humanDuration(ms);
+    }
+
+    /* How long a macro will take, from its own steps.
+     *
+     * A macro's text step posts to the same endpoint at the same rate as the
+     * paste dialog, so a macro carrying 5,000 characters occupies the target for
+     * a minute and a half. The paste dialog says so; a macro run said nothing at
+     * all until it finished and toasted "<label> sent". The only sign it was
+     * running was the macro buttons going disabled, which is invisible from the
+     * ⋯ menu and from the send-keys menu that can also start one.
+     *
+     * A chord is charged a flat 120ms: it is played out of a queue over a few
+     * timeouts, and the estimate only has to be right enough to decide whether
+     * the run is worth mentioning and roughly how long to expect. */
+    var MACRO_CHORD_MS = 120;
+    /** Below this a run is over before a notice could be read. */
+    var MACRO_NOTICE_MS = 2000;
+    function macroDuration(macro) {
+        var steps = (macro && macro.steps) || [];
+        var ms = 0;
+        for (var i = 0; i < steps.length; i++) {
+            var s = steps[i];
+            if (s.type === "delay") ms += Number(s.ms) || 0;
+            else if (s.type === "text") ms += String(s.text || "").length * PASTE_DELAY_S * 1000;
+            else ms += MACRO_CHORD_MS;
+        }
+        return ms;
     }
 
     var hid = (function () {
@@ -1053,6 +1082,19 @@
         macroRunning = macro;
         paintMacroButtons();
         repaintPasteActions(); // the paste dialog may be open on top of this
+        /* Say a slow run is under way, the same way a long paste does.
+         *
+         * Both endings toast — "<label> sent" or "<label> stopped: …" — and
+         * toast() clears the sticky timer as it writes, so this is always
+         * replaced rather than needing a hide.
+         *
+         * Only when it is slow enough to be worth a word. Ctrl+Alt+Delete is
+         * over in a tenth of a second, and a notice that appeared and was
+         * overwritten in that time would be a flicker, not information. */
+        var runFor = macroDuration(macro);
+        if (runFor >= MACRO_NOTICE_MS) {
+            toast("Running " + macro.label + " — " + humanDuration(runFor) + "…", false, true);
+        }
         var i = 0;
         /* The two ways a run ends, so macroRunning cannot be left set.
          *
