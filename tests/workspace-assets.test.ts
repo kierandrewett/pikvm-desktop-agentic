@@ -440,3 +440,36 @@ test("the task list can tell one run from another", () => {
        measured at 5.07–5.69:1 in the dark theme and 4.71–5.71:1 in the light —
        AA at 11px in both. */
 });
+
+test("the task list calls an untitled run what the rest of the app calls it", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const root = process.cwd();
+    const threadList = readFileSync(
+        resolve(root, "agent/frontend/src/components/assistant-ui/thread-list.tsx"),
+        "utf8",
+    );
+    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
+    /* The row rendered fallback="New Chat" while the filter directly above it
+       matched an untitled run against the literal string "New task". So the row
+       said one word and answered to another: typing "chat" — what you could
+       actually see — found nothing. The convention is already written down
+       three files over, and claimed this was in step with it. */
+    assert.match(threadList, /<ThreadListItemPrimitive\.Title fallback="New task" \/>/);
+    assert.doesNotMatch(threadList, /fallback="New Chat"/);
+    assert.match(threadList, /\(itemsById\.get\(id\)\?\.title \|\| "New task"\)/);
+    assert.match(shell, /"New task" everywhere/, "the convention this follows");
+
+    /* And the search field takes a machine value, like the workspace token, the
+       API keys and the base URLs — all of which already say so. This one was the
+       outlier: typing "kvmd" drew a red spellcheck squiggle under it, and the
+       browser offered a history dropdown over the list being filtered. */
+    const search = threadList.slice(
+        threadList.indexOf('aria-label="Search tasks"'),
+        threadList.indexOf('className={cn("h-8 ps-8 text-sm"'),
+    );
+    assert.match(search, /autoComplete="off"/);
+    assert.match(search, /spellCheck=\{false\}/);
+    /* Driven over CDP with eleven runs seeded, one of them untitled: the row
+       reads "New task", searching "new" finds it, and the field reports
+       spellcheck false / autocomplete off. */
+});

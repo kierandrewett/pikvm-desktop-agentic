@@ -75,6 +75,12 @@ export const ThreadListSearch = forwardRef<
         onChange={(event) => onValueChange(event.target.value)}
         aria-label="Search tasks"
         placeholder="Search tasks"
+        /* Same as every other field in this app that takes a machine value —
+           the workspace token, the API keys, the base URLs. This one was the
+           outlier: typing "kvmd" put a red spellcheck squiggle under it, and
+           the browser offered a history dropdown over the list being filtered. */
+        autoComplete="off"
+        spellCheck={false}
         className={cn("h-8 ps-8 text-sm", className)}
         {...props}
       />
@@ -377,7 +383,12 @@ export const ThreadListItem: FC = () => {
           data-slot="aui_thread-list-item-title"
           className="min-w-0 flex-1 truncate"
         >
-          <ThreadListItemPrimitive.Title fallback="New Chat" />
+          {/* "New task", not "New Chat". Everything else here says task — the
+              button above, the sheet title, and the filter below, which matches
+              an untitled run against the literal string "New task". So an
+              untitled run displayed one word and was searchable by another:
+              typing what you could see found nothing. */}
+          <ThreadListItemPrimitive.Title fallback="New task" />
         </span>
         <ThreadListItemRunState />
         <ThreadListItemTime />
