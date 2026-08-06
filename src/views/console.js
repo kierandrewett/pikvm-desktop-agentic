@@ -3185,7 +3185,7 @@
              *
              * Two different states were being reported as the good one. Say
              * which it is instead of asserting a result we do not have. */
-            ok.hidden = problems.length > 0;
+            setProp(ok, "hidden", problems.length > 0);
             setText(ok, health.reported() ? "Everything looks fine." : "Nothing reported from the PiKVM yet.");
         }
 
@@ -3259,7 +3259,7 @@
         var rows = document.getElementById("gpio-rows");
         if (!section || !rows) return;
         var outs = gpio.outputs();
-        section.hidden = outs.length === 0;
+        setProp(section, "hidden", outs.length === 0);
         if (!outs.length) return;
         var key = outs
             .map(function (o) {

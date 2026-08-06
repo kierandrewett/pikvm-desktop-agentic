@@ -753,7 +753,8 @@ test("the health dialog does not claim all-clear before the Pi has reported", ()
     assert.ok(at > 0, "health-ok is not painted");
     const body = js.slice(at, at + 1400).replace(/\/\*[\s\S]*?\*\//g, "");
     // Still hidden by a real problem, as before.
-    assert.match(body, /ok\.hidden = problems\.length > 0;/);
+    // Through setProp now, so an unchanged repaint does not rewrite the attribute.
+    assert.match(body, /setProp\(ok, "hidden", problems\.length > 0\);/);
     // But the wording now says which of the two empty states this is.
     assert.match(body, /setText\(ok, health\.reported\(\)\s*\?\s*"Everything looks fine\."\s*:\s*"Nothing reported from the PiKVM yet\."\);/);
     // reported() is the "have we heard anything at all" signal, not a problem count.

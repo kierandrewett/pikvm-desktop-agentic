@@ -1373,3 +1373,33 @@ test("a pending guard hands focus back to the control it disabled", () => {
     assert.match(js, /disabled: o\.busy \|\| !o\.online \|\| !!gpioPending\[name\],/);
     assert.match(js, /disabled: !hidToggleState\.known \|\| hidToggleState\.busy \|\| hidTogglePending,/);
 });
+
+test("the health dialog's two hidden flags go through the same guard as the rest", () => {
+    /* 44ca10d established that a repaint never rewrites an attribute with the
+       value it already has, and guarded six sites with setProp/setAttr. These
+       two were missed, and they are the ones paintHealth and paintGpio touch on
+       every info, hid, streamer and gpio event. Measured with the elements in
+       their HIDDEN state — el.hidden = false on an already-visible element
+       writes nothing, so the churn only shows when they are hidden:
+           health-ok 8 no-op writes, gpio-section 8, over four rounds of six events
+       After: zero, in all six dialog configurations. No user-visible change;
+       this is the rule being applied where it already claimed to be. */
+    assert.match(js, /setProp\(ok, "hidden", problems\.length > 0\);/);
+    assert.match(js, /setProp\(section, "hidden", outs\.length === 0\);/);
+    // The line right below the first one was already guarded, which is what
+    // made the pair look converted when only half of it was.
+    assert.match(js, /setProp\(ok, "hidden"[\s\S]{0,120}?setText\(ok, health\.reported\(\)/);
+    /* And no bare .hidden left in either painter, with one exception that is
+       not a repaint at all: paintGpio initialises `hidden` on a span it has
+       just created, where there is nothing to compare against and setProp would
+       write the same attribute anyway. Counted rather than banned, so a second
+       bare write still fails here. Dialog open/close and one-shot reveals are
+       state changes rather than repaints and are deliberately left alone. */
+    const painterBody = (name: string) => {
+        const fn = js.slice(js.indexOf(name));
+        return fn.slice(0, fn.indexOf("\n    }")).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    };
+    assert.equal((painterBody("function paintHealth()").match(/\b\w+\.hidden\s*=/g) ?? []).length, 0);
+    const gpioBare = painterBody("function paintGpio()").match(/\b\w+\.hidden\s*=/g) ?? [];
+    assert.deepEqual(gpioBare, ["note.hidden ="], "only the freshly-created note may be written directly");
+});
