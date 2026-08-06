@@ -19,6 +19,7 @@ import {
     watch,
 } from "fs";
 import { createServer as createProbeServer } from "net";
+import { get as httpGet } from "node:http";
 import { resolve, isAbsolute, extname } from "path";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
@@ -188,6 +189,37 @@ async function originOnFreePort(name: string, origin: string): Promise<string> {
 }
 
 /** Start the PiKVM backend, first-party harness, and local console proxy. */
+/** Is something already answering as a PiKVM Desktop on this port?
+ *
+ *  Distinguishes "another copy of this app is running" from "an orphaned
+ *  service, or something unrelated, holds the port". Both make the port walk
+ *  happen; only the first means the user may be looking at the wrong window.
+ *  Asks for the console the app serves and checks it is really ours rather than
+ *  trusting a bare 200 from whatever else might be listening. */
+async function anotherDesktopOn(port: number, host: string): Promise<boolean> {
+    const target = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+    return new Promise((done) => {
+        const req = httpGet({ host: target, port, path: `${WORKSPACE_PREFIX}/`, timeout: 1500 }, (res) => {
+            if ((res.statusCode ?? 500) >= 400) {
+                res.resume();
+                done(false);
+                return;
+            }
+            let body = "";
+            res.setEncoding("utf8");
+            res.on("data", (c) => {
+                if (body.length < 4096) body += c;
+            });
+            res.on("end", () => done(body.includes("PiKVM")));
+        });
+        req.on("error", () => done(false));
+        req.on("timeout", () => {
+            req.destroy();
+            done(false);
+        });
+    });
+}
+
 async function startProxyAndHarness(
     origin: string,
     settings: SettingsStore,
@@ -225,8 +257,25 @@ async function startProxyAndHarness(
     // CONTROL_PORT, and all of them are constructed below.
     const wantedPort = CONTROL_PORT;
     CONTROL_PORT = await firstFreePort(wantedPort, bindHost);
-    if (CONTROL_PORT !== wantedPort)
+    if (CONTROL_PORT !== wantedPort) {
         console.log(`[control] ${wantedPort} is in use, serving on ${CONTROL_PORT} instead`);
+        /* Walking the port is not the interesting part. Being the SECOND COPY is.
+         *
+         * The single-instance lock cannot help against a copy that predates it —
+         * it shipped in 1.12.4, so a 1.12.3 still running holds no lock, and a
+         * new install starts happily alongside it. That happened: two windows,
+         * visually identical, one serving the agent panel and one returning 401
+         * from a harness orphaned hours earlier. The app knew (it had to walk
+         * the port to start at all) and said nothing, so the only way to tell
+         * them apart was to go looking at process start times.
+         *
+         * Only when the port answers as one of US. An orphaned daemon or an
+         * unrelated program holding it is worth a log line and nothing more. */
+        if (await anotherDesktopOn(wantedPort, bindHost)) {
+            secondInstanceNotice = { wanted: wantedPort, using: CONTROL_PORT };
+            console.log(`[control] ${wantedPort} is answering as another PiKVM Desktop — this is a second copy`);
+        }
+    }
 
     // Keep the optional browser/mobile shell service available for compatibility.
     // The desktop app does not create or render a terminal WebContentsView.
@@ -538,6 +587,8 @@ let settingsWin: Electron.BrowserWindow | null = null;
  *  Settings window is a separate BrowserWindow that cannot read that storage, so
  *  without remembering it here Settings opened black over a light console. */
 let consoleTheme: "dark" | "light" = "dark";
+/** Set when startup found another copy of this app already on our usual port. */
+let secondInstanceNotice: { wanted: number; using: number } | null = null;
 const THEME_BG = { dark: "#0a0a0c", light: "#eef0f4" } as const;
 
 function openSettingsWindow() {
@@ -755,6 +806,25 @@ async function createWindow() {
         if (shownOnce || win.isDestroyed()) return;
         shownOnce = true;
         win.show();
+        /* Said once, on the window that can do something about it.
+         *
+         * After the window is up rather than before, so it is a message about
+         * something on screen instead of a box in front of nothing. Cleared as
+         * it fires: this is a fact about how the app started, not a condition to
+         * keep reporting. */
+        const notice = secondInstanceNotice;
+        secondInstanceNotice = null;
+        if (!notice) return;
+        void dialog.showMessageBox(win, {
+            type: "warning",
+            title: "Another PiKVM Desktop is already running",
+            message: `Another copy of PiKVM Desktop is already using port ${notice.wanted}.`,
+            detail:
+                `This window is running on port ${notice.using} instead, so both are open at once and only this one is using the services it started.\n\n` +
+                "That usually means an older copy never quit — most likely one from before the version you just installed, which is why it was not stopped automatically. Close the other window, or quit both and start one again.",
+            buttons: ["OK"],
+            defaultId: 0,
+        });
     };
     mainView.webContents.on("did-finish-load", () => {
         // Only a load that did NOT fail clears the ceilings. An error page
