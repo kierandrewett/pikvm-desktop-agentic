@@ -17,7 +17,33 @@ import WebSocket from "ws";
 import { planTyping, type Persona, type TypingOptions } from "./human-typing";
 import { windMousePath } from "./windmouse";
 import { awaitSettled, fpDiff, FP_MEANINGFUL, type SettleResult } from "./ambient/fingerprint";
-import type { GridSnapshot, TypingEvent } from "./agent/watched-typing";
+/* The two shapes that outlived the watched-typing engine.
+ *
+ * They used to be imported from src/agent/watched-typing.ts — 731 lines and
+ * nine exported functions of in-app typing verification, stranded when the
+ * agent moved into the daemon. Nothing called any of it; the module stayed
+ * alive purely because these two type declarations shared the file with it,
+ * which is a fairly expensive way to keep sixty lines of interface.
+ *
+ * Moved here, where the fields that use them live, and the rest deleted. */
+export interface GridSnapshot {
+    cols: number;
+    rows: number;
+    /** Row-major grayscale 0..255, length cols*rows. */
+    cells: Uint8Array;
+}
+
+/** How far a watched type-and-verify pass has got. */
+export type TypingCorrectionKind = "no-focus" | "layout" | "prepend-autocorrect" | "prefix-tail";
+
+export type TypingEvent =
+    | { phase: "start"; total: number; region?: Region }
+    | { phase: "located"; region: Region }
+    | { phase: "progress"; done: number; total: number; region?: Region }
+    | { phase: "verifying"; region?: Region }
+    | { phase: "verified"; region?: Region }
+    | { phase: "correcting"; reason: TypingCorrectionKind; detail: string; region?: Region }
+    | { phase: "done"; ok: boolean; corrected: boolean; summary: string; region?: Region };
 import type { ImageOps } from "./image-ops";
 
 export interface Region {
