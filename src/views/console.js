@@ -938,16 +938,38 @@
         paintMacroButtons();
         repaintPasteActions(); // the paste dialog may be open on top of this
         var i = 0;
+        /* The two ways a run ends, so macroRunning cannot be left set.
+         *
+         * Every branch reaches one of them: a chord waits on afterKeys, which
+         * drainKeys always fires from a timer whatever the socket is doing; the
+         * text step settles its fetch both ways; a delay is a plain timeout. So
+         * the chain cannot stall and leave macros disabled for good. */
+        var done = function () {
+            macroRunning = null;
+            paintMacroButtons();
+            repaintPasteActions();
+        };
+        /* A step that did not happen stops the run.
+         *
+         * A macro is an ordered sequence and the later steps assume the earlier
+         * ones landed — "type the username, Tab, type the password, Enter"
+         * carries on into the wrong field and then submits it if the first step
+         * silently did nothing. Carrying on was never a decision anyone wrote
+         * down: the text step chained .catch(...).then(next), so next ran on
+         * failure as well, which reads like the shape of the chain rather than
+         * an intent. */
+        var stopped = function (problem) {
+            var left = macro.steps.length - i;
+            done();
+            toast(
+                macro.label + " stopped: " + problem +
+                    (left > 0 ? " — " + left + " later step" + (left === 1 ? "" : "s") + " not sent." : ""),
+                true,
+            );
+        };
         var next = function () {
             if (i >= macro.steps.length) {
-                /* Cleared here and only here. Every branch reaches this: a chord
-                 * waits on afterKeys, which drainKeys always fires from a timer
-                 * whatever the socket is doing; the text step's .then(next) runs
-                 * after its own .catch; a delay is a plain timeout. So the chain
-                 * cannot stall and leave macros disabled for good. */
-                macroRunning = null;
-                paintMacroButtons();
-                repaintPasteActions();
+                done();
                 // A macro's whole effect happens on the OTHER machine, so without
                 // this the click has no visible consequence here at all — and a
                 // chord the target ignored looks identical to one never sent.
@@ -981,10 +1003,33 @@
                     headers: { "Content-Type": "text/plain" },
                     body: step.text,
                 })
-                    .catch(function () {
-                        toast("Macro text failed to send", true);
-                    })
-                    .then(next);
+                    /* Both outcomes, and the status checked as well as the
+                     * rejection. A 4xx or 5xx RESOLVES the promise, so the old
+                     * lone .catch never saw one: with kvmd answering 500 the run
+                     * still finished and toasted "<macro> sent", which is a
+                     * positive claim that the text reached the target when
+                     * nothing had been typed at all. The paste dialog — the same
+                     * endpoint, the other way in — has always checked r.ok.
+                     *
+                     * Two-argument then rather than .then().catch(): the handler
+                     * belongs to the fetch, so a throw inside next() is not
+                     * caught here and misreported as a failure to type. */
+                    .then(
+                        function (r) {
+                            if (r.status === 413) {
+                                stopped("that step is too much text to type in one go");
+                                return;
+                            }
+                            if (!r.ok) {
+                                stopped("text step failed (" + r.status + ")");
+                                return;
+                            }
+                            next();
+                        },
+                        function (e) {
+                            stopped("text step failed: " + (e && e.message ? e.message : "network error"));
+                        },
+                    );
                 return;
             }
             if (step.type === "delay") {

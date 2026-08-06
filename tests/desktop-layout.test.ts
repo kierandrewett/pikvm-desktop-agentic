@@ -867,3 +867,31 @@ test("the resolution toast says nothing while it is not on screen", () => {
     // #toast, six lines below it in the markup, is the sibling this now matches.
     assert.match(html, /id="toast" role="status" aria-live="polite"/);
 });
+
+test("a macro whose text step is refused stops and says so", () => {
+    // A 4xx/5xx RESOLVES a fetch, so the lone .catch on this call never saw one:
+    // with kvmd answering 500 the run finished and toasted "<macro> sent" — a
+    // positive claim that the text reached the target when nothing was typed.
+    // Measured over CDP: HTTP 500 received, "Short 0 sent" shown.
+    assert.match(js, /if \(r\.status === 413\) \{\s*stopped\("that step is too much text to type in one go"\);/);
+    assert.match(js, /if \(!r\.ok\) \{\s*stopped\("text step failed \(" \+ r\.status \+ "\)"\);/);
+    assert.match(js, /stopped\("text step failed: " \+ \(e && e\.message \? e\.message : "network error"\)\)/);
+    // The rejection handler is the second argument to then, not a trailing
+    // .catch — otherwise a throw inside next() is reported as a failure to type.
+    assert.doesNotMatch(js, /\.catch\(function \(\) \{\s*toast\("Macro text failed to send", true\);/);
+    // A failed step ends the run: the later steps assume it landed. Verified on
+    // the wire — the seeded chord/delay/text/Enter macro sent Ctrl+Alt+Delete
+    // and then no Enter, against a healthy control that sent both.
+    assert.match(js, /var stopped = function \(problem\) \{\s*var left = macro\.steps\.length - i;/);
+    assert.match(js, /" later step" \+ \(left === 1 \? "" : "s"\) \+ " not sent\."/);
+    // Both endings clear macroRunning through one helper, so a stopped run
+    // cannot leave every macro button disabled for good.
+    assert.match(js, /var done = function \(\) \{\s*macroRunning = null;\s*paintMacroButtons\(\);\s*repaintPasteActions\(\);\s*\};/);
+    const raw = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    // One assignment inside runMacro (done), plus the declaration.
+    assert.equal(
+        (raw.match(/(?<!var )macroRunning = null;/g) ?? []).length,
+        1,
+        "macroRunning is cleared in exactly one place",
+    );
+});

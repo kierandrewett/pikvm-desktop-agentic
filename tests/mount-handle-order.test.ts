@@ -343,7 +343,14 @@ test("a macro's chord step finishes before the next step starts", () => {
     assert.match(drain.slice(0, drain.indexOf("var op =")), /keyDrained\.splice\(0, keyDrained\.length\)/);
 
     // The other two step types already waited for themselves; they still must.
-    assert.match(body, /\.then\(next\);/);
+    // The text step advances from inside the fetch's fulfilment handler rather
+    // than a bare .then(next), because it now has to inspect r.ok as well — a
+    // 4xx/5xx resolves, so the old lone .catch never saw one.
+    const textStep = body
+        .slice(body.indexOf('if (step.type === "text")'))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(textStep, /\.then\(\s*function \(r\) \{[\s\S]*?next\(\);/);
+    assert.doesNotMatch(textStep, /setTimeout\(next, 0\)/);
     assert.match(body, /setTimeout\(next, step\.ms\);/);
 });
 
@@ -1014,11 +1021,12 @@ test("building a chord does not delete the step you are building", () => {
  *
  * and the three-rapid-fire case now produces 9 events rather than 27.
  *
- * The flag is cleared in the chain's terminal branch and only there, which is
- * safe because every branch reaches it: a chord waits on afterKeys, which
- * drainKeys always fires from a timer whatever the socket is doing; the text
- * step's .then(next) runs after its own .catch; a delay is a plain timeout.
- * So it cannot stall and leave every macro disabled for good.
+ * The flag is cleared through one done() helper reached by both endings — the
+ * chain running out of steps, and a step that failed stopping the run — which
+ * is safe because every branch reaches one of them: a chord waits on afterKeys,
+ * which drainKeys always fires from a timer whatever the socket is doing; the
+ * text step settles its fetch both ways; a delay is a plain timeout. So it
+ * cannot stall and leave every macro disabled for good.
  */
 test("a second macro cannot start while one is still playing", () => {
     assert.match(js, /var macroRunning = null;/);
