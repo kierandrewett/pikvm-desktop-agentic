@@ -71,6 +71,13 @@
             #tabs::-webkit-scrollbar {
                 display: none;
             }
+            #term-status {
+                margin-left: auto;
+                padding-right: 4px;
+                font-size: 11px;
+                white-space: nowrap;
+                color: var(--danger);
+            }
             .tab {
                 position: relative;
                 display: flex;
@@ -228,7 +235,12 @@
         </style>
     </head>
     <body>
-        <div id="tabs"><button id="new-tab" title="New shell" aria-label="New shell">+</button></div>
+        <div id="tabs"><button id="new-tab" title="New shell" aria-label="New shell">+</button>
+            <!-- Said out loud, because losing the socket used to be silent: New
+                 shell simply stopped doing anything and nothing on screen said
+                 why. role=status so it is announced when it appears, and empty
+                 while the connection is healthy so there is nothing to read. -->
+            <span id="term-status" role="status" aria-live="polite" hidden></span></div>
         <div id="terms"></div>
         <script src="terminal.js"></script>
     </body>

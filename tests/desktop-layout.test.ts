@@ -1505,3 +1505,35 @@ test("a scrolling dialog's action bar covers the content to its bottom edge", ()
     const actions = css.slice(css.indexOf(".dlg-actions {"), css.indexOf(".dlg-btn {"));
     assert.doesNotMatch(actions, /bottom: -20px|padding-bottom: 20px/, "the bar must read the dialog's own padding token");
 });
+
+test("the terminal says when its socket is down instead of swallowing clicks", () => {
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    const termHtml = readFileSync(resolve(root, "src/views/terminal.html"), "utf8");
+    /* send() drops anything written while the socket is not OPEN, so with the
+       terminal service unreachable New shell did exactly nothing: no tab, no
+       message, no error, and the reconnect loop ran on unseen. Measured against
+       a host with no terminal backend — the websocket opened, failed, and the
+       page still read "+" and nothing else.
+       Every other surface reports this: the console chip says "Live · input
+       offline", the conversation "Updates offline", the pill "Agent
+       unavailable". This was the one that stayed quiet. */
+    assert.match(termHtml, /<span id="term-status" role="status" aria-live="polite" hidden><\/span>/);
+    assert.match(term, /const setLinkUp = \(up: boolean\): void => \{\s*newTabBtn\.disabled = !up;\s*statusEl\.hidden = up;/);
+    assert.match(term, /"Terminal disconnected — reconnecting…"/);
+    // Both ends of the socket's life drive it, and it starts closed so the
+    // button never invites a click it would swallow.
+    assert.match(term, /ws\.onopen = \(\) => \{\s*setLinkUp\(true\);/);
+    assert.match(term, /ws\.onclose = \(\) => \{\s*ws = null;\s*setLinkUp\(false\);/);
+    // It runs once at module scope, before the first connect, not only inside
+    // the two socket handlers.
+    const bare = term.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    assert.match(bare, /^setLinkUp\(false\);$/m);
+    assert.equal((bare.match(/setLinkUp\(false\);|setLinkUp\(true\);/g) ?? []).length, 3,
+        "the initial close, plus one call at each end of the socket's life");
+    // Written only when it changes, like every other status string here.
+    assert.match(term, /if \(statusEl\.textContent !== text\) statusEl\.textContent = text;/);
+    /* Verified live across the whole lifecycle by capturing the frame's sockets:
+         connected  status hidden, New shell enabled, 1 socket
+         dropped    "Terminal disconnected — reconnecting…", disabled, 3 sockets
+         recovered  hidden, enabled again */
+});

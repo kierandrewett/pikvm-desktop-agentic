@@ -23,7 +23,30 @@ type ServerMsg =
 
 const tabsEl = document.getElementById("tabs")!;
 const termsEl = document.getElementById("terms")!;
-const newTabBtn = document.getElementById("new-tab")!;
+const newTabBtn = document.getElementById("new-tab") as HTMLButtonElement;
+const statusEl = document.getElementById("term-status")!;
+
+/* Say when the socket is down, and stop offering an action that cannot happen.
+ *
+ * send() drops anything written while the socket is not OPEN, so with the
+ * terminal service unreachable New shell did exactly nothing: no tab, no
+ * message, no error — and the reconnect loop below ran on unseen. Measured by
+ * clicking it against a host with no terminal backend: the websocket opened and
+ * failed, and the page still read "+" and nothing else.
+ *
+ * Every other surface in this app reports the same condition — the console's
+ * chip reads "Live · input offline" when the HID socket drops, the conversation
+ * says "Updates offline", the titlebar pill says "Agent unavailable". This was
+ * the one that stayed quiet. */
+const setLinkUp = (up: boolean): void => {
+    newTabBtn.disabled = !up;
+    statusEl.hidden = up;
+    const text = up ? "" : "Terminal disconnected — reconnecting…";
+    if (statusEl.textContent !== text) statusEl.textContent = text;
+};
+// Disabled until the first open, so the button never invites a click it would
+// swallow. A healthy connection settles long before anyone reaches for it.
+setLinkUp(false);
 
 try {
     window.parent?.postMessage({ type: "chat-ready" }, "*");
@@ -528,6 +551,7 @@ let reconnectTimer: number | undefined;
 const connect = (): void => {
     ws = new WebSocket(wsUrl);
     ws.onopen = () => {
+        setLinkUp(true);
         // On (re)connect, clear existing terms so the server's replayed buffer redraws clean.
         for (const v of views.values()) v.term.reset();
         fitAndProposeSize();
@@ -541,6 +565,7 @@ const connect = (): void => {
     };
     ws.onclose = () => {
         ws = null;
+        setLinkUp(false);
         if (reconnectTimer) return;
         reconnectTimer = window.setTimeout(() => {
             reconnectTimer = undefined;
