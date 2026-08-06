@@ -299,14 +299,37 @@
         var el = document.getElementById("paste-keymap");
         return el && el.value ? el.value : null;
     }
+    /* 20ms between keys: kvmd's own default, slow enough that a target under load
+     * does not drop characters. Named because the wait it implies is shown to the
+     * user, and a rate on the wire that disagreed with the estimate on screen
+     * would be worse than no estimate. */
+    var PASTE_DELAY_S = 0.02;
+
     /** Query string for POST /api/hid/print — the one place its shape is decided. */
     function printQuery() {
-        // 20ms between keys: kvmd's own default, slow enough that a target under
-        // load does not drop characters.
-        var q = ["limit=0", "delay=0.02"];
+        var q = ["limit=0", "delay=" + PASTE_DELAY_S];
         var km = typingKeymap();
         if (km) q.push("keymap=" + encodeURIComponent(km));
         return q.join("&");
+    }
+
+    /* How long kvmd will spend typing this.
+     *
+     * A paste is not a click. kvmd types the string itself at the rate above and
+     * answers when it is done, so 12,000 characters is a little over four
+     * minutes — during which the target is being typed into and Cancel only
+     * closes the dialog, it does not stop the typing. That cost was stated
+     * nowhere: the row said "12805 characters" and left you to work it out. The
+     * file's own comment did the arithmetic; the screen never did.
+     *
+     * Nothing under ten seconds says anything, because a number beside every
+     * short paste is noise and would make the ones that matter easier to miss. */
+    function pasteDuration(n) {
+        var ms = n * PASTE_DELAY_S * 1000;
+        if (ms < 10000) return "";
+        var secs = Math.round(ms / 1000);
+        if (secs < 90) return "about " + secs + "s";
+        return "about " + Math.round(secs / 60) + " min";
     }
 
     var hid = (function () {
@@ -3971,7 +3994,10 @@
     function paintPasteCount() {
         if (!pasteCount || !pasteText) return;
         var n = pasteText.value.length;
-        pasteCount.textContent = n ? n + (n === 1 ? " character" : " characters") : "";
+        var hint = pasteDuration(n);
+        pasteCount.textContent = n
+            ? n + (n === 1 ? " character" : " characters") + (hint ? " · " + hint : "")
+            : "";
         pasteBusy = false;
         pasteHasText = n > 0;
         repaintPasteActions();
@@ -4095,7 +4121,17 @@
          *
          * It also survives Cancel, which is the point: closing the dialog no
          * longer hides the fact that the target is still being typed into. */
-        toast("Typing " + text.length + (text.length === 1 ? " character" : " characters") + " on the target…", false, true);
+        var typingFor = pasteDuration(text.length);
+        toast(
+            "Typing " +
+                text.length +
+                (text.length === 1 ? " character" : " characters") +
+                " on the target" +
+                (typingFor ? " — " + typingFor : "") +
+                "…",
+            false,
+            true,
+        );
         fetch("/api/hid/print?" + printQuery(), {
             method: "POST",
             cache: "no-store",

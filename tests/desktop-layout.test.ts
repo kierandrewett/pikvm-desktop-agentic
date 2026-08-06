@@ -1415,7 +1415,10 @@ test("a long paste says it is happening", () => {
        there with Paste greyed, no message, no progress, no toast, looking
        exactly like a dialog that had done nothing. Cancel then closed it and
        the target carried on typing with the last trace gone from the screen. */
-    assert.match(js, /toast\("Typing " \+ text\.length \+ \(text\.length === 1 \? " character" : " characters"\) \+ " on the target…", false, true\);/);
+    /* Not pinned to one line any more: the message also carries how long the
+       typing will take. Still the same three things — the count, the target,
+       and the sticky flag that keeps it up for the whole operation. */
+    assert.match(js, /toast\(\s*"Typing " \+\s*text\.length \+[\s\S]{0,200}?" on the target"[\s\S]{0,120}?false,\s*true,\s*\)/);
     // Sticky, because it has to outlast the ordinary dwell — the same call OCR
     // makes for the same reason.
     assert.match(js, /toast\("Reading the screen…", false, true\);/);
@@ -1429,7 +1432,7 @@ test("a long paste says it is happening", () => {
     // looks idle with a paste already under way.
     const fn = js.slice(js.indexOf("pasteBusy = true;"));
     const head = fn.slice(0, fn.indexOf("fetch(\"/api/hid/print?"));
-    assert.match(head, /toast\("Typing "/, "the in-flight message must precede the request");
+    assert.match(head, /toast\(\s*"Typing "/, "the in-flight message must precede the request");
 });
 
 test("the overflow menu's macro list greys while a macro plays", () => {
@@ -1894,4 +1897,33 @@ test("a health problem's level is not carried by colour alone", () => {
        visibly a ring and the errors filled discs, with hue entirely removed;
        and the row reads out of the accessibility tree as
        listitem | "Warning: The Pi was throttled by heat recently". */
+});
+
+test("a paste says how long it will take before you commit to it", () => {
+    /* A paste is not a click. kvmd types the string itself at 20ms a key and
+       answers when it is done, so 12,000 characters is a little over four
+       minutes — during which the target is being typed into, and Cancel only
+       closes the dialog, it does not stop the typing. The row said "12805
+       characters" and left the operator to work that out. The arithmetic was
+       already in this file's own comment; the screen never did it. */
+    assert.match(js, /var PASTE_DELAY_S = 0\.02;/);
+    assert.match(js, /var q = \["limit=0", "delay=" \+ PASTE_DELAY_S\];/,
+        "the rate on the wire and the estimate on screen come from one constant");
+    assert.match(js, /function pasteDuration\(n\) \{\s*var ms = n \* PASTE_DELAY_S \* 1000;/);
+
+    // Shown where the decision is made, and again while it runs.
+    assert.match(js, /n \+ \(n === 1 \? " character" : " characters"\) \+ \(hint \? " · " \+ hint : ""\)/);
+    assert.match(js, /\(typingFor \? " — " \+ typingFor : ""\)/);
+
+    /* Quiet under ten seconds: a number beside every short paste is noise, and
+       noise would make the ones that matter easier to miss. */
+    assert.match(js, /if \(ms < 10000\) return "";/);
+    assert.match(js, /if \(secs < 90\) return "about " \+ secs \+ "s";/);
+
+    /* Driven over CDP at three lengths, reading the count row:
+         120 chars    "120 characters"                  (2.4s — says nothing)
+         600 chars    "600 characters · about 12s"
+         12805 chars  "12805 characters · about 4 min"
+       and with the request held open, the sticky toast read
+       "Typing 12805 characters on the target — about 4 min…". */
 });
