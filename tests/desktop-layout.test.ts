@@ -2270,7 +2270,7 @@ test("the on-screen keys stop offering clicks that cannot reach the target", () 
     assert.match(js, /setProp\(b, "disabled", !up\);/);
     // Driven by the same status hook that already refreshes the chip, and run
     // once at startup so a console that opens with the socket down is right.
-    assert.match(js, /paintHealth\(\);\s*paintDrawerEnabled\(\);[\s\S]{0,140}?\}\);\s*paintDrawerEnabled\(\);/);
+    assert.match(js, /paintHealth\(\);\s*paintDrawerEnabled\(\);[\s\S]{0,420}?\}\);\s*paintDrawerEnabled\(\);/);
 
     /* Driven over CDP: socket up, 21 buttons and 0 disabled; socket killed, 21
        and 21 disabled with the chip reading "Live · input offline"; socket
@@ -2320,4 +2320,27 @@ test("a macro whose keys cannot arrive is refused, not reported as sent", () => 
        and after the socket recovered every one was [on] again with the chip
        back to "Live". Before the fix the chord-only one was [on], sent nothing,
        and toasted "…cluster 3 sent". */
+});
+
+test("the picture says when the pointer cannot reach the target", () => {
+    /* The last of the input-offline family, and the most used path. send()
+       drops everything while the socket is down, so a click on the picture goes
+       nowhere — measured with the socket killed: empty wire, no toast. Mean-
+       while the blob kept following the host pointer, which is the one claim
+       paintCursor exists to avoid: it "is meant to show where the TARGET's
+       cursor is", and the target's had stopped moving. */
+    assert.match(js, /if \(!hid\.isOpen\(\)\) \{\s*kvmCursor\.style\.display = "none";\s*pane\.style\.cursor = "not-allowed";/);
+    /* not-allowed rather than the "" the two cases beside it use. Those hand the
+       pointer back because it is legitimately aiming at local UI; here it is
+       over the target picture and can do nothing. */
+    assert.match(js, /if \(window\.desktopConsole && !windowFocused\) \{\s*kvmCursor\.style\.display = "none";\s*pane\.style\.cursor = "";/);
+    /* And applied without waiting for a mouse move, or a socket dropping while
+       the pointer is still would leave the blob sitting on the picture. */
+    assert.match(js, /function paintCursorForInput\(\) \{/);
+    assert.match(js, /if \(pane\.style\.cursor === "not-allowed"\) pane\.style\.cursor = "";/);
+    assert.match(js, /paintMacroButtons\(\);[\s\S]{0,180}?paintCursorForInput\(\);/);
+    /* Driven over CDP across an outage, reading #screen-pane:
+         socket up    cursor "none"          blob shown on move
+         socket down  cursor "not-allowed"   blob hidden
+         recovered    cursor "none"          blob shown again */
 });

@@ -5303,6 +5303,9 @@
         paintDrawerEnabled();
         // Chord macros go dead with the socket, so the pins and the list follow.
         paintMacroButtons();
+        // And the pointer, which would otherwise keep the old look until the
+        // next mouse move — a blob still tracking over a target it cannot reach.
+        paintCursorForInput();
     });
     paintDrawerEnabled();
     hid.connect();
@@ -6236,6 +6239,21 @@
     // Our own cursor (the OS one is hidden over the screen). Follows the mouse.
     var kvmCursor = document.getElementById("kvm-cursor");
     var freezeCanvas = document.getElementById("screen-freeze");
+    /* Apply the offline look without waiting for a mouse move.
+     *
+     * paintCursor only runs on pointer events, so a socket that drops while the
+     * pointer is still would leave the blob sitting on the picture claiming a
+     * remote cursor that has stopped. Cleared the same way when it comes back.
+     */
+    function paintCursorForInput() {
+        if (!kvmCursor) return;
+        if (hid.isOpen()) {
+            if (pane.style.cursor === "not-allowed") pane.style.cursor = "";
+            return;
+        }
+        kvmCursor.style.display = "none";
+        pane.style.cursor = "not-allowed";
+    }
     function paintCursor(clientX, clientY, dragging) {
         if (!kvmCursor) return;
         // A dialog owns the pointer; the blob would sit under it as a ghost.
@@ -6249,6 +6267,24 @@
         if (window.desktopConsole && !windowFocused) {
             kvmCursor.style.display = "none";
             pane.style.cursor = "";
+            return;
+        }
+        /* Input offline: the third way of not driving the target, and the only
+         * one that looked identical to driving it.
+         *
+         * send() drops everything while the socket is down, so a click on the
+         * picture goes nowhere — measured with the socket killed, an empty wire
+         * and no toast. Meanwhile the blob kept following the host pointer,
+         * which is the claim this function exists to avoid making: it "is meant
+         * to show where the TARGET's cursor is", and the target's had stopped.
+         *
+         * not-allowed rather than the "" the two cases above use. Those hand the
+         * pointer back because it is legitimately aiming at local UI; here it is
+         * over the target picture and can do nothing, which is worth saying at
+         * the pointer rather than only in the status chip at the far corner. */
+        if (!hid.isOpen()) {
+            kvmCursor.style.display = "none";
+            pane.style.cursor = "not-allowed";
             return;
         }
         /* Off the picture and not dragging: the blob is not the pointer here.
