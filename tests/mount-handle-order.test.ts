@@ -753,3 +753,44 @@ test("the health dialog does not claim all-clear before the Pi has reported", ()
     const mod = js.slice(js.indexOf("reported: function () {"));
     assert.match(mod.slice(0, 120), /return !!\(info \|\| source \|\| hidState\);/);
 });
+
+/**
+ * The paste keymap picker offered one keymap however many the Pi had.
+ *
+ * kvmd's hid_keymaps carries `available` as a MAP of name -> details. This
+ * read it as an array, so `.length` was undefined, the guard fell through to
+ * the default-only branch every time, and `avail.length < 2` then disabled the
+ * control. Pushed an event carrying four keymaps:
+ *
+ *     available {en-us, en-gb, de, fr} -> options ["en-us"], disabled
+ *
+ * So typing into a target with a different layout was impossible, and it did
+ * not fail loudly — it looked like a Pi with nothing to offer.
+ *
+ * Both shapes are accepted rather than trading one assumption for the other,
+ * since a list of names is the other reasonable thing to send and this could
+ * not be put against a real Pi. Measured across four states:
+ *
+ *     kvmd's map shape : ["de","en-gb","en-us","fr"] enabled, value en-gb
+ *     a list of names  : ["de","en-us","fr"]         enabled, value de
+ *     only a default   : ["en-us"]                   disabled, still shown
+ *     nothing at all   : select and label hidden
+ *
+ * And the choice reaches the wire: picking a non-default keymap and pasting
+ * sent /api/hid/print?limit=0&keymap=de&delay=0.02 with the text as the body.
+ */
+test("the paste keymap picker lists every keymap the Pi reports", () => {
+    const at = js.indexOf("function fillKeymaps() {");
+    assert.ok(at > 0, "fillKeymaps not found");
+    const body = js.slice(at, js.indexOf("\n    function closePaste()", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // A map's keys are names; an array already is names. Neither is assumed.
+    assert.match(body, /Array\.isArray\(supplied\)/);
+    assert.match(body, /Object\.keys\(supplied\)/);
+    // Deterministic order, not whatever order the keys serialised in.
+    assert.match(body, /avail\.sort\(\);/);
+    // The default is what the Pi types with, so it is always in the list.
+    assert.match(body, /if \(km\["default"\] && avail\.indexOf\(km\["default"\]\) < 0\) avail\.unshift\(km\["default"\]\);/);
+    // Unchanged: one keymap is still worth showing, none still hides the control.
+    assert.match(body, /pasteKeymap\.disabled = avail\.length < 2;/);
+    assert.match(body, /pasteKeymap\.hidden = !avail\.length;/);
+});

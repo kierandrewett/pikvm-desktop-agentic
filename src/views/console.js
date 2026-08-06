@@ -3171,7 +3171,33 @@
     function fillKeymaps() {
         if (!pasteKeymap) return;
         var km = kvmdKeymaps || {};
-        var avail = km.available && km.available.length ? km.available : km["default"] ? [km["default"]] : [];
+        /* kvmd's `available` is a MAP of name -> details, not a list of names.
+         *
+         * This read it as an array, so `.length` was undefined, the guard fell
+         * through to the default-only branch every time, and the select was
+         * then disabled by `avail.length < 2`. Pushed a hid_keymaps event
+         * carrying four keymaps and the control offered exactly one:
+         *
+         *     available {en-us, en-gb, de, fr} -> options ["en-us"], disabled
+         *
+         * So choosing the layout your target actually uses was impossible, and
+         * it failed as a control that simply looked like it had nothing to
+         * offer rather than as an error.
+         *
+         * Both shapes are accepted rather than swapping one assumption for
+         * another — I could not put this against a real Pi from here, and a
+         * list of names is the other reasonable thing to send. Sorted so the
+         * order does not depend on how the keys happened to serialise. */
+        var supplied = km.available;
+        var avail = Array.isArray(supplied)
+            ? supplied.slice()
+            : supplied && typeof supplied === "object"
+              ? Object.keys(supplied)
+              : [];
+        avail.sort();
+        // The default is what the Pi will use, so it belongs in the list even
+        // if it somehow is not among the ones it offered.
+        if (km["default"] && avail.indexOf(km["default"]) < 0) avail.unshift(km["default"]);
         // Only rebuild when the set actually changed, so the user's pick survives.
         var key = avail.join(",");
         if (pasteKeymap.getAttribute("data-set") === key) return;
