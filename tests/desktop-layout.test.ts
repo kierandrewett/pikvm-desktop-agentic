@@ -2917,3 +2917,48 @@ test("the shell-exited notice goes in the session buffer, not one client's termi
     assert.ok(!/term\.write\(/.test(exitCase), "the client is writing the notice again — it will double up");
     assert.match(exitCase, /v\.exited = true;\s*\n\s*paintTabs\(\);/);
 });
+
+/**
+ * The agent panel vanished with no explanation when a stale harness owned the port.
+ *
+ * Hit for real: an app started at 14:30 against a harness left running from
+ * 20:33 the previous night. The app generates a fresh access token, finds the
+ * harness port already healthy, and — correctly — refuses credential-blind
+ * adoption, then cannot spawn its own on a taken port. So every workspace call
+ * is signed with a token the surviving harness has never seen:
+ *
+ *     GET /_agent/harness/api/runs?limit=1
+ *     401 {"detail":"valid harness bearer token required"}
+ *
+ * The panel is gated on that call, so it simply never appeared. Everything else
+ * was healthy — daemon /healthz 200, every workspace asset 200 with real bytes —
+ * which is what made it a twenty-minute mystery rather than an obvious outage.
+ *
+ * main.ts knows all of it. Its own comment says the failure is "worth
+ * reporting, because the console can only say 'not yet' while this knows the
+ * harness never started at all", and then console.error()s it where nobody
+ * looks.
+ *
+ * The status code already on the wire separates the two cases, so no new
+ * channel is needed: a network error or 502 means not started YET (normal on a
+ * cold boot, worth nothing to interrupt for), while 401/403 means running and
+ * refusing us, which never fixes itself. Measured after: note shown filling the
+ * panel box at 401, and silent on an unreachable harness.
+ */
+test("a harness that refuses our token says so where the panel would be", () => {
+    // The probe reports the status, not just a boolean.
+    assert.match(js, /return \{ up: r\.ok, status: r\.status \};/);
+    assert.match(js, /return \{ up: false, status: 0 \}; \/\/ never answered at all/);
+    // Only the refusals speak. "Not yet" stays quiet.
+    assert.match(js, /var refused = status === 401 \|\| status === 403;/);
+    assert.match(js, /setProp\(wsNote, "hidden", !refused\);/);
+    assert.match(js, /if \(!refused\) return;/);
+    // Named for what the user can do about it, not for the HTTP code.
+    assert.match(js, /"The agent panel could not start"/);
+    assert.match(js, /Quit any other copy, then quit and start this one again\./);
+    // Painted on every poll, so it clears itself the moment the harness is fixed.
+    assert.match(js, /harnessAnswering\(\)\.then\(function \(res\) \{\s*\n\s*var up = res\.up;\s*\n\s*paintWorkspaceNote\(res\.status\);/);
+    // Stands in the frame's own box, so nothing shifts when one replaces the other.
+    assert.match(css, /\.ws-note \{\s*\n\s*position: absolute;\s*\n\s*inset: 0;/);
+    assert.match(html, /<div class="ws-note" id="ws-note" role="status" aria-live="polite" hidden>/);
+});

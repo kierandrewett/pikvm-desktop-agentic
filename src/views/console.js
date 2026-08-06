@@ -7712,20 +7712,59 @@
         var WORKSPACE_URL = "/_agent/workspace/";
         var workspaceShown = false;
         var workspaceRetryMs = 400;
+        /* Not just up/down: WHY it is down decides whether saying so is useful.
+         *
+         * A harness that has not started yet answers with a network error or a
+         * 502 from the proxy, and the right response is to wait quietly — it
+         * arrives a second later on a normal boot. A harness that is running but
+         * rejects our credential answers 401/403, and that never fixes itself:
+         * it means a harness from a PREVIOUS run of this app still owns the port,
+         * so the token we sign with is not the token it was started with. The app
+         * refuses to adopt it (credential-blind adoption is exactly what it must
+         * not do) and cannot spawn its own on a taken port.
+         *
+         * Measured on a real occurrence — an app started at 14:30 against a
+         * harness left over from 20:33 the night before:
+         *
+         *     GET /_agent/harness/api/runs?limit=1
+         *     401 {"detail":"valid harness bearer token required"}
+         *
+         * main.ts knows all of this and its own comment says it is "worth
+         * reporting, because the console can only say 'not yet' while this knows
+         * the harness never started at all" — and then console.error()s it. So
+         * the panel simply never appeared, with nothing anywhere on screen, and
+         * everything else about the app working perfectly. */
         function harnessAnswering() {
             return fetch("/_agent/harness/api/runs?limit=1", {
                 headers: { "X-PiKVM-Workspace": "1" },
                 cache: "no-store",
             })
                 .then(function (r) {
-                    return r.ok;
+                    return { up: r.ok, status: r.status };
                 })
                 .catch(function () {
-                    return false;
+                    return { up: false, status: 0 }; // never answered at all
                 });
         }
+        var wsNote = document.getElementById("ws-note");
+        function paintWorkspaceNote(status) {
+            if (!wsNote) return;
+            // Only the refusals. Anything else is "not yet", which is normal on
+            // a cold boot and says nothing worth interrupting for.
+            var refused = status === 401 || status === 403;
+            setProp(wsNote, "hidden", !refused);
+            if (!refused) return;
+            setText(document.getElementById("ws-note-title"), "The agent panel could not start");
+            setText(
+                document.getElementById("ws-note-body"),
+                "Another copy of PiKVM Desktop is still running, or one left its agent service behind. " +
+                    "Quit any other copy, then quit and start this one again.",
+            );
+        }
         function pollWorkspace() {
-            harnessAnswering().then(function (up) {
+            harnessAnswering().then(function (res) {
+                var up = res.up;
+                paintWorkspaceNote(res.status);
                 if (up && !workspaceShown) {
                     workspaceShown = true;
                     chatFrame.src = WORKSPACE_URL;
