@@ -1592,3 +1592,39 @@ test("the terminal tab strip can be worked from the keyboard", () => {
          Delete      s1 closed, focus lands on s2, five tabs left
        and :focus-visible matched with a 3px ring on the focused tab. */
 });
+
+test("a terminal tab whose shell has exited says so", () => {
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    const termHtml = readFileSync(resolve(root, "src/views/terminal.html"), "utf8");
+    /* paintTabs toggled an "exited" class that no rule ever matched, so a dead
+       shell was pixel-identical to a live one: with ten tabs open and three of
+       them finished, the only way to find one was to click in and read the last
+       line. Its sibling state, the KVM control lease, has had a marker all
+       along. */
+    assert.match(termHtml, /\.tab\.exited \.dead \{[\s\S]*?display: inline;/);
+    assert.match(term, /dead\.textContent = "exited";/);
+    assert.match(term, /tab\.append\(label, ctrl, dead, close\);/);
+    // The tooltip carries the restart, which is otherwise only discoverable by
+    // reading the dead shell's own last line.
+    assert.match(term, /dead\.title = "This shell has exited — press Enter in it to restart";/);
+    assert.match(term, /dead\.setAttribute\("aria-hidden", "true"\);/);
+
+    /* The word is the cue, not the colour. Dimming the label instead was
+       measured at 2.36:1 (light) to 3.62:1 (dark) against the tab it sits on —
+       subdued past readable — so the label keeps its full weight and the marker
+       does the work. */
+    assert.doesNotMatch(termHtml, /\.tab\.exited \.label \{[\s\S]*?opacity/);
+    /* Both markers are mixed toward the foreground: the raw tokens are 3.85:1
+       (danger) and 3.94:1 (primary) on the light strip, under AA for 10px text.
+       Measured after the mix: 4.59 and 4.53 on the strip, 4.69 and 4.63 on the
+       active tab. */
+    assert.match(termHtml, /\.tab \.ctrl \{\s*color: color-mix\(in srgb, var\(--primary\) 90%, var\(--foreground\)\);/);
+    assert.match(termHtml, /\.tab \.dead \{\s*color: color-mix\(in srgb, var\(--danger\) 88%, var\(--foreground\)\);/);
+    /* Dashed rather than red-bordered: a shell exiting is ordinary, and a strip
+       of red-outlined tabs reads as alarm. */
+    assert.match(termHtml, /\.tab\.exited \{\s*border-style: dashed;\s*border-color: color-mix\(in srgb, var\(--foreground\) 22%, var\(--border\)\);/);
+    /* Rendered in both themes over CDP with a shell killed on arrival: the live
+       tab plain, the lease-holder blue-bordered with CTL, the dead one
+       dash-bordered with EXITED, and the accessible names
+       "shell s2 (has KVM control)" / "shell s3 (exited)". */
+});

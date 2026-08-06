@@ -131,21 +131,45 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            /* Shown only on the tab that holds the KVM control lease. */
-            .tab .ctrl {
+            /* Two markers on the same slot: the tab holding the KVM control
+               lease, and a tab whose shell has exited.
+               .exited was toggled but never drawn, so ten tabs with three dead
+               ones among them all looked alike, and the only way to find a dead
+               shell was to click into it and read the last line. The word is the
+               cue, not the colour — dimming the label instead was measured at
+               2.4:1 to 3.6:1, which is unreadable rather than subdued.
+               Both are mixed toward the foreground because the raw tokens are
+               3.85:1 (danger) and 3.94:1 (primary) on the light-theme strip:
+               under AA for text this size. Mixed and measured they are 4.59 and
+               4.53 there, 4.69 and 4.63 on the active tab, higher in dark. */
+            .tab .ctrl,
+            .tab .dead {
                 display: none;
                 flex: none;
                 font-size: 10px;
                 font-weight: 700;
                 line-height: 1;
-                color: var(--primary);
                 text-transform: uppercase;
             }
-            .tab.controlling .ctrl {
+            .tab .ctrl {
+                color: color-mix(in srgb, var(--primary) 90%, var(--foreground));
+            }
+            .tab .dead {
+                color: color-mix(in srgb, var(--danger) 88%, var(--foreground));
+            }
+            .tab.controlling .ctrl,
+            .tab.exited .dead {
                 display: inline;
             }
             .tab.controlling {
                 border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+            }
+            /* Dashed, not red: a shell exiting is ordinary, not an error, and a
+               strip of red-outlined tabs reads as alarm. The dashes carry "this
+               one is finished" on their own; the word carries the meaning. */
+            .tab.exited {
+                border-style: dashed;
+                border-color: color-mix(in srgb, var(--foreground) 22%, var(--border));
             }
             .tab .close {
                 display: flex;

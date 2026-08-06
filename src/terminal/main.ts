@@ -344,6 +344,14 @@ const createView = (info: SessionInfo): View => {
     ctrl.className = "ctrl";
     ctrl.title = "This terminal currently controls the KVM mouse/keyboard";
     ctrl.textContent = "ctl";
+    // The restart is only discoverable by reading the dead shell's last line,
+    // so the marker's tooltip says it too. aria-hidden because the tab's own
+    // name already carries the state.
+    const dead = document.createElement("span");
+    dead.className = "dead";
+    dead.title = "This shell has exited — press Enter in it to restart";
+    dead.setAttribute("aria-hidden", "true");
+    dead.textContent = "exited";
     // A real button, not a span: it is an action, and screen readers were told
     // nothing about the "✕" glyph. tabindex -1 keeps it out of the tab sequence
     // (the tab strip is one stop), and Delete on the tab reaches it — the tab
@@ -353,7 +361,7 @@ const createView = (info: SessionInfo): View => {
     close.className = "close";
     close.tabIndex = -1;
     close.textContent = "✕";
-    tab.append(label, ctrl, close);
+    tab.append(label, ctrl, dead, close);
     tabsEl.appendChild(tab);
 
     const v: View = { id: info.id, term, fit, el, tab, label, close, exited: info.exited };
