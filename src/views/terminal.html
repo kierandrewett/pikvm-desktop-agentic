@@ -64,25 +64,64 @@
                 box-sizing: border-box;
                 background: color-mix(in srgb, var(--card) 94%, #000);
                 border-bottom: 1px solid var(--border);
-                overflow-x: auto;
-                overflow-y: hidden;
-                scrollbar-width: none;
+                overflow: hidden;
             }
-            #tabs::-webkit-scrollbar {
-                display: none;
-            }
-            #term-status {
+            /* Both sit at the right of the row and never both at once. They
+               ellipsise rather than push, so a narrow panel loses the end of a
+               sentence (the tooltip keeps it) instead of overflowing the frame. */
+            #term-status,
+            #term-hint {
                 margin-left: auto;
                 padding-right: 4px;
+                /* The tab strip yields first: it scrolls, so space taken from
+                   it costs nothing, while an ellipsised sentence costs its end.
+                   Left to shrink proportionally the hint came out 45px wide —
+                   "Esc…" — beside 298px of tabs. The cap keeps room for New
+                   shell and a tab to stay visible when the panel is narrow. */
+                flex: 0 0 auto;
+                max-width: calc(100% - 104px);
+                overflow: hidden;
                 font-size: 11px;
                 white-space: nowrap;
+                text-overflow: ellipsis;
+            }
+            #term-status {
                 color: var(--danger);
             }
+            #term-hint {
+                color: var(--muted-foreground);
+            }
+            /* Read, never seen: the same advice as #term-hint, hung off the
+               terminal's own description so a screen reader gets it on focus. */
+            .sr-only {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                margin: -1px;
+                padding: 0;
+                overflow: hidden;
+                clip-path: inset(50%);
+                white-space: nowrap;
+            }
+            /* Only the tabs scroll. The strip used to scroll as a whole, which
+               put everything after the tabs — New shell, the disconnect notice,
+               the escape-hatch hint — off the right edge as soon as there were
+               enough shells to overflow. Measured with eleven open: the hint was
+               a single letter at the edge and the notice was past it entirely.
+               flex 0 1 auto rather than 1, so New shell still sits just after
+               the last tab when there is room, instead of pinning right. */
             #tablist {
                 display: flex;
                 align-items: center;
                 gap: 4px;
-                flex: none;
+                flex: 0 1 auto;
+                min-width: 0;
+                overflow-x: auto;
+                overflow-y: hidden;
+                scrollbar-width: none;
+            }
+            #tablist::-webkit-scrollbar {
+                display: none;
             }
             .tab {
                 position: relative;
@@ -290,7 +329,13 @@
                  shell simply stopped doing anything and nothing on screen said
                  why. role=status so it is announced when it appears, and empty
                  while the connection is healthy so there is nothing to read. -->
-            <span id="term-status" role="status" aria-live="polite" hidden></span></div>
+            <span id="term-status" role="status" aria-live="polite" hidden></span>
+            <!-- The way out of the terminal, shown only to whoever needs it: on
+                 screen when focus arrived from the keyboard, and always on the
+                 helper textarea's description for screen readers. aria-hidden
+                 here so the two are not read as one thing twice. -->
+            <span id="term-hint" aria-hidden="true" hidden>Esc then Tab to leave the terminal</span></div>
+        <span id="term-hatch" class="sr-only">Press Escape then Tab to move focus out of the terminal.</span>
         <div id="terms"></div>
         <script src="terminal.js"></script>
     </body>

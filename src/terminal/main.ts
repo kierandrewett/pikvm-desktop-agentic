@@ -25,6 +25,47 @@ const tabsEl = document.getElementById("tablist")!;
 const termsEl = document.getElementById("terms")!;
 const newTabBtn = document.getElementById("new-tab") as HTMLButtonElement;
 const statusEl = document.getElementById("term-status")!;
+const hintEl = document.getElementById("term-hint")!;
+
+/* How the escape hatch is advertised. WCAG 2.1.2 allows a non-standard way out
+ * of a trap only if the user is told about it, and neither audience can guess
+ * "Escape then Tab": screen readers get it from aria-describedby on the helper
+ * textarea, sighted keyboard users get the same words in the tab strip.
+ *
+ * Only when focus arrived from the keyboard, though. Someone who clicked into
+ * the terminal was never stuck — they can click straight back out — and a
+ * standing line of advice above a shell you are working in is noise. */
+const ESCAPE_HATCH_MS = 1500;
+
+/* Keep the selected tab visible after anything resizes the strip.
+ *
+ * The tabs scroll inside their own region, so whatever else appears on that row
+ * takes width from them. setActive scrolled the tab into view and then focused
+ * the terminal, which raised the hint, which shrank the strip by 178px and put
+ * the tab straight back out of sight — measured with twelve shells open: the
+ * selected tab sat at 266..355 against a strip ending at 173.
+ *
+ * A function declaration on purpose: setLinkUp calls this before the view state
+ * below is initialised, and only a hoisted binding survives that. The work is
+ * deferred to a frame anyway, both to let the layout change land first and
+ * because by then the views map exists. */
+function revealActiveTab(): void {
+    requestAnimationFrame(() => {
+        const v = active ? views.get(active) : null;
+        v?.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+}
+let cameByKeyboard = false;
+document.addEventListener("keydown", () => { cameByKeyboard = true; }, true);
+document.addEventListener("mousedown", () => { cameByKeyboard = false; }, true);
+let hintTimer: number | undefined;
+const showEscapeHint = (on: boolean): void => {
+    window.clearTimeout(hintTimer);
+    // The disconnect notice is the more urgent thing and shares this row.
+    hintEl.hidden = !on || !statusEl.hidden;
+    revealActiveTab();
+    if (on) hintTimer = window.setTimeout(() => { hintEl.hidden = true; }, 6000);
+};
 
 /* Say when the socket is down, and stop offering an action that cannot happen.
  *
@@ -41,8 +82,16 @@ const statusEl = document.getElementById("term-status")!;
 const setLinkUp = (up: boolean): void => {
     newTabBtn.disabled = !up;
     statusEl.hidden = up;
+    // They share the row, and losing the socket outranks advice about focus.
+    // Without this the hint stayed up alongside the notice and the two together
+    // squeezed the tab strip to nothing.
+    if (!up) showEscapeHint(false);
     const text = up ? "" : "Terminal disconnected — reconnecting…";
     if (statusEl.textContent !== text) statusEl.textContent = text;
+    // The row can be narrower than the sentence; the tooltip keeps all of it.
+    if (statusEl.title !== text) statusEl.title = text;
+    // The notice takes its width from the tabs, same as the hint does.
+    revealActiveTab();
 };
 // Disabled until the first open, so the button never invites a click it would
 // swallow. A healthy connection settles long before anyone reaches for it.
@@ -312,6 +361,10 @@ const setActive = (id: string, opts?: { focusTerm?: boolean }): void => {
     active = id;
     for (const o of views.values()) o.el.classList.toggle("active", o.id === id);
     paintTabs();
+    // Now that the tabs scroll inside their own strip, the selected one can be
+    // out of sight — a new shell opened past the overflow used to switch to a
+    // tab nobody could see.
+    revealActiveTab();
     // Arrowing along the strip selects without stealing focus — xterm swallows
     // arrow keys, so focusing the terminal here would end the walk at the first
     // press and strand the keyboard in whichever shell it landed on.
@@ -328,6 +381,12 @@ const createView = (info: SessionInfo): View => {
     termsEl.appendChild(el);
     term.open(el);
     term.resize(authCols, authRows);
+    const helper = el.querySelector(".xterm-helper-textarea");
+    if (helper) {
+        helper.setAttribute("aria-describedby", "term-hatch");
+        helper.addEventListener("focus", () => showEscapeHint(cameByKeyboard));
+        helper.addEventListener("blur", () => showEscapeHint(false));
+    }
 
     const tab = document.createElement("div");
     tab.className = "tab";
@@ -408,8 +467,32 @@ const createView = (info: SessionInfo): View => {
     // Right-click pastes (common terminal convention).
     el.addEventListener("contextmenu", (ev) => { ev.preventDefault(); pasteFromClipboard(); });
 
+    let escapeArmedUntil = 0;
     term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
+        /* ── The way back out (WCAG 2.1.2) ──
+         * xterm sends Tab, Shift+Tab, Escape and F6 to the PTY, so once focus
+         * reached the terminal nothing moved it again — measured over CDP, all
+         * four left activeElement on the helper textarea. That is a keyboard
+         * trap, and now that the tab strip can hand focus over deliberately it
+         * is a trap people will actually fall into.
+         *
+         * Escape then Tab, the convention VS Code's terminal uses, because
+         * every unmodified key belongs to the PTY and Ctrl+Shift+Tab is
+         * browser-reserved on the web console this same file serves. It steals
+         * nothing on its own: Escape is still forwarded, and only a Tab
+         * directly after one is taken. The cost is bash's M-Tab and vim's
+         * jumplist-forward, which is the trade this convention exists to make.
+         */
+        const bareTab = e.key === "Tab" && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey;
+        if (bareTab && Date.now() <= escapeArmedUntil) {
+            escapeArmedUntil = 0;
+            e.preventDefault();
+            v.tab.focus();
+            return false;
+        }
+        escapeArmedUntil =
+            e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey ? Date.now() + ESCAPE_HATCH_MS : 0;
         // ── Copy / paste (Ctrl+C is left alone as SIGINT; use Ctrl+Shift+C to copy) ──
         const key = e.key.toLowerCase();
         if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (key === "c" || e.code === "KeyC")) {

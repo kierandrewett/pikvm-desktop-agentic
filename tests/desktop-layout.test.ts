@@ -1628,3 +1628,71 @@ test("a terminal tab whose shell has exited says so", () => {
        dash-bordered with EXITED, and the accessible names
        "shell s2 (has KVM control)" / "shell s3 (exited)". */
 });
+
+test("the terminal is not a keyboard trap, and says how to get out", () => {
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    const termHtml = readFileSync(resolve(root, "src/views/terminal.html"), "utf8");
+    /* xterm sends Tab, Shift+Tab, Escape and F6 to the PTY, so once focus was in
+       the terminal nothing moved it out again — measured over CDP, all four left
+       activeElement on the helper textarea. WCAG 2.1.2, and now that the tab
+       strip hands focus over deliberately it is a trap people reach. */
+    assert.match(term, /const bareTab = e\.key === "Tab" && !e\.ctrlKey && !e\.shiftKey && !e\.altKey && !e\.metaKey;/);
+    assert.match(term, /if \(bareTab && Date\.now\(\) <= escapeArmedUntil\) \{[\s\S]*?v\.tab\.focus\(\);/);
+    /* Escape then Tab, not a chord: every unmodified key belongs to the PTY and
+       Ctrl+Shift+Tab is browser-reserved on the web console this file also
+       serves. It steals nothing on its own — Escape is still forwarded, and only
+       a Tab inside the window after one is taken. */
+    assert.match(term, /escapeArmedUntil =\s*e\.key === "Escape"[\s\S]*?Date\.now\(\) \+ ESCAPE_HATCH_MS : 0;/);
+
+    /* WCAG allows a non-standard way out only if the user is told about it, and
+       neither audience can guess this one. */
+    assert.match(termHtml, /id="term-hatch" class="sr-only">Press Escape then Tab to move focus out of the terminal\.</);
+    assert.match(term, /helper\.setAttribute\("aria-describedby", "term-hatch"\);/);
+    assert.match(termHtml, /id="term-hint" aria-hidden="true" hidden>Esc then Tab to leave the terminal</);
+    // On screen only for whoever needs it: someone who clicked in was never
+    // stuck, and standing advice above a shell you are working in is noise.
+    assert.match(term, /helper\.addEventListener\("focus", \(\) => showEscapeHint\(cameByKeyboard\)\);/);
+    assert.match(term, /document\.addEventListener\("mousedown", \(\) => \{ cameByKeyboard = false; \}, true\);/);
+    /* Measured live: entering by Enter on a tab raised the hint and set the
+       description, a bare Tab still reached the PTY, Escape alone stayed in,
+       Escape then Tab landed on the tab and cleared the hint, and after the
+       window lapsed Tab went back to the PTY. */
+});
+
+test("the terminal tab strip keeps New shell and its notices on screen", () => {
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    const termHtml = readFileSync(resolve(root, "src/views/terminal.html"), "utf8");
+    /* The strip scrolled as a whole, so everything after the tabs left the
+       frame once there were enough shells to overflow. Measured with eleven
+       open in a 399px panel: the hint was one letter at the right edge and the
+       disconnect notice was past it entirely — a message that only appears when
+       something is wrong, arriving where it could not be read. */
+    assert.match(termHtml, /#tabs \{[\s\S]*?overflow: hidden;\s*\}/);
+    assert.match(termHtml, /#tablist \{[\s\S]*?flex: 0 1 auto;\s*min-width: 0;\s*overflow-x: auto;/);
+    // 0 1 auto rather than 1, so New shell still sits just after the last tab
+    // when there is room instead of pinning to the right.
+    assert.doesNotMatch(termHtml, /#tablist \{[\s\S]*?flex: 1 1 auto;/);
+
+    /* The tabs yield the width, because they scroll and a sentence does not.
+       Left to shrink proportionally the hint came out 45px — "Esc…" — beside
+       298px of tabs. */
+    assert.match(termHtml, /#term-status,\s*#term-hint \{[\s\S]*?flex: 0 0 auto;\s*max-width: calc\(100% - 104px\);/);
+    assert.match(termHtml, /#term-status,\s*#term-hint \{[\s\S]*?text-overflow: ellipsis;/);
+    assert.match(term, /if \(statusEl\.title !== text\) statusEl\.title = text;/);
+    // One row, two messages, and losing the socket outranks advice about focus.
+    assert.match(term, /if \(!up\) showEscapeHint\(false\);/);
+
+    /* Anything that resizes the row can push the selected tab out of the
+       scrolled region: setActive scrolled it into view and then focused the
+       terminal, which raised the hint, which shrank the strip by 178px and put
+       the tab back out of sight — twelve shells open, selected tab at 266..355
+       against a strip ending at 173. So the reveal runs after each of them, on
+       the next frame. */
+    assert.match(term, /function revealActiveTab\(\): void \{\s*requestAnimationFrame\(\(\) => \{/);
+    assert.match(term, /v\?\.tab\.scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\);/);
+    assert.equal((term.match(/revealActiveTab\(\);/g) ?? []).length, 3,
+        "setActive, the hint and the disconnect notice all resize the row");
+    /* Re-measured after the fix, eighteen shells in a 399px panel: strip
+       8..173 scrolled to its end, selected tab 84..173 in view, New shell
+       179..209, hint 213..391 in full. */
+});
