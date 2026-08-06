@@ -1947,6 +1947,30 @@
             images: function () {
                 return (state && state.storage && state.storage.images) || {};
             },
+            /** A transfer the PI is running, as {name, written, size}, or null.
+             *
+             *  setState has stored storage.downloading and storage.uploading
+             *  since it was written and nothing ever read them, so a remote
+             *  download showed an indeterminate bar and "the Pi is downloading
+             *  it…" for its whole length — which for a multi-gigabyte ISO over
+             *  a slow link is minutes of a UI that cannot say whether it is
+             *  nearly done or barely started. startMsdUpload's own comment
+             *  says progress "comes back on the msd event"; this is the half
+             *  that was missing.
+             *
+             *  Shapes are read defensively rather than pinned to one guess.
+             *  Anything without two usable numbers returns null and the caller
+             *  keeps the indeterminate bar, so the worst case is exactly what
+             *  happens today. */
+            transfer: function () {
+                var st = state && state.storage;
+                var t = (st && (st.downloading || st.uploading)) || null;
+                if (!t || typeof t !== "object") return null;
+                var done = typeof t.written === "number" ? t.written : typeof t.current === "number" ? t.current : null;
+                var total = typeof t.size === "number" ? t.size : typeof t.total === "number" ? t.total : null;
+                if (done === null || typeof total !== "number" || total <= 0) return null;
+                return { name: typeof t.name === "string" ? t.name : "", written: done, size: total };
+            },
             /** Free bytes on the default storage part, or null. */
             free: function () {
                 var parts = state && state.storage && state.storage.parts;
@@ -2267,6 +2291,11 @@
 
     var msdDlg = document.getElementById("msd-dlg");
     var msdUpload = null; // the in-flight XMLHttpRequest, or null
+    /* Whether that upload is the Pi fetching a URL rather than us sending a
+     * file. A local one measures itself from xhr.upload.onprogress; only a
+     * remote one has to take its numbers from the Pi's own state, and mixing
+     * the two would have them fighting over the same bar. */
+    var msdUploadRemote = false;
 
     /* True while the user has this control open, and not to be written to.
      *
@@ -2398,6 +2427,27 @@
             var f = msd.free();
             free.textContent = f === null ? "" : humanBytes(f) + " free";
         }
+
+        /* A remote download's progress belongs to the Pi, so it arrives here on
+         * the msd event rather than from an XHR we can measure. Only while OUR
+         * remote upload is in flight: a local one is measuring itself and a
+         * transfer started by another client is not this dialog's bar to move.
+         * No usable numbers leaves the indeterminate bar exactly as it was. */
+        if (msdUpload && msdUploadRemote) {
+            var tr = msd.transfer();
+            if (tr) {
+                var pct = Math.max(0, Math.min(100, Math.round((tr.written / tr.size) * 100)));
+                setMsdProgress(pct, pct + "%  ·  " + humanBytes(tr.written) + " of " + humanBytes(tr.size));
+            } else {
+                /* Back to "working, length unknown". Leaving the last percentage
+                 * standing would keep claiming a measurement we no longer have,
+                 * which is the same lie a determinate bar pinned at 0 tells and
+                 * the reason this one starts out indeterminate. Measured: the Pi
+                 * reporting 98% and then a state with no numbers left the bar
+                 * frozen at 98% for the rest of the transfer. */
+                setMsdProgress(undefined, "the Pi is downloading it…");
+            }
+        }
     }
     msd.onChange(paintMsd);
     // The menu entry has to track availability even while the dialog is closed, so it
@@ -2441,12 +2491,14 @@
 
         var xhr = new XMLHttpRequest();
         msdUpload = xhr;
+        msdUploadRemote = !picked && !!remote;
         // A local upload measures itself; a remote one has nothing to measure.
         setMsdProgress(remote ? undefined : 0, remote ? "starting…" : "0%");
         paintMsd();
 
         var done = function (okMsg, errMsg) {
             msdUpload = null;
+            msdUploadRemote = false;
             setMsdProgress(null, "");
             if (file) file.value = "";
             if (urlEl) urlEl.value = "";

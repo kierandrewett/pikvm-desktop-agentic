@@ -877,3 +877,55 @@ test("the desktop says when input is not reaching the Pi", () => {
     // some unrelated health event happened to arrive.
     assert.match(js, /setState\(streamState \|\| "connecting"\);\s*\n[^\n]*\n\s*paintHealth\(\);/);
 });
+
+/**
+ * A remote image download shows how far it has got.
+ *
+ * startMsdUpload's own comment says that for a URL the Pi fetches itself,
+ * "progress comes back on the msd event rather than from us" — and setState
+ * has stored storage.downloading and storage.uploading since it was written
+ * with nothing anywhere reading either. So the bar stayed indeterminate and
+ * the line stayed "the Pi is downloading it…" for the whole transfer, which
+ * for a multi-gigabyte ISO over a slow link is minutes of a dialog that
+ * cannot say whether it is nearly done or barely started.
+ *
+ * The shapes are read defensively rather than pinned to one guess, the same
+ * call as the paste keymap picker and for the same reason — this could not be
+ * put against a real Pi. Anything without two usable numbers reads as no
+ * measurement. Measured against a live upload:
+ *
+ *     just started, Pi silent : indeterminate, "the Pi is downloading it…"
+ *     written/size            : 25%, "25%  ·  954 MB of 3.7 GB"
+ *     further along           : 85%
+ *     current/total shape     : 98%
+ *     only a name, no numbers : back to indeterminate
+ *
+ * That last one matters and was wrong first time round: it left the bar
+ * frozen at 98%, which keeps claiming a measurement we no longer have — the
+ * same lie a determinate bar pinned at 0 tells, and the reason this one
+ * starts indeterminate at all.
+ *
+ * Only OUR remote upload moves it. A local file measures itself from
+ * xhr.upload.onprogress and would fight over the same bar, and a transfer
+ * another client started is not this dialog's to report: with the dialog open
+ * and nothing of ours running, a pushed download left the row hidden.
+ */
+test("a Pi-side image download reports its progress", () => {
+    const at = js.indexOf("transfer: function () {");
+    assert.ok(at > 0, "no transfer accessor on the msd module");
+    const acc = js.slice(at, at + 700);
+    // Either pair of names, and nothing without two usable numbers.
+    assert.match(acc, /st\.downloading \|\| st\.uploading/);
+    assert.match(acc, /typeof t\.written === "number" \? t\.written : typeof t\.current === "number"/);
+    assert.match(acc, /typeof t\.size === "number" \? t\.size : typeof t\.total === "number"/);
+    assert.match(acc, /if \(done === null \|\| typeof total !== "number" \|\| total <= 0\) return null;/);
+    // Painted only for our own remote upload, and honest when the numbers stop.
+    const paint = js.slice(js.indexOf("if (msdUpload && msdUploadRemote) {"), js.indexOf("if (msdUpload && msdUploadRemote) {") + 1200)
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(paint, /var tr = msd\.transfer\(\);/);
+    assert.match(paint, /setMsdProgress\(pct, pct \+ "%  ·  " \+ humanBytes\(tr\.written\) \+ " of " \+ humanBytes\(tr\.size\)\);/);
+    assert.match(paint, /\} else \{\s*\n\s*setMsdProgress\(undefined, "the Pi is downloading it…"\);/);
+    // Set for a URL, cleared when the upload ends, so a later local one is unaffected.
+    assert.match(js, /msdUploadRemote = !picked && !!remote;/);
+    assert.match(js, /msdUpload = null;\s*\n\s*msdUploadRemote = false;/);
+});
