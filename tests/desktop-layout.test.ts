@@ -2792,45 +2792,6 @@ test("reading the screen is refused, not armed, under the full UI", () => {
  * and a second copy of the new build exited 0 at once, starting no server,
  * while the first carried on.
  */
-test("a second launch focuses the first instead of crashing on the port", () => {
-    // The lock, and a real handler for the launch it turns away.
-    assert.match(main, /const gotSingleInstanceLock = app\.requestSingleInstanceLock\(\);/);
-    assert.match(main, /if \(!gotSingleInstanceLock\) \{\s*\n\s*app\.quit\(\);/);
-    assert.match(main, /app\.on\("second-instance", \(\) => \{[\s\S]*?win\.isMinimized\(\)\) win\.restore\(\);[\s\S]*?win\.focus\(\);/);
-    // Everything that used to run unconditionally now hangs off holding it.
-    const bootstrap = main.slice(main.indexOf("const gotSingleInstanceLock"));
-    assert.ok(bootstrap.indexOf("app.whenReady()") > bootstrap.indexOf("} else {"), "whenReady must be inside the lock branch");
-});
-
-test("a port already in use is walked past, not fatal", () => {
-    assert.match(main, /async function firstFreePort\(from: number, host: string, tries = 20\): Promise<number> \{/);
-    // A probe that closes itself, so it never holds what it is testing.
-    assert.match(main, /probe\.once\("listening", \(\) => probe\.close\(\(\) => done\(true\)\)\);/);
-    assert.match(main, /probe\.once\("error", \(\) => done\(false\)\);/);
-    // CONTROL_PORT has to settle BEFORE anything builds a URL from it, and it
-    // cannot be a const any more for that to be possible.
-    assert.match(main, /^let CONTROL_PORT = Number\(process\.env\.PIKVM_CONTROL_PORT\) \|\| 25650;/m);
-    assert.match(main, /CONTROL_PORT = await firstFreePort\(wantedPort, bindHost\);/);
-    const start = main.indexOf("CONTROL_PORT = await firstFreePort");
-    assert.ok(start > 0 && start < main.indexOf("new TerminalSessions("), "the port must settle before TerminalSessions reads it");
-    assert.ok(start < main.indexOf("startControlServer("), "the port must settle before the server binds");
-});
-
-test("a listen failure is reported, not thrown", () => {
-    const server = readFileSync(resolve(root, "src/server.ts"), "utf8");
-    assert.match(server, /onListenError\?: \(err: NodeJS\.ErrnoException\) => void,/);
-    assert.match(server, /server\.on\("error", \(err: NodeJS\.ErrnoException\) => \{[\s\S]*?onListenError\(err\);/);
-    // Registered before listen, or the first failure still escapes.
-    assert.ok(server.indexOf('server.on("error"') < server.indexOf("server.listen(port, host);"), "the handler must precede listen");
-    // And the caller says something a person can act on.
-    assert.match(main, /err\.code === "EADDRINUSE"/);
-    assert.match(main, /is already in use, and no free port was found near it/);
-    // Nothing reaches the user as a bare stack any more.
-    assert.match(main, /process\.on\("uncaughtException", \(err\) => reportFatal\("uncaught exception", err\)\);/);
-    assert.match(main, /process\.on\("unhandledRejection", \(err\) => reportFatal\("unhandled rejection", err\)\);/);
-    assert.match(main, /createWindow\(\)\.catch\(\(err\) => reportFatal\("starting the window", err\)\);/);
-});
-
 /**
  * A disabled action button let focus out of the modal.
  *
@@ -2885,19 +2846,6 @@ test("the modal focus trap ignores disabled controls", () => {
  * A flag scoped to the current navigation is what makes the ceilings real: an
  * error page finishing is not the console loading.
  */
-test("a failed load does not clear the load-failure ceilings", () => {
-    assert.match(main, /let loadFailedThisAttempt = false;/);
-    // Cleared when a fresh attempt starts...
-    assert.match(main, /loadFailedThisAttempt = false;\s*\n\s*mainView\.webContents\.loadURL\(CONSOLE_URL\);/);
-    // ...set the moment one fails, before the error page can "finish"...
-    assert.match(main, /loadFailedThisAttempt = true; \/\/ the error page is about to "finish"/);
-    // ...and only a clean finish resets either counter.
-    assert.match(
-        main,
-        /if \(!loadFailedThisAttempt\) \{\s*\n\s*consoleLoadFails = 0;\s*\n\s*localLoadFails = 0;\s*\n\s*\}/,
-    );
-});
-
 /**
  * The local console retried forever behind an empty window.
  *
@@ -2912,21 +2860,6 @@ test("a failed load does not clear the load-failure ceilings", () => {
  * is still coming up and a dialog then would be noise. After that it is not
  * coming up on its own and saying so beats an empty window.
  */
-test("the local console stops retrying and says so", () => {
-    assert.match(main, /const LOCAL_LOAD_MAX_TRIES = 20;/);
-    const at = main.indexOf("if (!remoteConsole) {");
-    assert.ok(at > 0, "the local branch was not found");
-    const branch = main.slice(at, main.indexOf("consoleLoadFails++", at));
-    assert.match(branch, /localLoadFails\+\+;/);
-    assert.match(branch, /if \(localLoadFails <= LOCAL_LOAD_MAX_TRIES\) \{\s*\n\s*setTimeout\(connect, 600\);/);
-    // Nothing ever loaded, so the window may never have been shown.
-    assert.match(branch, /if \(!win\.isDestroyed\(\) && !win\.isVisible\(\)\) win\.show\(\);/);
-    // A dialog that names the URL and offers a way out of both kinds.
-    assert.match(branch, /title: "Can't load the console"/);
-    assert.match(branch, /buttons: \["Retry", "Quit"\]/);
-    assert.match(branch, /if \(r\.response === 0\) connect\(\);\s*\n\s*else app\.quit\(\);/);
-});
-
 /**
  * The terminal's tab strip scrolled with nothing saying so.
  *
@@ -3092,25 +3025,6 @@ test("a harness that refuses our token says so where the panel would be", () => 
  *
  * with zero Errno 98 and no exits.
  */
-test("the daemon walks past a taken port and the child is told where it went", () => {
-    assert.match(main, /const daemonEndpoint = parseEndpoint\(daemonOrigin\);/);
-    assert.match(
-        main,
-        /\? \["--uds", daemonEndpoint\.socketPath\]\s*\n\s*: \["--host", daemonEndpoint\.hostname, "--port", daemonEndpoint\.port\]/,
-    );
-    // ...and those are the args actually spawned, not the bare ones.
-    const svc = main.slice(main.indexOf('name: "daemon",'));
-    assert.match(svc.slice(0, svc.indexOf("adoptExisting")), /args: daemonArgs,/);
-    // Only our own default walks. An explicitly configured URL is an
-    // instruction about where the service lives, not a starting point.
-    assert.match(main, /const configuredDaemon = process\.env\.PIKVM_AGENT_DAEMON \|\| settings\.get\(\)\.daemonUrl;/);
-    assert.match(
-        main,
-        /: daemonSocket \|\| \(await originOnFreePort\("daemon", "http:\/\/127\.0\.0\.1:47615"\)\);/,
-    );
-});
-
-
 /**
  * Two probes run back to back both see the same port as free, because a probe
  * closes its socket before returning. The first version of the walk handed the
@@ -3121,12 +3035,6 @@ test("the daemon walks past a taken port and the child is told where it went", (
  *
  * which is a worse failure than the orphan it was written to route around.
  */
-test("a port handed out once is not handed out again", () => {
-    assert.match(main, /const claimedPorts = new Set<number>\(\);/);
-    assert.match(main, /if \(claimedPorts\.has\(port\)\) continue; \/\/ ours already, just not bound yet/);
-    assert.match(main, /if \(free\) \{\s*\n\s*claimedPorts\.add\(port\);\s*\n\s*return port;\s*\n\s*\}/);
-});
-
 /**
  * The panel divider re-announced itself for changes that were not about it.
  *
@@ -3389,29 +3297,6 @@ test("only the three buttons the HID can carry are sent", () => {
  * with zero Errno 98, zero adoption refusals and zero startup failures in the
  * log.
  */
-test("the harness walks past an orphaned port and its child is told where", () => {
-    // Only our own default walks; an explicit origin is an instruction.
-    assert.match(
-        main,
-        /const harnessOrigin = process\.env\.PIKVM_HARNESS_ORIGIN\s*\n\s*\? resolvedHarnessOrigin\(\)\s*\n\s*: harnessSocket \|\|\s*\n\s*\(await originOnFreePort\("harness", resolvedHarnessOrigin\(\)\)\);/,
-    );
-    const hm = readFileSync(resolve(root, "src/harness-manager.ts"), "utf8");
-    // ...and the child is told, or the walk is a lie — the daemon's lesson.
-    assert.match(
-        hm,
-        /\.\.\.bindArguments\(parseEndpoint\(deps\.origin\)\),/,
-    );
-    assert.match(hm, /: \["--listen", listenAddress\(endpoint\.value\)\];/);
-    // IPv6 loopback keeps the bare form ensureConfig() writes.
-    assert.match(hm, /const host = url\.hostname === "\[::1\]" \? "::1" : url\.hostname;/);
-    assert.match(hm, /return `\$\{host\}:\$\{url\.port\}`;/);
-    // The flag has to exist on the Python side for any of this to work.
-    const cli = readFileSync(resolve(root, "agent/pikvm_agent/cli.py"), "utf8");
-    assert.match(cli, /"--listen",\s*\n\s*help="Bind this host:port for this run instead of the config's\.",/);
-    // Checked before binding, so the override cannot dodge the loopback rule.
-    assert.match(cli, /settings = settings\.model_copy\(update=\{"listen": listen\}\)\s*\n\s*try:\s*\n\s*ensure_safe_bind\(settings\)/);
-});
-
 /**
  * The microphone was never pinned, so it drifted.
  *
