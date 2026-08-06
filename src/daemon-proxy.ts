@@ -14,10 +14,12 @@
 
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { URL } from "node:url";
+import { parseEndpoint, endpointRequestOptions, endpointIsTls } from "./endpoint";
 
 export interface DaemonProxyDeps {
-    /** Daemon base URL, e.g. http://127.0.0.1:47615 (no trailing slash needed). */
+    /** Where the daemon is: either an origin (http://127.0.0.1:47615) or a
+     *  socket (unix:/…/daemon.sock). Both are accepted so the transport can
+     *  change without every caller of this changing with it. */
     origin: string;
     /** Desktop-owned action capability. Renderer-supplied auth is discarded. */
     bearerToken: string;
@@ -30,10 +32,8 @@ export function createDaemonProxy({
     bearerToken,
     prefix = "/_agent/daemon",
 }: DaemonProxyDeps) {
-    const target = new URL(origin);
-    const isHttps = target.protocol === "https:";
-    const doRequest = isHttps ? httpsRequest : httpRequest;
-    const defaultPort = isHttps ? "443" : "80";
+    const endpoint = parseEndpoint(origin);
+    const doRequest = endpointIsTls(endpoint) ? httpsRequest : httpRequest;
 
     function handleHttp(req: IncomingMessage, res: ServerResponse): void {
         // Strip the namespace → the daemon path (keep the query string).
@@ -41,26 +41,18 @@ export function createDaemonProxy({
         let rest = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
         if (!rest.startsWith("/")) rest = "/" + rest; // "/_agent/daemon" → "/"
 
+        // Forward ordinary headers, but never let a renderer choose the daemon
+        // capability. The stronger harness capability is never available here.
+        // endpointRequestOptions sets Host to match whichever transport this is.
+        const headers = {
+            ...Object.fromEntries(
+                Object.entries(req.headers).filter(([name]) => name.toLowerCase() !== "authorization"),
+            ),
+            authorization: `Bearer ${bearerToken}`,
+        };
+
         const proxyReq = doRequest(
-            {
-                protocol: target.protocol,
-                hostname: target.hostname,
-                port: target.port || defaultPort,
-                method: req.method,
-                path: rest,
-                // Forward ordinary headers, but never let a renderer choose the
-                // daemon capability. The stronger harness capability is never
-                // available on this proxy.
-                headers: {
-                    ...Object.fromEntries(
-                        Object.entries(req.headers).filter(
-                            ([name]) => name.toLowerCase() !== "authorization",
-                        ),
-                    ),
-                    host: target.host,
-                    authorization: `Bearer ${bearerToken}`,
-                },
-            },
+            endpointRequestOptions(endpoint, rest, req.method, headers),
             (proxyRes) => {
                 res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
                 proxyRes.pipe(res);

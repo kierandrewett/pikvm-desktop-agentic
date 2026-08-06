@@ -4,7 +4,9 @@ import {
     get as httpGet,
     type IncomingMessage,
 } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolve } from "node:path";
 import test from "node:test";
 import { createDaemonProxy } from "../src/daemon-proxy";
@@ -152,4 +154,77 @@ test("the harness route refuses anything that did not come from the workspace", 
     // whose existing callers do not send it.
     const harnessRoute = server.slice(server.indexOf('path.startsWith("/harness/")'));
     assert.ok(harnessRoute.indexOf("WORKSPACE_HEADER") < harnessRoute.indexOf("harnessProxy.handleHttp"));
+});
+
+/**
+ * The same proxy, over a unix socket instead of a port.
+ *
+ * The daemon answers only to us, so a loopback port bought it nothing that a
+ * socket does not: the port could be held by an orphan of a previous run, and
+ * anything on the box could connect to it, where a socket is a file with an
+ * owner and a mode.
+ *
+ * Everything the TCP tests above check has to keep holding across that change,
+ * so this asserts the same three things — the path is stripped to the daemon's
+ * own, the renderer's authorization is discarded and replaced with the action
+ * capability, and the body comes back untouched. Host is "localhost" because
+ * there is no host:port to name, and Starlette needs SOMETHING to build
+ * absolute URLs from.
+ *
+ * The directory carries a space on purpose: the real socket lives under
+ * "~/.config/PiKVM Desktop", and a path that gets percent-encoded on the way
+ * through names no file that can be opened.
+ */
+test("the daemon proxy works over a unix socket", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pikvm proxy "));
+    const socketPath = join(dir, "daemon.sock");
+    let seen = { authorization: "", path: "", host: "" };
+    const daemon = createServer((request: IncomingMessage, response) => {
+        seen = {
+            authorization: String(request.headers.authorization ?? ""),
+            path: request.url ?? "",
+            host: String(request.headers.host ?? ""),
+        };
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end('{"ok":true}');
+    });
+    await new Promise<void>((done) => daemon.listen(socketPath, done));
+    const proxy = createDaemonProxy({
+        origin: `unix:${socketPath}`,
+        bearerToken: "desktop-daemon-action-token-0123456789abcdef",
+    });
+    const front = await listen(proxy.handleHttp);
+
+    try {
+        const result = await read(
+            front.origin,
+            "/_agent/daemon/sessions?limit=1",
+            "Bearer renderer-controlled-value",
+        );
+        assert.equal(result.status, 200);
+        assert.equal(result.body, '{"ok":true}');
+        assert.equal(seen.path, "/sessions?limit=1");
+        assert.equal(seen.authorization, "Bearer desktop-daemon-action-token-0123456789abcdef");
+        assert.equal(seen.host, "localhost");
+    } finally {
+        await front.close();
+        await new Promise<void>((done) => daemon.close(() => done()));
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+/** A daemon that is not there answers 502 whichever transport it is not there on. */
+test("an absent unix socket answers 502 rather than hanging", async () => {
+    const proxy = createDaemonProxy({
+        origin: "unix:/nonexistent/pikvm-desktop-test/daemon.sock",
+        bearerToken: "t",
+    });
+    const front = await listen(proxy.handleHttp);
+    try {
+        const result = await read(front.origin, "/_agent/daemon/healthz");
+        assert.equal(result.status, 502);
+        assert.match(result.body, /daemon_unreachable/);
+    } finally {
+        await front.close();
+    }
 });
