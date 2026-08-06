@@ -1632,6 +1632,26 @@
             kind.className = "macro-kind";
             kind.textContent = step.type === "chord" ? "Keys" : step.type === "text" ? "Text" : "Pause";
             row.appendChild(kind);
+            /* The step's own controls, in their own box, so that when a chord row
+             * is too wide it is the KEY LIST that wraps and not the up/down/remove
+             * buttons.
+             *
+             * Wrapping is deliberate — squeezed onto one line the key list
+             * collapsed to about 55px, enough for "L" but not for "Print Screen"
+             * — but what dropped to the second line was the action box, which
+             * left it floating between its own row and the next one with nothing
+             * saying which step it belonged to. Measured at the default dialog
+             * width: a chord row wants 694px of content in 554px (kind 72, mods
+             * 257, key list 211, actions 154), and the row grew from 32px to 71px
+             * with the buttons at the bottom of it. Every other step type kept
+             * them inline, so the one row where reordering is most fiddly was
+             * also the only one where the controls moved.
+             *
+             * With the controls boxed, the actions stay pinned top-right against
+             * their row and the key list wraps beneath them — where it gets MORE
+             * width than before, not less. */
+            var body = document.createElement("div");
+            body.className = "macro-step-body";
 
             if (step.type === "chord") {
                 var mods = document.createElement("div");
@@ -1689,7 +1709,7 @@
                 } else {
                     renderPlainButtons(mods, modSpecs);
                 }
-                row.appendChild(mods);
+                body.appendChild(mods);
 
                 var keySel = document.createElement("select");
                 keySel.className = "dlg-select macro-key";
@@ -1727,7 +1747,7 @@
                     step.code = keySel.value;
                     void saveMacros();
                 });
-                row.appendChild(keySel);
+                body.appendChild(keySel);
             } else if (step.type === "text") {
                 var text = document.createElement("input");
                 text.type = "text";
@@ -1739,7 +1759,7 @@
                     step.text = text.value;
                     void saveMacros();
                 });
-                row.appendChild(text);
+                body.appendChild(text);
             } else {
                 var ms = document.createElement("input");
                 ms.type = "number";
@@ -1754,11 +1774,11 @@
                     step.ms = Number(ms.value) || 200;
                     void saveMacros();
                 });
-                row.appendChild(ms);
+                body.appendChild(ms);
                 var unit = document.createElement("span");
                 unit.className = "dlg-hint";
                 unit.textContent = "ms";
-                row.appendChild(unit);
+                body.appendChild(unit);
             }
 
             // Order is the whole point of a multi-step macro — "type the path,
@@ -1820,6 +1840,7 @@
             } else {
                 renderPlainButtons(actions, actionSpecs);
             }
+            row.appendChild(body);
             row.appendChild(actions);
             steps.appendChild(row);
         });

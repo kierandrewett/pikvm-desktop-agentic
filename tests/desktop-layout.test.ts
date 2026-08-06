@@ -3120,3 +3120,50 @@ test("the macro being edited is marked, not just coloured", () => {
     // Not the semantics this list does not implement.
     assert.ok(!/aria-selected/.test(body), "aria-selected promises an arrow-key model this list has not got");
 });
+
+/**
+ * On a chord step it was the up/down/remove buttons that wrapped, not the keys.
+ *
+ * .macro-step was a flex row with flex-wrap, and a chord row carries five
+ * modifier toggles AND a key list. Wrapping is deliberate — the comment on that
+ * rule records that squeezing them onto one line collapsed the key list to
+ * about 55px, enough for "L" but not for "Print Screen" — but what actually
+ * dropped to the second line was the action box. It landed between its own row
+ * and the next one with nothing saying which step it acted on, and it was the
+ * only step type where that happened, so the row where reordering is fiddliest
+ * was also the one where its controls moved.
+ *
+ * Measured at the default dialog width, before:
+ *
+ *     row 554px wide, chord content wants 694px
+ *     (kind 72 + mods 257 + key list 211 + actions 154)
+ *     chord row h=71  actions wrapped=true   text rows h=32  wrapped=false
+ *
+ * The wrap moves off the row and onto a box holding just the step's own
+ * controls, so the key list is what goes to the second line and the actions stay
+ * pinned to the first. After: chord row h=69, wrapped=false, and the key list
+ * gets the body's full width rather than the 211px it was squeezed into — more
+ * readable, which is what the original rule was protecting.
+ *
+ * align-items:flex-start on the row so the actions sit level with the first
+ * line, which is the one they label.
+ */
+test("a chord step wraps its key list, not its step controls", () => {
+    // The controls the step owns live in their own box...
+    assert.match(js, /var body = document\.createElement\("div"\);\s*\n\s*body\.className = "macro-step-body";/);
+    // ...which is what everything between the kind label and the actions joins.
+    assert.match(js, /body\.appendChild\(mods\);/);
+    assert.match(js, /body\.appendChild\(keySel\);/);
+    assert.match(js, /body\.appendChild\(text\);/);
+    assert.match(js, /body\.appendChild\(ms\);/);
+    assert.match(js, /body\.appendChild\(unit\);/);
+    // Row order stays kind, body, actions.
+    assert.match(js, /row\.appendChild\(body\);\s*\n\s*row\.appendChild\(actions\);/);
+    // The wrap is on the body now, and the row does not wrap at all.
+    assert.match(css, /\.macro-step-body \{[\s\S]*?flex-wrap: wrap;[\s\S]*?flex: 1 1 auto;[\s\S]*?min-width: 0;/);
+    // Just the row's own rule: .macro-step-body follows it and legitimately wraps.
+    const rowStart = css.indexOf(".macro-step {");
+    const rowRule = css.slice(rowStart, css.indexOf("}", rowStart));
+    assert.ok(!/flex-wrap/.test(rowRule), "the row must not wrap — that is what dropped the actions");
+    assert.match(rowRule, /align-items: flex-start;/);
+});

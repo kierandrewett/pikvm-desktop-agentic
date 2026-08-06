@@ -2102,13 +2102,26 @@ html.desktop-console.agent-detached .screen {
 }
 .macro-step {
     display: flex;
+    /* flex-start, not center: when the body wraps to two lines the actions stay
+       level with the first one, which is the row they label. */
+    align-items: flex-start;
+    gap: 7px;
+}
+/* A chord row carries five modifier toggles AND a key list, which together are
+   wider than the dialog. Wrapping keeps the key list readable — squeezed onto
+   one line it collapsed to about 55px, enough for "L" but not for "Print
+   Screen", so the chosen key could not be read back.
+   The wrap lives HERE rather than on the row, so what moves to the second line
+   is the key list and never the up/down/remove buttons. Those used to drop,
+   which left them floating between their own row and the next with nothing
+   saying which step they acted on. */
+.macro-step-body {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 7px;
-    /* A chord row carries five modifier toggles AND a key list, which together
-       are wider than the dialog. Wrapping keeps the key list readable — squeezed
-       onto one line it collapsed to about 55px, enough for "L" but not for
-       "Print Screen", so the chosen key could not be read back. */
-    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 .macro-step .macro-kind {
     flex: none;
