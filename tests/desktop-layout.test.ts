@@ -1348,3 +1348,28 @@ test("mass storage actions that replace themselves keep focus in the dialog", ()
     // The pairing this leans on is the one msdBody already documents.
     assert.match(js, /a pair of buttons occupying one slot, which is why they are\s*\*\s*hidden rather than disabled/);
 });
+
+test("a pending guard hands focus back to the control it disabled", () => {
+    /* The double-click guards disable the button just pressed, and the browser
+       drops focus from a control the moment it becomes disabled. Measured, each
+       focused first so the loss is real:
+           HID Detach   -> BODY and stayed there
+           GPIO Pulse   -> BODY and stayed there
+           GPIO switch  -> BODY and stayed there
+       Unlike the mass storage pair these keep the SAME element and re-enable it
+       a moment later, so focus goes back where it was. After: hid-toggle,
+       "Pulse rack pdu 1", gpio-switch-rack_pdu_1. */
+    assert.match(js, /function pendingFocusHold\(\) \{\s*var el = document\.activeElement;/);
+    // Only from the body: a user who tabbed on in the meantime is left alone.
+    assert.match(js, /if \(!el \|\| !el\.focus \|\| document\.activeElement !== document\.body\) return;/);
+    // And never onto something that cannot take it.
+    assert.match(js, /if \(el\.disabled \|\| !el\.getClientRects\(\)\.length\) return;/);
+    // All three guards capture before disabling and release after re-enabling.
+    assert.match(js, /var back = pendingFocusHold\(\);\s*hidTogglePending = true;/);
+    assert.match(js, /var back = pendingFocusHold\(\);\s*gpioBusy\(name, true\);\s*gpio\.pulse\(name\)/);
+    assert.match(js, /var back = pendingFocusHold\(\);\s*gpioBusy\(name, true\);\s*gpio\.switchTo\(name, !cur\.on\)/);
+    assert.equal((js.match(/\s+back\(\);/g) ?? []).length, 3, "every hold must be released");
+    // The guards themselves still hold — re-verified at one request per triple click.
+    assert.match(js, /disabled: o\.busy \|\| !o\.online \|\| !!gpioPending\[name\],/);
+    assert.match(js, /disabled: !hidToggleState\.known \|\| hidToggleState\.busy \|\| hidTogglePending,/);
+});

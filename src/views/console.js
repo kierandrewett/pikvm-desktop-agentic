@@ -3332,9 +3332,11 @@
                     onSelect: function () {
                         var warn = GPIO_CONFIRM[name];
                         if (warn && !window.confirm(warn)) return;
+                        var back = pendingFocusHold();
                         gpioBusy(name, true);
                         gpio.pulse(name).then(function () {
                             gpioBusy(name, false);
+                            back();
                         });
                     },
                 });
@@ -3357,9 +3359,11 @@
                         if (!cur) return;
                         var warn = GPIO_CONFIRM[name];
                         if (warn && !window.confirm(warn)) return;
+                        var back = pendingFocusHold();
                         gpioBusy(name, true);
                         gpio.switchTo(name, !cur.on).then(function () {
                             gpioBusy(name, false);
+                            back();
                         });
                     },
                 });
@@ -3469,11 +3473,13 @@
                     var isAttached =
                         health.hidConnected() === true ||
                         (health.hidConnected() === null && health.hidOnline() === true);
+                    var back = pendingFocusHold();
                     hidTogglePending = true;
                     repaintHealthActions();
                     setHidConnected(!isAttached).then(function () {
                         hidTogglePending = false;
                         repaintHealthActions();
+                        back();
                     });
                 },
             },
@@ -4044,6 +4050,26 @@
      * were not looking at. There is no stacking design to preserve here — the
      * equal z-index is the proof — so the fix is to make the singular
      * assumption true rather than teach four consumers to cope with it. */
+    /* Hold focus across a pending guard that disables what was pressed.
+     *
+     * The double-click guards disable the button just pressed, and the browser
+     * drops focus from a control the moment it becomes disabled — so pressing
+     * Detach, a GPIO switch or a pulse left focus on the body with the dialog
+     * still open. Measured: all three landed on BODY and stayed there.
+     *
+     * These differ from the mass storage pair: the SAME element comes back a
+     * moment later, re-enabled, so the honest answer is to put focus where it
+     * was rather than move the user somewhere else. Only from the body, so a
+     * user who has tabbed on in the meantime is left alone. */
+    function pendingFocusHold() {
+        var el = document.activeElement;
+        return function () {
+            if (!el || !el.focus || document.activeElement !== document.body) return;
+            if (el.disabled || !el.getClientRects().length) return;
+            el.focus();
+        };
+    }
+
     /* Where focus should come BACK to, which is not always where it is now.
      *
      * A ⋯ menu item is display:none'd by the very click that opens the dialog,
