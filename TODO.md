@@ -38,6 +38,17 @@ is in `docs/web-client-migration.md`.
 
 ## Housekeeping still queued
 
+- [ ] **The two `harness_ui` bundles have drifted.** `agent/pikvm_agent/harness_ui`
+      is built from `agent/frontend`; `~/dev/pikvm-agent/pikvm_agent/harness_ui`
+      is a separate tracked copy, and nothing syncs them. As of 2026-08-06 this
+      repo has app.js at 658KB across 21 chunks (built 08-06 13:13) and the
+      standalone repo has 858KB across 15 (08-05 14:39) — so the RPM ships one
+      workspace UI and a dev box running the standalone checkout serves a
+      different, older one. The Python sources beside them ARE byte-identical;
+      it is only the built bundle that diverges. Not synced here because that
+      repo is mid-branch (`sockets-for-local-services`) and a 200KB artefact
+      swap does not belong in someone else's feature branch.
+
 - [ ] Remove the retired views: `agent.js` + `agent.html` (superseded, still
       built and served), `ui.html` and `settings.html` (legacy native UI), and
       the `preload.ts` that pairs with them. All are referenced from
