@@ -38,21 +38,28 @@ is in `docs/web-client-migration.md`.
 
 ## Housekeeping still queued
 
-- [ ] **The two `harness_ui` bundles have drifted.** `agent/pikvm_agent/harness_ui`
-      is built from `agent/frontend`; `~/dev/pikvm-agent/pikvm_agent/harness_ui`
-      is a separate tracked copy, and nothing syncs them. As of 2026-08-06 this
-      repo has app.js at 658KB across 21 chunks (built 08-06 13:13) and the
-      standalone repo has 858KB across 15 (08-05 14:39) — so the RPM ships one
-      workspace UI and a dev box running the standalone checkout serves a
-      different, older one. The Python sources beside them ARE byte-identical;
-      it is only the built bundle that diverges. Not synced here because that
-      repo is mid-branch (`sockets-for-local-services`) and a 200KB artefact
-      swap does not belong in someone else's feature branch.
+- [ ] **The workspace has drifted between the two repos — source, not just the
+      build.** `agent/frontend` here and `frontend` in `~/dev/pikvm-agent` are
+      two copies of the same tree and nothing syncs them. As of 2026-08-06:
+      21 files differ, 8 exist only in this repo, none only in the other, and the
+      last frontend commit here is 08-06 against 08-05 there. The drift is
+      strictly one-directional — this repo is ahead.
 
-- [ ] Remove the retired views: `agent.js` + `agent.html` (superseded, still
-      built and served), `ui.html` and `settings.html` (legacy native UI), and
-      the `preload.ts` that pairs with them. All are referenced from
-      `src/main.ts`.
+      The built `harness_ui` bundles differ for the same reason (658KB/21 chunks
+      here, 858KB/15 there). An earlier note in this file said only the bundle
+      had drifted and the sources were identical; that was true of
+      `pikvm_agent`, which IS still byte-identical, but `frontend` was never
+      checked. The bundles differ because the sources do.
+
+      What it means in practice: the RPM ships the newer workspace, and a daemon
+      resolved from the standalone checkout — which is what happens on this box —
+      serves one built from day-old source.
+
+      Not synced here. That repo is on an unmerged branch
+      (`sockets-for-local-services`), and copying 29 files of someone else's
+      source tree into their feature branch is not a housekeeping decision.
+      Merge first, then sync in one deliberate step, then rebuild the bundle.
+
 - [ ] **Decide the fate of the `PIKVM_NATIVE_UI=1` path.** `main.ts` keeps it
       deliberately ("the legacy composition is kept behind PIKVM_NATIVE_UI=1"),
       so this is a product call, not housekeeping. It is bigger than it looks —
