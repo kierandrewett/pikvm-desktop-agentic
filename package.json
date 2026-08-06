@@ -20,7 +20,6 @@
     "dependencies": {
         "@lydell/node-pty": "^1.1.0",
         "@xterm/addon-fit": "^0.11",
-        "@xterm/addon-webgl": "0.20.0-beta.286",
         "@xterm/xterm": "6.1.0-beta.287",
         "axios": "^1.13.2",
         "web-haptics": "^0.0.6",
@@ -31,7 +30,6 @@
         "@types/node": "^25.0.3",
         "@types/ws": "^8.18.1",
         "electron": "^39.2.7",
-        "electron-installer-flatpak": "^0.8.0",
         "electron-installer-redhat": "^3.4.0",
         "esbuild": "^0.27.2",
         "patch-package": "^8.0.1",
