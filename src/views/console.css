@@ -1838,6 +1838,42 @@ html.desktop-console.agent-detached .screen {
 .macro-list button:hover {
     background: var(--secondary);
 }
+
+/* ---- the macro editor on a narrow screen --------------------------------
+ * Two columns stop being two columns long before the dialog runs out of room.
+ * Measured at a 390px viewport: the grid resolved to 140px + 156px, and the
+ * step-action row measured 431px inside that 156px column — so Add key combo,
+ * Add text, Add pause and Delete macro sat outside it, reachable only by
+ * dragging a nested box sideways with nothing on screen to say it scrolled.
+ * The Name field and the icon grid were cut off the same way.
+ *
+ * This console is served to phones — paintMacroMenu exists precisely so a macro
+ * created there can be run there — so the editor has to work at that width.
+ *
+ * Stack the columns, and let the actions wrap onto as many lines as they need.
+ * .macro-step already wraps for exactly this reason; the grid around it and the
+ * row of buttons under it never got the same treatment. Dropping the inner
+ * max-height lets .dlg be the one scroll container instead of three nested
+ * ones, which is the right shape on a small screen. */
+@media (max-width: 560px) {
+    .macro-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .macro-list {
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        padding-right: 0;
+        padding-bottom: 8px;
+        max-height: 26vh;
+    }
+    .macro-edit {
+        max-height: none;
+        overflow: visible;
+    }
+    #macro-step-actions {
+        flex-wrap: wrap;
+    }
+}
 .macro-list button.active {
     background: var(--accent);
 }

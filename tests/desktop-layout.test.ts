@@ -1093,3 +1093,25 @@ test("dismissing the overflow menu returns focus to the button that opened it", 
     assert.match(js, /if \(e\.key === "Escape"\) setMenuOpen\(false\);/);
     assert.match(js, /if \(moreMenu\.contains\(e\.target\) \|\| moreBtn\.contains\(e\.target\)\) return;\s*setMenuOpen\(false\);/);
 });
+
+test("the macro editor stacks instead of hiding its buttons on a phone", () => {
+    /* Two columns stop being two columns long before the dialog runs out of
+       room. Measured at a 390px viewport, via the overflow menu on the web
+       path: the grid resolved to 140px + 156px and the step-action row measured
+       431px inside that 156px column, so Add key combo, Add text, Add pause and
+       Delete macro sat outside it — reachable only by dragging a nested box
+       sideways with nothing on screen to say it scrolled. The Name field and
+       the icon grid were cut off the same way. */
+    assert.match(css, /@media \(max-width: 560px\) \{[\s\S]*?\.macro-body \{\s*grid-template-columns: minmax\(0, 1fr\);/);
+    assert.match(css, /@media \(max-width: 560px\) \{[\s\S]*?#macro-step-actions \{\s*flex-wrap: wrap;/);
+    // The list's divider follows the stack, or it rules down the middle of nothing.
+    assert.match(css, /@media \(max-width: 560px\) \{[\s\S]*?\.macro-list \{[\s\S]*?border-right: 0;[\s\S]*?border-bottom: 1px solid var\(--border\);/);
+    // One scroll container on a small screen, not three nested ones.
+    assert.match(css, /@media \(max-width: 560px\) \{[\s\S]*?\.macro-edit \{\s*max-height: none;\s*overflow: visible;/);
+    // Above the breakpoint it is still two columns — verified unchanged at 900 and 1400.
+    assert.match(css, /\.macro-body \{\s*display: grid;\s*grid-template-columns: minmax\(140px, 34%\) minmax\(0, 1fr\);/);
+    /* The precedent: a chord row already wraps because its five modifier
+       toggles plus a key list are wider than the dialog. The grid around it and
+       the row of buttons under it never got the same treatment. */
+    assert.match(css, /\.macro-step \{[\s\S]*?flex-wrap: wrap;/);
+});
