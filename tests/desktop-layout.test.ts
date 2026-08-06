@@ -2003,3 +2003,35 @@ test("a macro cannot start while a paste is still typing", () => {
        click did nothing, and the wire carried one request. Once the paste
        finished the item was enabled again. */
 });
+
+test("a second screen read cannot start while one is still running", () => {
+    /* runOcr had no guard at all, and ocrPicking clears the moment the drag
+       ends — so a second region could be picked while the first read was still
+       on the wire. Measured with the Pi's answer held open: two drags a second
+       apart put ocr_left=256 and ocr_left=384 in flight together, on a
+       single-core device where one full-screen read already takes about six.
+
+       Two things then went wrong. The first response calls hideToast(), so the
+       sticky "Reading the screen…" disappeared while the other read was still
+       running — exactly the silence that toast exists to prevent, and its own
+       comment says so. And the text landing in the dialog was whichever request
+       returned last, which is not necessarily the region drawn last: the run
+       above ended showing region 384 after the user's last drag was 384 only by
+       luck of ordering. */
+    assert.match(js, /var ocrBusy = false;/);
+    assert.match(js, /function startOcrPick\(\) \{\s*if \(ocrBusy\) \{\s*toast\("Still reading the screen", true\);\s*return;\s*\}/);
+    assert.match(js, /ocrBusy = true;\s*paintOcrAvailability\(\);\s*fetch\("\/api\/streamer\/snapshot\?"/);
+    // Cleared on both outcomes, or one failed read would disable it for good.
+    assert.match(js, /\.then\(function \(\) \{\s*ocrBusy = false;\s*paintOcrAvailability\(\);\s*\}\);/);
+
+    /* Refused AND shown as refused, like a paste greys the macro controls.
+       Without this the button stayed live through a six-second read and only
+       said no on the click. Both routes in — the button and the ⋯ menu. */
+    assert.match(js, /function paintOcrAvailability\(\) \{/);
+    assert.match(js, /setProp\(btn, "disabled", ocrBusy\);/);
+    assert.match(js, /enabled: screenHasPicture\(\) && !ocrBusy \}/);
+
+    /* Re-driven after the fix, same two drags: one request on the wire
+       (ocr_left=256), the picker refusing to engage the second time, and the
+       dialog showing region 256 — the region actually drawn. */
+});

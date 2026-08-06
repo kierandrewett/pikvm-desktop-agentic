@@ -2147,8 +2147,16 @@
     function setOcrState(s) {
         if (!s) return;
         ocrLangs = { enabled: !!s.enabled, langs: s.langs || null };
+        paintOcrAvailability();
+    }
+    /* Refused AND shown as refused, the same way a paste greys the macro
+     * controls. Without this the button stayed live through a six-second read
+     * and only said no on the click. */
+    function paintOcrAvailability() {
         var btn = document.getElementById("ocr-btn");
-        if (btn) btn.hidden = !ocrAvailable();
+        if (!btn) return;
+        btn.hidden = !ocrAvailable();
+        setProp(btn, "disabled", ocrBusy);
     }
 
     /** Is there actually a picture on screen to aim at?
@@ -2158,7 +2166,25 @@
     function screenHasPicture() {
         return !!(pane && pane.classList.contains("has-frame"));
     }
+    /* A read already running.
+     *
+     * runOcr had no guard at all, and ocrPicking clears the moment the drag
+     * ends — so a second region could be picked while the first read was still
+     * on the wire. Measured with the Pi's answer held open: two drags a second
+     * apart put ocr_left=256 and ocr_left=384 in flight together, on a
+     * single-core device where one full-screen read already takes about six.
+     *
+     * Two things then go wrong. The first response calls hideToast(), so the
+     * sticky "Reading the screen…" disappears while the other read is still
+     * running — exactly the silence that toast exists to prevent. And the text
+     * that lands in the dialog is whichever request returns last, which is not
+     * necessarily the region the user drew last. */
+    var ocrBusy = false;
     function startOcrPick() {
+        if (ocrBusy) {
+            toast("Still reading the screen", true);
+            return;
+        }
         if (!ocrAvailable() || ocrPicking) return;
         /* The request itself would work — it carries allow_offline=1, so the Pi
          * answers from its own frame whatever the local stream is doing, the
@@ -2243,6 +2269,8 @@
         // toast's normal dwell — so it has to stay up until the text arrives,
         // or the UI goes quiet mid-operation and reads as a failure.
         toast("Reading the screen…", false, true);
+        ocrBusy = true;
+        paintOcrAvailability();
         fetch("/api/streamer/snapshot?" + q.join("&"), { cache: "no-store" })
             .then(function (r) {
                 if (!r.ok) throw new Error("HTTP " + r.status);
@@ -2268,6 +2296,10 @@
             })
             .catch(function (e) {
                 toast("Could not read the screen: " + (e && e.message ? e.message : "network error"), true);
+            })
+            .then(function () {
+                ocrBusy = false;
+                paintOcrAvailability();
             });
     }
     function closeOcrDialog() {
@@ -8093,7 +8125,7 @@
             // dropping it entirely would make it look unsupported. Same shape
             // as "Fit to native resolution" above, for the same reason.
             if (ocrAvailable())
-                items.push({ id: "ocr", label: "Read text from the screen…", enabled: screenHasPicture() });
+                items.push({ id: "ocr", label: "Read text from the screen…", enabled: screenHasPicture() && !ocrBusy });
             items.push({ id: "log", label: "PiKVM log…" });
             items.push({ id: "macros", label: "Macros…" });
             items.push({ id: "theme", label: "Toggle theme" });
