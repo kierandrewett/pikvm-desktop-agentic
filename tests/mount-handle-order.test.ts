@@ -1124,3 +1124,37 @@ test("opening a dialog closes the one already up", () => {
     // openScrim is unchanged: first in DOM order is correct once there is only one.
     assert.match(js, /function openScrim\(\) \{[\s\S]*?if \(!scrims\[i\]\.hidden\) return scrims\[i\];/);
 });
+
+/**
+ * Opening a dialog also ends an armed region pick.
+ *
+ * The OCR pick is a modal MODE, and none of the dialog machinery covered it.
+ * Armed, it survived a dialog opening over it — its "Drag over the text to
+ * read · Esc to cancel" hint left drawn behind the scrim, on a screen the
+ * scrim had just put out of reach — and it owned Escape, so the first press
+ * cancelled the pick nobody could see while the visible dialog stayed up:
+ *
+ *     pick started  : picking=true,  dialogs=[]
+ *     dialog on top : picking=true,  dialogs=["stream-dlg"]
+ *     Escape        : picking=false, dialogs=["stream-dlg"]
+ *     Escape again  : dialogs=[]
+ *
+ * Opening a dialog is abandoning the aim, so it ends with the rest. After, the
+ * dialog cancels the pick as it opens and the first Escape closes the dialog.
+ *
+ * The pick's own behaviour is untouched, which is what had to be re-checked:
+ * armed from the menu with focus on the page, Escape cancels it, sends nothing
+ * to the target, and it re-arms. (With focus still in the conversation iframe
+ * the parent document never sees the key at all — that is true of every
+ * console shortcut, not this one, and clicking the menu moves focus out.)
+ */
+test("a dialog opening ends an armed OCR pick", () => {
+    const helper = js.slice(js.indexOf("function closeOtherDialogs(keep) {"), js.indexOf("/** The dialog currently up"));
+    assert.match(helper.replace(/\/\*[\s\S]*?\*\//g, ""), /endOcrPick\(\);/);
+    /* Safe from the OCR dialog's own open only because the pick has already
+     * ended by then — ocrPointerUp calls endOcrPick before runOcr, and runOcr
+     * is what shows that dialog. If those ever swap, this becomes a no-op that
+     * closes the dialog it just opened. */
+    const up = js.slice(js.indexOf("function ocrPointerUp(e) {"), js.indexOf("function runOcr("));
+    assert.match(up, /endOcrPick\(\);\s*\n\s*runOcr\(left, top, right, bottom\);/);
+});

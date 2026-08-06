@@ -3599,6 +3599,23 @@
         document.querySelectorAll(".dlg-scrim").forEach(function (el) {
             if (el !== keep && !el.hidden) el.hidden = true;
         });
+        /* The region pick is a modal MODE, and it was not covered by any of
+         * this. Armed, it survived a dialog opening over it — its "Drag over
+         * the text to read · Esc to cancel" hint left drawn behind the scrim,
+         * on a screen the scrim had just put out of reach — and it owned
+         * Escape, so the first press cancelled the pick nobody could see and
+         * the visible dialog stayed up:
+         *
+         *     pick started  : picking=true,  dialogs=[]
+         *     dialog on top : picking=true,  dialogs=["stream-dlg"]
+         *     Escape        : picking=false, dialogs=["stream-dlg"]
+         *     Escape again  : dialogs=[]
+         *
+         * Opening a dialog is abandoning the aim, so end it here with the rest.
+         * Safe from the OCR dialog's own open: ocrPointerUp calls endOcrPick
+         * before runOcr, so picking is already false by then and this is a
+         * no-op. */
+        endOcrPick();
     }
 
     /** The dialog currently up, or null. */
