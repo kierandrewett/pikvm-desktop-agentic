@@ -497,3 +497,32 @@ test("the macro step rows are drawn by the shared library", () => {
     assert.doesNotMatch(js, /var move = function \(delta, label\)/);
 });
 
+
+/**
+ * Tabbing along the macro strip cannot leave you on a half-clipped button.
+ *
+ * The strip clips so it can give way instead of pushing the window controls
+ * off the bar, and the browser scrolls a focused child back into view by
+ * itself — but only one that is ENTIRELY outside the scrollport. The button
+ * straddling the clip edge counts as visible and is left where it is.
+ * Measured at 900px with sixty pinned macros, focusing each in turn:
+ *
+ *     macro 16 : 100% visible, scrollLeft=0
+ *     macro 17 :  53% visible, scrollLeft=0     <- half cut, half its ring gone
+ *     macro 18 : 100% visible, scrollLeft=321
+ *
+ * That is the one you always land on crossing from the visible macros into
+ * the clipped ones, so it is not an edge case, it is the boundary. After:
+ * macro 17 comes to 100% at scrollLeft=14, the smallest nudge that works, and
+ * every other macro is unchanged. Page scroll stays 0/0 and the titlebar and
+ * screen do not move, so "nearest" is not dragging an ancestor around.
+ */
+test("a macro tabbed to at the clip edge is scrolled fully into view", () => {
+    const at = js.indexOf('macroHost.addEventListener("focusin"');
+    assert.ok(at > 0, "no focusin handler on the macro strip");
+    const body = js.slice(at, at + 400);
+    // "nearest" both ways: the minimum scroll, and nothing when already whole.
+    assert.match(body, /scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)/);
+    // Only for buttons in this strip, so a focus elsewhere never moves it.
+    assert.match(body, /macroHost\.contains\(btn\)/);
+});

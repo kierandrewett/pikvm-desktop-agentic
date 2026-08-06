@@ -6474,6 +6474,29 @@
                     if (macroButtonsRoot) macroButtonsRoot.update(withTbClass(pinnedMacroSpecs()));
                 };
                 repaintMacroButtons();
+                /* Bring a tabbed-to macro fully into view.
+                 *
+                 * This strip clips (overflow:hidden) so it can give way instead
+                 * of pushing the window controls off the bar, and the browser
+                 * scrolls a focused child back into view on its own — but only
+                 * when that child is ENTIRELY outside the scrollport. The one
+                 * straddling the clip edge counts as visible, so it is left
+                 * exactly where it is. Measured at 900px with sixty macros,
+                 * tabbing along the strip:
+                 *
+                 *     macro 16 : 100% visible, scrollLeft=0
+                 *     macro 17 :  53% visible, scrollLeft=0
+                 *     macro 18 : 100% visible, scrollLeft=321
+                 *
+                 * So every macro is reachable except the one you always land on
+                 * crossing from the visible set into the clipped set, which sits
+                 * half cut with half its focus ring gone. "nearest" scrolls the
+                 * minimum needed and does nothing at all when the button is
+                 * already whole, so this costs nothing in the common case. */
+                macroHost.addEventListener("focusin", function (e) {
+                    var btn = e.target && e.target.closest && e.target.closest("button");
+                    if (btn && macroHost.contains(btn)) btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+                });
             }
             var statusHost = document.getElementById("tb-actions-status");
             if (statusHost && !statusButtons) {
