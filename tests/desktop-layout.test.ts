@@ -1164,3 +1164,28 @@ test("a toast stops being readable once it has gone", () => {
     // A timer rather than transitionend, which never fires under reduced motion.
     assert.doesNotMatch(js, /addEventListener\("transitionend"/);
 });
+
+test("the resize grip is not shown on a layout that cannot be resized", () => {
+    /* resizeStart returns early when the desktop media query matches — the
+       screen takes the remainder there and there is no vertical split — but the
+       grip was still drawn, still pilled, and still carried cursor:row-resize.
+       The rule meant to hide it sat inside the media query while .grip's own
+       `display: flex` is declared further down the sheet at the SAME
+       specificity, so the later one won and the override did nothing.
+       Measured on the web layout at 1400x900 with the query matching:
+           before  visible=true   drag 120px -> pane 843 unchanged
+           after   visible=false
+       and stacked at 700x900 the drag still works: pane 394 -> 514. */
+    const desktopQuery = css.slice(
+        css.indexOf("@media (min-width: 900px) and (orientation: landscape) {"),
+        css.indexOf("/* Hidden unless the desktop side-by-side layout is active. */"),
+    );
+    assert.match(desktopQuery, /\.bar > \.grip \{\s*display: none;/);
+    // A bare .grip in here is the dead form this replaced.
+    assert.doesNotMatch(desktopQuery, /^\s{4}\.grip \{/m, "a bare .grip override is beaten by the later base rule");
+    /* The hazard it guards against: the base rule really does come later and
+       really does set a display, so equal specificity would lose. */
+    const base = css.indexOf("\n.grip {");
+    assert.ok(base > css.indexOf(".bar > .grip"), ".grip's base rule must still come after the override");
+    assert.match(css.slice(base, base + 220), /display: flex;/);
+});

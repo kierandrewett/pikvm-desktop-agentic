@@ -212,8 +212,20 @@ body {
         outline: none;
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
     }
-    /* No vertical split to drag on desktop — the screen takes the remainder. */
-    .grip {
+    /* No vertical split to drag on desktop — the screen takes the remainder.
+     *
+     * Selected through .bar deliberately. This rule sits inside a media query
+     * but .grip's own `display: flex` is declared further down the sheet at the
+     * same specificity, so the later one won and this did nothing: measured on
+     * the web layout at 1400x900, with the query MATCHING, the grip was still
+     * displayed, still drew its pill and still carried cursor:row-resize —
+     * while resizeStart returns early on this layout, so dragging it moved
+     * nothing at all. A handle that advertises a drag and refuses to perform
+     * one. .bar > .grip outranks the bare class, so the intent holds.
+     *
+     * .bar-main below never had the problem because its base rule sets no
+     * cursor, so there was nothing later to beat it. */
+    .bar > .grip {
         display: none;
     }
     .bar-main {
