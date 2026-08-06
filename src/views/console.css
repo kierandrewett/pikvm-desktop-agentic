@@ -137,6 +137,68 @@ body {
     display: grid;
     grid-template-rows: clamp(110px, var(--sh, 46vh), 90vh) auto minmax(0, 1fr);
     transition: --sh 0.55s cubic-bezier(0.2, 0.7, 0.3, 1);
+    /* Containing block for the full-UI frame, which covers the app area and
+       nothing above it. Safe to add: every window-level overlay here (dialog
+       scrims, toasts) is position:fixed and so is unaffected by it. */
+    position: relative;
+}
+
+/* ---- Full PiKVM UI ----
+   The Pi's own web UI, framed over the app area with the titlebar left standing
+   above it. It is a grid item placed nowhere, so it is positioned rather than
+   flowed: putting it in the grid would push the stream and terminal down a row. */
+#full-ui-frame,
+.full-ui-note {
+    position: absolute;
+    inset: 0;
+    z-index: 9; /* over the panes and the resize handle, under the scrims (60) */
+}
+#full-ui-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: var(--background);
+}
+#full-ui-frame[hidden],
+.full-ui-note[hidden] {
+    display: none;
+}
+/* Sits ON the frame while it loads and after it fails, so a half-drawn or blank
+   Pi UI is never what explains itself. Opaque for the same reason. */
+.full-ui-note {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 24px;
+    text-align: center;
+    background: var(--background);
+    color: var(--muted-foreground);
+    font-size: 14px;
+    line-height: 1.5;
+    z-index: 10;
+}
+.full-ui-back {
+    -webkit-app-region: no-drag;
+    padding: 10px 18px;
+    /* A full 44px: this is the recovery control on a screen that exists because
+       something already failed, and there is nothing else competing for room. */
+    min-height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--foreground);
+    font: inherit;
+    cursor: pointer;
+}
+.full-ui-back:hover {
+    border-color: var(--muted-foreground);
+}
+.full-ui-back:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 /* Intro: just the stream; the chat is parked below until the conversation loads. */
 .chat {

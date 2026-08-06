@@ -5053,6 +5053,14 @@
 
     function loadStream() {
         if (streamMode !== "native" || mjpegPaused) return; // WebRTC owns the picture; don't open an MJPEG conn
+        /* The full PiKVM UI is up and streaming the same camera over the same
+         * link, so opening a second connection behind it pays for the picture
+         * twice to look at one of them. Guarded HERE rather than by parking
+         * mjpegPaused: fallbackToMjpeg() clears that flag whenever WebRTC gives
+         * up, which it did mid-session, and the stream came straight back up
+         * behind the frame. This is the only place the MJPEG connection is
+         * opened, so it is the only place that has to know. */
+        if (fullUiOn) return;
         /* While the server is known down, its verdict is the only one shown.
          *
          * Three writers describe the same "no picture, retrying" situation with
@@ -5236,6 +5244,7 @@
         mjpegPaused = true;
         vid.classList.add("hidden");
         img.classList.remove("hidden");
+        setFullUi(false);
         if (titleText) titleText.textContent = "VNC lab";
         var fullUi = document.getElementById("full-ui");
         if (fullUi) fullUi.hidden = true;
@@ -5253,6 +5262,105 @@
         loadStream();
         startNativeWebrtc();
     }
+
+    /* ---- Full PiKVM UI ----
+     * The Pi's own web UI, framed under our titlebar instead of navigated to.
+     *
+     * "Full PiKVM UI" used to be location.href = "/?native=1", which replaced
+     * this document. On the desktop that is a one-way door into a dead end: the
+     * window is frame:false on Linux and Windows, so the titlebar this document
+     * draws IS the window chrome, and the Pi's UI carries none of it. What was
+     * left had no drag region, no minimise/maximise/close and no route back —
+     * only the window manager could recover it. On the web it was the same door
+     * with a softer floor: no way back short of editing the URL.
+     *
+     * Framing it keeps the bar standing, so the window still behaves like a
+     * window, and the menu item becomes the way back. */
+    var FULL_UI_URL = "/?native=1";
+    var FULL_UI_TIMEOUT_MS = 12000;
+    var fullUiFrame = document.getElementById("full-ui-frame");
+    var fullUiNote = document.getElementById("full-ui-note");
+    var fullUiNoteText = document.getElementById("full-ui-note-text");
+    var fullUiOn = false;
+    var fullUiTimer = null;
+    function fullUiActive() {
+        return fullUiOn;
+    }
+    function paintFullUiToggle() {
+        var btn = document.getElementById("full-ui");
+        if (!btn) return;
+        /* The label carries the state, so there is no aria-pressed to go with it.
+         * Both would announce "Back to console, toggle button, pressed", which
+         * describes neither where you are nor what the button does. A label that
+         * names the destination is the honest half of that pair. */
+        btn.textContent = fullUiOn ? "Back to console" : "Full PiKVM UI";
+    }
+    function setFullUiNote(msg) {
+        if (!fullUiNote) return;
+        if (!msg) {
+            fullUiNote.hidden = true;
+            return;
+        }
+        if (fullUiNoteText) fullUiNoteText.textContent = msg;
+        fullUiNote.hidden = false;
+    }
+    function setFullUi(on) {
+        on = !!on;
+        if (!fullUiFrame || on === fullUiOn) return;
+        fullUiOn = on;
+        if (fullUiTimer) {
+            clearTimeout(fullUiTimer);
+            fullUiTimer = null;
+        }
+        if (on) {
+            /* Stop our own picture before the Pi's starts. fullUiOn is already
+             * true above, so loadStream() is closed for business and nothing
+             * reopens what this drops. */
+            img.removeAttribute("src");
+            setFullUiNote("Loading the PiKVM UI…");
+            fullUiFrame.hidden = false;
+            if (fullUiFrame.getAttribute("src") !== FULL_UI_URL) fullUiFrame.setAttribute("src", FULL_UI_URL);
+            // No usable error event on a same-origin iframe that 500s, so a
+            // deadline is the only honest way to stop showing "Loading…" forever.
+            fullUiTimer = setTimeout(function () {
+                fullUiTimer = null;
+                setFullUiNote("The PiKVM UI did not load. The Pi may be unreachable.");
+            }, FULL_UI_TIMEOUT_MS);
+            if (titleText) titleText.textContent = "PiKVM — full UI";
+        } else {
+            fullUiFrame.hidden = true;
+            // Dropping the src is what actually closes the Pi UI's own stream;
+            // hiding the frame alone leaves it connected and downloading.
+            fullUiFrame.removeAttribute("src");
+            setFullUiNote(null);
+            // loadStream() guards itself on streamMode and mjpegPaused, so this
+            // resumes MJPEG only if MJPEG is what was showing before.
+            loadStream();
+            if (titleText) titleText.textContent = "PiKVM";
+        }
+        paintFullUiToggle();
+    }
+    if (fullUiFrame) {
+        fullUiFrame.addEventListener("load", function () {
+            if (!fullUiOn) return; // a load landing after we left is not news
+            if (fullUiTimer) {
+                clearTimeout(fullUiTimer);
+                fullUiTimer = null;
+            }
+            setFullUiNote(null);
+        });
+    }
+    var fullUiBackBtn = document.getElementById("full-ui-back");
+    if (fullUiBackBtn)
+        fullUiBackBtn.addEventListener("click", function () {
+            setFullUi(false);
+        });
+    var fullUiToggleBtn = document.getElementById("full-ui");
+    if (fullUiToggleBtn)
+        fullUiToggleBtn.addEventListener("click", function (e) {
+            e.preventDefault();
+            setFullUi(!fullUiOn);
+        });
 
     function detectScreenMode() {
         var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -8439,7 +8547,7 @@
             items.push({ id: "theme", label: "Toggle theme" });
             if (streamMode === "native") {
                 items.push({ type: "separator" });
-                items.push({ id: "full-ui", label: "Full PiKVM UI" });
+                items.push({ id: "full-ui", label: fullUiActive() ? "Back to console" : "Full PiKVM UI" });
             }
             return items;
         }
@@ -8522,7 +8630,7 @@
                     if (themeBtn) themeBtn.click();
                     break;
                 case "full-ui":
-                    location.href = "/?native=1";
+                    setFullUi(!fullUiActive());
                     break;
             }
         }

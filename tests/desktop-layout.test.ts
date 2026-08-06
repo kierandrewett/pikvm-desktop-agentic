@@ -2487,3 +2487,99 @@ test("zoomed pan is re-clamped when the pane resizes", () => {
     // Repaint only when the clamp actually moved something.
     assert.match(body, /var before = tx \+ ","? ?\+ ty;[\s\S]*?if \(tx \+ ","? ?\+ ty !== before\) applyXform\(\);/);
 });
+
+/**
+ * "Full PiKVM UI" was a one-way door into a window with no chrome.
+ *
+ * The menu item was <a href="/?native=1">, and picking it replaced this
+ * document with the Pi's own web UI. On Linux and Windows the console window
+ * is created frame:false, so the titlebar THIS document draws is the entire
+ * window chrome — drag region, minimise, maximise, close. The Pi's UI carries
+ * none of it. What you were left with could not be moved, could not be closed
+ * from inside, and had no route back to the console; only the window manager
+ * could recover it. On the web the same door had a softer floor: no way back
+ * short of editing the URL by hand.
+ *
+ * It is framed under the titlebar now. Measured at 1400x820 in desktop mode,
+ * with the native menu command driving it:
+ *
+ *     titlebar visible  true      frame top 38   height 782
+ *     title             "PiKVM — full UI"
+ *     menu item         "Back to console"
+ *
+ * 38 is exactly the titlebar's height, so the frame starts where the bar ends
+ * and covers everything below it.
+ */
+test("the full PiKVM UI is framed under the titlebar, not navigated to", () => {
+    const bare = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+    // No navigation left anywhere: an <a href> here is the bug returning.
+    assert.ok(!/id="full-ui"[^>]*href=/.test(html), "full-ui is a link again");
+    assert.match(html, /<button class="more-item" id="full-ui">Full PiKVM UI<\/button>/);
+    assert.match(html, /<iframe id="full-ui-frame"[^>]*hidden/);
+    assert.ok(!/location\.href = "\/\?native=1"/.test(bare(js)), "still navigating to the native UI");
+    // Both entry points — the HTML menu (web/mobile) and the native menu
+    // (desktop) — go through the one toggle.
+    assert.match(js, /case "full-ui":\s*\n\s*setFullUi\(!fullUiActive\(\)\);/);
+    assert.match(js, /fullUiToggleBtn\.addEventListener\("click", function \(e\) \{[\s\S]*?setFullUi\(!fullUiOn\);/);
+    // The frame covers the app area only. Absolute inside .app, which has to be
+    // the containing block for that to mean anything.
+    assert.match(css, /#full-ui-frame,\s*\n\.full-ui-note \{\s*\n\s*position: absolute;\s*\n\s*inset: 0;/);
+    assert.match(css, /\.app \{[\s\S]*?position: relative;\s*\n\}/);
+});
+
+/**
+ * Leaving has to be reachable, and reachable from a failure too.
+ *
+ * The menu item flips to "Back to console" rather than carrying aria-pressed
+ * alongside it — both would announce "Back to console, toggle button, pressed",
+ * which says neither where you are nor what the button does.
+ *
+ * The note is the other half: a same-origin iframe pointed at an unreachable Pi
+ * fires no error event and simply never loads, so without a deadline the only
+ * thing on screen would be an empty rectangle under a titlebar. It carries its
+ * own way out, because at that point the menu is the only other one.
+ */
+test("full UI announces which way it goes and can always be left", () => {
+    assert.match(js, /btn\.textContent = fullUiOn \? "Back to console" : "Full PiKVM UI";/);
+    const bare = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+    assert.ok(
+        !/aria-pressed/.test(bare(js.slice(js.indexOf("function paintFullUiToggle"), js.indexOf("function setFullUiNote")))),
+        "aria-pressed is back alongside the label",
+    );
+    // Native menu label tracks it too, or the desktop item lies about state.
+    assert.match(js, /id: "full-ui", label: fullUiActive\(\) \? "Back to console" : "Full PiKVM UI"/);
+    // A deadline, because there is no error event to wait for.
+    assert.match(js, /fullUiTimer = setTimeout\(function \(\) \{[\s\S]*?did not load/);
+    assert.match(html, /id="full-ui-back">Back to console<\/button>/);
+    // Recovery control on a failure screen: a full 44px target.
+    assert.match(css, /\.full-ui-back \{[\s\S]*?min-height: 44px;/);
+});
+
+/**
+ * Framing the Pi's UI must not leave our own stream running behind it.
+ *
+ * Both are the same camera over the same link, so a console still streaming
+ * behind an opaque frame pays for the picture twice to look at one of them.
+ *
+ * The guard belongs in loadStream() and not in mjpegPaused. Parking that flag
+ * was the first attempt and it did not hold: fallbackToMjpeg() clears it
+ * whenever WebRTC gives up, which happened mid-session, and the stream came
+ * straight back up behind the frame. Measured by polling the <img> src every
+ * 2s for 28s inside the full UI — fourteen samples, all "closed" after the
+ * fix, and "OPEN" again on the way out. loadStream() is the only place the
+ * MJPEG connection is opened, so it is the only place that needs to know.
+ */
+test("the console's own stream is released while the full UI is up", () => {
+    const at = js.indexOf("function loadStream() {");
+    assert.ok(at > 0, "loadStream not found");
+    const guard = js.slice(at, js.indexOf("freezeFrame();", at));
+    assert.match(guard, /if \(fullUiOn\) return;/);
+    // Entering drops the connection; leaving asks loadStream for it back, which
+    // self-guards so WebRTC's picture is not trampled.
+    assert.match(js, /img\.removeAttribute\("src"\);\s*\n\s*setFullUiNote\("Loading the PiKVM UI…"\);/);
+    assert.match(js, /fullUiFrame\.removeAttribute\("src"\);[\s\S]*?loadStream\(\);/);
+    // mjpegPaused is explicitly NOT the mechanism any more.
+    const bare = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+    const body = bare(js.slice(js.indexOf("function setFullUi(on) {"), js.indexOf("if (fullUiFrame) {")));
+    assert.ok(!/mjpegPaused/.test(body), "setFullUi is back on mjpegPaused");
+});

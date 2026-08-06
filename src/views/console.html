@@ -418,7 +418,12 @@
                 <button class="more-item" id="atx-reset" data-atx="reset" hidden>Reset</button>
                 <div class="more-sep" id="atx-sep-end" hidden></div>
                 <button class="more-item" id="theme-btn">Toggle theme</button>
-                <a class="more-item" id="full-ui" href="/?native=1">Full PiKVM UI ⤢</a>
+                <!-- A toggle, not a link. It used to be <a href="/?native=1">, which
+                     replaced this document — and on a frameless window the titlebar
+                     below IS the window chrome, so that left no way to drag, close or
+                     come back. It frames the Pi's UI now and this flips to "Back to
+                     console". The ⤢ went with the href: nothing opens elsewhere. -->
+                <button class="more-item" id="full-ui">Full PiKVM UI</button>
             </div>
 
             <!-- Chat workspace. The keys/mouse row
@@ -482,6 +487,20 @@
                      conversation view over, so console.js hides it from assistive tech
                      there. Named for what it holds, which was never the chat. -->
                 <iframe id="chat-frame" title="Terminal"></iframe>
+            </div>
+
+            <!-- The Pi's own web UI, FRAMED under our titlebar rather than
+                 navigated to. Same origin (it comes back through our proxy), so
+                 nothing here is cross-document. src is set on first use and
+                 cleared on exit, because leaving it loaded keeps a second MJPEG
+                 stream open behind the console's own. -->
+            <iframe id="full-ui-frame" title="Full PiKVM UI" hidden allow="fullscreen; clipboard-read; clipboard-write"></iframe>
+            <!-- Covers the frame until it loads, and stays to explain a failure.
+                 A blank white rectangle where the Pi's UI should be is the one
+                 thing this must never leave on screen. -->
+            <div class="full-ui-note" id="full-ui-note" role="status" aria-live="polite" hidden>
+                <span id="full-ui-note-text">Loading the PiKVM UI…</span>
+                <button class="full-ui-back" id="full-ui-back">Back to console</button>
             </div>
         </div>
 
