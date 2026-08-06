@@ -2080,6 +2080,14 @@
             hidOnline: function () {
                 return hidState && hidState.online !== undefined ? hidState.online : null;
             },
+            /** Has the Pi told us ANYTHING yet?
+             *
+             *  An empty problem list means two different things and the dialog
+             *  read them as one: nothing is wrong, or nothing is known. All
+             *  three of these start null and only an event fills them. */
+            reported: function () {
+                return !!(info || source || hidState);
+            },
             /**
              * Everything currently wrong, worst first. Each is {level, text} where
              * level is "error" or "warn" — an empty list means there is nothing to say.
@@ -2643,7 +2651,24 @@
             }
         }
         var ok = document.getElementById("health-ok");
-        if (ok) ok.hidden = problems.length > 0;
+        if (ok) {
+            /* An empty problem list is not the same as a clean bill of health.
+             *
+             * This line showed whenever nothing was wrong, and nothing is
+             * "wrong" before the Pi has said a word — so the dialog opened
+             * claiming "Everything looks fine." on top of a row that read
+             * "state unknown", and went on claiming it right through an outage
+             * with the socket dead:
+             *
+             *     connected, nothing reported : claimsFine=true, problems=[]
+             *     socket killed               : claimsFine=true, problems=[]
+             *     8s after the outage         : claimsFine=true, problems=[]
+             *
+             * Two different states were being reported as the good one. Say
+             * which it is instead of asserting a result we do not have. */
+            ok.hidden = problems.length > 0;
+            ok.textContent = health.reported() ? "Everything looks fine." : "Nothing reported from the PiKVM yet.";
+        }
 
         paintGpio();
         paintAbout();

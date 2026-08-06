@@ -719,3 +719,37 @@ test("the macro icon grid can return a macro to no icon", () => {
     // And it is actually in the grid, ahead of the named icons.
     assert.match(body, /icons\.appendChild\(noIcon\);\s*\n\s*MACRO_ICON_NAMES\.forEach/);
 });
+
+/**
+ * An empty problem list is not a clean bill of health.
+ *
+ * The all-clear line showed whenever nothing was wrong, and nothing is
+ * "wrong" before the Pi has said a word — so the dialog opened claiming
+ * "Everything looks fine." directly above a row reading "state unknown", and
+ * went on claiming it through an outage with the socket dead:
+ *
+ *     connected, nothing reported : claimsFine=true, problems=[]
+ *     socket killed               : claimsFine=true, problems=[]
+ *     8s after the outage         : claimsFine=true, problems=[]
+ *
+ * Two different states — nothing wrong, and nothing known — were both being
+ * reported as the good one. All three of the health module's inputs start
+ * null and only an event fills them, so which it is IS knowable.
+ *
+ * Re-measured across the three states: socket down and nothing heard reads
+ * "Nothing reported from the PiKVM yet."; events flowing with no problems
+ * reads "Everything looks fine."; and an undervoltage flag hides the line and
+ * lists "The Pi is undervolted — check the power supply and cable".
+ */
+test("the health dialog does not claim all-clear before the Pi has reported", () => {
+    const at = js.indexOf('var ok = document.getElementById("health-ok");');
+    assert.ok(at > 0, "health-ok is not painted");
+    const body = js.slice(at, at + 1400).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Still hidden by a real problem, as before.
+    assert.match(body, /ok\.hidden = problems\.length > 0;/);
+    // But the wording now says which of the two empty states this is.
+    assert.match(body, /ok\.textContent = health\.reported\(\)\s*\?\s*"Everything looks fine\."\s*:\s*"Nothing reported from the PiKVM yet\.";/);
+    // reported() is the "have we heard anything at all" signal, not a problem count.
+    const mod = js.slice(js.indexOf("reported: function () {"));
+    assert.match(mod.slice(0, 120), /return !!\(info \|\| source \|\| hidState\);/);
+});
