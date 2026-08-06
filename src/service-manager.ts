@@ -24,10 +24,27 @@ export interface ManagedServiceDeps {
     adoptExisting?: boolean;
     /** Log sink for child stdout/stderr + lifecycle messages. */
     log?: (line: string) => void;
+    /** How long a child must survive before its start counts as recovered
+     *  rather than as another turn of a crash loop. Overridable for tests;
+     *  see STABLE_RUN_MS. */
+    stableRunMs?: number;
 }
 
 const RESTART_DELAY_MS = 2000;
-const MAX_RESTARTS = 5; // within a session — beyond this we give up (likely misconfigured)
+/* Consecutive rapid restarts before we stop trying. The point of the ceiling is
+ * to catch a crash LOOP - a bad command, a missing venv, a config the service
+ * refuses - not to ration restarts over the life of the app. */
+const MAX_RESTARTS = 5;
+/* Survive this long and the restart that produced you is deemed to have worked,
+ * so the consecutive-failure count goes back to zero.
+ *
+ * Without it `restarts` only ever went up. The desktop stays open for days on a
+ * KVM, so five unrelated crashes hours apart - each one restarted successfully,
+ * each one recovered - reached the same ceiling as five in ten seconds, and the
+ * daemon was then never restarted again for the rest of the session. The log
+ * line even says "likely misconfigured", which is exactly what it would NOT
+ * have been by then. */
+const STABLE_RUN_MS = 60_000;
 
 export type ManagedServiceStart = "started" | "adopted" | "conflict";
 
@@ -37,6 +54,8 @@ export class ManagedService {
     private stopping = false;
     private restarts = 0;
     private restartTimer: NodeJS.Timeout | null = null;
+    /** When the current child started, so its lifetime can be judged on exit. */
+    private spawnedAt = 0;
 
     constructor(private readonly deps: ManagedServiceDeps) {}
 
@@ -95,6 +114,7 @@ export class ManagedService {
     private spawn() {
         const { command, args, cwd, env } = this.deps;
         this.log(`[${this.deps.name}] starting: ${command} ${args.join(" ")}`);
+        this.spawnedAt = Date.now();
         let child: ChildProcess;
         try {
             child = spawn(command, args, {
@@ -125,9 +145,21 @@ export class ManagedService {
             this.log(
                 `[${this.deps.name}] exited unexpectedly (code=${code} signal=${signal})`,
             );
+            // A child that ran for a good while did not fail to START, so the
+            // consecutive count starts again. Only back-to-back failures are a
+            // loop, and only a loop is what the ceiling is for.
+            const ranForMs = this.spawnedAt ? Date.now() - this.spawnedAt : 0;
+            const stableRunMs = this.deps.stableRunMs ?? STABLE_RUN_MS;
+            if (this.restarts > 0 && ranForMs >= stableRunMs) {
+                // Milliseconds under a second: "ran 0s" is what a sub-second
+                // lifetime rounded to, which reads as the opposite of stable.
+                const lived = ranForMs >= 1000 ? `${Math.round(ranForMs / 1000)}s` : `${ranForMs}ms`;
+                this.log(`[${this.deps.name}] ran ${lived} before exiting — restart count reset`);
+                this.restarts = 0;
+            }
             if (this.restarts >= MAX_RESTARTS) {
                 this.log(
-                    `[${this.deps.name}] giving up after ${MAX_RESTARTS} restarts — check its config/command`,
+                    `[${this.deps.name}] giving up after ${MAX_RESTARTS} rapid restarts — check its config/command`,
                 );
                 return;
             }
