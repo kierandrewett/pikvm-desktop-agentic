@@ -943,6 +943,27 @@ html.desktop-console .tb-macros {
    send-keys menu, which is a complete way to reach them; a missing close button
    has no such alternative. */
 html.desktop-console .tb-macros {
+    /* flex-shrink, or none of the above happens.
+     *
+     * The rule these three clusters share sets flex:none, which is
+     * flex-shrink:0 — so this element never gave up a pixel and the min-width
+     * below was inert. Clipping cannot start until something asks the box to be
+     * smaller than its content, and nothing ever did. Measured with forty
+     * pinned macros, the strip stayed 1329px wide at EVERY window size:
+     *
+     *     viewport 1400   strip 70..1399   window controls 1300..1396
+     *     viewport 1100   strip 70..1399   window controls 1000..1096
+     *     viewport  900   strip 70..1399   window controls  800..896
+     *
+     * So it ran straight through the window controls and then 499px past the
+     * right-hand edge — the exact failure the note above says was fixed. The
+     * controls stay clickable (they are a later sibling of .tb-right and win on
+     * paint order) but macros are drawn under them, and everything past the
+     * edge is simply gone.
+     *
+     * The siblings in this cluster keep min-width:auto, so they clamp at their
+     * own content width and this is the one box that actually gives way. */
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
 }
@@ -954,6 +975,24 @@ html.desktop-console .tb-macros {
 html.desktop-console .tb-right {
     flex: 0 1 auto;
     min-width: 0;
+}
+/* Everything else in that cluster holds its ground, so the macros are the only
+ * thing that gives way.
+ *
+ * These hosts had no rule of their own, so they were flex items at the default
+ * flex:0 1 auto — shrinkable. A block box whose children are inline-flex
+ * buttons has a min-content width of ONE button, so the browser was free to
+ * squeeze a two-button host to half its width and wrap the second button onto
+ * a line that does not exist in a 38px bar. Measured at 900px with forty
+ * macros: tb-actions-menus and tb-actions-view both went 60x30 -> 30x60, and
+ * .tb-right went 60 tall, spilling 12px above the window edge and 11px over
+ * the video below.
+ *
+ * The separators need it for the same reason: a 1px flex item with no
+ * flex-shrink:0 is free to shrink to nothing and take the divider with it. */
+html.desktop-console .tb-shared,
+html.desktop-console .tb-sep {
+    flex: none;
 }
 /* Title centred in the WHOLE window (not just the gap between the clusters). */
 html.desktop-console .tb-title {

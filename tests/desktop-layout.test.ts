@@ -409,8 +409,22 @@ test("pinned macros cannot push the window controls off the titlebar", () => {
      * min-width:0 on the strip is not enough on its own — the cluster AROUND it
      * was flex:none, so it kept its content width and overflowed regardless of
      * what its children permitted. Both have to give. */
-    assert.match(css, /\.tb-macros \{\s*\n\s*min-width: 0;\s*\n\s*overflow: hidden;/);
+    /* This asserted the presence of min-width:0 and overflow:hidden and stopped
+     * there, which is why it passed while the bug was live. Neither does
+     * anything until something asks the box to be smaller than its content, and
+     * the cluster rule above set flex:none on it — flex-shrink:0 — so nothing
+     * ever did. Re-measured with forty pinned macros, the strip was 1329px wide
+     * at 1400px, 1100px and 900px alike: through the window controls and 499px
+     * past the right edge. So the shrink itself is the thing to pin. */
+    assert.match(css, /\.tb-macros \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*overflow: hidden;/);
     assert.match(css, /\.tb-right \{\s*\n\s*flex: 0 1 auto;\s*\n\s*min-width: 0;/);
+    /* And the shrink has to land on the macros ALONE. Flexbox shares it out
+     * across every shrinkable sibling, and the .tb-shared hosts had no rule at
+     * all, so they took a share they could not afford: a block box of
+     * inline-flex buttons has a min-content width of one button, so a
+     * two-button host went 60x30 -> 30x60 and wrapped onto a second row of a
+     * 38px bar, spilling 12px above the window edge and 11px over the video. */
+    assert.match(css, /\.tb-shared,\s*\n\s*html\.desktop-console \.tb-sep \{\s*\n\s*flex: none;/);
     // The window controls are what is being protected, so they never give ground.
     assert.match(css, /\.tb-window \{[^}]*flex: none;/);
 });
@@ -482,3 +496,4 @@ test("the macro step rows are drawn by the shared library", () => {
     assert.match(js, /renderPlainButtons\(actions, actionSpecs\)/);
     assert.doesNotMatch(js, /var move = function \(delta, label\)/);
 });
+
