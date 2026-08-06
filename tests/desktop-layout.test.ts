@@ -1869,3 +1869,29 @@ test("an unknown GPIO channel asks before it fires", () => {
        and declining left the wire empty where accepting sent
        gpio:pulse:channel=rack_pdu_1. */
 });
+
+test("a health problem's level is not carried by colour alone", () => {
+    /* Both markers were the same 7px dot, one in --warn and one in --danger. So
+       the only thing separating "The Pi is undervolted" from "The Pi was
+       throttled recently" was amber against red at seven pixels — the pair
+       red/green colour vision most often cannot tell apart. WCAG 1.4.1, and
+       this console already avoids colour-only state elsewhere: the GPIO switch
+       carries aria-checked "so the state is not carried by the fill colour
+       alone", and a dead terminal tab says the word "exited". */
+    const marker = css.slice(css.indexOf(".dlg-list li::before {"), css.indexOf("/* ---- mass storage dialog ---- */"));
+    assert.match(marker, /border: 2px solid var\(--warn\);/);
+    assert.doesNotMatch(marker, /background: var\(--warn\)/, "warning is a ring, not a filled dot");
+    assert.match(marker, /\.dlg-list li\.is-error::before \{\s*border-color: var\(--danger\);\s*background: var\(--danger\);/);
+    // box-sizing, or the 2px border would make the error marker bigger than the
+    // warning one for the wrong reason.
+    assert.match(marker, /box-sizing: border-box;/);
+
+    /* And said out loud. The marker is a ::before with no text, so a screen
+       reader heard a flat run of sentences with nothing marking which were
+       errors — the level lived only in the CSS. */
+    assert.match(js, /\(problems\[i\]\.level === "error" \? "Error: " : "Warning: "\) \+ problems\[i\]\.text/);
+    /* Verified over CDP: rendered under achromatopsia emulation the warning is
+       visibly a ring and the errors filled discs, with hue entirely removed;
+       and the row reads out of the accessibility tree as
+       listitem | "Warning: The Pi was throttled by heat recently". */
+});

@@ -1635,16 +1635,24 @@ html.desktop-console .tb-right {
     font-size: 13px;
     line-height: 1.45;
 }
+/* Warning is a ring, error is filled — the level does not ride on hue alone.
+   Both markers were the same 7px dot in --warn or --danger, so the only thing
+   separating "The Pi is undervolted" from "The Pi was throttled recently" was
+   amber against red at seven pixels: the pair red/green colour vision most
+   often cannot tell apart. Outlined against filled survives greyscale, and
+   filled reads as the heavier of the two, which is the right way round. */
 .dlg-list li::before {
     content: "";
     flex: none;
     width: 7px;
     height: 7px;
+    box-sizing: border-box;
     border-radius: 50%;
-    background: var(--warn);
+    border: 2px solid var(--warn);
     transform: translateY(-1px);
 }
 .dlg-list li.is-error::before {
+    border-color: var(--danger);
     background: var(--danger);
 }
 

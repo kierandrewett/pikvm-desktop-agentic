@@ -3264,6 +3264,14 @@
                     var li = document.createElement("li");
                     li.textContent = problems[i].text;
                     if (problems[i].level === "error") li.className = "is-error";
+                    /* Say the level out loud too. The marker beside each line is
+                     * a ::before with no text, so a screen reader heard a flat
+                     * run of sentences with nothing marking which were errors —
+                     * the level existed only in the CSS. */
+                    li.setAttribute(
+                        "aria-label",
+                        (problems[i].level === "error" ? "Error: " : "Warning: ") + problems[i].text,
+                    );
                     list.appendChild(li);
                 }
             }
