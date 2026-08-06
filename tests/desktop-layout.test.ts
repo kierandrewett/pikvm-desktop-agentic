@@ -1403,3 +1403,27 @@ test("the health dialog's two hidden flags go through the same guard as the rest
     const gpioBare = painterBody("function paintGpio()").match(/\b\w+\.hidden\s*=/g) ?? [];
     assert.deepEqual(gpioBare, ["note.hidden ="], "only the freshly-created note may be written directly");
 });
+
+test("a long paste says it is happening", () => {
+    /* kvmd types the string itself at 20ms a key and answers when it is done,
+       so a paste is a LONG operation — 12,000 characters is about four minutes.
+       Nothing said so. Measured with the request held open: the dialog sat
+       there with Paste greyed, no message, no progress, no toast, looking
+       exactly like a dialog that had done nothing. Cancel then closed it and
+       the target carried on typing with the last trace gone from the screen. */
+    assert.match(js, /toast\("Typing " \+ text\.length \+ \(text\.length === 1 \? " character" : " characters"\) \+ " on the target…", false, true\);/);
+    // Sticky, because it has to outlast the ordinary dwell — the same call OCR
+    // makes for the same reason.
+    assert.match(js, /toast\("Reading the screen…", false, true\);/);
+    /* The success and failure toasts replace it rather than needing a hide:
+       toast() clears the pending timer as it writes. Verified live — success
+       leaves "Typed 5 characters on the target" and it is gone 3s later, a 500
+       leaves "Paste failed (500)" at role=alert and it is still up. */
+    assert.match(js, /toast\("Typed " \+ text\.length \+ \(text\.length === 1 \? " character" : " characters"\) \+ " on the target"\);/);
+    assert.match(js, /toast\("Paste failed \(" \+ r\.status \+ "\)", true\);/);
+    // It is fired before the request, so there is no window where the dialog
+    // looks idle with a paste already under way.
+    const fn = js.slice(js.indexOf("pasteBusy = true;"));
+    const head = fn.slice(0, fn.indexOf("fetch(\"/api/hid/print?"));
+    assert.match(head, /toast\("Typing "/, "the in-flight message must precede the request");
+});

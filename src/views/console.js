@@ -3938,6 +3938,24 @@
         q.push("delay=0.02");
         pasteBusy = true;
         repaintPasteActions();
+        /* Say that it is happening, for as long as it takes.
+         *
+         * kvmd types the string itself at 20ms a key and answers when it is
+         * done, so a paste is a LONG operation: 12,000 characters is about four
+         * minutes. Nothing said so. Measured with the request held open — the
+         * dialog sat there with Paste greyed, no message, no progress, no
+         * toast, looking exactly like a dialog that had done nothing. Cancel
+         * then closed it and the target carried on typing with the last trace
+         * of it gone from the screen.
+         *
+         * A sticky toast is what this console already uses for an operation
+         * that outlasts its dwell — OCR's "Reading the screen…" is the same
+         * shape, cleared the same way, and the success and failure toasts below
+         * replace it because toast() clears the timer as it writes.
+         *
+         * It also survives Cancel, which is the point: closing the dialog no
+         * longer hides the fact that the target is still being typed into. */
+        toast("Typing " + text.length + (text.length === 1 ? " character" : " characters") + " on the target…", false, true);
         fetch("/api/hid/print?" + q.join("&"), {
             method: "POST",
             cache: "no-store",
