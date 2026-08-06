@@ -1836,3 +1836,36 @@ test("text is typed with the same keymap wherever it is typed from", () => {
     const macroUse = js.indexOf('fetch("/api/hid/print?" + printQuery()');
     assert.ok(decl > 0 && decl < macroUse, "declared before the first caller reads it");
 });
+
+test("an unknown GPIO channel asks before it fires", () => {
+    /* Only __v3_usb_breaker__ confirmed, so every USER-DEFINED channel fired on
+       a single click. On a PiKVM those are relays, and a relay is almost always
+       wired to a machine's power or reset button — the dangerous case, not the
+       safe one. The console cannot tell what any of them do, and the comment
+       above the pulse guard already said as much: on a relay wired to a power
+       button a pulse "is three presses of it... and neither has any
+       confirmation to slow it down". */
+    assert.match(js, /var GPIO_NO_CONFIRM = \{ __v4_locator__: true \};/);
+    assert.match(js, /function gpioConfirm\(name, label, action, turningOn\) \{\s*if \(GPIO_NO_CONFIRM\[name\]\) return true;/);
+    // The default is now ask; the exemption list is the exception.
+    assert.match(js, /var warn = GPIO_CONFIRM\[name\];\s*if \(!warn\) \{/);
+    assert.match(js, /A pulse is a momentary contact closure\./);
+    assert.match(js, /The console cannot tell what this output is wired to\./);
+    // The breaker keeps its own, better sentence.
+    assert.match(js, /__v3_usb_breaker__: "Switch the target's USB power\?/);
+
+    // Both actions go through it, and neither reads the old map directly.
+    assert.match(js, /if \(!gpioConfirm\(name, o\.label, "pulse"\)\) return;/);
+    assert.match(js, /if \(!gpioConfirm\(name, o\.label, "switch", !cur\.on\)\) return;/);
+    assert.equal((js.match(/GPIO_CONFIRM\[name\]/g) ?? []).length, 1,
+        "only gpioConfirm reads the per-channel overrides");
+
+    /* Driven over CDP with the Pi reporting __v3_usb_breaker__, __v4_locator__
+       and a user channel rack_pdu_1, recording every confirm():
+         pulse rack_pdu_1    "Pulse \"rack pdu 1\"? … that is a press of it."
+         switch rack_pdu_1   "Turn \"rack pdu 1\" on? …"
+         switch locator      (none)
+         switch breaker      its own USB-power sentence
+       and declining left the wire empty where accepting sent
+       gpio:pulse:channel=rack_pdu_1. */
+});

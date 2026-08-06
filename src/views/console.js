@@ -2575,6 +2575,40 @@
     /* Channels where a stray click has a real cost. Cutting the target's USB pulls
      * the keyboard, mouse and any mounted image out from under it. */
     var GPIO_CONFIRM = { __v3_usb_breaker__: "Switch the target's USB power?\n\nThe keyboard, mouse and any mounted image disconnect." };
+    /* ...and channels where it does not. This list is the exception now, not
+     * the one above.
+     *
+     * Only __v3_usb_breaker__ used to confirm, so every USER-DEFINED channel
+     * fired on a single click. On a PiKVM those are relays, and a relay is
+     * almost always wired to a machine's power or reset button — which is the
+     * dangerous case, not the safe one. The console cannot tell what any of
+     * them do, and an unknown output that might cut power to a production
+     * machine is the wrong thing to default to silent.
+     *
+     * So the default is inverted: ask, unless the channel is a known-harmless
+     * built-in. The locator LED lives on the PiKVM itself and controls nothing
+     * on the target. The cost of being wrong each way is not close — a prompt
+     * you did not need against a power cut you did not ask for. */
+    var GPIO_NO_CONFIRM = { __v4_locator__: true };
+
+    /** Ask before a GPIO action, unless this channel is known to be harmless. */
+    function gpioConfirm(name, label, action, turningOn) {
+        if (GPIO_NO_CONFIRM[name]) return true;
+        var warn = GPIO_CONFIRM[name];
+        if (!warn) {
+            warn =
+                action === "pulse"
+                    ? 'Pulse "' +
+                      label +
+                      '"?\n\nA pulse is a momentary contact closure. On a relay wired to a power button, that is a press of it.'
+                    : 'Turn "' +
+                      label +
+                      '" ' +
+                      (turningOn ? "on" : "off") +
+                      "?\n\nThe console cannot tell what this output is wired to.";
+        }
+        return window.confirm(warn);
+    }
 
     function gpioLabel(name) {
         if (GPIO_LABELS[name]) return GPIO_LABELS[name];
@@ -3395,8 +3429,7 @@
                     ariaLabel: "Pulse " + o.label,
                     disabled: o.busy || !o.online || !!gpioPending[name],
                     onSelect: function () {
-                        var warn = GPIO_CONFIRM[name];
-                        if (warn && !window.confirm(warn)) return;
+                        if (!gpioConfirm(name, o.label, "pulse")) return;
                         var back = pendingFocusHold();
                         gpioBusy(name, true);
                         gpio.pulse(name).then(function () {
@@ -3422,8 +3455,7 @@
                     onSelect: function () {
                         var cur = gpioLive[name];
                         if (!cur) return;
-                        var warn = GPIO_CONFIRM[name];
-                        if (warn && !window.confirm(warn)) return;
+                        if (!gpioConfirm(name, o.label, "switch", !cur.on)) return;
                         var back = pendingFocusHold();
                         gpioBusy(name, true);
                         gpio.switchTo(name, !cur.on).then(function () {
