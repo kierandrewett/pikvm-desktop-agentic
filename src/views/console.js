@@ -2325,6 +2325,12 @@
                 hidState = hidState || {};
                 if (s.online !== undefined) hidState.online = s.online;
                 if (s.connected !== undefined) hidState.connected = s.connected;
+                /* busy arrives in every hid event and used to be dropped here,
+                 * so nothing downstream could act on it. MSD, ATX and GPIO all
+                 * thread their own busy through; this was the one that did not,
+                 * which is why the keyboard/mouse row said "attached" and
+                 * offered to detach while the Pi was mid-reset. */
+                if (s.busy !== undefined) hidState.busy = s.busy;
                 changed();
             },
             onChange: function (cb) {
@@ -2343,6 +2349,10 @@
              *  `connected` null, which is the only signal they give. */
             hidOnline: function () {
                 return hidState && hidState.online !== undefined ? hidState.online : null;
+            },
+            /** Is the Pi working on the HID right now (a reset, an attach)? */
+            hidBusy: function () {
+                return !!(hidState && hidState.busy);
             },
             /** Has the Pi told us ANYTHING yet?
              *
@@ -3028,13 +3038,18 @@
         var online = health.hidOnline();
         var attached = connected === true || (connected === null && online === true);
         var known = connected !== null || online !== null;
+        var busy = health.hidBusy();
         var stateEl = document.getElementById("health-hid-state");
-        setText(stateEl, !known ? "state unknown" : attached ? "attached" : "detached");
+        /* "busy" alongside the state rather than instead of it: which way round
+         * the gadget is remains the useful half, and the word matches the one
+         * each GPIO row and the mass storage note already use. */
+        var word = !known ? "state unknown" : attached ? "attached" : "detached";
+        setText(stateEl, busy ? word + "  ·  busy" : word);
         /* The label is the ACTION, so it says what pressing it will do rather
          * than what is currently true — and it is disabled while that is not
          * known, because a button offering to detach something that may already
          * be detached is worse than one that waits. */
-        hidToggleState = { attached: !!attached, known: !!known };
+        hidToggleState = { attached: !!attached, known: !!known, busy: !!busy };
         repaintHealthActions();
     }
     /* Live channel state, read by the specs at repaint. Keyed by channel so a
@@ -3274,7 +3289,10 @@
             {
                 id: "hid-toggle",
                 label: hidToggleState.attached ? "Detach" : "Attach",
-                disabled: !hidToggleState.known,
+                /* Also while the Pi is working on it: kvmd rejects the change
+                 * then anyway, and a button naming what it will do is lying
+                 * while the thing it describes is already moving. */
+                disabled: !hidToggleState.known || hidToggleState.busy,
                 onSelect: function () {
                     // Mirror the label: whatever it says it will do, do that.
                     var isAttached =
@@ -3283,6 +3301,12 @@
                     setHidConnected(!isAttached);
                 },
             },
+            /* Reset deliberately stays live while busy, unlike its mass
+             * storage counterpart. This is the recovery lever for a keyboard
+             * the target has stopped answering, and gating it on a flag the Pi
+             * could be stuck reporting would take away the escape hatch exactly
+             * when it is wanted. Repeating a reset costs nothing, and it asks
+             * for confirmation first, so a stray double press is not a hazard. */
             { id: "hid-reset", label: "Reset", onSelect: resetHid },
             { id: "health-close", label: "Done", variant: "default", onSelect: closeHealthDialog },
         ];

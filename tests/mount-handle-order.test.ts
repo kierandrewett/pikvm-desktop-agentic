@@ -1497,7 +1497,7 @@ test("repaint paths do not rewrite unchanged text", () => {
         /setText\(status, msd\.summary\(\)\);/,
         /setText\(free, f === null \? "" : humanBytes\(f\) \+ " free"\);/,
         /setText\(ok, health\.reported\(\)/,
-        /setText\(stateEl, !known \? "state unknown"/,
+        /setText\(stateEl, busy \? word \+ "  ·  busy" : word\);/,
         /setText\(note, !o\.online \? "offline"/,
         /setText\(val, text\);/,
         /setText\(connText, d\.label \+ inputNote\);/,

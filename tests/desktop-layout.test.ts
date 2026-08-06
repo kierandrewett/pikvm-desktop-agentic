@@ -941,3 +941,26 @@ test("the mass storage note says when the drive is busy", () => {
     // Each GPIO row already carries its own busy word; this is the same idea.
     assert.match(js, /setText\(note, !o\.online \? "offline" : o\.busy \? "busy" : ""\)/);
 });
+
+test("the keyboard and mouse row shows when the Pi is working on it", () => {
+    // busy arrives in every hid event and setHid dropped it, so nothing
+    // downstream could act on it: mid-reset the row read "attached" and offered
+    // to detach, with both buttons live. MSD, ATX and GPIO all thread their own
+    // busy through — this was the one that did not.
+    assert.match(js, /if \(s\.busy !== undefined\) hidState\.busy = s\.busy;/);
+    assert.match(js, /hidBusy: function \(\) \{\s*return !!\(hidState && hidState\.busy\);/);
+    assert.match(js, /var word = !known \? "state unknown" : attached \? "attached" : "detached";/);
+    assert.match(js, /setText\(stateEl, busy \? word \+ "  ·  busy" : word\)/);
+    assert.match(js, /hidToggleState = \{ attached: !!attached, known: !!known, busy: !!busy \};/);
+    // The toggle names what it will do, so it cannot stay live while the thing
+    // it describes is already moving.
+    assert.match(js, /disabled: !hidToggleState\.known \|\| hidToggleState\.busy,/);
+    /* Reset deliberately does NOT gate on busy, unlike its mass storage
+       counterpart: it is the recovery lever for a keyboard the target has
+       stopped answering, and a Pi stuck reporting busy would take the escape
+       hatch away exactly when it is wanted. */
+    const specs = js.slice(js.indexOf("function healthActionSpecs()"));
+    const reset = specs.slice(specs.indexOf('id: "hid-reset"'), specs.indexOf('id: "health-close"'));
+    assert.doesNotMatch(reset, /disabled:/, "hid Reset must stay reachable while the Pi reports busy");
+    assert.match(js, /msdResetEnabled = online && !busy && !msdUpload;/, "MSD reset is the counterpart that does gate");
+});
