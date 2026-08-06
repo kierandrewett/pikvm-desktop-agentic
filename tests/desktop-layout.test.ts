@@ -862,9 +862,9 @@ test("the resolution toast says nothing while it is not on screen", () => {
     // No placeholder to be read before there is anything to say.
     assert.match(html, /<span id="res-toast-main"><\/span>/);
     // Emptied when it hides, which is what makes the NEXT show a real content
-    // change in the live region rather than a silent one.
-    assert.match(js, /resToast\.classList\.remove\("show"\);[\s\S]{0,1400}?setText\(resToastMain, ""\);\s*setText\(resToastAv, ""\);/);
-    // #toast, six lines below it in the markup, is the sibling this now matches.
+    // change in the live region rather than a silent one. Through the shared
+    // helper, so it waits out the fade instead of blanking a still-opaque pill.
+    assert.match(js, /resToast\.classList\.remove\("show"\);[\s\S]{0,1200}?emptyWhenFaded\(resToast, \[resToastMain, resToastAv\]\);/);
     assert.match(html, /id="toast" role="status" aria-live="polite"/);
 });
 
@@ -1134,4 +1134,33 @@ test("the macro editor's panes fill the row they are given", () => {
     const paneRules = css.slice(css.indexOf(".macro-body {"), css.indexOf(".macro-steps {"));
     assert.doesNotMatch(paneRules, /max-height: 46vh;/, "a pane cap escaped the shared floor");
     // Verified after: 0px dead band at 844x390, and 1024x600 / 1400x900 unchanged.
+});
+
+test("a toast stops being readable once it has gone", () => {
+    /* Both toasts hide by going to opacity 0, which does not take an element out
+       of the accessibility tree — so the last message stayed readable to a
+       screen reader for the life of the window. Measured on #toast:
+           showing   text "Power action failed (500)" opacity 1.00 role=alert
+           long after text "Power action failed (500)" opacity 0.00 role=alert
+       role=alert left sitting on stale content is the most urgent thing a page
+       can leave lying around. The sticky "Reading the screen…" that OCR
+       dismisses through hideToast had the same problem. */
+    assert.match(js, /function emptyWhenFaded\(host, els\) \{[\s\S]*?if \(host\.classList\.contains\("show"\)\) return;/);
+    assert.match(js, /emptyWhenFaded\(toastEl, \[toastEl\]\)/);
+    assert.match(js, /emptyWhenFaded\(resToast, \[resToastMain, resToastAv\]\)/);
+    // Both of #toast's hide paths: the auto-hide timer and hideToast().
+    assert.equal(
+        (js.match(/emptyWhenFaded\(toastEl, \[toastEl\]\)/g) ?? []).length,
+        2,
+        "the auto-hide timer and hideToast must both empty the toast",
+    );
+    /* Delayed, not immediate. Clearing as the class comes off empties the pill
+       while it is still fully opaque — measured opacity 1.00 with the text
+       already gone, so it visibly became an empty rounded box and then faded.
+       Verified after: text present at opacity 0.42/0.11/0.01, empty only once
+       opacity had reached 0.00. */
+    assert.match(js, /var TOAST_FADE_MS = 300;/);
+    assert.match(js, /\}, TOAST_FADE_MS\);/);
+    // A timer rather than transitionend, which never fires under reduced motion.
+    assert.doesNotMatch(js, /addEventListener\("transitionend"/);
 });

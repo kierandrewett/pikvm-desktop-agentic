@@ -596,6 +596,30 @@
         if (el && el[name] !== value) el[name] = value;
     }
 
+    /* Empty a toast once it has finished fading, not the moment it starts.
+     *
+     * Both toasts hide by going to opacity 0 over 0.25s, and both have to be
+     * emptied afterwards because opacity does not take an element out of the
+     * accessibility tree — a toast that is visually gone otherwise keeps its
+     * last message readable to a screen reader for the life of the window.
+     *
+     * Doing the two together is what this exists to avoid. Measured at the
+     * moment the class comes off: opacity 1.00, text already gone — so the pill
+     * visibly becomes an empty rounded box and then fades out over a quarter of
+     * a second. Wait out the transition instead, and skip the clear if
+     * something new has been shown in the meantime.
+     *
+     * A timer rather than transitionend: prefers-reduced-motion drops the
+     * transition, and then that event never fires and the text never clears. */
+    var TOAST_FADE_MS = 300;
+    function emptyWhenFaded(host, els) {
+        if (!host) return;
+        setTimeout(function () {
+            if (host.classList.contains("show")) return;
+            for (var i = 0; i < els.length; i++) setText(els[i], "");
+        }, TOAST_FADE_MS);
+    }
+
     function toast(msg, error, sticky) {
         if (!toastEl) return;
         /* An error and a confirmation were both announced politely, which means
@@ -617,6 +641,7 @@
         toastTimer = setTimeout(
             function () {
                 toastEl.classList.remove("show");
+                emptyWhenFaded(toastEl, [toastEl]);
             },
             error ? 6000 : 2600,
         );
@@ -626,6 +651,11 @@
         if (toastTimer) clearTimeout(toastTimer);
         toastTimer = null;
         toastEl.classList.remove("show");
+        /* The sticky "Reading the screen…" is dismissed through here when the
+         * OCR text arrives, and it kept sitting in the live region afterwards —
+         * with role=alert still on it whenever the last message had been an
+         * error, which is the most urgent thing a page can leave lying around. */
+        emptyWhenFaded(toastEl, [toastEl]);
     }
 
     /* ----------------------------------------------------------------- *
@@ -5090,7 +5120,7 @@
         if (resToastTimer) clearTimeout(resToastTimer);
         resToastTimer = setTimeout(function () {
             resToast.classList.remove("show");
-            /* And empty it, which is the half its sibling already did.
+            /* And empty it once the fade is done.
              *
              * This toast hides with opacity:0, and opacity does not take an
              * element out of the accessibility tree — so the last thing it said
@@ -5099,14 +5129,10 @@
              * frame it read out the em dash placeholder the markup used to
              * carry, which is not even a sentence.
              *
-             * #toast, six lines below it in the markup, has always been a
-             * role=status live region that is emptied between messages. This is
-             * the same element doing the same job, and it now works the same
-             * way: silent while nothing is showing, and announced once when a
-             * resolution or transport change actually happens — rather than the
-             * exact inverse, which is what it did. */
-            setText(resToastMain, "");
-            setText(resToastAv, "");
+             * #toast, six lines below it in the markup, turned out to have the
+             * same bug rather than being the example to copy — it is emptied
+             * through the same helper now. */
+            emptyWhenFaded(resToast, [resToastMain, resToastAv]);
         }, 2600);
     }
 
