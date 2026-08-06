@@ -1241,3 +1241,21 @@ test("a dialog opened from the overflow menu gives focus back to the menu button
        combinations after this change. */
     assert.match(js, /if \(restore && restore\.focus && document\.contains\(restore\)\) restore\.focus\(\);/);
 });
+
+test("the upload progress bar says what it is measuring", () => {
+    /* Measured mid-upload before: role=progressbar, value=37, name="" — the one
+       control in this dialog without a name, beside a URL field whose label
+       wording was chosen for exactly that reason. Worse in the phase before it:
+       while the Pi fetches the image the bar is INDETERMINATE, so it carries no
+       value either and announced nothing at all, while "the Pi is downloading
+       it…" sat in a span nothing pointed at. After:
+           indeterminate  name="Upload progress"  desc="the Pi is downloading it…"  value none
+           determinate    name="Upload progress"  desc="37% · 1.0 GB of 2.8 GB"     value 37 */
+    assert.match(html, /<progress id="msd-progress"[\s\S]{0,160}?aria-label="Upload progress" aria-describedby="msd-progress-value"/);
+    // The description has to point at something that exists and carries the text.
+    assert.match(html, /<span class="dlg-hint" id="msd-progress-value"><\/span>/);
+    assert.match(js, /setMsdProgress\(pct, pct \+ "%  ·  " \+ humanBytes\(tr\.written\) \+ " of " \+ humanBytes\(tr\.size\)\)/);
+    assert.match(js, /setMsdProgress\(undefined, "the Pi is downloading it…"\)/);
+    // Hidden between uploads, so none of it is left in the tree to be read.
+    assert.match(html, /<div class="dlg-row" id="msd-progress-row" hidden>/);
+});

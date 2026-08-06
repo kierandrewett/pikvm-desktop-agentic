@@ -208,8 +208,19 @@
                                 <label class="dlg-label" for="msd-url">or image URL</label>
                                 <input type="text" id="msd-url" class="dlg-text dlg-grow" placeholder="https://…/image.iso" spellcheck="false" />
                             </div>
+                            <!-- Named, and pointed at the line beside it.
+                                 Measured mid-upload: role=progressbar, value=37,
+                                 name="" — the one control in this dialog without
+                                 a name, next to a URL field whose label wording
+                                 was chosen for exactly that reason. And while the
+                                 Pi is fetching the image the bar is INDETERMINATE,
+                                 so it carries no value either: without the
+                                 description there is nothing to announce at all,
+                                 while "the Pi is downloading it…" sits in a span
+                                 nothing points at. -->
                             <div class="dlg-row" id="msd-progress-row" hidden>
-                                <progress id="msd-progress" class="dlg-grow" max="100" value="0"></progress>
+                                <progress id="msd-progress" class="dlg-grow" max="100" value="0"
+                                    aria-label="Upload progress" aria-describedby="msd-progress-value"></progress>
                                 <span class="dlg-hint" id="msd-progress-value"></span>
                             </div>
                             <div class="dlg-row">
