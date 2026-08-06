@@ -6740,10 +6740,39 @@
      * the button read "Controls" whether the keys were on screen or not. */
     kbdBtn.setAttribute("aria-controls", "drawer");
     kbdBtn.setAttribute("aria-expanded", app.classList.contains("keys-open") ? "true" : "false");
+    /* Say that the row of keys continues past the edge.
+     *
+     * The drawer holds 21 controls and scrolls, with its scrollbar hidden on
+     * both engines — so at 900px wide it showed nine and 933px of content in a
+     * 399px box, with the twelve past the edge (the arrows, Enter, Backspace,
+     * Del, Home, End, Ctrl+Alt+Del and the scroll buttons) given away by
+     * nothing at all. Worse, the last visible button ends cleanly with a gap
+     * after it, so the row reads as finished rather than cut.
+     *
+     * A fade at whichever edge has more behind it, which is the usual answer
+     * for a strip whose scrollbar is deliberately hidden. Toggled from the
+     * scroll position rather than left on permanently, so the ends of the row
+     * are not dimmed once there is nothing more to reach. */
+    function paintDrawerOverflow() {
+        var d = document.getElementById("drawer");
+        if (!d) return;
+        var max = d.scrollWidth - d.clientWidth;
+        d.classList.toggle("more-before", max > 2 && d.scrollLeft > 2);
+        d.classList.toggle("more-after", max > 2 && d.scrollLeft < max - 2);
+    }
+    (function wireDrawerOverflow() {
+        var d = document.getElementById("drawer");
+        if (!d) return;
+        d.addEventListener("scroll", paintDrawerOverflow, { passive: true });
+        window.addEventListener("resize", paintDrawerOverflow);
+    })();
     kbdBtn.addEventListener("click", function () {
         var openK = app.classList.toggle("keys-open");
         kbdBtn.classList.toggle("on", openK);
         kbdBtn.setAttribute("aria-expanded", openK ? "true" : "false");
+        // Measured only once it is on screen: a display:none row reports a
+        // scrollWidth equal to its clientWidth and would never fade.
+        if (openK) paintDrawerOverflow();
         if (openK) kbd.focus({ preventScroll: true });
         else kbd.blur();
     });

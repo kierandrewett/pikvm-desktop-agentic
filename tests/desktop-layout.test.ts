@@ -2143,3 +2143,35 @@ test("a macro step's move buttons say which step they move", () => {
        step controls, and moving step 3 up reordered Keys/Text/Pause/Keys to
        Keys/Pause/Text/Keys with focus landing on "Move step 2 up". */
 });
+
+test("the controls drawer shows that its keys continue past the edge", () => {
+    /* The drawer holds 21 controls and scrolls, with its scrollbar hidden on
+       both engines — scrollbar-width: none and a ::-webkit-scrollbar rule. So
+       at 900px it showed nine: 933px of content in a 399px box, with the twelve
+       past the edge given away by nothing at all. The ones lost were the arrows,
+       Backspace, Enter, Del, Home, End, Ctrl+Alt+Del and both scroll buttons.
+
+       Worse than a plain cut: the last visible key ends with a gap after it, so
+       the row reads as finished rather than as continuing. */
+    assert.match(css, /\.bar-keys \{[\s\S]*?scrollbar-width: none;/, "the scrollbar is still deliberately hidden");
+    assert.match(css, /\.bar-keys\.more-after \{\s*mask-image: linear-gradient\(to right, #000 calc\(100% - 32px\), transparent\);/);
+    assert.match(css, /\.bar-keys\.more-before \{\s*mask-image: linear-gradient\(to right, transparent, #000 32px\);/);
+    assert.match(css, /\.bar-keys\.more-before\.more-after \{/);
+
+    /* Driven from the scroll position rather than left on permanently, so the
+       ends of the row are not dimmed once there is nothing more to reach. */
+    assert.match(js, /d\.classList\.toggle\("more-before", max > 2 && d\.scrollLeft > 2\);/);
+    assert.match(js, /d\.classList\.toggle\("more-after", max > 2 && d\.scrollLeft < max - 2\);/);
+    assert.match(js, /d\.addEventListener\("scroll", paintDrawerOverflow, \{ passive: true \}\);/);
+    assert.match(js, /window\.addEventListener\("resize", paintDrawerOverflow\);/);
+    /* And measured when it opens, not before: a display:none row reports a
+       scrollWidth equal to its clientWidth and would never fade. */
+    assert.match(js, /if \(openK\) paintDrawerOverflow\(\);/);
+
+    /* Driven over CDP at 900px, 933px of keys in a 399px strip:
+         scrollLeft 0    -> more-after            (right edge fades)
+         scrollLeft 260  -> more-before more-after (both fade)
+         scrollLeft 534  -> more-before            (left edge only)
+       and screenshotted at each: "Win" trails off at the start where it used to
+       end cleanly. */
+});

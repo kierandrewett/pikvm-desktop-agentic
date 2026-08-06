@@ -334,6 +334,19 @@ body {
 .app.keys-open .bar-keys {
     display: flex;
 }
+/* The row continues past this edge. Its scrollbar is hidden on both engines,
+   and the last visible key ends with a gap after it, so without this the strip
+   reads as finished rather than cut — twelve of its twenty-one controls were
+   off the right at 900px with nothing saying so. */
+.bar-keys.more-after {
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.bar-keys.more-before {
+    mask-image: linear-gradient(to right, transparent, #000 32px);
+}
+.bar-keys.more-before.more-after {
+    mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
 .bar-keys::-webkit-scrollbar {
     display: none;
 }
