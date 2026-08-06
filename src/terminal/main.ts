@@ -49,10 +49,31 @@ const ESCAPE_HATCH_MS = 1500;
  * below is initialised, and only a hoisted binding survives that. The work is
  * deferred to a frame anyway, both to let the layout change land first and
  * because by then the views map exists. */
+/* Mark whichever edges the tabs continue past.
+ *
+ * The strip scrolls but hides its scrollbar on both engines, so without this a
+ * strip wider than its room ended at a hard edge that reads as finished rather
+ * than cut. Measured with eight shells at 420px - the terminal column on a
+ * phone - 372px of tabs off the right and nothing saying so. Same two classes
+ * and the same 2px dead zone as the console's drawer and macro strip. */
+function paintTabOverflow(): void {
+    const max = tabsEl.scrollWidth - tabsEl.clientWidth;
+    tabsEl.classList.toggle("more-before", max > 2 && tabsEl.scrollLeft > 2);
+    tabsEl.classList.toggle("more-after", max > 2 && tabsEl.scrollLeft < max - 2);
+}
+tabsEl.addEventListener("scroll", paintTabOverflow, { passive: true });
+window.addEventListener("resize", paintTabOverflow);
+/* Tabs open and close without either of those firing, and the fade has to
+ * follow the strip's width rather than only the ways a user can move it. */
+if (typeof ResizeObserver !== "undefined") new ResizeObserver(paintTabOverflow).observe(tabsEl);
+
 function revealActiveTab(): void {
     requestAnimationFrame(() => {
         const v = active ? views.get(active) : null;
         v?.tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        // scrollIntoView moves the strip, and a scroll event does not always
+        // follow a programmatic one in time to repaint before the frame.
+        paintTabOverflow();
     });
 }
 let cameByKeyboard = false;

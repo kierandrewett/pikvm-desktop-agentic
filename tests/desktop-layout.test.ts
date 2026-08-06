@@ -2823,3 +2823,46 @@ test("the local console stops retrying and says so", () => {
     assert.match(branch, /buttons: \["Retry", "Quit"\]/);
     assert.match(branch, /if \(r\.response === 0\) connect\(\);\s*\n\s*else app\.quit\(\);/);
 });
+
+/**
+ * The terminal's tab strip scrolled with nothing saying so.
+ *
+ * #tablist is overflow-x:auto, and its scrollbar is hidden on both engines
+ * (scrollbar-width:none plus a ::-webkit-scrollbar display:none). So a strip
+ * with more shells than room simply ended at a hard edge, which reads as
+ * finished rather than cut. Measured with eight shells at 420px wide — the
+ * terminal column on a phone — 372px of tabs off the right and nothing on
+ * screen indicating it.
+ *
+ * The console already answers this question for the keys drawer and the macro
+ * strip, with the same two classes and the same 32px fade. This is a separate
+ * document so it needs its own copy; keeping it identical is what stops one
+ * question having two answers. After, at 420px:
+ *
+ *     scrollLeft 0      before false  after true    fade on the right
+ *     scrollLeft 186    before true   after true    both ends
+ *     scrollLeft 372    before true   after false   fade on the left
+ *     1200px wide       before false  after false   mask: none
+ */
+test("the terminal tab strip says when tabs continue past the edge", () => {
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    const termHtml = readFileSync(resolve(root, "src/views/terminal.html"), "utf8");
+    // Same 2px dead zone and the same class names as console.js's paintEdgeFade.
+    assert.match(term, /tabsEl\.classList\.toggle\("more-before", max > 2 && tabsEl\.scrollLeft > 2\);/);
+    assert.match(term, /tabsEl\.classList\.toggle\("more-after", max > 2 && tabsEl\.scrollLeft < max - 2\);/);
+    // Every way the strip can change: the user scrolling it, the window
+    // resizing, and tabs opening or closing (neither of the first two fires).
+    assert.match(term, /tabsEl\.addEventListener\("scroll", paintTabOverflow, \{ passive: true \}\);/);
+    assert.match(term, /window\.addEventListener\("resize", paintTabOverflow\);/);
+    assert.match(term, /new ResizeObserver\(paintTabOverflow\)\.observe\(tabsEl\)/);
+    // scrollIntoView moves the strip without a scroll event necessarily
+    // landing before the frame, so the reveal repaints it itself.
+    assert.match(term, /scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\);\s*\n[\s\S]{0,180}?paintTabOverflow\(\);/);
+    // Same 32px fade as the drawer and the macro strip in console.css.
+    assert.match(termHtml, /#tablist\.more-after \{\s*\n\s*mask-image: linear-gradient\(to right, #000 calc\(100% - 32px\), transparent\);/);
+    assert.match(termHtml, /#tablist\.more-before \{\s*\n\s*mask-image: linear-gradient\(to right, transparent, #000 32px\);/);
+    assert.match(
+        termHtml,
+        /#tablist\.more-before\.more-after \{\s*\n\s*mask-image: linear-gradient\(to right, transparent, #000 32px, #000 calc\(100% - 32px\), transparent\);/,
+    );
+});

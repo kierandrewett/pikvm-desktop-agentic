@@ -123,6 +123,28 @@
             #tablist::-webkit-scrollbar {
                 display: none;
             }
+            /* Say that the tabs continue past the edge.
+             *
+             * The strip scrolls (overflow-x:auto) but its scrollbar is hidden on
+             * both engines, so a strip with more tabs than room simply ended at
+             * a hard edge that reads as finished rather than cut. Measured with
+             * eight shells at 420px wide - the console's terminal column on a
+             * phone - 372px of tabs off the right and nothing on screen saying
+             * so.
+             *
+             * Same fade, same 32px, same class names as the keys drawer and the
+             * macro strip in console.css. This is a separate document, so it
+             * needs its own copy; keeping it identical is what stops the two
+             * from drifting into two different answers to one question. */
+            #tablist.more-after {
+                mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+            }
+            #tablist.more-before {
+                mask-image: linear-gradient(to right, transparent, #000 32px);
+            }
+            #tablist.more-before.more-after {
+                mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+            }
             .tab {
                 position: relative;
                 display: flex;
