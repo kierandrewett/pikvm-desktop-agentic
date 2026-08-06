@@ -480,8 +480,10 @@ ipcMain.on("console:open-settings", () => openSettingsWindow());
 // jiggler in the SettingsStore file).
 ipcMain.on("settings:read", (e) => {
     let pikvmUrl = "";
+    let config: any = {};
     try {
-        pikvmUrl = loadConfig().origin || "";
+        config = loadConfig();
+        pikvmUrl = config.origin || "";
     } catch {
         /* no config yet */
     }
@@ -490,7 +492,23 @@ ipcMain.on("settings:read", (e) => {
         pikvmUrl,
         keyboardLayout: s.keyboardLayout,
         jiggler: s.jiggler,
-        envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN,
+        /* Whether the PiKVM URL below is actually used.
+         *
+         * This was `envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN`, and the
+         * settings window never read it — it appears there once, as a key in
+         * the fallback object, and nowhere else. It was also measuring the
+         * wrong thing twice over: nothing in this app reads an env var for
+         * `origin` (the setting this form edits), and a remote console can be
+         * configured through `config.consoleOrigin` with no env var in sight.
+         *
+         * What it should mean is the condition CONSOLE_ORIGIN already decides
+         * on: when the console is served from somewhere else, this desktop is a
+         * thin client and the remote server owns the connection, the capture
+         * and the HID. The local origin is then read by nothing, so offering an
+         * editable field for it invites a change that relaunches the app and
+         * has no effect. Computed the same way as CONSOLE_ORIGIN so the two
+         * cannot disagree. */
+        originLocked: !!(config.consoleOrigin || process.env.PIKVM_CONSOLE_ORIGIN),
     };
 });
 

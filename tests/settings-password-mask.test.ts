@@ -166,3 +166,54 @@ test("the settings window follows the console's theme", () => {
     assert.doesNotMatch(rules, /background:\s*#0a0a0c/);
     assert.doesNotMatch(rules, /color:\s*#e6e6ea/);
 });
+
+/**
+ * The PiKVM URL field is disabled when nothing will read it.
+ *
+ * Main has always sent the settings window a flag about this and the window
+ * never looked at it: it appeared there exactly once, as a key in the fallback
+ * object used when the bridge is missing, and nowhere else. So the field
+ * stayed editable in a mode where changing it does nothing, and "Save &
+ * restart" relaunches the app to apply a value nobody reads.
+ *
+ * The flag was measuring the wrong thing twice over as well. It was
+ * `!!process.env.PIKVM_CONSOLE_ORIGIN`, and (a) no env var in this app governs
+ * `origin`, which is the setting this form edits — the only two that touch a
+ * URL are PIKVM_CONSOLE_ORIGIN and PIKVM_HARNESS_ORIGIN, neither of which is
+ * it — and (b) a remote console is just as easily configured through
+ * config.consoleOrigin with no env var in sight, which the flag missed
+ * entirely.
+ *
+ * What it should mean is the condition CONSOLE_ORIGIN already decides on: when
+ * the console is served from somewhere else this desktop is a thin client, and
+ * the remote server owns the connection, the capture and the HID. It is now
+ * computed from the same two sources in the same order, so the two cannot
+ * disagree.
+ *
+ * Measured against the settings window with the bridge reporting each state:
+ *
+ *     not locked     : disabled=false, opacity 1,   hint "The PiKVM URL…"
+ *     remote console : disabled=true,  opacity 0.5, hint "This desktop is…"
+ *
+ * The layout and the jiggler stay enabled in both — those are this app's own
+ * settings and a remote console has no say in them.
+ */
+test("the PiKVM URL is locked when a remote console owns the connection", () => {
+    const main = readFileSync(resolve(process.cwd(), "src/main.ts"), "utf8");
+    const html = readFileSync(resolve(process.cwd(), "src/views/settings-console.html"), "utf8");
+    // Same two sources, same order, as the CONSOLE_ORIGIN that acts on them.
+    assert.match(main, /originLocked: !!\(config\.consoleOrigin \|\| process\.env\.PIKVM_CONSOLE_ORIGIN\),/);
+    assert.match(main, /const CONSOLE_ORIGIN = \(config\.consoleOrigin \|\| process\.env\.PIKVM_CONSOLE_ORIGIN \|\| PROXY_ORIGIN\)/);
+    /* The old name measured the wrong thing and nothing read it. Asserted
+     * against the code with comments stripped: the comment explaining the
+     * change names the old key, and an absence check that its own explanation
+     * trips is a test that can only be satisfied by saying less. */
+    const bare = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/<!--[\s\S]*?-->/g, "");
+    assert.doesNotMatch(bare(main), /envLocked/);
+    assert.doesNotMatch(bare(html), /envLocked/);
+    // And the window now acts on it, with a reason rather than a dead control.
+    const act = html.slice(html.indexOf("if (data.originLocked) {"), html.indexOf("var errEl"));
+    assert.match(act, /urlEl\.disabled = true;/);
+    assert.match(act, /getElementById\("url-hint"\)\.textContent =/);
+    assert.match(act, /remote console, which owns the PiKVM connection/);
+});

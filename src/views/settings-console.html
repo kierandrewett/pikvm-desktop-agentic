@@ -155,9 +155,24 @@
             var saveEl = document.getElementById("save");
             var cancelEl = document.getElementById("cancel");
 
-            var data = (S && S.read()) || { pikvmUrl: "", keyboardLayout: "us", jiggler: true, envLocked: false };
+            var data = (S && S.read()) || { pikvmUrl: "", keyboardLayout: "us", jiggler: true, originLocked: false };
             layoutEl.value = data.keyboardLayout === "uk" ? "uk" : "us";
             jigglerEl.checked = !!data.jiggler;
+
+            /* A URL nothing will read is not a setting.
+               When the console is served from somewhere else this desktop is a
+               thin client: the remote server owns the connection, the capture
+               and the HID, and the local origin is read by nobody. Main has
+               always sent a flag for this and this page never looked at it, so
+               the field stayed editable — and saving it relaunches the app to
+               apply a value that changes nothing. Disabled and told why, which
+               is what the :disabled rule above was already written for. The
+               layout and the jiggler are still this app's own, so they stay. */
+            if (data.originLocked) {
+                urlEl.disabled = true;
+                document.getElementById("url-hint").textContent =
+                    "This desktop is pointed at a remote console, which owns the PiKVM connection. The URL is set there, not here.";
+            }
 
             var errEl = document.getElementById("url-err");
 
