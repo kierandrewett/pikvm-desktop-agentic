@@ -2032,7 +2032,9 @@ test("a second screen read cannot start while one is still running", () => {
        said no on the click. Both routes in — the button and the ⋯ menu. */
     assert.match(js, /function paintOcrAvailability\(\) \{/);
     assert.match(js, /setProp\(btn, "disabled", ocrBusy\);/);
-    assert.match(js, /enabled: screenHasPicture\(\) && !ocrBusy \}/);
+    // Not pinned to what follows: the full-UI gate is a later condition on the
+    // same line and is that test's business, not this one's.
+    assert.match(js, /enabled: screenHasPicture\(\) && !ocrBusy/);
 
     /* Re-driven after the fix, same two drags: one request on the wire
        (ocr_left=256), the picker refusing to engage the second time, and the
@@ -2616,4 +2618,43 @@ test("the full UI owns the keyboard while it is framed", () => {
     assert.match(enter, /if \(document\.activeElement === kbd\) kbd\.blur\(\);/);
     // ...and the frame takes it, so typing works without clicking into it first.
     assert.match(js, /setFullUiNote\(null\);[\s\S]{0,200}?fullUiFrame\.focus\(\);/);
+});
+
+/**
+ * Reading text from the screen armed an invisible mode under the full UI.
+ *
+ * "Read text from the screen…" asks you to drag a rectangle over the text you
+ * want. With the Pi's own UI framed on top, the picture is still there but
+ * completely covered, so that aim is no more possible than aiming at a picture
+ * that never arrived — which the existing !screenHasPicture() guard already
+ * refuses for exactly that reason.
+ *
+ * It did not fail cleanly, it armed. Measured with the frame up, invoking it
+ * put ocr-picking on the pane and rendered its "Drag over the text to read ·
+ * Esc to cancel" hint, both underneath the frame where they cannot be seen and
+ * where the drag that would finish them lands on the frame instead. A pick
+ * already running survived entering the full UI the same way:
+ *
+ *     picking in console   true   hint true
+ *     after entering       true   hint true    <- still armed, now invisible
+ *     ocr while framed     true   toast null   <- armed again, silently
+ *
+ * And because ocrPickingNow() diverts pointer events on the pane, the first
+ * click after coming back went to the picker rather than the target. After:
+ *
+ *     after entering       false  hint false
+ *     ocr while framed     false  toast "Leave the full PiKVM UI to read…"
+ *     ocr after leaving    true   hint true
+ */
+test("reading the screen is refused, not armed, under the full UI", () => {
+    const at = js.indexOf("function startOcrPick() {");
+    assert.ok(at > 0, "startOcrPick not found");
+    const body = js.slice(at, js.indexOf("ocrPicking = true;", at));
+    // Refused with a reason, not silently, and before the picker can arm.
+    assert.match(body, /if \(fullUiActive\(\)\) \{\s*\n\s*toast\("Leave the full PiKVM UI to read from the screen", true\);\s*\n\s*return;/);
+    assert.ok(body.indexOf("fullUiActive()") < body.indexOf("screenHasPicture()"), "the full-UI refusal must come before the no-picture one");
+    // Not offered in the first place while the frame is up.
+    assert.match(js, /id: "ocr"[^}]*enabled: screenHasPicture\(\) && !ocrBusy && !fullUiActive\(\)/);
+    // And a pick already running does not outlive the picture being covered.
+    assert.match(js, /endOcrPick\(\); \/\/ a half-finished region pick cannot outlive the picture/);
 });

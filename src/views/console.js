@@ -2361,7 +2361,25 @@
          * user to drag a rectangle over the text they want, and with nothing on
          * screen they would be choosing coordinates on a picture they cannot
          * see. Screenshot needs no aiming, which is why it stays available and
-         * this does not. */
+         * this does not.
+         *
+         * The full PiKVM UI is that same argument one step along: the picture
+         * exists, it is just underneath an opaque frame, so aiming at it is no
+         * more possible than aiming at one that never arrived.
+         *
+         * This did not merely fail, it armed. Measured with the frame up, the
+         * pane took ocr-picking and grew its "Drag over the text to read · Esc
+         * to cancel" hint — both of them underneath the frame, where they
+         * cannot be seen and the drag that would complete them lands on the
+         * frame instead. A pick already running survived entering the full UI
+         * the same way. So the console sat in a mode the user could not see,
+         * could not finish and had not been told about, and because
+         * ocrPickingNow() diverts pointer events on the pane, the first click
+         * after coming back went to the picker rather than the target. */
+        if (fullUiActive()) {
+            toast("Leave the full PiKVM UI to read from the screen", true);
+            return;
+        }
         if (!screenHasPicture()) {
             toast("No picture to read from yet", true);
             return;
@@ -5332,6 +5350,7 @@
              * (A modifier merely ARMED in the drawer is a local intent, never
              * down on the target, so it survives the trip and is on screen
              * again the moment the drawer is.) */
+            endOcrPick(); // a half-finished region pick cannot outlive the picture
             releaseAllMods();
             releaseHeldMouseButtons();
             if (document.activeElement === kbd) kbd.blur();
@@ -8572,7 +8591,7 @@
             // dropping it entirely would make it look unsupported. Same shape
             // as "Fit to native resolution" above, for the same reason.
             if (ocrAvailable())
-                items.push({ id: "ocr", label: "Read text from the screen…", enabled: screenHasPicture() && !ocrBusy });
+                items.push({ id: "ocr", label: "Read text from the screen…", enabled: screenHasPicture() && !ocrBusy && !fullUiActive() });
             items.push({ id: "log", label: "PiKVM log…" });
             items.push({ id: "macros", label: "Macros…" });
             items.push({ id: "theme", label: "Toggle theme" });
