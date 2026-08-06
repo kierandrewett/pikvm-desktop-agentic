@@ -2252,3 +2252,33 @@ test("the macro icon picker keeps a tab stop when nothing is selected", () => {
        and arrowing from the unselected group recovers it: ArrowRight off
        "No icon" left checked, active and tabbable all on "camera". */
 });
+
+test("the on-screen keys stop offering clicks that cannot reach the target", () => {
+    /* Every button in the Controls drawer sends a HID event, and send() drops
+       anything written while the socket is not OPEN. Measured with the socket
+       killed server-side: all 21 stayed enabled, pressing Escape put nothing on
+       the wire and raised no toast, and the only sign was "Live · input
+       offline" in the status chip at the other end of the window.
+
+       That is the same silent no-op the terminal's New shell was fixed for
+       earlier in this session — "send() drops anything written while the socket
+       is not OPEN, so with the terminal service unreachable New shell did
+       exactly nothing: no tab, no message, no error" — and it deserves the same
+       answer. The chip already says why; the controls stop pretending. */
+    assert.match(js, /function paintDrawerEnabled\(\) \{[\s\S]*?var up = hid\.isOpen\(\);/);
+    assert.match(js, /setProp\(b, "disabled", !up\);/);
+    // Driven by the same status hook that already refreshes the chip, and run
+    // once at startup so a console that opens with the socket down is right.
+    assert.match(js, /paintHealth\(\);\s*paintDrawerEnabled\(\);\s*\}\);\s*paintDrawerEnabled\(\);/);
+
+    /* Driven over CDP: socket up, 21 buttons and 0 disabled; socket killed, 21
+       and 21 disabled with the chip reading "Live · input offline"; socket
+       allowed back, 21 and 0 again. */
+
+    /* The physical-keyboard path is deliberately left alone. #kbd stays enabled
+       and its keystrokes are still dropped while the socket is down — disabling
+       a textarea someone is typing into moves their focus and gives no reason,
+       which is worse than the chip they already have. Worth revisiting if that
+       chip proves too quiet. */
+    assert.doesNotMatch(js, /setProp\(kbd, "disabled"/);
+});

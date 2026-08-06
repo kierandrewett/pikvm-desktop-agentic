@@ -5241,12 +5241,33 @@
     }
 
 
+    /* Grey the on-screen keys when nothing can reach the target.
+     *
+     * Every button in the drawer sends a HID event, and send() drops anything
+     * written while the socket is not OPEN. Measured with the socket killed:
+     * all 21 stayed enabled, pressing Escape put nothing on the wire and raised
+     * no toast, and the only sign was "Live · input offline" in the status chip
+     * at the other end of the window.
+     *
+     * That is the same silent no-op the terminal's New shell was fixed for, and
+     * this is the same answer: stop offering a click that would be swallowed.
+     * The chip already says why. */
+    function paintDrawerEnabled() {
+        var d = document.getElementById("drawer");
+        if (!d) return;
+        var up = hid.isOpen();
+        [].forEach.call(d.querySelectorAll("button"), function (b) {
+            setProp(b, "disabled", !up);
+        });
+    }
     hid.setStatus(function () {
         // Refresh the input note without changing the stream state.
         setState(streamState || "connecting");
         // And the titlebar/health view of it, which is the desktop's only one.
         paintHealth();
+        paintDrawerEnabled();
     });
+    paintDrawerEnabled();
     hid.connect();
     setState("connecting");
     detectScreenMode();
