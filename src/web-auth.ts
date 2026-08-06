@@ -90,6 +90,14 @@ export function loginPage(error = false, signedOut = false): string {
   .note{margin-top:12px;font-size:13px;text-align:center}
   .err{color:#f97583}
   .ok{color:#56d364}
+  /* The error sits between the field and the button, so the button's own
+     margin would double up with the note's. Keep the rhythm the page had. */
+  .err+button{margin-top:12px}
+  /* Say which field is wrong in more than words: the token input is the only
+     thing on the page, and a red sentence near it is worth nothing to anyone
+     who cannot see the colour or the proximity. */
+  input[aria-invalid="true"]{border-color:#f97583}
+  input[aria-invalid="true"]:focus{border-color:#f97583}
 </style></head>
 <body>
   <form method="POST" action="/_agent/auth">
@@ -98,10 +106,11 @@ export function loginPage(error = false, signedOut = false): string {
     <p>Enter the access token to use this server.</p>
     <label for="t">Access token</label>
     <input id="t" name="token" type="password" autocomplete="current-password"
-      autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" autofocus>
+      autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" autofocus
+      ${error ? 'aria-invalid="true" aria-describedby="signin-error"' : ""}>
+    ${error ? '<div class="note err" id="signin-error" role="alert">Wrong token. Try again.</div>' : ""}
     <button type="submit">Sign in</button>
-    ${error ? '<div class="note err">Wrong token. Try again.</div>' : ""}
-    ${signedOut && !error ? '<div class="note ok">Signed out.</div>' : ""}
+    ${signedOut && !error ? '<div class="note ok" role="status">Signed out.</div>' : ""}
   </form>
 </body></html>`;
 }
