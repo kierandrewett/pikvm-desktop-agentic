@@ -2583,3 +2583,37 @@ test("the console's own stream is released while the full UI is up", () => {
     const body = bare(js.slice(js.indexOf("function setFullUi(on) {"), js.indexOf("if (fullUiFrame) {")));
     assert.ok(!/mjpegPaused/.test(body), "setFullUi is back on mjpegPaused");
 });
+
+/**
+ * The framed full UI left the keyboard with two owners.
+ *
+ * #kbd is a 1x1 invisible textarea, and refocusKbd() hands it the focus back
+ * for as long as the on-screen keys drawer is open. So: open the keys, pick
+ * Full PiKVM UI, and every keystroke still went to the target through a
+ * control that was no longer on screen — while the Pi's own UI, the thing you
+ * were actually looking at, captures the keyboard too. Measured on the wire
+ * with the frame up:
+ *
+ *     key b   ->  ["key:KeyB:true", "key:KeyB:false"]
+ *
+ * Blocking input alone would have been the wrong half of the fix: with #kbd
+ * still holding focus the keys get swallowed at a control the user cannot see
+ * and passed to nobody, so the frame reads as broken instead of the target
+ * being typed at twice. Entering hands focus over — measured activeElement
+ * "kbd" before, "full-ui-frame" after — and blockKvmInput is the backstop for
+ * anything that grabs it back. After the fix, with #kbd force-focused, key c
+ * put nothing on the wire; leaving restored it and key d landed normally.
+ */
+test("the full UI owns the keyboard while it is framed", () => {
+    // The gate the agent path already uses, not a second one beside it.
+    assert.match(js, /function blockKvmInput\(e\) \{\s*\n\s*if \(!agentActing && !fullUiOn\) return false;/);
+    // Nothing hands the hidden textarea its focus back underneath the frame.
+    const refocus = js.slice(js.indexOf("function refocusKbd() {"));
+    assert.match(refocus.slice(0, refocus.indexOf("}")), /if \(fullUiOn\) return;/);
+    // Entering lets go of what is physically held and gives up the focus.
+    const enter = js.slice(js.indexOf("releaseAllMods();"), js.indexOf("setFullUiNote(\"Loading"));
+    assert.match(enter, /releaseHeldMouseButtons\(\);/);
+    assert.match(enter, /if \(document\.activeElement === kbd\) kbd\.blur\(\);/);
+    // ...and the frame takes it, so typing works without clicking into it first.
+    assert.match(js, /setFullUiNote\(null\);[\s\S]{0,200}?fullUiFrame\.focus\(\);/);
+});

@@ -265,8 +265,16 @@
     function noteManualKvmInput() {
         if (!agentActing) clearRegionMapForManualInput();
     }
+    /* Two things must never type at the target at once.
+     *
+     * agentActing is one. The full PiKVM UI is the other: while it is framed,
+     * the Pi's own UI owns the keyboard, and our #kbd is a 1x1 invisible
+     * textarea that keeps focus for as long as the on-screen keys drawer is
+     * open. Open the keys, switch to the full UI, and every keystroke went to
+     * the target through a control that was no longer on screen — measured on
+     * the wire as key:KeyB:true/false with the frame up. */
     function blockKvmInput(e) {
-        if (!agentActing) return false;
+        if (!agentActing && !fullUiOn) return false;
         if (e && e.preventDefault) e.preventDefault();
         if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
         if (e && e.stopPropagation) e.stopPropagation();
@@ -5313,6 +5321,20 @@
             fullUiTimer = null;
         }
         if (on) {
+            /* Hand the keyboard over rather than only muting ours. Blocking
+             * input while #kbd still HELD focus would have swallowed the keys
+             * at a control the user cannot see and passed them to nobody, so
+             * the frame would have looked broken instead of the target being
+             * typed at twice. Anything physically HELD goes down with it — a
+             * modifier mid-hold, a mouse button mid-drag — because the release
+             * for those is an event we are about to stop listening for, and a
+             * button left down on the target cannot be cleared from this side.
+             * (A modifier merely ARMED in the drawer is a local intent, never
+             * down on the target, so it survives the trip and is on screen
+             * again the moment the drawer is.) */
+            releaseAllMods();
+            releaseHeldMouseButtons();
+            if (document.activeElement === kbd) kbd.blur();
             /* Stop our own picture before the Pi's starts. fullUiOn is already
              * true above, so loadStream() is closed for business and nothing
              * reopens what this drops. */
@@ -5348,6 +5370,11 @@
                 fullUiTimer = null;
             }
             setFullUiNote(null);
+            // Ours has just let go, so give the keyboard to what is on screen
+            // instead of leaving it on the document with nothing to type into.
+            try {
+                fullUiFrame.focus();
+            } catch (err) {}
         });
     }
     var fullUiBackBtn = document.getElementById("full-ui-back");
@@ -6983,6 +7010,10 @@
     });
 
     function refocusKbd() {
+        // Never while the full UI is framed: taking focus back to a hidden
+        // textarea over the top of it is how the keyboard ended up with two
+        // owners in the first place.
+        if (fullUiOn) return;
         if (app.classList.contains("keys-open")) kbd.focus({ preventScroll: true });
     }
 
