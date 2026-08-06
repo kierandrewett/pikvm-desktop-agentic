@@ -1,15 +1,18 @@
 /**
  * Reverse proxy to the pikvm-agent daemon.
  *
- * The native Agent panel (src/views/agent.html) is served from our own origin and
- * talks to the daemon's HTTP API (sessions, frames, traces, approvals) through this
- * proxy mounted at `/_agent/daemon/*`. Same-origin means the panel can `fetch`
- * without CORS, and remote clients are already gated by the server's access token.
+ * The conversation workspace is served from our own origin and talks to the
+ * daemon's HTTP API (sessions, frames, traces, approvals) through this proxy
+ * mounted at `/_agent/daemon/*`. Same-origin means it can `fetch` without CORS,
+ * and remote clients are already gated by the server's access token.
  *
  * It streams both directions untouched — JSON request bodies in, and crucially the
- * binary JPEG from `/sessions/{id}/frame` straight back. The daemon is a separate
- * process we do NOT manage; when it's down we answer 502 so the panel can show an
- * "offline" state rather than hang.
+ * binary JPEG from `/sessions/{id}/frame` straight back. When the daemon is down
+ * we answer 502 so the panel can show an "offline" state rather than hang.
+ *
+ * This used to name src/views/agent.html as the consumer. That was the native
+ * Agent panel, superseded by the React workspace and deleted; the comment
+ * outlived the file it pointed at.
  */
 
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
