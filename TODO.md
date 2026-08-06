@@ -51,43 +51,36 @@ is in `docs/web-client-migration.md`.
 
 ## Housekeeping still queued
 
-- [ ] **The workspace has drifted between the two repos — source, not just the
-      build.** `agent/frontend` here and `frontend` in `~/dev/pikvm-agent` are
-      two copies of the same tree and nothing syncs them. As of 2026-08-06:
-      21 files differ, 8 exist only in this repo, none only in the other, and the
-      last frontend commit here is 08-06 against 08-05 there. The drift is
-      strictly one-directional — this repo is ahead.
+- [ ] **The tree is the source of truth now, but the venv still is not — so
+      this box runs the retired checkout.** `~/dev/pikvm-agent` is no longer
+      used; `agent/` here is the project. Two earlier items lived here — syncing
+      `agent/frontend` to that repo, and deciding how much of the Python project
+      to vendor — and both are answered by that: nothing gets synced outward, and
+      the mirror is complete because it is not a mirror any more.
 
-      The built `harness_ui` bundles differ for the same reason (658KB/21 chunks
-      here, 858KB/15 there). An earlier note in this file said only the bundle
-      had drifted and the sources were identical; that was true of
-      `pikvm_agent`, which IS still byte-identical, but `frontend` was never
-      checked. The bundles differ because the sources do.
+      What is left is the one thing the decision does not settle on its own.
+      `main.ts`'s `agentExecutables()` tries `agent/.venv/bin/pikvm-agent`
+      first and `~/dev/pikvm-agent/.venv/bin/pikvm-agent` second. **Only the
+      second exists**, and it is an editable install — its
+      `_editable_impl_pikvm_agent.pth` reads `/home/kieran/dev/pikvm-agent` —
+      so the daemon on this box imports the retired checkout's source, not
+      `agent/pikvm_agent`.
 
-      What it means in practice: the RPM ships the newer workspace, and a daemon
-      resolved from the standalone checkout — which is what happens on this box —
-      serves one built from day-old source.
+      That is survivable only by luck: `pikvm_agent` is byte-identical across
+      both, so the Python behaves the same. `harness_ui` is NOT — 658KB across
+      21 chunks in tree against 858KB across 15 there — so the harness UI being
+      served is the old build. The in-tree bundle is current with in-tree
+      source (nothing under `agent/frontend/src` is newer than it); it just is
+      not the one running.
 
-      **No longer blocked.** `sockets-for-local-services` was merged into
-      `master` there on 2026-08-06 (fast-forward to `95fe74d`), which was the
-      reason not to touch that tree. `pikvm_agent` is still byte-identical
-      across both repos, `endpoint.py` and `tests/test_endpoint.py` included —
-      only `frontend` has drifted. What remains is one deliberate copy of the
-      29 files, then a bundle rebuild.
+      The fix is to create `agent/.venv` and install `agent/` into it editable,
+      after which `inRepo` wins and the tree really is what runs. Not done here
+      because it pulls the full dependency set and that is not a change to make
+      inside a docs commit.
 
-- [ ] **Decide how much of the Python project this repo should vendor.**
-      `agent/` mirrors `~/dev/pikvm-agent`, but only `agent/pikvm_agent` reaches
-      the RPM (`copy-runtime-deps.mjs` ships its `harness_ui`, and
-      `resolveDaemonCommand` looks for an `agent/.venv`). Meanwhile git here
-      tracks 105 Python test files (2.2MB) that nothing in this repo runs — no
-      pytest in `package.json`, the Makefile or `scripts/` — and 288 files of
-      `bench` material. Neither ships.
-
-      Not removed, because it trades one problem for a worse one: the mirror is
-      already drifting (see above), and a PARTIAL mirror is harder to keep
-      honest than a full one. Worth settling deliberately — either the mirror is
-      complete and gets a sync step, or it is `pikvm_agent` plus `pyproject.toml`
-      and the rest is dropped.
+      **Do not drop the standalone fallback from `agentExecutables()` until
+      `agent/.venv` exists.** It looks like dead code now that the checkout is
+      retired, and removing it today would leave this box with no daemon at all.
 
 - [ ] **Decide the fate of the `PIKVM_NATIVE_UI=1` path.** `main.ts` keeps it
       deliberately ("the legacy composition is kept behind PIKVM_NATIVE_UI=1"),
