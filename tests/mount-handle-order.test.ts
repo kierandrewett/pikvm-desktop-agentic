@@ -1411,3 +1411,47 @@ test("the overflow menu's open state cannot drift from its button", () => {
     assert.match(body, /moreBtn\.setAttribute\("aria-controls", moreMenu\.id \|\| "more-menu"\);/);
     assert.doesNotMatch(body, /role", "menu"/);
 });
+
+/**
+ * The health dialog stops rewriting what has not changed.
+ *
+ * paintHealth runs on every info, hid and streamer event, and a real Pi sends
+ * those constantly. Two things in it were rewritten unconditionally.
+ *
+ * The About line is the one anyone selects — hostname, kvmd and streamer
+ * versions, the string you paste into a bug report — and reassigning a text
+ * node destroys any selection inside it. Measured with the line selected and
+ * four unrelated hid events pushed:
+ *
+ *     about rewrites: 4      selection: "" (gone)
+ *
+ * So the string you were half way through copying vanished the moment the Pi
+ * reported anything at all. The problem list was torn down and rebuilt the
+ * same way, several times a second.
+ *
+ * Both now compare first, using the data-set key idiom the GPIO rows and the
+ * image picker already use. Re-measured with four IDENTICAL hid events:
+ *
+ *     about rewrites: 0   problem-list rebuilds: 0   selection intact
+ *
+ * and real changes still land — a detached HID adds its problem, an
+ * undervoltage adds a second and moves the temperature, clearing both empties
+ * the list and updates the line.
+ *
+ * The first version of this test looked like it had failed: the list still
+ * rebuilt three times. Those four events alternated `connected`, which genuinely
+ * changes the problem set — the guard was working and the fixture was not
+ * holding anything still.
+ */
+test("the health dialog only rewrites what actually changed", () => {
+    const about = js.slice(js.indexOf("function paintAbout() {"), js.indexOf("health.onChange(paintHealth);"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(about, /var line = bits\.join\("  ·  "\);\s*\n\s*if \(el\.textContent !== line\) el\.textContent = line;/);
+    // The empty case too, or a Pi that reports nothing rewrites "" for ever.
+    assert.match(about, /if \(el\.textContent !== ""\) el\.textContent = "";/);
+    const list = js.slice(js.indexOf('var list = document.getElementById("health-list");'), js.indexOf("paintGpio();"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    // Keyed on level AND text, so a warning becoming an error still rebuilds.
+    assert.match(list, /return p\.level \+ ":" \+ p\.text;/);
+    assert.match(list, /if \(list\.getAttribute\("data-set"\) !== listKey\) \{\s*\n\s*list\.setAttribute\("data-set", listKey\);\s*\n\s*list\.innerHTML = "";/);
+});

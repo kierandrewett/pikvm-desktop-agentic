@@ -2842,12 +2842,27 @@
         repaintTbState();
         var list = document.getElementById("health-list");
         if (list) {
-            list.innerHTML = "";
-            for (var i = 0; i < problems.length; i++) {
-                var li = document.createElement("li");
-                li.textContent = problems[i].text;
-                if (problems[i].level === "error") li.className = "is-error";
-                list.appendChild(li);
+            /* Rebuilt only when the problems actually change.
+             *
+             * paintHealth runs on every info, hid and streamer event, and a real
+             * Pi sends those constantly — so this tore down and rebuilt the list
+             * several times a second whatever it contained. Same idiom the GPIO
+             * rows and the image picker already use, and for the same reason:
+             * a rebuild throws away anything the user was doing inside it. */
+            var listKey = problems
+                .map(function (p) {
+                    return p.level + ":" + p.text;
+                })
+                .join("|");
+            if (list.getAttribute("data-set") !== listKey) {
+                list.setAttribute("data-set", listKey);
+                list.innerHTML = "";
+                for (var i = 0; i < problems.length; i++) {
+                    var li = document.createElement("li");
+                    li.textContent = problems[i].text;
+                    if (problems[i].level === "error") li.className = "is-error";
+                    list.appendChild(li);
+                }
             }
         }
         var ok = document.getElementById("health-ok");
@@ -3076,17 +3091,31 @@
         if (!el) return;
         var i = health.info();
         if (!i) {
-            el.textContent = "";
+            if (el.textContent !== "") el.textContent = "";
             return;
         }
         var bits = [];
+        /* Written only when it changes.
+         *
+         * This is the line with the hostname and the kvmd and streamer versions
+         * on it — the one thing in this dialog anyone selects, because it is
+         * what you paste into a bug report. It was reassigned on every health
+         * repaint, and paintHealth runs on every info, hid and streamer event.
+         * Measured with the line selected and four unrelated hid events pushed:
+         *
+         *     about rewrites: 4      selection: "" (gone)
+         *
+         * Rewriting a text node destroys any selection inside it, so the string
+         * you were half way through copying vanished the moment the Pi reported
+         * anything at all. */
         if (i.node && i.node.host) bits.push(i.node.host);
         if (i.system && i.system.platform && i.system.platform.model) bits.push("PiKVM " + i.system.platform.model);
         if (i.system && i.system.kvmd && i.system.kvmd.version) bits.push("kvmd " + i.system.kvmd.version);
         if (i.system && i.system.streamer && i.system.streamer.version) bits.push((i.system.streamer.app || "streamer") + " " + i.system.streamer.version);
         if (i.health && i.health.temp && typeof i.health.temp.cpu === "number") bits.push(i.health.temp.cpu.toFixed(0) + "°C");
         if (i.fan && i.fan.monitored && i.fan.state && i.fan.state.hall && i.fan.state.hall.available) bits.push(i.fan.state.hall.rpm + " rpm");
-        el.textContent = bits.join("  ·  ");
+        var line = bits.join("  ·  ");
+        if (el.textContent !== line) el.textContent = line;
     }
 
     health.onChange(paintHealth);
