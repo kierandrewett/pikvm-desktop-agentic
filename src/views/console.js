@@ -3522,6 +3522,19 @@
         setProp(empty, "hidden", anything);
     }
 
+    /* Declared ahead of the IIFE that assigns it, not after.
+     *
+     * var hoists but its initialiser does not: with `var streamActions = null`
+     * sitting below wireStreamDialog, the mount ran first and the assignment
+     * then wiped it, so repaintStreamActions saw null forever and silently did
+     * nothing. Save screenshot stayed clickable while its own request was in
+     * flight — the guard still refused the extra clicks, which is the worst
+     * shape of all: a live button that ignores you. */
+    var streamActions = null;
+    function repaintStreamActions() {
+        if (streamActions) streamActions.update();
+    }
+
     (function wireStreamDialog() {
         var resSel = document.getElementById("sp-resolution");
         if (resSel) {
@@ -3542,9 +3555,9 @@
                 sendStreamParam(cfg.param, Number(el.value));
             });
         });
-        mountDialogActions("stream-dlg-actions", function () {
+        streamActions = mountDialogActions("stream-dlg-actions", function () {
             return [
-                { id: "sp-screenshot", label: "Save screenshot", onSelect: saveScreenshot },
+                { id: "sp-screenshot", label: "Save screenshot", disabled: screenshotBusy, onSelect: saveScreenshot },
                 {
                     id: "sp-reset",
                     label: "Reset stream",
@@ -3588,8 +3601,26 @@
         refocusKbd();
     }
 
+
+    /* One at a time.
+     *
+     * This is a full-resolution JPEG pulled from the streamer and handed to the
+     * browser's download machinery, and nothing here was gated on the fetch in
+     * flight. Three rapid clicks measured three snapshot requests, three
+     * downloads and three "Screenshot saved" toasts — three files in the user's
+     * downloads folder, each with its own timestamp, from one slip of the
+     * finger. It is also the last single unconfirmed click in the console
+     * without a guard; mount, detach and every GPIO row already have one.
+     *
+     * The flag lives on the function rather than only on the button because
+     * there are two ways in — the stream dialog and the ⋯ menu — and only one
+     * of them has a control that can be disabled. */
+    var screenshotBusy = false;
     /** Pull a full-resolution JPEG straight from the streamer and save it. */
     function saveScreenshot() {
+        if (screenshotBusy) return;
+        screenshotBusy = true;
+        repaintStreamActions();
         fetch("/api/streamer/snapshot?allow_offline=1", { cache: "no-store" })
             .then(function (r) {
                 if (!r.ok) throw new Error("HTTP " + r.status);
@@ -3610,6 +3641,10 @@
             })
             .catch(function (e) {
                 toast("Screenshot failed: " + (e && e.message ? e.message : "network error"), true);
+            })
+            .then(function () {
+                screenshotBusy = false;
+                repaintStreamActions();
             });
     }
 
@@ -7515,7 +7550,7 @@
             }
             items.push({ id: "fit", label: "Fit to native resolution", enabled: !!nativeDims() });
             items.push({ id: "stream", label: "Stream settings…" });
-            items.push({ id: "screenshot", label: "Save screenshot" });
+            items.push({ id: "screenshot", label: "Save screenshot", enabled: !screenshotBusy });
             items.push({ id: "health", label: "System, GPIO & health…" });
             if (msd.available()) items.push({ id: "msd", label: "Mass storage…" });
             // enabled, not omitted: the entry is a property of this Pi, and

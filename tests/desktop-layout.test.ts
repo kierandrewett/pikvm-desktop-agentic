@@ -1019,3 +1019,30 @@ test("mount and detach cannot be fired three times by one double-click", () => {
     // The guard these two were copied from.
     assert.match(js, /disabled: o\.busy \|\| !o\.online \|\| !!gpioPending\[name\],/);
 });
+
+test("save screenshot cannot be fired three times by one double-click", () => {
+    // A full-resolution JPEG handed to the browser's download machinery, with
+    // nothing gated on the fetch in flight: three rapid clicks measured three
+    // snapshot requests, three downloads and three "Screenshot saved" toasts —
+    // three files in the downloads folder, each with its own timestamp, from
+    // one slip. It was the last single unconfirmed click without a guard; the
+    // rest of the burst sweep is protected by window.confirm.
+    assert.match(js, /var screenshotBusy = false;/);
+    assert.match(js, /function saveScreenshot\(\) \{\s*if \(screenshotBusy\) return;\s*screenshotBusy = true;\s*repaintStreamActions\(\);/);
+    assert.match(js, /\.then\(function \(\) \{\s*screenshotBusy = false;\s*repaintStreamActions\(\);\s*\}\);/);
+    // Both ways in: the dialog button disables, and the ⋯ menu entry greys.
+    assert.match(js, /id: "sp-screenshot", label: "Save screenshot", disabled: screenshotBusy,/);
+    assert.match(js, /id: "screenshot", label: "Save screenshot", enabled: !screenshotBusy/);
+    /* And the declaration has to run BEFORE the IIFE that assigns it. var
+       hoists but its initialiser does not, so `var streamActions = null` below
+       wireStreamDialog let the mount happen and then wiped it — repaint saw
+       null forever and the button stayed clickable while its own request was in
+       flight, which is the worst shape of all: a live button that ignores you.
+       Verified live with the snapshot held open: disabled true during, false
+       after. */
+    const bare = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const declared = bare.indexOf("var streamActions = null;");
+    const assigned = bare.indexOf("streamActions = mountDialogActions(");
+    assert.ok(declared > -1 && assigned > -1, "streamActions must be declared and mounted");
+    assert.ok(declared < assigned, "var streamActions = null must run before wireStreamDialog assigns it");
+});
