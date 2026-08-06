@@ -852,10 +852,25 @@
             toast("The agent is driving the target — macros are held until it stops.", true);
             return;
         }
+        if (macroRunning) {
+            /* Reachable from the send-keys menu, which has no disabled state to
+             * show. Saying so beats dropping the click in silence. */
+            toast(macroRunning.label + " is still running", true);
+            return;
+        }
         noteManualKvmInput();
+        macroRunning = macro;
+        paintMacroButtons();
         var i = 0;
         var next = function () {
             if (i >= macro.steps.length) {
+                /* Cleared here and only here. Every branch reaches this: a chord
+                 * waits on afterKeys, which drainKeys always fires from a timer
+                 * whatever the socket is doing; the text step's .then(next) runs
+                 * after its own .catch; a delay is a plain timeout. So the chain
+                 * cannot stall and leave macros disabled for good. */
+                macroRunning = null;
+                paintMacroButtons();
                 // A macro's whole effect happens on the OTHER machine, so without
                 // this the click has no visible consequence here at all — and a
                 // chord the target ignored looks identical to one never sent.
@@ -932,6 +947,25 @@
             return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
         });
     }
+    /* The macro playing right now, or null.
+     *
+     * runMacro builds a per-run chain with its own step index, and nothing
+     * stopped a second one starting on top of the first. The steps then group
+     * across runs rather than interleaving cleanly: fired three times 120ms
+     * apart, a macro of "Ctrl+Alt+Delete, pause 300ms, type hello, Enter" sent
+     *
+     *     CAD  CAD  CAD  hello Enter  hello Enter  hello Enter
+     *
+     * so the pause — which is there precisely to let the target catch up before
+     * anything is typed — was honoured for the first run and defeated for the
+     * other two. On a log-in macro that is the password typed into whatever the
+     * second and third CADs left on screen.
+     *
+     * A macro is exactly where this happens, because the click has no visible
+     * consequence on THIS machine: the toast only appears when the run
+     * finishes, so during a long one there is nothing at all to say it started,
+     * and clicking again is the natural thing to do. */
+    var macroRunning = null;
     function pinnedMacroSpecs() {
         return macros
             .filter(function (m) {
@@ -944,6 +978,12 @@
                     label: m.label,
                     // macroIconSvg builds a node; the spec wants markup.
                     icon: svg ? svg.outerHTML : macroFallbackHtml(macroGlyph(m)),
+                    /* Disabled while any macro plays, not just this one: they
+                     * share the key queue and the target, so two at once
+                     * garbles both. It is also the only feedback that one is
+                     * running, which is the same answer the paste dialog and
+                     * the MSD upload already give for an action in flight. */
+                    disabled: !!macroRunning,
                     onSelect: function () {
                         runMacro(m);
                     },

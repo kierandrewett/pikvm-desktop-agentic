@@ -978,3 +978,55 @@ test("building a chord does not delete the step you are building", () => {
     assert.match(rule, /if \(step\.type === "chord"\) return !!step\.code;/);
     assert.match(rule, /if \(step\.type === "delay"\) return Number\(step\.ms\) > 0;/);
 });
+
+/**
+ * A macro cannot start on top of one that is still playing.
+ *
+ * runMacro builds a per-run chain with its own step index and nothing stopped
+ * a second one starting over the first. The steps then group across runs
+ * rather than interleaving cleanly. Fired three times 120ms apart, a macro of
+ * "Ctrl+Alt+Delete, pause, type hello, Enter" sent:
+ *
+ *     CAD  CAD  CAD  hello Enter  hello Enter  hello Enter
+ *
+ * All three chords before any pause finished, then all three text steps. So
+ * the pause — which exists precisely to let the target catch up before
+ * anything is typed — was honoured for the first run and defeated for the
+ * other two. On a log-in macro that is the password typed into whatever the
+ * second and third Ctrl+Alt+Deletes left on screen.
+ *
+ * A macro is exactly where this happens: the click has no visible consequence
+ * on THIS machine, and the toast only appears when the run FINISHES, so during
+ * a long one there was nothing at all to say it had started.
+ *
+ * Measured after, with a 2.5s macro:
+ *
+ *     idle              : 0 of 20 macro buttons disabled
+ *     mid-run           : 20 of 20 disabled
+ *     blocked attempt   : still 20 disabled, toast "… is still running"
+ *     after it finishes : 0 disabled, toast "… sent"
+ *     runs again        : 9 events, same as one clean run
+ *
+ * and the three-rapid-fire case now produces 9 events rather than 27.
+ *
+ * The flag is cleared in the chain's terminal branch and only there, which is
+ * safe because every branch reaches it: a chord waits on afterKeys, which
+ * drainKeys always fires from a timer whatever the socket is doing; the text
+ * step's .then(next) runs after its own .catch; a delay is a plain timeout.
+ * So it cannot stall and leave every macro disabled for good.
+ */
+test("a second macro cannot start while one is still playing", () => {
+    assert.match(js, /var macroRunning = null;/);
+    const at = js.indexOf("function runMacro(macro) {");
+    assert.ok(at > 0, "runMacro not found");
+    const body = js.slice(at, js.indexOf("\n    function ", at + 10)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Refuses, and says so — the send-keys menu has no disabled state to show.
+    assert.match(body, /if \(macroRunning\) \{[\s\S]*?toast\(macroRunning\.label \+ " is still running", true\);[\s\S]*?return;/);
+    // Claimed on the way in, released in the terminal branch, repainting both times.
+    assert.match(body, /macroRunning = macro;\s*\n\s*paintMacroButtons\(\);/);
+    assert.match(body, /macroRunning = null;\s*\n\s*paintMacroButtons\(\);/);
+    // And the strip shows it, for any macro rather than just the running one.
+    const spec = js.slice(js.indexOf("function pinnedMacroSpecs() {"), js.indexOf("function paintMacroButtons()"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(spec, /disabled: !!macroRunning,/);
+});
