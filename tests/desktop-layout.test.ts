@@ -2456,3 +2456,34 @@ test("the touch trackpad measures the zoomed picture box, not the layout box", (
     assert.match(body, /vcur\.x \+ \(dx \/ w\) \* SENS/);
     assert.match(body, /vcur\.y \+ \(dy \/ h\) \* SENS/);
 });
+
+/**
+ * Resizing the pane while zoomed stranded the picture off the edge.
+ *
+ * clampPan() bounds the pan at pane.width * (scale - 1), and it only ran from
+ * zoomAround() and the two-finger pan. Nothing re-ran it when the pane itself
+ * changed size, so the transform stayed where it was while the box it had been
+ * clamped against shrank underneath it. Zoomed to 3.13x and panned into the
+ * bottom-right corner, then narrowing the viewport 800 -> 400:
+ *
+ *     translate(-1054.1px, -680px) scale(3.1333)   pane 800x450   uncovered 0
+ *     translate(-1054.1px, -680px) scale(3.1333)   pane 400x225   uncovered r:201 b:200
+ *
+ * Just under half of a 400x225 pane showing background instead of the target.
+ * A window resize, a phone rotating and dragging the agent panel divider all
+ * reach it, and the only way back was pinching out to 1 (which zeroes the pan).
+ * A ResizeObserver on the pane re-clamps against the box that exists now:
+ * after, translate(-853.3px, -480px), which is exactly 400*2.1333 by
+ * 225*2.1333 — the corner still, nothing uncovered.
+ */
+test("zoomed pan is re-clamped when the pane resizes", () => {
+    const at = js.indexOf("if (typeof ResizeObserver !== \"undefined\") {");
+    assert.ok(at > 0, "pan-clamp ResizeObserver not found");
+    const body = js.slice(at, js.indexOf("function zoomAround(", at));
+    assert.match(body, /\.observe\(pane\)/);
+    // Only meaningful while zoomed; unzoomed pans are pinned to 0,0 already.
+    assert.match(body, /if \(scale <= 1\) return;/);
+    assert.match(body, /clampPan\(\);/);
+    // Repaint only when the clamp actually moved something.
+    assert.match(body, /var before = tx \+ ","? ?\+ ty;[\s\S]*?if \(tx \+ ","? ?\+ ty !== before\) applyXform\(\);/);
+});

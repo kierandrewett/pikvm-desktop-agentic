@@ -6048,6 +6048,22 @@
         tx = Math.min(0, Math.max(-pr.width * (scale - 1), tx));
         ty = Math.min(0, Math.max(-pr.height * (scale - 1), ty));
     }
+    /* The pan bound is a function of the pane's size, so anything that resizes the
+     * pane can strand the picture outside it: the transform stays where it was
+     * while the box it was clamped against shrinks under it. Measured at 3.13x
+     * panned into the corner, narrowing the viewport 800 -> 400 left 201x200px of
+     * a 400x225 pane showing background. A window resize, a phone rotating and
+     * dragging the agent panel all get there, and only pinching back out to 1
+     * cleared it. Re-clamp against the box that actually exists now. */
+    if (typeof ResizeObserver !== "undefined") {
+        new ResizeObserver(function () {
+            if (scale <= 1) return; // unzoomed pans are already pinned to 0,0
+            var before = tx + "," + ty;
+            clampPan();
+            if (tx + "," + ty !== before) applyXform();
+        }).observe(pane);
+    }
+
     // Zoom to `ns`, keeping the screen point (px,py) pinned to the same content.
     function zoomAround(px, py, ns) {
         ns = Math.max(1, Math.min(ZMAX, ns));
