@@ -31,6 +31,15 @@ export type IconButtonSpec = {
     /** Inline SVG markup, exactly as the console already has it. */
     icon: string;
     pressed?: boolean;
+    /** This button opens a menu.
+     *
+     *  The console's titlebar has three that do — More actions, the send-keys
+     *  list and ATX power — and on the desktop they open a NATIVE menu through
+     *  the main process, so there is no element to point aria-controls at and
+     *  no open state this side to report. aria-haspopup is the part that can
+     *  still be said truthfully: activating this opens a menu rather than doing
+     *  something. Without it all three announced as plain buttons. */
+    haspopup?: boolean;
     disabled?: boolean;
     hidden?: boolean;
     /** Extra classes from the host's own stylesheet.
@@ -54,6 +63,7 @@ function IconButtonRow({ buttons }: { buttons: IconButtonSpec[] }) {
                         tooltip={b.label}
                         aria-label={b.label}
                         aria-pressed={b.pressed}
+                        {...(b.haspopup ? { "aria-haspopup": "menu" as const } : {})}
                         disabled={b.disabled}
                         data-tb={b.id}
                         onClick={b.onSelect}

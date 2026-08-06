@@ -7925,6 +7925,8 @@
                     label: p.label,
                     icon: TB_ICONS.power,
                     hidden: !p.visible,
+                    // The third native menu: Power button, hold, and Reset.
+                    haspopup: true,
                     className: (p.on ? "atx-on" : "") + (p.busy ? " atx-busy" : ""),
                     onSelect: function () {
                         var r = tbRect("power");
@@ -8105,6 +8107,9 @@
                         id: "more",
                         label: "More actions",
                         icon: TB_ICONS.more,
+                        // Opens a native menu, so say so: without this it
+                        // announced as a plain button that simply does a thing.
+                        haspopup: true,
                         onSelect: function () {
                             var r = tbRect("more");
                             popNative({ x: r.left, y: r.bottom });
@@ -8114,6 +8119,7 @@
                         id: "keys",
                         label: "Send a keyboard shortcut to the target",
                         icon: TB_ICONS.keys,
+                        haspopup: true,
                         onSelect: function () {
                             var r = tbRect("keys");
                             popSendKeys({ x: r.left, y: r.bottom });

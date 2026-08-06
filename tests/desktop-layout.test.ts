@@ -2200,3 +2200,29 @@ test("the titlebar's pinned macros show when the row was cut", () => {
        that. Measured at 900px with forty pins: focusing the 31st left the strip
        at scrollLeft 717 of 751 with both edges faded. */
 });
+
+test("the titlebar buttons that open a menu say so", () => {
+    const mount = readFileSync(resolve(root, "agent/frontend/src/shared/mount.tsx"), "utf8");
+    /* Three titlebar buttons open a menu rather than doing something: More
+       actions, the send-keys list, and ATX power. On the desktop all three open
+       a NATIVE menu through the main process, so there is no element to point
+       aria-controls at and no open state this side to report — but that is no
+       reason to say nothing. Read out of the accessibility tree, all three came
+       back as plain buttons with only "invalid" and "focusable" on them. */
+    assert.match(mount, /haspopup\?: boolean;/);
+    assert.match(mount, /\{\.\.\.\(b\.haspopup \? \{ "aria-haspopup": "menu" as const \} : \{\}\)\}/);
+    assert.match(js, /id: "more",\s*label: "More actions",[\s\S]{0,400}?haspopup: true,/);
+    assert.match(js, /id: "keys",\s*label: "Send a keyboard shortcut to the target",[\s\S]{0,80}?haspopup: true,/);
+    assert.match(js, /id: "power",[\s\S]{0,220}?haspopup: true,/);
+    assert.equal((js.match(/haspopup: true,/g) ?? []).length, 3, "the three that open a native menu, and nothing else");
+
+    /* aria-expanded is deliberately NOT claimed with it. The web console's own
+       ⋯ button carries expanded and aria-controls because its menu is a real
+       element it owns; these hand off to the OS and would be reporting a state
+       they cannot see. haspopup is the part that stays true either way.
+
+       Verified from the accessibility tree with ATX pushed so Power is on
+       screen: button "More actions" / "Send a keyboard shortcut to the target"
+       / "Power — target is on", each carrying hasPopup="menu". */
+    assert.doesNotMatch(js, /id: "more",\s*label: "More actions",[\s\S]{0,400}?expanded: true/);
+});
