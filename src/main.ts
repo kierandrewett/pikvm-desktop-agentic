@@ -654,13 +654,43 @@ async function createWindow() {
     // timeout), so there is no flash of an empty/white window on launch.
     let shownOnce = false;
     let consoleLoadFails = 0; // consecutive remote-console load failures
+    /* Consecutive LOCAL-console load failures.
+     *
+     * The local branch retried every 600ms and never stopped, so a console that
+     * could not be loaded left an empty window retrying behind it with nothing
+     * on screen and nothing in the UI to act on. Measured with the load forced
+     * to fail: 34 attempts in 22 seconds, no ceiling, no dialog, no message.
+     *
+     * The remote branch three lines down already had this right - three tries,
+     * then a native dialog. Same failure, two behaviours, and the one with no
+     * way out was the DEFAULT path. */
+    let localLoadFails = 0;
+    /* ~12s of quiet retrying before saying anything. On a cold first boot the
+     * server really is still coming up and a dialog would be noise; after that
+     * long it is not coming up on its own. */
+    const LOCAL_LOAD_MAX_TRIES = 20;
+    /* Whether the navigation now finishing is the one that just failed.
+     *
+     * Chromium loads an error PAGE when a navigation fails, and that error page
+     * finishes loading like any other — so did-finish-load fires after
+     * did-fail-load, and resetting the counters there zeroed them after every
+     * single failure. Both ceilings were therefore unreachable: measured with
+     * the load forced to fail, the local branch made 46 attempts in 30 seconds
+     * against a limit of 20, and the remote branch's three-try dialog could
+     * never have appeared either. Neither counter had ever counted past one. */
+    let loadFailedThisAttempt = false;
     const revealWindow = () => {
         if (shownOnce || win.isDestroyed()) return;
         shownOnce = true;
         win.show();
     };
     mainView.webContents.on("did-finish-load", () => {
-        consoleLoadFails = 0; // loaded OK — reset the remote-failure counter
+        // Only a load that did NOT fail clears the ceilings. An error page
+        // finishing is not the console loading.
+        if (!loadFailedThisAttempt) {
+            consoleLoadFails = 0;
+            localLoadFails = 0;
+        }
         setTimeout(revealWindow, 60);
     });
     setTimeout(revealWindow, 4000); // fallback in case load never finishes
@@ -952,6 +982,7 @@ async function createWindow() {
             // draws its OWN titlebar (window controls + agent toggle + audio/mic +
             // fit-native), so it fills the whole window (no ui.html titlebar).
             console.log("Loading unified console at:", CONSOLE_URL);
+            loadFailedThisAttempt = false;
             mainView.webContents.loadURL(CONSOLE_URL);
             return;
         }
@@ -1307,11 +1338,37 @@ async function createWindow() {
             frameRoutingId
         ) => {
             if (!isMainFrame || errorCode === -3) return; // ignore sub-resources + aborts
+            loadFailedThisAttempt = true; // the error page is about to "finish"
             console.log("Main view failed to load:", errorCode, errorDescription, validatedURL);
             if (useConsole) {
-                // Local server may just be starting on first boot — keep retrying.
+                // Local server may just be starting on first boot — keep retrying,
+                // but not forever. An empty window that never explains itself is
+                // worse than a dialog that does.
                 if (!remoteConsole) {
-                    setTimeout(connect, 600);
+                    localLoadFails++;
+                    if (localLoadFails <= LOCAL_LOAD_MAX_TRIES) {
+                        setTimeout(connect, 600);
+                        return;
+                    }
+                    localLoadFails = 0;
+                    // Nothing ever loaded, so the window may never have been shown.
+                    if (!win.isDestroyed() && !win.isVisible()) win.show();
+                    void dialog
+                        .showMessageBox(win, {
+                            type: "error",
+                            title: "Can't load the console",
+                            message: `The console did not load from:\n${CONSOLE_URL}`,
+                            detail:
+                                (errorDescription || "The local server did not answer.") +
+                                "\n\nThis is served by PiKVM Desktop itself, so it usually means the local server did not start. Retrying is worth one try; if it keeps happening the app log has the reason.",
+                            buttons: ["Retry", "Quit"],
+                            defaultId: 0,
+                            cancelId: 1,
+                        })
+                        .then((r) => {
+                            if (r.response === 0) connect();
+                            else app.quit();
+                        });
                     return;
                 }
                 // REMOTE console unreachable → the user can't reach in-app Settings,

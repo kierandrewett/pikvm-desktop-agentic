@@ -2763,3 +2763,63 @@ test("the modal focus trap ignores disabled controls", () => {
     assert.match(js, /\} else if \(!e\.shiftKey && active === last\) \{\s*\n\s*e\.preventDefault\(\);\s*\n\s*first\.focus\(\);/);
     assert.match(js, /\} else if \(e\.shiftKey && active === first\) \{\s*\n\s*e\.preventDefault\(\);\s*\n\s*last\.focus\(\);/);
 });
+
+/**
+ * Neither load-failure ceiling had ever counted past one.
+ *
+ * Chromium loads an error PAGE when a navigation fails, and that error page
+ * finishes loading like any other — so did-finish-load fires right after
+ * did-fail-load. The reset lived in did-finish-load, unconditionally, which
+ * zeroed both counters after every single failure.
+ *
+ * So the local branch retried every 600ms forever, and the remote branch's
+ * "three tries then a recovery dialog" could never reach three either. Measured
+ * with the console load forced to fail:
+ *
+ *     before   46 attempts in 30s, against a ceiling of 20, still climbing
+ *     after    21 attempts, then the dialog
+ *
+ * A flag scoped to the current navigation is what makes the ceilings real: an
+ * error page finishing is not the console loading.
+ */
+test("a failed load does not clear the load-failure ceilings", () => {
+    assert.match(main, /let loadFailedThisAttempt = false;/);
+    // Cleared when a fresh attempt starts...
+    assert.match(main, /loadFailedThisAttempt = false;\s*\n\s*mainView\.webContents\.loadURL\(CONSOLE_URL\);/);
+    // ...set the moment one fails, before the error page can "finish"...
+    assert.match(main, /loadFailedThisAttempt = true; \/\/ the error page is about to "finish"/);
+    // ...and only a clean finish resets either counter.
+    assert.match(
+        main,
+        /if \(!loadFailedThisAttempt\) \{\s*\n\s*consoleLoadFails = 0;\s*\n\s*localLoadFails = 0;\s*\n\s*\}/,
+    );
+});
+
+/**
+ * The local console retried forever behind an empty window.
+ *
+ * The remote branch three lines below already stopped after three tries and put
+ * up a native recovery dialog. The local branch — the DEFAULT path, the one
+ * every ordinary install takes — just called setTimeout(connect, 600) with no
+ * counter at all, so a console that could not load left a blank window retrying
+ * behind it with nothing on screen and nothing to act on. Measured: 34 attempts
+ * in 22 seconds, no ceiling, no dialog, no message.
+ *
+ * ~12s of quiet retrying first, because on a cold boot the local server really
+ * is still coming up and a dialog then would be noise. After that it is not
+ * coming up on its own and saying so beats an empty window.
+ */
+test("the local console stops retrying and says so", () => {
+    assert.match(main, /const LOCAL_LOAD_MAX_TRIES = 20;/);
+    const at = main.indexOf("if (!remoteConsole) {");
+    assert.ok(at > 0, "the local branch was not found");
+    const branch = main.slice(at, main.indexOf("consoleLoadFails++", at));
+    assert.match(branch, /localLoadFails\+\+;/);
+    assert.match(branch, /if \(localLoadFails <= LOCAL_LOAD_MAX_TRIES\) \{\s*\n\s*setTimeout\(connect, 600\);/);
+    // Nothing ever loaded, so the window may never have been shown.
+    assert.match(branch, /if \(!win\.isDestroyed\(\) && !win\.isVisible\(\)\) win\.show\(\);/);
+    // A dialog that names the URL and offers a way out of both kinds.
+    assert.match(branch, /title: "Can't load the console"/);
+    assert.match(branch, /buttons: \["Retry", "Quit"\]/);
+    assert.match(branch, /if \(r\.response === 0\) connect\(\);\s*\n\s*else app\.quit\(\);/);
+});
