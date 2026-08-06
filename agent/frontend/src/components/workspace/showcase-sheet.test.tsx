@@ -117,4 +117,38 @@ describe("ShowcaseSheet", () => {
       ).toBeVisible();
     });
   });
+  it("says so rather than throwing when the daemon sends a shape it cannot read", async () => {
+    /* The type says `tasks` is an array; the wire does not. This panel ships
+       inside the desktop app while the daemon is a separate process on its own
+       release cadence, so either can be newer — and an answer without a tasks
+       array threw during render ("TypeError: e.tasks is not iterable"), which
+       took the whole workspace down, conversation and composer included, over a
+       panel opened out of curiosity. Measured over CDP against a daemon
+       answering {ok: true}: #root replaced by the root boundary's message. */
+    harnessJson.mockResolvedValue({ ok: true });
+
+    render(
+      <ShowcaseSheet open onOpenChange={vi.fn()} token="workspace-token" />,
+    );
+
+    expect(await screen.findByText("Evidence feed unavailable")).toBeVisible();
+    expect(
+      screen.getByText(/version mismatch between the two/),
+    ).toBeVisible();
+  });
+
+  it("reads a campaign that arrives with no tasks yet", async () => {
+    // An empty array is a real state, not a bad shape: a campaign that has not
+    // started. It must not be mistaken for the mismatch above.
+    harnessJson.mockResolvedValue({ ...campaign, tasks: [], current_task_id: null });
+
+    render(
+      <ShowcaseSheet open onOpenChange={vi.fn()} token="workspace-token" />,
+    );
+
+    expect(
+      await screen.findByText("50 real Codex tasks on a clean Windows VM"),
+    ).toBeVisible();
+    expect(screen.queryByText("Evidence feed unavailable")).toBeNull();
+  });
 });

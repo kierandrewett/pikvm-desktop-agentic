@@ -33,6 +33,7 @@ import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -68,6 +69,7 @@ import {
 } from "@/components/workspace/run-control-mode";
 import { RunProvenance } from "@/components/workspace/run-provenance";
 import { TaskRestoreState } from "@/components/workspace/task-restore-state";
+import { WorkspaceErrorBoundary } from "@/components/workspace/workspace-error-boundary";
 import { UiUpdateBadge } from "@/components/workspace/ui-update-badge";
 import { useHarnessWorkspace } from "@/hooks/use-harness-workspace";
 import { useConsoleTheme, usePanelPlacement } from "@/hooks/use-panel-placement";
@@ -194,6 +196,63 @@ function SheetLoading({
           <Skeleton className="h-4 w-2/3" />
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/**
+ * A sheet that could not render, shown as the sheet the user opened.
+ *
+ * Opening Recorded proof against a daemon that answered its endpoint with a
+ * different shape threw during render, and with only the root boundary between
+ * that sheet and the app the whole workspace went — conversation, sidebar,
+ * composer — over a panel someone opened out of curiosity. Measured: TypeError
+ * "e.tasks is not iterable", `#root` replaced by the root boundary's message.
+ *
+ * The failure belongs in the panel that caused it, with a way to close it and
+ * a way to try again, and the conversation behind it left alone.
+ */
+function SheetFailure({
+  open,
+  onOpenChange,
+  title,
+  error,
+  onRetry,
+  className,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  error: Error;
+  onRetry: () => void;
+  className?: string;
+}) {
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onRetry();
+        onOpenChange(next);
+      }}
+    >
+      <SheetContent side="right" className={className}>
+        <SheetHeader>
+          <SheetTitle>{title}</SheetTitle>
+          <SheetDescription>
+            This panel could not be displayed. The agent daemon
+            answered with something it did not understand, usually
+            because the two are different versions.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex flex-col items-start gap-3 px-4" role="alert">
+          <p className="font-mono text-xs break-words text-muted-foreground/80">
+            {error.message}
+          </p>
+          <Button size="sm" variant="outline" onClick={onRetry}>
+            Try again
+          </Button>
         </div>
       </SheetContent>
     </Sheet>
@@ -568,90 +627,144 @@ export function WorkspaceShell() {
       </Sheet>
 
       {computerMounted ? (
-        <Suspense
-          fallback={
-            <SheetLoading
+        <WorkspaceErrorBoundary
+          scope="computer"
+          fallback={(error, reset) => (
+            <SheetFailure
               open={computerOpen}
               onOpenChange={setComputerOpen}
               title="Computer"
+              error={error}
+              onRetry={reset}
               className="computer-sheet"
             />
-          }
+          )}
         >
-          <ComputerSheet
-            open={computerOpen}
-            onOpenChange={setComputerOpen}
-            token={workspace.token}
-            run={workspace.selectedRun}
-            connectionEnabled={workspace.computerControlEnabled}
-            connectionMcpName={workspace.computerConnection.mcpServerName}
-            connectionMachineName={workspace.computerConnection.machineName}
-            onPause={workspace.onCancel}
-            onContinue={workspace.continueRun}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <SheetLoading
+                open={computerOpen}
+                onOpenChange={setComputerOpen}
+                title="Computer"
+                className="computer-sheet"
+              />
+            }
+          >
+            <ComputerSheet
+              open={computerOpen}
+              onOpenChange={setComputerOpen}
+              token={workspace.token}
+              run={workspace.selectedRun}
+              connectionEnabled={workspace.computerControlEnabled}
+              connectionMcpName={workspace.computerConnection.mcpServerName}
+              connectionMachineName={workspace.computerConnection.machineName}
+              onPause={workspace.onCancel}
+              onContinue={workspace.continueRun}
+            />
+          </Suspense>
+        </WorkspaceErrorBoundary>
       ) : null}
       {managedControl && modelsMounted ? (
-        <Suspense
-          fallback={
-            <SheetLoading
+        <WorkspaceErrorBoundary
+          scope="models"
+          fallback={(error, reset) => (
+            <SheetFailure
               open={modelsOpen}
               onOpenChange={setModelsOpen}
               title="Models"
+              error={error}
+              onRetry={reset}
             />
-          }
+          )}
         >
-          <ProviderConnectionsSheet
-            open={modelsOpen}
-            onOpenChange={setModelsOpen}
-            providers={workspace.providers}
-            catalog={workspace.providerCatalog}
-            modelCatalog={workspace.modelCatalog}
-            preferences={workspace.modelPreferences}
-            activeRoute={workspace.selectedRun?.model_route}
-            activeProvider={workspace.selectedRun?.model_provider}
-            locked={workspace.routeLocked}
-            onPreferenceChange={workspace.setModelPreference}
-            onResetPreferences={workspace.resetModelPreferences}
-            connectingProvider={workspace.connectingProvider}
-            onConnectProvider={workspace.connectProvider}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <SheetLoading
+                open={modelsOpen}
+                onOpenChange={setModelsOpen}
+                title="Models"
+              />
+            }
+          >
+            <ProviderConnectionsSheet
+              open={modelsOpen}
+              onOpenChange={setModelsOpen}
+              providers={workspace.providers}
+              catalog={workspace.providerCatalog}
+              modelCatalog={workspace.modelCatalog}
+              preferences={workspace.modelPreferences}
+              activeRoute={workspace.selectedRun?.model_route}
+              activeProvider={workspace.selectedRun?.model_provider}
+              locked={workspace.routeLocked}
+              onPreferenceChange={workspace.setModelPreference}
+              onResetPreferences={workspace.resetModelPreferences}
+              connectingProvider={workspace.connectingProvider}
+              onConnectProvider={workspace.connectProvider}
+            />
+          </Suspense>
+        </WorkspaceErrorBoundary>
       ) : null}
       {diagnosticsMounted ? (
-        <Suspense
-          fallback={
-            <SheetLoading
+        <WorkspaceErrorBoundary
+          scope="diagnostics"
+          fallback={(error, reset) => (
+            <SheetFailure
               open={diagnosticsOpen}
               onOpenChange={setDiagnosticsOpen}
               title="Diagnostics"
+              error={error}
+              onRetry={reset}
             />
-          }
+          )}
         >
-          <DiagnosticsSheet
-            open={diagnosticsOpen}
-            onOpenChange={setDiagnosticsOpen}
-            run={workspace.selectedRun}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <SheetLoading
+                open={diagnosticsOpen}
+                onOpenChange={setDiagnosticsOpen}
+                title="Diagnostics"
+              />
+            }
+          >
+            <DiagnosticsSheet
+              open={diagnosticsOpen}
+              onOpenChange={setDiagnosticsOpen}
+              run={workspace.selectedRun}
+            />
+          </Suspense>
+        </WorkspaceErrorBoundary>
       ) : null}
       {showcaseMounted ? (
-        <Suspense
-          fallback={
-            <SheetLoading
+        <WorkspaceErrorBoundary
+          scope="recorded-proof"
+          fallback={(error, reset) => (
+            <SheetFailure
               open={showcaseOpen}
               onOpenChange={setShowcaseOpen}
               title="Recorded proof"
+              error={error}
+              onRetry={reset}
               className="showcase-sheet"
             />
-          }
+          )}
         >
-          <ShowcaseSheet
-            open={showcaseOpen}
-            onOpenChange={setShowcaseOpen}
-            token={workspace.token}
-          />
-        </Suspense>
+          <Suspense
+            fallback={
+              <SheetLoading
+                open={showcaseOpen}
+                onOpenChange={setShowcaseOpen}
+                title="Recorded proof"
+                className="showcase-sheet"
+              />
+            }
+          >
+            <ShowcaseSheet
+              open={showcaseOpen}
+              onOpenChange={setShowcaseOpen}
+              token={workspace.token}
+            />
+          </Suspense>
+        </WorkspaceErrorBoundary>
       ) : null}
       <AuthDialog
         open={!workspace.connected}

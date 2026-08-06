@@ -34,6 +34,20 @@ type ShowcaseSheetProps = {
 const terminalTask = (task: ShowcaseTask) =>
   task.status === "passed" || task.status === "failed";
 
+/* The type says `tasks` is an array; the wire does not.
+ *
+ * This panel ships inside the desktop app while the daemon is a separate
+ * process on its own release cadence, so either can be newer. Answer
+ * /api/showcases/current with anything lacking a tasks array and the spread
+ * below threw during render — "TypeError: e.tasks is not iterable" — which took
+ * the whole workspace down, conversation and composer included, over a panel
+ * opened out of curiosity. Checked once, here, so everything downstream can
+ * keep using the type. */
+const isCampaign = (value: unknown): value is ShowcaseCampaign =>
+  typeof value === "object" &&
+  value !== null &&
+  Array.isArray((value as { tasks?: unknown }).tasks);
+
 const formatDuration = (milliseconds?: number | null) => {
   if (milliseconds == null) return "—";
   const totalSeconds = Math.round(milliseconds / 1000);
@@ -154,11 +168,18 @@ export function ShowcaseSheet({
     let active = true;
     const load = async () => {
       try {
-        const next = await harnessJson<ShowcaseCampaign>(
+        const next = await harnessJson<unknown>(
           token,
           "/api/showcases/current",
         );
         if (!active) return;
+        if (!isCampaign(next)) {
+          setCampaign(null);
+          setError(
+            "The agent daemon sent a recording list this panel did not understand. It is usually a version mismatch between the two.",
+          );
+          return;
+        }
         setCampaign(next);
         setSelectedTaskId((current) => {
           if (

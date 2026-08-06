@@ -355,3 +355,49 @@ test("an unrestorable task is reported once, by the surface that can act on it",
        Try again re-attempted and landed back on the same card, and Start a new
        task cleared the stored id and returned an enabled composer. */
 });
+
+test("a sheet that cannot render fails inside itself, not over the workspace", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const root = process.cwd();
+    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
+    const boundary = readFileSync(
+        resolve(root, "agent/frontend/src/components/workspace/workspace-error-boundary.tsx"),
+        "utf8",
+    );
+    const showcase = readFileSync(resolve(root, "agent/frontend/src/components/workspace/showcase-sheet.tsx"), "utf8");
+    /* One boundary at the root was not enough. Opening Recorded proof against a
+       daemon that answered /api/showcases/current with a different shape threw
+       during render — "TypeError: e.tasks is not iterable" — and with nothing
+       between that sheet and the root the whole workspace went: conversation,
+       sidebar and composer replaced by the root boundary's message, over a
+       panel someone opened out of curiosity. */
+    for (const scope of ["computer", "models", "diagnostics", "recorded-proof"]) {
+        assert.match(shell, new RegExp(`scope="${scope}"`), `${scope} sheet needs its own boundary`);
+    }
+    assert.equal((shell.match(/<WorkspaceErrorBoundary/g) ?? []).length, 4, "one per lazily-mounted sheet");
+
+    /* The failure is drawn as the sheet the user opened. Its children render at
+       the end of the shell's tree, so the boundary's own centred panel would
+       have appeared loose in the layout with nothing to close. */
+    assert.match(boundary, /fallback\?: \(error: Error, reset: \(\) => void\) => ReactNode;/);
+    assert.match(boundary, /if \(this\.props\.fallback\) return this\.props\.fallback\(error, this\.reset\);/);
+    assert.match(shell, /function SheetFailure\(\{/);
+    assert.match(shell, /onRetry=\{reset\}/);
+    // Closing it clears the caught error too, so reopening the sheet retries
+    // rather than showing the same corpse.
+    assert.match(shell, /onOpenChange=\{\(next\) => \{\s*if \(!next\) onRetry\(\);/);
+    // The root boundary keeps its conversation wording; the sheets name themselves.
+    assert.match(boundary, /const DEFAULT_TITLE = "The conversation could not be displayed";/);
+    assert.match(boundary, /\{this\.props\.title \?\? DEFAULT_TITLE\}/);
+
+    /* And the sheet stops trusting a shape it cannot guarantee: this panel ships
+       in the desktop app while the daemon is a separate process on its own
+       release cadence, so either can be newer. */
+    assert.match(showcase, /const isCampaign = \(value: unknown\): value is ShowcaseCampaign =>/);
+    assert.match(showcase, /Array\.isArray\(\(value as \{ tasks\?: unknown \}\)\.tasks\)/);
+    assert.match(showcase, /const next = await harnessJson<unknown>\(/);
+    assert.match(showcase, /if \(!isCampaign\(next\)\) \{/);
+    /* Re-driven over CDP against the same daemon answer: the sheet opened on
+       "Evidence feed unavailable" with the version-mismatch line, its Close
+       focused, and the conversation, sidebar and composer intact behind it. */
+});

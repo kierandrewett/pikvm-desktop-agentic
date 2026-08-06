@@ -20,8 +20,38 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
  * cadence, so one can be newer than the other. The boundary does not fix that —
  * it just makes the window say so rather than going quiet.
  */
-type Props = { children: ReactNode };
+type Props = {
+    children: ReactNode;
+    /**
+     * What broke, in the user's terms. Defaults to the conversation because
+     * that is what the root boundary guards.
+     *
+     * Named because one boundary at the root is not enough: opening the
+     * Recorded proof sheet against a daemon that answered its endpoint with a
+     * different shape threw during render, and with nothing between that sheet
+     * and the root the whole workspace went — conversation, sidebar, composer —
+     * over a panel someone opened out of curiosity. A sheet should fail inside
+     * itself.
+     */
+    title?: string;
+    description?: string;
+    /** Distinguishes the console line when several boundaries are in play. */
+    scope?: string;
+    /**
+     * Draw the failure somewhere other than in place.
+     *
+     * A sheet's boundary needs this: its children render at the end of the
+     * shell's tree, so the default centred panel would appear loose in the
+     * layout with nothing to close. The sheet supplies its own frame instead,
+     * and `reset` is what its Close is wired to.
+     */
+    fallback?: (error: Error, reset: () => void) => ReactNode;
+};
 type State = { error: Error | null };
+
+const DEFAULT_TITLE = "The conversation could not be displayed";
+const DEFAULT_DESCRIPTION =
+    "The agent daemon answered with something this panel did not understand. It is usually a version mismatch between the two.";
 
 export class WorkspaceErrorBoundary extends Component<Props, State> {
     state: State = { error: null };
@@ -32,26 +62,30 @@ export class WorkspaceErrorBoundary extends Component<Props, State> {
 
     componentDidCatch(error: Error, info: ErrorInfo): void {
         // Kept on the console for a bug report; the panel itself stays readable.
-        console.error("[workspace] render failed", error, info.componentStack);
+        console.error(`[${this.props.scope ?? "workspace"}] render failed`, error, info.componentStack);
     }
+
+    private readonly reset = (): void => {
+        this.setState({ error: null });
+    };
 
     render(): ReactNode {
         const { error } = this.state;
         if (!error) return this.props.children;
+        if (this.props.fallback) return this.props.fallback(error, this.reset);
         return (
             <div
                 role="alert"
                 className="flex h-full w-full flex-col items-center justify-center gap-3 p-8 text-center"
             >
                 <p className="text-base font-medium text-foreground">
-                    The conversation could not be displayed
+                    {this.props.title ?? DEFAULT_TITLE}
                 </p>
                 {/* Named plainly rather than "something went wrong": the usual
                     cause is this panel and the daemon being different versions,
                     and saying so is the difference between a shrug and a lead. */}
                 <p className="max-w-sm text-sm text-muted-foreground">
-                    The agent daemon answered with something this panel did not
-                    understand. It is usually a version mismatch between the two.
+                    {this.props.description ?? DEFAULT_DESCRIPTION}
                 </p>
                 <p className="max-w-sm font-mono text-xs break-words text-muted-foreground/80">
                     {error.message}
@@ -59,9 +93,7 @@ export class WorkspaceErrorBoundary extends Component<Props, State> {
                 <button
                     type="button"
                     className="mt-1 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted"
-                    onClick={() => {
-                        this.setState({ error: null });
-                    }}
+                    onClick={this.reset}
                 >
                     Try again
                 </button>
