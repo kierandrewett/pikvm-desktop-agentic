@@ -438,7 +438,11 @@ test("a dialog's actions stay put when its content has to scroll", () => {
      * Sticky costs nothing when nothing overflows: the row sits where it already
      * sat. The background is not decoration — without it the scrolling content
      * passes visibly under the buttons and reads as a rendering fault. */
-    assert.match(css, /\.dlg-actions \{[\s\S]*?position: sticky;[\s\S]*?bottom: 0;[\s\S]*?background: var\(--card\);/);
+    /* The pin is one dialog-padding BELOW zero now: bottom:0 rests on the scroll
+     * container's padding box, which left a strip under the bar for the content
+     * to scroll through. Asserted as the token rather than the number so this
+     * and the padding that compensates it cannot drift. */
+    assert.match(css, /\.dlg-actions \{[\s\S]*?position: sticky;[\s\S]*?bottom: calc\(-1 \* var\(--dlg-pad\)\);[\s\S]*?background: var\(--card\);/);
 });
 
 test("the backend pill reports vision as a fact, not as progress", () => {
@@ -1476,4 +1480,28 @@ test("every route to a macro shows when one is already playing", () => {
     const fn = js.slice(js.indexOf("function runShortcut(sid)"));
     assert.doesNotMatch(fn.slice(0, fn.indexOf("\n        }")), /macroRunning/);
     assert.match(js, /disabled: !pasteHasText \|\| pasteBusy \|\| !!macroRunning,/);
+});
+
+test("a scrolling dialog's action bar covers the content to its bottom edge", () => {
+    /* .dlg-actions pins itself so Done stays reachable when a dialog scrolls,
+       and its own comment says the opaque background exists because otherwise
+       "the scrolling content passes visibly underneath the buttons, which reads
+       as a rendering fault". It covered upwards and not downwards: bottom:0
+       rests on the scroll container's PADDING box, so the bar stopped 20px
+       above the dialog's real edge. Measured with thirty GPIO channels in a
+       600px window:
+           bar bottom 560, dialog bottom 580
+           "rack pdu outlet 14" and its Pulse/Off visible in the 20px between
+       After: gap 0, nothing below the bar. */
+    assert.match(css, /\.dlg \{[\s\S]*?--dlg-pad: 20px;\s*padding: var\(--dlg-pad\);/);
+    assert.match(css, /\.dlg-actions \{[\s\S]*?bottom: calc\(-1 \* var\(--dlg-pad\)\);/);
+    assert.match(css, /\.dlg-actions \{[\s\S]*?padding-bottom: var\(--dlg-pad\);\s*\/\*[\s\S]*?\*\/\s*margin-bottom: calc\(-1 \* var\(--dlg-pad\)\);/);
+    /* The pull-back is not optional. padding alone made every dialog that does
+       NOT overflow 20px taller — measured 40px from button to edge where the
+       dialog's own padding is 20 — so paste, stream and health each grew a
+       band of dead space. With both, all three are back to 20. */
+    assert.match(css, /\.dlg-actions \{[\s\S]*?padding-top: 12px;\s*margin-top: -12px;/);
+    // One token, so the pin and the padding it compensates cannot drift apart.
+    const actions = css.slice(css.indexOf(".dlg-actions {"), css.indexOf(".dlg-btn {"));
+    assert.doesNotMatch(actions, /bottom: -20px|padding-bottom: 20px/, "the bar must read the dialog's own padding token");
 });

@@ -1399,7 +1399,10 @@ html.desktop-console .tb-right {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 20px;
+    /* Named because .dlg-actions has to cover exactly this much when it pins
+       itself to the bottom; two literals would drift and leave a strip. */
+    --dlg-pad: 20px;
+    padding: var(--dlg-pad);
     border-radius: 12px;
     /* One hairline ring rather than a border plus a heavy shadow: the ring
        defines the edge, the shadow only lifts it off the screen behind. */
@@ -1500,10 +1503,30 @@ html.desktop-console .tb-right {
        The background is not decoration. Without it the scrolling content passes
        visibly underneath the buttons, which reads as a rendering fault. */
     position: sticky;
-    bottom: 0;
+    /* Pinned to the dialog's real edge, not to its padding box.
+     *
+     * `bottom: 0` rests the bar on the scroll container's PADDING box, so it
+     * came to a stop 20px above the dialog's actual edge and the rows kept
+     * scrolling through the strip underneath. Measured with thirty GPIO
+     * channels in a 600px window: bar bottom 560, dialog bottom 580, and "rack
+     * pdu outlet 14" with its Pulse and Off buttons visible in the 20px between,
+     * sliced off by the rounded corner — exactly the rendering fault the note
+     * above says this background exists to prevent.
+     *
+     * A negative bottom margin does not do it: sticky constrains the border
+     * box, so the bar stayed where it was. Pinning that much lower and padding
+     * the same amount back leaves the buttons exactly where they were and
+     * carries the opaque background down to the edge. */
+    bottom: calc(-1 * var(--dlg-pad));
     background: var(--card);
     padding-top: 12px;
     margin-top: -12px;
+    padding-bottom: var(--dlg-pad);
+    /* Pulled back so the taller box costs no layout, exactly as margin-top
+       does for the padding above. Without it every dialog that does NOT
+       overflow gained 20px of dead space under its buttons — measured at 40px
+       from button to edge where the dialog's own padding is 20. */
+    margin-bottom: calc(-1 * var(--dlg-pad));
 }
 .dlg-btn {
     display: inline-flex;
