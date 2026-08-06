@@ -183,7 +183,16 @@ function ToolFallbackTrigger({
     status?.type === "incomplete" && status.reason === "cancelled";
 
   const Icon = statusIconMap[statusType];
-  const label = isCancelled ? "Cancelled tool" : "Used tool";
+  /* "Used tool: mail.send" over a pair of Allow/Deny buttons said the tool had
+     already run. It had not: nothing happens until the operator decides, and
+     this is the renderer every non-computer MCP tool uses — which is where the
+     side-effecting ones live. The computer renderer beside it has always said
+     "Approval needed" for the same state; these now agree. */
+  const label = isCancelled
+    ? "Cancelled tool"
+    : statusType === "requires-action"
+      ? "Approval needed"
+      : "Used tool";
 
   return (
     <CollapsibleTrigger
@@ -420,12 +429,24 @@ function ToolFallbackReceipt({
   toolName,
   argsText,
   result,
+  awaitingApproval,
   className,
   ...props
 }: React.ComponentProps<"div"> & {
   toolName: string;
   argsText?: string;
   result?: unknown;
+  /**
+   * Held at an approval gate, so nothing is in flight.
+   *
+   * resultSummary only sees the result, and an absent one meant "Waiting for
+   * result" — printed in the largest text in the block, directly above Allow
+   * once / Deny & stop. Nothing was waiting on a result: it was waiting on the
+   * operator, and this is the screen where they authorise something against a
+   * real machine. "Held for approval" is the computer renderer's own word for
+   * the same state.
+   */
+  awaitingApproval?: boolean;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const argumentsSummary = argumentSummary(argsText);
@@ -446,7 +467,9 @@ function ToolFallbackReceipt({
       {...props}
     >
       <p className="text-sm font-medium text-foreground/90">
-        {resultSummary(toolName, result)}
+        {awaitingApproval
+          ? "Held for approval"
+          : resultSummary(toolName, result)}
       </p>
       {shownArguments.length > 0 ? (
         <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
@@ -805,6 +828,7 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
             toolName={toolName}
             argsText={argsText}
             result={result}
+            awaitingApproval={isRequiresAction}
           />
         )}
         {isRequiresAction && (

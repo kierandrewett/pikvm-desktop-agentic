@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import { ToolFallbackReceipt } from "@/components/assistant-ui/tool-fallback";
 
 const SEARCH_RESULT = JSON.stringify({
@@ -22,6 +22,11 @@ const SEARCH_RESULT = JSON.stringify({
     })),
   },
 });
+
+// Without this each render stacked in the same document, so a second case
+// asserting the same string as the first failed on "found multiple elements"
+// rather than on the behaviour under test.
+afterEach(cleanup);
 
 describe("ToolFallbackReceipt", () => {
   it("summarizes a search response and keeps exact evidence behind Details", () => {
@@ -66,5 +71,37 @@ describe("ToolFallbackReceipt", () => {
 
     expect(screen.getByText("Completed")).toBeVisible();
     expect(screen.queryByText("Verified")).toBeNull();
+  });
+  it("says it is held for approval rather than waiting for a result", () => {
+    /* resultSummary only sees the result, and an absent one read "Waiting for
+       result" — the largest text in the block, printed directly above Allow
+       once / Deny & stop. Nothing was waiting on a result: nothing had run, and
+       nothing would until the operator decided. Measured against a run parked
+       on a mail.send gate, on the screen where an operator authorises an action
+       against a real machine. "Held for approval" is the computer renderer's
+       own word for the same state, so the two now agree. */
+    render(
+      <ToolFallbackReceipt
+        toolName="mail.send"
+        argsText={JSON.stringify({ to: "oncall@example.test" })}
+        awaitingApproval
+      />,
+    );
+
+    expect(screen.getByText("Held for approval")).toBeVisible();
+    expect(screen.queryByText("Waiting for result")).toBeNull();
+    // The arguments still show: they are what the decision is about.
+    expect(screen.getByText("oncall@example.test")).toBeVisible();
+  });
+
+  it("keeps waiting for a result when a tool really is running", () => {
+    render(
+      <ToolFallbackReceipt
+        toolName="mail.send"
+        argsText={JSON.stringify({ to: "oncall@example.test" })}
+      />,
+    );
+
+    expect(screen.getByText("Waiting for result")).toBeVisible();
   });
 });
