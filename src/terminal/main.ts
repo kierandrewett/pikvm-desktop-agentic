@@ -7,19 +7,9 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 
-type SessionKind = "shell";
-interface SessionInfo {
-    id: string;
-    agent: SessionKind;
-    title: string;
-    exited: boolean;
-}
-type ServerMsg =
-    | { t: "sessions"; sessions: SessionInfo[]; cols: number; rows: number; control: string | null }
-    | { t: "data"; id: string; data: string }
-    | { t: "exit"; id: string; code: number }
-    | { t: "control"; owner: string | null }
-    | { t: "image"; reqId: number; dataUrl: string | null };
+// One declaration of the wire, shared with the server. See terminal-protocol.ts.
+import type { SessionInfo, ServerMsg } from "../terminal-protocol";
+
 
 const tabsEl = document.getElementById("tablist")!;
 const termsEl = document.getElementById("terms")!;
