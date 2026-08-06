@@ -44,9 +44,36 @@ export const clearStoredToken = () => {
   }
 };
 
+/* A run id that is not a run id poisons the session.
+ *
+ * setItem stringifies whatever it is given, so one call with undefined writes
+ * the literal "undefined" — and that is truthy, so every later load treats it
+ * as a selected run, fetches /api/runs/undefined, takes the 404 and comes up on
+ * "Task unavailable" with no composer at all. Nothing clears it, and
+ * sessionStorage outlives a reload, so the panel stays unusable for the life of
+ * the window. Observed exactly that: pikvm-harness-selected-run = "undefined"
+ * and GET /api/runs/undefined on every load.
+ *
+ * Guarded on both sides on purpose. The write stops it happening again whoever
+ * calls it — selectRun takes its id from the assistant-ui thread adapter, which
+ * is outside this codebase — and the read heals a session already carrying one.
+ */
+const usableRunId = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  value !== "undefined" &&
+  value !== "null";
+
 export const readStoredRunId = () => {
   try {
-    return browserSessionStorage()?.getItem(SELECTED_RUN_KEY) ?? "";
+    const store = browserSessionStorage();
+    const stored = store?.getItem(SELECTED_RUN_KEY);
+    if (usableRunId(stored)) return stored;
+    // Take it out rather than stepping over it every load: with no runs yet
+    // nothing overwrites it, and a key reading "undefined" is a puzzle for
+    // whoever opens devtools next.
+    if (stored !== null && stored !== undefined) store?.removeItem(SELECTED_RUN_KEY);
+    return "";
   } catch {
     return "";
   }
@@ -54,7 +81,15 @@ export const readStoredRunId = () => {
 
 export const storeRunId = (runId: string) => {
   try {
-    browserSessionStorage()?.setItem(SELECTED_RUN_KEY, runId);
+    const store = browserSessionStorage();
+    if (!store) return;
+    // Clearing rather than writing rubbish: the next read then falls through to
+    // the newest run, which is where a session with no selection should land.
+    if (!usableRunId(runId)) {
+      store.removeItem(SELECTED_RUN_KEY);
+      return;
+    }
+    store.setItem(SELECTED_RUN_KEY, runId);
   } catch {
     // Session selection is best-effort; active React state still owns it.
   }

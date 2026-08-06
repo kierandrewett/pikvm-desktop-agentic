@@ -584,6 +584,12 @@ export function useHarnessWorkspace() {
 
   const selectRun = useCallback(
     async (runId: string) => {
+      /* The id comes from the assistant-ui thread adapter, so it is only as
+       * typed as that library's callback. Without this a switch carrying
+       * nothing wrote "undefined" into the session and fetched a run by that
+       * name; storeRunId now refuses it either way, and refusing here as well
+       * means no pointless request goes out. */
+      if (!runId) return;
       autoFollowExternalRunRef.current = false;
       selectedIdRef.current = runId;
       storeRunId(runId);

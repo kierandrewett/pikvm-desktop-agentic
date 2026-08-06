@@ -277,3 +277,41 @@ test("the conversation panel says so when it cannot render", () => {
         "the workspace bundle is stale — rebuild agent/frontend",
     );
 });
+
+/**
+ * A run id that is not a run id must not poison the session.
+ *
+ * sessionStorage.setItem stringifies whatever it is handed, so one call with
+ * undefined writes the literal "undefined" — and that is truthy, so every later
+ * load treats it as the selected run, fetches /api/runs/undefined, takes the
+ * 404 and comes up on "Task unavailable" with no composer at all. Nothing
+ * cleared it and sessionStorage outlives a reload, so the panel stayed unusable
+ * for the life of the window.
+ *
+ * Observed exactly that while driving the panel: pikvm-harness-selected-run =
+ * "undefined" and GET /api/runs/undefined on every load. Verified after, with a
+ * session poisoned before the app booted: no such request, the key removed, and
+ * the composer present on the ordinary empty state.
+ */
+test("a bad stored run id is neither written nor obeyed", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const root = process.cwd();
+    const api = readFileSync(resolve(root, "agent/frontend/src/lib/harness-api.ts"), "utf8");
+    const hook = readFileSync(resolve(root, "agent/frontend/src/hooks/use-harness-workspace.ts"), "utf8");
+
+    // One predicate, used by both sides.
+    assert.match(api, /const usableRunId = \(value: unknown\): value is string =>/);
+    assert.match(api, /value !== "undefined"/);
+    assert.match(api, /value !== "null"/);
+    assert.match(api, /typeof value === "string"/);
+    assert.match(api, /value\.length > 0/);
+    // The write clears rather than storing rubbish.
+    assert.match(api, /if \(!usableRunId\(runId\)\) \{\s*store\.removeItem\(SELECTED_RUN_KEY\);/);
+    // The read heals a session that already carries one.
+    assert.match(api, /if \(usableRunId\(stored\)\) return stored;/);
+    assert.match(api, /store\?\.removeItem\(SELECTED_RUN_KEY\);/);
+    /* And selectRun refuses it too. Its id comes from the assistant-ui thread
+       adapter, which is outside this codebase, so it is only as typed as that
+       library's callback — the guard stops a pointless request as well. */
+    assert.match(hook, /if \(!runId\) return;\s*autoFollowExternalRunRef\.current = false;/);
+});
