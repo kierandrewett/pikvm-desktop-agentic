@@ -3461,3 +3461,40 @@ test("a collapsed preview stops streaming unless alerts are watching", () => {
     // ...and so does focus, because it is half of watchingForChange().
     assert.match(js, /windowFocused = focused;[\s\S]{0,260}?applyStreamNeed\(\);/);
 });
+
+/**
+ * The audio dialog's live region read its own help text out as news.
+ *
+ * One <p role="status" aria-live="polite"> carried four different kinds of
+ * message: a pinned device having vanished, two standing facts about the
+ * browser's capabilities, a hint about device labels, and — as the fallback
+ * when none of those applied — a thirty-word paragraph explaining what the
+ * dialog is for.
+ *
+ * So unplugging a pinned headset and plugging it back in announced the warning
+ * (right), and then announced the entire explainer (wrong), because to a live
+ * region that is simply the text changing again. The standing facts had the
+ * same problem in reverse: "this browser will not list audio devices" is true
+ * of the browser, not something that just happened, and announcing it beside a
+ * device going missing buries the thing that actually changed.
+ *
+ * Two elements now. #ad-status is live and EMPTY unless something is wrong;
+ * #ad-note is standing text with no role at all. That is the split the terminal
+ * already uses, whose own comment says its status is "empty while the
+ * connection is healthy so there is nothing to read". Measured:
+ *
+ *     at rest              status ""                          note <explainer>
+ *     pinned mic unplugged status "The microphone you chose…"  note ""
+ */
+test("only what is wrong goes in the audio dialog's live region", () => {
+    assert.match(html, /<p class="dlg-note" id="ad-status" role="status" aria-live="polite"><\/p>/);
+    // The standing text is NOT a live region.
+    assert.match(html, /<p class="dlg-note" id="ad-note"><\/p>/);
+    // Wrong goes to the live one...
+    assert.match(js, /var wrong = \[\];\s*\n\s*if \(micGone\) wrong\.push\(goneSentence\("microphone", micChoice\)\);\s*\n\s*if \(outGone\) wrong\.push\(goneSentence\("audio output", outChoice\)\);\s*\n\s*setText\(adStatus, wrong\.join\(" "\)\);/);
+    // ...and the explainer only when nothing is wrong, so the two never stack.
+    assert.match(js, /else if \(!wrong\.length\) \{\s*\n\s*notes\.push\("Both choices are remembered/);
+    assert.match(js, /setText\(adNote, notes\.join\(" "\)\);/);
+    // The warn styling follows the live one, since that is what carries a fault.
+    assert.match(js, /adStatus\.classList\.toggle\("is-warn", wrong\.length > 0\);/);
+});

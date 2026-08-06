@@ -6467,6 +6467,7 @@
     var micSel = document.getElementById("ad-mic");
     var outSel = document.getElementById("ad-out");
     var adNote = document.getElementById("ad-note");
+    var adStatus = document.getElementById("ad-status");
     var namingDevices = false;
 
     function devicesLabelled() {
@@ -6521,17 +6522,24 @@
         fillDeviceSelect(outSel, audioOutputs, outChoice, "audiooutput", outGone);
         setProp(micSel, "disabled", !haveApi);
         setProp(outSel, "disabled", !haveApi || !sinkIdSupported());
+        /* What is WRONG goes in the live region; what is merely true goes in the
+         * static one. A browser that cannot list devices is a standing fact
+         * about this browser, not an event, and announcing it alongside a
+         * missing device would bury the thing that just changed. */
+        var wrong = [];
+        if (micGone) wrong.push(goneSentence("microphone", micChoice));
+        if (outGone) wrong.push(goneSentence("audio output", outChoice));
+        setText(adStatus, wrong.join(" "));
+        if (adStatus) adStatus.classList.toggle("is-warn", wrong.length > 0);
+
         var notes = [];
-        if (micGone) notes.push(goneSentence("microphone", micChoice));
-        if (outGone) notes.push(goneSentence("audio output", outChoice));
         if (!haveApi) notes.push("This browser will not list audio devices, so both follow the system default.");
         else if (!sinkIdSupported()) notes.push("This browser cannot choose where audio is played, so the output follows the system default.");
         else if (!devicesLabelled()) notes.push("Device names appear once the microphone has been allowed.");
-        if (!notes.length) {
+        else if (!wrong.length) {
             notes.push("Both choices are remembered, so the system default moving — a headset plugged in, a call app taking the line — no longer moves the microphone being sent to the target.");
         }
         setText(adNote, notes.join(" "));
-        if (adNote) adNote.classList.toggle("is-warn", micGone || outGone);
         repaintAudioActions();
     }
 

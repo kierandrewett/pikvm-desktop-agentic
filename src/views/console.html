@@ -343,11 +343,18 @@
                             <label class="dlg-label" for="ad-out">Audio output</label>
                             <select id="ad-out" class="dlg-select dlg-grow"></select>
                         </div>
-                        <!-- role="status" because this is where a pinned device going
-                             missing is reported, and that happens while the dialog is
-                             already open — unplug a headset and the note has to say so
-                             without the user going looking for it. -->
-                        <p class="dlg-note" id="ad-note" role="status" aria-live="polite"></p>
+                        <!-- Two elements, because they are two different things.
+                             #ad-status is the live one: EMPTY unless something is
+                             actually wrong, so a pinned device disappearing while the
+                             dialog is open is announced and nothing else is. #ad-note
+                             is standing explanatory text and must not be a live
+                             region — it used to share the status element, which meant
+                             a device going and coming back read the whole thirty-word
+                             paragraph out as though it were news. Same split as the
+                             terminal's #term-status, which is "empty while the
+                             connection is healthy so there is nothing to read". -->
+                        <p class="dlg-note" id="ad-status" role="status" aria-live="polite"></p>
+                        <p class="dlg-note" id="ad-note"></p>
                         <div class="dlg-actions" id="audio-dlg-actions"></div>
                     </div>
                 </div>
