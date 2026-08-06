@@ -1080,3 +1080,47 @@ test("a GPIO control cannot fire twice before the Pi answers", () => {
     const mod = js.slice(js.indexOf("var gpio = (function () {"), js.indexOf("HID recovery"));
     assert.match(mod, /pulse: function \(name\) \{[\s\S]*?\.catch\(function \(e\) \{[\s\S]*?\}\);\s*\n\s*\},/);
 });
+
+/**
+ * Only one dialog is up at a time, because everything assumes it.
+ *
+ * openScrim is written as "THE dialog currently up" and returns the FIRST
+ * non-hidden scrim in DOM order; the focus trap, Escape and modalOpen are all
+ * built on that being the only one. Nothing enforced it, and the ⋯ menu opens
+ * a dialog without closing what is already there.
+ *
+ * Every scrim carries the same z-index, so with two up the one painted on top
+ * is simply the later one in the DOM — while openScrim hands the focus trap
+ * the EARLIER one. Opening Stream settings and then System:
+ *
+ *     open: ["health-dlg","stream-dlg"]   topmost: stream-dlg
+ *     focus: health-dlg "Done"            after 6 tabs: still health-dlg
+ *     Escape closed health-dlg, leaving stream-dlg up
+ *
+ * The System dialog sat behind the Stream scrim, dimmed and unreachable by
+ * mouse, with the keyboard trapped inside it — so you tab around a dialog you
+ * cannot see, and Escape shuts the one you were not looking at.
+ *
+ * The equal z-index is the proof that stacking was never designed, so the fix
+ * makes the singular assumption true rather than teaching four consumers to
+ * cope with it. After: opening the second closes the first, focus follows it,
+ * Escape closes it and hands focus back to the page. Keys still never reach
+ * the target while any dialog is up, and reach it again once none is.
+ */
+test("opening a dialog closes the one already up", () => {
+    const helper = js.slice(js.indexOf("function closeOtherDialogs(keep) {"), js.indexOf("/** The dialog currently up"));
+    assert.match(helper, /if \(el !== keep && !el\.hidden\) el\.hidden = true;/);
+    /* Every place a dialog is shown has to use it. Found by scanning rather
+     * than listing them, so a dialog added later without the call fails here
+     * instead of quietly reintroducing the stack. */
+    const shows = [...js.matchAll(/^\s*(?:if \(dlg\) \{\s*\n\s*)?(\w+)\.hidden = false;/gm)]
+        .filter((m) => /dlg/i.test(m[1]));
+    assert.ok(shows.length >= 7, `expected every dialog open site, found ${shows.length}`);
+    for (const m of shows) {
+        const before = js.slice(Math.max(0, m.index - 200), m.index);
+        assert.match(before, new RegExp(`closeOtherDialogs\\(${m[1]}\\);\\s*$`),
+            `${m[1]}.hidden = false is not preceded by closeOtherDialogs(${m[1]})`);
+    }
+    // openScrim is unchanged: first in DOM order is correct once there is only one.
+    assert.match(js, /function openScrim\(\) \{[\s\S]*?if \(!scrims\[i\]\.hidden\) return scrims\[i\];/);
+});

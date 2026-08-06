@@ -1382,6 +1382,7 @@
 
     function openMacroEditor() {
         if (!macroDlg) return;
+        closeOtherDialogs(macroDlg);
         macroDlg.hidden = false;
         if (!macroSelected && macros.length) macroSelected = macros[0].id;
         paintMacroEditor();
@@ -1695,6 +1696,7 @@
 
     function openLogDialog() {
         if (!logDlg) return;
+        closeOtherDialogs(logDlg);
         logDlg.hidden = false;
         loadLog();
     }
@@ -1896,7 +1898,10 @@
                 ocrHasText = found.length > 0;
                 if (out) out.value = found || "(no text found in that region)";
                 repaintOcrActions();
-                if (dlg) dlg.hidden = false;
+                if (dlg) {
+                    closeOtherDialogs(dlg);
+                    dlg.hidden = false;
+                }
                 if (out) out.focus();
             })
             .catch(function (e) {
@@ -2674,6 +2679,7 @@
 
     function openMsdDialog() {
         if (!msdDlg) return;
+        closeOtherDialogs(msdDlg);
         msdDlg.hidden = false;
         paintMsd();
     }
@@ -3057,6 +3063,7 @@
     function openHealthDialog() {
         if (!healthDlg) return;
         paintHealth();
+        closeOtherDialogs(healthDlg);
         healthDlg.hidden = false;
         /* Focus Done, not whatever happens to be first.
          *
@@ -3304,6 +3311,7 @@
     function openStreamDialog() {
         if (!streamDlg) return;
         paintStreamDialog();
+        closeOtherDialogs(streamDlg);
         streamDlg.hidden = false;
         var first = streamDlg.querySelector("select:not([disabled]), input, button");
         if (first) first.focus();
@@ -3444,6 +3452,7 @@
         fillKeymaps();
         pasteText.value = "";
         paintPasteCount();
+        closeOtherDialogs(pasteDlg);
         pasteDlg.hidden = false;
         pasteText.focus();
         // Prefill from the host clipboard — pasting what you just copied is the whole
@@ -3564,6 +3573,33 @@
         var toastNode = document.getElementById("toast");
         if (toastNode) document.body.appendChild(toastNode);
     })();
+
+    /* Close any dialog that is not this one, before showing it.
+     *
+     * openScrim below is written as "THE dialog currently up" and returns the
+     * FIRST non-hidden scrim in DOM order, and the focus trap, Escape and
+     * modalOpen are all built on that being the only one. Nothing enforced it,
+     * and the ⋯ menu opens a dialog without closing what is already there.
+     *
+     * With two up, every scrim carries the same z-index, so the one painted on
+     * top is simply the later one in the DOM — while openScrim hands the focus
+     * trap the EARLIER one. Opening Stream settings and then System put the
+     * System dialog behind the Stream scrim, dimmed and unreachable by mouse,
+     * with the keyboard trapped inside it:
+     *
+     *     open: ["health-dlg","stream-dlg"]  topmost: stream-dlg
+     *     focus: health-dlg "Done"           after 6 tabs: still health-dlg
+     *     Escape closed health-dlg and left stream-dlg up
+     *
+     * So you tab around a dialog you cannot see and Escape shuts the one you
+     * were not looking at. There is no stacking design to preserve here — the
+     * equal z-index is the proof — so the fix is to make the singular
+     * assumption true rather than teach four consumers to cope with it. */
+    function closeOtherDialogs(keep) {
+        document.querySelectorAll(".dlg-scrim").forEach(function (el) {
+            if (el !== keep && !el.hidden) el.hidden = true;
+        });
+    }
 
     /** The dialog currently up, or null. */
     function openScrim() {
