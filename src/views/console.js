@@ -875,6 +875,11 @@
     /* Set by an edit that MOVES the control it was fired from, so the repaint
      * can follow it instead of restoring focus to the old position. */
     var pendingMacroFocus = null;
+    /* The icon the keyboard was on, held across the save that rebuilds the grid.
+     * Same problem the steps list solves with data-fk: choosing an icon saves,
+     * the save repaints, and the button focus was on is gone by the time it
+     * lands — measured, focus fell to the body after every arrow press. */
+    var pendingIconFocus = null;
     /* React roots mounted inside the step list. paintMacroEditor clears that
      * list wholesale, so each rebuild must unmount what it is about to throw
      * away — otherwise every save leaves another live root attached to detached
@@ -1412,8 +1417,66 @@
         if (labelEl && document.activeElement !== labelEl) labelEl.value = macro.label;
         if (pinnedEl) pinnedEl.checked = macro.pinned !== false;
 
+        /* The keyboard model role=radiogroup already promised.
+         *
+         * Every one of the twenty-three icons was its own tab stop and the
+         * arrow keys did nothing — measured: 25 stops between the Name field
+         * and the next control, and ArrowRight on the checked icon moved
+         * neither focus nor the selection. So the markup claimed a radiogroup
+         * and behaved like a row of buttons, which is the worse of the two: a
+         * screen reader announces "radio, 21 of 23" and then arrows do not
+         * work, and everyone else Tabs twenty-four times to get past the
+         * picker to "Show in the titlebar".
+         *
+         * Arrows move the selection, not just focus — that is what a radiogroup
+         * does, and it is why clicking is enough elsewhere. Selecting saves,
+         * which rebuilds this grid, so focus is restored by name afterwards. */
+        function wireIconRovingFocus(host) {
+            /* Once per host, not once per repaint.
+             *
+             * The grid is rebuilt on every save but #macro-icons itself
+             * persists — only its children are replaced — so calling this each
+             * time stacked another keydown listener on the same element. Each
+             * one then moved the selection a step, and a single ArrowRight
+             * walked two, then three: measured going command -> settings and
+             * command -> star instead of one neighbour either way. */
+            if (host.getAttribute("data-roving") === "1") return;
+            host.setAttribute("data-roving", "1");
+            host.addEventListener("keydown", function (e) {
+                if (e.altKey || e.ctrlKey || e.metaKey) return;
+                var all = [].slice.call(host.querySelectorAll('[role="radio"]'));
+                var at = all.indexOf(document.activeElement);
+                if (at < 0) return;
+                var step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+                var next = null;
+                if (step) next = all[(at + step + all.length) % all.length];
+                else if (e.key === "Home") next = all[0];
+                else if (e.key === "End") next = all[all.length - 1];
+                if (!next) return;
+                e.preventDefault();
+                /* Focused now AND remembered for after the repaint. The click
+                 * saves, and the save rebuilds this grid asynchronously, so
+                 * focusing only afterwards leaves a window where the button
+                 * focus was on has been removed and the ring is on the body —
+                 * long enough that a held arrow key walked off the group. */
+                pendingIconFocus = next.getAttribute("aria-label");
+                next.focus();
+                next.click();
+            });
+        }
+
         var icons = document.getElementById("macro-icons");
         if (icons) {
+            /* Where the keyboard is, read BEFORE the grid is torn down.
+             *
+             * Choosing an icon saves, and a save repaints this more than once,
+             * so a token set at the keypress is consumed by the first repaint
+             * and the second still lands on the body. Reading the live focus
+             * here covers every later rebuild, the same way the steps list
+             * below re-finds its control by data-fk. */
+            var focusedIcon = icons.contains(document.activeElement)
+                ? document.activeElement.getAttribute("aria-label")
+                : null;
             icons.innerHTML = "";
             /* "No icon" — the state every macro starts in, and the only one this
              * group could not get back to.
@@ -1435,6 +1498,7 @@
             noIcon.setAttribute("role", "radio");
             noIcon.setAttribute("aria-checked", String(!iconSet));
             noIcon.setAttribute("aria-label", "No icon");
+            noIcon.tabIndex = iconSet ? -1 : 0;
             noIcon.title = "No icon";
             noIcon.textContent = macroGlyph({ icon: "", label: macro.label });
             noIcon.addEventListener("click", function () {
@@ -1449,6 +1513,7 @@
                 choice.setAttribute("role", "radio");
                 choice.setAttribute("aria-checked", String(macro.icon === name));
                 choice.setAttribute("aria-label", name);
+                choice.tabIndex = macro.icon === name ? 0 : -1;
                 choice.title = name;
                 var svg = macroIconSvg(name);
                 if (svg) choice.appendChild(svg);
@@ -1458,6 +1523,13 @@
                 });
                 icons.appendChild(choice);
             });
+            wireIconRovingFocus(icons);
+            var wanted = pendingIconFocus || focusedIcon;
+            pendingIconFocus = null;
+            if (wanted) {
+                var back = icons.querySelector('[role="radio"][aria-label="' + wanted + '"]');
+                if (back) back.focus();
+            }
         }
 
         var steps = document.getElementById("macro-steps");

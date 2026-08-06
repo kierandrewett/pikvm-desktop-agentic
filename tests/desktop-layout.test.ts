@@ -2035,3 +2035,46 @@ test("a second screen read cannot start while one is still running", () => {
        (ocr_left=256), the picker refusing to engage the second time, and the
        dialog showing region 256 — the region actually drawn. */
 });
+
+test("the macro icon picker has the keyboard model its role promises", () => {
+    /* The grid is marked up as a radiogroup of role=radio buttons, and behaved
+       like a row of plain buttons: every one of the twenty-three icons was its
+       own tab stop and the arrow keys did nothing. Measured in the editor — 25
+       tab stops between the Name field and the next control, and ArrowRight on
+       the checked icon moved neither focus nor the selection.
+
+       That is the worse of the two possible mistakes. A screen reader announces
+       "radio, 21 of 23" and then arrows do not work; everyone else Tabs
+       twenty-four times to get past the picker to "Show in the titlebar". */
+    assert.match(js, /noIcon\.tabIndex = iconSet \? -1 : 0;/);
+    assert.match(js, /choice\.tabIndex = macro\.icon === name \? 0 : -1;/);
+    assert.match(js, /function wireIconRovingFocus\(host\) \{/);
+    assert.match(js, /e\.key === "ArrowRight" \|\| e\.key === "ArrowDown" \? 1 : e\.key === "ArrowLeft" \|\| e\.key === "ArrowUp" \? -1 : 0/);
+    assert.match(js, /else if \(e\.key === "Home"\) next = all\[0\];/);
+    assert.match(js, /else if \(e\.key === "End"\) next = all\[all\.length - 1\];/);
+    // Arrows move the SELECTION, not just focus — that is what a radiogroup does.
+    assert.match(js, /next\.focus\(\);\s*next\.click\(\);/);
+
+    /* Wired once per host, not once per repaint. #macro-icons persists across a
+       save — only its children are replaced — so calling this each time stacked
+       another keydown listener on the same element, and one ArrowRight walked
+       two steps, then three: measured going command -> settings and command ->
+       star instead of one neighbour either way. */
+    assert.match(js, /if \(host\.getAttribute\("data-roving"\) === "1"\) return;\s*host\.setAttribute\("data-roving", "1"\);/);
+
+    /* Focus survives the rebuild the selection triggers. A token set at the
+       keypress is consumed by the first repaint and a second repaint still
+       lands on the body, so the live focus is re-read here as well — the same
+       shape as the steps list re-finding its control by data-fk. */
+    assert.match(js, /var focusedIcon = icons\.contains\(document\.activeElement\)/);
+    assert.match(js, /var wanted = pendingIconFocus \|\| focusedIcon;/);
+
+    /* Driven in the editor after the fix, each key from a known icon:
+         Tab from Name     -> command, then macro-pinned  (one stop for 23 icons)
+         ArrowRight        command -> trash
+         ArrowLeft         command -> maximize
+         ArrowLeft         "No icon" -> settings   (wraps)
+         ArrowRight        settings -> "No icon"   (wraps)
+         Home / End        -> "No icon" / settings
+       and clicking an icon still selects it. */
+});
