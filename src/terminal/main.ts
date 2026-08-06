@@ -713,7 +713,10 @@ const onMessage = (msg: ServerMsg): void => {
             if (v) {
                 v.exited = true;
                 paintTabs();
-                v.term.write(`\r\n\x1b[90m[Shell exited (code ${msg.code}) - press Enter to restart]\x1b[0m\r\n`);
+                /* The notice itself arrives as ordinary session data now, so
+                 * writing it here too would print it twice. The server puts it
+                 * in the buffer, which is what makes it survive a reconnect and
+                 * be there for a client that arrives after the shell died. */
             }
             break;
         }

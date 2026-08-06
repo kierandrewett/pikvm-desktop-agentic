@@ -182,6 +182,30 @@ export class TerminalSessions {
         });
         term.onExit((info) => {
             s.exited = true; // keep the tab so clients can restart it
+            /* The exit notice belongs in the session's BUFFER, not in each
+             * client's terminal.
+             *
+             * It used to be written client-side on the "exit" message, which
+             * meant only clients connected at that instant ever saw it. The tab
+             * badge's tooltip says "press Enter to restart", but it is
+             * aria-hidden and hover-only, so main.ts's own comment is right that
+             * "the restart is only discoverable by reading the dead shell's last
+             * line" — and that line was missing in the two cases that matter:
+             *
+             *   - a client that opens the terminal AFTER a shell exited gets the
+             *     session list with exited:true and no exit message at all, so
+             *     it saw a dead pane with no way out of it named anywhere;
+             *   - any client that reconnects, because ws.onopen resets every
+             *     term and redraws from this buffer, which did not contain it —
+             *     so a network blip silently erased the instructions.
+             *
+             * Going through the same append+broadcast the PTY's own output uses
+             * puts it in the scrollback exactly once, in the right place, for
+             * every client that is here now or arrives later. A restart clears
+             * the buffer, so it does not survive into the new shell. */
+            const notice = `\r\n\x1b[90m[Shell exited (code ${info.code}) - press Enter to restart]\x1b[0m\r\n`;
+            this.append(s, notice);
+            this.broadcast({ t: "data", id, data: notice });
             this.deps.onSessionExit?.(id);
             this.broadcast({ t: "exit", id, code: info.code });
             this.sendSessions();

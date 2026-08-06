@@ -2866,3 +2866,54 @@ test("the terminal tab strip says when tabs continue past the edge", () => {
         /#tablist\.more-before\.more-after \{\s*\n\s*mask-image: linear-gradient\(to right, transparent, #000 32px, #000 calc\(100% - 32px\), transparent\);/,
     );
 });
+
+/**
+ * "press Enter to restart" lived in one browser, not in the session.
+ *
+ * The notice was written client-side, in the terminal's handler for the "exit"
+ * message. The tab grows an "exited" badge whose tooltip says the same thing,
+ * but that badge is aria-hidden and its tooltip is hover-only — which is why
+ * terminal/main.ts's own comment says "the restart is only discoverable by
+ * reading the dead shell's last line". That line was missing in the two cases
+ * where you most need it:
+ *
+ *   - open the terminal AFTER a shell exited and you get the session list with
+ *     exited:true and no "exit" message at all, so the pane is dead with no way
+ *     out of it named anywhere on screen;
+ *   - reconnect after a blip, because ws.onopen resets every term and redraws
+ *     from the server's buffer — which did not contain the notice, so a dropped
+ *     socket silently erased instructions from a pane that already had them.
+ *
+ * Driven against a real PTY, exiting a shell and then attaching a fresh client:
+ *
+ *     before   notice in live stream 0    notice in replay 0
+ *     after    notice in live stream 1    notice in replay 1
+ *
+ * Zero in both before, because it was never on the wire at all — it only ever
+ * existed inside the one browser that happened to be watching.
+ *
+ * Asserted on source rather than executed: the test runner bundles into a temp
+ * directory, where @lydell/node-pty cannot resolve its native binding, which is
+ * why nothing else in this suite imports terminal-server either. The numbers
+ * above came from running the same flow from inside the repo, where it does
+ * resolve.
+ */
+test("the shell-exited notice goes in the session buffer, not one client's terminal", () => {
+    const server = readFileSync(resolve(root, "src/terminal-server.ts"), "utf8");
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    // Through the same append+broadcast the PTY's own output uses, so it lands
+    // in the scrollback in the right place and survives a reconnect.
+    assert.match(server, /const notice = `\\r\\n\\x1b\[90m\[Shell exited \(code \$\{info\.code\}\) - press Enter to restart\]\\x1b\[0m\\r\\n`;/);
+    assert.match(server, /this\.append\(s, notice\);\s*\n\s*this\.broadcast\(\{ t: "data", id, data: notice \}\);/);
+    // Appended BEFORE the exit is announced, so the text is in the buffer by the
+    // time any client reacts to the state change.
+    const onExit = server.slice(server.indexOf("term.onExit((info) => {"));
+    assert.ok(
+        onExit.indexOf("this.append(s, notice)") < onExit.indexOf('this.broadcast({ t: "exit"'),
+        "the notice must be buffered before the exit is broadcast",
+    );
+    // And the client no longer writes its own, or it would print twice.
+    const exitCase = term.slice(term.indexOf('case "exit": {'), term.indexOf('case "image": {'));
+    assert.ok(!/term\.write\(/.test(exitCase), "the client is writing the notice again — it will double up");
+    assert.match(exitCase, /v\.exited = true;\s*\n\s*paintTabs\(\);/);
+});
