@@ -2579,6 +2579,20 @@
      * Mass storage (kvmd api/msd/*)
      * ----------------------------------------------------------------- */
 
+    /* A count a person can read at a glance.
+     *
+     * The paste line already says "about 67 min" rather than 4020000, and the
+     * mass-storage dialog says "3.7 GB" rather than 4000000000 — but the
+     * character count printed beside them was raw, so a big paste read
+     * "200000 characters · about 67 min": one half written for a human and the
+     * other not. Measured across the range the field accepts: 40, 600, 12000,
+     * 200000. It is the last two that are unreadable at a glance, and they are
+     * the ones where the number matters most, because that is the paste worth
+     * thinking twice about before starting. */
+    function humanCount(n) {
+        return typeof n === "number" && isFinite(n) ? n.toLocaleString() : String(n);
+    }
+
     function humanBytes(n) {
         if (typeof n !== "number" || !isFinite(n)) return "";
         var u = ["B", "KB", "MB", "GB", "TB"];
@@ -4319,7 +4333,7 @@
         var n = pasteText.value.length;
         var hint = pasteDuration(n);
         pasteCount.textContent = n
-            ? n + (n === 1 ? " character" : " characters") + (hint ? " · " + hint : "")
+            ? humanCount(n) + (n === 1 ? " character" : " characters") + (hint ? " · " + hint : "")
             : "";
         pasteBusy = false;
         pasteHasText = n > 0;
@@ -4451,7 +4465,7 @@
         var typingFor = pasteDuration(text.length);
         toast(
             "Typing " +
-                text.length +
+                humanCount(text.length) +
                 (text.length === 1 ? " character" : " characters") +
                 " on the target" +
                 (typingFor ? " — " + typingFor : "") +
@@ -4475,7 +4489,9 @@
                     return;
                 }
                 closePaste();
-                toast("Typed " + text.length + (text.length === 1 ? " character" : " characters") + " on the target");
+                toast(
+                    "Typed " + humanCount(text.length) + (text.length === 1 ? " character" : " characters") + " on the target",
+                );
             })
             .catch(function (e) {
                 toast("Paste failed: " + (e && e.message ? e.message : "network error"), true);

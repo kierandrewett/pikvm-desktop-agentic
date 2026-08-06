@@ -1425,7 +1425,9 @@ test("a long paste says it is happening", () => {
     /* Not pinned to one line any more: the message also carries how long the
        typing will take. Still the same three things — the count, the target,
        and the sticky flag that keeps it up for the whole operation. */
-    assert.match(js, /toast\(\s*"Typing " \+\s*text\.length \+[\s\S]{0,200}?" on the target"[\s\S]{0,120}?false,\s*true,\s*\)/);
+    /* The count goes through humanCount now, so this pins the toast's SHAPE —
+       sticky, naming the target — rather than one spelling of the number. */
+    assert.match(js, /toast\(\s*"Typing " \+\s*humanCount\(text\.length\) \+[\s\S]{0,200}?" on the target"[\s\S]{0,120}?false,\s*true,\s*\)/);
     // Sticky, because it has to outlast the ordinary dwell — the same call OCR
     // makes for the same reason.
     assert.match(js, /toast\("Reading the screen…", false, true\);/);
@@ -1433,7 +1435,10 @@ test("a long paste says it is happening", () => {
        toast() clears the pending timer as it writes. Verified live — success
        leaves "Typed 5 characters on the target" and it is gone 3s later, a 500
        leaves "Paste failed (500)" at role=alert and it is still up. */
-    assert.match(js, /toast\("Typed " \+ text\.length \+ \(text\.length === 1 \? " character" : " characters"\) \+ " on the target"\);/);
+    assert.match(
+        js,
+        /toast\(\s*"Typed " \+ humanCount\(text\.length\) \+ \(text\.length === 1 \? " character" : " characters"\) \+ " on the target",\s*\);/,
+    );
     assert.match(js, /toast\("Paste failed \(" \+ r\.status \+ "\)", true\);/);
     // It is fired before the request, so there is no window where the dialog
     // looks idle with a paste already under way.
@@ -1919,7 +1924,7 @@ test("a paste says how long it will take before you commit to it", () => {
     assert.match(js, /function pasteDuration\(n\) \{\s*var ms = n \* PASTE_DELAY_S \* 1000;/);
 
     // Shown where the decision is made, and again while it runs.
-    assert.match(js, /n \+ \(n === 1 \? " character" : " characters"\) \+ \(hint \? " · " \+ hint : ""\)/);
+    assert.match(js, /humanCount\(n\) \+ \(n === 1 \? " character" : " characters"\) \+ \(hint \? " · " \+ hint : ""\)/);
     assert.match(js, /\(typingFor \? " — " \+ typingFor : ""\)/);
 
     /* Quiet under ten seconds: a number beside every short paste is noise, and
@@ -3198,4 +3203,42 @@ test("mounting is refused while an upload is still running", () => {
     assert.match(js, /var settable = online && !connected && !busy && !msdUpload;/);
     assert.match(js, /msdBody\.canRemove = !!\(settable && d\.image && d\.image\.removable\);/);
     assert.match(js, /msdResetEnabled = online && !busy && !msdUpload;/);
+});
+
+/**
+ * Half the paste line was written for a human and half was not.
+ *
+ * The console formats a duration (humanDuration → "about 4 min") and a size
+ * (humanBytes → "3.7 GB"), but the character count printed beside them was raw.
+ * Measured across the range the field accepts:
+ *
+ *     40        "40 characters"
+ *     600       "600 characters · about 12s"
+ *     12000     "12000 characters · about 4 min"      <- unreadable half
+ *     200000    "200000 characters · about 67 min"    <- unreadable half
+ *
+ * The two that are hard to read at a glance are exactly the ones where the
+ * number matters, because those are the pastes worth thinking twice about
+ * before starting — 200,000 characters is over an hour of the target being
+ * typed at, and kvmd owns that typing once it begins, so there is no stopping
+ * it from here. After: "12,000 characters · about 4 min" and "200,000
+ * characters · about 67 min", with 40 and 600 unchanged.
+ *
+ * All three places that print a count go through it, including the sticky
+ * toast that deliberately outlives the dialog.
+ */
+test("character counts are formatted like every other quantity", () => {
+    assert.match(js, /function humanCount\(n\) \{\s*\n\s*return typeof n === "number" && isFinite\(n\) \? n\.toLocaleString\(\) : String\(n\);/);
+    // The count under the field.
+    assert.match(js, /\? humanCount\(n\) \+ \(n === 1 \? " character" : " characters"\) \+ \(hint \? " · " \+ hint : ""\)/);
+    // The sticky toast while it types...
+    assert.match(js, /"Typing " \+\s*\n\s*humanCount\(text\.length\) \+/);
+    // ...and the one that reports it finished.
+    assert.match(js, /"Typed " \+ humanCount\(text\.length\) \+/);
+    // No raw text.length left in a sentence.
+    const paste = js.slice(js.indexOf("pasteBusy = true;"), js.indexOf("var pasteBtn = document.getElementById"));
+    assert.ok(
+        !/"Typing " \+\s*\n?\s*text\.length/.test(paste) && !/"Typed " \+ text\.length/.test(paste),
+        "a raw count is back in one of the paste messages",
+    );
 });
