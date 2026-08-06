@@ -1188,18 +1188,37 @@
                 return m.id + ":" + m.label;
             })
             .join("|");
-        if (host.getAttribute("data-set") === key) return;
-        host.setAttribute("data-set", key);
-        host.innerHTML = "";
-        pinned.forEach(function (m) {
-            var btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "more-item";
-            btn.textContent = m.label;
-            btn.addEventListener("click", function () {
-                runMacro(m);
+        if (host.getAttribute("data-set") !== key) {
+            host.setAttribute("data-set", key);
+            host.innerHTML = "";
+            pinned.forEach(function (m) {
+                var btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "more-item";
+                btn.textContent = m.label;
+                btn.addEventListener("click", function () {
+                    runMacro(m);
+                });
+                host.appendChild(btn);
             });
-            host.appendChild(btn);
+        }
+        /* Grey them while one plays, exactly as the titlebar strip does.
+         *
+         * pinnedMacroSpecs says of its own disabled flag that it "is also the
+         * only feedback that one is running" — and this list, which is the ONLY
+         * way to run a macro on a phone, had none of it. Measured through a
+         * macro with a 2.5s pause in it:
+         *
+         *     desktop strip   all four :off while it ran
+         *     web menu        all four :on  throughout, no toast, nothing
+         *
+         * so on the layout where the feedback matters most there was none at
+         * all until the run finished and toasted. Outside the rebuild above
+         * because the set of macros has not changed — only whether they can be
+         * pressed — and that branch returns early when the labels match. */
+        var busy = !!macroRunning;
+        [].forEach.call(host.querySelectorAll("button"), function (btn) {
+            setProp(btn, "disabled", busy);
         });
     }
 

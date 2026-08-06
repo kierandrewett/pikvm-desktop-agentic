@@ -1427,3 +1427,30 @@ test("a long paste says it is happening", () => {
     const head = fn.slice(0, fn.indexOf("fetch(\"/api/hid/print?"));
     assert.match(head, /toast\("Typing "/, "the in-flight message must precede the request");
 });
+
+test("the overflow menu's macro list greys while a macro plays", () => {
+    /* pinnedMacroSpecs says of its own disabled flag that it "is also the only
+       feedback that one is running" — and the ⋯ list, which is the ONLY way to
+       run a macro on a phone, had none of it. Measured through a macro with a
+       2.5s pause:
+           desktop strip   all four :off while it ran
+           web menu        all four :on  throughout, no toast, nothing
+       so on the layout where the feedback matters most there was none until the
+       run finished. After: both grey and both restore. */
+    assert.match(js, /var busy = !!macroRunning;\s*\[\]\.forEach\.call\(host\.querySelectorAll\("button"\), function \(btn\) \{\s*setProp\(btn, "disabled", busy\);/);
+    // The titlebar's equivalent, which this mirrors.
+    assert.match(js, /disabled: !!macroRunning,\s*onSelect: function \(\) \{\s*runMacro\(m\);/);
+    /* Outside the rebuild branch. The set of macros has not changed while one
+       plays — only whether they can be pressed — and that branch returns early
+       when the labels match, so a disabled flag set inside it would never run. */
+    const fn = js.slice(js.indexOf("function paintMacroMenu()"));
+    const body = fn.slice(0, fn.indexOf("\n    }"));
+    assert.ok(
+        body.indexOf('host.setAttribute("data-set", key)') < body.indexOf("var busy = !!macroRunning"),
+        "the disabled pass must come after the rebuild branch, not inside it",
+    );
+    assert.match(body, /if \(host\.getAttribute\("data-set"\) !== key\) \{/);
+    // Both ends of the run repaint it.
+    assert.match(js, /macroRunning = macro;\s*paintMacroButtons\(\);/);
+    assert.match(js, /macroRunning = null;\s*paintMacroButtons\(\);/);
+});
