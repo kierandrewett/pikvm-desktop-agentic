@@ -7,6 +7,10 @@
 
 :root {
     color-scheme: dark;
+    /* The keys drawer's height, shared with whatever has to make room for it.
+       It is one number in two places, and when they disagreed the drawer sat on
+       top of the panel's own controls. */
+    --keys-h: 48px;
     --background: #0a0a0c;
     --foreground: #ededf1;
     --card: #121216;
@@ -319,7 +323,7 @@ body {
     z-index: 6;
     align-items: center;
     gap: 6px;
-    height: 48px;
+    height: var(--keys-h);
     padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
     background: color-mix(in srgb, var(--card) 90%, transparent);
     -webkit-backdrop-filter: blur(8px);
@@ -865,6 +869,22 @@ html.modal-open .screen {
     height: 100%;
     border: 0;
     display: block;
+}
+/* Make room for the keys drawer rather than letting it sit on top of the panel.
+ *
+ * The drawer is absolutely positioned at the top of the chat column, and the
+ * frame fills that same column from inset:0 — so opening the on-screen keyboard
+ * covered whatever the panel put in its first 48px. Measured with two shells
+ * open: drawer 276..324 against a tab strip at 276..312, so both tabs AND the
+ * New shell button were hidden and unclickable for as long as the keyboard was
+ * up. The same at 1200px with four shells.
+ *
+ * The height as well as the top, because top + bottom + height all being set
+ * makes the browser drop `bottom` — the frame would start 48px down and still
+ * be 100% tall, hanging the same 48px off the end. */
+.app.keys-open #chat-frame {
+    top: var(--keys-h);
+    height: calc(100% - var(--keys-h));
 }
 
 /* Agent-backend readiness in the titlebar (desktop only — fed by the daemon

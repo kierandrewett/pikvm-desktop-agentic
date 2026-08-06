@@ -2344,3 +2344,33 @@ test("the picture says when the pointer cannot reach the target", () => {
          socket down  cursor "not-allowed"   blob hidden
          recovered    cursor "none"          blob shown again */
 });
+
+test("the keys drawer makes room for the panel instead of sitting on it", () => {
+    /* The drawer is absolutely positioned at the top of the chat column, and
+       #chat-frame fills that same column from inset:0 — so opening the
+       on-screen keyboard covered whatever the panel put in its first 48px.
+
+       Measured with shells open: drawer 276..324 against a terminal tab strip
+       at 276..312, so every tab AND the New shell button were hidden and
+       unclickable for as long as the keyboard was up. The same at 1200px with
+       four shells, drawer 0..48 over a strip at 0..36. On a phone the drawer is
+       the only way to send Esc or Ctrl, so this is the state you are in exactly
+       when you also want to switch shell. */
+    assert.match(css, /\.app\.keys-open #chat-frame \{\s*top: var\(--keys-h\);\s*height: calc\(100% - var\(--keys-h\)\);/);
+    /* The height as well as the top: with top, bottom and height all set the
+       browser drops `bottom`, so the frame would start 48px down and still be
+       100% tall, hanging the same 48px off the end. */
+    assert.match(css, /#chat-frame \{\s*position: absolute;\s*inset: 0;/);
+
+    /* One token, because the whole bug was two heights that had to agree and
+       were written down separately. */
+    assert.match(css, /--keys-h: 48px;/);
+    assert.match(css, /\.bar-keys \{[\s\S]*?height: var\(--keys-h\);/);
+    assert.doesNotMatch(css, /\.bar-keys \{[\s\S]*?height: 48px;/);
+
+    /* Re-measured after the fix, drawer open:
+         390px   drawer 276..324, strip 324..360   coversTabs false
+         1200px  drawer 0..48,    strip 48..84     coversTabs false
+       and screenshotted on the phone layout: the exited tab, three shells and
+       the New shell button all visible under the keys. */
+});
