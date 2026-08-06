@@ -154,6 +154,17 @@ body,
      window, so anything else reads as a second app bolted on. The previous
      values were stock shadcn neutral grey with a near-white primary — no brand
      colour anywhere, which is what made it look bland next to the console. */
+  /* The one thing :root sets that this block did not mirror.
+     Every colour token below has a dark counterpart and color-scheme did not,
+     so a panel with --background #0a0a0c kept telling the browser it was a
+     light page: measured in the console's dark theme, the frame's computed
+     color-scheme was "light" with class="dark" and body rgb(10,10,12), and
+     native controls dropped into it rendered light-mode chrome — a near-white
+     range track and a light checkbox on black. The panel's own scrollbars are
+     styled so they hid it, but the <input>s in the thread rename, the auth
+     dialog and the provider connection dialog are native, and an autofilled
+     credential field paints its light-mode background over a dark dialog. */
+  color-scheme: dark;
   --background: #0a0a0c;
   --foreground: #ededf1;
   --card: #121216;
