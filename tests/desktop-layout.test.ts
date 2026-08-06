@@ -618,3 +618,50 @@ test("falling back to MJPEG does nothing when MJPEG is already running", () => {
     // And the reload it exists to prevent is still the last thing it does.
     assert.match(body, /streamUp = false;\s*\n\s*loadStream\(\);/);
 });
+
+/**
+ * One outage, one message.
+ *
+ * Three writers describe the same "no picture, retrying" situation with three
+ * different names: pollHealth's catch sets "disconnected" every 2.5s,
+ * loadStream sets "reconnecting", scheduleReconnect sets "offline". Two of
+ * those render the identical word in different colours ("Reconnecting" red for
+ * offline, white for reconnecting), and none knew about the others. So a
+ * single unchanging outage made the overlay thrash. Recorded over 24s with the
+ * streamer refusing every request:
+ *
+ *     1039ms disconnected  "Screen unavailable" red
+ *     1273ms offline       "Reconnecting"       red
+ *     3539ms disconnected  "Screen unavailable" red
+ *     5756ms reconnecting  "Reconnecting"       white
+ *     5772ms offline       "Reconnecting"       red      <- 16ms later
+ *     6039ms disconnected  "Screen unavailable" red
+ *     ...
+ *
+ * Nineteen changes in twenty-four seconds, alternating both the wording and
+ * the colour, with one-frame white flashes in the middle of it — on the one
+ * surface whose job is to explain why there is no picture.
+ *
+ * serverDown is the health poll's own verdict, so while it holds, that verdict
+ * is the only one shown and the retry loop stays quiet. It still retries; it
+ * just stops narrating. After, the same outage reads:
+ *
+ *        0ms live          "Connecting"
+ *     1047ms disconnected  "Screen unavailable"
+ *
+ * and nothing more for the remaining 25s. Recovery is unaffected — a full
+ * down-and-up cycle goes disconnected -> reconnecting -> live on its own.
+ */
+test("a single outage does not make the overlay thrash", () => {
+    const load = js.indexOf("function loadStream() {");
+    assert.ok(load > 0, "loadStream not found");
+    const body = js.slice(load, load + 2200).replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /if \(streamState !== "live" && !serverDown\) setState\(/);
+    const sched = js.indexOf("function scheduleReconnect() {");
+    assert.ok(sched > 0, "scheduleReconnect not found");
+    const body2 = js.slice(sched, sched + 700).replace(/\/\/[^\n]*/g, "");
+    assert.match(body2, /if \(streamState !== "disconnected" && !serverDown\) setState\("offline"\);/);
+    // The health poll is still the one that sets it, and still the one that clears it.
+    assert.match(js, /serverDown = true;\s*\n\s*streamUp = false;\s*\n\s*if \(!mjpegPaused\) setState\("disconnected"\);/);
+    assert.match(js, /var wasDown = serverDown;\s*\n\s*serverDown = false;/);
+});

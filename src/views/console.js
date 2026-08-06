@@ -3960,7 +3960,27 @@
 
     function loadStream() {
         if (streamMode !== "native" || mjpegPaused) return; // WebRTC owns the picture; don't open an MJPEG conn
-        if (streamState !== "live") setState(streamState === "disconnected" ? "reconnecting" : streamState || "connecting");
+        /* While the server is known down, its verdict is the only one shown.
+         *
+         * Three writers describe the same "no picture, retrying" situation with
+         * three different names — pollHealth sets "disconnected", this sets
+         * "reconnecting", scheduleReconnect sets "offline" — and two of those
+         * render the same word in different colours. None knew about the
+         * others, so one unchanging outage made the overlay thrash. Recorded
+         * over 24s with the streamer refusing every request:
+         *
+         *     1039ms disconnected  "Screen unavailable" red
+         *     1273ms offline       "Reconnecting"       red
+         *     3539ms disconnected  "Screen unavailable" red
+         *     5756ms reconnecting  "Reconnecting"       white
+         *     5772ms offline       "Reconnecting"       red     <- 16ms later
+         *     6039ms disconnected  "Screen unavailable" red
+         *     ...
+         *
+         * Nineteen changes in twenty-four seconds, alternating both the wording
+         * and the colour, including one-frame white flashes — on the one
+         * surface whose whole job is to explain why there is no picture. */
+        if (streamState !== "live" && !serverDown) setState(streamState === "disconnected" ? "reconnecting" : streamState || "connecting");
         // Before the src is replaced, not after: setting it is what blanks the <img>.
         freezeFrame();
         img.src = streamPath(streamKey, navigator.userAgent) + "&t=" + Date.now();
@@ -3971,7 +3991,8 @@
     }
     function scheduleReconnect() {
         if (streamMode !== "native" || mjpegPaused || reconnectTimer) return;
-        if (streamState !== "disconnected") setState("offline");
+        // Same reason as loadStream: do not talk over the health poll.
+        if (streamState !== "disconnected" && !serverDown) setState("offline");
         reconnectTimer = setTimeout(function () {
             reconnectTimer = null;
             loadStream();
