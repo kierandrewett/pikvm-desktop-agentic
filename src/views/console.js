@@ -6407,7 +6407,18 @@
                 pinchCx = c.x;
                 pinchCy = c.y;
                 scrollAcc = 0;
-                twoStart = { t: Date.now(), moved: false };
+                /* Where the gesture began, kept separately from pinchCx/pinchCy.
+                 * Those are rewritten at the end of every move because the scroll
+                 * and the pan both work off the delta since the last one — so
+                 * measuring "has this moved?" against them asked whether the last
+                 * event jumped 8px, not whether the gesture had travelled. */
+                twoStart = { t: Date.now(), moved: false, cx: c.x, cy: c.y };
+                /* A second finger means this is not a tap any more. `moved` is
+                 * only ever set by the single-finger branch below, which returns
+                 * early while two are down — so without this the first finger
+                 * released as a left click on top of whatever the two-finger
+                 * gesture did. */
+                moved = true;
                 return;
             }
             // First touch.
@@ -6482,7 +6493,9 @@
                 cancelLongPress();
                 var d = twoDist();
                 var c = centroid();
-                if (twoStart && Math.hypot(c.x - pinchCx, c.y - pinchCy) > MOVE_SLOP) twoStart.moved = true;
+                // Against the START of the gesture, the same way the single-finger
+                // branch measures against startPt.
+                if (twoStart && Math.hypot(c.x - twoStart.cx, c.y - twoStart.cy) > MOVE_SLOP) twoStart.moved = true;
                 // Pinch -> zoom around the pinch centre.
                 if (pinchDist > 0 && Math.abs(d / pinchDist - 1) > 0.004) zoomAround(c.x, c.y, scale * (d / pinchDist));
                 // Two-finger drag: pan the view when zoomed, else scroll the target.

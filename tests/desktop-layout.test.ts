@@ -2374,3 +2374,49 @@ test("the keys drawer makes room for the panel instead of sitting on it", () => 
        and screenshotted on the phone layout: the exited tab, three shells and
        the New shell button all visible under the keys. */
 });
+
+test("a two-finger gesture sends only what it means to send", () => {
+    /* Driven with real touch events on the picture at phone size, reading the
+       HID wire. Before:
+
+         two-finger drag   wheel, then right down/up AND left down/up
+         two-finger tap    right down/up AND left down/up
+         slow scroll       wheel, then left down/up
+
+       So every two-finger gesture put a stray left click on the target, and a
+       quick one added a right click. On a remote machine a stray left click is
+       how you activate whatever happens to be under the pointer.
+
+       Two separate causes, both about a flag never being set.
+
+       `moved` is only ever assigned by the single-finger branch, and that branch
+       returns early while two fingers are down — so the first finger always
+       released as "a tap that never moved" and tapClick("left") fired on top of
+       whatever the gesture had already done. A second finger landing now
+       disqualifies the tap outright.
+
+       And twoStart.moved was measured against pinchCx/pinchCy, which are
+       rewritten at the end of every move because the scroll and the pan both
+       work off the delta since the last one. That asked "did this event jump 8
+       pixels?", not "has the gesture travelled 8 pixels" — so a scroll made of
+       many small moves never counted as moved, and lifting inside the 300ms
+       window read as a two-finger tap. It measures from the start of the
+       gesture now, exactly as the single-finger branch measures from startPt. */
+    assert.match(js, /twoStart = \{ t: Date\.now\(\), moved: false, cx: c\.x, cy: c\.y \};/);
+    assert.match(js, /if \(twoStart && Math\.hypot\(c\.x - twoStart\.cx, c\.y - twoStart\.cy\) > MOVE_SLOP\) twoStart\.moved = true;/);
+    assert.doesNotMatch(js, /Math\.hypot\(c\.x - pinchCx, c\.y - pinchCy\) > MOVE_SLOP/);
+    assert.match(js, /A second finger means this is not a tap any more\./);
+
+    /* The single-finger measurement it now matches, and the deliberate gestures
+       that must survive: a two-finger tap is still a right click, and so is a
+       long press. Verified on the wire after the fix:
+         two-finger drag  wheel only
+         slow scroll      2 wheels, no buttons at all
+         two-finger tap   right down/up, nothing else
+         long press       right down/up
+         single tap       left down/up
+         single drag      relative mouse_move only */
+    assert.match(js, /var movedDist = Math\.hypot\(e\.clientX - startPt\.x, e\.clientY - startPt\.y\);/);
+    assert.match(js, /if \(!twoStart\.moved && Date\.now\(\) - twoStart\.t < 300\) tapClick\("right"\);/);
+    assert.match(js, /if \(!moved\) \{\s*tapClick\("right"\);/);
+});
