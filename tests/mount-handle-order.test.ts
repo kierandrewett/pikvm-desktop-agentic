@@ -794,3 +794,40 @@ test("the paste keymap picker lists every keymap the Pi reports", () => {
     assert.match(body, /pasteKeymap\.disabled = avail\.length < 2;/);
     assert.match(body, /pasteKeymap\.hidden = !avail\.length;/);
 });
+
+/**
+ * A GPIO channel that is offline says so, instead of just going grey.
+ *
+ * Both `busy` and `!online` disable a row's controls, and with nothing on
+ * screen but a greyed switch the two were indistinguishable — one is a fault
+ * that stays, the other clears on its own. For a channel wired to a PDU or a
+ * relay, "the button does not work and I cannot tell why" is the whole
+ * problem. Pushed a five-channel scheme:
+ *
+ *     USB power to the target  note=""         ["On"]
+ *     atx power                note=""         ["Pulse"]
+ *     rack pdu 1               note=""         ["Pulse","On"]
+ *     lab relay                note="busy"     ["Off" disabled]
+ *     offline thing            note="offline"  ["Off" disabled]
+ *
+ * The note uses .dlg-hint, which is the same shape the keyboard/mouse row in
+ * this dialog already uses for "state unknown", so it reads as one pattern
+ * rather than a second invention.
+ *
+ * It is written in the LIVE pass, not when the rows are built: paintGpio only
+ * rebuilds when the channel set changes, so a note set at build time would
+ * have frozen at whatever the state was when the channel first appeared.
+ */
+test("a GPIO row distinguishes offline from busy", () => {
+    const at = js.indexOf("function paintGpio() {");
+    assert.ok(at > 0, "paintGpio not found");
+    const body = js.slice(at, js.indexOf("function gpioSpecsFor(", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Built with the row, cleared with the row.
+    assert.match(body, /note\.className = "dlg-hint";/);
+    assert.match(body, /gpioNotes\[o\.name\] = note;/);
+    assert.match(body, /gpioRows = \{\};\s*\n\s*gpioNotes = \{\};/);
+    // And written on every repaint, beside the mounted.update() that repaints
+    // the controls — the two states have different words.
+    assert.match(body, /note\.textContent = !o\.online \? "offline" : o\.busy \? "busy" : "";/);
+    assert.match(body, /note\.hidden = !note\.textContent;/);
+});

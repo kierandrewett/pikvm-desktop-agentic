@@ -2696,6 +2696,12 @@
      * spec built once when the row was created still sees the current values. */
     var gpioLive = {};
     var gpioRows = {};
+    /* The per-row status word. A channel the Pi reports as offline and one that
+     * is momentarily busy both disable the row's controls, and with nothing but
+     * a greyed switch on screen the two were indistinguishable — one is a fault
+     * that stays, the other clears on its own. Same shape the keyboard/mouse row
+     * above already uses for "state unknown". */
+    var gpioNotes = {};
 
     /* GPIO rows are rebuilt only when the channel set changes; their live state is
      * written on every event, so a toggle reflects the Pi rather than the click. */
@@ -2715,6 +2721,7 @@
             rows.setAttribute("data-set", key);
             rows.innerHTML = "";
             gpioRows = {};
+            gpioNotes = {};
             outs.forEach(function (o) {
                 var row = document.createElement("div");
                 row.className = "dlg-row";
@@ -2723,6 +2730,11 @@
                 label.textContent = o.label;
                 label.id = "gpio-label-" + o.name.replace(/[^A-Za-z0-9_-]/g, "-");
                 row.appendChild(label);
+                var note = document.createElement("span");
+                note.className = "dlg-hint";
+                note.hidden = true;
+                row.appendChild(note);
+                gpioNotes[o.name] = note;
                 var host = document.createElement("span");
                 host.className = "dlg-inline-actions";
                 row.appendChild(host);
@@ -2738,6 +2750,11 @@
             gpioLive[o.name] = o;
         });
         outs.forEach(function (o) {
+            var note = gpioNotes[o.name];
+            if (note) {
+                note.textContent = !o.online ? "offline" : o.busy ? "busy" : "";
+                note.hidden = !note.textContent;
+            }
             var mounted = gpioRows[o.name];
             if (mounted) mounted.update();
         });
