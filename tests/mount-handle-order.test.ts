@@ -1030,3 +1030,53 @@ test("a second macro cannot start while one is still playing", () => {
         .replace(/\/\*[\s\S]*?\*\//g, "");
     assert.match(spec, /disabled: !!macroRunning,/);
 });
+
+/**
+ * One click on a GPIO control sends one request.
+ *
+ * A row's controls are disabled by the Pi's own `busy`, and that does not
+ * arrive until the Pi has answered — so between the click and that event every
+ * further click went straight out. Three rapid clicks sent three requests:
+ *
+ *     gpio:pulse:channel=rack_pdu_1
+ *     gpio:pulse:channel=rack_pdu_1
+ *     gpio:pulse:channel=rack_pdu_1
+ *
+ * A pulse is a momentary contact closure, so on a relay wired to a power
+ * button that is three presses of it. The switch happens to survive — all
+ * three read the same stale `on` and asked for the same state — but the pulse
+ * has no such luck, and a user channel carries no confirmation to slow the
+ * second click down either.
+ *
+ * The lock is per channel, because two relays are independent and blocking one
+ * because another is mid-request would be its own surprise. Measured with 900ms
+ * of latency on the endpoint:
+ *
+ *     idle        : rack pdu 1 -> Pulse,Off        lab relay -> Pulse
+ *     mid-request : rack pdu 1 -> Pulse[off],Off[off]   lab relay -> Pulse
+ *     released    : rack pdu 1 -> Pulse,Off        lab relay -> Pulse
+ *     after a 409 : released just the same
+ *
+ * Three clicks now send one request, and two deliberate clicks still send two.
+ *
+ * Releasing on a .then of the returned promise is safe because the module's
+ * own .catch is last in its chain, so the promise always resolves — a relay
+ * left permanently disabled would be worse than the bug.
+ */
+test("a GPIO control cannot fire twice before the Pi answers", () => {
+    assert.match(js, /var gpioPending = \{\};/);
+    const helper = js.slice(js.indexOf("function gpioBusy(name, busy) {"), js.indexOf("function paintGpio()"));
+    assert.match(helper, /if \(busy\) gpioPending\[name\] = true;\s*\n\s*else delete gpioPending\[name\];/);
+    assert.match(helper, /var mounted = gpioRows\[name\];\s*\n\s*if \(mounted\) mounted\.update\(\);/);
+    const specs = js.slice(js.indexOf("function gpioSpecsFor(name, labelId) {"), js.indexOf("function mountRowButtons"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    // Both controls lock, alongside the Pi's own busy and offline.
+    const locked = specs.match(/disabled: o\.busy \|\| !o\.online \|\| !!gpioPending\[name\],/g) ?? [];
+    assert.equal(locked.length, 2, "both the pulse and the switch must take the lock");
+    // Claimed before the request and released when it settles, either way.
+    assert.match(specs, /gpioBusy\(name, true\);\s*\n\s*gpio\.pulse\(name\)\.then\(function \(\) \{\s*\n\s*gpioBusy\(name, false\);/);
+    assert.match(specs, /gpioBusy\(name, true\);\s*\n\s*gpio\.switchTo\(name, !cur\.on\)\.then\(function \(\) \{\s*\n\s*gpioBusy\(name, false\);/);
+    // The release depends on these always resolving: the .catch is last in both.
+    const mod = js.slice(js.indexOf("var gpio = (function () {"), js.indexOf("HID recovery"));
+    assert.match(mod, /pulse: function \(name\) \{[\s\S]*?\.catch\(function \(e\) \{[\s\S]*?\}\);\s*\n\s*\},/);
+});

@@ -2865,6 +2865,31 @@
      * that stays, the other clears on its own. Same shape the keyboard/mouse row
      * above already uses for "state unknown". */
     var gpioNotes = {};
+    /* Channels with one of OUR requests in flight.
+     *
+     * A row's controls are disabled by the Pi's own `busy`, which does not
+     * arrive until the Pi has answered — so between the click and that event
+     * every further click went straight out. Three rapid clicks on a channel
+     * sent three requests:
+     *
+     *     gpio:pulse:channel=rack_pdu_1
+     *     gpio:pulse:channel=rack_pdu_1
+     *     gpio:pulse:channel=rack_pdu_1
+     *
+     * A pulse is a momentary contact closure, so on a relay wired to a power
+     * button that is three presses of it. The switch survives on its own — all
+     * three read the same stale `on` and asked for the same state — but a pulse
+     * has no such luck and neither has any confirmation to slow it down.
+     *
+     * Per channel rather than global: two different relays are independent, and
+     * blocking one because another is mid-request would be its own surprise. */
+    var gpioPending = {};
+    function gpioBusy(name, busy) {
+        if (busy) gpioPending[name] = true;
+        else delete gpioPending[name];
+        var mounted = gpioRows[name];
+        if (mounted) mounted.update();
+    }
 
     /* GPIO rows are rebuilt only when the channel set changes; their live state is
      * written on every event, so a toggle reflects the Pi rather than the click. */
@@ -2942,11 +2967,14 @@
                     // Every pulse button says "Pulse", so on their own a list of
                     // them names nothing you could tell apart.
                     ariaLabel: "Pulse " + o.label,
-                    disabled: o.busy || !o.online,
+                    disabled: o.busy || !o.online || !!gpioPending[name],
                     onSelect: function () {
                         var warn = GPIO_CONFIRM[name];
                         if (warn && !window.confirm(warn)) return;
-                        gpio.pulse(name);
+                        gpioBusy(name, true);
+                        gpio.pulse(name).then(function () {
+                            gpioBusy(name, false);
+                        });
                     },
                 });
             }
@@ -2962,13 +2990,16 @@
                     checked: o.on,
                     ariaLabelledBy: labelId,
                     variant: o.on ? "default" : "outline",
-                    disabled: o.busy || !o.online,
+                    disabled: o.busy || !o.online || !!gpioPending[name],
                     onSelect: function () {
                         var cur = gpioLive[name];
                         if (!cur) return;
                         var warn = GPIO_CONFIRM[name];
                         if (warn && !window.confirm(warn)) return;
-                        gpio.switchTo(name, !cur.on);
+                        gpioBusy(name, true);
+                        gpio.switchTo(name, !cur.on).then(function () {
+                            gpioBusy(name, false);
+                        });
                     },
                 });
             }
