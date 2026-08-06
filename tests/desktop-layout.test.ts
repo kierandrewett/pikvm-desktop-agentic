@@ -1537,3 +1537,58 @@ test("the terminal says when its socket is down instead of swallowing clicks", (
          dropped    "Terminal disconnected — reconnecting…", disabled, 3 sockets
          recovered  hidden, enabled again */
 });
+
+test("the terminal tab strip can be worked from the keyboard", () => {
+    const term = readFileSync(resolve(root, "src/terminal/main.ts"), "utf8");
+    const termHtml = readFileSync(resolve(root, "src/views/terminal.html"), "utf8");
+    /* The strip was mouse-only. Each tab was a bare <div class="tab"> with a
+       mousedown listener and a <span class="close">✕</span>; no role, no
+       tabindex, no accessible name. Measured over CDP with six shells open:
+       every focusable control in the frame was ["New shell", "Terminal input"],
+       so a keyboard user could open shells and then neither switch nor close
+       one, and a screen reader heard nothing but the glyph. */
+    assert.match(termHtml, /<div id="tablist" role="tablist" aria-label="Terminal sessions"><\/div>/);
+    // The tabs get their own container: a tablist may only own tabs, and this
+    // strip also carries New shell and the status text.
+    assert.match(termHtml, /#tablist \{/);
+    assert.match(term, /const tabsEl = document\.getElementById\("tablist"\)!;/);
+
+    assert.match(term, /tab\.setAttribute\("role", "tab"\);/);
+    assert.match(term, /tab\.setAttribute\("aria-controls", el\.id\);/);
+    assert.match(term, /el\.setAttribute\("role", "tabpanel"\);/);
+    assert.match(term, /el\.setAttribute\("aria-labelledby", tab\.id\);/);
+
+    // Roving tabindex, so Tab does not have to walk past every open shell.
+    assert.match(term, /v\.tab\.setAttribute\("aria-selected", String\(on\)\);/);
+    assert.match(term, /v\.tab\.tabIndex = on \? 0 : -1;/);
+
+    // The close control is a button with a name, not a span holding "✕".
+    assert.match(term, /const close = document\.createElement\("button"\);/);
+    assert.match(term, /close\.tabIndex = -1;/);
+    assert.match(term, /v\.close\.setAttribute\("aria-label", `Close \$\{title\}`\);/);
+    // And the state a sighted user reads from colour is said out loud.
+    assert.match(term, /v\.exited \? " \(exited\)" : v\.id === controlOwner \? " \(has KVM control\)" : ""/);
+
+    // Arrows/Home/End/Delete on the focused tab.
+    for (const key of [/e\.key === "ArrowRight"/, /e\.key === "Home"/, /e\.key === "End"/, /e\.key === "Delete"/]) {
+        assert.match(term, key);
+    }
+    /* Arrowing selects WITHOUT focusing the terminal: xterm swallows arrow
+       keys, so focusing it on each step would end the walk at the first press
+       and strand the keyboard in whichever shell it landed on. */
+    assert.match(term, /setActive\(next\.id, \{ focusTerm: false \}\);\s*next\.tab\.focus\(\);/);
+    assert.match(term, /if \(opts\?\.focusTerm !== false\) v\.term\.focus\(\);/);
+    // Closing the focused tab must not drop focus to <body>.
+    assert.match(term, /const hadFocus = v\.tab\.contains\(document\.activeElement\);/);
+    assert.match(term, /const landing = active \? views\.get\(active\)\?\.tab : newTabBtn;/);
+
+    // The focused tab has to be findable, and its close button stops hiding.
+    assert.match(termHtml, /\.tab:focus-visible \{/);
+    assert.match(termHtml, /\.tab:focus-visible \.close,/);
+    /* Driven live over CDP with six shells: focus the selected tab, then
+         ArrowRight  shell s6 -> s1 (wraps), aria-selected and panel follow
+         ArrowRight  s1 -> s2
+         Home        s2 -> s1
+         Delete      s1 closed, focus lands on s2, five tabs left
+       and :focus-visible matched with a 3px ring on the focused tab. */
+});

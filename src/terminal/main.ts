@@ -21,7 +21,7 @@ type ServerMsg =
     | { t: "control"; owner: string | null }
     | { t: "image"; reqId: number; dataUrl: string | null };
 
-const tabsEl = document.getElementById("tabs")!;
+const tabsEl = document.getElementById("tablist")!;
 const termsEl = document.getElementById("terms")!;
 const newTabBtn = document.getElementById("new-tab") as HTMLButtonElement;
 const statusEl = document.getElementById("term-status")!;
@@ -166,6 +166,7 @@ interface View {
     el: HTMLDivElement;
     tab: HTMLDivElement;
     label: HTMLSpanElement;
+    close: HTMLButtonElement;
     exited: boolean;
 }
 const views = new Map<string, View>();
@@ -278,21 +279,43 @@ const makeTerm = (): { term: Terminal; fit: FitAddon } => {
     return { term, fit };
 };
 
+/* Name the tab and its close button.
+ *
+ * The tab strip was three unlabelled divs to a screen reader: "shell s1" came
+ * from a span, the close control was the bare glyph "✕", and the state a
+ * sighted user reads from colour — which one is live, which one holds the KVM
+ * lease, which one has exited — was in class names only. Say all of it. */
+const nameTab = (v: View, title: string): void => {
+    const state = v.exited ? " (exited)" : v.id === controlOwner ? " (has KVM control)" : "";
+    v.tab.setAttribute("aria-label", `${title}${state}`);
+    v.close.setAttribute("aria-label", `Close ${title}`);
+    v.close.title = `Close ${title}`;
+};
+
 const paintTabs = (): void => {
     for (const v of views.values()) {
-        v.tab.classList.toggle("active", v.id === active);
+        const on = v.id === active;
+        v.tab.classList.toggle("active", on);
         v.tab.classList.toggle("exited", v.exited);
         v.tab.classList.toggle("controlling", v.id === controlOwner);
+        v.tab.setAttribute("aria-selected", String(on));
+        // Roving tabindex: the strip is a single tab stop and arrows move within
+        // it, so Tab does not have to walk past every open shell.
+        v.tab.tabIndex = on ? 0 : -1;
+        nameTab(v, v.label.textContent ?? "");
     }
 };
 
-const setActive = (id: string): void => {
+const setActive = (id: string, opts?: { focusTerm?: boolean }): void => {
     const v = views.get(id);
     if (!v) return;
     active = id;
     for (const o of views.values()) o.el.classList.toggle("active", o.id === id);
     paintTabs();
-    v.term.focus();
+    // Arrowing along the strip selects without stealing focus — xterm swallows
+    // arrow keys, so focusing the terminal here would end the walk at the first
+    // press and strand the keyboard in whichever shell it landed on.
+    if (opts?.focusTerm !== false) v.term.focus();
     fitAndProposeSize();
 };
 
@@ -300,13 +323,19 @@ const createView = (info: SessionInfo): View => {
     const { term, fit } = makeTerm();
     const el = document.createElement("div");
     el.className = "term";
+    el.id = `term-${info.id}`;
+    el.setAttribute("role", "tabpanel");
     termsEl.appendChild(el);
     term.open(el);
     term.resize(authCols, authRows);
 
     const tab = document.createElement("div");
     tab.className = "tab";
+    tab.id = `tab-${info.id}`;
     tab.dataset.agent = info.agent;
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-controls", el.id);
+    el.setAttribute("aria-labelledby", tab.id);
     const label = document.createElement("span");
     label.className = "label";
     label.textContent = info.title;
@@ -315,22 +344,55 @@ const createView = (info: SessionInfo): View => {
     ctrl.className = "ctrl";
     ctrl.title = "This terminal currently controls the KVM mouse/keyboard";
     ctrl.textContent = "ctl";
-    const close = document.createElement("span");
+    // A real button, not a span: it is an action, and screen readers were told
+    // nothing about the "✕" glyph. tabindex -1 keeps it out of the tab sequence
+    // (the tab strip is one stop), and Delete on the tab reaches it — the tab
+    // pattern's own way of closing a tab.
+    const close = document.createElement("button");
+    close.type = "button";
     close.className = "close";
+    close.tabIndex = -1;
     close.textContent = "✕";
     tab.append(label, ctrl, close);
-    tabsEl.insertBefore(tab, newTabBtn);
+    tabsEl.appendChild(tab);
 
-    const v: View = { id: info.id, term, fit, el, tab, label, exited: info.exited };
+    const v: View = { id: info.id, term, fit, el, tab, label, close, exited: info.exited };
     views.set(info.id, v);
+    nameTab(v, info.title);
 
     tab.addEventListener("mousedown", (e) => {
-        if ((e.target as HTMLElement).classList.contains("close")) return;
+        if ((e.target as HTMLElement).closest(".close")) return;
         setActive(info.id);
     });
     close.addEventListener("click", (e) => {
         e.stopPropagation();
         send({ t: "close", id: info.id });
+    });
+    tab.addEventListener("keydown", (e) => {
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
+        // Enter/Space hand focus to the terminal the tab names; arrows and
+        // Home/End move along the strip, switching as they go but leaving focus
+        // here so the next arrow still works; Delete closes.
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setActive(info.id);
+            return;
+        }
+        if (e.key === "Delete" || e.key === "Backspace") {
+            e.preventDefault();
+            send({ t: "close", id: info.id });
+            return;
+        }
+        const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        const order = [...views.values()];
+        let next: View | undefined;
+        if (step) next = order[(order.findIndex((o) => o.id === info.id) + step + order.length) % order.length];
+        else if (e.key === "Home") next = order[0];
+        else if (e.key === "End") next = order[order.length - 1];
+        if (!next) return;
+        e.preventDefault();
+        setActive(next.id, { focusTerm: false });
+        next.tab.focus();
     });
     const pasteFromClipboard = (): void => {
         void sysClipboard.read().then((t) => { if (t && !v.exited) v.term.paste(t); });
@@ -387,6 +449,10 @@ const createView = (info: SessionInfo): View => {
 const removeView = (id: string): void => {
     const v = views.get(id);
     if (!v) return;
+    // Closing a tab from the keyboard destroys the element holding focus, which
+    // drops it to <body> — the next Delete or arrow then goes nowhere. Keep it
+    // in the strip: the next tab, or New shell once the last one is gone.
+    const hadFocus = v.tab.contains(document.activeElement);
     v.term.dispose();
     v.el.remove();
     v.tab.remove();
@@ -394,8 +460,11 @@ const removeView = (id: string): void => {
     if (active === id) {
         const next = views.keys().next().value as string | undefined;
         active = null;
-        if (next) setActive(next);
+        if (next) setActive(next, { focusTerm: !hadFocus });
     }
+    if (!hadFocus) return;
+    const landing = active ? views.get(active)?.tab : newTabBtn;
+    landing?.focus();
 };
 
 // Reconcile local views with the server's session list.
