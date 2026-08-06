@@ -60,6 +60,20 @@ is in `docs/web-client-migration.md`.
       source tree into their feature branch is not a housekeeping decision.
       Merge first, then sync in one deliberate step, then rebuild the bundle.
 
+- [ ] **Decide how much of the Python project this repo should vendor.**
+      `agent/` mirrors `~/dev/pikvm-agent`, but only `agent/pikvm_agent` reaches
+      the RPM (`copy-runtime-deps.mjs` ships its `harness_ui`, and
+      `resolveDaemonCommand` looks for an `agent/.venv`). Meanwhile git here
+      tracks 105 Python test files (2.2MB) that nothing in this repo runs — no
+      pytest in `package.json`, the Makefile or `scripts/` — and 288 files of
+      `bench` material. Neither ships.
+
+      Not removed, because it trades one problem for a worse one: the mirror is
+      already drifting (see above), and a PARTIAL mirror is harder to keep
+      honest than a full one. Worth settling deliberately — either the mirror is
+      complete and gets a sync step, or it is `pikvm_agent` plus `pyproject.toml`
+      and the rest is dropped.
+
 - [ ] **Decide the fate of the `PIKVM_NATIVE_UI=1` path.** `main.ts` keeps it
       deliberately ("the legacy composition is kept behind PIKVM_NATIVE_UI=1"),
       so this is a product call, not housekeeping. It is bigger than it looks —
