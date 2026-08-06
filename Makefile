@@ -7,6 +7,7 @@ package:
 		--arch=x64 \
 		--out=builds \
 		--overwrite \
+		--no-asar \
 		--executable-name=pikvm-desktop \
 		--icon=src/assets/icon
 	node scripts/copy-runtime-deps.mjs
