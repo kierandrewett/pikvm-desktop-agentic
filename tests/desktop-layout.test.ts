@@ -574,3 +574,47 @@ test("hovering the letterbox hides the blob and gives back the real cursor", () 
     // The drag clamp it defers to is still there.
     assert.match(body, /if \(dragging\) \{[\s\S]*?pictureBox\(\)/);
 });
+
+/**
+ * Falling back to MJPEG when already on MJPEG reopens the stream for nothing.
+ *
+ * The WebRTC wrapper reports "error" and keeps retrying, and onStatus calls
+ * fallbackToMjpeg() on every one of those while no video has been seen. So on
+ * any Pi without a working Janus this ran every few seconds forever.
+ * Everything in it is teardown of a session that is not there — except the
+ * last two lines, which drop a perfectly good MJPEG connection and reopen it.
+ * Counted while the picture never left "live":
+ *
+ *     +2.4s  /streamer/stream?key=…
+ *     +7.5s  /streamer/stream?key=…
+ *     +12.7s /streamer/stream?key=…
+ *     +17.7s /streamer/stream?key=…
+ *     +22.7s /streamer/stream?key=…
+ *
+ * Five reopens in twenty-five seconds, each freezing the last frame while the
+ * <img> reloads — a visible stutter every five seconds during ordinary
+ * viewing, on exactly the setups least able to spare the re-encode. The
+ * server was holding the stream open the whole time; verified with curl that
+ * it survives well past five seconds, so the client was doing this to itself.
+ *
+ * mjpegPaused is what separates this from a real fallback: WebRTC suspends the
+ * MJPEG pipeline when it takes over, so a fallback that has to resume it still
+ * has work even though webrtcActive never became true. Only when the pipeline
+ * is already running AND there was no session is there nothing to do.
+ *
+ * After: 0 reopens and 0 freezes over the same 25s, still "live", with the
+ * health poll untouched at its 10 polls.
+ */
+test("falling back to MJPEG does nothing when MJPEG is already running", () => {
+    const at = js.indexOf("function fallbackToMjpeg() {");
+    assert.ok(at > 0, "fallbackToMjpeg not found");
+    const body = js.slice(at, js.indexOf("\n    function revealAvToggles", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // The guard, and the two facts it is built from.
+    assert.match(body, /var was = webrtcActive;/);
+    assert.match(body, /if \(!was && !mjpegPaused\) return;/);
+    // It has to come before the teardown, or it protects nothing.
+    assert.ok(body.indexOf("if (!was && !mjpegPaused) return;") < body.indexOf("webrtcActive = false;"),
+        "the guard must precede the teardown");
+    // And the reload it exists to prevent is still the last thing it does.
+    assert.match(body, /streamUp = false;\s*\n\s*loadStream\(\);/);
+});

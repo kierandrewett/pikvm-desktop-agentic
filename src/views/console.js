@@ -4479,6 +4479,31 @@
     // Fall back to MJPEG: show <img>, hide <video>, resume the MJPEG pipeline.
     function fallbackToMjpeg() {
         var was = webrtcActive;
+        /* Nothing to fall back FROM, so nothing to do.
+         *
+         * onStatus calls this on every WebRTC "error" while no video has been
+         * seen, and the wrapper keeps retrying — so on any Pi without a working
+         * Janus this ran every few seconds forever. Everything below is teardown
+         * of a session that is not there, except the last two lines, which throw
+         * away a perfectly good MJPEG connection and reopen it. Measured while
+         * plainly live, with the picture never having left "live":
+         *
+         *     +2.4s  /streamer/stream?key=…
+         *     +7.5s  /streamer/stream?key=…
+         *     +12.7s /streamer/stream?key=…
+         *     +17.7s /streamer/stream?key=…
+         *     +22.7s /streamer/stream?key=…
+         *
+         * Five reopens in 25 seconds, each freezing the last frame while the
+         * <img> reloads — a visible stutter every five seconds during ordinary
+         * viewing, on the machines least able to spare it.
+         *
+         * mjpegPaused is what tells the two cases apart: WebRTC suspends the
+         * MJPEG pipeline when it takes over, so a fallback that has to resume it
+         * still has work even though webrtcActive never became true. Only when
+         * the pipeline is already running AND there was no session is this a
+         * no-op. */
+        if (!was && !mjpegPaused) return;
         webrtcActive = false;
         webrtcSwapped = false;
         if (playWatchdog) {
