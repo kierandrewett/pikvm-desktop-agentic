@@ -6202,9 +6202,15 @@
         if (!moveRaf) moveRaf = raf(flushMove);
     }
     function relMove(dx, dy) {
-        var el = streamEl();
-        var w = el.offsetWidth || pane.clientWidth || 1;
-        var h = el.offsetHeight || pane.clientHeight || 1;
+        /* Measure against the same pictureBox() the absolute path maps through,
+         * not the element's layout box. offsetWidth ignores the zoom transform, so
+         * pinched in to 3x the cursor still travelled a full un-zoomed 3x further
+         * than the finger did across the magnified picture — the trackpad got
+         * COARSER exactly when you had zoomed in to be precise. Sharing the box
+         * also keeps the letterbox bars out of the gain on both paths. */
+        var box = pictureBox();
+        var w = (box && box.w) || pane.clientWidth || 1;
+        var h = (box && box.h) || pane.clientHeight || 1;
         vcur.x = Math.max(-32768, Math.min(32767, vcur.x + (dx / w) * SENS * 65534));
         vcur.y = Math.max(-32768, Math.min(32767, vcur.y + (dy / h) * SENS * 65534));
         queueMove();

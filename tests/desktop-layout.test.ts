@@ -2420,3 +2420,39 @@ test("a two-finger gesture sends only what it means to send", () => {
     assert.match(js, /if \(!twoStart\.moved && Date\.now\(\) - twoStart\.t < 300\) tapClick\("right"\);/);
     assert.match(js, /if \(!moved\) \{\s*tapClick\("right"\);/);
 });
+
+/**
+ * Pinching in made the touch trackpad coarser, not finer.
+ *
+ * relMove() converted finger pixels to cursor travel against the stream
+ * element's LAYOUT box (offsetWidth/offsetHeight). offsetWidth ignores CSS
+ * transforms, and zoom is a transform, so the divisor stayed at the un-zoomed
+ * width however far in you had pinched. Measured over the same 60px drag on a
+ * 390x844 phone, gain in normalised units:
+ *
+ *     1.00x zoom   7259
+ *     3.13x zoom   7259   <- identical, so the cursor flew 3.13x further than
+ *                            the finger did across the magnified picture
+ *
+ * You pinch in on a KVM precisely because the target you want is small. Making
+ * the pointer three times harder to place at that moment is backwards. The
+ * absolute (mouse) path never had this: it maps through pictureBox(), which is
+ * built from getBoundingClientRect() and so carries the transform. Two paths
+ * into one operation, measuring two different boxes. After sharing pictureBox()
+ * the same drag gives 7271 at 1x and 2320 at 3.13x — a ratio of 3.13, i.e. the
+ * cursor tracks the picture under the finger 1:1 at any zoom.
+ */
+test("the touch trackpad measures the zoomed picture box, not the layout box", () => {
+    const at = js.indexOf("function relMove(dx, dy) {");
+    assert.ok(at > 0, "relMove not found");
+    const body = js.slice(at, js.indexOf("function tapClick(", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // The transformed box the absolute path already maps through.
+    assert.match(body, /var box = pictureBox\(\);/);
+    assert.match(body, /var w = \(box && box\.w\) \|\| pane\.clientWidth/);
+    assert.match(body, /var h = \(box && box\.h\) \|\| pane\.clientHeight/);
+    // The layout box is transform-blind, so it must not come back as the divisor.
+    assert.ok(!/offsetWidth|offsetHeight/.test(body), "relMove is back on the layout box");
+    // Gain still divides finger travel by that box.
+    assert.match(body, /vcur\.x \+ \(dx \/ w\) \* SENS/);
+    assert.match(body, /vcur\.y \+ \(dy \/ h\) \* SENS/);
+});
