@@ -1364,3 +1364,50 @@ test("the drag lock and keyboard drawer announce their state", () => {
     assert.match(kbd, /kbdBtn\.classList\.toggle\("on", openK\);\s*\n\s*kbdBtn\.setAttribute\("aria-expanded", openK \? "true" : "false"\);/);
     assert.doesNotMatch(kbd, /aria-pressed/);
 });
+
+/**
+ * The overflow menu says whether it is open, from every route that closes it.
+ *
+ * Measured against the keys drawer, which does announce, the button said
+ * nothing in either state:
+ *
+ *     more     name="More"      state=NONE      (closed AND open)
+ *     drawer   name="Controls"  state=expanded=false / expanded=true
+ *
+ * and the menu itself was a bare div with no role and no name, so a screen
+ * reader met thirty-five buttons with nothing to say what they belonged to or
+ * that anything had opened.
+ *
+ * aria-expanded and a label, NOT role="menu". The menu is walked with Tab, not
+ * arrow keys — checked, ArrowDown does not move between items — so claiming
+ * menu semantics would promise a keyboard model that is not implemented. A
+ * labelled group of real buttons is what it actually is.
+ *
+ * The state routes through ONE helper because FOUR places close this menu: the
+ * button, picking an item, a tap outside, and Escape. An attribute added to
+ * some of them goes stale on the others — which is the same mistake as fixing
+ * one of three sibling toggles. Verified all four leave the class and the
+ * attribute agreeing:
+ *
+ *     closed by the button       open=false expanded=false
+ *     closed by an item          open=false expanded=false
+ *     closed by tapping outside  open=false expanded=false
+ *     closed by Escape           open=false expanded=false
+ */
+test("the overflow menu's open state cannot drift from its button", () => {
+    const at = js.indexOf("if (moreBtn && moreMenu) {");
+    assert.ok(at > 0, "the overflow menu is not wired");
+    const body = js.slice(at, js.indexOf('window.addEventListener("resize"', at)).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    // One helper owns both the class and the announced state.
+    assert.match(body, /function setMenuOpen\(open\) \{\s*\n\s*moreMenu\.classList\.toggle\("open", open\);\s*\n\s*moreBtn\.setAttribute\("aria-expanded", open \? "true" : "false"\);/);
+    /* And nothing bypasses it. This is the assertion that matters: a fifth
+     * close path added later must go through the helper or fail here. */
+    assert.doesNotMatch(body, /moreMenu\.classList\.(remove|add)\("open"\)/);
+    const closes = body.match(/setMenuOpen\(false\)/g) ?? [];
+    assert.equal(closes.length, 3, "the item, outside and Escape paths must all close through the helper");
+    assert.match(body, /if \(setMenuOpen\(!moreMenu\.classList\.contains\("open"\)\)\) placeMenu\(\);/);
+    // Named, and pointing at what it opens — but not pretending to be a menu.
+    assert.match(body, /moreMenu\.setAttribute\("aria-label", "More actions"\);/);
+    assert.match(body, /moreBtn\.setAttribute\("aria-controls", moreMenu\.id \|\| "more-menu"\);/);
+    assert.doesNotMatch(body, /role", "menu"/);
+});

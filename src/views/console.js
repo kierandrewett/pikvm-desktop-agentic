@@ -6174,26 +6174,52 @@
         moreMenu.style.top = top + "px";
     }
     if (moreBtn && moreMenu) {
+        /* Open-ness through ONE helper, because four separate places close this
+         * menu — the button, picking an item, a tap outside, and Escape — and an
+         * aria-expanded added to only some of them goes stale on the others.
+         *
+         * It needed one: measured against the keys drawer, which does announce,
+         * the button said nothing in either state —
+         *
+         *     more     name="More"      state=NONE       (closed AND open)
+         *     drawer   name="Controls"  state=expanded=false / expanded=true
+         *
+         * and the menu itself is a bare div with no role and no name, so a
+         * screen reader met thirty-five buttons with nothing to say what they
+         * belonged to or that anything had opened.
+         *
+         * aria-expanded and a label, NOT role="menu": the menu is walked with
+         * Tab, not arrow keys (checked — ArrowDown does not move between items),
+         * so claiming menu semantics would promise a keyboard model that is not
+         * there. A labelled group of real buttons is what it actually is. */
+        moreMenu.setAttribute("aria-label", "More actions");
+        moreBtn.setAttribute("aria-controls", moreMenu.id || "more-menu");
+        function setMenuOpen(open) {
+            moreMenu.classList.toggle("open", open);
+            moreBtn.setAttribute("aria-expanded", open ? "true" : "false");
+            return open;
+        }
+        setMenuOpen(moreMenu.classList.contains("open"));
         moreBtn.addEventListener("click", function (e) {
             e.stopPropagation();
-            if (moreMenu.classList.toggle("open")) placeMenu();
+            if (setMenuOpen(!moreMenu.classList.contains("open"))) placeMenu();
         });
         // Picking an item closes it — EXCEPT the audio/mic toggles, which stay open
         // so you can flip both without the menu vanishing (the original bug).
         moreMenu.addEventListener("click", function (e) {
             if (e.target.closest && e.target.closest(".more-item.toggle")) return;
-            moreMenu.classList.remove("open");
+            setMenuOpen(false);
         });
         // Click/tap-outside detection: anything that isn't the menu or the button
         // dismisses it (pointerdown so it's snappy + reliable on touch).
         document.addEventListener("pointerdown", function (e) {
             if (!moreMenu.classList.contains("open")) return;
             if (moreMenu.contains(e.target) || moreBtn.contains(e.target)) return;
-            moreMenu.classList.remove("open");
+            setMenuOpen(false);
         });
         // Escape closes it too.
         document.addEventListener("keydown", function (e) {
-            if (e.key === "Escape") moreMenu.classList.remove("open");
+            if (e.key === "Escape") setMenuOpen(false);
         });
         window.addEventListener("resize", function () {
             if (moreMenu.classList.contains("open")) placeMenu();
