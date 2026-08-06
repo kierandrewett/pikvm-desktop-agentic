@@ -917,3 +917,27 @@ test("a Pi with no mass storage is not shown the whole drive form greyed out", (
     assert.equal(formGap![1], dlgGap![1], ".dlg-form must reproduce .dlg's own row spacing");
     assert.match(css, /^\.dlg-form \{[\s\S]*?flex-direction: column;/m);
 });
+
+test("the mass storage note says when the drive is busy", () => {
+    // kvmd sets busy while it mounts, unmounts or resets, and paintMsd correctly
+    // greys the whole form for the duration — but the note still read "Ready to
+    // mount ubuntu.iso", a form claiming to be ready while refusing to act.
+    // Measured: busy and busy+connected both left every control dead with no
+    // reason anywhere on screen.
+    assert.match(js, /if \(state\.busy\) return what \+ " The drive is busy, so nothing can be changed just now\.";/);
+    // Appended, not replacing: which image is mounted is still the useful part.
+    assert.match(js, /what = "Mounted on the target: "/);
+    assert.match(js, /what = "Ready to mount "/);
+    assert.match(js, /what = "The drive is idle\.";/);
+    assert.match(js, /what = "No image selected\.";/);
+    // Offline and not-fitted still answer first — they explain themselves, and
+    // "busy" on top of "offline" would be two reasons for one dead form.
+    const fn = js.slice(js.indexOf("summary: function () {"));
+    const body = fn.slice(0, fn.indexOf("\n            },"));
+    assert.ok(
+        body.indexOf('return "The drive is offline.";') < body.indexOf("if (state.busy)"),
+        "offline must be answered before busy",
+    );
+    // Each GPIO row already carries its own busy word; this is the same idea.
+    assert.match(js, /setText\(note, !o\.online \? "offline" : o\.busy \? "busy" : ""\)/);
+});

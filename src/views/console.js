@@ -2193,12 +2193,32 @@
                 if (!state.enabled) return "This PiKVM has no mass storage.";
                 if (!state.online) return "The drive is offline.";
                 var d = state.drive;
-                if (!d) return "The drive is idle.";
-                if (d.connected) {
-                    return "Mounted on the target: " + (d.image ? d.image.name : "(no image)") + " as " + (d.cdrom ? "a CD/DVD" : "a flash drive") + (d.rw ? ", writable" : ", read-only") + ".";
+                var what;
+                if (!d) {
+                    what = "The drive is idle.";
+                } else if (d.connected) {
+                    what = "Mounted on the target: " + (d.image ? d.image.name : "(no image)") + " as " + (d.cdrom ? "a CD/DVD" : "a flash drive") + (d.rw ? ", writable" : ", read-only") + ".";
+                } else if (d.image) {
+                    what = "Ready to mount " + d.image.name + " (" + humanBytes(d.image.size) + ").";
+                } else {
+                    what = "No image selected.";
                 }
-                if (d.image) return "Ready to mount " + d.image.name + " (" + humanBytes(d.image.size) + ").";
-                return "No image selected.";
+                /* And say when the drive is working, because that is the one
+                 * state the sentence did not cover and the only one that leaves
+                 * every control dead with no reason on screen.
+                 *
+                 * kvmd sets busy while it mounts, unmounts or resets — the USB
+                 * gadget takes a moment, longer on a drive that is misbehaving —
+                 * and paintMsd correctly greys the whole form for the duration.
+                 * The note meanwhile still read "Ready to mount ubuntu.iso",
+                 * which is a form claiming to be ready and refusing to act.
+                 *
+                 * Appended rather than replacing what: which image is mounted is
+                 * still the useful part, and the state does not say WHICH
+                 * operation is running, so the wording does not guess. Each GPIO
+                 * row already carries its own "busy" for exactly this reason. */
+                if (state.busy) return what + " The drive is busy, so nothing can be changed just now.";
+                return what;
             },
             setParam: function (name, value) {
                 return fetch("/api/msd/set_params?" + encodeURIComponent(name) + "=" + encodeURIComponent(value), { method: "POST", cache: "no-store" })
