@@ -68,10 +68,12 @@ is in `docs/web-client-migration.md`.
       resolved from the standalone checkout — which is what happens on this box —
       serves one built from day-old source.
 
-      Not synced here. That repo is on an unmerged branch
-      (`sockets-for-local-services`), and copying 29 files of someone else's
-      source tree into their feature branch is not a housekeeping decision.
-      Merge first, then sync in one deliberate step, then rebuild the bundle.
+      **No longer blocked.** `sockets-for-local-services` was merged into
+      `master` there on 2026-08-06 (fast-forward to `95fe74d`), which was the
+      reason not to touch that tree. `pikvm_agent` is still byte-identical
+      across both repos, `endpoint.py` and `tests/test_endpoint.py` included —
+      only `frontend` has drifted. What remains is one deliberate copy of the
+      29 files, then a bundle rebuild.
 
 - [ ] **Decide how much of the Python project this repo should vendor.**
       `agent/` mirrors `~/dev/pikvm-agent`, but only `agent/pikvm_agent` reaches
