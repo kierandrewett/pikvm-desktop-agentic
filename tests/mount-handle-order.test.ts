@@ -1280,3 +1280,43 @@ test("closing a dialog returns focus to whatever opened it", () => {
     assert.match(js, /if \(!focusBeforeModal\) focusBeforeModal = document\.activeElement;/);
     assert.match(js, /\} else if \(!scrim && focusBeforeModal\) \{[\s\S]*?restore\.focus\(\);/);
 });
+
+/**
+ * An armed sticky modifier says so, not just looks it.
+ *
+ * These are the modifiers in the touch drawer: tap Ctrl, then tap a key, and
+ * the chord goes out. Whether Ctrl is armed decides what the NEXT tap does, and
+ * that state was carried by a CSS class alone. Measured through the
+ * accessibility tree on an armed button:
+ *
+ *     class "ibtn on"
+ *     role=button  properties=["invalid=false","focusable=true"]
+ *     aria-pressed / aria-checked / aria-label: all null
+ *
+ * So the one thing that changes the meaning of the next tap existed only as a
+ * colour. On a phone this drawer is the ONLY way to send a modifier, so there
+ * is no other route to check it either.
+ *
+ * aria-pressed rather than a switch role, matching the audio and mic toggles in
+ * the titlebar, which are the same kind of control — a local intent you flip.
+ * The GPIO rows use role=switch because they report a REMOTE thing's state.
+ *
+ * After, the same query returns:
+ *
+ *     role=button name="Ctrl" properties=[…,"pressed=true"]
+ *
+ * and the chord is unchanged: arming Ctrl then tapping Esc still sends
+ * ControlLeft:true, Escape:true, Escape:false, ControlLeft:false.
+ */
+test("a sticky modifier's armed state reaches assistive technology", () => {
+    const paint = js.slice(js.indexOf("function paintMod(codeName, on) {"), js.indexOf("document.querySelectorAll(\"[data-key]\")"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    // The class and the state are set from the same argument, so they cannot drift.
+    assert.match(paint, /btn\.classList\.toggle\("on", on\);/);
+    assert.match(paint, /btn\.setAttribute\("aria-pressed", on \? "true" : "false"\);/);
+    /* And it is a toggle before it is first pressed — otherwise the first press
+     * is the first time anything says the control has two states. */
+    const wire = js.slice(js.indexOf('document.querySelectorAll("[data-mod]").forEach'), js.indexOf("var lastTap = 0;"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(wire, /btn\.setAttribute\("aria-pressed", armed\[codeName\] \? "true" : "false"\);/);
+});

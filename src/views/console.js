@@ -5747,7 +5747,28 @@
     /* ---- on-screen controls ---- */
     function paintMod(codeName, on) {
         var btn = document.querySelector('[data-mod="' + codeName + '"]');
-        if (btn) btn.classList.toggle("on", on);
+        if (!btn) return;
+        btn.classList.toggle("on", on);
+        /* Armed is a STATE, and it was carried by the class alone.
+         *
+         * These are the sticky modifiers in the touch drawer: tap Ctrl, then tap
+         * a key, and the chord goes out. Whether Ctrl is currently armed decides
+         * what the next tap does, and the accessibility tree said nothing about
+         * it — measured on an armed button:
+         *
+         *     class "ibtn on"
+         *     role=button  properties=["invalid=false","focusable=true"]
+         *     aria-pressed / aria-checked / aria-label: all null
+         *
+         * So the one thing that changes the meaning of the next tap was visible
+         * only as a colour. On a phone this drawer is the ONLY way to send a
+         * modifier at all, so there is no other route to check.
+         *
+         * aria-pressed rather than a switch role, matching the audio and mic
+         * toggles in the titlebar, which are the same kind of control. The GPIO
+         * rows use role=switch because they report a remote thing's state;
+         * these arm a local intent. */
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
     document.querySelectorAll("[data-key]").forEach(function (btn) {
         btn.addEventListener("click", function () {
@@ -5759,6 +5780,10 @@
     });
     document.querySelectorAll("[data-mod]").forEach(function (btn) {
         var codeName = btn.getAttribute("data-mod");
+        /* A toggle says so before it is ever pressed, or the first press is the
+         * first time anything announces it has two states. paintMod keeps it in
+         * step from here on. */
+        btn.setAttribute("aria-pressed", armed[codeName] ? "true" : "false");
         var lastTap = 0;
         btn.addEventListener("click", function () {
             if (agentActing) return;
