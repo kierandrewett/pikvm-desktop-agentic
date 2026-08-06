@@ -1694,8 +1694,15 @@
                 return {
                     id: (delta < 0 ? "u" : "n") + index,
                     label: glyph,
-                    // "↑" is a glyph, not a name.
-                    ariaLabel: delta < 0 ? "Move step up" : "Move step down",
+                    /* "↑" is a glyph, not a name — and the name has to say WHICH
+                     * step, like every other control in this row already does.
+                     * Measured on a four-step macro: "Move step up" x4 and "Move
+                     * step down" x4, eight buttons and two names between them,
+                     * while Remove beside them said "Remove step 1" … "Remove
+                     * step 4". The key select, the text field, the pause field
+                     * and the modifier group all name their step too; these were
+                     * the pair that did not. */
+                    ariaLabel: "Move step " + (index + 1) + (delta < 0 ? " up" : " down"),
                     className: "dlg-btn macro-move",
                     disabled: delta < 0 ? index === 0 : index === macro.steps.length - 1,
                     onSelect: function () {

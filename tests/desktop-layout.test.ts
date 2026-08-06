@@ -491,7 +491,9 @@ test("the macro step rows are drawn by the shared library", () => {
      * Focus follows the STEP through a reorder rather than staying at the index,
      * so a second press keeps moving the same step instead of whatever slid into
      * the slot under the pointer. */
-    assert.match(js, /ariaLabel: delta < 0 \? "Move step up" : "Move step down"/);
+    // Named, because "↑" is a glyph. It says which step as well now, like every
+    // other control in the row — asserted in full further down.
+    assert.match(js, /ariaLabel: "Move step " \+ \(index \+ 1\) \+ \(delta < 0 \? " up" : " down"\),/);
     assert.match(js, /pendingMacroFocus = \(delta < 0 \? "u" : "n"\) \+ to;/);
     assert.match(js, /stepRoots\.push\(sharedRow\.mountButtons\(actions, actionSpecs\)\)/);
     // A fallback for the window before the bundle has run: buttons drawn the old
@@ -2110,4 +2112,34 @@ test("the macro editor lands on the control it just created", () => {
        Removing a step was checked too and deliberately left as it was: focus
        lands on the Remove of the row that took its place, which is the ordinary
        convention for deleting down a list. */
+});
+
+test("a macro step's move buttons say which step they move", () => {
+    /* Every other control in a step row names its step — the key select says
+       "Key for step 3", the text field "Text for step 3", the pause field
+       "Pause for step 3, milliseconds", the modifier group "Modifier keys for
+       step 3", and Remove beside them says "Remove step 3". The two move
+       buttons said "Move step up" and "Move step down" and nothing else.
+
+       Measured on a four-step macro: eight buttons carrying two names between
+       them — "Move step up" x4 and "Move step down" x4 — so a screen reader
+       walking the rows could not tell which step any of them belonged to. The
+       comment on that very line already said "↑ is a glyph, not a name"; it
+       stopped one step short. Same reasoning the GPIO Pulse button spells out:
+       a list of identically named buttons names nothing you could tell apart. */
+    assert.match(js, /ariaLabel: "Move step " \+ \(index \+ 1\) \+ \(delta < 0 \? " up" : " down"\),/);
+    assert.doesNotMatch(js, /ariaLabel: delta < 0 \? "Move step up" : "Move step down",/);
+    // The siblings it now matches.
+    assert.match(js, /ariaLabel: "Remove step " \+ \(index \+ 1\),/);
+    assert.match(js, /keySel\.setAttribute\("aria-label", "Key for step " \+ \(index \+ 1\)\);/);
+    assert.match(js, /mods\.setAttribute\("aria-label", "Modifier keys for step " \+ \(index \+ 1\)\);/);
+
+    /* The id stays the focus key, so following the step to its new position
+       still works — that is what makes a second press keep moving the SAME
+       step rather than whatever slid into the slot. */
+    assert.match(js, /pendingMacroFocus = \(delta < 0 \? "u" : "n"\) \+ to;/);
+    /* Driven on a four-step macro afterwards: "Move step 1 up" disabled,
+       "Move step 4 down" disabled, no repeated accessible names left among the
+       step controls, and moving step 3 up reordered Keys/Text/Pause/Keys to
+       Keys/Pause/Text/Keys with focus landing on "Move step 2 up". */
 });
