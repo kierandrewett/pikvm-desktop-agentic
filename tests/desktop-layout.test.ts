@@ -2727,3 +2727,39 @@ test("a listen failure is reported, not thrown", () => {
     assert.match(main, /process\.on\("unhandledRejection", \(err\) => reportFatal\("unhandled rejection", err\)\);/);
     assert.match(main, /createWindow\(\)\.catch\(\(err\) => reportFatal\("starting the window", err\)\);/);
 });
+
+/**
+ * A disabled action button let focus out of the modal.
+ *
+ * FOCUSABLE spells out :not([disabled]) on every tag it names and then ends
+ * with [tabindex]:not([tabindex="-1"]), which tests no such thing. The shared
+ * component library stamps tabindex="0" on its buttons, so a DISABLED action
+ * button matched that final clause and walked straight back into the list.
+ *
+ * It landed as `last`, and the browser will never focus a disabled control, so
+ * the wrap could not fire: Tab off the final ENABLED control went somewhere the
+ * trap was not watching and left the dialog. Measured on the paste dialog,
+ * whose Paste button is disabled until you type — which is the state it opens
+ * in, so this was the first Tab a keyboard user pressed:
+ *
+ *     trap saw   ["paste-text", "Cancel", "Paste[DISABLED]"]
+ *     tab walk   paste-text -> Cancel -> BODY / titlebar "Controls"
+ *
+ * Out onto the live surface behind the modal, which is the exact thing the
+ * trap's own comment says it exists to stop — and that surface types at the
+ * remote machine. After, the same walk cycles paste-text <-> Cancel and never
+ * leaves, shift-Tab included; once text makes Paste enabled it joins the cycle
+ * as the third stop.
+ */
+test("the modal focus trap ignores disabled controls", () => {
+    const at = js.indexOf("function focusablesIn(scrim) {");
+    assert.ok(at > 0, "focusablesIn not found");
+    const body = js.slice(at, js.indexOf("var focusBeforeModal", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Disabled is decided in JS, because the selector cannot express it.
+    assert.match(body, /if \(el\.disabled \|\| el\.getAttribute\("aria-disabled"\) === "true"\) return false;/);
+    // The visibility filter it already had stays.
+    assert.match(body, /return el\.offsetParent !== null;/);
+    // The trap still wraps at both ends off that list.
+    assert.match(js, /\} else if \(!e\.shiftKey && active === last\) \{\s*\n\s*e\.preventDefault\(\);\s*\n\s*first\.focus\(\);/);
+    assert.match(js, /\} else if \(e\.shiftKey && active === first\) \{\s*\n\s*e\.preventDefault\(\);\s*\n\s*last\.focus\(\);/);
+});

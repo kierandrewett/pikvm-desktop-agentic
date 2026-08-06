@@ -4626,6 +4626,26 @@
      * picks "the first thing to focus" has to filter first. */
     function focusablesIn(scrim) {
         return Array.prototype.filter.call(scrim.querySelectorAll(FOCUSABLE), function (el) {
+            /* Disabled, whatever the selector said.
+             *
+             * FOCUSABLE spells out :not([disabled]) on every tag it names, and
+             * then ends with [tabindex]:not([tabindex="-1"]) — which tests no
+             * such thing. The shared component library stamps tabindex="0" on
+             * its buttons, so a DISABLED action button matched that last clause
+             * and walked straight back into this list.
+             *
+             * It landed as `last`, and the browser will never focus it, so the
+             * wrap below could not fire: Tab off the final enabled control went
+             * nowhere the trap was watching and focus left the dialog. Measured
+             * on the paste dialog, whose Paste button is disabled until you
+             * type something — which is exactly the state it opens in:
+             *
+             *     trap saw   ["paste-text", "Cancel", "Paste[DISABLED]"]
+             *     tab walk   paste-text -> Cancel -> BODY / titlebar "Controls"
+             *
+             * Straight out onto the live surface behind it, which is the one
+             * thing the comment below says this exists to stop. */
+            if (el.disabled || el.getAttribute("aria-disabled") === "true") return false;
             return el.offsetParent !== null;
         });
     }
