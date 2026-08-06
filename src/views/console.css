@@ -1747,6 +1747,20 @@ html.desktop-console .tb-right {
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
+/* Two selects stacked in a column, same reason the stream sliders line up: with
+   each label sized to its own text, "Microphone" and "Audio output" started the
+   two dropdowns at different x and the pair read as ragged. Sized to the wider
+   of the two labels. */
+#audio-dlg .dlg-row > .dlg-label {
+    min-width: 88px;
+}
+/* A pinned device that has gone away is not a hint, it is a fault the user has
+   to act on — the mic they chose is not there any more. Weight and colour
+   together, so it does not depend on hue alone. */
+.dlg-note.is-warn {
+    color: var(--warn);
+    font-weight: 550;
+}
 .dlg-check {
     min-height: 24px;
 }

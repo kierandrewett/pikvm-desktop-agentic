@@ -5743,6 +5743,7 @@
     var micBtn = document.getElementById("mic-btn");
     var audioPip = document.getElementById("audio-pip");
     var micPip = document.getElementById("mic-pip");
+    var audioDevBtn = document.getElementById("audio-dev-btn");
     var avSep = document.getElementById("av-sep");
     var resToast = document.getElementById("res-toast");
     var resToastMain = document.getElementById("res-toast-main");
@@ -5912,7 +5913,10 @@
         // re-watch (a transient MJPEG flash), and resetting would wipe the user's
         // choice + the indicators every time. The desired state persists and is
         // re-applied/repainted when WebRTC re-activates (see activateWebrtc).
-        [audioBtn, micBtn, avSep, document.querySelector(".tb-av-sep")].forEach(function (el) {
+        // The device picker goes with them: which microphone is being sent is a
+        // property of the audio session, so it has nothing to say on a stream
+        // that carries no audio at all.
+        [audioBtn, micBtn, audioDevBtn, avSep, document.querySelector(".tb-av-sep")].forEach(function (el) {
             if (!el) return;
             if (on) el.removeAttribute("hidden");
             else el.setAttribute("hidden", "");
@@ -6157,6 +6161,11 @@
             // getUserMedia. Pre-flight the prompt so we can show a clear hint on
             // denial instead of silently failing. (The level meter reads the mic
             // energy from WebRTC stats, so we don't keep this stream.)
+            //
+            // This goes through the same pinning shim the real capture does, so
+            // it fails in exactly the cases the capture would — including a
+            // chosen device that has been unplugged, which is the whole point of
+            // pre-flighting rather than finding out from a silent black track.
             paintToggle(micBtn, micPip, false, false, "…");
             var gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
             if (!gum) {
@@ -6164,7 +6173,7 @@
                 return;
             }
             navigator.mediaDevices
-                .getUserMedia({ audio: true })
+                .getUserMedia(micConstraints())
                 .then(function (s) {
                     s.getTracks().forEach(function (t) {
                         try {
@@ -6177,11 +6186,446 @@
                     paintToggle(micBtn, micPip, true, false);
                     showResToast(true);
                     startMeters();
+                    // The grant is what fills in device LABELS, so the list is
+                    // worth re-reading now rather than staying numbered.
+                    refreshAudioDevices(false);
                 })
-                .catch(function () {
-                    paintToggle(micBtn, micPip, false, true, "Denied");
+                .catch(function (e) {
+                    /* Two different failures wore the same word.
+                     *
+                     * "Denied" is the user refusing the permission prompt.
+                     * A pinned device that has been unplugged fails as
+                     * OverconstrainedError (or NotFoundError), and calling that
+                     * "Denied" sends someone to their browser's permission
+                     * settings to fix a headset they pulled out of the socket.
+                     * Say which it is, and where the fix lives. */
+                    var name = e && e.name ? e.name : "";
+                    var gone = name === "OverconstrainedError" || name === "NotFoundError" || name === "DevicesNotFoundError";
+                    if (gone && micChoice.id) {
+                        paintToggle(micBtn, micPip, false, true, "Mic gone");
+                        toast(goneSentence("microphone", micChoice) + " Pick another in Audio devices.", true);
+                        refreshAudioDevices(false);
+                        return;
+                    }
+                    paintToggle(micBtn, micPip, false, true, gone ? "No mic" : "Denied");
                 });
         });
+    }
+
+    /* ---- Audio devices: which microphone, which speaker ----------------------
+     *
+     * The microphone was never pinned to anything. Turning it on ran
+     * getUserMedia({ audio: true }), and `true` does not name a device — it
+     * means "whatever the OS calls default at the moment you ask". Plug a
+     * headset in, let Bluetooth reconnect, let a call app take the line, and the
+     * default moves underneath a session that is already running, so the mic
+     * being sent to the target changes with nobody having asked for it. That is
+     * the complaint this exists to answer.
+     *
+     * The two halves are pinned in different places, because only one of them
+     * is ours:
+     *
+     *   OUTPUT is this window's <video>, so HTMLMediaElement.setSinkId points it
+     *   at the chosen device directly.
+     *
+     *   INPUT is not ours at all. The pre-flight getUserMedia in the mic toggle
+     *   above is only a permission prompt — its tracks are stopped on the next
+     *   line — and the track that actually reaches the target is opened inside
+     *   janus.js, from webrtc.js's
+     *
+     *       createAnswer({ tracks: [{ type: "audio", capture: allowMic, ... }] })
+     *
+     *   janus.js's trackConstraints puts that `capture` value straight into
+     *   constraints.audio and calls navigator.mediaDevices.getUserMedia with it,
+     *   so a device constraint WOULD be honoured end to end — but webrtc.js
+     *   hardcodes the boolean and offers no way to pass one. The wrapper wants a
+     *   setMicDevice(deviceId) beside its setMic(on), and that is a change to
+     *   webrtc.js. Until it has one, the only point both getUserMedia calls pass
+     *   through is getUserMedia itself, so the constraint is applied there.
+     *
+     * `exact` on purpose. A pinned device that has gone away has to fail loudly
+     * and be reported, because the alternative — the browser quietly handing
+     * back some other microphone — is the bug. */
+    var MIC_DEVICE_KEY = "pikvm-console-mic-device";
+    var OUT_DEVICE_KEY = "pikvm-console-speaker-device";
+
+    /* The label is stored beside the id, not derived from it.
+     *
+     * A device that is UNPLUGGED is not in enumerateDevices at all, so at the
+     * one moment we most need to name it — "the microphone you chose is not
+     * connected" — there is nothing left to look the name up in. Remembering
+     * what it was called when it was picked is the only way that sentence can
+     * say which device it means. */
+    function readDeviceChoice(key) {
+        var raw = "";
+        try {
+            raw = localStorage.getItem(key) || "";
+        } catch (e) {}
+        if (!raw) return { id: "", label: "" };
+        try {
+            var v = JSON.parse(raw);
+            return { id: typeof v.id === "string" ? v.id : "", label: typeof v.label === "string" ? v.label : "" };
+        } catch (e) {
+            return { id: "", label: "" };
+        }
+    }
+    function writeDeviceChoice(key, choice) {
+        try {
+            if (choice.id) localStorage.setItem(key, JSON.stringify(choice));
+            else localStorage.removeItem(key);
+        } catch (e) {}
+    }
+    var micChoice = readDeviceChoice(MIC_DEVICE_KEY);
+    var outChoice = readDeviceChoice(OUT_DEVICE_KEY);
+
+    /* "default" and "communications" are not devices.
+     *
+     * Chrome lists both alongside the real ones, and both are aliases for
+     * whatever the OS currently prefers — so pinning to one of them pins to the
+     * moving target this whole block exists to stop, while looking for all the
+     * world like a considered choice. They are dropped, and the first option
+     * says "Follow the system default" instead, which is the same behaviour
+     * named honestly. Firefox never lists them, so this costs nothing there. */
+    var DEVICE_ALIASES = ["default", "communications"];
+    var audioInputs = [];
+    var audioOutputs = [];
+    var devicesKnown = false;
+
+    function collectDevices(all, kind) {
+        var out = [];
+        for (var i = 0; i < all.length; i++) {
+            var d = all[i];
+            if (d.kind !== kind || !d.deviceId) continue;
+            if (DEVICE_ALIASES.indexOf(d.deviceId) >= 0) continue;
+            out.push({ id: d.deviceId, label: d.label || "" });
+        }
+        return out;
+    }
+
+    /* A device with no label is not a blank row.
+     *
+     * enumerateDevices leaves every label empty until microphone access has
+     * been granted at least once, so before the first grant the list would have
+     * been three empty lines — options you cannot tell apart, in a dialog whose
+     * entire job is telling them apart. Number them in the order the browser
+     * reports them, and say in the note why the real names are missing. */
+    function deviceLabel(list, i, kind) {
+        return list[i].label || (kind === "audioinput" ? "Microphone " : "Output ") + (i + 1);
+    }
+    function goneSentence(kind, choice) {
+        return "The " + kind + " you chose" + (choice.label ? " (" + choice.label + ")" : "") + " is not connected.";
+    }
+    function deviceKnown(list, id) {
+        if (!id) return true;
+        for (var i = 0; i < list.length; i++) if (list[i].id === id) return true;
+        return false;
+    }
+    // Unknown until the first enumerate, and "not in the list" is only a claim
+    // worth making once there is a list.
+    function micDeviceMissing() {
+        return devicesKnown && !deviceKnown(audioInputs, micChoice.id);
+    }
+    function outDeviceMissing() {
+        return devicesKnown && !deviceKnown(audioOutputs, outChoice.id);
+    }
+
+    /* The constraint the chosen microphone becomes. */
+    function micConstraints() {
+        return micChoice.id ? { audio: { deviceId: { exact: micChoice.id } } } : { audio: true };
+    }
+    function withMicDevice(constraints) {
+        if (!micChoice.id) return constraints;
+        var c = constraints || {};
+        if (!c.audio) return constraints; // nothing audio about this call
+        var audio = c.audio === true ? {} : c.audio;
+        if (audio.deviceId) return constraints; // the caller named one; leave it alone
+        var merged = {};
+        for (var k in audio) if (Object.prototype.hasOwnProperty.call(audio, k)) merged[k] = audio[k];
+        merged.deviceId = { exact: micChoice.id };
+        var out = {};
+        for (var j in c) if (Object.prototype.hasOwnProperty.call(c, j)) out[j] = c[j];
+        out.audio = merged;
+        return out;
+    }
+    /* Kept so the one call that must NOT be pinned can still be made: asking for
+     * any microphone at all, purely to unlock the device labels. Pinning that
+     * one would make it fail for exactly the user who needs it most — someone
+     * whose saved device is unplugged, trying to read the list well enough to
+     * pick a different one. */
+    var rawGetUserMedia = null;
+    (function pinMicDevice() {
+        var md = navigator.mediaDevices;
+        if (!md || typeof md.getUserMedia !== "function") return;
+        var real = md.getUserMedia.bind(md);
+        rawGetUserMedia = real;
+        md.getUserMedia = function (constraints) {
+            return real(withMicDevice(constraints));
+        };
+    })();
+
+    function sinkIdSupported() {
+        return !!(vid && typeof vid.setSinkId === "function");
+    }
+    /* "" is the documented way back to the system default, and it is also what
+     * an unpinned choice means, so the two need no separate branch. A choice
+     * whose device has gone is NOT quietly honoured as the default here — it is
+     * reported by reportMissingDevices; this only stops setSinkId rejecting on
+     * an id that no longer resolves. */
+    function applyOutputDevice(report) {
+        if (!sinkIdSupported()) return;
+        var want = outDeviceMissing() ? "" : outChoice.id;
+        if (vid.sinkId === want) return;
+        vid.setSinkId(want).catch(function (e) {
+            if (report) toast("Could not switch the audio output: " + (e && e.message ? e.message : "not permitted"), true);
+        });
+    }
+
+    /* Announced on the TRANSITION, not on every enumerate.
+     *
+     * devicechange fires for anything appearing or disappearing — a webcam, a
+     * second monitor's speakers — and re-announcing an already-known problem on
+     * each of those is how a warning becomes noise. */
+    var missingReported = "";
+    function reportMissingDevices(announce) {
+        var micGone = micDeviceMissing();
+        var outGone = outDeviceMissing();
+        var key = (micGone ? "m" : "") + (outGone ? "o" : "");
+        if (key === missingReported) return;
+        var micWasGone = missingReported.indexOf("m") >= 0;
+        missingReported = key;
+        if (announce && key) {
+            var lines = [];
+            if (micGone) lines.push(goneSentence("microphone", micChoice));
+            if (outGone) lines.push(goneSentence("audio output", outChoice));
+            toast(lines.join(" ") + " Pick another in Audio devices.", true);
+        }
+        // The toggle carries it too: the ⋯ menu and the titlebar are where
+        // someone looks when the mic stops working, not the dialog.
+        if (micGone !== micWasGone) paintToggle(micBtn, micPip, micOn, micGone, micGone ? "Mic gone" : "");
+    }
+
+    function refreshAudioDevices(announce) {
+        var md = navigator.mediaDevices;
+        if (!md || typeof md.enumerateDevices !== "function") {
+            paintAudioDialog();
+            return;
+        }
+        md.enumerateDevices()
+            .then(function (all) {
+                audioInputs = collectDevices(all, "audioinput");
+                audioOutputs = collectDevices(all, "audiooutput");
+                devicesKnown = true;
+                applyOutputDevice(false);
+                reportMissingDevices(announce);
+                paintAudioDialog();
+            })
+            .catch(function () {});
+    }
+
+    var audioDlg = document.getElementById("audio-dlg");
+    var micSel = document.getElementById("ad-mic");
+    var outSel = document.getElementById("ad-out");
+    var adNote = document.getElementById("ad-note");
+    var namingDevices = false;
+
+    function devicesLabelled() {
+        var all = audioInputs.concat(audioOutputs);
+        for (var i = 0; i < all.length; i++) if (!all[i].label) return false;
+        return true;
+    }
+
+    function fillDeviceSelect(sel, list, choice, kind, missing) {
+        // Same rule as the stream dialog's resolution list: never rewrite a
+        // select the user currently has open, and catch up when they let go.
+        if (!sel || controlBusy(sel, paintAudioDialog)) return;
+        var parts = [];
+        for (var i = 0; i < list.length; i++) parts.push(list[i].id + " " + list[i].label);
+        var key = parts.join("|") + (missing ? "|gone:" + choice.id : "");
+        if (sel.getAttribute("data-set") !== key) {
+            sel.setAttribute("data-set", key);
+            sel.innerHTML = "";
+            var def = document.createElement("option");
+            def.value = "";
+            def.textContent = "Follow the system default";
+            sel.appendChild(def);
+            for (var j = 0; j < list.length; j++) {
+                var o = document.createElement("option");
+                o.value = list[j].id;
+                o.textContent = deviceLabel(list, j, kind);
+                sel.appendChild(o);
+            }
+            /* The choice is KEPT when its device goes away, and shown as gone.
+             *
+             * Dropping the option would have left the select with a value that
+             * matches nothing, and a <select> in that state silently reports
+             * the first option instead — so the control would have read
+             * "Follow the system default" while the stored choice was still the
+             * headset. That is the quiet fallback this whole block exists to
+             * stop, reappearing in the one place meant to report it. */
+            if (missing) {
+                var lost = document.createElement("option");
+                lost.value = choice.id;
+                lost.textContent = (choice.label || "The device you chose") + " (not connected)";
+                sel.appendChild(lost);
+            }
+        }
+        sel.value = choice.id;
+    }
+
+    function paintAudioDialog() {
+        var haveApi = !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices);
+        var micGone = micDeviceMissing();
+        var outGone = outDeviceMissing();
+        fillDeviceSelect(micSel, audioInputs, micChoice, "audioinput", micGone);
+        fillDeviceSelect(outSel, audioOutputs, outChoice, "audiooutput", outGone);
+        setProp(micSel, "disabled", !haveApi);
+        setProp(outSel, "disabled", !haveApi || !sinkIdSupported());
+        var notes = [];
+        if (micGone) notes.push(goneSentence("microphone", micChoice));
+        if (outGone) notes.push(goneSentence("audio output", outChoice));
+        if (!haveApi) notes.push("This browser will not list audio devices, so both follow the system default.");
+        else if (!sinkIdSupported()) notes.push("This browser cannot choose where audio is played, so the output follows the system default.");
+        else if (!devicesLabelled()) notes.push("Device names appear once the microphone has been allowed.");
+        if (!notes.length) {
+            notes.push("Both choices are remembered, so the system default moving — a headset plugged in, a call app taking the line — no longer moves the microphone being sent to the target.");
+        }
+        setText(adNote, notes.join(" "));
+        if (adNote) adNote.classList.toggle("is-warn", micGone || outGone);
+        repaintAudioActions();
+    }
+
+    var audioActions = null;
+    function repaintAudioActions() {
+        if (audioActions) audioActions.update();
+    }
+
+    function chooseDevice(which, sel) {
+        var mic = which === "mic";
+        var list = mic ? audioInputs : audioOutputs;
+        var id = sel.value;
+        var label = "";
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === id) label = deviceLabel(list, i, mic ? "audioinput" : "audiooutput");
+        }
+        var choice = { id: id, label: label };
+        var name = label || "the device you picked";
+        if (mic) {
+            micChoice = choice;
+            writeDeviceChoice(MIC_DEVICE_KEY, choice);
+            reportMissingDevices(false);
+            /* A running capture does not change device on its own.
+             *
+             * setMic tears the Janus session down and brings it back up — see
+             * webrtc.js's restart() — which re-runs createAnswer and so re-runs
+             * getUserMedia, now with the new constraint. So the track being sent
+             * really becomes the one just picked, rather than the choice taking
+             * effect the next time the mic happens to be toggled. With the mic
+             * off there is nothing running to restart. */
+            if (micOn && stream) stream.setMic(true);
+            toast(id ? "Microphone: " + name : "The microphone follows the system default");
+        } else {
+            outChoice = choice;
+            writeDeviceChoice(OUT_DEVICE_KEY, choice);
+            reportMissingDevices(false);
+            applyOutputDevice(true);
+            toast(id ? "Audio output: " + name : "Audio output follows the system default");
+        }
+        paintAudioDialog();
+    }
+
+    /* Labels are a permission, not a list. Ask for any microphone and throw the
+     * stream away immediately — the same pre-flight the mic toggle does — purely
+     * so enumerateDevices starts filling names in. Deliberately NOT pinned; see
+     * rawGetUserMedia above. */
+    function nameDevices() {
+        if (!rawGetUserMedia || namingDevices) return;
+        namingDevices = true;
+        repaintAudioActions();
+        rawGetUserMedia({ audio: true })
+            .then(function (s) {
+                s.getTracks().forEach(function (t) {
+                    try {
+                        t.stop();
+                    } catch (e) {}
+                });
+            })
+            .catch(function () {
+                toast("The browser would not allow the microphone, so the devices stay unnamed.", true);
+            })
+            .then(function () {
+                namingDevices = false;
+                refreshAudioDevices(false);
+            });
+    }
+
+    (function wireAudioDialog() {
+        if (micSel) {
+            micSel.addEventListener("change", function () {
+                chooseDevice("mic", micSel);
+            });
+        }
+        if (outSel) {
+            outSel.addEventListener("change", function () {
+                chooseDevice("out", outSel);
+            });
+        }
+        audioActions = mountDialogActions("audio-dlg-actions", function () {
+            return [
+                {
+                    id: "ad-name",
+                    label: "Name the devices",
+                    disabled: namingDevices || !rawGetUserMedia || devicesLabelled(),
+                    onSelect: nameDevices,
+                },
+                { id: "ad-close", label: "Done", variant: "default", onSelect: closeAudioDialog },
+            ];
+        });
+        if (audioDlg) {
+            audioDlg.addEventListener("mousedown", function (e) {
+                if (e.target === audioDlg) closeAudioDialog();
+            });
+            audioDlg.addEventListener("keydown", function (e) {
+                if (e.key === "Escape") {
+                    e.stopPropagation();
+                    closeAudioDialog();
+                }
+            });
+        }
+        /* Re-read on devicechange rather than only when the dialog opens: a
+         * headset unplugged mid-session is the case that has to be REPORTED,
+         * and by definition nobody is looking at the dialog when it happens. */
+        var md = navigator.mediaDevices;
+        if (md) {
+            if (typeof md.addEventListener === "function") {
+                md.addEventListener("devicechange", function () {
+                    refreshAudioDevices(true);
+                });
+            } else {
+                md.ondevicechange = function () {
+                    refreshAudioDevices(true);
+                };
+            }
+        }
+        // Quietly at boot: this establishes what "already missing" looks like,
+        // and a toast about it before the console has finished connecting would
+        // be shouting at somebody who has not asked for audio yet.
+        refreshAudioDevices(false);
+    })();
+
+    if (audioDevBtn) audioDevBtn.addEventListener("click", openAudioDialog);
+
+    function openAudioDialog() {
+        if (!audioDlg) return;
+        refreshAudioDevices(false);
+        paintAudioDialog();
+        closeOtherDialogs(audioDlg);
+        audioDlg.hidden = false;
+        var first = audioDlg.querySelector("select:not([disabled]), input, button");
+        if (first) first.focus();
+    }
+    function closeAudioDialog() {
+        if (audioDlg) audioDlg.hidden = true;
+        refocusKbd();
     }
 
     /* ---- coordinate mapping ----
@@ -8728,6 +9172,9 @@
                 items.push({ type: "separator" });
                 items.push({ id: "audio", label: "Audio output", type: "checkbox", checked: audioOn });
                 items.push({ id: "mic", label: "Microphone", type: "checkbox", checked: micOn });
+                // The desktop replaces the HTML ⋯ menu wholesale, so anything
+                // added there and not here is unreachable in the packaged app.
+                items.push({ id: "audio-devices", label: "Audio devices…" });
             }
             /* Detaching the conversation and swapping its side used to sit here,
              * in the menu belonging to the OTHER half of the window. They live in
@@ -8780,6 +9227,10 @@
             }
             if (id === "stream") {
                 openStreamDialog();
+                return;
+            }
+            if (id === "audio-devices") {
+                openAudioDialog();
                 return;
             }
             if (id === "screenshot") {

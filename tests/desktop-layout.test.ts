@@ -3314,3 +3314,89 @@ test("the harness walks past an orphaned port and its child is told where", () =
     // Checked before binding, so the override cannot dodge the loopback rule.
     assert.match(cli, /settings = settings\.model_copy\(update=\{"listen": listen\}\)\s*\n\s*try:\s*\n\s*ensure_safe_bind\(settings\)/);
 });
+
+/**
+ * The microphone was never pinned, so it drifted.
+ *
+ * Turning the mic on ran getUserMedia({ audio: true }) purely as a permission
+ * pre-flight, stopped the tracks, and handed off to webrtc.js. `true` does not
+ * name a device — it means "whatever the OS calls default at the moment you
+ * ask" — so the capture followed the system default wherever it went. Plug a
+ * headset in mid-session, let Bluetooth reconnect, let a call app take the
+ * line, and the microphone being sent to the target changed with nobody having
+ * asked for it.
+ *
+ * The capture is not opened here. It is opened inside janus.js, from webrtc.js's
+ * createAnswer({ tracks: [{ type: "audio", capture: allowMic }] }), and
+ * janus.js's trackConstraints puts that `capture` value straight into
+ * constraints.audio before calling getUserMedia — so a device constraint IS
+ * honoured end to end, but webrtc.js hardcodes the boolean and takes no device.
+ * The one point both calls pass through is getUserMedia itself, so console.js
+ * wraps it. Measured in the harness with three stubbed inputs, watching what
+ * reached the underlying getUserMedia:
+ *
+ *     before   mic on                   { audio: true }
+ *     after    mic on, headset pinned    { audio: { deviceId: { exact: "MIC-HEADSET" } } }
+ *     after    switch device while live  setMic calls 1 -> 2, new constraint applied
+ *     after    reload                    { audio: { deviceId: { exact: "MIC-HEADSET" } } }
+ *
+ * `exact` on purpose: a pinned device that has gone away has to fail loudly,
+ * because the quiet fallback to some other microphone is the bug. Unplugging it
+ * measured pip "Mic gone", the toggle in warn, an assertive toast naming the
+ * device, and the dialog keeping the option as "Jabra Evolve 65 headset (not
+ * connected)" rather than silently reselecting the default.
+ *
+ * Output is ours, so it goes through setSinkId directly: pinning measured
+ * sinkId "OUT-HDMI" and it was re-applied on the next load.
+ */
+test("the microphone and the speaker are pinned to a device, not to the system default", () => {
+    // Both halves persist, and the label rides along so an UNPLUGGED device —
+    // which is not in enumerateDevices at all — can still be named.
+    assert.match(js, /var MIC_DEVICE_KEY = "pikvm-console-mic-device";/);
+    assert.match(js, /var OUT_DEVICE_KEY = "pikvm-console-speaker-device";/);
+    assert.match(js, /if \(choice\.id\) localStorage\.setItem\(key, JSON\.stringify\(choice\)\);/);
+
+    // The constraint the choice becomes, and the wrap that gets it to the
+    // capture janus.js opens.
+    assert.match(js, /return micChoice\.id \? \{ audio: \{ deviceId: \{ exact: micChoice\.id \} \} \} : \{ audio: true \};/);
+    assert.match(js, /merged\.deviceId = \{ exact: micChoice\.id \};/);
+    assert.match(js, /md\.getUserMedia = function \(constraints\) \{\s*\n\s*return real\(withMicDevice\(constraints\)\);/);
+    // The pre-flight goes through the same pin, so it fails where the capture would.
+    assert.match(js, /\.getUserMedia\(micConstraints\(\)\)/);
+
+    // A "default"/"communications" entry is an alias for the moving target, not
+    // a device, so pinning to one would have been the same drift wearing a name.
+    assert.match(js, /var DEVICE_ALIASES = \["default", "communications"\];/);
+    assert.match(js, /if \(DEVICE_ALIASES\.indexOf\(d\.deviceId\) >= 0\) continue;/);
+
+    // The list follows the hardware, and a device that has gone is REPORTED.
+    assert.match(js, /md\.addEventListener\("devicechange", function \(\) \{\s*\n\s*refreshAudioDevices\(true\);/);
+    assert.match(js, /lost\.textContent = \(choice\.label \|\| "The device you chose"\) \+ " \(not connected\)";/);
+    assert.match(js, /if \(micGone !== micWasGone\) paintToggle\(micBtn, micPip, micOn, micGone, micGone \? "Mic gone" : ""\);/);
+    // Unplugged is not denied, and saying so sends people to the right place.
+    assert.match(js, /var gone = name === "OverconstrainedError" \|\| name === "NotFoundError" \|\| name === "DevicesNotFoundError";/);
+
+    // A change while the mic is running re-runs the capture rather than waiting
+    // for the next toggle.
+    assert.match(js, /if \(micOn && stream\) stream\.setMic\(true\);/);
+    // Output is this window's <video>, so it is pinned directly.
+    assert.match(js, /vid\.setSinkId\(want\)/);
+
+    // Every control is labelled, and the dialog is built like its neighbours.
+    assert.match(html, /<label class="dlg-label" for="ad-mic">Microphone<\/label>/);
+    assert.match(html, /<select id="ad-mic" class="dlg-select dlg-grow"><\/select>/);
+    assert.match(html, /<label class="dlg-label" for="ad-out">Audio output<\/label>/);
+    assert.match(html, /<select id="ad-out" class="dlg-select dlg-grow"><\/select>/);
+    assert.match(html, /id="audio-dlg"[\s\S]*?aria-labelledby="audio-dlg-title"/);
+    // The desktop replaces the HTML ⋯ menu wholesale, so an entry only added
+    // there is unreachable in the packaged app.
+    assert.match(html, /<button class="more-item" id="audio-dev-btn" hidden>Audio devices…<\/button>/);
+    assert.match(js, /items\.push\(\{ id: "audio-devices", label: "Audio devices…" \}\);/);
+    assert.match(js, /if \(id === "audio-devices"\) \{\s*\n\s*openAudioDialog\(\);/);
+
+    // The unpinned pre-flight is back if the mic toggle stops naming a device.
+    // Comments first: the ones above it quote the very call being ruled out.
+    const bare = js.replace(/\/\*[\s\S]*?\*\//g, "");
+    const toggle = bare.slice(bare.indexOf("if (micBtn) {"), bare.indexOf("var MIC_DEVICE_KEY"));
+    assert.ok(!/getUserMedia\(\{ audio: true \}\)/.test(toggle), "the mic toggle is pre-flighting an unpinned device again");
+});

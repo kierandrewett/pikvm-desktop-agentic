@@ -324,6 +324,34 @@
                     </div>
                 </div>
 
+                <!-- Audio devices. Both the capture device and the playback device are
+                     pinned to a NAMED one and remembered, because the browser's own
+                     default is not a device at all — it is "whatever the OS last
+                     decided", which moves the moment a headset is plugged in, a call
+                     app grabs the line, or Bluetooth reconnects. That is the drift
+                     this dialog exists to stop. An empty value means "follow the
+                     system default", which is the old behaviour, chosen rather than
+                     inherited. -->
+                <div class="dlg-scrim" id="audio-dlg" hidden>
+                    <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="audio-dlg-title">
+                        <h2 class="dlg-title" id="audio-dlg-title">Audio devices</h2>
+                        <div class="dlg-row">
+                            <label class="dlg-label" for="ad-mic">Microphone</label>
+                            <select id="ad-mic" class="dlg-select dlg-grow"></select>
+                        </div>
+                        <div class="dlg-row">
+                            <label class="dlg-label" for="ad-out">Audio output</label>
+                            <select id="ad-out" class="dlg-select dlg-grow"></select>
+                        </div>
+                        <!-- role="status" because this is where a pinned device going
+                             missing is reported, and that happens while the dialog is
+                             already open — unplug a headset and the note has to say so
+                             without the user going looking for it. -->
+                        <p class="dlg-note" id="ad-note" role="status" aria-live="polite"></p>
+                        <div class="dlg-actions" id="audio-dlg-actions"></div>
+                    </div>
+                </div>
+
                 <!-- Paste-as-keys (kvmd api/hid/print): the Pi types the whole string
                      using its own keymap, which is layout-correct and far faster than
                      sending it key by key. Prefilled from the host clipboard. -->
@@ -395,6 +423,7 @@
                 <button class="more-item toggle" id="mic-btn" hidden>
                     <span>Microphone</span><span class="more-pip" id="mic-pip">Off</span>
                 </button>
+                <button class="more-item" id="audio-dev-btn" hidden>Audio devices…</button>
                 <div class="more-sep" id="av-sep" hidden></div>
                 <!-- Paste-as-keys: kvmd types the string with its own keymap. -->
                 <button class="more-item" id="paste-btn">Paste text to the target…</button>
