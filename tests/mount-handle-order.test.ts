@@ -869,10 +869,15 @@ test("the desktop says when input is not reaching the Pi", () => {
     const body = js.slice(at, at + 1800).replace(/\/\*[\s\S]*?\*\//g, "");
     assert.match(body, /if \(hid\.everSettled\(\) && !hid\.isOpen\(\)\) \{/);
     assert.match(body, /\{ level: "error", text: "Keyboard and mouse input is not reaching the PiKVM" \}\]\.concat\(problems\)/);
-    // Settled means an attempt resolved either way, so a refused socket counts.
-    const mod = js.slice(js.indexOf("var hid = (function ()"));
-    assert.match(mod.slice(0, 4000), /open = true;\s*\n\s*everSettled = true;/);
-    assert.match(mod.slice(0, 4000), /open = false;[\s\S]{0,180}?everSettled = true;/);
+    /* Settled means an attempt resolved either way, so a refused socket counts.
+     * Anchored on the two handlers rather than a byte offset into the module:
+     * this asserted against its first 4000 characters and broke the day a
+     * comment was added above them, which is a test failing for a reason that
+     * has nothing to do with what it checks. */
+    const onopen = js.slice(js.indexOf("ws.onopen = function () {"), js.indexOf("ws.onclose = function () {"));
+    assert.match(onopen, /open = true;\s*\n\s*everSettled = true;/);
+    const onclose = js.slice(js.indexOf("ws.onclose = function () {"), js.indexOf("ws.onerror = function () {"));
+    assert.match(onclose, /open = false;[\s\S]*?everSettled = true;/);
     // And the socket changing has to repaint it, or it would only update when
     // some unrelated health event happened to arrive.
     assert.match(js, /setState\(streamState \|\| "connecting"\);\s*\n[^\n]*\n\s*paintHealth\(\);/);
@@ -1194,4 +1199,45 @@ test("a paste is held back while a macro is running", () => {
      * macro can start after the dialog is already up. */
     assert.match(js, /macroRunning = macro;\s*\n\s*paintMacroButtons\(\);\s*\n\s*repaintPasteActions\(\);/);
     assert.match(js, /macroRunning = null;\s*\n\s*paintMacroButtons\(\);\s*\n\s*repaintPasteActions\(\);/);
+});
+
+/**
+ * Input queued during an outage goes stale rather than firing much later.
+ *
+ * The queue exists so a momentary blip does not swallow a keystroke — the
+ * reconnect is on a 1.2s timer, so the gap it is built for is about a second.
+ * It had no age limit, so a blip and a Pi reboot were treated identically.
+ * Killed the socket, typed a, b and c (nothing delivered, chip correctly
+ * reading "input offline"), waited twenty seconds and let it reconnect:
+ *
+ *     delivered ON RECONNECT, 20s later:
+ *     key:KeyA:true, key:KeyA:false, key:KeyB:true, key:KeyB:false,
+ *     key:KeyC:true, key:KeyC:false
+ *
+ * All six fired at once into whatever the target was showing by then. After a
+ * reboot that is characters typed at the old screen landing in a boot menu, a
+ * login prompt or a shell — and a macro run during the gap would arrive the
+ * same way, whole.
+ *
+ * A release is never dropped, however old. If the down went out before the
+ * socket died and the up is discarded as stale, the target holds that key for
+ * good, which is far worse than losing a character. send() already carves out
+ * exactly this exception for the agent taking over, so the two now share one
+ * predicate rather than two copies that could drift.
+ *
+ * Re-measured both directions:
+ *
+ *     20s outage : only key:KeyA:false, key:KeyB:false, key:KeyC:false
+ *     0.1s blip  : key:KeyX:true AND key:KeyX:false — the queue still works
+ */
+test("stale queued input is dropped, but releases never are", () => {
+    const mod = js.slice(js.indexOf("var hid = (function () {"), js.indexOf("Transient messages"));
+    assert.match(mod, /var QUEUE_STALE_MS = 2000;/);
+    // Stamped going in, so age is knowable coming out.
+    assert.match(mod, /queue\.push\(\{ at: Date\.now\(\), obj: obj \}\)/);
+    // Dropped on the way out only if it is old AND not a release.
+    assert.match(mod, /if \(isRelease\(item\.obj\) \|\| now - item\.at < QUEUE_STALE_MS\) raw\(item\.obj\);/);
+    // One predicate, shared with the agent carve-out that reasons the same way.
+    assert.match(mod, /function isRelease\(obj\) \{[\s\S]*?ev\.state === false && \(obj\.event_type === "key" \|\| obj\.event_type === "mouse_button"\)/);
+    assert.match(mod, /if \(agentActing\) \{[\s\S]*?if \(!isRelease\(obj\)\) return;/);
 });

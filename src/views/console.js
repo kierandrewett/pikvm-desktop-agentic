@@ -294,7 +294,35 @@
          * equally dead either way. */
         var everSettled = false;
         var connecting = false;
+        /* Input queued while the socket is down, as {at, obj}.
+         *
+         * The queue exists so a momentary blip does not swallow a keystroke —
+         * the reconnect is on a 1.2s timer, so the gap it is built for is about
+         * a second. It had no age limit, and a 1.2s blip and a Pi reboot were
+         * treated identically. Measured: killed the socket, typed a, b and c
+         * (nothing delivered, chip correctly reading "input offline"), waited
+         * twenty seconds and let it reconnect —
+         *
+         *     delivered ON RECONNECT, 20s later:
+         *     key:KeyA:true, key:KeyA:false, key:KeyB:true, key:KeyB:false,
+         *     key:KeyC:true, key:KeyC:false
+         *
+         * — all six fired at once into whatever the target was showing by then.
+         * After a reboot that is characters typed at the old screen landing in
+         * a boot menu, a login prompt or a shell. A keystroke is only worth
+         * delivering while it is still current. */
         var queue = [];
+        var QUEUE_STALE_MS = 2000;
+        /* A key or button going UP is never dropped, however old.
+         *
+         * If the down went out before the socket died and the up is dropped as
+         * stale, the target holds that key forever — far worse than losing a
+         * character. send() already carves out the same exception for the agent
+         * taking over, and for the same reason, so the two share this. */
+        function isRelease(obj) {
+            var ev = obj && obj.event;
+            return !!(ev && ev.state === false && (obj.event_type === "key" || obj.event_type === "mouse_button"));
+        }
         var onStatus = null;
         var retry = null;
         // The TARGET's real Caps Lock state, read from the Pi's keyboard LED reports
@@ -332,7 +360,10 @@
                 if (onStatus) onStatus(true);
                 var q = queue;
                 queue = [];
-                q.forEach(raw);
+                var now = Date.now();
+                q.forEach(function (item) {
+                    if (isRelease(item.obj) || now - item.at < QUEUE_STALE_MS) raw(item.obj);
+                });
             };
             ws.onclose = function () {
                 open = false;
@@ -419,13 +450,11 @@
             if (agentActing) {
                 // Release events are allowed through so a button/key held just before
                 // automation starts cannot get stuck down on the target.
-                var ev = obj && obj.event;
-                var release = ev && ev.state === false && (obj.event_type === "key" || obj.event_type === "mouse_button");
-                if (!release) return;
+                if (!isRelease(obj)) return;
             }
             if (open && ws && ws.readyState === 1) raw(obj);
             else {
-                if (queue.length < 256) queue.push(obj);
+                if (queue.length < 256) queue.push({ at: Date.now(), obj: obj });
                 connect();
             }
         }
