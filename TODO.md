@@ -53,6 +53,20 @@ is in `docs/web-client-migration.md`.
       built and served), `ui.html` and `settings.html` (legacy native UI), and
       the `preload.ts` that pairs with them. All are referenced from
       `src/main.ts`.
+- [ ] **Decide the fate of the `PIKVM_NATIVE_UI=1` path.** `main.ts` keeps it
+      deliberately ("the legacy composition is kept behind PIKVM_NATIVE_UI=1"),
+      so this is a product call, not housekeeping. It is bigger than it looks —
+      1,344 lines across seven files, all reachable only with that env var set:
+
+          src/preload.ts        705    src/static/index.css   199
+          src/views/style.css   212    src/views/ui.html      109
+          src/views/settings.html 72   src/static/kvm.css      36
+          src/preload-ui.ts      11
+
+      `src/static/` exists solely for it: the CSS injection sits after an
+      `if (useConsole) { … return; }` in the did-navigate handler, so nothing in
+      that directory is read in normal operation. If the flag goes, the whole
+      directory goes with it.
 - [ ] Decide on `pikvm.har` (1.5 MB leftover capture) and `package-lock.json`
       (npm residue in a Yarn project). Both gitignored, so harmless, but neither
       has a reason to exist.
