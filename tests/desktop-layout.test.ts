@@ -954,7 +954,9 @@ test("the keyboard and mouse row shows when the Pi is working on it", () => {
     assert.match(js, /hidToggleState = \{ attached: !!attached, known: !!known, busy: !!busy \};/);
     // The toggle names what it will do, so it cannot stay live while the thing
     // it describes is already moving.
-    assert.match(js, /disabled: !hidToggleState\.known \|\| hidToggleState\.busy,/);
+    // (Our own in-flight request was added to the same condition later; what
+    // matters here is that the Pi's busy is one of the things that gates it.)
+    assert.match(js, /disabled: !hidToggleState\.known \|\| hidToggleState\.busy\b/);
     /* Reset deliberately does NOT gate on busy, unlike its mass storage
        counterpart: it is the recovery lever for a keyboard the target has
        stopped answering, and a Pi stuck reporting busy would take the escape
@@ -985,4 +987,35 @@ test("the paste keymap list follows the Pi instead of only the dialog opening", 
         /mode && !controlBusy\(mode, paintMsd\)/,
         /if \(controlBusy\(pasteKeymap, fillKeymaps\)\) return;/,
     ]) assert.match(js, call);
+});
+
+test("mount and detach cannot be fired three times by one double-click", () => {
+    /* canConnect, canDisconnect and the hid toggle's busy are all derived from
+       the Pi's own state, which does not arrive until the Pi has answered — so
+       between the click and the event every further click went straight out.
+       Measured with fetch instrumented, three rapid presses each:
+           msd Mount   ["set_connected","set_connected","set_connected"]
+           hid Detach  ["set_connected","set_connected","set_connected"]
+           gpio Pulse  ["pulse"]                      <- already guarded
+       kvmd serialises these, so the redundant ones come back as failures and
+       the user gets error toasts for an operation that is in fact working. */
+    assert.match(js, /var msdConnectPending = false;/);
+    assert.match(js, /function setMsdConnected\(on\) \{\s*if \(msdConnectPending\) return;\s*msdConnectPending = true;\s*repaintMsdBody\(\);/);
+    // Released when the request settles, so a deliberate retry still works —
+    // verified live: a second click after the first landed sent a second request.
+    assert.match(js, /msd\.setConnected\(on\)\.then\(function \(\) \{\s*msdConnectPending = false;\s*repaintMsdBody\(\);/);
+    assert.match(js, /disabled: !msdBody\.canConnect \|\| msdConnectPending,/);
+    assert.match(js, /disabled: !msdBody\.canDisconnect \|\| msdConnectPending,/);
+    // Both buttons go through the helper, so neither can call msd.setConnected raw.
+    const bare = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    assert.equal(
+        (bare.match(/msd\.setConnected\(/g) ?? []).length,
+        1,
+        "msd.setConnected must only be reached through setMsdConnected",
+    );
+    assert.match(js, /var hidTogglePending = false;/);
+    assert.match(js, /disabled: !hidToggleState\.known \|\| hidToggleState\.busy \|\| hidTogglePending,/);
+    assert.match(js, /setHidConnected\(!isAttached\)\.then\(function \(\) \{\s*hidTogglePending = false;\s*repaintHealthActions\(\);/);
+    // The guard these two were copied from.
+    assert.match(js, /disabled: o\.busy \|\| !o\.online \|\| !!gpioPending\[name\],/);
 });

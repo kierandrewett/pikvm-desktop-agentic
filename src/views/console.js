@@ -2875,15 +2875,15 @@
                 id: "msd-connect",
                 label: "Mount on the target",
                 hidden: msdBody.connected,
-                disabled: !msdBody.canConnect,
-                onSelect: function () { msd.setConnected(true); },
+                disabled: !msdBody.canConnect || msdConnectPending,
+                onSelect: function () { setMsdConnected(true); },
             },
             {
                 id: "msd-disconnect",
                 label: "Unmount",
                 hidden: !msdBody.connected,
-                disabled: !msdBody.canDisconnect,
-                onSelect: function () { msd.setConnected(false); },
+                disabled: !msdBody.canDisconnect || msdConnectPending,
+                onSelect: function () { setMsdConnected(false); },
             },
             {
                 id: "msd-remove",
@@ -2909,6 +2909,29 @@
                 onSelect: function () { if (msdUpload) msdUpload.abort(); },
             },
         ];
+    }
+    /* Our own request in flight, on top of the Pi's busy flag.
+     *
+     * canConnect and canDisconnect are derived entirely from the Pi's state,
+     * and that state does not arrive until the Pi has answered — so between the
+     * click and the msd event every further click went straight out. Measured:
+     * three rapid presses of Mount sent three set_connected requests, against a
+     * GPIO pulse button next door that sent one. kvmd serialises these, so the
+     * redundant ones come back as failures and the user gets error toasts for a
+     * mount that is in fact working.
+     *
+     * Exactly the guard gpioPending already is, for the two actions here that
+     * are a single unconfirmed click. Reset drive and Delete image each ask
+     * first, so a stray double press cannot reach them. */
+    var msdConnectPending = false;
+    function setMsdConnected(on) {
+        if (msdConnectPending) return;
+        msdConnectPending = true;
+        repaintMsdBody();
+        msd.setConnected(on).then(function () {
+            msdConnectPending = false;
+            repaintMsdBody();
+        });
     }
     function repaintMsdBody() {
         if (msdDriveActions) msdDriveActions.update();
@@ -3301,6 +3324,7 @@
         if (close) close.focus();
     }
     var hidToggleState = { attached: false, known: false };
+    var hidTogglePending = false;
     var healthActions = null;
     function healthActionSpecs() {
         return [
@@ -3309,14 +3333,25 @@
                 label: hidToggleState.attached ? "Detach" : "Attach",
                 /* Also while the Pi is working on it: kvmd rejects the change
                  * then anyway, and a button naming what it will do is lying
-                 * while the thing it describes is already moving. */
-                disabled: !hidToggleState.known || hidToggleState.busy,
+                 * while the thing it describes is already moving.
+                 *
+                 * And while OUR request is in flight, for the same reason the
+                 * mass storage mount button and every GPIO row carry it: busy
+                 * comes from the Pi and does not arrive until it has answered,
+                 * so three rapid presses sent three set_connected requests. */
+                disabled: !hidToggleState.known || hidToggleState.busy || hidTogglePending,
                 onSelect: function () {
+                    if (hidTogglePending) return;
                     // Mirror the label: whatever it says it will do, do that.
                     var isAttached =
                         health.hidConnected() === true ||
                         (health.hidConnected() === null && health.hidOnline() === true);
-                    setHidConnected(!isAttached);
+                    hidTogglePending = true;
+                    repaintHealthActions();
+                    setHidConnected(!isAttached).then(function () {
+                        hidTogglePending = false;
+                        repaintHealthActions();
+                    });
                 },
             },
             /* Reset deliberately stays live while busy, unlike its mass
