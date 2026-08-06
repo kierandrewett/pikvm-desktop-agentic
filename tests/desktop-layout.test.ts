@@ -2226,3 +2226,29 @@ test("the titlebar buttons that open a menu say so", () => {
        / "Power — target is on", each carrying hasPopup="menu". */
     assert.doesNotMatch(js, /id: "more",\s*label: "More actions",[\s\S]{0,400}?expanded: true/);
 });
+
+test("the macro icon picker keeps a tab stop when nothing is selected", () => {
+    /* A regression from giving the grid a roving tabindex, caught by opening a
+       macro whose stored icon is not one this build knows about.
+
+       The tabindex is worked out per button from whether it is the chosen one.
+       An unrecognised icon name matches nothing, and "No icon" is not chosen
+       either — there IS an icon, just not one in this list — so all twenty-three
+       came out at -1. Measured on a macro carrying "not-a-real-icon": checked
+       [], active [], tabbable []. The picker was unreachable by keyboard
+       entirely, where before the roving tabindex it had been 23 tab stops and
+       at least usable. Making a group better for the common case and unusable
+       for an uncommon one is a bad trade. */
+    assert.match(js, /var rovers = icons\.querySelectorAll\('\[role="radio"\]'\);/);
+    assert.match(js, /if \(!hasStop && rovers\.length\) rovers\[0\]\.tabIndex = 0;/);
+    // It runs before the roving handler and the focus restore, so the stop is
+    // in place by the time either looks for one.
+    const guard = js.indexOf("if (!hasStop && rovers.length) rovers[0].tabIndex = 0;");
+    assert.ok(guard > 0 && guard < js.indexOf("wireIconRovingFocus(icons);", guard - 400) + 400);
+
+    /* Driven on the two cases:
+         icon "not-a-real-icon"  checked [] active [] tabbable ["No icon"]
+         icon "command"          checked/active/tabbable all ["command"]
+       and arrowing from the unselected group recovers it: ArrowRight off
+       "No icon" left checked, active and tabbable all on "camera". */
+});

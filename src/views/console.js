@@ -1523,6 +1523,23 @@
                 });
                 icons.appendChild(choice);
             });
+            /* A roving group must always have exactly one tab stop.
+             *
+             * The tabindex is worked out per button from whether it is the
+             * chosen one — so a macro whose stored icon is not one this build
+             * knows about matched nothing, "No icon" was not chosen either
+             * (there IS an icon, just an unrecognised one), and all twenty-three
+             * ended up at -1. Measured on a macro carrying "not-a-real-icon":
+             * checked [], active [], tabbable [] — the picker was unreachable by
+             * keyboard entirely, where before the roving tabindex it had been 23
+             * tab stops and at least usable.
+             *
+             * The first radio takes the stop when nothing else claims it, which
+             * is what the radio pattern asks for on a group with no selection. */
+            var rovers = icons.querySelectorAll('[role="radio"]');
+            var hasStop = false;
+            for (var r = 0; r < rovers.length; r++) if (rovers[r].tabIndex === 0) hasStop = true;
+            if (!hasStop && rovers.length) rovers[0].tabIndex = 0;
             wireIconRovingFocus(icons);
             var wanted = pendingIconFocus || focusedIcon;
             pendingIconFocus = null;
