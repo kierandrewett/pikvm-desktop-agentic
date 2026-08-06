@@ -3646,6 +3646,29 @@
      * equal z-index is the proof — so the fix is to make the singular
      * assumption true rather than teach four consumers to cope with it. */
     function closeOtherDialogs(keep) {
+        /* Remember where focus was BEFORE the dialog can take it.
+         *
+         * The scrim observer below already tries to, but it only saves when the
+         * scrim does not yet contain the active element — and its callback is a
+         * microtask, so it runs AFTER the synchronous open. Dialogs that set
+         * their own initial focus (health focuses Done, paste focuses the
+         * textarea) had already moved it by then, the save was skipped, and
+         * closing them restored nothing. Measured from a titlebar button:
+         *
+         *     focus before : "Fit to native resolution (1280 x 720)"
+         *     Escape out   : "Fit to native resolution (1280 x 720)"   restored
+         *     Done out     : "BODY"                                    lost
+         *
+         * Same action, two answers, depending only on whether that dialog
+         * happened to focus something on open. Landing on BODY is worse than
+         * losing your place, too: BODY is the state where keystrokes go to the
+         * target, so the next thing typed after Done went to the remote machine.
+         *
+         * Here because every open path already calls this, before hidden is
+         * cleared and before any focus() of its own. Only when nothing is open
+         * yet — opening a second dialog must keep the focus from before the
+         * FIRST, not park it on a control that is about to be hidden. */
+        if (!openScrim()) focusBeforeModal = document.activeElement;
         document.querySelectorAll(".dlg-scrim").forEach(function (el) {
             if (el !== keep && !el.hidden) el.hidden = true;
         });

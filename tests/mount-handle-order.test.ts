@@ -1241,3 +1241,42 @@ test("stale queued input is dropped, but releases never are", () => {
     assert.match(mod, /function isRelease\(obj\) \{[\s\S]*?ev\.state === false && \(obj\.event_type === "key" \|\| obj\.event_type === "mouse_button"\)/);
     assert.match(mod, /if \(agentActing\) \{[\s\S]*?if \(!isRelease\(obj\)\) return;/);
 });
+
+/**
+ * Closing a dialog hands focus back, however it was closed.
+ *
+ * The scrim observer saves the opener only when the scrim does not yet contain
+ * the active element — and its callback is a microtask, so it runs AFTER the
+ * synchronous open. Dialogs that set their own initial focus (health focuses
+ * Done, paste focuses the textarea, MSD the image picker, the log its seek)
+ * had already moved focus by then, the save was skipped, and closing them
+ * restored nothing. Measured from a titlebar button:
+ *
+ *     focus before : "Fit to native resolution (1280 x 720)"
+ *     Escape out   : "Fit to native resolution (1280 x 720)"   restored
+ *     Done out     : "BODY"                                    lost
+ *
+ * The same action gave two answers depending only on whether that dialog
+ * happened to focus something on open. Landing on BODY is worse than losing
+ * your place: BODY is the state where keystrokes go to the TARGET, so the next
+ * thing typed after Done went to the remote machine.
+ *
+ * Captured in closeOtherDialogs instead, which every open path already calls
+ * before hidden is cleared and before any focus() of its own. Guarded on
+ * nothing being open yet, so opening a second dialog keeps the focus from
+ * before the FIRST rather than parking it on a control about to be hidden.
+ *
+ * All six dialogs now restore, by Escape and by their own button, and opening
+ * one over another then closing returns to the anchor from before either.
+ */
+test("closing a dialog returns focus to whatever opened it", () => {
+    const body = js.slice(js.indexOf("function closeOtherDialogs(keep) {"), js.indexOf("/** The dialog currently up"))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.match(body, /if \(!openScrim\(\)\) focusBeforeModal = document\.activeElement;/);
+    // It has to come before anything is hidden or shown.
+    assert.ok(body.indexOf("focusBeforeModal = document.activeElement") < body.indexOf("querySelectorAll"),
+        "focus must be captured before the scrims are touched");
+    // The observer still restores it, and still does not clobber a saved anchor.
+    assert.match(js, /if \(!focusBeforeModal\) focusBeforeModal = document\.activeElement;/);
+    assert.match(js, /\} else if \(!scrim && focusBeforeModal\) \{[\s\S]*?restore\.focus\(\);/);
+});
