@@ -1,12 +1,14 @@
 /** Lifecycle manager shared by the local daemon and operator harness. */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { get as httpGet } from "node:http";
+import { request as httpRequest } from "node:http";
+import { parseEndpoint, endpointRequestOptions } from "./endpoint";
 
 export interface ManagedServiceDeps {
     /** Human-readable name used in lifecycle logs. */
     name: string;
-    /** Service base URL, e.g. http://127.0.0.1:47615. */
+    /** Where the service is: an origin (http://127.0.0.1:47615) or a socket
+     *  (unix:/…/daemon.sock). Both are accepted; see src/endpoint.ts. */
     origin: string;
     /** Unauthenticated health path. */
     healthPath: string;
@@ -42,18 +44,31 @@ export class ManagedService {
         this.deps.log?.(line);
     }
 
-    /** GET the configured health endpoint → true on a 2xx within the timeout. */
+    /** GET the configured health endpoint → true on a 2xx within the timeout.
+     *
+     *  Built from request options rather than a URL, because a unix socket has
+     *  no host:port for `new URL` to resolve the health path against. A bad
+     *  endpoint string resolves false here rather than throwing: an unhealthy
+     *  service is exactly what a misconfigured one is, and this is polled. */
     healthy(timeoutMs = 1500): Promise<boolean> {
         return new Promise((resolve) => {
-            const req = httpGet(
-                new URL(this.deps.healthPath, `${this.deps.origin}/`),
-                (res) => {
+            let options;
+            try {
+                const path = this.deps.healthPath.startsWith("/")
+                    ? this.deps.healthPath
+                    : `/${this.deps.healthPath}`;
+                options = endpointRequestOptions(parseEndpoint(this.deps.origin), path, "GET", {});
+            } catch {
+                resolve(false);
+                return;
+            }
+            const req = httpRequest(options, (res) => {
                 res.resume(); // drain
                 resolve((res.statusCode ?? 500) < 300);
-                },
-            );
+            });
             req.setTimeout(timeoutMs, () => req.destroy());
             req.on("error", () => resolve(false));
+            req.end();
         });
     }
 
