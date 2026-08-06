@@ -680,3 +680,42 @@ test("controlBusy defers for a control being worked, not one merely focused", ()
     assert.match(body, /removeAttribute\("data-engaged"\)/);
     assert.match(body, /el\.removeAttribute\("data-catchup"\);\s*\n\s*repaint\(\);/);
 });
+
+/**
+ * A macro's icon can be taken off again.
+ *
+ * The grid was the twenty-two named icons and nothing else, and the click
+ * handler assigns macro.icon unconditionally, so choosing one was a one-way
+ * door. A macro made, seen in the titlebar as its initials, then given the
+ * power icon, could never go back to the initials — and "no icon" is not an
+ * invalid state, it is the state every new macro starts in and the one
+ * macroGlyph is written to render.
+ *
+ * It was odd as a radiogroup too: the grid carries role="radiogroup", opened
+ * with nothing checked on a new macro, and had no choice that could return it
+ * there. Measured on a macro seeded with an icon name that is not in the grid:
+ *
+ *     on open              : 23 choices, checked []
+ *     after choosing power : checked ["power"],   titlebar draws the svg
+ *     after choosing none  : checked ["No icon"], titlebar draws "SH" again
+ *
+ * The choice previews its own effect — macroGlyph with no icon is what the
+ * titlebar would draw, the macro's first two letters — rather than showing an
+ * abstract "off" mark that says nothing about the result.
+ */
+test("the macro icon grid can return a macro to no icon", () => {
+    const at = js.indexOf('var icons = document.getElementById("macro-icons");');
+    assert.ok(at > 0, "macro icon grid not found");
+    const body = js.slice(at, js.indexOf('var steps = document.getElementById("macro-steps");', at))
+        .replace(/\/\*[\s\S]*?\*\//g, "");
+    // Checked only when there is genuinely no icon — an unrecognised one is neither.
+    assert.match(body, /var iconSet = typeof macro\.icon === "string" && macro\.icon\.trim\(\) !== "";/);
+    assert.match(body, /noIcon\.setAttribute\("aria-checked", String\(!iconSet\)\)/);
+    // Same role as its twenty-two siblings, so the group has a reachable "none".
+    assert.match(body, /noIcon\.setAttribute\("role", "radio"\)/);
+    // Previews the fallback the titlebar uses rather than an abstract off mark.
+    assert.match(body, /noIcon\.textContent = macroGlyph\(\{ icon: "", label: macro\.label \}\)/);
+    assert.match(body, /macro\.icon = "";/);
+    // And it is actually in the grid, ahead of the named icons.
+    assert.match(body, /icons\.appendChild\(noIcon\);\s*\n\s*MACRO_ICON_NAMES\.forEach/);
+});

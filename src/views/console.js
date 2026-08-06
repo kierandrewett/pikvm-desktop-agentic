@@ -1004,6 +1004,33 @@
         var icons = document.getElementById("macro-icons");
         if (icons) {
             icons.innerHTML = "";
+            /* "No icon" — the state every macro starts in, and the only one this
+             * group could not get back to.
+             *
+             * The grid was the twenty-two named icons and nothing else, and the
+             * handler assigns macro.icon unconditionally, so choosing one was a
+             * one-way door: a macro made, seen in the titlebar as its initials,
+             * then given the power icon, could never go back to the initials.
+             * It is also odd as a radiogroup — it opens with nothing checked on
+             * a new macro and had no way to return to that.
+             *
+             * The choice previews what it does rather than showing an abstract
+             * "off" mark: macroGlyph with no icon is exactly what the titlebar
+             * would draw, which is the macro's first two letters. */
+            var iconSet = typeof macro.icon === "string" && macro.icon.trim() !== "";
+            var noIcon = document.createElement("button");
+            noIcon.type = "button";
+            noIcon.className = "macro-icon" + (iconSet ? "" : " active");
+            noIcon.setAttribute("role", "radio");
+            noIcon.setAttribute("aria-checked", String(!iconSet));
+            noIcon.setAttribute("aria-label", "No icon");
+            noIcon.title = "No icon";
+            noIcon.textContent = macroGlyph({ icon: "", label: macro.label });
+            noIcon.addEventListener("click", function () {
+                macro.icon = "";
+                void saveMacros();
+            });
+            icons.appendChild(noIcon);
             MACRO_ICON_NAMES.forEach(function (name) {
                 var choice = document.createElement("button");
                 choice.type = "button";
