@@ -1357,6 +1357,31 @@
                         // Keeps .macro-mod, whose is-on state is already expressed
                         // in this stylesheet; the component supplies the rest.
                         className: "dlg-btn macro-mod" + (on ? " is-on" : ""),
+                        /* And say so, rather than leaving it to the colour.
+                         *
+                         * Which modifiers are armed IS the step — "Ctrl+Alt+
+                         * Delete" and "Delete" differ by nothing else — and the
+                         * accessibility tree said nothing about it. Measured on
+                         * the seeded chord with Ctrl and Alt held:
+                         *
+                         *     Ctrl   is-on  aria-pressed=null
+                         *     Alt    is-on  aria-pressed=null
+                         *     Shift  off    aria-pressed=null
+                         *
+                         * so all five read identically and the chord could not
+                         * be read back at all. The touch drawer's sticky
+                         * modifiers were fixed for exactly this; these are the
+                         * same control in the editor and were missed.
+                         *
+                         * role=switch rather than aria-pressed because that is
+                         * what this renderer supports: mountButtons maps
+                         * role+checked and ignores `pressed`, which only
+                         * mountIconButtons reads — probed both to be sure. It
+                         * is also how every GPIO row states its on/off through
+                         * the same function, and renderPlainButtons already
+                         * agrees, so the no-bundle path says the same thing. */
+                        role: "switch",
+                        checked: on,
                         onSelect: function () {
                             step.mods = step.mods || [];
                             var at = step.mods.indexOf(mcode);

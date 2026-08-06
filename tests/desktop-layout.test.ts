@@ -1279,3 +1279,27 @@ test("aborting your own upload is a confirmation, not an error", () => {
     assert.match(js, /toastEl\.setAttribute\("role", error \? "alert" : "status"\);/);
     assert.match(js, /toastEl\.setAttribute\("aria-live", error \? "assertive" : "polite"\);/);
 });
+
+test("the macro editor says which modifiers are in the chord", () => {
+    /* Which modifiers are armed IS the step — "Ctrl+Alt+Delete" and "Delete"
+       differ by nothing else — and it was carried by a colour alone. Measured on
+       the seeded chord with Ctrl and Alt held:
+           Ctrl is-on  aria-pressed=null
+           Alt  is-on  aria-pressed=null
+           Shift off   aria-pressed=null
+       All five read identically, so the chord could not be read back at all.
+       After: role=switch with aria-checked true/true/false, and toggling Shift
+       flips the class and the announced state together. */
+    const chord = js.slice(js.indexOf('if (step.type === "chord") {'), js.indexOf("var keySel = document.createElement"));
+    assert.match(chord, /role: "switch",\s*checked: on,/);
+    assert.match(chord, /className: "dlg-btn macro-mod" \+ \(on \? " is-on" : ""\),/);
+    /* role=switch rather than aria-pressed because that is what this renderer
+       supports — mountButtons maps role+checked and ignores `pressed`, which
+       only mountIconButtons reads. Both were probed. renderPlainButtons maps the
+       same pair, so the no-bundle path says the same thing. */
+    assert.match(js, /if \(spec\.role\) \{\s*b\.setAttribute\("role", spec\.role\);\s*b\.setAttribute\("aria-checked", spec\.checked \? "true" : "false"\);/);
+    // The same pairing every GPIO row already uses through the same function.
+    assert.match(js, /role: "switch",[\s\S]{0,200}?checked: o\.on,/);
+    // And the touch drawer's sticky modifiers, which are direct DOM nodes.
+    assert.match(js, /btn\.setAttribute\("aria-pressed", on \? "true" : "false"\)/);
+});
