@@ -1323,3 +1323,28 @@ test("deleting the last macro leaves focus somewhere in the dialog", () => {
     assert.match(js, /pendingMacroFocus \|\|\s*\(active && steps\.contains\(active\)/);
     assert.match(js, /\{ id: "macro-new", label: "New macro", onSelect: newMacro \}/);
 });
+
+test("mass storage actions that replace themselves keep focus in the dialog", () => {
+    /* These withdraw or disable the control that was just pressed, and the
+       browser drops focus the moment a focused control becomes disabled — so
+       focus ended on the body with the dialog still open. Measured, each with
+       the button focused first so the loss is real rather than an artefact of a
+       synthetic click:
+           Mount        -> BODY   (msd-connect disabled by the pending guard)
+           Unmount      -> BODY   (once the Pi answered)
+           Delete image -> BODY   (once the Pi reported it gone)
+       After: Start upload -> msd-abort, and the rest -> msd-close. Never BODY. */
+    assert.match(js, /var MSD_PAIRS = \{\s*"msd-connect": "msd-disconnect",\s*"msd-disconnect": "msd-connect",\s*"msd-upload": "msd-abort",\s*"msd-abort": "msd-upload",/);
+    // Disabled counts as lost: the element is still in the host but cannot hold focus.
+    assert.match(js, /if \(owner\.contains\(now\) && !now\.disabled\) return;/);
+    // The partner has to be present AND usable before it is worth aiming at.
+    assert.match(js, /partner && !partner\.disabled && partner\.getClientRects\(\)\.length \? partner : dialogControl\("msd-close"\)/);
+    /* Done rather than the next button along: that row also holds Delete image,
+       and landing a keyboard user on a destructive action they did not choose is
+       worse than the lost focus this is fixing. */
+    const fn = js.slice(js.indexOf("function repaintMsdBody()"));
+    const body = fn.slice(0, fn.indexOf("\n    }"));
+    assert.doesNotMatch(body, /querySelector\("button:not\(\[disabled\]\)"\)/, "must not fall back to the next action in the row");
+    // The pairing this leans on is the one msdBody already documents.
+    assert.match(js, /a pair of buttons occupying one slot, which is why they are\s*\*\s*hidden rather than disabled/);
+});

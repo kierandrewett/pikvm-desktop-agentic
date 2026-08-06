@@ -3018,9 +3018,47 @@
             repaintMsdBody();
         });
     }
+    /* Keep focus usable when a button replaces itself.
+     *
+     * These actions withdraw or disable the very control that was pressed, and
+     * the browser drops focus from a control the moment it becomes disabled —
+     * so focus ended on the body with the dialog still open. Measured, each
+     * with the button focused first so the loss is real rather than an artefact
+     * of a synthetic click:
+     *
+     *     Mount         -> BODY   (msd-connect disabled by the pending guard)
+     *     Unmount       -> BODY   (once the Pi answered)
+     *     Delete image  -> BODY   (once the Pi reported it gone)
+     *
+     * Mount/Unmount and Start upload/Abort are a pair of buttons occupying one
+     * slot — the comment on msdBody says so, and it is why they are hidden
+     * rather than disabled — so when one goes its partner is exactly where the
+     * user was aiming. Anything else falls back to Done rather than to the next
+     * button along: that row also holds Delete image, and landing a keyboard
+     * user on a destructive action they did not choose is worse than the lost
+     * focus this is fixing. */
+    var MSD_PAIRS = {
+        "msd-connect": "msd-disconnect",
+        "msd-disconnect": "msd-connect",
+        "msd-upload": "msd-abort",
+        "msd-abort": "msd-upload",
+    };
     function repaintMsdBody() {
+        var was = document.activeElement;
+        var hosts = [document.getElementById("msd-drive-actions"), document.getElementById("msd-upload-actions")];
+        var owner = hosts.filter(function (h) {
+            return h && h.contains(was);
+        })[0];
+        var key = owner && was.getAttribute ? was.getAttribute("data-tb") || was.getAttribute("data-fk") : null;
         if (msdDriveActions) msdDriveActions.update();
         if (msdUploadActions) msdUploadActions.update();
+        if (!owner) return;
+        var now = document.activeElement;
+        // Still there and still usable: leave it alone.
+        if (owner.contains(now) && !now.disabled) return;
+        var partner = key && MSD_PAIRS[key] ? dialogControl(MSD_PAIRS[key]) : null;
+        var next = partner && !partner.disabled && partner.getClientRects().length ? partner : dialogControl("msd-close");
+        if (next && next.focus) next.focus();
     }
     function removeMsdImage() {
         var d = msd.drive();
