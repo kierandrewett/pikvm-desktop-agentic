@@ -1769,4 +1769,129 @@ describe("a failed run does not state its error twice", () => {
       .join(" ");
     expect(text).toContain("Stopped: blocked.");
   });
+  it("says how an assistant-mode run ended after its last reply", () => {
+    /* Two branches applied assistantStatus — one for a turn holding a computer
+       hand-off, one for a conversation whose last message is the user's.
+       Everything else fell through, and every assistant message the builder
+       makes is stamped "complete", so a run that failed, was blocked, rejected
+       or aborted after its last reply showed that reply and nothing more.
+
+       Measured by seeding one run per state and loading each in the panel: all
+       of them rendered the same two messages, indistinguishable from a run
+       that finished cleanly, with run.error populated and reaching no surface
+       at all. */
+    const ended = (status: RunSnapshot["status"], error: string | null) =>
+      messagesForRun(
+        run({
+          mode: "assistant",
+          status,
+          error,
+          events: [],
+          timeline_events: [],
+          conversation: [
+            {
+              message_id: "u1",
+              role: "user",
+              content: "Check the overnight restarts",
+              created_at: "2026-07-27T12:00:00Z",
+              event_cursor: 1,
+            },
+            {
+              message_id: "a1",
+              role: "assistant",
+              content: "Reading the journal now.",
+              created_at: "2026-07-27T12:00:01Z",
+              event_cursor: 2,
+            },
+          ],
+        }),
+      ).at(-1);
+
+    expect(ended("failed", "boom")).toMatchObject({
+      status: { type: "incomplete", reason: "error", error: "boom" },
+    });
+    expect(ended("blocked", "lock screen, no credential")).toMatchObject({
+      status: { type: "incomplete", reason: "error", error: "lock screen, no credential" },
+    });
+    expect(ended("rejected", "the operator denied mail.send")).toMatchObject({
+      status: { type: "incomplete", reason: "error", error: "the operator denied mail.send" },
+    });
+    expect(ended("aborted", "cancelled by operator")).toMatchObject({
+      status: { type: "incomplete", reason: "cancelled" },
+    });
+  });
+
+  it("leaves a finished reply exactly as it was", () => {
+    // completionMarkdown would otherwise append "Completed and checkpointed."
+    // under every ordinary answer, so only non-complete statuses are stamped.
+    const last = messagesForRun(
+      run({
+        mode: "assistant",
+        status: "completed",
+        error: null,
+        events: [],
+        timeline_events: [],
+        conversation: [
+          {
+            message_id: "u1",
+            role: "user",
+            content: "What restarted?",
+            created_at: "2026-07-27T12:00:00Z",
+            event_cursor: 1,
+          },
+          {
+            message_id: "a1",
+            role: "assistant",
+            content: "kvmd, twice.",
+            created_at: "2026-07-27T12:00:01Z",
+            event_cursor: 2,
+          },
+        ],
+      }),
+    ).at(-1);
+
+    expect(last?.content).toBe("kvmd, twice.");
+    expect(last?.status).toMatchObject({ type: "complete" });
+  });
+
+  it("lets a pause explain itself instead of drawing an error box", () => {
+    /* Either the sentence speaks or the error box does, never both. The box
+       renders for an incomplete message whose reason is "error", and a pause
+       is not one — it is a durable checkpoint. Stamped as incomplete it drew a
+       destructive box reading "Paused" under a sentence that already said more,
+       and with the duplicate word removed the box fell back to the even less
+       useful "An error occurred". */
+    const last = messagesForRun(
+      run({
+        mode: "assistant",
+        status: "paused",
+        error: null,
+        events: [],
+        timeline_events: [],
+        conversation: [
+          {
+            message_id: "u1",
+            role: "user",
+            content: "Check the overnight restarts",
+            created_at: "2026-07-27T12:00:00Z",
+            event_cursor: 1,
+          },
+          {
+            message_id: "a1",
+            role: "assistant",
+            content: "Reading the journal now.",
+            created_at: "2026-07-27T12:00:01Z",
+            event_cursor: 2,
+          },
+        ],
+      }),
+    ).at(-1);
+
+    expect(last?.status).toMatchObject({ type: "complete" });
+    const text = Array.isArray(last?.content)
+      ? last.content.map((part) => (part.type === "text" ? part.text : "")).join(" ")
+      : String(last?.content);
+    expect(text).toContain("Paused at a durable checkpoint");
+    expect(text).not.toContain("An error occurred");
+  });
 });

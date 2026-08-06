@@ -926,7 +926,64 @@ export function messagesForRun(run: RunSnapshot | null): ThreadMessageLike[] {
       });
       return messages;
     }
-    if (run.mode === "assistant") return messages;
+    /* A turn that ended in prose still has to carry how the run ended.
+     *
+     * The two branches above apply assistantStatus: one for a turn holding a
+     * computer hand-off, one for a conversation whose last message is the
+     * user's. Everything else fell straight through to here, and every
+     * assistant message the loop built above is stamped "complete" — so an
+     * assistant-mode run that failed, was blocked, rejected, aborted or paused
+     * after its last reply showed that reply and nothing more.
+     *
+     * Measured by seeding one run per state and loading each: failed with a
+     * 404 from pikvm_screenshot, aborted, blocked on a lock screen, rejected,
+     * and paused all rendered the same two messages, identical to a run that
+     * had finished cleanly. run.error was populated for four of them and
+     * reached no surface at all — not the thread, not the header.
+     *
+     * Only non-complete statuses are stamped. A finished chat answer is left
+     * exactly as it was, because completionMarkdown would otherwise append
+     * "Completed and checkpointed." under every ordinary reply. */
+    if (run.mode === "assistant") {
+      const status = assistantStatus(run);
+      if (
+        latest?.role === "assistant" &&
+        latestAssistantMessageIndex >= 0 &&
+        status.type !== "complete"
+      ) {
+        const existing = messages[latestAssistantMessageIndex]!;
+        /* Either the sentence speaks or the error box does, never both.
+         *
+         * That is the rule completionMarkdown already follows from its side,
+         * returning "" for a failure that has a run.error the box will show.
+         * The box appears for an incomplete message whose reason is "error",
+         * so that is what decides here. A pause is not one: it is a durable
+         * checkpoint, and "Paused at a durable checkpoint. You can continue or
+         * give a correction." says more than a destructive box reading
+         * "Paused" — or, with the error dropped to avoid repeating the word,
+         * "An error occurred", which is how it actually rendered. */
+        const paused = run.status === "paused";
+        const stamped: NonNullable<ThreadMessageLike["status"]> = paused
+          ? { type: "complete", reason: "stop" }
+          : status;
+        const showsErrorBox =
+          stamped.type === "incomplete" && stamped.reason === "error";
+        const completion = showsErrorBox ? "" : completionMarkdown(run);
+        const previous = Array.isArray(existing.content)
+          ? existing.content
+          : existing.content
+            ? [{ type: "text" as const, text: String(existing.content) }]
+            : [];
+        messages[latestAssistantMessageIndex] = {
+          ...existing,
+          content: completion
+            ? [...previous, { type: "text" as const, text: completion }]
+            : existing.content,
+          status: stamped,
+        };
+      }
+      return messages;
+    }
 
     const completion = completionMarkdown(run);
     const content: ThreadMessageLike["content"] = [
