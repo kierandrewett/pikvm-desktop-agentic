@@ -334,17 +334,33 @@ body {
 .app.keys-open .bar-keys {
     display: flex;
 }
-/* The row continues past this edge. Its scrollbar is hidden on both engines,
-   and the last visible key ends with a gap after it, so without this the strip
-   reads as finished rather than cut — twelve of its twenty-one controls were
-   off the right at 900px with nothing saying so. */
-.bar-keys.more-after {
+/* The row continues past this edge.
+ *
+ * Two strips carry more than they can show and neither has a scrollbar to say
+ * so. The keys drawer hides its own on both engines; the titlebar macro strip
+ * is overflow:hidden by design, so it can give way rather than push the window
+ * controls off the bar.
+ *
+ * Both ended up reading as finished rather than cut — the drawer's last key
+ * ends with a gap after it, and the macro strip's last pin was clipped mid
+ * glyph to a single letter that looks like a macro simply named "R". Measured:
+ * twelve of the drawer's twenty-one controls off the right at 900px, and
+ * seventeen of forty pins visible at the same width.
+ *
+ * The fade is honest about what it promises. The drawer scrolls, so it moves as
+ * you scroll; the macro strip only scrolls when Tab walks into it, and the
+ * complete route to a clipped macro is the send-keys menu, which lists them
+ * all by name. */
+.bar-keys.more-after,
+html.desktop-console .tb-macros.more-after {
     mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
 }
-.bar-keys.more-before {
+.bar-keys.more-before,
+html.desktop-console .tb-macros.more-before {
     mask-image: linear-gradient(to right, transparent, #000 32px);
 }
-.bar-keys.more-before.more-after {
+.bar-keys.more-before.more-after,
+html.desktop-console .tb-macros.more-before.more-after {
     mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
 }
 .bar-keys::-webkit-scrollbar {

@@ -6753,18 +6753,34 @@
      * for a strip whose scrollbar is deliberately hidden. Toggled from the
      * scroll position rather than left on permanently, so the ends of the row
      * are not dimmed once there is nothing more to reach. */
+    function paintEdgeFade(el) {
+        if (!el) return;
+        var max = el.scrollWidth - el.clientWidth;
+        el.classList.toggle("more-before", max > 2 && el.scrollLeft > 2);
+        el.classList.toggle("more-after", max > 2 && el.scrollLeft < max - 2);
+    }
     function paintDrawerOverflow() {
-        var d = document.getElementById("drawer");
-        if (!d) return;
-        var max = d.scrollWidth - d.clientWidth;
-        d.classList.toggle("more-before", max > 2 && d.scrollLeft > 2);
-        d.classList.toggle("more-after", max > 2 && d.scrollLeft < max - 2);
+        paintEdgeFade(document.getElementById("drawer"));
+    }
+    /* The titlebar's pinned macros are the other strip that shows less than it
+     * holds. It is overflow:hidden rather than scrollable — that is what lets it
+     * give way instead of pushing the window controls off the bar — so the fade
+     * is the only thing that says the row was cut. It still moves, because Tab
+     * walking into the clipped part scrolls the strip under the focus ring. */
+    function paintMacroStripOverflow() {
+        paintEdgeFade(document.getElementById("tb-macros"));
     }
     (function wireDrawerOverflow() {
         var d = document.getElementById("drawer");
         if (!d) return;
         d.addEventListener("scroll", paintDrawerOverflow, { passive: true });
         window.addEventListener("resize", paintDrawerOverflow);
+    })();
+    (function wireMacroStripOverflow() {
+        var m = document.getElementById("tb-macros");
+        if (!m) return;
+        m.addEventListener("scroll", paintMacroStripOverflow, { passive: true });
+        window.addEventListener("resize", paintMacroStripOverflow);
     })();
     kbdBtn.addEventListener("click", function () {
         var openK = app.classList.toggle("keys-open");
@@ -8115,6 +8131,8 @@
                 macroButtonsRoot = shared.mountIconButtons(macroHost, withTbClass(pinnedMacroSpecs()));
                 repaintMacroButtons = function () {
                     if (macroButtonsRoot) macroButtonsRoot.update(withTbClass(pinnedMacroSpecs()));
+                    // Pinning or unpinning changes what fits.
+                    paintMacroStripOverflow();
                 };
                 repaintMacroButtons();
                 /* Bring a tabbed-to macro fully into view.

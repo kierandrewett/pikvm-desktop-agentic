@@ -2154,14 +2154,14 @@ test("the controls drawer shows that its keys continue past the edge", () => {
        Worse than a plain cut: the last visible key ends with a gap after it, so
        the row reads as finished rather than as continuing. */
     assert.match(css, /\.bar-keys \{[\s\S]*?scrollbar-width: none;/, "the scrollbar is still deliberately hidden");
-    assert.match(css, /\.bar-keys\.more-after \{\s*mask-image: linear-gradient\(to right, #000 calc\(100% - 32px\), transparent\);/);
-    assert.match(css, /\.bar-keys\.more-before \{\s*mask-image: linear-gradient\(to right, transparent, #000 32px\);/);
-    assert.match(css, /\.bar-keys\.more-before\.more-after \{/);
+    assert.match(css, /\.bar-keys\.more-after,\s*html\.desktop-console \.tb-macros\.more-after \{\s*mask-image: linear-gradient\(to right, #000 calc\(100% - 32px\), transparent\);/);
+    assert.match(css, /\.bar-keys\.more-before,\s*html\.desktop-console \.tb-macros\.more-before \{/);
+    assert.match(css, /\.bar-keys\.more-before\.more-after,\s*html\.desktop-console \.tb-macros\.more-before\.more-after \{/);
 
     /* Driven from the scroll position rather than left on permanently, so the
        ends of the row are not dimmed once there is nothing more to reach. */
-    assert.match(js, /d\.classList\.toggle\("more-before", max > 2 && d\.scrollLeft > 2\);/);
-    assert.match(js, /d\.classList\.toggle\("more-after", max > 2 && d\.scrollLeft < max - 2\);/);
+    assert.match(js, /el\.classList\.toggle\("more-before", max > 2 && el\.scrollLeft > 2\);/);
+    assert.match(js, /el\.classList\.toggle\("more-after", max > 2 && el\.scrollLeft < max - 2\);/);
     assert.match(js, /d\.addEventListener\("scroll", paintDrawerOverflow, \{ passive: true \}\);/);
     assert.match(js, /window\.addEventListener\("resize", paintDrawerOverflow\);/);
     /* And measured when it opens, not before: a display:none row reports a
@@ -2174,4 +2174,29 @@ test("the controls drawer shows that its keys continue past the edge", () => {
          scrollLeft 534  -> more-before            (left edge only)
        and screenshotted at each: "Win" trails off at the start where it used to
        end cleanly. */
+});
+
+test("the titlebar's pinned macros show when the row was cut", () => {
+    /* The second strip that shows less than it holds. It is overflow:hidden by
+       design — that is what lets it give way rather than push the window
+       controls off the bar, and the send-keys menu lists every macro by name as
+       the complete route to the rest.
+
+       What was missing was any sign it had been cut. Measured with forty pins:
+       at 1400px, 32 whole, 1 clipped, 7 gone; at 900px, 17 whole, 1 clipped, 22
+       gone — and the clipped one rendered as the single letter "R", which reads
+       as a macro simply named R rather than as "RE" with its end taken off. */
+    assert.match(js, /function paintMacroStripOverflow\(\) \{\s*paintEdgeFade\(document\.getElementById\("tb-macros"\)\);/);
+    assert.match(js, /m\.addEventListener\("scroll", paintMacroStripOverflow, \{ passive: true \}\);/);
+    assert.match(js, /window\.addEventListener\("resize", paintMacroStripOverflow\);/);
+    // Pinning or unpinning changes what fits, so the repaint drives it too.
+    assert.match(js, /macroButtonsRoot\.update\(withTbClass\(pinnedMacroSpecs\(\)\)\);\s*\/\/ Pinning or unpinning changes what fits\.\s*paintMacroStripOverflow\(\);/);
+    // One helper behind both strips, so the two cannot drift apart.
+    assert.match(js, /function paintEdgeFade\(el\) \{/);
+    assert.match(js, /function paintDrawerOverflow\(\) \{\s*paintEdgeFade\(document\.getElementById\("drawer"\)\);/);
+
+    /* It still moves, because Tab walking into the clipped part scrolls the
+       strip under the focus ring — the scrollIntoView already there for exactly
+       that. Measured at 900px with forty pins: focusing the 31st left the strip
+       at scrollLeft 717 of 751 with both edges faded. */
 });
