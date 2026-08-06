@@ -1415,6 +1415,19 @@
                 var btn = document.createElement("button");
                 btn.type = "button";
                 btn.className = m.id === macroSelected ? "active" : "";
+                /* Which macro the editor on the right is showing was carried by
+                 * a background colour and nothing else. Tabbing this list gave
+                 * six buttons that sound alike — "Short 0", "Reboot the
+                 * production database cluster 1", "Short 2" — with no way to
+                 * tell which one the fields beside them belong to.
+                 *
+                 * aria-current, not aria-selected: this is a role=group of
+                 * plain buttons, and aria-selected belongs to listbox and tab
+                 * semantics, which would promise an arrow-key model that is not
+                 * here. Same reasoning the ⋯ menu uses for being a labelled
+                 * group rather than claiming role=menu. Set only on the current
+                 * one, because absent already means "not current". */
+                if (m.id === macroSelected) btn.setAttribute("aria-current", "true");
                 var rowIcon = macroIconSvg(m.icon);
                 if (rowIcon) {
                     rowIcon.classList.add("macro-row-icon");

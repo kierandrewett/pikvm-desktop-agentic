@@ -3083,3 +3083,40 @@ test("the resize separators announce a unit, and only when something changed", (
     assert.match(grip, /setAttr\(gripEl, "aria-valuenow", now\);/);
     assert.match(grip, /setAttr\(gripEl, "aria-valuetext", now \+ " pixels"\);/);
 });
+
+/**
+ * Which macro the editor was showing rode on a background colour alone.
+ *
+ * The list is a role=group of plain buttons and the open one got
+ * className = "active" — nothing else. Tabbing it gave six buttons that sound
+ * alike ("Short 0", "Reboot the production database cluster 1", "Short 2"…)
+ * with no way to tell which one the fields beside them belonged to. Measured
+ * before: every button reported aria-current null and aria-selected null, with
+ * only a computed backgroundColor separating the active row.
+ *
+ * aria-current rather than aria-selected, deliberately. aria-selected belongs
+ * to listbox and tab semantics, and claiming those would promise an arrow-key
+ * model this list does not have — the same reasoning the ⋯ menu uses for being
+ * a labelled group instead of a role=menu. Set only on the current button,
+ * because absent already means "not current".
+ *
+ * Verified as an attribute: it appears on exactly one button, and follows the
+ * selection (Short 0 at open, Short 2 after clicking it, count still 1).
+ *
+ * NOT verified in the accessibility tree, and worth stating: Chromium's
+ * Accessibility.getPartialAXTree does not surface aria-current in its property
+ * list, so the current and non-current buttons dump identically over CDP. That
+ * is a limit of the CDP enum rather than evidence the attribute does nothing —
+ * unlike aria-describedby on the sign-in page, which that same call did show.
+ */
+test("the macro being edited is marked, not just coloured", () => {
+    const at = js.indexOf("function paintMacroEditor() {");
+    assert.ok(at > 0, "paintMacroEditor not found");
+    const body = js
+        .slice(at, js.indexOf("btn.addEventListener(\"click\"", at))
+        .replace(/\/\*[\s\S]*?\*\//g, ""); // the comment beside it names aria-selected
+    assert.match(body, /btn\.className = m\.id === macroSelected \? "active" : "";/);
+    assert.match(body, /if \(m\.id === macroSelected\) btn\.setAttribute\("aria-current", "true"\);/);
+    // Not the semantics this list does not implement.
+    assert.ok(!/aria-selected/.test(body), "aria-selected promises an arrow-key model this list has not got");
+});
