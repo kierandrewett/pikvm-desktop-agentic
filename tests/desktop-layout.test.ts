@@ -1046,3 +1046,23 @@ test("save screenshot cannot be fired three times by one double-click", () => {
     assert.ok(declared > -1 && assigned > -1, "streamActions must be declared and mounted");
     assert.ok(declared < assigned, "var streamActions = null must run before wireStreamDialog assigns it");
 });
+
+test("the conversation pane is never a white slab waiting for the daemon", () => {
+    /* A frame with no src is not an empty frame — it is about:blank, and that
+       document paints its own opaque WHITE base over whatever the element's
+       background says. #chat-frame is set to var(--background) for exactly this
+       reason and never had a chance: measured with the daemon stopped, the pane
+       was a 600px white slab down the right of a black window, and it stayed
+       that way until the daemon came back. The frame starts srcless and is
+       emptied again on every harness drop, so it showed on a cold start too. */
+    assert.match(css, /html\.desktop-console #chat-frame \{\s*background: var\(--background\);/);
+    // Hidden until it has something to show, and on every drop after that.
+    assert.match(js, /chatFrame\.removeAttribute\("aria-hidden"\);[\s\S]{0,1400}?chatFrame\.hidden = true;/);
+    assert.match(js, /chatFrame\.src = WORKSPACE_URL;\s*chatFrame\.hidden = false;/);
+    assert.match(js, /chatFrame\.removeAttribute\("src"\);\s*chatFrame\.hidden = true;/);
+    /* And it only hides because this sheet forces the attribute to win.
+       #chat-frame sets display:block, which beats the UA's [hidden] rule on
+       its own — the same trap that once left the MSD progress bar permanently
+       on screen. */
+    assert.match(css, /\[hidden\] \{\s*display: none !important;/);
+});

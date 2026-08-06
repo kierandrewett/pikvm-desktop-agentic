@@ -6653,6 +6653,23 @@
          * credential server-side and it never reaches any renderer. */
         chatFrame.title = "Conversation";
         chatFrame.removeAttribute("aria-hidden");
+        /* And hidden until it has something to show.
+         *
+         * A frame with no src is not an empty frame — it is about:blank, and
+         * that document paints its own opaque WHITE base over whatever the
+         * element's background says. #chat-frame is already set to
+         * var(--background) for exactly this reason and it never had a chance:
+         * measured with the daemon stopped, the conversation pane was a 600px
+         * white slab down the right of a black window, and it stayed that way
+         * until the daemon came back.
+         *
+         * The frame starts srcless and is emptied again every time the harness
+         * goes away, so the white showed on a cold start as well as on a drop.
+         * Hiding it lets .chat's own --background through, which is the colour
+         * the pane is supposed to be; the titlebar pill already says why there
+         * is nothing in it. [hidden] is !important in this sheet, so this holds
+         * against #chat-frame's own display:block. */
+        chatFrame.hidden = true;
 
         /* The harness is a separate process this app spawns, and it is not
          * listening the instant the window opens — the proxy answers 502 until
@@ -6685,6 +6702,7 @@
                 if (up && !workspaceShown) {
                     workspaceShown = true;
                     chatFrame.src = WORKSPACE_URL;
+                    chatFrame.hidden = false;
                     workspaceRetryMs = 400;
                 } else if (!up && workspaceShown) {
                     /* It went away — a harness restart, or the app respawning it.
@@ -6692,6 +6710,7 @@
                      * dead session, and let the poll bring it back. */
                     workspaceShown = false;
                     chatFrame.removeAttribute("src");
+                    chatFrame.hidden = true;
                 }
                 var next = workspaceShown ? 5000 : (workspaceRetryMs = Math.min(Math.round(workspaceRetryMs * 1.6), 5000));
                 setTimeout(pollWorkspace, next);
