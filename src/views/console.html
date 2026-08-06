@@ -117,8 +117,8 @@
                 <!-- Transient toast over the top of the stream: pops when the stream
                      resolution / source changes, then fades. Also reflects A/M state.
                      pointer-events:none so it never blocks a click on the surface. -->
-                <div class="res-toast" id="res-toast">
-                    <span id="res-toast-main">—</span>
+                <div class="res-toast" id="res-toast" role="status" aria-live="polite">
+                    <span id="res-toast-main"></span>
                     <span class="res-toast-av" id="res-toast-av"></span>
                 </div>
 

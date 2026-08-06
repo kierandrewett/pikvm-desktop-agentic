@@ -851,3 +851,19 @@ test("a repaint never rewrites an attribute with the value it already has", () =
     const raw = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     assert.doesNotMatch(raw, /setAttribute\("aria-valuetext"/);
 });
+
+test("the resolution toast says nothing while it is not on screen", () => {
+    // It hides with opacity:0, and opacity does not remove an element from the
+    // accessibility tree — so the last resolution it reported stayed readable
+    // forever after, and before the first frame it read out an em dash. Exactly
+    // inverted: permanently present while invisible, never announced when it
+    // actually appeared.
+    assert.match(html, /id="res-toast" role="status" aria-live="polite"/);
+    // No placeholder to be read before there is anything to say.
+    assert.match(html, /<span id="res-toast-main"><\/span>/);
+    // Emptied when it hides, which is what makes the NEXT show a real content
+    // change in the live region rather than a silent one.
+    assert.match(js, /resToast\.classList\.remove\("show"\);[\s\S]{0,1400}?setText\(resToastMain, ""\);\s*setText\(resToastAv, ""\);/);
+    // #toast, six lines below it in the markup, is the sibling this now matches.
+    assert.match(html, /id="toast" role="status" aria-live="polite"/);
+});

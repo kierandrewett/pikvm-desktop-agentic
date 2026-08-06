@@ -4889,6 +4889,23 @@
         if (resToastTimer) clearTimeout(resToastTimer);
         resToastTimer = setTimeout(function () {
             resToast.classList.remove("show");
+            /* And empty it, which is the half its sibling already did.
+             *
+             * This toast hides with opacity:0, and opacity does not take an
+             * element out of the accessibility tree — so the last thing it said
+             * stayed readable to a screen reader browsing the page forever
+             * after, describing a toast that is not on screen. Before the first
+             * frame it read out the em dash placeholder the markup used to
+             * carry, which is not even a sentence.
+             *
+             * #toast, six lines below it in the markup, has always been a
+             * role=status live region that is emptied between messages. This is
+             * the same element doing the same job, and it now works the same
+             * way: silent while nothing is showing, and announced once when a
+             * resolution or transport change actually happens — rather than the
+             * exact inverse, which is what it did. */
+            setText(resToastMain, "");
+            setText(resToastAv, "");
         }, 2600);
     }
 
