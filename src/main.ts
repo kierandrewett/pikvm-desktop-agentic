@@ -19,8 +19,6 @@ import {
     statSync,
     realpathSync,
     watch,
-    accessSync,
-    constants as fsConstants,
 } from "fs";
 import { createServer as createProbeServer } from "net";
 import { get as httpGet } from "node:http";
@@ -142,25 +140,6 @@ function workspaceUrl(): string {
     return `http://127.0.0.1:${CONTROL_PORT}${WORKSPACE_PREFIX}/`;
 }
 
-/** Resolve a bare name against PATH, the way execvp would.
- *
- *  Needed because "is it on PATH" has to be ANSWERED here rather than delegated
- *  to spawn(). Handing spawn() a bare name and finding out later is how a
- *  machine with no runtime installed ended up with a dead panel and no message. */
-function lookupOnPath(name: string): string | null {
-    for (const dir of (process.env.PATH ?? "").split(":")) {
-        if (!dir) continue;
-        const candidate = resolve(dir, name);
-        try {
-            accessSync(candidate, fsConstants.X_OK);
-            return candidate;
-        } catch {
-            /* not here, or not executable */
-        }
-    }
-    return null;
-}
-
 /** Where the pikvm-agent runtime might be, best candidate first.
  *
  *  Both paths are computed from __dirname the same way, so development and the
@@ -173,10 +152,9 @@ function lookupOnPath(name: string): string | null {
  *  and both go through it. Two copies of a preference order is how the two end
  *  up launching different builds the day one gains a candidate the other lacks.
  *
- *  `legacy` is the retired ~/dev/pikvm-agent checkout. It is last and it is on
- *  its way out — but it is currently the ONLY candidate that resolves on the
- *  development box, so removing it before a runtime is bundled would leave that
- *  box with no daemon at all. */
+ *  Two places, and an override for anywhere else. The retired ~/dev/pikvm-agent
+ *  checkout used to sit on the end of this list; it is gone, so `agent/` in this
+ *  tree is the only thing that can run. */
 function agentRuntime(...preferred: (string | undefined)[]): AgentRuntimeResolution {
     const [configured, ...env] = preferred;
     return resolveAgentRuntime(
@@ -185,9 +163,8 @@ function agentRuntime(...preferred: (string | undefined)[]): AgentRuntimeResolut
             env,
             bundled: resolve(__dirname, "..", "agent", "runtime", "bin", AGENT_EXECUTABLE),
             workspace: resolve(__dirname, "..", "agent", ".venv", "bin", AGENT_EXECUTABLE),
-            legacy: resolve(app.getPath("home"), "dev", "pikvm-agent", ".venv", "bin", AGENT_EXECUTABLE),
         },
-        { exists: existsSync, onPath: lookupOnPath },
+        { exists: existsSync },
     );
 }
 

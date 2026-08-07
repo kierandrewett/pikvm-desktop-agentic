@@ -11,17 +11,13 @@ import {
 const LOCATIONS: AgentRuntimeLocations = {
     bundled: "/app/resources/agent/runtime/bin/pikvm-agent",
     workspace: "/repo/agent/.venv/bin/pikvm-agent",
-    legacy: "/home/u/dev/pikvm-agent/.venv/bin/pikvm-agent",
 };
 
-/** Nothing on disk, nothing on PATH. */
-const nothing = { exists: () => false, onPath: () => null };
+/** Nothing on disk. */
+const nothing = { exists: () => false };
 
 /** Only the listed paths exist. */
-const only = (...present: string[]) => ({
-    exists: (p: string) => present.includes(p),
-    onPath: () => null,
-});
+const only = (...present: string[]) => ({ exists: (p: string) => present.includes(p) });
 
 test("a missing runtime is a result, not a bare name handed to spawn", () => {
     const r = resolveAgentRuntime(LOCATIONS, nothing);
@@ -30,19 +26,8 @@ test("a missing runtime is a result, not a bare name handed to spawn", () => {
     if (r.found) return;
     // The whole point: the old code returned "pikvm-agent" here and spawn() ate it.
     assert.ok(!r.tried.includes(AGENT_EXECUTABLE));
+    assert.ok(r.tried.every((t) => t.startsWith("/")), "a candidate must be a real path");
     assert.match(r.hint, /make agent-runtime/);
-});
-
-test("PATH counts only when a lookup actually finds it", () => {
-    const found = resolveAgentRuntime(LOCATIONS, {
-        exists: () => false,
-        onPath: () => "/usr/local/bin/pikvm-agent",
-    });
-    assert.equal(found.found, true);
-    assert.equal(found.command, "/usr/local/bin/pikvm-agent");
-    assert.equal(found.found && found.source, "path");
-
-    assert.equal(resolveAgentRuntime(LOCATIONS, nothing).found, false);
 });
 
 test("bundled outranks a development checkout", () => {
@@ -53,22 +38,18 @@ test("bundled outranks a development checkout", () => {
 });
 
 test("the workspace venv wins when nothing is bundled", () => {
-    const r = resolveAgentRuntime(LOCATIONS, only(LOCATIONS.workspace, LOCATIONS.legacy!));
+    const r = resolveAgentRuntime(LOCATIONS, only(LOCATIONS.workspace));
     assert.equal(r.found && r.command, LOCATIONS.workspace);
     assert.equal(r.found && r.source, "workspace");
 });
 
-test("the retired checkout is last, and only when it is the only thing left", () => {
-    const r = resolveAgentRuntime(LOCATIONS, only(LOCATIONS.legacy!));
-    assert.equal(r.found && r.command, LOCATIONS.legacy);
-    assert.equal(r.found && r.source, "legacy");
-
-    // Dropping it is a one-line change once nothing depends on it.
-    const withoutLegacy = resolveAgentRuntime(
-        { bundled: LOCATIONS.bundled, workspace: LOCATIONS.workspace },
-        only(LOCATIONS.legacy!),
-    );
-    assert.equal(withoutLegacy.found, false);
+test("there is no third place to look", () => {
+    /* The retired ~/dev/pikvm-agent checkout used to be a candidate, and so did
+     * a PATH sweep. Both are gone: an installation that is neither shipped with
+     * the app nor built in the tree has to be named by the override. */
+    const r = resolveAgentRuntime(LOCATIONS, only("/home/u/dev/pikvm-agent/.venv/bin/pikvm-agent"));
+    assert.equal(r.found, false);
+    assert.equal(r.tried.length, 2);
 });
 
 test("an explicit override outranks everything, including a bundled runtime", () => {
@@ -111,12 +92,7 @@ test("undefined env entries are skipped, not treated as candidates", () => {
 
 test("tried lists everything considered, so a failure can be explained", () => {
     const r = resolveAgentRuntime(LOCATIONS, nothing);
-    assert.deepEqual(r.tried, [
-        LOCATIONS.bundled,
-        LOCATIONS.workspace,
-        LOCATIONS.legacy,
-        `${AGENT_EXECUTABLE} (PATH)`,
-    ]);
+    assert.deepEqual(r.tried, [LOCATIONS.bundled, LOCATIONS.workspace]);
 });
 
 test("the failure description names the paths and the fix", () => {

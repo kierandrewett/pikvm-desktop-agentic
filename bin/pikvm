@@ -32,7 +32,8 @@ EOF
 # The bundled runtime leads, so an installed copy never quietly runs a
 # developer's checkout. Prints nothing when there is no runtime — the caller
 # decides what to say, rather than a bare name being passed along and failing
-# somewhere less informative.
+# somewhere less informative. Two locations and an override; no PATH sweep,
+# because nothing publishes this executable.
 agent_executable() {
     if [ -n "${PIKVM_AGENT_DAEMON_CMD:-}" ] && [ -x "${PIKVM_AGENT_DAEMON_CMD}" ]; then
         printf '%s\n' "${PIKVM_AGENT_DAEMON_CMD}"
@@ -40,14 +41,12 @@ agent_executable() {
     fi
     for candidate in \
         "${root}/agent/runtime/bin/pikvm-agent" \
-        "${root}/agent/.venv/bin/pikvm-agent" \
-        "${HOME}/dev/pikvm-agent/.venv/bin/pikvm-agent"; do
+        "${root}/agent/.venv/bin/pikvm-agent"; do
         if [ -x "${candidate}" ]; then
             printf '%s\n' "${candidate}"
             return
         fi
     done
-    command -v pikvm-agent 2>/dev/null || true # a real lookup, not a bare name
 }
 
 run_cli() {
@@ -55,7 +54,7 @@ run_cli() {
     exe="$(agent_executable)"
     if [ -z "${exe}" ]; then
         echo "[pikvm] no agent installation found." >&2
-        echo "[pikvm] looked in: \$PIKVM_AGENT_DAEMON_CMD, ${root}/agent/runtime, ${root}/agent/.venv, ~/dev/pikvm-agent/.venv, \$PATH" >&2
+        echo "[pikvm] looked in: \$PIKVM_AGENT_DAEMON_CMD, ${root}/agent/runtime, ${root}/agent/.venv" >&2
         echo "[pikvm] build the bundled runtime with: make agent-runtime" >&2
         echo "[pikvm] or for a development checkout: cd ${root}/agent && uv sync" >&2
         exit 127

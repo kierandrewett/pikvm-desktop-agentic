@@ -11,18 +11,19 @@
  *
  * So the rules here are:
  *
- *  - A candidate counts only when something is actually there. PATH is a real
- *    candidate, but only after a lookup that finds it, never as a bare name
- *    passed to spawn() and hoped over.
+ *  - A candidate counts only when something is actually there. Never a bare name
+ *    passed to spawn() and hoped over. There are two places the runtime can be —
+ *    shipped with the app, or built in the checkout — plus an override for
+ *    anywhere else. No PATH sweep, because nothing publishes this executable.
  *  - Finding nothing is a RESULT, not a fallback. Callers get `found: false`
  *    and a hint naming the fix, and are expected to say so out loud.
  *  - The daemon and the harness are the same installation. One ordered list,
  *    used by both. Two copies of a preference order is how they end up
  *    launching different builds the day one gains a candidate the other lacks.
  *
- * Pure and injectable on purpose: `exists` and `onPath` are parameters, so the
- * ordering can be tested without a filesystem, which is what the old
- * source-text regex assertions in desktop-layout.test.ts were standing in for.
+ * Pure and injectable on purpose: `exists` is a parameter, so the ordering can
+ * be tested without a filesystem, which is what the old source-text regex
+ * assertions in desktop-layout.test.ts were standing in for.
  */
 
 /** Which candidate won, in the order they are tried. */
@@ -32,11 +33,7 @@ export type AgentRuntimeSource =
     /** Shipped inside the application. The normal answer for an installed app. */
     | "bundled"
     /** A development checkout's own virtualenv. The normal answer under `yarn start`. */
-    | "workspace"
-    /** A retired standalone checkout. Kept only so an existing box keeps working. */
-    | "legacy"
-    /** Found on PATH by an actual lookup. */
-    | "path";
+    | "workspace";
 
 export interface AgentRuntimeFound {
     found: true;
@@ -68,17 +65,13 @@ export interface AgentRuntimeLocations {
     bundled: string;
     /** A development checkout's virtualenv. */
     workspace: string;
-    /** A retired checkout, tried last. Omit once nothing depends on it. */
-    legacy?: string | undefined;
 }
 
 export interface AgentRuntimeProbes {
     exists: (path: string) => boolean;
-    /** Resolve a bare name against PATH. Returns the absolute path, or null. */
-    onPath: (name: string) => string | null;
 }
 
-/** The name the runtime installs itself as, on PATH and inside a venv's bin. */
+/** The name the runtime installs itself as inside a venv's bin directory. */
 export const AGENT_EXECUTABLE = "pikvm-agent";
 
 const HINT =
@@ -89,10 +82,11 @@ const HINT =
 /**
  * Resolve the runtime, in order, taking the first candidate that exists.
  *
- * Order is deliberate. An explicit override outranks everything because the
- * operator named it. Bundled outranks workspace so an installed app never
- * quietly runs a developer's half-migrated checkout. PATH comes last because it
- * is the one candidate this project did not put there.
+ * Order is deliberate and short. An explicit override outranks everything
+ * because the operator named it. Bundled outranks workspace so an installed app
+ * never quietly runs a developer's half-migrated checkout. There is no third
+ * place to look: the runtime is either shipped with the app or built in the
+ * checkout, and anything else is what the override is for.
  */
 export function resolveAgentRuntime(
     locations: AgentRuntimeLocations,
@@ -104,19 +98,12 @@ export function resolveAgentRuntime(
     }
     ordered.push({ path: locations.bundled, source: "bundled" });
     ordered.push({ path: locations.workspace, source: "workspace" });
-    if (locations.legacy) ordered.push({ path: locations.legacy, source: "legacy" });
 
     const tried: string[] = [];
     for (const { path, source } of ordered) {
         tried.push(path);
         if (probes.exists(path)) return { found: true, command: path, source, tried };
     }
-
-    // Only now, and only if a lookup actually finds it.
-    const viaPath = probes.onPath(AGENT_EXECUTABLE);
-    tried.push(`${AGENT_EXECUTABLE} (PATH)`);
-    if (viaPath) return { found: true, command: viaPath, source: "path", tried };
-
     return { found: false, command: null, tried, hint: HINT };
 }
 
