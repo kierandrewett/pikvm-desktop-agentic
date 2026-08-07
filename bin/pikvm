@@ -24,16 +24,22 @@ yourself.
 EOF
 }
 
-# The SAME preference order as agentExecutables() in src/main.ts, and a test
-# pins the two together. A launcher that finds a different installation from the
-# app it launches is worse than one that finds nothing: both would appear to
-# work, on different builds.
+# The SAME preference order as resolveAgentRuntime() in src/agent-runtime.ts,
+# and a test pins the two together. A launcher that finds a different
+# installation from the app it launches is worse than one that finds nothing:
+# both would appear to work, on different builds.
+#
+# The bundled runtime leads, so an installed copy never quietly runs a
+# developer's checkout. Prints nothing when there is no runtime — the caller
+# decides what to say, rather than a bare name being passed along and failing
+# somewhere less informative.
 agent_executable() {
     if [ -n "${PIKVM_AGENT_DAEMON_CMD:-}" ] && [ -x "${PIKVM_AGENT_DAEMON_CMD}" ]; then
         printf '%s\n' "${PIKVM_AGENT_DAEMON_CMD}"
         return
     fi
     for candidate in \
+        "${root}/agent/runtime/bin/pikvm-agent" \
         "${root}/agent/.venv/bin/pikvm-agent" \
         "${HOME}/dev/pikvm-agent/.venv/bin/pikvm-agent"; do
         if [ -x "${candidate}" ]; then
@@ -41,16 +47,17 @@ agent_executable() {
             return
         fi
     done
-    printf 'pikvm-agent\n' # rely on PATH
+    command -v pikvm-agent 2>/dev/null || true # a real lookup, not a bare name
 }
 
 run_cli() {
     local exe
     exe="$(agent_executable)"
-    if [ "${exe}" = "pikvm-agent" ] && ! command -v pikvm-agent >/dev/null 2>&1; then
+    if [ -z "${exe}" ]; then
         echo "[pikvm] no agent installation found." >&2
-        echo "[pikvm] looked in: \$PIKVM_AGENT_DAEMON_CMD, ${root}/agent/.venv, ~/dev/pikvm-agent/.venv, \$PATH" >&2
-        echo "[pikvm] set one up with: cd ${root}/agent && uv sync" >&2
+        echo "[pikvm] looked in: \$PIKVM_AGENT_DAEMON_CMD, ${root}/agent/runtime, ${root}/agent/.venv, ~/dev/pikvm-agent/.venv, \$PATH" >&2
+        echo "[pikvm] build the bundled runtime with: make agent-runtime" >&2
+        echo "[pikvm] or for a development checkout: cd ${root}/agent && uv sync" >&2
         exit 127
     fi
     exec "${exe}" "$@"

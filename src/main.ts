@@ -19,10 +19,18 @@ import {
     statSync,
     realpathSync,
     watch,
+    accessSync,
+    constants as fsConstants,
 } from "fs";
 import { createServer as createProbeServer } from "net";
 import { get as httpGet } from "node:http";
 import { resolve, isAbsolute, extname } from "path";
+import {
+    AGENT_EXECUTABLE,
+    describeAgentRuntime,
+    resolveAgentRuntime,
+    type AgentRuntimeResolution,
+} from "./agent-runtime";
 import { parseEndpoint, unixEndpointValue } from "./endpoint";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
@@ -134,38 +142,78 @@ function workspaceUrl(): string {
     return `http://127.0.0.1:${CONTROL_PORT}${WORKSPACE_PREFIX}/`;
 }
 
-/** Where the pikvm-agent executable might be, best candidate first.
+/** Resolve a bare name against PATH, the way execvp would.
  *
- *  agent/ is part of this repo now, so its venv leads. The standalone checkout
- *  stays on the list below it so an existing working setup keeps running while
- *  the move settles — this is a search, not a migration, and nothing has to be
- *  moved on disk for the app to start.
- *
- *  The daemon and the harness are the SAME installation, and this list used to
- *  be written out twice, once in each resolver. Two copies of a preference order
- *  is how the two end up launching different builds the day one of them gains a
- *  candidate the other does not. */
-function agentExecutables(...preferred: (string | undefined)[]): string[] {
-    const inRepo = resolve(__dirname, "..", "agent", ".venv", "bin", "pikvm-agent");
-    const standalone = resolve(app.getPath("home"), "dev/pikvm-agent/.venv/bin/pikvm-agent");
-    return [...preferred, inRepo, standalone].filter(Boolean) as string[];
+ *  Needed because "is it on PATH" has to be ANSWERED here rather than delegated
+ *  to spawn(). Handing spawn() a bare name and finding out later is how a
+ *  machine with no runtime installed ended up with a dead panel and no message. */
+function lookupOnPath(name: string): string | null {
+    for (const dir of (process.env.PATH ?? "").split(":")) {
+        if (!dir) continue;
+        const candidate = resolve(dir, name);
+        try {
+            accessSync(candidate, fsConstants.X_OK);
+            return candidate;
+        } catch {
+            /* not here, or not executable */
+        }
+    }
+    return null;
 }
 
-/** Resolve the command that launches the pikvm-agent daemon. Falls back to the
- *  bare name so a PATH install still works. */
-function resolveDaemonCommand(configured?: string): { command: string; args: string[] } {
-    for (const c of agentExecutables(configured, process.env.PIKVM_AGENT_DAEMON_CMD)) {
-        if (existsSync(c)) return { command: c, args: ["daemon"] };
-    }
-    return { command: "pikvm-agent", args: ["daemon"] }; // rely on PATH
+/** Where the pikvm-agent runtime might be, best candidate first.
+ *
+ *  Both paths are computed from __dirname the same way, so development and the
+ *  packaged app are ONE code path: in the repo __dirname is dist/ and these land
+ *  on agent/ at the root; in the package __dirname is resources/app and they
+ *  land on resources/agent/. That is the same trick copy-runtime-deps.mjs uses
+ *  to place harness_ui, and it is why nothing here needs to know which it is.
+ *
+ *  The daemon and the harness are the SAME installation, so there is one list
+ *  and both go through it. Two copies of a preference order is how the two end
+ *  up launching different builds the day one gains a candidate the other lacks.
+ *
+ *  `legacy` is the retired ~/dev/pikvm-agent checkout. It is last and it is on
+ *  its way out — but it is currently the ONLY candidate that resolves on the
+ *  development box, so removing it before a runtime is bundled would leave that
+ *  box with no daemon at all. */
+function agentRuntime(...preferred: (string | undefined)[]): AgentRuntimeResolution {
+    const [configured, ...env] = preferred;
+    return resolveAgentRuntime(
+        {
+            configured,
+            env,
+            bundled: resolve(__dirname, "..", "agent", "runtime", "bin", AGENT_EXECUTABLE),
+            workspace: resolve(__dirname, "..", "agent", ".venv", "bin", AGENT_EXECUTABLE),
+            legacy: resolve(app.getPath("home"), "dev", "pikvm-agent", ".venv", "bin", AGENT_EXECUTABLE),
+        },
+        { exists: existsSync, onPath: lookupOnPath },
+    );
+}
+
+/** Tell the operator the agent is unavailable, and exactly what to do.
+ *
+ *  Every path that cannot find a runtime comes through here, so the message is
+ *  written once. It names what was looked for, because "not found" without the
+ *  list is the same dead end the old silent fallback produced. */
+function reportMissingAgentRuntime(r: AgentRuntimeResolution): void {
+    if (r.found) return;
+    console.error(describeAgentRuntime(r));
+    dialog.showErrorBox(
+        "PiKVM Desktop could not start its agent",
+        `${r.hint}\n\nLooked in:\n${r.tried.map((t) => `  ${t}`).join("\n")}\n\n` +
+            "The KVM view, terminal and console all work without it. Only the agent is unavailable.",
+    );
+}
+
+/** Resolve the runtime that launches the pikvm-agent daemon. */
+function resolveDaemonRuntime(configured?: string): AgentRuntimeResolution {
+    return agentRuntime(configured, process.env.PIKVM_AGENT_DAEMON_CMD);
 }
 
 /** Resolve the same pikvm-agent installation for the first-party harness. */
-function resolveHarnessCommand(configured?: string): string {
-    for (const c of agentExecutables(configured, process.env.PIKVM_HARNESS_CMD, process.env.PIKVM_AGENT_DAEMON_CMD)) {
-        if (existsSync(c)) return c;
-    }
-    return "pikvm-agent";
+function resolveHarnessRuntime(configured?: string): AgentRuntimeResolution {
+    return agentRuntime(configured, process.env.PIKVM_HARNESS_CMD, process.env.PIKVM_AGENT_DAEMON_CMD);
 }
 
 function resolvedHarnessOrigin(): string {
@@ -278,7 +326,7 @@ async function anotherDesktopOn(port: number, host: string): Promise<boolean> {
 async function startProxyAndHarness(
     origin: string,
     settings: SettingsStore,
-    harnessCommand: string,
+    harnessRuntime: AgentRuntimeResolution,
 ) {
     const control = new PiKvmControl(
         {
@@ -435,6 +483,21 @@ async function startProxyAndHarness(
             ? configuredHarnessPath
             : resolve(settings.dir(), configuredHarnessPath)
         : resolve(settings.dir(), "harness.yaml");
+    if (!harnessRuntime.found) {
+        /* No runtime, so no agent services — and the app says so instead of
+         * spawning a name that does not exist and looking broken. Everything
+         * that does not need Python carries on. */
+        reportMissingAgentRuntime(harnessRuntime);
+        return {
+            control,
+            settings,
+            terminalSessions,
+            daemon: null,
+            harness: null,
+            harnessReady: Promise.resolve(),
+        };
+    }
+    const harnessCommand = harnessRuntime.command;
     const harness = new HarnessManager({
         origin: harnessOrigin,
         daemonOrigin,
@@ -479,7 +542,17 @@ async function startProxyAndHarness(
     );
     console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
 
-    const { command, args } = resolveDaemonCommand(settings.get().daemonCmd);
+    const daemonRuntime = resolveDaemonRuntime(settings.get().daemonCmd);
+    console.log(describeAgentRuntime(daemonRuntime));
+    if (!daemonRuntime.found) {
+        /* Reachable when PIKVM_AGENT_DAEMON_CMD or the daemonCmd setting names
+         * something that is not there, since the harness resolved above without
+         * consulting them. The harness is left running; only the daemon is out. */
+        reportMissingAgentRuntime(daemonRuntime);
+        return { control, settings, terminalSessions, daemon: null, harness, harnessReady: Promise.resolve() };
+    }
+    const { command } = daemonRuntime;
+    const args = ["daemon"];
     /* Tell the child WHERE, or the walk above is a lie.
      *
      * `pikvm-agent daemon` takes its host and port from its own config file, so
@@ -919,7 +992,11 @@ async function createWindow() {
     // session lets main inject the operator credential without ever exposing that
     // credential to page JavaScript.
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
-    const harnessCommand = resolveHarnessCommand(settings.get().harnessCmd);
+    /* Resolved here rather than inside the proxy so a missing runtime is one
+     * decision, not two: startProxyAndHarness() already reports it, and the dev
+     * asset lookup below needs a real path or nothing. */
+    const harnessRuntime = resolveHarnessRuntime(settings.get().harnessCmd);
+    const harnessCommand = harnessRuntime.found ? harnessRuntime.command : null;
     const HARNESS_ORIGIN = resolvedHarnessOrigin();
     const HARNESS_URL = `${HARNESS_ORIGIN}/app/`;
     const harnessViewLifecycle = new HarnessViewLifecycle(HARNESS_URL);
@@ -1042,8 +1119,8 @@ async function createWindow() {
         harnessViewLifecycle.stop();
         harnessAssetsWatcher?.close();
         backend?.terminalSessions.killAll();
-        backend?.harness.stop();
-        backend?.daemon.stop();
+        backend?.harness?.stop();
+        backend?.daemon?.stop();
     });
 
     // Right-click editing menus on the main + overlay views.
@@ -1111,10 +1188,10 @@ async function createWindow() {
     // remote console, where the remote host owns the proxy + terminal.
     const backend = remoteConsole
         ? null
-        : await startProxyAndHarness(origin, settings, harnessCommand);
+        : await startProxyAndHarness(origin, settings, harnessRuntime);
     const harnessAssetDirectory =
         !app.isPackaged && backend
-            ? resolveDevHarnessAssetDirectory(harnessCommand)
+            ? harnessCommand && resolveDevHarnessAssetDirectory(harnessCommand)
             : null;
     const harnessAssetsWatcher = harnessAssetDirectory
         ? watch(harnessAssetDirectory, { persistent: false }, () => {

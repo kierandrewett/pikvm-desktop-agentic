@@ -267,17 +267,34 @@ test("a chosen theme outranks the OS instead of being overwritten by it", () => 
 test("the daemon and the harness resolve one pikvm-agent installation", () => {
     // They are the same install, and the preference order used to be written out
     // twice — one resolver gaining a candidate the other did not is how the two
-    // end up launching different builds.
-    assert.match(main, /function agentExecutables\(\.\.\.preferred/);
-    const resolvers = main.match(/dev\/pikvm-agent\/\.venv\/bin\/pikvm-agent/g) ?? [];
-    assert.equal(resolvers.length, 1, "the candidate list is duplicated again");
-    // agent/ is in this repo now, so its venv leads; the standalone checkout stays
-    // below it so an existing working setup keeps running.
-    assert.match(main, /resolve\(__dirname, "\.\.", "agent", "\.venv", "bin", "pikvm-agent"\)/);
-    assert.match(main, /return \[\.\.\.preferred, inRepo, standalone\]/);
-    // Both resolvers go through it.
-    assert.match(main, /agentExecutables\(configured, process\.env\.PIKVM_AGENT_DAEMON_CMD\)/);
-    assert.match(main, /agentExecutables\(configured, process\.env\.PIKVM_HARNESS_CMD, process\.env\.PIKVM_AGENT_DAEMON_CMD\)/);
+    // end up launching different builds. The ORDER itself is tested properly in
+    // agent-runtime.test.ts against the real function; what matters here is that
+    // main.ts still has exactly one place that builds the candidate list.
+    const lists = main.match(/bundled: resolve\(__dirname/g) ?? [];
+    assert.equal(lists.length, 1, "the candidate list is duplicated again");
+    assert.match(main, /function agentRuntime\(\.\.\.preferred/);
+    assert.match(main, /resolveDaemonRuntime\(configured\?: string\)/);
+    assert.match(main, /resolveHarnessRuntime\(configured\?: string\)/);
+    const throughIt = main.match(/return agentRuntime\(configured/g) ?? [];
+    assert.equal(throughIt.length, 2, "both resolvers must go through agentRuntime()");
+});
+
+test("a missing agent runtime is reported, never spawned as a bare name", () => {
+    /* The old resolvers ended `return { command: "pikvm-agent" }` and handed that
+     * to spawn(). On a machine with no runtime that produced an ENOENT buried in
+     * a log and a panel that never appeared — which is what the packaged RPM did
+     * on every machine but the one it was built on. */
+    assert.doesNotMatch(main, /return \{ command: "pikvm-agent"/);
+    assert.doesNotMatch(main, /return "pikvm-agent";/);
+    // Both services check before starting, and both report through one function.
+    assert.match(main, /if \(!harnessRuntime\.found\)/);
+    assert.match(main, /if \(!daemonRuntime\.found\)/);
+    const reports = main.match(/reportMissingAgentRuntime\(/g) ?? [];
+    assert.equal(reports.length, 3, "one definition plus one call per service");
+    // Losing the agent must not take the rest of the app with it.
+    assert.match(main, /daemon: null/);
+    assert.match(main, /backend\?\.daemon\?\.stop\(\)/);
+    assert.match(main, /backend\?\.harness\?\.stop\(\)/);
 });
 
 test("the operator credential never reaches a renderer", () => {
