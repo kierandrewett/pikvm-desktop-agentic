@@ -91,3 +91,19 @@ test("rpmbuild is stopped from rewriting the bundled runtime", () => {
     assert.match(rpm, /builds\/\.rpm-macros/);
     assert.match(rpm, /process\.env\.HOME = rpmHome/);
 });
+
+test("every build produces a distinct package", () => {
+    /* The release was hardcoded to 1, so every rebuild was
+     * pikvm-desktop-1.14.0-1 regardless of what changed inside it. `dnf install`
+     * compares name-version-release, not contents: it saw the same NEVR, said
+     * the package was already installed, and exited 0 having done nothing. A
+     * rebuild containing a real fix was indistinguishable from a no-op, and that
+     * is exactly how a fixed agent runtime sat on disk uninstalled while every
+     * step reported success. */
+    const rpm = read("scripts/make-rpm.mjs");
+    assert.match(rpm, /revision,/, "the hardcoded release is back");
+    // Monotonic leading segment so rpm orders builds correctly, plus a timestamp
+    // so rebuilding the SAME commit still supersedes what is installed.
+    assert.match(rpm, /rev-list", "--count", "HEAD"/);
+    assert.match(rpm, /\$\{count\}\.\$\{stamp\}\.g\$\{sha\}\$\{dirty\}/);
+});

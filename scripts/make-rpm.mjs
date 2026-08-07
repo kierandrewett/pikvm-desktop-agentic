@@ -2,6 +2,7 @@
 // desktop template (StartupWMClass) — the CLI doesn't expose it. Run after
 // electron-packager has produced builds/pikvm-desktop-linux-x64.
 import installer from "electron-installer-redhat";
+import { execFileSync } from "child_process";
 import { mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
@@ -66,10 +67,46 @@ process.env.HOME = rpmHome;
 // 0x1F = every check-rpaths bit (standard|invalid|...|empty). Inherited by rpmbuild.
 process.env.QA_RPATHS = "0x001F";
 
+/* Every build must be a DIFFERENT package, or fixes do not reach the machine.
+ *
+ * The release was hardcoded to 1, so every rebuild produced
+ * pikvm-desktop-1.14.0-1 no matter what changed inside it. `dnf install
+ * ./that.rpm` against an installed 1.14.0-1 does not compare contents — it sees
+ * the same name-version-release, says the package is already installed, and
+ * exits 0 having done nothing. A rebuilt package with a real fix in it was
+ * therefore indistinguishable from a no-op, and stayed uninstalled while
+ * everything reported success.
+ *
+ * Release is now `<commits>.<timestamp>.g<sha>`, which rpm orders correctly
+ * (leading integer segment compares numerically) and which is unique per build
+ * even when the commit has not moved, because the timestamp always advances.
+ * `.dirty` marks a package built from uncommitted work so an odd one on disk
+ * can be identified later. */
+function buildRelease() {
+    const git = (args) => {
+        try {
+            return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+        } catch {
+            return "";
+        }
+    };
+    const count = git(["rev-list", "--count", "HEAD"]) || "0";
+    const sha = git(["rev-parse", "--short", "HEAD"]) || "nogit";
+    const dirty = git(["status", "--porcelain"]) ? ".dirty" : "";
+    const d = new Date();
+    const p = (n, w = 2) => String(n).padStart(w, "0");
+    const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+    return `${count}.${stamp}.g${sha}${dirty}`;
+}
+
+const revision = buildRelease();
+console.log(`make-rpm: release ${revision}`);
+
 await installer({
     src: resolve(root, "builds/pikvm-desktop-linux-x64/"),
     dest: resolve(root, "builds/rpm/"),
     arch: "x86_64",
+    revision,
     name: "pikvm-desktop",
     productName: "PiKVM Desktop",
     genericName: "Remote Desktop",
