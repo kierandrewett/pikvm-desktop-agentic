@@ -8633,6 +8633,7 @@
         var WORKSPACE_URL = "/_agent/workspace/";
         var workspaceShown = false;
         var workspaceRetryMs = 400;
+        var workspaceWaits = 0;
         /* Not just up/down: WHY it is down decides whether saying so is useful.
          *
          * A harness that has not started yet answers with a network error or a
@@ -8691,6 +8692,7 @@
                     chatFrame.src = WORKSPACE_URL;
                     chatFrame.hidden = false;
                     workspaceRetryMs = 400;
+                    workspaceWaits = 0;
                 } else if (!up && workspaceShown) {
                     /* It went away — a harness restart, or the app respawning it.
                      * Drop the frame so the conversation is not left showing a
@@ -8699,7 +8701,29 @@
                     chatFrame.removeAttribute("src");
                     chatFrame.hidden = true;
                 }
-                var next = workspaceShown ? 5000 : (workspaceRetryMs = Math.min(Math.round(workspaceRetryMs * 1.6), 5000));
+                /* Poll fast until it appears, then slowly.
+                 *
+                 * This used to back off 400ms * 1.6 to a 5s ceiling while
+                 * waiting, so the attempts landed at roughly 0.4, 1.0, 2.1,
+                 * 3.7, 6.3, 10.5, 15.5s. The harness becomes healthy about 8s
+                 * in on a cold start, which falls in the gap between the 6.3s
+                 * and 10.5s attempts — so the panel appeared four seconds after
+                 * it could have, and a slightly slower boot pushed it past 10.5
+                 * into the next gap. Backing off while waiting for a thing you
+                 * KNOW is coming optimises for the case that never happens.
+                 *
+                 * These are local requests to our own proxy, so four a second
+                 * costs nothing. The backoff still exists for the case it was
+                 * written for — a harness that is never coming back — after
+                 * about fifteen seconds of trying. */
+                var next;
+                if (workspaceShown) {
+                    next = 5000;
+                    workspaceRetryMs = 400;
+                } else {
+                    workspaceWaits += 1;
+                    next = workspaceWaits > 60 ? 2000 : 250;
+                }
                 setTimeout(pollWorkspace, next);
             });
         }
