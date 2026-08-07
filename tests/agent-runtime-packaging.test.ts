@@ -65,3 +65,29 @@ test("the build proves the runtime works instead of assuming it", () => {
 test("430MB of build output stays out of git", () => {
     assert.match(agentIgnore, /^runtime\/$/m);
 });
+
+test("rpmbuild is stopped from rewriting the bundled runtime", () => {
+    /* Both of these were found by building a real RPM and running the agent out
+     * of the payload, because both produce a package that builds perfectly and
+     * is broken on the installed machine:
+     *
+     *  - brp-mangle-shebangs rewrote `#!/usr/bin/env python3` to
+     *    `#!/usr/bin/python3` throughout the bundle, repointing it at an
+     *    interpreter that is the user's and need not exist.
+     *  - the strip scripts left python3 dying with "symbol lookup error:
+     *    undefined symbol: , version" on every invocation. */
+    const rpm = read("scripts/make-rpm.mjs");
+    for (const macro of [
+        "__brp_mangle_shebangs",
+        "__brp_strip",
+        "__brp_strip_lto",
+        "__brp_strip_comment_note",
+        "__brp_strip_static_archive",
+    ]) {
+        assert.ok(rpm.includes(`%${macro} %{nil}`), `${macro} is no longer disabled`);
+    }
+    // Scoped to this build. Writing to the real ~/.rpmmacros would be changing
+    // the machine's configuration in order to build one package.
+    assert.match(rpm, /builds\/\.rpm-macros/);
+    assert.match(rpm, /process\.env\.HOME = rpmHome/);
+});
