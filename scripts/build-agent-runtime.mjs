@@ -196,10 +196,42 @@ async function main() {
      * created three lines ago and lives inside the build output, so there is no
      * system to wreck — and a venv here would defeat the point, since its
      * pyvenv.cfg would name a base interpreter outside the bundle. */
-    log("installing the agent and its core dependencies (no vision extra)");
-    run("uv", ["pip", "install", "--python", python, "--system", "--no-cache", agentDir], {
-        stdio: "inherit",
-    });
+    const pip = ["pip", "install", "--python", python, "--system", "--no-cache"];
+
+    /* FROM THE LOCKFILE, in two steps, and this matters more than it looks.
+     *
+     * `uv pip install agent/` re-resolves from pyproject.toml and ignores
+     * uv.lock entirely. The first build of this script did exactly that and
+     * shipped mcp 2.0.0 against a lock pinning 1.28.0, because the constraint
+     * is `mcp[cli]>=1.2` with no ceiling. mcp 2 moved streamablehttp_client, so
+     * the daemon started fine and the harness died on an ImportError the moment
+     * it was asked to serve — which presented as the agent UI simply not
+     * loading, with a healthy daemon sitting next to it.
+     *
+     * So: dependencies come from `uv export --frozen`, which is the resolution
+     * `uv sync` uses, and the agent itself goes in afterwards with --no-deps so
+     * pip cannot quietly re-resolve anything on the way past. The bundled
+     * runtime is now the same dependency set as agent/.venv, by construction.
+     *
+     * --no-dev and no extras: the vision stack is ~1.2GB and the daemon
+     * degrades gracefully without it. */
+    log("exporting the locked dependency set");
+    const requirements = join(runtimeDir, "requirements.lock.txt");
+    run("uv", [
+        "export",
+        "--project", agentDir,
+        "--frozen",
+        "--no-dev",
+        "--no-emit-project",
+        "--no-hashes",
+        "--format", "requirements-txt",
+        "-o", requirements,
+    ]);
+
+    log("installing locked dependencies");
+    run("uv", [...pip, "-r", requirements], { stdio: "inherit" });
+    log("installing the agent itself");
+    run("uv", [...pip, "--no-deps", agentDir], { stdio: "inherit" });
 
     writeLauncher(runtimeDir);
 
@@ -212,6 +244,23 @@ async function main() {
     const where = run(python, ["-c", "import pikvm_agent, sys; print(pikvm_agent.__file__)"], { cwd: "/" }).trim();
     if (!where.startsWith(runtimeDir)) {
         throw new Error(`the runtime imports pikvm_agent from ${where}, outside the bundle`);
+    }
+
+    /* Import what the HARNESS needs, not just the package root.
+     *
+     * The daemon and the harness are the same installation but not the same
+     * import graph, and a runtime built against the wrong dependency versions
+     * starts a perfectly healthy daemon and then dies when the harness is asked
+     * to serve. That is what shipped once: mcp 2.0.0 instead of the locked
+     * 1.28.0, and the only symptom a user sees is the agent UI never appearing.
+     * `pikvm-agent --help` does not touch any of this, so it passed. */
+    for (const module of ["pikvm_agent.harness.assistant", "pikvm_agent.harness.general_tools"]) {
+        try {
+            run(python, ["-c", `import ${module}`], { cwd: "/", stdio: ["ignore", "pipe", "pipe"] });
+        } catch (error) {
+            const detail = String(error.stderr || error.message).trim().split("\n").slice(-3).join(" ");
+            throw new Error(`the harness cannot import ${module} in the built runtime: ${detail}`);
+        }
     }
 
     log(`ok: ${runtimeDir} (${mb(await directorySize(runtimeDir))})`);
