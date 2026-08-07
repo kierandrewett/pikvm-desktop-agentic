@@ -93,6 +93,36 @@
     -webkit-tap-highlight-color: transparent;
 }
 
+/* Nothing is selectable except somewhere you type.
+ *
+ * This is application chrome, not a document. Dragging on a toolbar, the
+ * divider, the KVM screen or a button label used to paint a text selection
+ * across half the UI, which is the single clearest tell that a desktop app is
+ * really a web page. The selection also survived the drag and stayed
+ * highlighted afterwards.
+ *
+ * Scoped to this document deliberately. The conversation panel is a separate
+ * document served by the harness, and its transcript MUST stay selectable —
+ * being unable to copy a reply would be a worse bug than the one this fixes.
+ *
+ * The opt-back-in list is by capability rather than by class, so a new input
+ * anywhere is covered without anyone remembering to add it. `-webkit-` is kept
+ * because Electron's Chromium still honours the prefixed property on some
+ * elements where the unprefixed one alone has been unreliable. */
+* {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"],
+[contenteditable=""] {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
 /* The `hidden` attribute must actually hide.
  *
  * Its UA rule is `[hidden] { display: none }`, which ANY author rule setting a
@@ -310,7 +340,6 @@ body {
     background: var(--card);
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
-    user-select: none;
 }
 .grip {
     height: 15px;
@@ -686,7 +715,6 @@ html.desktop-console .tb-macros.more-before.more-after {
     justify-content: center;
     gap: 5px;
     flex: none;
-    user-select: none;
     touch-action: manipulation;
     transition:
         background 0.12s,
@@ -863,7 +891,6 @@ html.modal-open .screen {
     object-fit: contain;
     display: block;
     transform-origin: 0 0;
-    user-select: none;
     -webkit-user-drag: none;
     background: #000;
 }
@@ -1100,7 +1127,6 @@ html.desktop-console .backend-status {
     font-size: 11px;
     color: var(--muted-foreground);
     cursor: default;
-    user-select: none;
 }
 html.desktop-console .backend-status[data-state="ready"] {
     width: 30px;
@@ -1175,8 +1201,6 @@ html.desktop-console .titlebar {
     padding: 0 4px;
     background: var(--card);
     border-bottom: 1px solid var(--border);
-    user-select: none;
-    -webkit-user-select: none;
     -webkit-app-region: drag;
 }
 /* The two control clusters. Spacing between controls lives here and ONLY here,

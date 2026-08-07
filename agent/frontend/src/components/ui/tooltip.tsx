@@ -43,7 +43,12 @@ function TooltipContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        className="isolate z-50 motion-reduce:data-closed:hidden!"
+        /* pointer-events-none: a tooltip is a label, not a target. Without it
+         * the popup sits over the thing that spawned it and takes the hover
+         * itself, so it can be hovered as if it were interactive and it covers
+         * whatever is underneath. Set on the Positioner so the popup and its
+         * arrow are both excluded. */
+        className="pointer-events-none isolate z-50 motion-reduce:data-closed:hidden!"
       >
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"

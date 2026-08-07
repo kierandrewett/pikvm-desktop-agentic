@@ -545,3 +545,25 @@ test("the macro being edited is marked, not just coloured", () => {
     assert.ok(!/aria-selected/.test(body), "aria-selected promises an arrow-key model this list has not got");
 });
 
+
+test("nothing is selectable except where you type", () => {
+    /* Dragging a toolbar, the divider or the screen used to paint a text
+     * selection across the UI and leave it highlighted afterwards, which is the
+     * clearest tell that a desktop app is really a web page. */
+    const universal = css.match(/\*\s*\{[^}]*user-select:\s*none[^}]*\}/);
+    assert.ok(universal, "no universal user-select: none rule");
+    assert.match(universal![0], /-webkit-user-select:\s*none/);
+
+    // Text fields opt back in, by capability rather than by class name, so a new
+    // input anywhere is covered without anyone remembering to list it.
+    const optIn = css.match(/input,\s*\n\s*textarea,\s*\n\s*select,[^{]*\{[^}]*user-select:\s*text[^}]*\}/);
+    assert.ok(optIn, "text fields are not selectable");
+    for (const sel of ['contenteditable="true"', 'contenteditable=""']) {
+        assert.ok(optIn![0].includes(sel), `${sel} cannot be selected`);
+    }
+
+    /* Declared ONCE. Six per-rule copies were removed when the universal rule
+     * landed; a seventh reappearing means someone is fighting the global. */
+    const nones = css.match(/^\s*user-select:\s*none;/gm) ?? [];
+    assert.equal(nones.length, 1, "user-select: none is declared more than once");
+});
