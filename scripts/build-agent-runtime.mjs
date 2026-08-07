@@ -115,15 +115,14 @@ async function pruneRuntime(dir, short) {
         removed += await directorySize(target);
         rmSync(target, { recursive: true, force: true });
     }
-    // Static libraries and caches, wherever they landed.
+    /* Static libraries only. Bytecode is deliberately NOT pruned any more —
+     * see compileEverything(). Deleting it saved a few megabytes and cost
+     * seconds on every single launch. */
     for await (const file of walk(dir)) {
-        if (file.endsWith(".a") || file.endsWith(".pyc")) {
+        if (file.endsWith(".a")) {
             removed += (await lstat(file)).size;
             rmSync(file, { force: true });
         }
-    }
-    for await (const d of walk(dir, { directories: true })) {
-        if (d.endsWith("__pycache__")) rmSync(d, { recursive: true, force: true });
     }
     return removed;
 }
@@ -159,6 +158,46 @@ async function directorySize(dir) {
         }
     }
     return total;
+}
+
+/**
+ * Compile every .py to .pyc, once, here.
+ *
+ * The runtime installs to /usr/lib and runs as the user, so the tree is
+ * READ-ONLY at runtime. Python's usual trick of writing __pycache__ next to a
+ * module on first import silently fails, which means an uncompiled module is
+ * re-parsed and re-compiled on every single launch, forever. Measured on the
+ * shipped package: importing pikvm_agent.harness.server took 2.8s with 638 of
+ * 4243 files compiled, against 0.95s once the cache was warm. Two processes pay
+ * it, the daemon and the harness, and the harness only starts after the daemon
+ * is healthy — so it lands twice, in series, on the path to the UI appearing.
+ *
+ * An earlier version of this script actively DELETED .pyc files as part of the
+ * prune, which is where the shortfall came from. It saved a few megabytes.
+ *
+ * unchecked-hash, not the default timestamp mode: a timestamp .pyc records the
+ * source's mtime and recompiles when they disagree. Copying the tree into the
+ * package and installing it via rpm does not reliably preserve mtimes, so
+ * timestamp-mode caches would be invalidated by packaging itself and the whole
+ * exercise would be silently undone. Hash-based caches do not care when the file
+ * was written, and `unchecked` skips re-hashing the source on import, which is
+ * right for a tree nothing is allowed to edit in place.
+ */
+function compileEverything(python, dir, short) {
+    // -j 0 uses one worker per core. Failures are not fatal: a handful of
+    // packages ship py2 or intentionally-broken sample files, and compileall
+    // exits non-zero for those while every importable module compiled fine.
+    try {
+        run(python, [
+            "-m", "compileall",
+            "-q",
+            "-j", "0",
+            "--invalidation-mode", "unchecked-hash",
+            join(dir, "lib", `python${short}`),
+        ], { stdio: ["ignore", "pipe", "pipe"] });
+    } catch {
+        /* see above */
+    }
 }
 
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(0)}MB`;
@@ -236,7 +275,10 @@ async function main() {
     writeLauncher(runtimeDir);
 
     const freed = await pruneRuntime(runtimeDir, short);
-    log(`pruned ${mb(freed)} of headers, static libs, tests and caches`);
+    log(`pruned ${mb(freed)} of headers, static libs and tests`);
+
+    log("precompiling bytecode (the installed tree is read-only at runtime)");
+    compileEverything(python, runtimeDir, short);
 
     // Prove it, rather than declaring success because no command threw.
     const help = run(join(runtimeDir, "bin", "pikvm-agent"), ["--help"], { cwd: "/" });
