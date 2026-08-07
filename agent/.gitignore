@@ -11,6 +11,10 @@ dist/
 venv/
 .uv/
 
+# The self-contained runtime built by scripts/build-agent-runtime.mjs. ~430MB of
+# interpreter and wheels, reproducible from uv.lock, and never a source file.
+runtime/
+
 # Runtime state (sessions, frames, sqlite, debug overlays)
 .local/
 *.sqlite3

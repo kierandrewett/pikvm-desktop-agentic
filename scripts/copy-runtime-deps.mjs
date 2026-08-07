@@ -86,3 +86,34 @@ if (!existsSync(uiFrom)) {
 mkdirSync(dirname(uiTo), { recursive: true });
 cpSync(uiFrom, uiTo, { recursive: true, dereference: true });
 console.log("copy-runtime-deps: shipped the conversation panel build into resources/agent/");
+
+/* The self-contained Python runtime.
+ *
+ * Without this the package contained no interpreter, no venv and no pikvm_agent
+ * sources — only the harness_ui bundle above. The installed app therefore had no
+ * agent on any machine except the one it was built on, where a checkout in the
+ * developer's home directory happened to satisfy the last of a list of guesses.
+ * That list is gone (src/agent-runtime.ts), so this copy is now the only way an
+ * installed app gets an agent at all.
+ *
+ * Same __dirname trick as harness_ui: main.ts computes agent/runtime relative to
+ * itself, which is <root>/agent/runtime in the repo and resources/agent/runtime
+ * in the package. dereference:false keeps the interpreter's internal symlinks as
+ * symlinks — python3 -> python3.12 is one of them, and following it turns a
+ * handful of links into a handful of extra copies of the binary.
+ *
+ * Not fatal when missing. `make package` runs `make agent-runtime` first, but a
+ * package built without one should say so plainly rather than fail three steps
+ * later, and the app itself now reports a missing runtime properly. */
+const runtimeFrom = join(root, "agent", "runtime");
+const runtimeTo = join(root, "builds/pikvm-desktop-linux-x64/resources/agent/runtime");
+if (existsSync(runtimeFrom)) {
+    cpSync(runtimeFrom, runtimeTo, { recursive: true, dereference: false, verbatimSymlinks: true });
+    console.log("copy-runtime-deps: shipped the self-contained python runtime into resources/agent/runtime");
+} else {
+    console.warn(
+        "copy-runtime-deps: WARNING no runtime at " +
+            runtimeFrom +
+            " — the packaged app will have NO agent. Build one with `make agent-runtime`.",
+    );
+}
