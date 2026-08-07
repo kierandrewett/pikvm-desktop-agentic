@@ -51,36 +51,33 @@ is in `docs/web-client-migration.md`.
 
 ## Housekeeping still queued
 
-- [ ] **The tree is the source of truth now, but the venv still is not — so
-      this box runs the retired checkout.** `~/dev/pikvm-agent` is no longer
-      used; `agent/` here is the project. Two earlier items lived here — syncing
-      `agent/frontend` to that repo, and deciding how much of the Python project
-      to vendor — and both are answered by that: nothing gets synced outward, and
-      the mirror is complete because it is not a mirror any more.
+- [x] ~~The tree is the source of truth but the venv is not.~~ **Done.**
+      `~/dev/pikvm-agent` is retired and gone from every lookup. There are two
+      places a runtime can be and one override, all in `src/agent-runtime.ts`:
 
-      What is left is the one thing the decision does not settle on its own.
-      `main.ts`'s `agentExecutables()` tries `agent/.venv/bin/pikvm-agent`
-      first and `~/dev/pikvm-agent/.venv/bin/pikvm-agent` second. **Only the
-      second exists**, and it is an editable install — its
-      `_editable_impl_pikvm_agent.pth` reads `/home/kieran/dev/pikvm-agent` —
-      so the daemon on this box imports the retired checkout's source, not
-      `agent/pikvm_agent`.
+          agent/runtime/bin/pikvm-agent   built by `make agent-runtime`, ships
+          agent/.venv/bin/pikvm-agent     built by `uv sync`, development
 
-      That is survivable only by luck: `pikvm_agent` is byte-identical across
-      both, so the Python behaves the same. `harness_ui` is NOT — 658KB across
-      21 chunks in tree against 858KB across 15 there — so the harness UI being
-      served is the old build. The in-tree bundle is current with in-tree
-      source (nothing under `agent/frontend/src` is newer than it); it just is
-      not the one running.
+      Both exist here now and both point at `agent/` in this tree. Nothing falls
+      through to a bare name on `PATH` any more — a missing runtime is reported
+      with the paths tried and the app carries on without an agent.
 
-      The fix is to create `agent/.venv` and install `agent/` into it editable,
-      after which `inRepo` wins and the tree really is what runs. Not done here
-      because it pulls the full dependency set and that is not a change to make
-      inside a docs commit.
+      This also answered the two items that used to sit here, about syncing
+      `agent/frontend` outward and how much of the Python project to vendor.
+      Neither is a question once the standalone checkout is not a thing that
+      runs.
 
-      **Do not drop the standalone fallback from `agentExecutables()` until
-      `agent/.venv` exists.** It looks like dead code now that the checkout is
-      retired, and removing it today would leave this box with no daemon at all.
+## Worth deciding, not urgent
+
+- [ ] **The bundled runtime is 428MB, and 140MB of that is scipy.** It comes in
+      through `imagehash`, which needs scipy and PyWavelets for its perceptual
+      hashes. numpy is another 57MB and is genuinely load-bearing. If the RPM
+      size becomes a problem, `imagehash` is the thread to pull — but check what
+      actually calls it first, because a perceptual hash is the kind of thing
+      the change-detection path leans on.
+- [ ] **`make agent-runtime` needs network on the build machine** — `uv` fetches
+      the CPython tarball and the wheels. Fine for a dev box, worth knowing
+      before this ever runs in CI without a warm `~/.cache/uv`.
 
 - [ ] **Decide the fate of the `PIKVM_NATIVE_UI=1` path.** `main.ts` keeps it
       deliberately ("the legacy composition is kept behind PIKVM_NATIVE_UI=1"),
