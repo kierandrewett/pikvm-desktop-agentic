@@ -126,3 +126,23 @@ test("the harness walks past an orphaned port and its child is told where", () =
     assert.match(cli, /settings = settings\.model_copy\(update=\{"listen": listen\}\)\s*\n\s*try:\s*\n\s*ensure_safe_bind\(settings\)/);
 });
 
+
+test("the control port settles before any URL is built from it", () => {
+    /* The walk lived inside startProxyAndHarness(), which createWindow() awaits
+     * only AFTER it has already built PROXY_ORIGIN from CONTROL_PORT. So when
+     * 25650 was taken and the walk moved to 25652, the window kept loading
+     * http://127.0.0.1:25650/_agent/console and got ERR_CONNECTION_REFUSED
+     * forever - no console at all - while the log said the backend was
+     * listening on 25652. Observed, not theorised. */
+    const settleAt = main.indexOf("await settleControlPort(");
+    const originAt = main.indexOf("const PROXY_ORIGIN = ");
+    assert.ok(settleAt !== -1, "the port is never settled");
+    assert.ok(originAt !== -1, "PROXY_ORIGIN is gone; this test needs rewriting");
+    assert.ok(settleAt < originAt, "PROXY_ORIGIN is built before the port settles");
+
+    // Idempotent, because both createWindow and startProxyAndHarness ask.
+    assert.match(main, /if \(controlPortSettled\) return CONTROL_PORT;/);
+    // And the walk exists in exactly one place.
+    const walks = main.match(/await firstFreePort\(wantedPort/g) ?? [];
+    assert.equal(walks.length, 1, "the port walk is duplicated");
+});

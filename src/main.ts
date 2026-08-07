@@ -300,6 +300,51 @@ async function anotherDesktopOn(port: number, host: string): Promise<boolean> {
     });
 }
 
+/** Whether the control port has already been walked this run. */
+let controlPortSettled = false;
+
+/**
+ * Pick the port the control server will really use, once, before anything
+ * builds a URL out of it.
+ *
+ * This used to live inside startProxyAndHarness(), which is called from
+ * createWindow() AFTER createWindow has already built PROXY_ORIGIN from
+ * CONTROL_PORT. So when 25650 was taken and the walk moved us to 25652, the
+ * window went on loading http://127.0.0.1:25650/_agent/console and got
+ * ERR_CONNECTION_REFUSED forever — the console never appeared at all, while the
+ * log cheerfully said the backend was listening on 25652. The old comment said
+ * this had to settle "before anything reads it" and it was the one thing that
+ * did not.
+ *
+ * Idempotent, so both callers can ask without racing to walk twice: the second
+ * call returns the port the first one settled on.
+ */
+async function settleControlPort(bindHost: string): Promise<number> {
+    if (controlPortSettled) return CONTROL_PORT;
+    controlPortSettled = true;
+    const wantedPort = CONTROL_PORT;
+    CONTROL_PORT = await firstFreePort(wantedPort, bindHost);
+    if (CONTROL_PORT === wantedPort) return CONTROL_PORT;
+    console.log(`[control] ${wantedPort} is in use, serving on ${CONTROL_PORT} instead`);
+    /* Walking the port is not the interesting part. Being the SECOND COPY is.
+     *
+     * The single-instance lock cannot help against a copy that predates it —
+     * it shipped in 1.12.4, so a 1.12.3 still running holds no lock, and a
+     * new install starts happily alongside it. That happened: two windows,
+     * visually identical, one serving the agent panel and one returning 401
+     * from a harness orphaned hours earlier. The app knew (it had to walk
+     * the port to start at all) and said nothing, so the only way to tell
+     * them apart was to go looking at process start times.
+     *
+     * Only when the port answers as one of US. An orphaned daemon or an
+     * unrelated program holding it is worth a log line and nothing more. */
+    if (await anotherDesktopOn(wantedPort, bindHost)) {
+        secondInstanceNotice = { wanted: wantedPort, using: CONTROL_PORT };
+        console.log(`[control] ${wantedPort} is answering as another PiKVM Desktop — this is a second copy`);
+    }
+    return CONTROL_PORT;
+}
+
 async function startProxyAndHarness(
     origin: string,
     settings: SettingsStore,
@@ -332,30 +377,7 @@ async function startProxyAndHarness(
     // phone with a dev build, without flipping the setting the installed app shares).
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
 
-    // Settle the port before anything builds a URL out of it: the terminal
-    // sessions, the workspace origin and the desktop proxy origin all read
-    // CONTROL_PORT, and all of them are constructed below.
-    const wantedPort = CONTROL_PORT;
-    CONTROL_PORT = await firstFreePort(wantedPort, bindHost);
-    if (CONTROL_PORT !== wantedPort) {
-        console.log(`[control] ${wantedPort} is in use, serving on ${CONTROL_PORT} instead`);
-        /* Walking the port is not the interesting part. Being the SECOND COPY is.
-         *
-         * The single-instance lock cannot help against a copy that predates it —
-         * it shipped in 1.12.4, so a 1.12.3 still running holds no lock, and a
-         * new install starts happily alongside it. That happened: two windows,
-         * visually identical, one serving the agent panel and one returning 401
-         * from a harness orphaned hours earlier. The app knew (it had to walk
-         * the port to start at all) and said nothing, so the only way to tell
-         * them apart was to go looking at process start times.
-         *
-         * Only when the port answers as one of US. An orphaned daemon or an
-         * unrelated program holding it is worth a log line and nothing more. */
-        if (await anotherDesktopOn(wantedPort, bindHost)) {
-            secondInstanceNotice = { wanted: wantedPort, using: CONTROL_PORT };
-            console.log(`[control] ${wantedPort} is answering as another PiKVM Desktop — this is a second copy`);
-        }
-    }
+    await settleControlPort(bindHost);
 
     // Keep the optional browser/mobile shell service available for compatibility.
     // The desktop app does not create or render a terminal WebContentsView.
@@ -982,6 +1004,10 @@ async function createWindow() {
     // so the desktop shares the web client's rendering path. Off by default; needs
     // a restart to change. `viewOrigin()` is a live function so a runtime origin
     // change still applies in the default (non-proxy) mode.
+    /* Settle the port FIRST. Everything below is built from it, and until this
+     * moved here the window built its origin from the port we hoped for rather
+     * than the one we got. */
+    await settleControlPort(process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1");
     const PROXY_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
     const desktopProxy = settings.get().desktopUseProxy;
     // The console can be served from ANYWHERE — set it in Settings → Connection (or
