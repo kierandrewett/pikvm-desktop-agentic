@@ -49,6 +49,10 @@ app.add_typer(cua_app, name="cua")
 @app.callback()
 def _root() -> None:
     """PiKVM Agent — keep subcommands named even before more are added."""
+    # Services started by the desktop exit with it, even after a crash.
+    from pikvm_agent.parent_watch import start_from_environment
+
+    start_from_environment()
 
 
 @app.command()
