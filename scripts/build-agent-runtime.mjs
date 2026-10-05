@@ -252,8 +252,11 @@ async function main() {
      * pip cannot quietly re-resolve anything on the way past. The bundled
      * runtime is now the same dependency set as agent/.venv, by construction.
      *
-     * --no-dev and no extras: the vision stack is ~1.2GB and the daemon
-     * degrades gracefully without it. */
+     * --no-dev, and only the `cua` extra: the vision stack is ~1.2GB and the
+     * daemon degrades gracefully without it, but `pikvm-agent gui-mcp` (the
+     * terminal panel's MCP server, agent/docs/CUA.md) cannot start without
+     * cua-agent. torch stays out: pikvm_agent/cua/qwen_shim.py covers the one
+     * function cua wanted it for. */
     log("exporting the locked dependency set");
     const requirements = join(runtimeDir, "requirements.lock.txt");
     run("uv", [
@@ -261,6 +264,7 @@ async function main() {
         "--project", agentDir,
         "--frozen",
         "--no-dev",
+        "--extra", "cua",
         "--no-emit-project",
         "--no-hashes",
         "--format", "requirements-txt",
