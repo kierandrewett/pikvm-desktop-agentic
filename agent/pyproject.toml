@@ -57,7 +57,10 @@ browser = [
 # custom computer. Optional so the daemon still installs without LiteLLM.
 #   uv pip install -e '.[cua]'
 cua = [
-  "cua-agent>=0.9,<0.10",
+  "cua-agent[qwen]>=0.9,<0.10",
+  # qwen-agent imports these at load time but does not declare them.
+  "soundfile>=0.12",
+  "python-dateutil>=2.8",
 ]
 dev = [
   "pytest>=8",
