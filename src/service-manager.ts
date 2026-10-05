@@ -119,7 +119,10 @@ export class ManagedService {
         try {
             child = spawn(command, args, {
                 cwd,
-                env: { ...process.env, ...env },
+                /* PIKVM_AGENT_PARENT_PID: the service (and anything it starts)
+                 * exits when this process dies, so a crash or kill -9 of the app
+                 * cannot leave it holding the sockets. See parent_watch.py. */
+                env: { ...process.env, ...env, PIKVM_AGENT_PARENT_PID: String(process.pid) },
                 stdio: ["ignore", "pipe", "pipe"],
             });
         } catch (err) {

@@ -196,3 +196,29 @@ test("a service that dies instantly is given up on", async () => {
         service.stop();
     }
 });
+
+test("a started service is told the app's pid so it can exit with the app", async () => {
+    // parent_watch.py reads this; without it a crashed app leaves the service
+    // holding the sockets and every later app gets 401 from it.
+    const logs: string[] = [];
+    let resolveSeen!: () => void;
+    const seen = new Promise<void>((resolve) => (resolveSeen = resolve));
+    const service = new ManagedService({
+        name: "probe",
+        origin: "unix:/nonexistent/pikvm-test.sock",
+        healthPath: "/healthz",
+        command: process.execPath,
+        args: ["-e", "console.log('parent=' + process.env.PIKVM_AGENT_PARENT_PID); setTimeout(() => {}, 5000)"],
+        log: (line) => {
+            logs.push(line);
+            if (line.startsWith("[probe] parent=")) resolveSeen();
+        },
+    });
+    try {
+        assert.equal(await service.start(), "started");
+        await Promise.race([seen, new Promise((resolve) => setTimeout(resolve, 5000))]);
+        assert.match(logs.join("\n"), new RegExp(`parent=${process.pid}\\b`));
+    } finally {
+        service.stop();
+    }
+});
