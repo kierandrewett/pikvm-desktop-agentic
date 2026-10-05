@@ -552,15 +552,6 @@
                      conversation view over, so console.js hides it from assistive tech
                      there. Named for what it holds, which was never the chat. -->
                 <iframe id="chat-frame" title="Terminal"></iframe>
-                <!-- Why the agent panel is not here.
-                     The poll below can tell "not started yet" (retry, say
-                     nothing) from "running but refusing us" (a stale harness
-                     from a previous run owns the port and our token is not its
-                     token). The second never fixes itself, so it gets said. -->
-                <div class="ws-note" id="ws-note" role="status" aria-live="polite" hidden>
-                    <p class="ws-note-title" id="ws-note-title"></p>
-                    <p class="ws-note-body" id="ws-note-body"></p>
-                </div>
             </div>
 
             <!-- The Pi's own web UI, FRAMED under our titlebar rather than

@@ -8583,167 +8583,21 @@
     // on web/mobile the legacy embedded workspace remains available.
     var EMBED_PARAM = window.desktopConsole ? "desktop" : "1";
     if (window.desktopConsole && window.desktopConsole.reportWorkspaceRect) {
-        // DESKTOP: the first-party harness is a native WebContentsView floated over
-        // this panel. Report only the content bounds; there is no secondary terminal
-        // workspace or mode switch.
-        /* The conversation is served from OUR origin at /_agent/workspace/, so it
-         * renders here, in the page, laid out by the same grid as everything else.
+        /* DESKTOP: the panel is the shared terminal, the same page web and
+         * mobile load below. Kieran chose this on 2026-10-05 so any agent
+         * harness (Claude Code, Codex, OpenCode, ...) runs in it, and only its
+         * shells get the token for the GUI-only `pikvm` MCP server
+         * (src/gui-mcp.ts, agent/docs/CUA.md).
          *
-         * It used to be a native WebContentsView floated over this frame, which
-         * meant the frame existed only to be measured: its rect was reported to
-         * main on a resize listener, a ResizeObserver AND a one-second interval,
-         * because a native view pinned over a page has no way to follow the
-         * layout on its own. None of that is needed once the thing is IN the
-         * layout — it moves because the grid moved.
-         *
-         * Same origin, so no CORS and no separate session: the API comes back
-         * through /_agent/harness/*, where the proxy attaches the operator
-         * credential server-side and it never reaches any renderer. */
-        chatFrame.title = "Conversation";
+         * It replaced the first-party chat workspace that was framed here.
+         * That page could not load when a harness left over from an earlier
+         * run held the socket (401, "The agent panel could not start"). The
+         * terminal is served by this app's own process, so it has no such
+         * dependency and needs no wait-and-retry before it is shown. */
+        chatFrame.title = "Terminal";
         chatFrame.removeAttribute("aria-hidden");
-        /* And hidden until it has something to show.
-         *
-         * A frame with no src is not an empty frame — it is about:blank, and
-         * that document paints its own opaque WHITE base over whatever the
-         * element's background says. #chat-frame is already set to
-         * var(--background) for exactly this reason and it never had a chance:
-         * measured with the daemon stopped, the conversation pane was a 600px
-         * white slab down the right of a black window, and it stayed that way
-         * until the daemon came back.
-         *
-         * The frame starts srcless and is emptied again every time the harness
-         * goes away, so the white showed on a cold start as well as on a drop.
-         * Hiding it lets .chat's own --background through, which is the colour
-         * the pane is supposed to be; the titlebar pill already says why there
-         * is nothing in it. [hidden] is !important in this sheet, so this holds
-         * against #chat-frame's own display:block. */
-        chatFrame.hidden = true;
-
-        /* The harness is a separate process this app spawns, and it is not
-         * listening the instant the window opens — the proxy answers 502 until
-         * it is. Pointing the frame at the workspace straight away therefore put
-         * a token prompt over a Bad Gateway, and nothing retried, so it sat
-         * there long after the harness came up.
-         *
-         * The native view this replaces had exactly this machinery
-         * (HarnessViewLifecycle: beginLoad / failed / scheduleRetry / loaded).
-         * Moving the conversation into the page does not make the race go away,
-         * so the retry has to move with it. Ask first, load once the answer is
-         * real, and never let the frame see the error page at all. */
-        var WORKSPACE_URL = "/_agent/workspace/";
-        var workspaceShown = false;
-        var workspaceRetryMs = 400;
-        var workspaceWaits = 0;
-        /* Not just up/down: WHY it is down decides whether saying so is useful.
-         *
-         * A harness that has not started yet answers with a network error or a
-         * 502 from the proxy, and the right response is to wait quietly — it
-         * arrives a second later on a normal boot. A harness that is running but
-         * rejects our credential answers 401/403, and that never fixes itself:
-         * it means a harness from a PREVIOUS run of this app still owns the port,
-         * so the token we sign with is not the token it was started with. The app
-         * refuses to adopt it (credential-blind adoption is exactly what it must
-         * not do) and cannot spawn its own on a taken port.
-         *
-         * Measured on a real occurrence — an app started at 14:30 against a
-         * harness left over from 20:33 the night before:
-         *
-         *     GET /_agent/harness/api/runs?limit=1
-         *     401 {"detail":"valid harness bearer token required"}
-         *
-         * main.ts knows all of this and its own comment says it is "worth
-         * reporting, because the console can only say 'not yet' while this knows
-         * the harness never started at all" — and then console.error()s it. So
-         * the panel simply never appeared, with nothing anywhere on screen, and
-         * everything else about the app working perfectly. */
-        function harnessAnswering() {
-            return fetch("/_agent/harness/api/runs?limit=1", {
-                headers: { "X-PiKVM-Workspace": "1" },
-                cache: "no-store",
-            })
-                .then(function (r) {
-                    return { up: r.ok, status: r.status };
-                })
-                .catch(function () {
-                    return { up: false, status: 0 }; // never answered at all
-                });
-        }
-        var wsNote = document.getElementById("ws-note");
-        function paintWorkspaceNote(status) {
-            if (!wsNote) return;
-            // Only the refusals. Anything else is "not yet", which is normal on
-            // a cold boot and says nothing worth interrupting for.
-            var refused = status === 401 || status === 403;
-            setProp(wsNote, "hidden", !refused);
-            if (!refused) return;
-            setText(document.getElementById("ws-note-title"), "The agent panel could not start");
-            setText(
-                document.getElementById("ws-note-body"),
-                "Another copy of PiKVM Desktop is still running, or one left its agent service behind. " +
-                    "Quit any other copy, then quit and start this one again.",
-            );
-        }
-        function pollWorkspace() {
-            harnessAnswering().then(function (res) {
-                var up = res.up;
-                paintWorkspaceNote(res.status);
-                if (up && !workspaceShown) {
-                    workspaceShown = true;
-                    chatFrame.src = WORKSPACE_URL;
-                    chatFrame.hidden = false;
-                    workspaceRetryMs = 400;
-                    workspaceWaits = 0;
-                } else if (!up && workspaceShown) {
-                    /* It went away — a harness restart, or the app respawning it.
-                     * Drop the frame so the conversation is not left showing a
-                     * dead session, and let the poll bring it back. */
-                    workspaceShown = false;
-                    chatFrame.removeAttribute("src");
-                    chatFrame.hidden = true;
-                }
-                /* Poll fast until it appears, then slowly.
-                 *
-                 * This used to back off 400ms * 1.6 to a 5s ceiling while
-                 * waiting, so the attempts landed at roughly 0.4, 1.0, 2.1,
-                 * 3.7, 6.3, 10.5, 15.5s. The harness becomes healthy about 8s
-                 * in on a cold start, which falls in the gap between the 6.3s
-                 * and 10.5s attempts — so the panel appeared four seconds after
-                 * it could have, and a slightly slower boot pushed it past 10.5
-                 * into the next gap. Backing off while waiting for a thing you
-                 * KNOW is coming optimises for the case that never happens.
-                 *
-                 * These are local requests to our own proxy, so four a second
-                 * costs nothing. The backoff still exists for the case it was
-                 * written for — a harness that is never coming back — after
-                 * about fifteen seconds of trying. */
-                var next;
-                if (workspaceShown) {
-                    next = 5000;
-                    workspaceRetryMs = 400;
-                } else {
-                    workspaceWaits += 1;
-                    next = workspaceWaits > 60 ? 2000 : 250;
-                }
-                setTimeout(pollWorkspace, next);
-            });
-        }
-        pollWorkspace();
-
-        /* Dev convenience: main watches the workspace build directory and tells
-         * us when a rebuild lands, so the frame picks it up without restarting
-         * the app. It used to reload the native view directly, which after the
-         * move would have refreshed the copy nobody looks at. */
-        if (window.desktopConsole.onWorkspaceReload) {
-            window.desktopConsole.onWorkspaceReload(function () {
-                if (workspaceShown && chatFrame.contentWindow) {
-                    try {
-                        chatFrame.contentWindow.location.reload();
-                    } catch (e) {
-                        chatFrame.src = WORKSPACE_URL;
-                    }
-                }
-            });
-        }
+        chatFrame.src = "/_agent/terminal.html";
+        chatFrame.hidden = false;
 
         // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
         // colour the titlebar dot. Tooltip enumerates each dependency the daemon needs.

@@ -1046,38 +1046,6 @@ html.modal-open .screen {
     overflow: hidden;
     background: var(--background);
 }
-/* Shown in the panel's place when the agent workspace cannot start. Same box
-   as the frame it stands in for, so nothing moves when one replaces the other. */
-.ws-note {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 24px;
-    text-align: center;
-    background: var(--background);
-    color: var(--muted-foreground);
-    font-size: 13px;
-    line-height: 1.55;
-}
-.ws-note[hidden] {
-    display: none;
-}
-.ws-note-title {
-    margin: 0;
-    color: var(--foreground);
-    font-size: 14px;
-    font-weight: 600;
-}
-.ws-note-body {
-    margin: 0;
-    max-width: 42ch;
-}
-
 #chat-frame {
     position: absolute;
     inset: 0;

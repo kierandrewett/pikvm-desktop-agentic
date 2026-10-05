@@ -141,6 +141,12 @@ function workspaceUrl(): string {
     return `http://127.0.0.1:${CONTROL_PORT}${WORKSPACE_PREFIX}/`;
 }
 
+/** The shared terminal the agent panel shows (console.js), for the detached
+ *  window too, so detaching never swaps what the panel holds. */
+function terminalUrl(): string {
+    return `http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`;
+}
+
 /** Where the pikvm-agent runtime might be, best candidate first.
  *
  *  Both paths are computed from __dirname the same way, so development and the
@@ -1161,7 +1167,7 @@ async function createWindow() {
             height: 900,
             minWidth: 480,
             minHeight: 400,
-            title: "PiKVM — Conversation",
+            title: "PiKVM — Terminal",
             backgroundColor: "#0a0a0c",
             autoHideMenuBar: true,
             webPreferences: {
@@ -1181,7 +1187,7 @@ async function createWindow() {
          * this window after load, which needed a reload to take; the workspace
          * bundle now carries it in host-config.js, so it is already set when the
          * app first looks. */
-        void agentWin.loadURL(workspaceUrl());
+        void agentWin.loadURL(terminalUrl());
         // Same navigation policy as the embedded harness view: keep the harness
         // origin in-window, kick everything else out to the system browser.
         agentWin.webContents.setWindowOpenHandler(({ url }) => {
@@ -1189,7 +1195,7 @@ async function createWindow() {
             return { action: "deny" };
         });
         agentWin.webContents.on("will-navigate", (ev, url) => {
-            if (url.startsWith(workspaceUrl())) return;
+            if (url.startsWith(terminalUrl())) return;
             ev.preventDefault();
             openUrlExternally(url);
         });

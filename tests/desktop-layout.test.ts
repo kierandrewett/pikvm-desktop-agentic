@@ -312,9 +312,9 @@ test("the operator credential never reaches a renderer", () => {
     assert.doesNotMatch(main, /withHarnessAuthorization/);
     assert.doesNotMatch(main, /seedHarnessAuth/);
     assert.doesNotMatch(main, /agentView/);
-    // One URL for both, on our origin.
-    assert.match(main, /function workspaceUrl\(\)/);
-    assert.match(main, /agentWin\.loadURL\(workspaceUrl\(\)\)/);
+    // The detached window shows the same terminal as the panel, on our origin.
+    assert.match(main, /function terminalUrl\(\)/);
+    assert.match(main, /agentWin\.loadURL\(terminalUrl\(\)\)/);
     // And the proxy that carries the capability is still wired with both halves.
     assert.match(main, /harnessOrigin,\n\s+harnessToken: harness\.accessToken,/);
 });
@@ -977,10 +977,11 @@ test("the conversation pane is never a white slab waiting for the daemon", () =>
        that way until the daemon came back. The frame starts srcless and is
        emptied again on every harness drop, so it showed on a cold start too. */
     assert.match(css, /html\.desktop-console #chat-frame \{\s*background: var\(--background\);/);
-    // Hidden until it has something to show, and on every drop after that.
-    assert.match(js, /chatFrame\.removeAttribute\("aria-hidden"\);[\s\S]{0,1400}?chatFrame\.hidden = true;/);
-    assert.match(js, /chatFrame\.src = WORKSPACE_URL;\s*chatFrame\.hidden = false;/);
-    assert.match(js, /chatFrame\.removeAttribute\("src"\);\s*chatFrame\.hidden = true;/);
+    /* Since 2026-10-05 the desktop panel is the terminal, served by this app's
+       own process, so it gets its src BEFORE it is shown and is never srcless:
+       there is no harness to wait for and no drop to empty it on. */
+    assert.match(js, /chatFrame\.src = "\/_agent\/terminal\.html";\s*chatFrame\.hidden = false;/);
+    assert.doesNotMatch(js, /WORKSPACE_URL/);
     /* And it only hides because this sheet forces the attribute to win.
        #chat-frame sets display:block, which beats the UA's [hidden] rule on
        its own — the same trap that once left the MSD progress bar permanently
@@ -2241,22 +2242,17 @@ test("the modal focus trap ignores disabled controls", () => {
  * refusing us, which never fixes itself. Measured after: note shown filling the
  * panel box at 401, and silent on an unreachable harness.
  */
-test("a harness that refuses our token says so where the panel would be", () => {
-    // The probe reports the status, not just a boolean.
-    assert.match(js, /return \{ up: r\.ok, status: r\.status \};/);
-    assert.match(js, /return \{ up: false, status: 0 \}; \/\/ never answered at all/);
-    // Only the refusals speak. "Not yet" stays quiet.
-    assert.match(js, /var refused = status === 401 \|\| status === 403;/);
-    assert.match(js, /setProp\(wsNote, "hidden", !refused\);/);
-    assert.match(js, /if \(!refused\) return;/);
-    // Named for what the user can do about it, not for the HTTP code.
-    assert.match(js, /"The agent panel could not start"/);
-    assert.match(js, /Quit any other copy, then quit and start this one again\./);
-    // Painted on every poll, so it clears itself the moment the harness is fixed.
-    assert.match(js, /harnessAnswering\(\)\.then\(function \(res\) \{\s*\n\s*var up = res\.up;\s*\n\s*paintWorkspaceNote\(res\.status\);/);
-    // Stands in the frame's own box, so nothing shifts when one replaces the other.
-    assert.match(css, /\.ws-note \{\s*\n\s*position: absolute;\s*\n\s*inset: 0;/);
-    assert.match(html, /<div class="ws-note" id="ws-note" role="status" aria-live="polite" hidden>/);
+test("the desktop panel does not wait on the harness", () => {
+    /* It used to frame the first-party chat workspace, which needed the
+       harness. A harness left over from an earlier run held the socket and
+       refused this run's token, so the panel showed "The agent panel could not
+       start" (seen 2026-10-05, from an orphan of 2026-09-21). Since then the
+       panel is the terminal, served by this app's own process, so there is
+       nothing to poll and no refusal to report. */
+    assert.doesNotMatch(js, /harnessAnswering/);
+    assert.doesNotMatch(js, /ws-note/);
+    assert.doesNotMatch(html, /ws-note/);
+    assert.doesNotMatch(css, /\.ws-note/);
 });
 
 /**
