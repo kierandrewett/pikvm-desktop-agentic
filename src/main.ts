@@ -352,7 +352,7 @@ async function settleControlPort(bindHost: string): Promise<number> {
     return CONTROL_PORT;
 }
 
-/** The GUI-only MCP ticket for this run; its token goes to terminal shells only. */
+/** This run's ticket for the `pikvm` MCP server (src/gui-mcp.ts). */
 let guiMcp: GuiMcp | null = null;
 
 async function startProxyAndHarness(
@@ -408,13 +408,17 @@ async function startProxyAndHarness(
         ".bmp": "image/bmp",
         ".svg": "image/svg+xml",
     };
-    /* `pikvm-agent gui-mcp` (agent/docs/CUA.md) only runs from these shells.
-     * A failure here costs that one feature, never the terminal or the KVM. */
+    /* The `pikvm` MCP server (agent/docs/CUA.md) has tools only for a harness
+     * started in these shells. A failure here costs that one feature, never
+     * the terminal or the KVM. */
     try {
         guiMcp = prepareGuiMcp({
             directory: resolve(settings.dir(), "gui-mcp"),
             agentCommand: harnessRuntime.found ? harnessRuntime.command : null,
         });
+        if (guiMcp.serverCommand) {
+            console.log(`[gui-mcp] register this as the pikvm MCP server: ${guiMcp.serverCommand}`);
+        }
     } catch (error) {
         console.error(`[gui-mcp] could not prepare the terminal MCP ticket: ${String(error)}`);
     }
@@ -422,7 +426,6 @@ async function startProxyAndHarness(
         vaultPath,
         port: CONTROL_PORT,
         prepareAgent: () => {},
-        extraEnv: () => guiMcp?.env ?? {},
         extraPath: () => guiMcp?.path ?? [],
         resolveImage: (path) => {
             try {

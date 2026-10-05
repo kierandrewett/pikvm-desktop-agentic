@@ -35,9 +35,7 @@ export interface TerminalSessionsDeps {
     /** Open a path / URL on the HOST (the machine running the server). */
     openPath?: (path: string) => void;
     openExternal?: (url: string) => void;
-    /** Extra environment for every new shell (the GUI-only MCP token; see gui-mcp.ts). */
-    extraEnv?: () => Record<string, string>;
-    /** Directories put in front of PATH in every new shell. */
+    /** Directories put in front of PATH in every new shell (gui-mcp.ts wrappers). */
     extraPath?: () => string[];
 }
 
@@ -146,7 +144,6 @@ export class TerminalSessions {
             cols: this.cols,
             rows: this.rows,
             env: {
-                ...(this.deps.extraEnv?.() ?? {}),
                 PATH: [...(this.deps.extraPath?.() ?? []), localBin, originalPath].join(delimiter),
                 PIKVM_ORIGINAL_PATH: originalPath,
                 PIKVM_WORKSPACE: cwd,

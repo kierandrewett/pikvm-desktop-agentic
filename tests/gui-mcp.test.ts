@@ -1,40 +1,45 @@
-/* The desktop's half of the GUI-only pikvm MCP server.
+/* The desktop's half of the `pikvm` MCP server.
  *
  * Failure modes, written before the code:
  * 1. The ticket or its directory can be read by other users.
- * 2. The ticket stores the token itself instead of its hash.
- * 3. A ticket left by an earlier run is not replaced.
- * 4. Quitting removes a ticket a newer desktop run already replaced.
- * 5. A runtime path with spaces or quotes breaks the wrapper
- *    ("PiKVM Desktop" is in the default settings path).
- * 6. The wrapper drops or reorders arguments.
- * 7. No runtime found: no wrapper, but nothing throws.
+ * 2. A ticket left by an earlier run is not replaced.
+ * 3. Quitting removes a ticket a newer desktop run already replaced.
+ * 4. A runtime path with spaces or quotes breaks a wrapper ("PiKVM Desktop"
+ *    is in the default settings path).
+ * 5. The agent wrapper drops or reorders arguments.
+ * 6. The server wrapper does not pass the ticket, so the server has no tools.
+ * 7. No runtime found: no wrappers, but nothing throws.
  * 8. TypeScript and Python disagree on the ticket format (checked by running
- *    the real gui_gate.verify against a ticket written here).
+ *    the real gui_gate.verify against a ticket written here, from a process
+ *    whose ancestor this test is, and from one whose ancestor it is not).
  */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { prepareGuiMcp, TICKET_ENV, TOKEN_ENV } from "../src/gui-mcp";
+import { prepareGuiMcp, SERVER_WRAPPER } from "../src/gui-mcp";
 
 function scratch(): string {
     return mkdtempSync(join(tmpdir(), "pikvm gui'mcp "));
 }
 
-test("ticket is owner-only and holds the token's hash, not the token", () => {
+function fakeAgent(dir: string): string {
+    const target = join(dir, "real agent's bin");
+    writeFileSync(target, '#!/bin/sh\nfor a in "$@"; do printf "[%s]" "$a"; done\n');
+    chmodSync(target, 0o700);
+    return target;
+}
+
+test("ticket is owner-only and names this desktop", () => {
     const dir = join(scratch(), "gui-mcp");
     try {
-        const gui = prepareGuiMcp({ directory: dir, agentCommand: null, pid: 4242 });
-        const ticketPath = gui.env[TICKET_ENV]!;
+        prepareGuiMcp({ directory: dir, agentCommand: null, pid: 4242 });
+        const ticket = join(dir, "gui-mcp.json");
         assert.equal(statSync(dir).mode & 0o077, 0);
-        assert.equal(statSync(ticketPath).mode & 0o777, 0o600);
-        const text = readFileSync(ticketPath, "utf8");
-        assert.ok(!text.includes(gui.env[TOKEN_ENV]!));
-        assert.equal(JSON.parse(text).desktop_pid, 4242);
-        assert.match(gui.env[TOKEN_ENV]!, /^[0-9a-f]{64}$/);
+        assert.equal(statSync(ticket).mode & 0o777, 0o600);
+        assert.deepEqual(JSON.parse(readFileSync(ticket, "utf8")), { schema_version: 2, desktop_pid: 4242 });
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -42,68 +47,79 @@ test("ticket is owner-only and holds the token's hash, not the token", () => {
 
 test("a new run replaces an old ticket, and the old run's quit leaves it alone", () => {
     const dir = scratch();
+    const ticket = join(dir, "gui-mcp.json");
     try {
         const old = prepareGuiMcp({ directory: dir, agentCommand: null, pid: 1111 });
         const fresh = prepareGuiMcp({ directory: dir, agentCommand: null, pid: 2222 });
-        assert.equal(JSON.parse(readFileSync(fresh.env[TICKET_ENV]!, "utf8")).desktop_pid, 2222);
+        assert.equal(JSON.parse(readFileSync(ticket, "utf8")).desktop_pid, 2222);
         old.dispose();
-        assert.ok(existsSync(fresh.env[TICKET_ENV]!));
+        assert.ok(existsSync(ticket));
         fresh.dispose();
-        assert.ok(!existsSync(fresh.env[TICKET_ENV]!));
+        assert.ok(!existsSync(ticket));
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("the wrapper runs the real command with every argument intact", () => {
+test("the wrappers run the real command with every argument intact", () => {
     const dir = scratch();
     try {
-        const target = join(dir, "real agent's bin");
-        writeFileSync(target, '#!/bin/sh\nfor a in "$@"; do printf "[%s]" "$a"; done\n');
-        chmodSync(target, 0o700);
-        const gui = prepareGuiMcp({ directory: join(dir, "gui-mcp"), agentCommand: target });
+        const gui = prepareGuiMcp({ directory: join(dir, "gui-mcp"), agentCommand: fakeAgent(dir) });
         assert.equal(gui.path.length, 1);
-        const wrapper = join(gui.path[0]!, "pikvm-agent");
-        const out = spawnSync(wrapper, ["gui-mcp", "two words", "it's"], { encoding: "utf8" });
-        assert.equal(out.status, 0, out.stderr);
-        assert.equal(out.stdout, "[gui-mcp][two words][it's]");
+        const agent = spawnSync(join(gui.path[0]!, "pikvm-agent"), ["cua", "two words", "it's"], {
+            encoding: "utf8",
+        });
+        assert.equal(agent.status, 0, agent.stderr);
+        assert.equal(agent.stdout, "[cua][two words][it's]");
+
+        assert.equal(gui.serverCommand, join(gui.path[0]!, SERVER_WRAPPER));
+        const server = spawnSync(gui.serverCommand!, [], { encoding: "utf8" });
+        assert.equal(server.status, 0, server.stderr);
+        assert.equal(server.stdout, `[gui-mcp][--ticket][${join(dir, "gui-mcp", "gui-mcp.json")}]`);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 });
 
-test("no runtime means no wrapper and no error", () => {
+test("no runtime means no wrappers and no error", () => {
     const dir = scratch();
     try {
-        assert.deepEqual(prepareGuiMcp({ directory: dir, agentCommand: null }).path, []);
+        const gui = prepareGuiMcp({ directory: dir, agentCommand: null });
+        assert.deepEqual(gui.path, []);
+        assert.equal(gui.serverCommand, null);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
 });
 
 // scripts/test.mjs runs the bundled tests with the repository root as cwd.
-const realPython = resolve(process.cwd(), "agent", ".venv", "bin", "python");
+const agentPython = resolve(process.cwd(), "agent", ".venv", "bin", "python");
 
 test(
-    "Python's gui_gate accepts this ticket and token, and refuses a wrong token",
-    { skip: !existsSync(realPython) && "agent/.venv is not set up" },
-    () => {
+    "Python's gui_gate accepts this desktop as an ancestor, and refuses another process",
+    { skip: !existsSync(agentPython) && "agent/.venv is not set up" },
+    async () => {
         const dir = scratch();
+        const stranger = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"]);
         try {
-            const gui = prepareGuiMcp({ directory: dir, agentCommand: null });
-            const check = "from pikvm_agent.cua import gui_gate; gui_gate.verify(); print('ok')";
-            const ok = spawnSync(realPython, ["-c", check], {
-                encoding: "utf8",
-                env: { ...process.env, ...gui.env },
-            });
+            const check = (ticketDir: string) =>
+                spawnSync(
+                    agentPython,
+                    ["-c", "import sys; from pikvm_agent.cua import gui_gate; gui_gate.verify(sys.argv[1]); print('ok')",
+                        join(ticketDir, "gui-mcp.json")],
+                    { encoding: "utf8" },
+                );
+            // This test process is the python child's parent, so it is an ancestor.
+            prepareGuiMcp({ directory: join(dir, "mine"), agentCommand: null });
+            const ok = check(join(dir, "mine"));
             assert.equal(ok.stdout.trim(), "ok", ok.stderr);
-            const wrong = spawnSync(realPython, ["-c", check], {
-                encoding: "utf8",
-                env: { ...process.env, ...gui.env, [TOKEN_ENV]: "0".repeat(64) },
-            });
-            assert.notEqual(wrong.status, 0);
-            assert.match(wrong.stderr, /another PiKVM Desktop run/);
+
+            prepareGuiMcp({ directory: join(dir, "theirs"), agentCommand: null, pid: stranger.pid! });
+            const refused = check(join(dir, "theirs"));
+            assert.notEqual(refused.status, 0);
+            assert.match(refused.stderr, /sidebar/);
         } finally {
+            stranger.kill();
             rmSync(dir, { recursive: true, force: true });
         }
     },
