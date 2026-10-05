@@ -471,6 +471,10 @@ class PiKVMBackend:
         await _sleep(timing.click_hold_ms())
         await self.hid.mouse_button(button, False)
 
+    async def mouse_button(self, button: str, down: bool) -> None:
+        """Press or release one button where the cursor is. Drags use this."""
+        await self.hid.mouse_button(button, down)
+
     async def scroll(self, dx: int = 0, dy: int = 0) -> None:
         """Wheel scroll, broken into ticks. dy>0 = up, dx>0 = right."""
         ticks = max(1, min(12, round(max(abs(dx), abs(dy)))))

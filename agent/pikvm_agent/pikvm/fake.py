@@ -79,6 +79,9 @@ class FakeBackend:
     async def print_text(self, text: str) -> None:
         self._record("print_text", text=text)
 
+    async def mouse_button(self, button: str, down: bool) -> None:
+        self._record("mouse_button", button=button, down=down)
+
     async def click(self, x: int, y: int, button: str = "left") -> None:
         self._record("click", x=x, y=y, button=button)
         self._cursor = {"x": x, "y": y, "trusted": True}
