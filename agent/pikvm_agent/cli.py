@@ -38,6 +38,13 @@ harness_app = typer.Typer(
 )
 app.add_typer(harness_app, name="harness")
 
+cua_app = typer.Typer(
+    name="cua",
+    help="Run a task with trycua/cua's ComputerAgent driving PiKVM (docs/CUA.md).",
+    no_args_is_help=True,
+)
+app.add_typer(cua_app, name="cua")
+
 
 @app.callback()
 def _root() -> None:
@@ -3475,6 +3482,71 @@ def config_init(force: bool = typer.Option(False, "--force", help="Overwrite if 
         if path is env_path:
             path.chmod(0o600)  # secrets file — owner-only
         typer.echo(f"wrote {path}")
+
+
+@cua_app.command("run")
+def cua_run(
+    task: str = typer.Argument(..., help="What to do on the target, in plain words."),
+    model: str = typer.Option("", help="cua model string (default: Qwen3-VL via OpenRouter)."),
+    env: str = typer.Option("windows", help="Target OS: windows, mac, linux or browser."),
+    max_steps: int = typer.Option(40, help="Stop after this many actions."),
+    budget: float = typer.Option(2.0, help="Stop when model cost passes this many USD (0 = no limit)."),
+    confirm: bool = typer.Option(False, help="Ask on the terminal before every action."),
+    fake: bool = typer.Option(False, help="Use the fake screen instead of the PiKVM."),
+    trajectory_dir: Path = typer.Option(
+        Path("trajectories"), help="Where cua saves screenshots and model turns."
+    ),
+) -> None:
+    """Hand TASK to cua and let it operate the target until it is done."""
+    import asyncio
+    import logging
+
+    from pikvm_agent.config import load_config
+    from pikvm_agent.cua.runner import DEFAULT_MODEL, run_task
+    from pikvm_agent.pikvm.client import PiKVMBackend
+    from pikvm_agent.pikvm.fake import FakeBackend
+
+    if env not in ("windows", "mac", "linux", "browser"):
+        raise typer.BadParameter("env must be windows, mac, linux or browser")
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    cfg = load_config()
+    if fake:
+        backend: Any = FakeBackend()
+    elif cfg.pikvm.username or cfg.pikvm.token:
+        backend = PiKVMBackend(cfg.pikvm)
+    else:
+        typer.echo(
+            f"[cua] no PiKVM credentials ({cfg.pikvm.username_env} / {cfg.pikvm.token_env} unset); "
+            "set them or pass --fake",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    async def ask(action: str, args: dict[str, Any]) -> bool:
+        return await asyncio.to_thread(typer.confirm, f"[cua] allow {action} {args}?", default=False)
+
+    def show(kind: str, text: str) -> None:
+        typer.echo(f"[cua:{kind}] {text}")
+
+    async def run() -> int:
+        try:
+            result = await run_task(
+                task,
+                backend=backend,
+                model=model or DEFAULT_MODEL,
+                environment=env,  # type: ignore[arg-type]  # checked above
+                max_steps=max_steps,
+                max_budget_usd=budget or None,
+                trajectory_dir=trajectory_dir,
+                confirm=ask if confirm else None,
+                on_event=show,
+            )
+        finally:
+            await backend.aclose()
+        typer.echo(json.dumps({"status": result.status, "steps": result.steps, "error": result.error}))
+        return 0 if result.status == "done" else 1
+
+    raise typer.Exit(code=asyncio.run(run()))
 
 
 @app.command(name="smoke-test")
