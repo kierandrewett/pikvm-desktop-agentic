@@ -153,3 +153,7 @@ else follows `docs/PLAN.md` as written.
   `pikvm_agent/cua/computer.py`. It has no policy gate, stale-frame refusal
   or OCR read-back; only an optional `--confirm` prompt. It is not on the
   managed MCP surface. See `docs/CUA.md` before extending it.
+- **`pikvm-agent gui-mcp` is the agent panel's MCP server.** It exposes
+  cua tasks only (no raw screen tools), runs only with the desktop's
+  terminal token (`pikvm_agent/cua/gui_gate.py` and `src/gui-mcp.ts` share
+  the ticket format), and is what the desktop's terminal panel is for.

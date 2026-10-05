@@ -29,6 +29,43 @@ Options: `--env windows|mac|linux|browser` (default `windows`),
 PiKVM credentials and `OPENROUTER_API_KEY` come from
 `~/.config/pikvm-agent/.env` as usual.
 
+## From any agent harness: the GUI-only MCP server
+
+`pikvm-agent gui-mcp` is a stdio MCP server named `pikvm`. A higher-level
+model in your harness writes the task; cua does all of the computer use. It
+has three tools:
+
+| Tool | Does |
+| --- | --- |
+| `run_computer_task(task, wait_seconds=120, max_steps=40)` | Start a task and wait up to `wait_seconds` (max 600). Returns `running` with a `task_id` if it is not finished. |
+| `get_computer_task(task_id, wait_seconds=60)` | Wait more, or read progress (steps, cua's last messages). |
+| `stop_computer_task(task_id)` | Stop cua now and release held keys and buttons. |
+
+A finished task returns cua's messages and a small JPEG of the final screen.
+One task runs at a time.
+
+It only runs from the terminal in PiKVM Desktop's agent panel. At startup
+the desktop writes an owner-only ticket (`<settings dir>/gui-mcp/gui-mcp.json`,
+its pid and the SHA-256 of a fresh token) and gives the token only to the
+panel's shells, with `pikvm-agent` on their PATH. The server checks the
+ticket at start and on every call (`pikvm_agent/cua/gui_gate.py`,
+`src/gui-mcp.ts`). This keeps it to the GUI; it is not a boundary against
+code running as the same user.
+
+Register it once per harness. The command only works inside the panel's
+terminal, so a global registration is safe:
+
+```sh
+claude mcp add --scope user pikvm -- pikvm-agent gui-mcp
+codex mcp add pikvm -- pikvm-agent gui-mcp
+```
+
+For OpenCode, add a local MCP server named `pikvm` with command
+`["pikvm-agent", "gui-mcp"]` to its config.
+
+Settings, from the environment or `~/.config/pikvm-agent/.env`:
+`PIKVM_CUA_MODEL` (default below), `PIKVM_CUA_ENV` (`windows`).
+
 ## Models
 
 cua picks its loop from the model string.
