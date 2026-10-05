@@ -41,6 +41,7 @@ import { activeManagedClientRuntimePath } from "./harness-runtime";
 import { HarnessViewLifecycle } from "./harness-view-lifecycle";
 import { WORKSPACE_PREFIX } from "./workspace-assets";
 import { requestAttention } from "./taskbar-attention";
+import { prepareGuiMcp, type GuiMcp } from "./gui-mcp";
 
 const staticPath = resolve(__dirname, "static");
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -345,6 +346,9 @@ async function settleControlPort(bindHost: string): Promise<number> {
     return CONTROL_PORT;
 }
 
+/** The GUI-only MCP ticket for this run; its token goes to terminal shells only. */
+let guiMcp: GuiMcp | null = null;
+
 async function startProxyAndHarness(
     origin: string,
     settings: SettingsStore,
@@ -398,10 +402,22 @@ async function startProxyAndHarness(
         ".bmp": "image/bmp",
         ".svg": "image/svg+xml",
     };
+    /* `pikvm-agent gui-mcp` (agent/docs/CUA.md) only runs from these shells.
+     * A failure here costs that one feature, never the terminal or the KVM. */
+    try {
+        guiMcp = prepareGuiMcp({
+            directory: resolve(settings.dir(), "gui-mcp"),
+            agentCommand: harnessRuntime.found ? harnessRuntime.command : null,
+        });
+    } catch (error) {
+        console.error(`[gui-mcp] could not prepare the terminal MCP ticket: ${String(error)}`);
+    }
     const terminalSessions = new TerminalSessions({
         vaultPath,
         port: CONTROL_PORT,
         prepareAgent: () => {},
+        extraEnv: () => guiMcp?.env ?? {},
+        extraPath: () => guiMcp?.path ?? [],
         resolveImage: (path) => {
             try {
                 const absolute = resolvePath(path);
@@ -1122,6 +1138,7 @@ async function createWindow() {
         harnessViewLifecycle.stop();
         harnessAssetsWatcher?.close();
         backend?.terminalSessions.killAll();
+        guiMcp?.dispose();
         backend?.harness?.stop();
         backend?.daemon?.stop();
     });
