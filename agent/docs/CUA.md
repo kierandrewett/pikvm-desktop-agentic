@@ -13,6 +13,38 @@ ComputerAgent (cua, any supported model)
       -> PiKVM -> target machine
 ```
 
+## Usage
+
+```sh
+cd agent
+uv sync --extra cua            # into whichever venv runs the agent
+pikvm-agent cua run "Open Notepad and type hello"            # live PiKVM
+pikvm-agent cua run "Click the word desktop" --fake          # no hardware
+pikvm-agent cua run "..." --model anthropic/claude-sonnet-4-5 --confirm
+```
+
+Options: `--env windows|mac|linux|browser` (default `windows`),
+`--max-steps` (40), `--budget` USD (2.0, `0` for no limit), `--confirm`
+(ask before each action), `--trajectory-dir` (screenshots and model turns).
+PiKVM credentials and `OPENROUTER_API_KEY` come from
+`~/.config/pikvm-agent/.env` as usual.
+
+## Models
+
+cua picks its loop from the model string.
+
+| Model string | cua loop | Key | Notes |
+| --- | --- | --- | --- |
+| `openrouter/qwen/qwen3-vl-235b-a22b-instruct` (default) | Qwen3-VL | `OPENROUTER_API_KEY` | Plain function calling, so OpenRouter works. Checked end to end on the fake screen. |
+| `anthropic/claude-sonnet-4-5` | Anthropic computer tool | `ANTHROPIC_API_KEY` | cua's most used loop. Not run here (no key). |
+| `openrouter/anthropic/claude-...` | Anthropic computer tool | `OPENROUTER_API_KEY` | Not checked. The native computer tool may not pass through OpenRouter. |
+| `openai/computer-use-preview` | OpenAI Responses | `OPENAI_API_KEY` | Not run here. |
+
+The Qwen-family loops import `smart_resize` from `qwen_vl_utils`, which loads
+torch. `pikvm_agent/cua/qwen_shim.py` supplies that one function without
+torch when the real package cannot import. Its output is checked against the
+installed upstream source in `tests/test_cua_qwen_shim.py`.
+
 ## What this path does not do
 
 This path does not go through the daemon. That means it has none of these:

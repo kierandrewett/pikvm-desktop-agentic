@@ -147,3 +147,9 @@ else follows `docs/PLAN.md` as written.
   world-version change before HID. A stale managed action is discarded after
   refresh and requires a fresh controller decision even when the refused
   action looked globally safe or non-committing.
+- **`pikvm-agent cua run` is a deliberate second path that skips the daemon.**
+  It uses trycua/cua's `ComputerAgent` as a tried loop instead of
+  `AgentHarness`, and drives `PiKVMBackend` directly through
+  `pikvm_agent/cua/computer.py`. It has no policy gate, stale-frame refusal
+  or OCR read-back; only an optional `--confirm` prompt. It is not on the
+  managed MCP surface. See `docs/CUA.md` before extending it.
