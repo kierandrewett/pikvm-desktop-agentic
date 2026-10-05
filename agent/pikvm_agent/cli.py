@@ -3544,11 +3544,15 @@ def cua_run(
 
 
 @app.command("gui-mcp")
-def gui_mcp() -> None:
-    """Stdio MCP server that hands tasks to cua. Runs only from PiKVM Desktop's terminal."""
+def gui_mcp(
+    ticket: str = typer.Option(
+        "", help="PiKVM Desktop's MCP ticket. Written into the wrapper the desktop creates."
+    ),
+) -> None:
+    """Stdio MCP server that hands tasks to cua. Has tools only inside PiKVM Desktop's sidebar."""
     from pikvm_agent.cua.gui_mcp import main
 
-    raise typer.Exit(code=main())
+    raise typer.Exit(code=main(ticket or None))
 
 
 @app.command(name="smoke-test")

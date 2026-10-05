@@ -1,35 +1,39 @@
-"""Proof that this process was started from a terminal inside PiKVM Desktop.
+"""Proof that this process was started from inside PiKVM Desktop.
 
-At startup the desktop writes an owner-only ticket into its run directory:
+At startup the desktop writes an owner-only ticket:
 
-    {"schema_version": 1, "desktop_pid": 1234, "token_sha256": "<hex>"}
+    {"schema_version": 2, "desktop_pid": 1234}
 
-and gives the token itself only to the shells in its terminal panel, as
-``PIKVM_GUI_MCP_TOKEN``, with the ticket path in ``PIKVM_GUI_MCP_TICKET``. A
-harness started in one of those shells passes both on to the MCP server it
-launches. Anywhere else the token is absent, and the server refuses.
+and a wrapper, ``<settings dir>/gui-mcp/bin/pikvm-gui-mcp``, that runs
+``pikvm-agent gui-mcp --ticket <that ticket>``. Harnesses register the
+wrapper as their ``pikvm`` MCP server once. The server is usable only when
+the desktop process named in the ticket is alive and is an ancestor of the
+server: a harness started in the sidebar terminal is a child of the desktop's
+shell, and it spawns the server as its own child.
 
-This keeps the server to the GUI. It is not a security boundary against code
-running as the same user, which can read another process's environment.
+Ancestry, not an environment token, because harnesses filter what they pass
+to MCP servers: Codex forwards an allow-list of variables, and Gemini strips
+names that contain TOKEN. A token would silently fail to arrive in exactly
+those harnesses.
+
+Known limit: a harness inside tmux or screen in the sidebar fails, because
+the multiplexer's server is not a child of the desktop. This is not a
+boundary against code running as the same user.
 """
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import os
 import stat
-from collections.abc import Mapping
+import subprocess
 from pathlib import Path
 
-TOKEN_ENV = "PIKVM_GUI_MCP_TOKEN"
-TICKET_ENV = "PIKVM_GUI_MCP_TICKET"
-
 _MAX_TICKET_BYTES = 4096
-_OUTSIDE = (
-    "the pikvm MCP server only runs from a terminal inside PiKVM Desktop; "
-    "open the terminal panel there and start your agent harness from it"
+_MAX_HOPS = 128
+OUTSIDE = (
+    "the pikvm MCP server only works for an agent harness started from the "
+    "terminal in PiKVM Desktop's sidebar"
 )
 
 
@@ -37,31 +41,56 @@ class GateError(RuntimeError):
     """The process was not started from inside a running PiKVM Desktop."""
 
 
-def _desktop_alive(pid: int) -> bool:
+def _parent(pid: int) -> int | None:
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return False  # another user's process is not our desktop
-    return True
+        with open(f"/proc/{pid}/stat", encoding="ascii") as handle:
+            # Field 4. The command name in field 2 can contain spaces and ")".
+            return int(handle.read().rsplit(")", 1)[-1].split()[1])
+    except FileNotFoundError:
+        if not Path("/proc/self/stat").exists():
+            return _parent_from_ps(pid)  # macOS: no /proc
+        return None
+    except (OSError, ValueError, IndexError):
+        return None
 
 
-def verify(environ: Mapping[str, str] | None = None) -> None:
-    """Raise GateError unless the environment carries a live desktop's token."""
-    env = os.environ if environ is None else environ
-    token = env.get(TOKEN_ENV, "")
-    ticket_path = env.get(TICKET_ENV, "")
-    if not token or not ticket_path:
-        raise GateError(_OUTSIDE)
+def _parent_from_ps(pid: int) -> int | None:
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout.strip()
+        return int(out) if out else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def ancestors(pid: int) -> list[int]:
+    """``pid`` and its parents up to init, stopping on a loop or after 128 hops."""
+    chain = [pid]
+    while len(chain) < _MAX_HOPS:
+        parent = _parent(chain[-1])
+        if parent is None or parent <= 0 or parent in chain:
+            break
+        chain.append(parent)
+    return chain
+
+
+def verify(ticket_path: str | None) -> None:
+    """Raise GateError unless the ticket's desktop is alive and our ancestor."""
+    if not ticket_path:
+        raise GateError(OUTSIDE)
     path = Path(ticket_path)
     if not path.is_absolute():
-        raise GateError(f"{TICKET_ENV} must be an absolute path")
+        raise GateError("--ticket must be an absolute path")
     try:
         info = path.lstat()
     except OSError:
         raise GateError(
-            "PiKVM Desktop's MCP ticket is missing; quit and restart PiKVM Desktop"
+            "PiKVM Desktop's MCP ticket is missing; start PiKVM Desktop"
         ) from None
     if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_TICKET_BYTES:
         raise GateError("PiKVM Desktop's MCP ticket is not a small regular file")
@@ -72,20 +101,12 @@ def verify(environ: Mapping[str, str] | None = None) -> None:
             raise GateError("PiKVM Desktop's MCP ticket belongs to another user")
     try:
         ticket = json.loads(path.read_text(encoding="utf-8"))
-        pid = int(ticket["desktop_pid"])
-        expected = str(ticket["token_sha256"])
-        if ticket.get("schema_version") != 1:
+        if ticket.get("schema_version") != 2:
             raise ValueError("schema_version")
-    except (ValueError, KeyError, TypeError, OSError):
+        desktop = int(ticket["desktop_pid"])
+    except (ValueError, KeyError, TypeError, AttributeError, OSError):
         raise GateError("PiKVM Desktop's MCP ticket is unreadable") from None
-    if not _desktop_alive(pid):
-        raise GateError(
-            "PiKVM Desktop is not running (this terminal outlived it); "
-            "reopen PiKVM Desktop and start your harness from its terminal"
-        )
-    actual = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    if not hmac.compare_digest(actual, expected):
-        raise GateError(
-            "this terminal's token is from another PiKVM Desktop run; "
-            "open a new terminal tab in PiKVM Desktop"
-        )
+    if desktop <= 1:
+        raise GateError("PiKVM Desktop's MCP ticket is unreadable")
+    if desktop not in ancestors(os.getpid()):
+        raise GateError(OUTSIDE + " (PiKVM Desktop is not running, or this harness was not started from it)")

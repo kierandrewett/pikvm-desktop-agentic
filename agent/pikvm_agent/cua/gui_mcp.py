@@ -12,9 +12,11 @@ screenshot, click or type tools, only tasks:
 A finished task returns a small screenshot of the final screen, so the
 higher-level model can check the result before it writes the next task.
 
-The server only runs when started from a terminal inside PiKVM Desktop
-(``gui_gate``), and it checks again on every call. Failure modes are listed
-in ``tests/test_cua_gui_mcp.py``.
+The tools exist only when PiKVM Desktop is an ancestor of this process,
+meaning a harness started in its sidebar terminal (``gui_gate``), and every
+call checks again. Anywhere else the server still starts, so a harness's
+global registration stays quiet, but it offers no tools. Failure modes are
+listed in ``tests/test_cua_gui_mcp.py``.
 """
 
 from __future__ import annotations
@@ -213,11 +215,18 @@ async def _close(backend: Any) -> None:
         log.warning("[cua] closing the backend failed", exc_info=True)
 
 
-def build_server(manager: TaskManager | None = None) -> Any:
+def build_server(ticket: str | None, manager: TaskManager | None = None) -> Any:
+    """The server, with the task tools only when the gate passes now."""
     import base64
 
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ImageContent, TextContent
+
+    try:
+        gui_gate.verify(ticket)
+    except gui_gate.GateError as exc:
+        log.info("[pikvm gui-mcp] no tools: %s", exc)
+        return FastMCP("pikvm", instructions=f"Unavailable here: {exc}.")
 
     tasks = manager or TaskManager()
     server = FastMCP(
@@ -258,25 +267,25 @@ def build_server(manager: TaskManager | None = None) -> Any:
         cua's messages and a screenshot of the final screen. Only one task runs
         at a time. Status is one of running, done, max_steps, error, stopped.
         """
-        gui_gate.verify()
+        gui_gate.verify(ticket)
         return answer(await tasks.run(task, wait_seconds=wait_seconds, max_steps=max_steps))
 
     @server.tool()
     async def get_computer_task(task_id: str, wait_seconds: int = 60) -> list[Any]:
         """Wait up to wait_seconds (max 600) for a task, then return its progress or result."""
-        gui_gate.verify()
+        gui_gate.verify(ticket)
         return answer(await tasks.get(task_id, wait_seconds=wait_seconds))
 
     @server.tool()
     async def stop_computer_task(task_id: str) -> list[Any]:
         """Stop a running task now and release any held keys or mouse buttons."""
-        gui_gate.verify()
+        gui_gate.verify(ticket)
         return answer(await tasks.stop(task_id))
 
     return server
 
 
-async def serve() -> None:
+async def serve(ticket: str | None) -> None:
     """Serve over stdio with the protocol on its own copy of stdout.
 
     cua, LiteLLM and qwen-agent can print to stdout, which would corrupt the
@@ -293,7 +302,7 @@ async def serve() -> None:
     protocol_out = anyio.wrap_file(
         TextIOWrapper(os.fdopen(protocol_fd, "wb"), encoding="utf-8")
     )
-    server = build_server()
+    server = build_server(ticket)
     # FastMCP.run_stdio_async does exactly this, but with no way to pass stdout.
     low_level = server._mcp_server
     async with stdio_server(stdout=protocol_out) as (read_stream, write_stream):
@@ -302,20 +311,15 @@ async def serve() -> None:
         )
 
 
-def main() -> int:
+def main(ticket: str | None) -> int:
     logging.basicConfig(
         level=logging.INFO, format="%(message)s", stream=sys.stderr, force=True
     )
-    try:
-        gui_gate.verify()
-    except gui_gate.GateError as exc:
-        print(f"[pikvm gui-mcp] {exc}", file=sys.stderr)
-        return 2
     os.environ.setdefault("CUA_TELEMETRY_ENABLED", "false")
     # Loads ~/.config/pikvm-agent/.env (model API keys, PiKVM credentials)
     # whichever backend a task later uses.
     from pikvm_agent.config import load_config
 
     load_config()
-    asyncio.run(serve())
+    asyncio.run(serve(ticket))
     return 0

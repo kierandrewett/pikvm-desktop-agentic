@@ -1,15 +1,23 @@
 """The GUI-only cua MCP server: gate, task lifecycle, and the real stdio path.
 
 Kieran's design (2026-10-05): a higher-level model (Claude, GPT, ...) in any
-agent harness writes the task; cua does all of the computer use. The server
-must only work from a terminal inside PiKVM Desktop.
+agent harness writes the task; cua does all of the computer use. Any harness
+started inside PiKVM Desktop's sidebar terminal can use the server; nothing
+else can.
+
+The gate is process ancestry, not an environment token: Codex passes MCP
+servers only an allow-list of variables and Gemini strips names containing
+TOKEN, so a token in the environment would silently not arrive. A harness
+started in the sidebar is a descendant of the desktop process, and so is the
+MCP server it spawns.
 
 Failure modes, written before the code:
 
-1. Started outside the GUI (no token in the environment): refuse, exit
-   non-zero, say why on stderr.
-2. Wrong token, missing ticket, or a ticket another user could read: refuse.
-3. A ticket left by an earlier app run whose process is gone: refuse.
+1. Started outside the sidebar (desktop is not an ancestor): the server
+   still starts, so a global registration is quiet elsewhere, but it has no
+   tools.
+2. Missing ticket, or a ticket another user could read: no tools.
+3. A ticket left by an earlier app run whose process is gone: no tools.
 4. The app quits after the server started: every later tool call refuses.
 5. A library prints to stdout and corrupts the MCP stream.
 6. A second task while one is running: refused clearly, one machine.
@@ -19,13 +27,12 @@ Failure modes, written before the code:
 9. An unknown task id: a clear error.
 10. cua fails (no API key, provider error): status "error" with the
     message, not a crashed server.
-11. The token appears in a log or a tool result.
+11. The ancestry walk loops or runs away on a strange process table.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import subprocess
@@ -39,59 +46,66 @@ from pikvm_agent.cua.gui_mcp import TaskManager
 from pikvm_agent.cua.runner import RunResult
 from pikvm_agent.pikvm.fake import FakeBackend
 
-TOKEN = "a" * 64
+TOOLS = {"run_computer_task", "get_computer_task", "stop_computer_task"}
 
 
-def _ticket(path: Path, *, pid: int | None = None, token: str = TOKEN, mode: int = 0o600) -> Path:
+def _ticket(path: Path, *, pid: int | None = None, mode: int = 0o600) -> Path:
     path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "desktop_pid": os.getpid() if pid is None else pid,
-                "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
-            }
-        )
+        json.dumps({"schema_version": 2, "desktop_pid": os.getpid() if pid is None else pid})
     )
     path.chmod(mode)
     return path
 
 
-def _env(ticket: Path, token: str = TOKEN) -> dict[str, str]:
-    return {gui_gate.TICKET_ENV: str(ticket), gui_gate.TOKEN_ENV: token}
+def _sleeper() -> subprocess.Popen[bytes]:
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
 
 
-# 1, 2, 3
+# 1, 2, 3, 11
 
 
-def test_gate_accepts_a_live_matching_ticket(tmp_path: Path) -> None:
-    gui_gate.verify(_env(_ticket(tmp_path / "t.json")))
+def test_gate_accepts_when_the_desktop_is_an_ancestor(tmp_path: Path) -> None:
+    # This test process stands in for the desktop: it is our own ancestor-or-self.
+    gui_gate.verify(str(_ticket(tmp_path / "t.json")))
+
+
+def test_ancestry_includes_self_and_parent() -> None:
+    chain = gui_gate.ancestors(os.getpid())
+    assert chain[0] == os.getpid()
+    assert os.getppid() in chain
 
 
 @pytest.mark.parametrize(
     "case",
-    ["no-env", "wrong-token", "missing-ticket", "readable-by-others", "dead-app", "garbage"],
+    ["no-ticket-arg", "missing-ticket", "readable-by-others", "dead-app", "not-an-ancestor", "garbage"],
 )
 def test_gate_refuses(tmp_path: Path, case: str) -> None:
     ticket = tmp_path / "t.json"
-    if case == "no-env":
-        env: dict[str, str] = {}
-    elif case == "wrong-token":
-        env = _env(_ticket(ticket), token="b" * 64)
+    other = None
+    if case == "no-ticket-arg":
+        path = None
     elif case == "missing-ticket":
-        env = _env(ticket)
+        path = str(ticket)
     elif case == "readable-by-others":
-        env = _env(_ticket(ticket, mode=0o644))
+        path = str(_ticket(ticket, mode=0o644))
     elif case == "dead-app":
         dead = subprocess.Popen([sys.executable, "-c", "pass"])
         dead.wait()
-        env = _env(_ticket(ticket, pid=dead.pid))
+        path = str(_ticket(ticket, pid=dead.pid))
+    elif case == "not-an-ancestor":
+        other = _sleeper()
+        path = str(_ticket(ticket, pid=other.pid))
     else:
         ticket.write_text("not json")
         ticket.chmod(0o600)
-        env = _env(ticket)
-    with pytest.raises(gui_gate.GateError) as err:
-        gui_gate.verify(env)
-    assert TOKEN not in str(err.value)  # 11
+        path = str(ticket)
+    try:
+        with pytest.raises(gui_gate.GateError):
+            gui_gate.verify(path)
+    finally:
+        if other is not None:
+            other.kill()
+            other.wait()
 
 
 # 6, 7, 8, 9, 10
@@ -174,58 +188,66 @@ async def test_runner_failure_is_a_status_not_a_crash() -> None:
 # 1, 4, 5: the real process over real stdio
 
 
-def _server_env(ticket: Path, token: str = TOKEN) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("PIKVM_GUI_MCP")}
-    env.update(_env(ticket, token))
+def _server_env() -> dict[str, str]:
+    env = dict(os.environ)
     env["PIKVM_AGENT_FAKE"] = "1"
     env["CUA_TELEMETRY_ENABLED"] = "false"
     return env
 
 
-def test_server_refuses_to_start_outside_the_gui(tmp_path: Path) -> None:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("PIKVM_GUI_MCP")}
-    proc = subprocess.run(
-        [sys.executable, "-m", "pikvm_agent.cli", "gui-mcp"],
-        env=env,
-        input="",
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 2
-    assert "inside PiKVM Desktop" in proc.stderr
-    assert proc.stdout == ""
+async def _tool_names(params) -> set[str]:
+    from mcp import ClientSession
+    from mcp.client.stdio import stdio_client
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            return {tool.name for tool in (await session.list_tools()).tools}
 
 
-async def test_server_over_stdio_lists_tools_and_refuses_after_app_quits(tmp_path: Path) -> None:
+async def test_outside_the_sidebar_the_server_runs_with_no_tools(tmp_path: Path) -> None:
+    from mcp import StdioServerParameters
+
+    stranger = _sleeper()
+    try:
+        ticket = _ticket(tmp_path / "t.json", pid=stranger.pid)
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "pikvm_agent.cli", "gui-mcp", "--ticket", str(ticket)],
+            env=_server_env(),
+        )
+        assert await _tool_names(params) == set()
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+
+async def test_inside_the_sidebar_tools_work_until_the_desktop_quits(tmp_path: Path) -> None:
+    """sh plays the desktop: it writes the ticket with its own pid, then runs
+    the server as its child and stays alive as its parent until killed."""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    app = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    try:
-        ticket = _ticket(tmp_path / "t.json", pid=app.pid)
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "pikvm_agent.cli", "gui-mcp"],
-            env=_server_env(ticket),
-        )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = {tool.name for tool in (await session.list_tools()).tools}
-                assert tools == {"run_computer_task", "get_computer_task", "stop_computer_task"}
+    ticket = tmp_path / "t.json"
+    pidfile = tmp_path / "desktop.pid"
+    script = (
+        'umask 077; echo $$ > "$PIDFILE"; '
+        'printf \'{"schema_version": 2, "desktop_pid": %s}\' $$ > "$TICKET"; '
+        '"$PY" -m pikvm_agent.cli gui-mcp --ticket "$TICKET"; true'
+    )
+    env = {**_server_env(), "PIDFILE": str(pidfile), "TICKET": str(ticket), "PY": sys.executable}
+    params = StdioServerParameters(command="/bin/sh", args=["-c", script], env=env)
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            assert {t.name for t in (await session.list_tools()).tools} == TOOLS
 
-                missing = await session.call_tool("get_computer_task", {"task_id": "nope"})
-                assert missing.isError
-                assert "unknown task" in str(missing.content)
+            missing = await session.call_tool("get_computer_task", {"task_id": "nope"})
+            assert missing.isError
+            assert "unknown task" in str(missing.content)
 
-                app.kill()
-                app.wait()
-                gone = await session.call_tool("get_computer_task", {"task_id": "nope"})
-                assert gone.isError
-                assert "PiKVM Desktop" in str(gone.content)
-                assert TOKEN not in str(gone.content)
-    finally:
-        if app.poll() is None:
-            app.kill()
-            app.wait()
+            os.kill(int(pidfile.read_text()), 9)
+            await asyncio.sleep(0.3)
+            gone = await session.call_tool("get_computer_task", {"task_id": "nope"})
+            assert gone.isError
+            assert "PiKVM Desktop" in str(gone.content)

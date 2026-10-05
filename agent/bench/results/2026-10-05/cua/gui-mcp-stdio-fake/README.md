@@ -10,9 +10,13 @@ python bench/results/2026-10-05/cua/gui-mcp-stdio-fake/drive.py \
   bench/results/2026-10-05/cua/gui-mcp-stdio-fake/final-screen.jpg
 ```
 
-`drive.py` plays the harness: it starts `pikvm-agent gui-mcp` as an MCP
-stdio server, with a stand-in desktop process and an owner-only ticket for
-the GUI gate, then calls `run_computer_task` once.
+`drive.py` plays both the desktop and the harness: it writes an owner-only
+ticket naming its own pid, starts `pikvm-agent gui-mcp --ticket <ticket>` as
+its child (so the ancestry gate passes, as it does for a harness started in
+the sidebar), then calls `run_computer_task` once.
+
+Rerun after the gate moved from an environment token to process ancestry:
+`status: done`, 2 steps, 12.1 s. The first-run numbers below are kept.
 
 ## Environment
 
