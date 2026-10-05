@@ -44,24 +44,34 @@ has three tools:
 A finished task returns cua's messages and a small JPEG of the final screen.
 One task runs at a time.
 
-It only runs from the terminal in PiKVM Desktop's agent panel. At startup
-the desktop writes an owner-only ticket (`<settings dir>/gui-mcp/gui-mcp.json`,
-its pid and the SHA-256 of a fresh token) and gives the token only to the
-panel's shells, with `pikvm-agent` on their PATH. The server checks the
-ticket at start and on every call (`pikvm_agent/cua/gui_gate.py`,
-`src/gui-mcp.ts`). This keeps it to the GUI; it is not a boundary against
-code running as the same user.
+Any harness started in the sidebar terminal can use it; nothing else can.
+At startup the desktop writes an owner-only ticket naming its pid
+(`<settings dir>/gui-mcp/gui-mcp.json`) and a wrapper next to it,
+`<settings dir>/gui-mcp/bin/pikvm-gui-mcp`, which runs
+`pikvm-agent gui-mcp --ticket <ticket>`. The server has tools only when that
+desktop process is one of its ancestors, and checks again on every call
+(`pikvm_agent/cua/gui_gate.py`, `src/gui-mcp.ts`). Elsewhere it starts with
+no tools, so a global registration stays quiet.
 
-Register it once per harness. The command only works inside the panel's
-terminal, so a global registration is safe:
+Ancestry rather than an environment token, because Codex passes MCP servers
+only an allow-list of variables and Gemini strips names containing TOKEN.
+Limits: a harness inside tmux or screen in the sidebar is refused (the
+multiplexer server is not a child of the desktop), and this is not a
+boundary against code running as the same user.
+
+Register the wrapper once per harness, by its absolute path. On Linux the
+settings dir is `~/.config/PiKVM Desktop`; PiKVM Desktop logs the exact
+path at start (`[gui-mcp] register this as the pikvm MCP server: ...`).
 
 ```sh
-claude mcp add --scope user pikvm -- pikvm-agent gui-mcp
-codex mcp add pikvm -- pikvm-agent gui-mcp
+W="$HOME/.config/PiKVM Desktop/gui-mcp/bin/pikvm-gui-mcp"
+claude mcp add --scope user pikvm -- "$W"
+codex mcp add pikvm -- "$W"
+gemini mcp add --scope user pikvm "$W"
 ```
 
-For OpenCode, add a local MCP server named `pikvm` with command
-`["pikvm-agent", "gui-mcp"]` to its config.
+For OpenCode, add to `~/.config/opencode/opencode.json`:
+`"mcp": {"pikvm": {"type": "local", "command": ["<W>"]}}`.
 
 Settings, from the environment or `~/.config/pikvm-agent/.env`:
 `PIKVM_CUA_MODEL` (default below), `PIKVM_CUA_ENV` (`windows`).
