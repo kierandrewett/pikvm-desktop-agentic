@@ -3505,26 +3505,16 @@ def cua_run(
     import asyncio
     import logging
 
-    from pikvm_agent.config import load_config
-    from pikvm_agent.cua.runner import DEFAULT_MODEL, run_task
-    from pikvm_agent.pikvm.client import PiKVMBackend
-    from pikvm_agent.pikvm.fake import FakeBackend
+    from pikvm_agent.cua.runner import DEFAULT_MODEL, BackendUnavailable, build_backend, run_task
 
     if env not in ("windows", "mac", "linux", "browser"):
         raise typer.BadParameter("env must be windows, mac, linux or browser")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    cfg = load_config()
-    if fake:
-        backend: Any = FakeBackend()
-    elif cfg.pikvm.username or cfg.pikvm.token:
-        backend = PiKVMBackend(cfg.pikvm)
-    else:
-        typer.echo(
-            f"[cua] no PiKVM credentials ({cfg.pikvm.username_env} / {cfg.pikvm.token_env} unset); "
-            "set them or pass --fake",
-            err=True,
-        )
-        raise typer.Exit(code=2)
+    try:
+        backend = build_backend(fake=fake)
+    except BackendUnavailable as exc:
+        typer.echo(f"[cua] {exc}; set them or pass --fake", err=True)
+        raise typer.Exit(code=2) from None
 
     async def ask(action: str, args: dict[str, Any]) -> bool:
         return await asyncio.to_thread(typer.confirm, f"[cua] allow {action} {args}?", default=False)

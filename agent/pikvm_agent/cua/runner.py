@@ -43,6 +43,33 @@ class RunResult:
     error: str | None = None
 
 
+class BackendUnavailable(RuntimeError):
+    """No PiKVM credentials, and the fake screen was not asked for."""
+
+
+def build_backend(*, fake: bool = False) -> Any:
+    """The PiKVM from the agent config, or the fake screen when asked.
+
+    Unlike runtime.build_backend, missing credentials are an error here: a
+    silent fall back to the fake screen looks like a working run.
+    """
+    from pikvm_agent.config import load_config
+    from pikvm_agent.pikvm.client import PiKVMBackend
+    from pikvm_agent.pikvm.fake import FakeBackend
+
+    # Always first: it also loads ~/.config/pikvm-agent/.env, which holds the
+    # model API keys a fake-screen run still needs.
+    cfg = load_config()
+    if fake or os.environ.get("PIKVM_AGENT_FAKE") == "1":
+        return FakeBackend()
+    if cfg.pikvm.username or cfg.pikvm.token:
+        return PiKVMBackend(cfg.pikvm)
+    raise BackendUnavailable(
+        f"no PiKVM credentials ({cfg.pikvm.username_env} / {cfg.pikvm.token_env} unset "
+        "in ~/.config/pikvm-agent/.env)"
+    )
+
+
 def _disable_cua_telemetry() -> None:
     os.environ.setdefault("CUA_TELEMETRY_ENABLED", "false")
 
