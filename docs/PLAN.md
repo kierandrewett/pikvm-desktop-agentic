@@ -151,7 +151,10 @@ Each ends committed, deployed and working.
 5. **Providers.** Harness endpoints for a write-only key store and CLI-owned
    sign-in (start, status, sign out); Settings UI for both.
 6. **Desktop.** Electron loads `/app/`, one slim preload, the settings window
-   goes.
+   goes. Packaging moves to **pkgsmith** (`~/dev/pkgsmith`, github
+   kierandrewett/pkgsmith): one `pkgsmith.star` producing the major formats for
+   each OS from per-platform Electron builds (Linux: rpm, deb, Arch, AppImage,
+   Flatpak; macOS: dmg; Windows: msi and nsis). It replaces scripts/make-rpm.mjs.
 
 ## 9. Decisions
 
