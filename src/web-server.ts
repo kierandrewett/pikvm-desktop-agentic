@@ -3,11 +3,16 @@
  * app runs, without Electron, for a container or any plain Node 22 host.
  *
  * What it serves is identical to the desktop's web surface (src/server.ts): the
- * console at `/`, the PiKVM UI proxied underneath it, the single-token login. It
- * deliberately does NOT host the shared terminal or the agent harness. A shell
- * on the server would turn "can see the KVM" into "can run commands on the box
- * that hosts it", and the harness needs a desktop-owned runtime. The console
- * reads `features.terminal` from /_agent/api/state and hides the panel.
+ * console at `/` and the PiKVM UI proxied underneath it. It deliberately does
+ * NOT host the shared terminal or the agent harness. A shell on the server
+ * would turn "can see the KVM" into "can run commands on the box that hosts
+ * it", and the harness needs a desktop-owned runtime. The console reads
+ * `features.terminal` from /_agent/api/state and hides the panel.
+ *
+ * It has no login of its own. Sign-in belongs to the identity provider in
+ * front of it (an OIDC proxy such as oauth2-proxy), and the deployment must
+ * make that proxy the only route in. PIKVM_AUTH=proxy states that this is so;
+ * without it the server only binds loopback.
  *
  * Configuration is environment-only, so a compose file and a machine `.env`
  * are the whole contract:
@@ -15,12 +20,13 @@
  *   PIKVM_URL              PiKVM origin, e.g. https://pikvm.example.ts.net (required)
  *   PIKVM_USER             kvmd user (default "admin")
  *   PIKVM_PASSWORD         kvmd password (required)
- *   PIKVM_ACCESS_TOKEN     token for the web login gate (required, unless
- *                          PIKVM_ALLOW_OPEN=1 for a loopback-only dev run)
+ *   PIKVM_AUTH             "proxy": an authenticating reverse proxy is the only
+ *                          way in, so bind any HOST. Unset: loopback only.
  *   PIKVM_KEYBOARD_LAYOUT  "us" | "uk" default before the Pi reports its keymap
  *   PIKVM_DATA_DIR         where settings.json and macros.json live (default ./data)
  *   PIKVM_JIGGLER          "1" keeps the target awake while idle (default off)
- *   HOST / PORT            bind address (default 0.0.0.0:8080)
+ *   HOST / PORT            bind address (default 0.0.0.0:8080 behind a proxy,
+ *                          127.0.0.1:8080 otherwise)
  */
 
 import { mkdirSync } from "node:fs";
@@ -39,12 +45,12 @@ function fail(message: string): never {
     process.exit(1);
 }
 
-/** Settings whose secrets come from the environment and are never written to disk.
+/** Settings the environment decides, whatever the data volume says.
  *
  *  SettingsStore persists the whole object on every patch. Overriding get() puts
- *  the env values into every read (the auth gate reads accessToken per request)
- *  while patch() still writes only the stored data, so the token never lands in
- *  the data volume. */
+ *  the env values into every read (the desktop's token gate reads accessToken
+ *  per request, so a token left in an old settings.json can never switch it
+ *  back on) while patch() still writes only the stored data. */
 class EnvSettingsStore extends SettingsStore {
     constructor(
         path: string,
@@ -79,17 +85,14 @@ if (originUrl.username || originUrl.password) {
 const password = env("PIKVM_PASSWORD");
 if (!password) fail("PIKVM_PASSWORD is required");
 
-const accessToken = env("PIKVM_ACCESS_TOKEN");
-const allowOpen = env("PIKVM_ALLOW_OPEN") === "1";
-if (!accessToken && !allowOpen) {
-    fail("PIKVM_ACCESS_TOKEN is required (PIKVM_ALLOW_OPEN=1 runs without a login gate, for local development only)");
-}
+const proxyAuth = env("PIKVM_AUTH") === "proxy";
+if (env("PIKVM_AUTH") && !proxyAuth) fail(`PIKVM_AUTH must be "proxy" or unset, not ${env("PIKVM_AUTH")}`);
 
-/* Open mode drops the login gate, so it may only listen where nobody else can
- * reach it. Default to loopback there and refuse anything wider. */
-const host = env("HOST") || (accessToken ? "0.0.0.0" : "127.0.0.1");
-if (!accessToken && !["127.0.0.1", "::1", "localhost"].includes(host)) {
-    fail(`PIKVM_ALLOW_OPEN=1 without PIKVM_ACCESS_TOKEN only binds loopback; HOST=${host} would expose the KVM unauthenticated`);
+/* Nothing here asks who you are, so without a proxy vouching for every request
+ * the server may only listen where nobody else can reach it. */
+const host = env("HOST") || (proxyAuth ? "0.0.0.0" : "127.0.0.1");
+if (!proxyAuth && !["127.0.0.1", "::1", "localhost"].includes(host)) {
+    fail(`HOST=${host} would expose the KVM with no sign-in; set PIKVM_AUTH=proxy behind an authenticating proxy`);
 }
 const port = Number(env("PORT") || 8080);
 if (!Number.isInteger(port) || port <= 0 || port > 65535) fail(`PORT is not a valid port: ${env("PORT")}`);
@@ -101,7 +104,8 @@ mkdirSync(dataDir, { recursive: true });
  * is open; a server runs all day, so the same default would keep the target
  * awake around the clock whether or not anybody is using it. */
 const settings = new EnvSettingsStore(resolve(dataDir, "settings.json"), {
-    accessToken,
+    // The desktop's token gate stays off: sign-in is the proxy's job here.
+    accessToken: "",
     bindHost: host,
     jiggler: env("PIKVM_JIGGLER") === "1",
 });

@@ -62,15 +62,29 @@ phones and browsers. It has no shared terminal and no agent harness.
 ```bash
 make web-bundle                      # builds/web/: Docker context
 docker build -t pikvm-web builds/web
-docker run -p 8080:8080 \
-  -e PIKVM_URL=https://pikvm.example.ts.net \
-  -e PIKVM_PASSWORD=... -e PIKVM_ACCESS_TOKEN=... \
-  -v pikvm-web:/data pikvm-web
 ```
 
 The environment is the whole contract; the header of `src/web-server.ts` lists
-every variable. `PIKVM_ACCESS_TOKEN` is required, and the idle jiggler stays off
-unless `PIKVM_JIGGLER=1`.
+every variable. The host has no login of its own. Run it behind an
+authenticating proxy that is the ONLY route in, and set `PIKVM_AUTH=proxy`;
+without that it refuses to bind anything but loopback. Publishing its port
+directly would put the KVM on the network with no sign-in.
+
+The bsociety deployment (`/srv/machines/bsociety/kvm/compose.yml`) is the
+reference:
+
+```mermaid
+flowchart LR
+    phone[Browser] --> caddy[Caddy, private route]
+    caddy --> proxy[kvm-oauth2-proxy]
+    proxy -->|OIDC| pocket[Pocket ID]
+    proxy -->|kvm-internal network only| kvm[kvm: web-server.ts]
+    kvm --> pi[PiKVM]
+```
+
+Let `/_agent/manifest.webmanifest` and `/_agent/icon.png` through without
+sign-in: browsers fetch both without cookies. The idle jiggler stays off unless
+`PIKVM_JIGGLER=1`.
 
 On a touch screen the console docks its controls above the soft keyboard.
 Trackpad mode (the default) moves the cursor by drag, taps click, long-press
