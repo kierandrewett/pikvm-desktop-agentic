@@ -98,6 +98,9 @@ Follow-up run (loopback-only host, same harness):
 | --- | --- | --- |
 | Direct double tap while the Pi is relative | nothing sent; after the absolute report, move + click, move + click, in order | pass |
 | ⋯ menu with the keyboard open (visual viewport 470px) | menu 8..462px, max-height 454px, scrolls | pass |
+| Trackpad drag while the Pi is absolute and Rel is wanted | nothing sent (no absolute jump); after the relative report, the held travel as `mouse_relative` 127,106 / 127,0 / 11,0 | pass |
+| Caps key, then "a" straight after (LED known off) | CapsLock, then Shift+A (target types `a`) | pass |
+| Dock with a terminal (picture / terminal / dock) | 0..464 / 464..751 / 751..844; trackpad cursor dot follows the picture on resize | pass |
 
 ## Not covered
 

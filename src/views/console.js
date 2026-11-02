@@ -677,8 +677,11 @@
                 return Date.now() < capsPendingUntil;
             },
             /** A Caps Lock press just went out: flip the expected state now, so letters
-             *  queued behind it resolve their case against the state they will meet. */
+             *  queued behind it resolve their case against the state they will meet.
+             *  Only from a KNOWN state: toggling an unknown one gives an unknown one,
+             *  and the LED report that follows is what makes it known. */
             noteCapsToggle: function () {
+                if (!capsKnown) return;
                 targetCaps = !targetCaps;
                 capsPendingUntil = Date.now() + 1200;
                 if (onCaps) onCaps(targetCaps);
@@ -4970,6 +4973,7 @@
         }
         keyBusy = true;
         var op = keyQ.shift();
+        // Unknown (no LED report yet) is treated as off: there is nothing better to go on.
         if (op.letter && op.shift !== (hid.capsKnown() && hid.capsOn())) op.mods = op.mods.concat(["ShiftLeft"]);
         if (op.code === "CapsLock") hid.noteCapsToggle();
         // A modifier the user is holding is already down on the target; pressing
@@ -7145,6 +7149,8 @@
      * cleared it. Re-clamp against the box that actually exists now. */
     if (typeof ResizeObserver !== "undefined") {
         new ResizeObserver(function () {
+            // The trackpad's blob is placed in pane pixels, so it moves with the picture.
+            if (trackpadActive()) paintTrackpadCursor();
             if (scale <= 1) return; // unzoomed pans are already pinned to 0,0
             var before = tx + "," + ty;
             clampPan();
@@ -7328,12 +7334,25 @@
     // fractions so slow drags still add up to whole steps.
     var relOweX = 0;
     var relOweY = 0;
+    /* The trackpad wants relative and the Pi offers it, but has not reported the
+     * switch yet. Moves are HELD as relative debt until it does: sent as absolute
+     * meanwhile, the first drag would jump the target's cursor to wherever the
+     * client's estimate happened to be. */
+    function awaitingRelative() {
+        return trackpadActive() && !wantAbsOutput() && !hid.isRelative() && hid.relativeAvailable();
+    }
     function flushMove() {
         moveRaf = 0;
         if (!moveDirty) return;
         moveDirty = false;
         if (window.desktopConsole && !windowFocused) return; // background window: don't move the KVM cursor
-        if (hid.isRelative() && !wantAbsOutput()) {
+        if (awaitingRelative()) {
+            hid.setMouseOutput(false); // throttled; re-asks if the first request was lost
+            return;
+        }
+        /* By the mode the Pi CONFIRMED, not the one asked for: a relative Pi drops
+         * absolute moves, so until it reports the switch it still gets deltas. */
+        if (hid.isRelative()) {
             var sx = Math.trunc(relOweX);
             var sy = Math.trunc(relOweY);
             relOweX -= sx;
@@ -7401,9 +7420,10 @@
          * its own pointer acceleration. vcur keeps an ESTIMATE alongside it for
          * the zoom to follow; acceleration makes it drift, which is the trade
          * for driving targets that only take a relative mouse. */
-        if (hid.isRelative() && !wantAbsOutput()) {
-            relOweX += fx * geomW();
-            relOweY += fy * geomH();
+        if (hid.isRelative() || awaitingRelative()) {
+            // Bounded, so a switch that never comes cannot bank a screen-crossing jump.
+            relOweX = Math.max(-4000, Math.min(4000, relOweX + fx * geomW()));
+            relOweY = Math.max(-4000, Math.min(4000, relOweY + fy * geomH()));
         }
         queueMove();
         followCursor();
@@ -7510,6 +7530,8 @@
                 setTimeout(s.fn, i * 90);
             });
         }
+        // Travel held while the Pi switched to relative goes out now.
+        if (absolute === false && (relOweX || relOweY)) queueMove();
         paintTouchControls();
     });
 
