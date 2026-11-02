@@ -7,10 +7,6 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { ServerResponse } from "node:http";
 
-/** Cookie the desktop shell sets on the proxy origin when it loads the Pi's own
- *  UI through us. Such a window must keep getting the Pi's page at `/`. */
-export const DESKTOP_SHELL_COOKIE = "agent_shell";
-
 // Built assets sit beside the compiled server in dist/views (CJS bundle, so
 // __dirname is the dist root — matching how main.ts resolves its views).
 export const defaultAssetDir = resolve(__dirname, "views");

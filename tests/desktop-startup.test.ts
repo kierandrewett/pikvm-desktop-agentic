@@ -15,7 +15,9 @@ test("a second launch focuses the first instead of crashing on the port", () => 
     // The lock, and a real handler for the launch it turns away.
     assert.match(main, /const gotSingleInstanceLock = app\.requestSingleInstanceLock\(\);/);
     assert.match(main, /if \(!gotSingleInstanceLock\) \{\s*\n\s*app\.quit\(\);/);
-    assert.match(main, /app\.on\("second-instance", \(\) => \{[\s\S]*?win\.isMinimized\(\)\) win\.restore\(\);[\s\S]*?win\.focus\(\);/);
+    assert.match(main, /app\.on\("second-instance", focusAppWindow\);/);
+    const window = readFileSync(resolve(root, "src/desktop/window.ts"), "utf8");
+    assert.match(window, /if \(win\.isMinimized\(\)\) win\.restore\(\);[\s\S]*?win\.focus\(\);/);
     // Everything that used to run unconditionally now hangs off holding it.
     const bootstrap = main.slice(main.indexOf("const gotSingleInstanceLock"));
     assert.ok(bootstrap.indexOf("app.whenReady()") > bootstrap.indexOf("} else {"), "whenReady must be inside the lock branch");
@@ -53,7 +55,7 @@ test("a listen failure is reported, not thrown", () => {
 test("a failed load does not clear the load-failure ceilings", () => {
     assert.match(main, /let loadFailedThisAttempt = false;/);
     // Cleared when a fresh attempt starts...
-    assert.match(main, /loadFailedThisAttempt = false;\s*\n\s*mainView\.webContents\.loadURL\(CONSOLE_URL\);/);
+    assert.match(main, /loadFailedThisAttempt = false;\s*\n\s*void wc\.loadURL\(CONSOLE_URL\)/);
     // ...set the moment one fails, before the error page can "finish"...
     assert.match(main, /loadFailedThisAttempt = true; \/\/ the error page is about to "finish"/);
     // ...and only a clean finish resets either counter.
@@ -129,16 +131,16 @@ test("the harness walks past an orphaned port and its child is told where", () =
 
 test("the control port settles before any URL is built from it", () => {
     /* The walk lived inside startProxyAndHarness(), which createWindow() awaits
-     * only AFTER it has already built PROXY_ORIGIN from CONTROL_PORT. So when
+     * only AFTER it has already built the local origin from CONTROL_PORT. So when
      * 25650 was taken and the walk moved to 25652, the window kept loading
      * http://127.0.0.1:25650/app/ and got ERR_CONNECTION_REFUSED
      * forever - no console at all - while the log said the backend was
      * listening on 25652. Observed, not theorised. */
     const settleAt = main.indexOf("await settleControlPort(");
-    const originAt = main.indexOf("const PROXY_ORIGIN = ");
+    const originAt = main.indexOf("const LOCAL_ORIGIN = ");
     assert.ok(settleAt !== -1, "the port is never settled");
-    assert.ok(originAt !== -1, "PROXY_ORIGIN is gone; this test needs rewriting");
-    assert.ok(settleAt < originAt, "PROXY_ORIGIN is built before the port settles");
+    assert.ok(originAt !== -1, "LOCAL_ORIGIN is gone; this test needs rewriting");
+    assert.ok(settleAt < originAt, "LOCAL_ORIGIN is built before the port settles");
 
     // Idempotent, because both createWindow and startProxyAndHarness ask.
     assert.match(main, /if \(controlPortSettled\) return CONTROL_PORT;/);

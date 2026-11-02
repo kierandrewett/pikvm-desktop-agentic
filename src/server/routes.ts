@@ -28,7 +28,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { gate, hasWorkspaceHeader, loginPage, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
 import { json, readBody } from "./http";
-import { DESKTOP_SHELL_COOKIE } from "./static";
 import { RETIRE_WORKER } from "./legacy-prefix";
 
 /** A proxy that forwards a whole request to somewhere else. */
@@ -95,13 +94,10 @@ function isAppPage(path: string): boolean {
 export function createRoutes(t: RouteTargets): Route[] {
     return [
         {
-            // `/?native=1` is the Full-UI frame and the desktop shell loads the
-            // Pi's own page by design; neither is ours to redirect.
+            // `/?native=1` is the Full-UI frame, which loads the Pi's own page by
+            // design; it is not ours to redirect.
             name: "kvmd's own front page",
-            match: ({ method, path, url, req }) =>
-                method === "GET" &&
-                path === "/" &&
-                (url.searchParams.get("native") === "1" || (req.headers.cookie ?? "").includes(`${DESKTOP_SHELL_COOKIE}=desktop`)),
+            match: ({ method, path, url }) => method === "GET" && path === "/" && url.searchParams.get("native") === "1",
             run: ({ req, res }) => void t.kvmd.handleHttp(req, res),
         },
         {

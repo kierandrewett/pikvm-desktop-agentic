@@ -22,9 +22,6 @@ export interface AppSettings {
     bindHost: string;
     /** Single access token gating the server when set. Empty = open (loopback dev). */
     accessToken: string;
-    /** Opt-in: the desktop KVM view loads through our proxy instead of the Pi
-     *  directly (one rendering path with the web client). Off by default. */
-    desktopUseProxy: boolean;
     /** Base URL of the pikvm-agent daemon the Agent panel talks to (proxied at
      *  /app/daemon/*). Defaults to http://127.0.0.1:47615; env PIKVM_AGENT_DAEMON
      *  overrides. */
@@ -59,7 +56,6 @@ const DEFAULTS: AppSettings = {
     keyboardLayout: "us",
     bindHost: "127.0.0.1",
     accessToken: "",
-    desktopUseProxy: false,
     atlas: DEFAULT_ATLAS,
 };
 

@@ -152,10 +152,6 @@ test("everything outside /app reaches kvmd, and / goes to the console", async ()
         const native = await call(s.origin, "/?native=1");
         assert.equal(native.target, "kvmd");
 
-        // So does the desktop shell, which carries a cookie to say so.
-        const shell = await call(s.origin, "/", { headers: { cookie: "agent_shell=desktop" } });
-        assert.equal(shell.target, "kvmd");
-
         for (const path of ["/api/info", "/streamer/state", "/janus/ws", "/kvm/", "/login/", "/share/x"]) {
             const hit = await call(s.origin, path);
             assert.equal(hit.target, "kvmd", path);

@@ -8,13 +8,11 @@ const html = readFileSync(resolve(root, "src/views/console.html"), "utf8");
 const css = readFileSync(resolve(root, "src/views/console.css"), "utf8");
 const js = readFileSync(resolve(root, "src/views/console.js"), "utf8");
 const main = readFileSync(resolve(root, "src/main.ts"), "utf8");
-const preload = readFileSync(resolve(root, "src/preload-console.ts"), "utf8");
 
 test("desktop exposes one chat workspace and never auto-fits around the remote screen", () => {
     assert.doesNotMatch(html, /role="tablist" aria-label="Workspace"/);
     assert.doesNotMatch(html, />Terminal<\/button>/);
     assert.doesNotMatch(js, /setPanelTab\(/);
-    assert.doesNotMatch(preload, /setPanelTab/);
     assert.doesNotMatch(main, /const terminalView = new WebContentsView/);
     assert.doesNotMatch(main, /console:panel-tab/);
     assert.doesNotMatch(js, /autoFitTimer/);
@@ -1449,21 +1447,12 @@ test("both console disclosures name the region they open", () => {
 });
 
 test("save screenshot reports what the download did, not that it started", () => {
-    const preload = readFileSync(resolve(root, "src/preload-console.ts"), "utf8");
     /* a.click() HANDS the file to the download machinery and returns. The next
        line toasted "Screenshot saved" — so a save dialog the user cancelled, or
        a full or read-only disk, still reported success. It was the one place in
        the console that reported an outcome it never observed. */
     assert.doesNotMatch(js, /a\.click\(\);[\s\S]{0,200}?toast\("Screenshot saved"\)/);
     assert.match(js, /awaitScreenshotSave\(name\);/);
-
-    // The main process forwards the DownloadItem's own terminal state.
-    assert.match(main, /session\.defaultSession\.on\("will-download", \(_event, item, webContents\) => \{/);
-    assert.match(main, /item\.once\("done", \(_doneEvent, state\) => \{/);
-    assert.match(main, /webContents\.send\("console:download-done", \{/);
-    assert.match(main, /if \(webContents\.isDestroyed\(\)\) return;/);
-    assert.match(preload, /onDownloadDone\(\s*cb: \(info: \{ name: string; state: "completed" \| "cancelled" \| "interrupted"; path: string \}\) => void,\s*\): \(\) => void;/);
-    assert.match(preload, /ipcRenderer\.on\("console:download-done", listener\);/);
 
     // Matched by filename, because will-download fires for any download.
     assert.match(js, /if \(!pendingShot \|\| !info \|\| info\.name !== pendingShot\.name\) return;/);
@@ -1485,8 +1474,8 @@ test("save screenshot reports what the download did, not that it started", () =>
          cancelled    -> "Screenshot not saved"
          interrupted  -> "Screenshot save failed"
        and with no bridge at all the immediate "Screenshot saved" is unchanged.
-       The Electron will-download half is covered by shape here, not by a live
-       run of the packaged app. */
+       The Electron half of this (a will-download relay) left with the legacy
+       preload; the web app's own screenshot does not wait for it. */
 });
 
 test("text is typed with the same keymap wherever it is typed from", () => {

@@ -1,18 +1,10 @@
 // Dual esbuild: Node (Electron main + preloads) and the browser terminal renderer.
 import { build } from "esbuild";
-import { rmSync, cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { rmSync, cpSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 const root = resolve(import.meta.dirname, "..");
 const dist = resolve(root, "dist");
-
-/** src/preload*.ts — the scripts Electron injects into a renderer. */
-function preloadEntryPoints() {
-    return readdirSync(resolve(root, "src"))
-        .filter((name) => name.startsWith("preload") && name.endsWith(".ts"))
-        .sort()
-        .map((name) => resolve(root, "src", name));
-}
 
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
@@ -20,18 +12,19 @@ mkdirSync(dist, { recursive: true });
 // 1. Node bundle: the Electron-loaded entry points. Their imports (control core,
 //    agent harness, servers, pi-ai, MCP SDK) are bundled in.
 await build({
-    entryPoints: [
-        resolve(root, "src/main.ts"),
-        resolve(root, "src/mcp-launcher.ts"),
+    // Named, so each lands at dist/<name>.js whatever folder it lives in: package.json "main" is
+    // main.js and the window loads preload.js from beside it.
+    entryPoints: {
+        main: resolve(root, "src/main.ts"),
+        "mcp-launcher": resolve(root, "src/mcp-launcher.ts"),
         // The headless web host (container deploys). Same server and proxy as
         // the desktop, no Electron import anywhere in its graph.
-        resolve(root, "src/web-server.ts"),
-        // Every preload, discovered. They used to be listed, and a preload left
-        // off the list simply was not built: Electron then fails to load it and
-        // the window keeps running with that bridge missing, so the feature it
-        // carries quietly does nothing.
-        ...preloadEntryPoints(),
-    ],
+        "web-server": resolve(root, "src/web-server.ts"),
+        // The one preload: window.pikvmDesktop. A preload left off this list is
+        // not built, Electron then fails to load it and the window keeps running
+        // with the bridge missing, so the window controls quietly do nothing.
+        preload: resolve(root, "src/desktop/preload.ts"),
+    },
     outdir: dist,
     platform: "node",
     format: "cjs",

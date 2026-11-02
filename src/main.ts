@@ -1,15 +1,4 @@
-import {
-    app,
-    BrowserWindow,
-    WebContentsView,
-    ipcMain,
-    shell,
-    screen,
-    dialog,
-    nativeTheme,
-    session,
-    Menu,
-} from "electron";
+import { app, shell, dialog, session } from "electron";
 import {
     chmodSync,
     readFileSync,
@@ -37,7 +26,7 @@ import { ManagedService } from "./service-manager";
 import { HarnessManager } from "./harness-manager";
 import { activeManagedClientRuntimePath } from "./harness-runtime";
 import { WORKSPACE_PREFIX } from "./server/workspace";
-import { requestAttention } from "./taskbar-attention";
+import { createAppWindow, focusAppWindow } from "./desktop/window";
 import { prepareGuiMcp, type GuiMcp } from "./gui-mcp";
 
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -104,19 +93,6 @@ async function firstFreePort(from: number, host: string, tries = 20): Promise<nu
     }
     throw new Error(`no free port between ${from} and ${from + tries - 1}`);
 }
-
-// The unified web console (/app/) is the desktop UI: the main window loads it and
-// the console draws its own titlebar/chrome (via the console preload's
-// `window.desktopConsole`).
-// Map a console RENDERER's webContents id → its window. The main window hosts the
-// console in a child WebContentsView, so BrowserWindow.fromWebContents(sender) can
-// return null; this resolves the window reliably for the console-scoped IPC.
-const consoleWcToWin = new Map<number, Electron.BrowserWindow>();
-// Window-chrome per platform: macOS keeps its native traffic lights (titleBarStyle
-// "hidden", positioned to sit inside our 38px titlebar); Linux + Windows are fully
-// frameless so the console draws its own controls (GTK-style on Linux).
-const consoleFrameOpts: Electron.BrowserWindowConstructorOptions =
-    process.platform === "darwin" ? { titleBarStyle: "hidden", trafficLightPosition: { x: 13, y: 10 } } : { frame: false };
 
 /** Where the pikvm-agent runtime might be, best candidate first.
  *
@@ -361,7 +337,7 @@ async function startProxyAndHarness(
     await settleControlPort(bindHost);
 
     // Keep the optional browser/mobile shell service available for compatibility.
-    // The desktop app does not create or render a terminal WebContentsView.
+    // The desktop window has no terminal of its own; the web app's /app/terminal socket uses this.
     const vaultPath = (): string => {
         const path = settings.get().atlas?.vaultPath;
         return path && path.trim() ? path : app.getPath("home");
@@ -615,283 +591,39 @@ function saveConfig(cfg: any) {
     writeFileSync(configPath, JSON.stringify(cfg, null, 2));
 }
 
-/** Resolve a console-chromed window from an IPC sender (the main window in console
- *  mode and any "open in new window" console both carry the console preload). */
-function consoleWinFrom(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): Electron.BrowserWindow | null {
-    const w = consoleWcToWin.get(event.sender.id);
-    return w && !w.isDestroyed() ? w : null;
-}
-
-// ── Console window IPC (only the frameless console carries preload-console) ──
-ipcMain.on("console:minimise", (e) => consoleWinFrom(e)?.minimize());
-ipcMain.on("console:toggle-maximise", (e) => {
-    const w = consoleWinFrom(e);
-    if (!w) return;
-    w.isMaximized() ? w.unmaximize() : w.maximize();
-});
-ipcMain.on("console:close", (e) => consoleWinFrom(e)?.close());
-// The console's background sampler saw the remote screen change meaningfully
-// while this window was NOT focused → pulse its taskbar/dock entry. The renderer
-// only sends this when it is unfocused; requestAttention re-checks anyway, since
-// focus can land between the sample and the message arriving here.
-ipcMain.on("console:screen-activity", (e) => {
-    const w = consoleWinFrom(e);
-    if (w) requestAttention(w);
-});
-ipcMain.handle("console:is-maximised", (e) => {
-    const w = consoleWinFrom(e);
-    return !!w && w.isMaximized();
-});
-
-// Snap the window so the live-screen area renders the native resolution 1:1. The
-// renderer passes the stream's native size plus the window chrome around the
-// screen's CONTENT box — the agent column, the titlebar, the divider — measured
-// as one leftover rather than listed part by part, which is how the 1px divider
-// used to be missed. We add it back and set the window's CONTENT size (excludes
-// the OS frame — and we're frameless anyway).
-ipcMain.on("console:fit-native", (e, opts: { width?: number; height?: number; chromeWidth?: number; chromeHeight?: number }) => {
-    const w = consoleWinFrom(e);
-    if (!w) return;
-    const nw = Number(opts?.width);
-    const nh = Number(opts?.height);
-    if (!nw || !nh || nw < 1 || nh < 1) return;
-    const chromeW = Math.max(0, Math.round(Number(opts?.chromeWidth) || 0));
-    const chromeH = Math.max(0, Math.round(Number(opts?.chromeHeight) || 0));
-    if (w.isMaximized()) w.unmaximize();
-    // That chrome is FIXED-pixel (it doesn't scale), so we scale only the SCREEN
-    // to fit the work area beside it, then add it back. This makes the screen
-    // column land exactly on the stream aspect — no black bars.
-    const area = screen.getDisplayMatching(w.getBounds()).workAreaSize;
-    const availW = Math.max(320, area.width - chromeW);
-    const availH = Math.max(240, area.height - chromeH);
-    const scale = Math.min(1, availW / nw, availH / nh);
-    const screenW = Math.round(nw * scale);
-    const screenH = Math.round(nh * scale);
-    w.setContentSize(screenW + chromeW, screenH + chromeH);
-});
-
-// Build + pop a NATIVE menu from the renderer's spec; send the chosen id back.
-ipcMain.on("console:popup-menu", (e, payload: { items?: any[]; anchor?: { x: number; y: number } }) => {
-    const w = consoleWinFrom(e);
-    if (!w) return;
-    const items = Array.isArray(payload?.items) ? payload.items : [];
-    const template: Electron.MenuItemConstructorOptions[] = items.map((it) => {
-        if (it?.type === "separator") return { type: "separator" };
-        return {
-            label: String(it?.label ?? ""),
-            type: it?.type === "checkbox" ? "checkbox" : "normal",
-            checked: !!it?.checked,
-            enabled: it?.enabled !== false,
-            click: () => {
-                // Send back to the SENDER renderer (the console view), not w.webContents
-                // (empty for the main window which hosts the console in a child view).
-                if (!e.sender.isDestroyed() && it?.id) e.sender.send("console:menu-command", String(it.id));
-            },
-        };
-    });
-    const menu = Menu.buildFromTemplate(template);
-    const anchor = payload?.anchor;
-    menu.popup(
-        anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
-            ? { window: w, x: Math.round(anchor.x), y: Math.round(anchor.y) }
-            : { window: w }
-    );
-});
-
-// ── Settings window ──────────────────────────────────────────────────────────
-// The console's gear (and the native menu's "Settings") send console:open-settings.
-// In the slim app there is no agent panel; open a small native Settings window with
-// the only things a PiKVM client needs: connection URL, keyboard layout, jiggler.
-const settingsFilePath = () => resolve(app.getPath("userData"), "agent-settings.json");
-let settingsWin: Electron.BrowserWindow | null = null;
-/** The console's current theme, so windows opened later match it.
- *
- *  The console owns the choice — it is a deliberate user setting kept in its own
- *  localStorage, not the OS preference — and it reports every change here. The
- *  Settings window is a separate BrowserWindow that cannot read that storage, so
- *  without remembering it here Settings opened black over a light console. */
-let consoleTheme: "dark" | "light" = "dark";
 /** Set when startup found another copy of this app already on our usual port. */
 let secondInstanceNotice: { wanted: number; using: number } | null = null;
-const THEME_BG = { dark: "#0a0a0c", light: "#eef0f4" } as const;
-
-function openSettingsWindow() {
-    if (settingsWin && !settingsWin.isDestroyed()) {
-        settingsWin.focus();
-        return;
-    }
-    settingsWin = new BrowserWindow({
-        width: 460,
-        height: 360,
-        resizable: false,
-        minimizable: false,
-        maximizable: false,
-        center: true,
-        darkTheme: consoleTheme === "dark",
-        title: "PiKVM Desktop — Settings",
-        backgroundColor: THEME_BG[consoleTheme],
-        autoHideMenuBar: true,
-        show: false,
-        webPreferences: {
-            contextIsolation: true,
-            preload: resolve(__dirname, "preload-settings.js"),
-        },
-    });
-    settingsWin.removeMenu();
-    void settingsWin.loadFile(resolve(__dirname, "views", "settings-console.html"));
-    // Grow the window to whatever the page actually needs before showing it.
-    // width/height above include the window chrome, and how much that is
-    // differs per platform — this GTK frame takes 80px, which left the page
-    // 280px for 352px of content, so Settings opened already scrolled with
-    // "Save & restart" below the fold in a window that cannot be resized.
-    // useContentSize is not the fix: it is ignored here. Measuring the rendered
-    // page is, and it also covers a larger system font or a longer hint.
-    settingsWin.webContents.once("did-finish-load", () => {
-        if (!settingsWin || settingsWin.isDestroyed()) return;
-        void settingsWin.webContents
-            .executeJavaScript("document.documentElement.scrollHeight")
-            .then((needed: unknown) => {
-                if (!settingsWin || settingsWin.isDestroyed()) return;
-                const size = settingsWin.getContentSize();
-                const width = size[0] ?? 0;
-                const height = size[1] ?? 0;
-                const wanted = Math.min(Math.ceil(Number(needed) || 0), 900);
-                if (wanted > height) settingsWin.setContentSize(width, wanted);
-            })
-            .catch(() => {
-                /* the fixed size still shows most of the form; never block the window */
-            });
-    });
-    settingsWin.once("ready-to-show", () => settingsWin?.show());
-    settingsWin.on("closed", () => {
-        settingsWin = null;
-    });
-}
-
-ipcMain.on("console:open-settings", () => openSettingsWindow());
-
-// Read current settings for the form (origin lives in the desktop config; layout +
-// jiggler in the SettingsStore file).
-ipcMain.on("settings:read", (e) => {
-    let pikvmUrl = "";
-    let config: any = {};
-    try {
-        config = loadConfig();
-        pikvmUrl = config.origin || "";
-    } catch {
-        /* no config yet */
-    }
-    const s = new SettingsStore(settingsFilePath()).get();
-    e.returnValue = {
-        pikvmUrl,
-        keyboardLayout: s.keyboardLayout,
-        jiggler: s.jiggler,
-        /* Whether the PiKVM URL below is actually used.
-         *
-         * This was `envLocked: !!process.env.PIKVM_CONSOLE_ORIGIN`, and the
-         * settings window never read it — it appears there once, as a key in
-         * the fallback object, and nowhere else. It was also measuring the
-         * wrong thing twice over: nothing in this app reads an env var for
-         * `origin` (the setting this form edits), and a remote console can be
-         * configured through `config.consoleOrigin` with no env var in sight.
-         *
-         * What it should mean is the condition CONSOLE_ORIGIN already decides
-         * on: when the console is served from somewhere else, this desktop is a
-         * thin client and the remote server owns the connection, the capture
-         * and the HID. The local origin is then read by nothing, so offering an
-         * editable field for it invites a change that relaunches the app and
-         * has no effect. Computed the same way as CONSOLE_ORIGIN so the two
-         * cannot disagree. */
-        originLocked: !!(config.consoleOrigin || process.env.PIKVM_CONSOLE_ORIGIN),
-    };
-});
-
-// Persist settings and relaunch so the new origin/layout apply cleanly (mirrors the
-// existing console:set-pikvm-origin behaviour).
-ipcMain.on("settings:save", (_e, v: { pikvmUrl?: unknown; keyboardLayout?: unknown; jiggler?: unknown }) => {
-    const layout = v?.keyboardLayout === "uk" ? "uk" : "us";
-    // Only touch the jiggler when the form actually sent a boolean. `!!v?.jiggler`
-    // turned it OFF for any save that omitted the field — a silent way to lose the
-    // keep-awake without anyone choosing to.
-    const patch: { keyboardLayout: "us" | "uk"; jiggler?: boolean } = { keyboardLayout: layout };
-    if (typeof v?.jiggler === "boolean") patch.jiggler = v.jiggler;
-    new SettingsStore(settingsFilePath()).patch(patch);
-    const cfg = loadConfig();
-    const url = typeof v?.pikvmUrl === "string" ? v.pikvmUrl.trim().replace(/\/$/, "") : "";
-    if (url) cfg.origin = url;
-    saveConfig(cfg);
-    app.relaunch();
-    app.exit(0);
-});
-
-ipcMain.on("settings:cancel", (e) => BrowserWindow.fromWebContents(e.sender)?.close());
-// Read synchronously at load, so the window paints in the right theme on its
-// first frame rather than flashing the wrong one.
-ipcMain.on("settings:theme", (e) => {
-    e.returnValue = consoleTheme;
-});
-
-/** Standard editing context menu (cut/copy/paste/select all) for a view. */
-function attachContextMenu(wc: Electron.WebContents) {
-    wc.on("context-menu", (_e, params) => {
-        const f = params.editFlags;
-        const template: Electron.MenuItemConstructorOptions[] = [];
-        if (params.isEditable) {
-            template.push(
-                { role: "cut", enabled: f.canCut },
-                { role: "copy", enabled: f.canCopy },
-                { role: "paste", enabled: f.canPaste },
-                { type: "separator" },
-                { role: "selectAll" }
-            );
-        } else if (params.selectionText) {
-            template.push({ role: "copy" }, { role: "selectAll" });
-        }
-        if (!template.length) return;
-        Menu.buildFromTemplate(template).popup();
-    });
-}
 
 async function createWindow() {
     console.log("Creating window");
 
     const config = loadConfig();
-    let origin = config.origin;
+    const origin: string = config.origin;
 
-    const consoleSize = { width: 1400, height: 880 };
+    // The first-party chat harness is the desktop's sole workspace. Its isolated
+    // session lets main inject the operator credential without ever exposing that
+    // credential to page JavaScript.
+    const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
+    /* Resolved here rather than inside the proxy so a missing runtime is one
+     * decision, not two: startProxyAndHarness() already reports it. */
+    const harnessRuntime = resolveHarnessRuntime(settings.get().harnessCmd);
 
-    const win = new BrowserWindow({
-        // The console is the full primary UI → open at a proper desktop size and let
-        // it be resized.
-        width: consoleSize.width,
-        height: consoleSize.height,
-        minWidth: 900,
-        minHeight: 560,
-        center: true,
-        darkTheme: true,
-        ...consoleFrameOpts,
-        icon: appIconPath,
-        title: "PiKVM Desktop",
-        backgroundColor: "#0a0a0c",
-        // Start hidden so the user never sees the white "flashbang" before the
-        // console paints; we reveal it once the content has loaded (below).
-        show: false,
-    });
+    /* Settle the port FIRST. Everything below is built from it, and until this
+     * moved here the window built its origin from the port we hoped for rather
+     * than the one we got. */
+    await settleControlPort(process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1");
+    const LOCAL_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
+    // The app can be served from ANYWHERE: set `consoleOrigin` in pikvm.json (or the
+    // PIKVM_CONSOLE_ORIGIN env override) to point the desktop at a hosted deployment.
+    // When it's not the local server, the desktop is a pure THIN CLIENT: it loads the
+    // remote app and does NOT start a local backend (the remote server owns the agent,
+    // capture, HID, proxy, etc.).
+    const CONSOLE_ORIGIN = (config.consoleOrigin || process.env.PIKVM_CONSOLE_ORIGIN || LOCAL_ORIGIN).replace(/\/$/, "");
+    const remoteConsole = CONSOLE_ORIGIN !== LOCAL_ORIGIN;
+    const CONSOLE_URL = `${CONSOLE_ORIGIN}/app/`;
 
-    const mainView = new WebContentsView({
-        webPreferences: {
-            contextIsolation: true,
-            // The main view IS the unified console, so it carries the console
-            // preload (window.desktopConsole → its own titlebar, native menus,
-            // fit-native).
-            preload: resolve(__dirname, "preload-console.js"),
-            // The console runs capture timers; don't let Chromium throttle them
-            // when the window is unfocused.
-            backgroundThrottling: false,
-        },
-    });
-    // Dark view background so there is no white paint before the console CSS applies.
-    mainView.setBackgroundColor("#0a0a0c");
+    const win = createAppWindow({ url: CONSOLE_URL, icon: appIconPath, version: app.getVersion() });
+    const wc = win.webContents;
 
     // Reveal the window only once the main content has loaded (or after a safety
     // timeout), so there is no flash of an empty/white window on launch.
@@ -946,7 +678,7 @@ async function createWindow() {
             defaultId: 0,
         });
     };
-    mainView.webContents.on("did-finish-load", () => {
+    wc.on("did-finish-load", () => {
         // Only a load that did NOT fail clears the ceilings. An error page
         // finishing is not the console loading.
         if (!loadFailedThisAttempt) {
@@ -957,84 +689,12 @@ async function createWindow() {
     });
     setTimeout(revealWindow, 4000); // fallback in case load never finishes
 
-    // The first-party chat harness is the desktop's sole workspace. Its isolated
-    // session lets main inject the operator credential without ever exposing that
-    // credential to page JavaScript.
-    const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
-    /* Resolved here rather than inside the proxy so a missing runtime is one
-     * decision, not two: startProxyAndHarness() already reports it. */
-    const harnessRuntime = resolveHarnessRuntime(settings.get().harnessCmd);
-
-    // Opt-in: load the KVM view through our own proxy instead of the Pi directly,
-    // so the desktop shares the web client's rendering path. Off by default; needs
-    // a restart to change. `viewOrigin()` is a live function so a runtime origin
-    // change still applies in the default (non-proxy) mode.
-    /* Settle the port FIRST. Everything below is built from it, and until this
-     * moved here the window built its origin from the port we hoped for rather
-     * than the one we got. */
-    await settleControlPort(process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1");
-    const PROXY_ORIGIN = `http://127.0.0.1:${CONTROL_PORT}`;
-    const desktopProxy = settings.get().desktopUseProxy;
-    // The console can be served from ANYWHERE — set it in Settings → Connection (or
-    // the PIKVM_CONSOLE_ORIGIN env override) to point the desktop at a hosted
-    // deployment. When it's not the local server, the desktop is a pure THIN CLIENT:
-    // it loads the remote console and does NOT start a local backend (the remote
-    // server owns the agent, capture, HID, proxy, etc.).
-    const CONSOLE_ORIGIN = (config.consoleOrigin || process.env.PIKVM_CONSOLE_ORIGIN || PROXY_ORIGIN).replace(/\/$/, "");
-    const remoteConsole = CONSOLE_ORIGIN !== PROXY_ORIGIN;
-    const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
-    const CONSOLE_URL = `${CONSOLE_ORIGIN}/app/`;
-    if (desktopProxy) {
-        // Mark this Electron session as the desktop shell so the proxy hands the
-        // Pi's own page at `/` to it instead of redirecting to the console.
-        void session.defaultSession.cookies
-            .set({ url: PROXY_ORIGIN, name: "agent_shell", value: "desktop", expirationDate: Date.now() / 1000 + 31536000 })
-            .catch(() => {});
-    }
-
-    // The main window is console-chromed: it carries the console preload, so
-    // register it for the console-scoped IPC (window controls, fit-native, native
-    // menus) and mirror its maximise state to the titlebar glyph.
-    // The console renderer is mainView (a child view), so register ITS webContents
-    // and send window-state to it (not win.webContents, which is empty).
-    const consoleWcId = mainView.webContents.id;
-    consoleWcToWin.set(consoleWcId, win);
-    const mirrorMax = () => {
-        if (!win.isDestroyed()) mainView.webContents.send("console:maximise-change", win.isMaximized());
-    };
-    win.on("maximize", mirrorMax);
-    win.on("unmaximize", mirrorMax);
-    win.on("closed", () => consoleWcToWin.delete(consoleWcId));
-
-    win.contentView.addChildView(mainView);
-
-    const layout = () => {
-        const [w, h] = win.getContentSize();
-        console.log(`Layout: ${w}x${h}`);
-
-        // The console draws its OWN titlebar, so the main view fills the whole window.
-        mainView.setBounds({ x: 0, y: 0, width: w!, height: h! });
-    };
-
-    ipcMain.on("console:agent-theme", (_, theme: unknown) => {
-        if (theme !== "dark" && theme !== "light") return;
-        consoleTheme = theme;
-        // Settings is a plain window rather than part of the conversation, but it
-        // is still this app's window and should not be the one thing left dark.
-        if (settingsWin && !settingsWin.isDestroyed()) {
-            settingsWin.setBackgroundColor(THEME_BG[theme]);
-            settingsWin.webContents.send("settings:theme", theme);
-        }
-    });
     win.on("closed", () => {
         backend?.terminalSessions.killAll();
         guiMcp?.dispose();
         backend?.harness?.stop();
         backend?.daemon?.stop();
     });
-
-    // Right-click editing menus on the main view.
-    attachContextMenu(mainView.webContents);
 
     // Start the local backend (PiKVM control core for the proxy + the shared
     // terminal + the control server) — UNLESS we're a thin client pointing at a
@@ -1054,173 +714,93 @@ async function createWindow() {
         });
     }
 
-
-    win.on("resize", layout);
-    layout();
-
-    const wc = mainView.webContents;
-
     const connect = () => {
-        // The unified console is the desktop UI; it proxies to the Pi itself and
-        // draws its OWN titlebar (window controls + audio/mic + fit-native), so it
-        // fills the whole window.
-        console.log("Loading unified console at:", CONSOLE_URL);
+        console.log("Loading the app at:", CONSOLE_URL);
         loadFailedThisAttempt = false;
-        mainView.webContents.loadURL(CONSOLE_URL);
+        void wc.loadURL(CONSOLE_URL).catch(() => {
+            /* did-fail-load below owns the retry and the dialog */
+        });
     };
 
-    wc.setWindowOpenHandler(({ url }) => {
-        console.log("Window open request:", url);
-
-        const parsedOrigin = new URL(viewOrigin());
-        const parsedURL = new URL(url);
-        const isOrigin =
-            parsedOrigin.host === parsedURL.host &&
-            parsedOrigin.protocol === parsedURL.protocol &&
-            parsedOrigin.port === parsedURL.port &&
-            parsedOrigin.hostname === parsedURL.hostname;
-        const isOriginAPI = isOrigin && parsedURL.pathname.startsWith("/api/");
-
-        if (!isOrigin || isOriginAPI) {
-            console.log("Opening externally");
-            shell.openExternal(url);
-            return { action: "deny" };
-        }
-
-        console.log("Allowed internally");
-        return { action: "allow" };
-    });
-
-    wc.on("before-input-event", (_, input) => {
-        if ((input.control || input.meta) && input.key.toLowerCase() === "w") {
-            console.log("Blocked Ctrl/Cmd+W");
-            return false;
-        }
-    });
-
-    wc.on("will-navigate", (e, url) => {
-        console.log("Will navigate:", url);
-
-        const parsedOrigin = new URL(viewOrigin());
-        const parsedURL = new URL(url);
-        const isOrigin =
-            parsedOrigin.host === parsedURL.host &&
-            parsedOrigin.protocol === parsedURL.protocol &&
-            parsedOrigin.port === parsedURL.port &&
-            parsedOrigin.hostname === parsedURL.hostname;
-        const isOriginAPI = isOrigin && parsedURL.pathname.startsWith("/api/");
-
-        if (!isOrigin || isOriginAPI) {
-            console.log("External navigation blocked");
-            e.preventDefault();
-            shell.openExternal(url);
-        }
-    });
-
-    wc.on("did-navigate", (_, url) => {
-        console.log("Navigated:", url);
-        // Match the input-forwarding guard to the current focus state on load.
-        mainView.webContents.send("kvm:input-enabled", win.isFocused());
-    });
-
-    win.on("focus", () => {
-        // Re-enable forwarding input to the remote now that we're focused.
-        mainView.webContents.send("kvm:input-enabled", true);
-    });
-    win.on("blur", () => {
-        // Stop any mouse/keyboard from reaching the KVM while we're not focused.
-        mainView.webContents.send("kvm:input-enabled", false);
-    });
-
-    mainView.webContents.addListener("zoom-changed", () => {
-        mainView.webContents.setVisualZoomLevelLimits(1, 1);
-        mainView.webContents.setZoomLevel(1);
-    });
-
-    mainView.webContents.on("will-prevent-unload", (e) => {
-        console.log("Unload prevented");
-        e.preventDefault();
-    });
-
-    // The main view IS the unified console from boot.
     connect();
 
-    mainView.webContents.addListener(
-        "did-fail-load",
-        (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
-            if (!isMainFrame || errorCode === -3) return; // ignore sub-resources + aborts
-            loadFailedThisAttempt = true; // the error page is about to "finish"
-            console.log("Main view failed to load:", errorCode, errorDescription, validatedURL);
-            // Local server may just be starting on first boot — keep retrying,
-            // but not forever. An empty window that never explains itself is
-            // worse than a dialog that does.
-            if (!remoteConsole) {
-                localLoadFails++;
-                if (localLoadFails <= LOCAL_LOAD_MAX_TRIES) {
-                    setTimeout(connect, 600);
-                    return;
-                }
-                localLoadFails = 0;
-                // Nothing ever loaded, so the window may never have been shown.
-                if (!win.isDestroyed() && !win.isVisible()) win.show();
-                void dialog
-                    .showMessageBox(win, {
-                        type: "error",
-                        title: "Can't load the console",
-                        message: `The console did not load from:\n${CONSOLE_URL}`,
-                        detail:
-                            (errorDescription || "The local server did not answer.") +
-                            "\n\nThis is served by PiKVM Desktop itself, so it usually means the local server did not start. Retrying is worth one try; if it keeps happening the app log has the reason.",
-                        buttons: ["Retry", "Quit"],
-                        defaultId: 0,
-                        cancelId: 1,
-                    })
-                    .then((r) => {
-                        if (r.response === 0) connect();
-                        else app.quit();
-                    });
+    wc.on("did-fail-load", (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        if (!isMainFrame || errorCode === -3) return; // ignore sub-resources + aborts
+        loadFailedThisAttempt = true; // the error page is about to "finish"
+        console.log("Main view failed to load:", errorCode, errorDescription, validatedURL);
+        // Local server may just be starting on first boot — keep retrying,
+        // but not forever. An empty window that never explains itself is
+        // worse than a dialog that does.
+        if (!remoteConsole) {
+            localLoadFails++;
+            if (localLoadFails <= LOCAL_LOAD_MAX_TRIES) {
+                setTimeout(connect, 600);
                 return;
             }
-            // REMOTE console unreachable → the user can't reach in-app Settings,
-            // so give a NATIVE recovery dialog (independent of the dead frontend).
-            consoleLoadFails++;
-            if (consoleLoadFails < 3) {
-                setTimeout(connect, 1200);
-                return;
-            }
-            consoleLoadFails = 0;
+            localLoadFails = 0;
+            // Nothing ever loaded, so the window may never have been shown.
             if (!win.isDestroyed() && !win.isVisible()) win.show();
             void dialog
                 .showMessageBox(win, {
                     type: "error",
-                    title: "Can't reach the console",
-                    message: `Couldn't load the console from:\n${CONSOLE_ORIGIN}`,
-                    detail: (errorDescription || "The server may be down or the address may be wrong.") + "\n\nUse the local server to get back in and fix the address in Settings → Connection.",
-                    buttons: ["Retry", "Use local server", "Quit"],
+                    title: "Can't load the console",
+                    message: `The console did not load from:\n${CONSOLE_URL}`,
+                    detail:
+                        (errorDescription || "The local server did not answer.") +
+                        "\n\nThis is served by PiKVM Desktop itself, so it usually means the local server did not start. Retrying is worth one try; if it keeps happening the app log has the reason.",
+                    buttons: ["Retry", "Quit"],
                     defaultId: 0,
-                    cancelId: 2,
+                    cancelId: 1,
                 })
                 .then((r) => {
-                    if (r.response === 1) {
-                        const cfg = loadConfig();
-                        delete cfg.consoleOrigin; // back to local
-                        saveConfig(cfg);
-                        app.relaunch();
-                        app.exit(0);
-                    } else if (r.response === 2) {
-                        app.quit();
-                    } else {
-                        connect();
-                    }
+                    if (r.response === 0) connect();
+                    else app.quit();
                 });
-        },
-    );
+            return;
+        }
+        // REMOTE console unreachable → the user can't reach in-app Settings,
+        // so give a NATIVE recovery dialog (independent of the dead frontend).
+        consoleLoadFails++;
+        if (consoleLoadFails < 3) {
+            setTimeout(connect, 1200);
+            return;
+        }
+        consoleLoadFails = 0;
+        if (!win.isDestroyed() && !win.isVisible()) win.show();
+        void dialog
+            .showMessageBox(win, {
+                type: "error",
+                title: "Can't reach the console",
+                message: `Couldn't load the console from:\n${CONSOLE_ORIGIN}`,
+                detail: (errorDescription || "The server may be down or the address may be wrong.") + "\n\nUse the local server to get back in.",
+                buttons: ["Retry", "Use local server", "Quit"],
+                defaultId: 0,
+                cancelId: 2,
+            })
+            .then((r) => {
+                if (r.response === 1) {
+                    const cfg = loadConfig();
+                    delete cfg.consoleOrigin; // back to local
+                    saveConfig(cfg);
+                    app.relaunch();
+                    app.exit(0);
+                } else if (r.response === 2) {
+                    app.quit();
+                } else {
+                    connect();
+                }
+            });
+    });
 
+    // Microphone and clipboard for the KVM; full screen and Keyboard Lock for the window
+    // controls. Everything else (camera, geolocation, notifications, ...) is refused.
     const allowedPermissions = new Set([
         "media",
         "clipboard-read",
         "clipboard-sanitized-write",
         "clipboard-write",
+        "fullscreen",
+        "keyboardLock",
     ]);
     session.defaultSession.setPermissionRequestHandler(
         (webContents, permission, callback) => {
@@ -1236,36 +816,7 @@ async function createWindow() {
         allowedPermissions.has(permission)
     );
 
-    /* Tell the console whether a download actually landed.
-     *
-     * Save screenshot builds a blob, calls click() on an <a download>, and
-     * toasts "Screenshot saved" on the next line. click() only HANDS the file
-     * to the download machinery: in the desktop app that can open a save
-     * dialog the user cancels, or fail on a full or read-only disk, and the
-     * console said it had saved either way. It is the one place in this app
-     * that reports an outcome it never observed.
-     *
-     * The renderer keeps its own fallback for the web build, where there is no
-     * main process and no event like this to wait for. */
-    session.defaultSession.on("will-download", (_event, item, webContents) => {
-        item.once("done", (_doneEvent, state) => {
-            if (webContents.isDestroyed()) return;
-            webContents.send("console:download-done", {
-                name: item.getFilename(),
-                state,
-                path: state === "completed" ? item.getSavePath() : "",
-            });
-        });
-    });
-
-    if (
-        process.env.NODE_ENV === "development" ||
-        process.env.DEVTOOLS === "1"
-    ) {
-        mainView.webContents.openDevTools({ mode: "detach" });
-    }
-
-    mainView.webContents.focus();
+    wc.focus();
 }
 
 /* One app, one control server.
@@ -1303,13 +854,7 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
     app.quit();
 } else {
-    app.on("second-instance", () => {
-        const [win] = BrowserWindow.getAllWindows();
-        if (!win) return;
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-    });
+    app.on("second-instance", focusAppWindow);
 
     app.whenReady().then(() => {
         console.log("Electron ready");
