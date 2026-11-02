@@ -1,4 +1,4 @@
-.PHONY: package icons agent-runtime web-bundle
+.PHONY: package icons agent-runtime web-bundle agent-bundle
 
 # The self-contained Python runtime the app ships with: a standalone CPython
 # with the agent and its core dependencies installed into it. Roughly 430MB and
@@ -37,3 +37,14 @@ web-bundle:
 	cp deploy/web/Dockerfile builds/web/Dockerfile
 	# Readable by the container's node user whatever umask this ran under.
 	chmod -R a+rX builds/web
+
+# Docker build context for the agent sidecar (deploy/agent/Dockerfile): the agent package
+# and its lock. The standalone UI's sources, tests and caches stay out.
+agent-bundle:
+	rm -rf builds/agent
+	mkdir -p builds/agent
+	cp agent/pyproject.toml agent/uv.lock agent/README.md builds/agent/
+	cp -r agent/pikvm_agent builds/agent/pikvm_agent
+	find builds/agent -name __pycache__ -type d -prune -exec rm -rf {} +
+	cp deploy/agent/Dockerfile deploy/agent/entrypoint.sh builds/agent/
+	chmod -R a+rX builds/agent
