@@ -282,7 +282,7 @@ async def test_unknown_cli_is_a_clean_404(bin_dir: Bin, tmp_path: Path) -> None:
     assert raised.value.status == 404
 
 
-async def test_gemini_is_desktop_only_with_the_exact_command(
+async def test_gemini_is_not_driven_from_the_app_and_points_to_an_api_key(
     bin_dir: Bin, tmp_path: Path
 ) -> None:
     profile = tmp_path / "gemini profile"
@@ -303,8 +303,10 @@ async def test_gemini_is_desktop_only_with_the_exact_command(
     assert signed_out["installed"] is True
     assert signed_out["signed_in"] is False
     assert signed_out["browser_sign_in"] is False
-    assert signed_out["manual_command"] == f"GEMINI_CLI_HOME='{profile}' gemini"
-    assert "Login with Google" in str(signed_out["manual_hint"])
+    # No command to run anywhere: the app has no terminal, so it points at the API-key provider.
+    assert "manual_command" not in signed_out
+    assert "Gemini API key provider" in str(signed_out["manual_hint"])
+    assert "terminal" not in str(signed_out["manual_hint"]).lower()
     assert signed_in["signed_in"] is True
     assert signed_in["account"] == "me@example.test"
     assert signed_in["status_source"] == "credential_file"
@@ -314,7 +316,8 @@ async def test_gemini_is_desktop_only_with_the_exact_command(
             await action
         assert raised.value.status == 409
         assert raised.value.code == "desktop_only"
-        assert raised.value.extra["manual_command"] == signed_out["manual_command"]
+        assert "manual_command" not in raised.value.extra
+        assert "terminal" not in raised.value.detail.lower()
     assert not any(call["cli"] == "gemini" for call in bin_dir.calls())
 
 
@@ -643,7 +646,7 @@ async def test_http_codex_cancel_sign_out_and_errors(bin_dir: Bin, tmp_path: Pat
     assert unknown.status_code == 404
     assert gemini.status_code == 409
     assert gemini.json()["code"] == "desktop_only"
-    assert gemini.json()["manual_command"] == "gemini"
+    assert "manual_command" not in gemini.json()
     assert bad_replace.status_code == 422
     assert signed_out.status_code == 200 and signed_out.json()["signed_in"] is False
 

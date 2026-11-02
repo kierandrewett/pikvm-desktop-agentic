@@ -30,7 +30,6 @@ import logging
 import os
 import re
 import secrets
-import shlex
 import shutil
 import signal
 import time
@@ -132,9 +131,8 @@ CLI_SPECS: dict[str, CliSpec] = {
         executable="gemini",
         sign_in="desktop_only",
         manual_hint=(
-            "Gemini CLI only signs in inside its interactive terminal UI. "
-            "Run the command below in a terminal on the desktop and choose "
-            "\"Login with Google\"."
+            "Gemini CLI sign-in is not available from the app. To use Gemini, "
+            "add a Gemini API key provider below."
         ),
     ),
 }
@@ -251,14 +249,6 @@ class CliSignInManager:
         )
         return Path(configured) if configured else Path.home()
 
-    def _manual_command(self, spec: CliSpec) -> str | None:
-        if spec.sign_in != "desktop_only":
-            return None
-        configured = self._environ.get(self._gemini_profile_env)
-        if configured:
-            return f"GEMINI_CLI_HOME={shlex.quote(configured)} {spec.executable}"
-        return spec.executable
-
     # -- status --------------------------------------------------------
 
     async def statuses(self) -> list[dict[str, object]]:
@@ -300,7 +290,6 @@ class CliSignInManager:
             "sign_in": spec.sign_in,
             "browser_sign_in": spec.sign_in != "desktop_only",
             "can_sign_out": spec.logout_args is not None,
-            "manual_command": self._manual_command(spec),
             "manual_hint": spec.manual_hint,
             "error": None,
         }
@@ -408,7 +397,6 @@ class CliSignInManager:
                 409,
                 "desktop_only",
                 spec.manual_hint or f"{spec.label} cannot sign in from the browser.",
-                manual_command=self._manual_command(spec),
             )
         executable = self._executable(spec)
         if executable is None:
@@ -591,8 +579,7 @@ class CliSignInManager:
             raise CliAuthError(
                 409,
                 "desktop_only",
-                f"{spec.label} has no sign-out command; remove its login on the desktop.",
-                manual_command=self._manual_command(spec),
+                f"{spec.label} sign-out is not available from the app.",
             )
         executable = self._executable(spec)
         if executable is None:

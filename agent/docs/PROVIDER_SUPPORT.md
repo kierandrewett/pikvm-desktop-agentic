@@ -113,7 +113,7 @@ shows a URL and a one-time code. Claude (`claude auth login`) shows a URL; the
 page it leads to shows a code that is pasted back through
 `POST .../sign-in/code` and written to the CLI's stdin. Gemini CLI has no login
 command (sign-in is inside its interactive terminal UI), so the API reports
-`browser_sign_in: false` with the exact command to run on the desktop. Signing
+`browser_sign_in: false` and a hint to add a Gemini API key provider instead. Signing
 in over an existing login needs `replace: true`: with codex-cli 0.158 a device
 flow that is cancelled or fails removes the saved `auth.json` (observed), which
 leaves the CLI signed out. The harness still never reads a CLI's tokens;

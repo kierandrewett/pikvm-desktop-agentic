@@ -15,7 +15,7 @@ export class HarnessError extends Error {
     readonly code: string | undefined;
     /** Nothing answered as the harness: it is not running, or the host has none. */
     readonly unreachable: boolean;
-    /** The refusal's extra fields, such as `manual_command`. */
+    /** The refusal's extra fields, such as `code`. */
     readonly extra: Readonly<Record<string, unknown>>;
 
     constructor(
@@ -91,7 +91,6 @@ export interface CliStatus {
     method: string | null;
     browser_sign_in: boolean;
     can_sign_out: boolean;
-    manual_command: string | null;
     manual_hint: string | null;
     error: string | null;
     attempt: Attempt | null;

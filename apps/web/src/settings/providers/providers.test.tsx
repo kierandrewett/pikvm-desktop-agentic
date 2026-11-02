@@ -83,7 +83,6 @@ const cli = (over: Partial<CliStatus> & { cli: string; label: string }): CliStat
     method: null,
     browser_sign_in: true,
     can_sign_out: true,
-    manual_command: null,
     manual_hint: null,
     error: null,
     attempt: null,
@@ -114,8 +113,7 @@ const defaultFake = (): Fake => ({
             label: "Gemini CLI",
             browser_sign_in: false,
             can_sign_out: false,
-            manual_command: "GEMINI_CLI_HOME=/home/k/.pikvm-gemini gemini",
-            manual_hint: 'Run the command below in a terminal on the desktop and choose "Login with Google".',
+            manual_hint: "Gemini CLI sign-in is not available from the app. To use Gemini, add a Gemini API key provider below.",
         }),
     ],
     attempts: {},
@@ -548,16 +546,15 @@ describe("CLI sign-in", () => {
         expect(within(codex).queryByRole("button")).not.toBeInTheDocument();
     });
 
-    it("a desktop-only CLI shows the exact command and has no Sign in", async () => {
-        const user = userEvent.setup();
+    it("a CLI the app cannot sign in says so and points at an API key provider, with no terminal command", async () => {
         renderPage();
 
         const gemini = await screen.findByTestId("cli-gemini");
         expect(within(gemini).queryByRole("button", { name: /Sign in/ })).not.toBeInTheDocument();
-        expect(within(gemini).getByText("GEMINI_CLI_HOME=/home/k/.pikvm-gemini gemini")).toBeInTheDocument();
-        expect(within(gemini).getByText(/Login with Google/)).toBeInTheDocument();
-        await user.click(within(gemini).getByRole("button", { name: /Copy the Gemini CLI sign-in command/ }));
-        expect(await navigator.clipboard.readText()).toBe("GEMINI_CLI_HOME=/home/k/.pikvm-gemini gemini");
+        expect(within(gemini).getByText(/not available from the app/)).toBeInTheDocument();
+        expect(within(gemini).getByText(/add a Gemini API key provider/)).toBeInTheDocument();
+        expect(within(gemini).queryByText(/terminal/i)).not.toBeInTheDocument();
+        expect(within(gemini).queryByRole("button")).not.toBeInTheDocument();
         expect(writes()).toEqual([]);
     });
 

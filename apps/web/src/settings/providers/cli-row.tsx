@@ -150,7 +150,7 @@ export function CliRow({ status }: { status: CliStatus }) {
                 ) : null}
             </div>
 
-            {!status.browser_sign_in ? <DesktopOnly status={status} /> : null}
+            {!status.browser_sign_in ? <NoAppSignIn status={status} /> : null}
 
             {confirming === "replace" ? (
                 <ConfirmBar
@@ -193,18 +193,12 @@ export function CliRow({ status }: { status: CliStatus }) {
     );
 }
 
-function DesktopOnly({ status }: { status: CliStatus }) {
+function NoAppSignIn({ status }: { status: CliStatus }) {
     return (
         <div className="mt-3 rounded-[var(--radius-field)] bg-secondary p-3">
-            <p className="row-hint m-0">{status.manual_hint ?? `${status.label} can only be signed in on the desktop.`}</p>
-            {status.manual_command ? (
-                <div className="mt-2 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 select-text overflow-x-auto whitespace-nowrap rounded-[var(--radius-control)] bg-card px-2 py-1.5 text-[13px]">
-                        {status.manual_command}
-                    </code>
-                    <CopyButton text={status.manual_command} label={`Copy the ${status.label} sign-in command`} />
-                </div>
-            ) : null}
+            <p className="row-hint m-0">
+                {status.manual_hint ?? `${status.label} sign-in is not available from the app. Add an API key provider instead.`}
+            </p>
         </div>
     );
 }

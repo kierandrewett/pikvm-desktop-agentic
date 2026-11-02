@@ -36,8 +36,8 @@ starts the daemon on `127.0.0.1` inside the container, waits for it, then starts
 
 The image is built from `agent/pyproject.toml` and `agent/uv.lock` (`uv sync --frozen --no-dev`, no
 vision extras: the daemon's OCR is the `tesseract` binary) plus the `claude` and `codex` CLIs, pinned by
-build argument (`CLAUDE_CODE_VERSION`, `CODEX_VERSION`). The Gemini CLI is not installed; its row in
-Settings shows the manual command. The image is large (about 1.6 GB) because both CLIs are native
+build argument (`CLAUDE_CODE_VERSION`, `CODEX_VERSION`). The Gemini CLI is not installed and cannot be signed in from
+the app; its row in Settings says so and points to adding a Gemini API key provider. The image is large (about 1.6 GB) because both CLIs are native
 binaries of 300 to 450 MB.
 
 Everything the sidecar is told, all environment:
@@ -204,8 +204,8 @@ keys intact (they live on the volume).
 
 ## Known limits
 
-- The Gemini CLI is not in the image. Its Settings row still says to run `gemini` "in a terminal on the
-  desktop", which is wrong for a sidecar. Installing it needs a TUI sign-in the harness cannot drive.
+- The Gemini CLI is not in the image, and its sign-in is a terminal UI the harness cannot drive; use a Gemini
+  API key provider.
 - The image is about 1.6 GB (the two native CLIs are 750 MB of it).
 - The sidecar's `HOME` is on the volume, so a CLI sign-in is as private as the volume's directory
   (mode 700, uid 10001). Anyone who can read the volume can use the signed-in account.
