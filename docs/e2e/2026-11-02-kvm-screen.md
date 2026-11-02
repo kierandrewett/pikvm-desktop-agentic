@@ -27,6 +27,7 @@ Touch is sent as raw CDP touch events, two fingers included. The fake has no Jan
 | iPhone 13 | Fn and More rows open one at a time | F-keys 12, F1 after opening More 0, shortcut keys 13 | pass |
 | iPhone 13 | alt+tab shortcut key sends the chord | key AltLeft down, key Tab down, key Tab up, key AltLeft up | pass |
 | iPhone 13 | macro tile in the ⋯ sheet runs on the target | key MetaLeft down, key KeyR down, key KeyR up, key MetaLeft up; typed "calc"; 3 separators in the sheet | pass |
+| iPhone 13 | Read text from the screen: the overlay covers the picture and a drag reads that region | overlay 390x651; request: left 94, top 65, right 226, bottom 115; dialog text "FAKE KVMD TEST PATTERN" | pass |
 | iPhone 13 | touch (direct) mode: a tap points at the finger, then clicks | move 10082,-11949, button left down, button left up | pass |
 | iPhone 13 | trackpad pinned to relative: the Pi is switched, then the drag goes out as relative moves | Pi switched true (absolute false); 10 relative moves, 75 px right, no absolute moves | pass |
 | iPhone 13 | trackpad back to absolute: the Pi is switched back by the first touch | absolute true | pass |
@@ -35,7 +36,7 @@ Touch is sent as raw CDP touch events, two fingers included. The fake has no Jan
 | desktop 1400x900 | resolution toast names the picture and its source | "320 × 180  ·  MJPEG" | pass |
 | desktop 1400x900 | picture fills the area, letterbox-correct | pane 1336x862, picture 320x180 object-fit contain | pass |
 | desktop 1400x900 | click on the picture = move, then left down and up | move 0,0, button left down, button left up | pass |
-| desktop 1400x900 | hover moves absolutely, one per frame | 5 moves, last move 4905,4360 | pass |
+| desktop 1400x900 | hover moves absolutely, one per frame | 6 moves, last move 4905,4360 | pass |
 | desktop 1400x900 | wheel scrolls the target; Ctrl+wheel zooms the picture (web only) | plain wheel wheel 0,1; Ctrl+wheel scale 1.21, wheel events sent 0 | pass |
 | desktop 1400x900 | click focuses the hardware keyboard; typing Hi | focused true; key ShiftLeft down, key KeyH down, key KeyH up, key ShiftLeft up, key KeyI down, key KeyI up | pass |
 | desktop 1400x900 | Ctrl + C from a real keyboard | key ControlLeft down, key KeyC down, key KeyC up, key ControlLeft up | pass |
@@ -45,10 +46,10 @@ Touch is sent as raw CDP touch events, two fingers included. The fake has no Jan
 | desktop 1400x900 | pinned macro in the toolbar runs on the target | key MetaLeft down, key KeyR down, key KeyR up, key MetaLeft up; typed "calc" | pass |
 | desktop 1400x900 | Send keys menu: shortcut goes out | key ControlLeft down, key AltLeft down, key Delete down, key Delete up, key AltLeft up, key ControlLeft up | pass |
 | desktop 1400x900 | More menu: full screen with Keyboard Lock is offered | Paste text to the target… \| Stream settings… \| Save screenshot \| System, GPIO & health… \| Mass storage… \| Read text from the screen… \| PiKVM log… \| Macros… \| Full screen (send Win and Alt keys) \| Toggle theme \| Full PiKVM UI | pass |
-| desktop 1400x900 | socket drop recovers, input works again | offline seen, recovered in 1228 ms, then move 0,-5232, button left down, button left up | pass |
+| desktop 1400x900 | socket drop recovers, input works again | offline seen, recovered in 1221 ms, then move 0,-5232, button left down, button left up | pass |
 | desktop 1400x900 | no page errors | clean | pass |
 
-37 of 37 passed.
+38 of 38 passed.
 
 ## Screenshots
 
@@ -59,5 +60,7 @@ Touch is sent as raw CDP touch events, two fingers included. The fake has no Jan
 - [phone-caps-on](kvm-screen/phone-caps-on.png)
 - [phone-dock](kvm-screen/phone-dock.png)
 - [phone-more-keys](kvm-screen/phone-more-keys.png)
+- [phone-ocr-pick](kvm-screen/phone-ocr-pick.png)
+- [phone-ocr-result](kvm-screen/phone-ocr-result.png)
 - [phone-sheet](kvm-screen/phone-sheet.png)
 - [phone-zoomed](kvm-screen/phone-zoomed.png)

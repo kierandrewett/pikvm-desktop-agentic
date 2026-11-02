@@ -305,6 +305,33 @@ async function phone(browser) {
         return [pass, `${lines.join(", ")}; typed "${prints[0]?.text}"; ${separators} separators in the sheet`];
     });
 
+    await check(profile, "Read text from the screen: the overlay covers the picture and a drag reads that region", async () => {
+        await page.tap('[aria-label="More"]');
+        await page.waitForFunction(() => [...document.querySelectorAll("#kvm-sheet .kvm-item")].some((e) => /Read text from the screen/.test(e.textContent)), { timeout: 5000 });
+        await page.evaluate(() => [...document.querySelectorAll("#kvm-sheet .kvm-item")].find((e) => /Read text from the screen/.test(e.textContent)).click());
+        await page.waitForSelector(".kvm-ocr-pick", { timeout: 5000 });
+        const overlay = await page.$eval(".kvm-ocr-pick", (el) => {
+            const r = el.getBoundingClientRect();
+            return { w: r.width, h: r.height };
+        });
+        await shot(page, outDir, "phone-ocr-pick");
+        const before = (await fakeGet("/__fake/requests")).requests.length;
+        const id = await touch.start(cx - 80, cy - 30);
+        await touch.drag(id, line([cx - 80, cy - 30], [cx + 80, cy + 30], 8));
+        await touch.end(id);
+        await page.waitForFunction(() => document.querySelector(".kvm-ocr-pick") === null, { timeout: 5000 });
+        await sleep(800);
+        const { requests } = await fakeGet("/__fake/requests");
+        const ocr = requests.slice(before).find((r) => r.path.endsWith("/streamer/snapshot") && r.query.ocr === "1");
+        const sent = ocr ? `left ${ocr.query.ocr_left}, top ${ocr.query.ocr_top}, right ${ocr.query.ocr_right}, bottom ${ocr.query.ocr_bottom}` : "no OCR request";
+        // The fake's picture is 320x180 and the drag is the middle 160x60 client px of a 390-wide pane: a sub-rectangle inside it.
+        const inside = ocr && Number(ocr.query.ocr_left) >= 0 && Number(ocr.query.ocr_right) <= 320 && Number(ocr.query.ocr_right) > Number(ocr.query.ocr_left) && Number(ocr.query.ocr_bottom) > Number(ocr.query.ocr_top);
+        const result = await page.evaluate(() => document.querySelector('[aria-label="Text read from the screen"]')?.value ?? null);
+        await shot(page, outDir, "phone-ocr-result");
+        await page.keyboard.press("Escape");
+        return [overlay.w >= 300 && overlay.h >= 300 && !!inside, `overlay ${Math.round(overlay.w)}x${Math.round(overlay.h)}; request: ${sent}; dialog text ${JSON.stringify(result)}`];
+    });
+
     // The other touch modes. The stored choice is read at load, so each one reloads.
     const setPrefs = async (prefs) => {
         await page.evaluate((p) => {

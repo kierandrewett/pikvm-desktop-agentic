@@ -24,7 +24,7 @@ Evidence names:
 | Stream only while needed (collapsed preview, Full UI) | done for Full UI, n/a for the collapsed preview | Full UI sends `fullUi` to the machine (`kvm-screen.test.tsx` "the Pi's own UI"); the new layout has no collapsible preview |
 | Visual "no signal" (uniform-frame detector) | done | engine B1-B4; `sampleBlank` is wired by `createVideoDom` |
 | Background screen-change alerts (desktop taskbar pulse) | gap | needs the desktop bridge; the luminance grid hook (`onLuma`) is the seam. Phase 6 |
-| WebRTC/Janus H.264 + audio, muted start, play watchdog, MJPEG fallback | done, WebRTC path unverified against a real Pi | `janus-stream.ts` ports `webrtc.js`. E2E: against the fake's 503 the client loads and MJPEG carries on, no page errors. No Janus to test the success path |
+| WebRTC/Janus H.264 + audio, muted start, play watchdog, MJPEG fallback | done | Real PiKVM, video only: `docs/e2e/2026-11-02-kvm-real-pikvm-video.md` (60 fps, live audio track, 1920x1080 label). Fallback: E2E against the fake's 503 |
 | Resolution toast "W x H . source" with the audio badge, 2.6 s | done | `picture-controller.test.ts` "the resolution toast"; E2E "resolution toast names the picture" |
 | Generic toast: error styling and role, sticky, emptied after the fade | done | K15 `notices.test.ts` |
 | Full PiKVM UI framed under the screen, 12 s load note, keyboard hand-off, Back | done | `kvm-screen.test.tsx` "the Pi's own UI"; `/?native=1` reaches kvmd (routes.ts). Not in the E2E |
@@ -70,7 +70,7 @@ Caps pending window, output switch throttle: engine `link.test.ts`). What the sc
 | Esc, Tab, arrows, Enter, Backspace, Del, Home, End, chord keys, C-A-D | done | `key-rows.test.tsx`; E2E "alt+tab shortcut key" |
 | Caps key mirrors the LED | done | K7; E2E phone "Caps key toggles the fake LED and lights" (LED on, key lit; off, unlit), desktop strip likewise |
 | Fn row (F1-F12) and More row (paging keys, shortcuts, C-A-D), one open at a time | done | K8; E2E "Fn and More rows open one at a time" (12 F-keys; 13 shortcut keys) |
-| Drawer overflow edge fade | gap | the dock wraps instead of scrolling so it never overflows; the desktop strip scrolls with no fade |
+| Drawer overflow edge fade | done | `toolbar.test.tsx` "key strip edge fade" (the dock wraps, so only the desktop strip needs it) |
 | Desktop "Send keys" menu: Paste, macros, CAD, Task Manager, Alt+Tab, Alt+F4, Win, Win+D/L/R, PrtSc, Esc | done | E2E desktop "Send keys menu: shortcut goes out" |
 
 ## 1.6 Touch input
@@ -94,7 +94,7 @@ and exercised through real touch events:
 | Absolute follow on hover, one move per frame, drag past the edge, `buttons===0` release, wake nudge on a non-live target | done | engine M1-M13; E2E desktop "hover moves absolutely", "click on the picture" |
 | Wheel; Ctrl+wheel zooms the picture on the web only | done | E2E "wheel scrolls the target; Ctrl+wheel zooms the picture" (scale 1.21, no wheel sent). Desktop app: engine M10 |
 | Right-click menu suppressed on the picture | done | `attachPointerInput` |
-| Throttled `POST /_agent/daemon/cursor` | n/a | agent-coupled; dropped (inventory 6.9) |
+| Throttled cursor report to the agent daemon | done | `POST /app/daemon/cursor` with the workspace header, 180 ms, desktop app only (the contract has no daemon feature flag, so the desktop bridge gates it); `cursor-report.test.ts` |
 
 ## 1.8 Dialogs
 
@@ -104,7 +104,7 @@ The screen owns the seam; the dialogs agent owns the content.
 |---|---|---|
 | `openDialog(name)`, registry, scrim, focus trap and Escape (`ModalFrame`), pointer and keyboard blocked while open | done | K16, K5 `kvm-screen.test.tsx` |
 | Paste dialog (keymap from `hid_keymaps`, count, duration, host clipboard prefill, Ctrl+Enter) | done (minimal; the dialogs module may replace it) | K17 `kvm-screen.test.tsx` |
-| Stream settings, Mass storage, System/GPIO/health, Pi log, OCR result, Audio devices, Macros editor | seam | registered placeholders (`dialog-defaults.tsx`) until `dialogs/index.ts` exports `registerKvmDialogs` |
+| Stream settings, Mass storage, System/GPIO/health, Pi log, OCR result, Audio devices, Macros editor | done by the dialogs module | registered through `registerKvmDialogs`; the screen side is the seam and `useOcrPicker` |
 | ATX power confirmations | seam | `atx-power`, `atx-power-long`, `atx-reset` open the dialogs module's confirmations (no `window.confirm`); the entries appear only when the Pi reports ATX and grey while it is busy |
 
 ## 1.9 Macros run
@@ -122,9 +122,9 @@ The screen owns the seam; the dialogs agent owns the content.
 | Item | Status | Evidence |
 |---|---|---|
 | Speaker and mic buttons only while WebRTC carries audio; pressed, warn and pip states | done | K12 `dock.test.tsx` |
-| Audio on by default, auto re-enable after an hour, mic pre-flight with named failures, level meters from WebRTC stats | done in code, unverified against a real Janus | `picture-controller.ts`; no Janus available to exercise them |
+| Audio on by default, auto re-enable after an hour, mic pre-flight with named failures, level meters from WebRTC stats | done | audio track and speaker/mic buttons proven against the real Pi (`kvm-real-pikvm-video`); level meters and mic capture not exercised |
 | The sheet's Audio output and Microphone toggles with pips | done | `sheet.tsx`, `dock.test.tsx` |
-| Device chevron popouts beside each toggle | gap | replaced by one "Audio devices..." item that opens the dialog |
+| Device chevron popouts beside each toggle (desktop toolbar) | done | `toolbar.test.tsx` "audio device popouts"; the phone sheet keeps its "Audio devices..." item |
 | Pinned mic and speaker (`setSinkId`) re-applied when the dialog changes them | done | `audio-devices-event.ts`; `micDeviceChanged()`; not exercised without a Janus |
 
 ## 1.11 Theme
@@ -141,7 +141,7 @@ The screen owns the seam; the dialogs agent owns the content.
 | Every item of the more menu; mass storage, read text and ATX only when the Pi reports them | done | `actions.ts`; E2E desktop "More menu" lists them; `phone-sheet.png` |
 | Desktop: more menu popover with its separators | done | `menu-button.tsx`, K14 `menu-button.test.tsx` |
 | Grid layout with the chat column, resizable divider, snap targets, preview collapse, intro slide-in | n/a | the new shell has no chat column beside the screen |
-| Haptics on grab and snap (web-haptics, iOS Taptic) | gap | `navigator.vibrate` only (the engine's hold cue); the web-haptics trick is not ported |
+| Haptics (web-haptics, iOS Taptic) | done | `haptics.ts` on the hold cue where `navigator.vibrate` is absent (iOS); the resize grip it was built for no longer exists. `haptics.test.ts` |
 
 ## 1.13 Touch dock
 
@@ -159,7 +159,7 @@ The screen owns the seam; the dialogs agent owns the content.
 | Item | Status | Evidence |
 |---|---|---|
 | Compact toolbar: connection chip, pinned macros, Send keys, Power (colour by LED, greyed while busy), audio and mic pair, zoom-out, More | done | `toolbar.tsx`; `desktop-toolbar.png`; E2E desktop |
-| Health indicator (hidden when fine, amber/red) | gap | needs the problem list the health dialog builds; the entry "System, GPIO & health..." is in More |
+| Health indicator (hidden when fine, amber/red) | done | the dialogs module's `healthProblems`; `toolbar.test.tsx` "health indicator" |
 | Window controls, drag region, title, backend pill, Settings button, Fit to native, preview toggle | n/a here | the shell and the desktop bridge (phase 6); the toolbar keeps `-webkit-app-region: drag` and pads for `--window-controls-inset` |
 
 ## 1.16 PWA and lifecycle
