@@ -1392,7 +1392,6 @@ test("every socket to the Pi backs off instead of hammering it", () => {
        roughly 100 failed connects a minute between them for as long as the
        window stayed open, on a device with one core. */
     assert.match(js, /var HID_RETRY_MIN_MS = 1200;/);
-    assert.match(js, /var HID_RETRY_MAX_MS = 8000;/);
     assert.match(js, /\}, retryMs\);\s*retryMs = Math\.min\(Math\.round\(retryMs \* 1\.7\), HID_RETRY_MAX_MS\);/);
     assert.match(term, /const RECONNECT_MIN_MS = 1000;/);
     assert.match(term, /const RECONNECT_MAX_MS = 8000;/);

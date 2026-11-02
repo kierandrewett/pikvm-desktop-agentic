@@ -440,7 +440,10 @@
          * terminal's were the two that never did. Same curve, so the two
          * sockets to the same host do not drift apart. */
         var HID_RETRY_MIN_MS = 1200;
-        var HID_RETRY_MAX_MS = 8000;
+        // Capped at 5s rather than 8s: the console is the only way to drive the
+        // target, so coming back quickly after a dropout matters more than the load
+        // of a retry every few seconds on a Pi that is away.
+        var HID_RETRY_MAX_MS = 5000;
         var retryMs = HID_RETRY_MIN_MS;
         // The TARGET's real Caps Lock state, read from the Pi's keyboard LED reports
         // (the ground truth). `capsKnown` stays false until the Pi actually sends one,
@@ -488,6 +491,7 @@
                 open = true;
                 everSettled = true;
                 connecting = false;
+                lastRxAt = Date.now();
                 // A connection that lands starts the next outage from the short
                 // wait again, so a brief blip still recovers promptly.
                 retryMs = HID_RETRY_MIN_MS;
@@ -516,6 +520,7 @@
             };
             sock.onmessage = function (ev) {
                 if (sock !== ws) return;
+                lastRxAt = Date.now();
                 // Watch the target's caps-lock LED and its mouse mode. Format varies by
                 // kvmd version — probe the likely paths defensively.
                 try {
@@ -583,6 +588,42 @@
                 } catch (e) {}
             };
         }
+        /* Heartbeat. A socket can die without closing: a phone that slept, a
+         * tailnet path that changed, a proxy that drops connections it thinks are
+         * idle (the iPhone's sockets kept ending at ~60s). kvmd answers "ping"
+         * with "pong", so a ping every PING_MS keeps the path busy, and anything
+         * at all from the Pi counts as life. Silence for DEAD_MS means the socket
+         * is gone whatever it reports, and it is replaced at once instead of
+         * after the OS's own timeout, a minute or more later. */
+        var PING_MS = 10000;
+        var DEAD_MS = 25000;
+        var lastRxAt = 0;
+        setInterval(function () {
+            if (!open || !ws) return;
+            if (Date.now() - lastRxAt > DEAD_MS) {
+                kickNow();
+                return;
+            }
+            raw({ event_type: "ping", event: {} });
+        }, PING_MS);
+        function kickNow() {
+            var old = ws;
+            ws = null;
+            open = false;
+            connecting = false;
+            if (retry) {
+                clearTimeout(retry);
+                retry = null;
+            }
+            retryMs = HID_RETRY_MIN_MS;
+            if (onStatus) onStatus(false);
+            if (old) {
+                try {
+                    old.close();
+                } catch (e) {}
+            }
+            connect();
+        }
         function schedule() {
             if (retry) return;
             retry = setTimeout(function () {
@@ -616,23 +657,7 @@
             /** Drop the current socket and connect afresh. For a page coming back from
              *  the background: iOS can keep a socket that still reads open but carries
              *  nothing, and taps sent into it vanish until its timeout, a minute on. */
-            kick: function () {
-                var old = ws;
-                ws = null;
-                open = false;
-                connecting = false;
-                if (retry) {
-                    clearTimeout(retry);
-                    retry = null;
-                }
-                retryMs = HID_RETRY_MIN_MS;
-                if (old) {
-                    try {
-                        old.close();
-                    } catch (e) {}
-                }
-                connect();
-            },
+            kick: kickNow,
             isOpen: function () {
                 return open;
             },
@@ -5959,7 +5984,7 @@
     }
     window.addEventListener("online", function () {
         serverDown = false;
-        hid.connect();
+        hid.kick(); // the old socket rode the network that just went; never trust it
         if (streamMode === "snapshot") scheduleSnapshot(0);
         else loadStream();
     });
@@ -7364,7 +7389,6 @@
     var dragLock = false;
     var pressing = false; // left button held (drag-lock or tap-and-a-half)
     var longPress = null;
-    var lastTapUp = 0;
     var twoStart = null; // {t, moved} for two-finger tap = right click
     var scrollAcc = 0;
     var heldMouseButtons = {};
@@ -7982,6 +8006,8 @@
 
             if (pts.size === 2) {
                 cancelLongPress();
+                holdArmed = false;
+                showHoldCue(false);
                 pinchDist = twoDist();
                 var c = centroid();
                 pinchCx = c.x;
@@ -8011,11 +8037,10 @@
             }
             startPt = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
             moved = false;
-            var now = Date.now();
-            if (dragLock || now - lastTapUp < 300) {
-                // Drag-lock, or the down-stroke of a "tap-and-a-half": hold left so
-                // the next move drags (and a quick non-move still reads as a click).
-                // Direct touch presses where the finger is, not where the cursor was.
+            holdArmed = false;
+            if (dragLock) {
+                // Drag-lock: hold left so the next move drags (and a quick non-move
+                // still reads as a click). Direct touch presses where the finger is.
                 pressing = true;
                 if (gestureDirect) {
                     var pressX = e.clientX;
@@ -8026,19 +8051,19 @@
                     });
                 } else hid.button("left", true);
             } else {
-                // Long-press = right click (at the finger, in direct mode).
+                /* Hold still to arm. Once armed, moving drags (left button held,
+                 * selecting text or moving a window) and lifting without moving is
+                 * a right click. A drag used to start from any touch landing within
+                 * 300ms of the last tap, so two quick swipes highlighted text by
+                 * accident; now it takes a deliberate pause first. */
                 var lpX = e.clientX;
                 var lpY = e.clientY;
                 longPress = setTimeout(function () {
-                    if (!moved) {
-                        if (gestureDirect)
-                            pointAt(lpX, lpY, function () {
-                                tapClick("right");
-                            });
-                        else tapClick("right");
-                        startPt = null;
-                    }
-                }, 500);
+                    longPress = null;
+                    if (moved || !startPt) return;
+                    holdArmed = true;
+                    showHoldCue(true, lpX, lpY);
+                }, HOLD_MS);
             }
         },
         true,
@@ -8142,6 +8167,7 @@
             if (!moved && movedDist > TOUCH_SLOP) {
                 moved = true;
                 cancelLongPress();
+                if (holdArmed) startHoldDrag();
             }
             if (!moved) return;
             e.preventDefault();
@@ -8182,6 +8208,9 @@
             return;
         }
         cancelLongPress();
+        var wasArmed = holdArmed;
+        holdArmed = false;
+        showHoldCue(false);
         // Two-finger tap (both up quickly, no drag) = right click.
         if (twoStart && pts.size === 1) {
             if (!twoStart.moved && Date.now() - twoStart.t < 300) tapClick("right");
@@ -8193,18 +8222,19 @@
             pressing = false;
         }
         if (startPt && startPt.id === e.pointerId) {
-            // Pure tap (no drag, no held button) = left click at the cursor. Two
-            // quick taps send two clicks -> the target OS forms the double-click.
-            if (!moved && !wasPressing) {
+            // Pure tap = left click; a hold released without moving = right click.
+            // Two quick taps send two clicks -> the target OS forms the double-click.
+            // A cancelled touch (the OS took it for a gesture) clicks nothing.
+            if (!moved && !wasPressing && e.type !== "pointercancel") {
+                var btn = wasArmed ? "right" : "left";
                 if (gestureDirect) {
                     var tapX = startPt.x;
                     var tapY = startPt.y;
                     pointAt(tapX, tapY, function () {
-                        tapClick("left");
+                        tapClick(btn);
                     });
-                } else tapClick("left");
+                } else tapClick(btn);
             }
-            lastTapUp = Date.now();
             startPt = null;
             moved = false;
         }
@@ -8213,6 +8243,47 @@
         if (longPress) {
             clearTimeout(longPress);
             longPress = null;
+        }
+    }
+    /* ---- hold, then drag ----
+     * HOLD_MS of holding still arms the touch. The cursor shows it (a ring, and a
+     * short buzz where the phone can), so you know a move now drags and a lift
+     * now right-clicks. */
+    var HOLD_MS = 450;
+    var holdArmed = false;
+    function startHoldDrag() {
+        holdArmed = false;
+        showHoldCue(false);
+        pressing = true;
+        if (gestureDirect) {
+            var x = startPt.x;
+            var y = startPt.y;
+            pointAt(x, y, function () {
+                if (!pressing) return; // the finger lifted before the Pi switched
+                hid.button("left", true);
+            });
+        } else {
+            flushMove();
+            hid.button("left", true);
+        }
+    }
+    function showHoldCue(on, x, y) {
+        pane.classList.toggle("hold-armed", !!on);
+        if (!on) {
+            // Direct touch has no cursor of its own; the cue's blob goes again.
+            if (gestureDirect && kvmCursor && !trackpadActive()) kvmCursor.style.display = "none";
+            return;
+        }
+        if (navigator.vibrate) {
+            try {
+                navigator.vibrate(12);
+            } catch (err) {}
+        }
+        if (gestureDirect && kvmCursor) {
+            var pr = pane.getBoundingClientRect();
+            kvmCursor.style.left = x - pr.left + "px";
+            kvmCursor.style.top = y - pr.top + "px";
+            kvmCursor.style.display = "block";
         }
     }
     pane.addEventListener("pointerup", endTouch, true);

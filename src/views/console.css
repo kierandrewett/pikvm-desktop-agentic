@@ -787,6 +787,18 @@ html.modal-open .screen {
     display: none;
     will-change: left, top;
 }
+/* Held still long enough to arm (console.js showHoldCue): moving now drags,
+   lifting now right-clicks. A ring on the cursor and a green lens frame say so. */
+.screen.hold-armed .kvm-cursor {
+    width: 16px;
+    height: 16px;
+    box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--ok) 75%, transparent),
+        0 0 0 4px rgb(0 0 0 / 55%);
+}
+.screen.hold-armed .kvm-lens {
+    border-color: var(--ok);
+}
 /* Trackpad magnifier (console.js drawLens). Centred on the cursor; the canvas
    draws the enlarged picture and the hotspot dot, this is only the frame. */
 .kvm-lens {
