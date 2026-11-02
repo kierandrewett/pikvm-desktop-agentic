@@ -1459,6 +1459,8 @@
             return m.pinned !== false;
         });
         if (sep) sep.hidden = !pinned.length;
+        var sheetLabel = document.getElementById("macro-sheet-label");
+        if (sheetLabel) sheetLabel.hidden = !pinned.length;
         var key = pinned
             .map(function (m) {
                 return m.id + ":" + m.label;
@@ -1470,8 +1472,19 @@
             pinned.forEach(function (m) {
                 var btn = document.createElement("button");
                 btn.type = "button";
-                btn.className = "more-item";
-                btn.textContent = m.label;
+                btn.className = "more-item macro-run";
+                // The same icon the desktop titlebar shows for it, then the name.
+                var svg = macroIconSvg(m.icon);
+                var icon = document.createElement("span");
+                icon.className = "macro-run-icon";
+                icon.setAttribute("aria-hidden", "true");
+                if (svg) icon.appendChild(svg);
+                else icon.innerHTML = macroFallbackHtml(macroGlyph(m));
+                var name = document.createElement("span");
+                name.className = "macro-run-label";
+                name.textContent = m.label;
+                btn.appendChild(icon);
+                btn.appendChild(name);
                 // Remembered so the enable pass below can ask about THIS macro,
                 // not just about whether anything is running.
                 btn.__macro = m;
@@ -9104,6 +9117,21 @@
         var dockMenu = document.getElementById("more-menu");
         var dockBarMain = document.getElementById("bar-main");
         if (dockMenu && dockBarMain) dockBarMain.parentNode.insertBefore(dockMenu, dockBarMain);
+        // Macros first in the sheet (after the mouse row), as a grid of icon tiles:
+        // they are what the sheet is opened for most often.
+        var runList = document.getElementById("macro-run-list");
+        var firstSetting = document.getElementById("touch-mode-btn");
+        if (dockMenu && runList && firstSetting) {
+            var macroLabel = document.createElement("div");
+            macroLabel.className = "sheet-label";
+            macroLabel.id = "macro-sheet-label";
+            macroLabel.textContent = "Macros";
+            dockMenu.insertBefore(macroLabel, firstSetting);
+            dockMenu.insertBefore(runList, firstSetting);
+            runList.classList.add("sheet-grid");
+            var oldSep = document.getElementById("macro-run-sep");
+            if (oldSep) oldSep.remove();
+        }
         wireDockActions();
     }
     paintTouchControls();
