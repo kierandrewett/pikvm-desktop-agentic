@@ -54,6 +54,39 @@ node dist/mcp-launcher.js \
 The runtime handoff is mode `0600`, tied to the live desktop process, and never
 contains the browser operator token or daemon approval capability.
 
+## Packaging
+
+The desktop app is an Electron app whose one window loads the embedded server's `/app/`; its only
+bridge to the OS is `window.pikvmDesktop` (`packages/contracts/src/desktop.ts`, implemented in
+`src/desktop/`). Packages are written by [pkgsmith](https://github.com/kierandrewett/pkgsmith) from
+`pkgsmith.star`:
+
+| System | Formats | Notes |
+| --- | --- | --- |
+| Linux (x64, arm64) | rpm, deb, Arch (`.pkg.tar.zst`), AppImage, Flatpak | needs `flatpak` on PATH for the Flatpak |
+| macOS (arm64, x64) | dmg, zip | unsigned, not notarised |
+| Windows (x64) | msi, nsis, zip | needs `makensis` on PATH for nsis; unsigned |
+
+```bash
+make package          # build, then every format for THIS machine's platform
+# -> builds/packages/<platform>-<arch>/
+node scripts/package.mjs --formats rpm,deb     # some formats
+node scripts/package.mjs --tree-only           # just the Electron tree in builds/
+```
+
+`make package` builds the agent runtime first (`make agent-runtime`, a CPython for this platform, about
+800MB), then `scripts/package.mjs` runs the builds, has electron-packager write the Electron tree,
+fills its `resources/` (web app, harness UI, terminal addon, agent runtime) and runs
+`pkgsmith build` over that tree. Point `PKGSMITH` at the binary if it is not on PATH; pkgsmith has no
+release yet, so build it from its repository (`cargo build --release --workspace`; its plugins must
+sit beside the binary). The package release is `<commit count>.<timestamp>` (plus `.dirty`), so a
+rebuild is always a different package to `dnf` and `apt`.
+
+A tree for another platform can be made anywhere (`--platform win32 --arch x64 --tree-only`), but the
+agent runtime is built per platform, so packages for macOS and Windows come from
+`.github/workflows/package.yml`, which runs the build on a runner of each system and uploads the
+packages as artefacts. The icon sizes in `packaging/icons` come from `make icons`.
+
 ## Web host
 
 `src/web-server.ts` runs the console and the PiKVM proxy without Electron, for

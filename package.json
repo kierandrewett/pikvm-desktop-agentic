@@ -19,8 +19,7 @@
         "build": "node scripts/build.mjs",
         "inspect:cdp": "node scripts/inspect-electron-cdp.mjs",
         "test": "node scripts/test.mjs",
-        "package:linux": "make package",
-        "postinstall": "patch-package"
+        "package": "node scripts/package.mjs"
     },
     "dependencies": {
         "@lydell/node-pty": "^1.1.0",
@@ -36,9 +35,7 @@
         "@types/node": "^25.0.3",
         "@types/ws": "^8.18.1",
         "electron": "^39.2.7",
-        "electron-installer-redhat": "^3.4.0",
         "esbuild": "^0.27.2",
-        "patch-package": "^8.0.1",
         "typescript": "^5.9.3"
     },
     "resolutions": {

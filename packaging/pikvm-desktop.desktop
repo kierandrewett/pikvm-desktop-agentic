@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=PiKVM Desktop
+GenericName=Remote Desktop
+Comment=Control a PiKVM target, with an agent that can operate it
+Exec=pikvm-desktop %U
+Icon=pikvm-desktop
+Terminal=false
+StartupNotify=true
+StartupWMClass=pikvm-desktop-agentic
+Categories=Network;RemoteAccess;
+Keywords=KVM;PiKVM;Remote;

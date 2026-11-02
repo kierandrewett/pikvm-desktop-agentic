@@ -1,4 +1,4 @@
-.PHONY: package agent-runtime web-bundle
+.PHONY: package icons agent-runtime web-bundle
 
 # The self-contained Python runtime the app ships with: a standalone CPython
 # with the agent and its core dependencies installed into it. Roughly 430MB and
@@ -7,19 +7,17 @@
 agent-runtime:
 	node scripts/build-agent-runtime.mjs
 
+# Build and package for this machine's platform: the Electron tree, then every package format
+# pkgsmith.star writes for it (Linux: rpm, deb, Arch, AppImage, Flatpak; macOS: dmg, zip; Windows:
+# msi, nsis, zip) into builds/packages/<platform>-<arch>/. PKGSMITH names the pkgsmith binary
+# (default: pkgsmith on PATH). Other platforms: node scripts/package.mjs --platform win32 --tree-only
+# makes the tree; the packages come from running this on that platform (see .github/workflows).
 package: agent-runtime
-	yarn build
-	yarn workspace @pikvm/web build
-	node_modules/.bin/electron-packager dist pikvm-desktop \
-		--platform=linux \
-		--arch=x64 \
-		--out=builds \
-		--overwrite \
-		--no-asar \
-		--executable-name=pikvm-desktop \
-		--icon=src/assets/icon
-	node scripts/copy-runtime-deps.mjs
-	node scripts/make-rpm.mjs
+	node scripts/package.mjs
+
+# Regenerate packaging/icons from src/assets/icon.png (needs ImageMagick; the outputs are committed).
+icons:
+	node scripts/make-icons.mjs
 
 # Docker build context for the headless web host (deploy/web/Dockerfile):
 # the server bundle, the console views, the web app build and the shared

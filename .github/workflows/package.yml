@@ -1,0 +1,90 @@
+name: package
+
+# Builds PiKVM Desktop on each operating system and writes its packages with pkgsmith
+# (https://github.com/kierandrewett/pkgsmith; pkgsmith.star at the repo root). The agent runtime is a
+# CPython built for the machine it runs on, so each job builds its own; that is why this is a matrix
+# of real runners and not one Linux job cross-building.
+#
+#   linux   rpm, deb, Arch, AppImage, Flatpak   (x64 and arm64)
+#   macos   dmg, zip                            (arm64 and x64)
+#   windows msi, nsis, zip                      (x64)
+#
+# Packages are unsigned: no Apple notarisation, no Authenticode, no package signing key.
+
+on:
+  push:
+    branches: [main, feat/app-rebuild]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, runner: ubuntu-24.04, platform: linux, arch: x64 }
+          - { name: linux-arm64, runner: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+          - { name: macos-arm64, runner: macos-15, platform: darwin, arch: arm64 }
+          - { name: macos-x64, runner: macos-15-intel, platform: darwin, arch: x64 }
+          - { name: windows-x64, runner: windows-2025, platform: win32, arch: x64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the package release is the commit count
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: yarn install --immutable
+
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+
+      # pkgsmith has no release yet, so it is built from source. Its plugins sit next to the binary.
+      - name: Build pkgsmith
+        run: |
+          git clone --depth 1 https://github.com/kierandrewett/pkgsmith "$RUNNER_TEMP/pkgsmith"
+          cargo build --release --workspace --manifest-path "$RUNNER_TEMP/pkgsmith/Cargo.toml"
+          exe=pkgsmith; [ "${{ matrix.platform }}" = win32 ] && exe=pkgsmith.exe
+          echo "PKGSMITH=$RUNNER_TEMP/pkgsmith/target/release/$exe" >> "$GITHUB_ENV"
+
+      # Tools some formats run: flatpak writes the bundle, makensis writes the NSIS installer.
+      - name: Install flatpak
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y flatpak
+      - name: Install NSIS
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          "C:\Program Files (x86)\NSIS" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      # The runtime builder is POSIX (bin/python3 and an sh launcher), so Windows has no agent
+      # runtime yet and its packages are built with --allow-no-runtime and say so.
+      - name: Build the agent runtime
+        if: matrix.platform != 'win32'
+        run: node scripts/build-agent-runtime.mjs
+
+      - name: Package
+        run: |
+          flags=""
+          [ "${{ matrix.platform }}" = win32 ] && flags="--allow-no-runtime"
+          node scripts/package.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }} $flags
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pikvm-desktop-${{ matrix.name }}
+          path: builds/packages/${{ matrix.platform }}-${{ matrix.arch }}/*
+          if-no-files-found: error

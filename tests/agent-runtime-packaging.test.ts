@@ -13,25 +13,26 @@ const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), "utf8");
 
 const makefile = read("Makefile");
-const copyDeps = read("scripts/copy-runtime-deps.mjs");
+const pack = read("scripts/package.mjs");
 const build = read("scripts/build-agent-runtime.mjs");
 const agentIgnore = read("agent/.gitignore");
 
 test("packaging cannot skip building the runtime", () => {
     // A package target that does not depend on the runtime is how you ship an
     // app with no agent and only find out on someone else's machine.
-    assert.match(makefile, /^package: agent-runtime$/m);
+    assert.match(makefile, /^package: agent-runtime\n\tnode scripts\/package\.mjs$/m);
     assert.match(makefile, /^agent-runtime:\n\tnode scripts\/build-agent-runtime\.mjs$/m);
     assert.match(makefile, /^\.PHONY:.*\bagent-runtime\b/m);
 });
 
 test("the runtime is copied into the packaged app", () => {
-    assert.match(copyDeps, /resources\/agent\/runtime/);
+    assert.match(pack, /join\(resources, "agent", "runtime"\)/);
     // dereference:false — python3 -> python3.12 is a symlink, and following it
     // turns one 100MB binary into several.
-    assert.match(copyDeps, /dereference: false, verbatimSymlinks: true/);
-    // Missing runtime warns loudly rather than failing three steps later.
-    assert.match(copyDeps, /the packaged app will have NO agent/);
+    assert.match(pack, /dereference: false, verbatimSymlinks: true/);
+    // A package without an agent is refused unless asked for, and then says so.
+    assert.match(pack, /no agent runtime for \$\{target\}/);
+    assert.match(pack, /this package has NO agent/);
 });
 
 test("the built runtime is self-contained, not a venv pointing elsewhere", () => {
@@ -66,44 +67,19 @@ test("430MB of build output stays out of git", () => {
     assert.match(agentIgnore, /^runtime\/$/m);
 });
 
-test("rpmbuild is stopped from rewriting the bundled runtime", () => {
-    /* Both of these were found by building a real RPM and running the agent out
-     * of the payload, because both produce a package that builds perfectly and
-     * is broken on the installed machine:
-     *
-     *  - brp-mangle-shebangs rewrote `#!/usr/bin/env python3` to
-     *    `#!/usr/bin/python3` throughout the bundle, repointing it at an
-     *    interpreter that is the user's and need not exist.
-     *  - the strip scripts left python3 dying with "symbol lookup error:
-     *    undefined symbol: , version" on every invocation. */
-    const rpm = read("scripts/make-rpm.mjs");
-    for (const macro of [
-        "__brp_mangle_shebangs",
-        "__brp_strip",
-        "__brp_strip_lto",
-        "__brp_strip_comment_note",
-        "__brp_strip_static_archive",
-    ]) {
-        assert.ok(rpm.includes(`%${macro} %{nil}`), `${macro} is no longer disabled`);
-    }
-    // Scoped to this build. Writing to the real ~/.rpmmacros would be changing
-    // the machine's configuration in order to build one package.
-    assert.match(rpm, /builds\/\.rpm-macros/);
-    assert.match(rpm, /process\.env\.HOME = rpmHome/);
+test("the old rpm tooling is gone: pkgsmith writes the rpm", () => {
+    assert.throws(() => read("scripts/make-rpm.mjs"));
+    assert.throws(() => read("scripts/copy-runtime-deps.mjs"));
+    assert.doesNotMatch(read("package.json"), /electron-installer-redhat/);
+    // pkgsmith writes the rpm itself and never runs rpmbuild, so nothing rewrites the bundled
+    // interpreter's shebangs or strips its binaries, which is what the rpmbuild macros used to prevent.
+    assert.match(read("pkgsmith.star"), /package\(fmt, depends = depends\[fmt\]/);
 });
 
 test("every build produces a distinct package", () => {
-    /* The release was hardcoded to 1, so every rebuild was
-     * pikvm-desktop-1.14.0-1 regardless of what changed inside it. `dnf install`
-     * compares name-version-release, not contents: it saw the same NEVR, said
-     * the package was already installed, and exited 0 having done nothing. A
-     * rebuild containing a real fix was indistinguishable from a no-op, and that
-     * is exactly how a fixed agent runtime sat on disk uninstalled while every
-     * step reported success. */
-    const rpm = read("scripts/make-rpm.mjs");
-    assert.match(rpm, /revision,/, "the hardcoded release is back");
-    // Monotonic leading segment so rpm orders builds correctly, plus a timestamp
-    // so rebuilding the SAME commit still supersedes what is installed.
-    assert.match(rpm, /rev-list", "--count", "HEAD"/);
-    assert.match(rpm, /\$\{count\}\.\$\{stamp\}\.g\$\{sha\}\$\{dirty\}/);
+    /* The release was hardcoded to 1, so every rebuild was pikvm-desktop-1.14.0-1 regardless of
+     * what changed inside it, and `dnf install` of a rebuilt package exited 0 having done nothing. */
+    assert.match(pack, /rev-list", "--count", "HEAD"/);
+    assert.match(pack, /\$\{count\}\.\$\{stamp\}/);
+    assert.match(pack, /"--build-arg", `RELEASE=\$\{buildRelease\(\)\}`/);
 });
