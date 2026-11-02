@@ -6,15 +6,22 @@
  * Wide: a slim rail on the left. The shell sizes itself to the visual viewport and pads for
  * the notch and home indicator, so it reads as an app rather than a page.
  *
+ * The destinations are panes that stay mounted (see panes.tsx); the URL says which one is in
+ * front. Settings also remembers the page that was open, so its tab returns there.
+ *
  * In the desktop app the window is frameless, so the page is its titlebar. The KVM's toolbar is
  * that titlebar on the KVM; Chat and Settings get a slim one here. The window controls sit over
  * the right end of either.
  */
 
-import { Outlet, useRouterState } from "@tanstack/react-router";
-import type { CSSProperties } from "react";
+import { useRouterState } from "@tanstack/react-router";
+import { type CSSProperties, useState } from "react";
+import { KvmPane } from "../kvm/kvm-screen";
+import { SettingsPane, settingsPageOf } from "../settings/settings-layout";
 import { desktopBridge } from "../host/desktop";
-import { activeTab, NavTabs, PANEL_ID, tabDomId } from "./nav";
+import { ChatPane } from "./chat-pane";
+import { activeTab, NavTabs, type TabId } from "./nav";
+import { Pane } from "./panes";
 import { COMPACT_QUERY, useMediaQuery, useViewportFrame } from "./viewport";
 import { WindowControls } from "./window-controls";
 
@@ -23,6 +30,16 @@ export function Shell() {
     const frame = useViewportFrame();
     const pathname = useRouterState({ select: (state) => state.location.pathname });
     const active = activeTab(pathname);
+
+    // Mounted from the first time it is in front, and never unmounted. The KVM is in from the start.
+    const [visited, setVisited] = useState<ReadonlySet<TabId>>(() => new Set<TabId>(["kvm"]));
+    if (active !== undefined && !visited.has(active)) setVisited(new Set(visited).add(active));
+
+    // The Settings page open now, or the one left open while another tab is in front.
+    const [leftOpen, setLeftOpen] = useState<string | undefined>(undefined);
+    const onSettings = active === "settings";
+    const settingsPage = onSettings ? settingsPageOf(pathname) : leftOpen;
+    if (onSettings && leftOpen !== settingsPage) setLeftOpen(settingsPage);
 
     const bridge = desktopBridge();
     const titlebar = bridge !== undefined && active !== "kvm";
@@ -39,24 +56,27 @@ export function Shell() {
             className="app-shell"
             data-layout={compact ? "compact" : "wide"}
             data-keyboard={frame.keyboardOpen}
+            data-tab={active}
             data-desktop={bridge ? (bridge.nativeControls ? "native" : "frameless") : undefined}
             style={style}
         >
-            {compact ? null : <NavTabs active={active} orientation="vertical" />}
+            {compact ? null : <NavTabs active={active} orientation="vertical" settingsPage={settingsPage} />}
             <div className="app-main">
                 {titlebar ? <div className="window-titlebar">PiKVM Desktop</div> : null}
-                <main
-                    id={PANEL_ID}
-                    className="app-panel"
-                    role="tabpanel"
-                    aria-labelledby={active ? tabDomId(active) : undefined}
-                    tabIndex={-1}
-                >
-                    <Outlet />
+                <main className="app-panel">
+                    <Pane id="kvm" active={active === "kvm"}>
+                        <KvmPane active={active === "kvm"} />
+                    </Pane>
+                    <Pane id="chat" active={active === "chat"}>
+                        {visited.has("chat") ? <ChatPane /> : null}
+                    </Pane>
+                    <Pane id="settings" active={onSettings}>
+                        {visited.has("settings") ? <SettingsPane page={settingsPage} active={onSettings} /> : null}
+                    </Pane>
                 </main>
             </div>
             {bridge && !bridge.nativeControls ? <WindowControls bridge={bridge} /> : null}
-            {compact && !hideBar ? <NavTabs active={active} orientation="horizontal" /> : null}
+            {compact && !hideBar ? <NavTabs active={active} orientation="horizontal" settingsPage={settingsPage} /> : null}
         </div>
     );
 }

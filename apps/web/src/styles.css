@@ -774,3 +774,19 @@ a.row[aria-current="page"][data-selected="true"] {
         font-size: 16px;
     }
 }
+
+/* ---- panes: the destinations stay mounted and only the one in front shows ---------- */
+
+.app-pane {
+    position: absolute;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* visibility, not display: the pane keeps its size, so the video does not re-measure on return,
+   and the pane is inert as well, so it takes no focus or input and is not announced. */
+.app-pane[data-active="false"] {
+    visibility: hidden;
+    pointer-events: none;
+}

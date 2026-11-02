@@ -9,6 +9,7 @@
 
 import type { Box, NaturalSize } from "@pikvm/kvm-engine";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useKvmActive } from "./active";
 import type { PictureController } from "./picture-controller";
 
 export interface PicturePixelRect {
@@ -100,14 +101,15 @@ export function OcrPickerProvider({ controller, children }: { controller: Pictur
         [settle, controller],
     );
 
+    const active = useKvmActive();
     useEffect(() => {
-        if (!pending) return;
+        if (!pending || !active) return;
         const onKey = (e: KeyboardEvent): void => {
             if (e.key === "Escape") settle(null);
         };
         document.addEventListener("keydown", onKey);
         return () => document.removeEventListener("keydown", onKey);
-    }, [pending, settle]);
+    }, [pending, settle, active]);
 
     useEffect(() => () => settle(null), [settle]);
 

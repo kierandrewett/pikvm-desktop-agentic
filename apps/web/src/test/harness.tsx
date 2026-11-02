@@ -9,9 +9,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
+import { createManualClock } from "@pikvm/kvm-engine";
+import { FakeHttp, FakeSocketHub } from "@pikvm/kvm-engine/testing";
 import { createAppRouter } from "../app/router";
 import { COMPACT_QUERY } from "../app/viewport";
-import { KvmSessionProvider, type KvmSession } from "../kvm/session";
+import { createKvmSession, KvmSessionProvider, type KvmSession } from "../kvm/session";
 
 export interface RecordedRequest {
     readonly method: string;
@@ -183,15 +185,31 @@ export function installViewport(height = 800): FakeViewport {
     return viewport;
 }
 
+/**
+ * A session over the engine's fake socket and a clock that never moves: the KVM screen is
+ * mounted in every app render (it is the first thing the app starts), and a test that is not about
+ * it must not open a real socket or run its timers.
+ */
+export function quietSession(): KvmSession {
+    return createKvmSession({
+        clock: createManualClock(1_000_000),
+        socket: new FakeSocketHub().factory,
+        http: new FakeHttp(),
+        url: "ws://kvm/api/ws",
+        bindLifecycle: false,
+    });
+}
+
 export function renderApp(path: string, env: Env = {}) {
     installMatchMedia(env);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const history = createMemoryHistory({ initialEntries: [`/app${path}`] });
     const router = createAppRouter({ history, basepath: "/app" });
-    const app = <RouterProvider router={router} />;
     const view = render(
         <QueryClientProvider client={queryClient}>
-            {env.session ? <KvmSessionProvider session={env.session}>{app}</KvmSessionProvider> : app}
+            <KvmSessionProvider session={env.session ?? quietSession()}>
+                <RouterProvider router={router} />
+            </KvmSessionProvider>
         </QueryClientProvider>,
     );
     return { ...view, router, history, queryClient };

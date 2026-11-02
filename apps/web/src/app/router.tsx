@@ -1,21 +1,16 @@
 /**
- * The route table. Everything the app shows is one of:
+ * The route table. The URL is the source of truth for which destination is in front:
  *   /kvm              the KVM screen
  *   /chat             the agent workspace (@pikvm/chat-ui)
  *   /settings[/page]  Settings
  * and `/` goes to the KVM, the thing the app is for.
+ *
+ * The routes carry no components of their own. The three destinations are panes the shell keeps
+ * mounted (panes.tsx) and shows or hides by what the URL says, so a tab change never unloads the
+ * picture, the conversation or the open settings page, and back and forward still move between them.
  */
 
-import {
-    type RouterHistory,
-    createRootRoute,
-    createRoute,
-    createRouter,
-    lazyRouteComponent,
-    redirect,
-} from "@tanstack/react-router";
-import { KvmRoute } from "../kvm/kvm-screen";
-import { SettingsDetail, SettingsIndex, SettingsLayout } from "../settings/settings-layout";
+import { type RouterHistory, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import { Shell } from "./shell";
 
 const rootRoute = createRootRoute({ component: Shell });
@@ -28,32 +23,15 @@ const indexRoute = createRoute({
     },
 });
 
-const kvmRoute = createRoute({ getParentRoute: () => rootRoute, path: "/kvm", component: KvmRoute });
+const kvmRoute = createRoute({ getParentRoute: () => rootRoute, path: "/kvm" });
 
-// The conversation is most of the app's weight (markdown, tool cards, the provider forms)
-// and the KVM and Settings never need it, so it loads when Chat is first opened.
-const chatRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/chat",
-    component: lazyRouteComponent(() => import("../chat/chat-route"), "ChatRoute"),
-});
+const chatRoute = createRoute({ getParentRoute: () => rootRoute, path: "/chat" });
 
-const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsLayout });
+const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings" });
 
-const settingsIndexRoute = createRoute({
-    getParentRoute: () => settingsRoute,
-    path: "/",
-    component: SettingsIndex,
-});
+const settingsIndexRoute = createRoute({ getParentRoute: () => settingsRoute, path: "/" });
 
-const settingsPageRoute = createRoute({
-    getParentRoute: () => settingsRoute,
-    path: "$page",
-    component: function SettingsPageRoute() {
-        const { page } = settingsPageRoute.useParams();
-        return <SettingsDetail page={page} />;
-    },
-});
+const settingsPageRoute = createRoute({ getParentRoute: () => settingsRoute, path: "$page" });
 
 const routeTree = rootRoute.addChildren([
     indexRoute,

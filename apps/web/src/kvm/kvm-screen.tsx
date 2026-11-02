@@ -25,12 +25,14 @@ import { FullUiFrame, Toast } from "./overlays";
 import { Picture, usePictureState } from "./picture";
 import type { PictureController, PicturePrefs } from "./picture-controller";
 import { DOCK_QUERY, isDesktopApp, useInBackground, useIsFullscreen, useWakeLock } from "./platform";
-import { KvmSessionProvider, useKvmSession, useSessionReady } from "./session";
+import { KvmSessionProvider, useAppKvmSession, useKvmSession, useSessionReady } from "./session";
 import { Toolbar } from "./toolbar";
+import { KvmActiveProvider, useKvmActive } from "./active";
 import { useStore } from "./use-store";
 import "./kvm.css";
 
 export function KvmScreen() {
+    const active = useKvmActive();
     const session = useKvmSession();
     const desktop = isDesktopApp();
     const touchLayout = useMediaQuery(DOCK_QUERY);
@@ -50,14 +52,16 @@ export function KvmScreen() {
     const alertsAvailable = desktop || !dock;
 
     useSessionReady(session);
-    useWakeLock(true);
+    // Held while the KVM is in front, not while it is merely mounted: it is mounted for the whole visit.
+    useWakeLock(active);
 
     useEffect(() => {
+        if (!active) return;
         // Safari's own pinch-zoom of the page would fight the picture's pinch.
         const stop = (e: Event): void => e.preventDefault();
         document.addEventListener("gesturestart", stop);
         return () => document.removeEventListener("gesturestart", stop);
-    }, []);
+    }, [active]);
 
     const modalOpen = open !== null;
     useEffect(() => {
@@ -83,6 +87,7 @@ export function KvmScreen() {
 
     const prefs = useMemo<PicturePrefs>(
         () => ({
+            active,
             touchMode,
             touchHid,
             dragLock,
@@ -90,7 +95,7 @@ export function KvmScreen() {
             windowFocused,
             watching: watchingForChange(alertsAvailable, alerts === "on", background),
         }),
-        [touchMode, touchHid, dragLock, modalOpen, windowFocused, alerts, alertsAvailable, background],
+        [active, touchMode, touchHid, dragLock, modalOpen, windowFocused, alerts, alertsAvailable, background],
     );
 
     const openDialog = useCallback((name: DialogName) => session.dialogs.open(name), [session]);
@@ -159,11 +164,18 @@ export function KvmScreen() {
     );
 }
 
-/** The route: the screen over the app's one session. */
-export function KvmRoute() {
+/**
+ * The KVM as the shell hosts it: mounted from the start of the visit and kept mounted, so the
+ * picture and the link are live the moment the tab is shown. `active` says whether it is the tab
+ * in front; a provider above (a test's session) wins over the app's shared one.
+ */
+export function KvmPane({ active }: { active: boolean }) {
+    const session = useAppKvmSession();
     return (
-        <KvmSessionProvider>
-            <KvmScreen />
+        <KvmSessionProvider session={session}>
+            <KvmActiveProvider value={active}>
+                <KvmScreen />
+            </KvmActiveProvider>
         </KvmSessionProvider>
     );
 }

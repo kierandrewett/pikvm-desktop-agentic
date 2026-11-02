@@ -5,7 +5,8 @@
  * Android settings do. Wide: list and page sit side by side and the first page is open.
  */
 
-import { Link, Navigate, Outlet, useMatch } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { useProxySession } from "../api/queries";
 import { useMediaQuery, COMPACT_QUERY } from "../app/viewport";
 import { ChevronLeftIcon, ChevronRightIcon } from "../ui/icons";
@@ -54,10 +55,30 @@ function SettingsList({ selected }: { selected: string | undefined }) {
     );
 }
 
-export function SettingsLayout() {
+/** The page a pathname names: `/settings/keyboard` is "keyboard", `/settings` is none. */
+export function settingsPageOf(pathname: string): string | undefined {
+    const page = pathname.split("/")[2];
+    return page ? page : undefined;
+}
+
+interface SettingsPaneProps {
+    /** The page to show; undefined is the list. */
+    readonly page: string | undefined;
+    /** Settings is the tab in front. It stays mounted while another is, so this gates anything that navigates. */
+    readonly active: boolean;
+}
+
+export function SettingsPane({ page, active }: SettingsPaneProps) {
     const compact = useMediaQuery(COMPACT_QUERY);
-    const match = useMatch({ from: "/settings/$page", shouldThrow: false });
-    const selected = match?.params.page;
+    const navigate = useNavigate();
+
+    // Beside the list there is always a page, so a wide screen at `/settings` opens the first one.
+    const selected = page ?? (compact ? undefined : "connection");
+    useEffect(() => {
+        if (active && page === undefined && !compact) {
+            void navigate({ to: "/settings/$page", params: { page: "connection" }, replace: true });
+        }
+    }, [active, page, compact, navigate]);
 
     const showList = !compact || selected === undefined;
     const showDetail = !compact || selected !== undefined;
@@ -70,20 +91,13 @@ export function SettingsLayout() {
                     <SettingsList selected={selected} />
                 </div>
             ) : null}
-            {showDetail ? (
-                <div className="h-full min-w-0 flex-1 overflow-y-auto">
-                    <Outlet />
+            {showDetail && selected !== undefined ? (
+                <div className="h-full min-w-0 flex-1 overflow-y-auto" data-settings-detail="">
+                    <SettingsDetail page={selected} />
                 </div>
             ) : null}
         </div>
     );
-}
-
-/** `/settings` itself: on a wide screen open the first page, on a phone show only the list. */
-export function SettingsIndex() {
-    const compact = useMediaQuery(COMPACT_QUERY);
-    if (compact) return null;
-    return <Navigate to="/settings/$page" params={{ page: "connection" }} replace />;
 }
 
 /** One page of settings under its title, with the way back on a phone. */

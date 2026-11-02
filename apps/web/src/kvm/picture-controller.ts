@@ -82,6 +82,12 @@ export interface PictureState {
 }
 
 export interface PicturePrefs {
+    /**
+     * The KVM is the tab in front. The picture keeps streaming while it is not (so it is live the
+     * moment it returns), but nothing the person does elsewhere may move the pointer, and nothing
+     * is reported to the agent as the person's cursor.
+     */
+    readonly active: boolean;
     readonly touchMode: TouchMode;
     readonly touchHid: TouchHid;
     readonly dragLock: boolean;
@@ -131,6 +137,9 @@ const METER_IDLE_MS = 500;
 type EnvPatch = { -readonly [K in keyof PointerEnv]?: PointerEnv[K] };
 
 const initialAudio: AudioState = { available: false, audioOn: true, micOn: false, micLabel: "Off", micWarn: false };
+
+/** The pointer machine treats "a dialog is open" and "another tab is in front" the same way: it lets go of what it holds and takes no gestures. */
+const pointerBlocked = (p: Pick<PicturePrefs, "modalOpen" | "active">): boolean => p.modalOpen || !p.active;
 
 function randomKey(): string {
     return Math.random().toString(36).slice(2, 12);
@@ -183,7 +192,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         touchMode: prefs.touchMode,
         touchHid: prefs.touchHid,
         dragLock: prefs.dragLock,
-        modalOpen: prefs.modalOpen,
+        modalOpen: pointerBlocked(prefs),
         windowFocused: prefs.windowFocused,
         desktop,
         hidOpen: initialDevice.link.open,
@@ -215,7 +224,8 @@ export function createPictureController(options: PictureOptions): PictureControl
     // so it is not sent.
     const reporter = createCursorReporter(clock);
     const reportCursor = (x: number, y: number): void => {
-        if (desktop || options.agent?.()) reporter.report(x, y);
+        // Not while another tab is in front: a report says where the PERSON is pointing.
+        if (prefs.active && (desktop || options.agent?.())) reporter.report(x, y);
     };
     const execute = createPointerExecutor({
         link,
@@ -537,7 +547,7 @@ export function createPictureController(options: PictureOptions): PictureControl
             if (prefs.touchMode !== before.touchMode) envPatch.touchMode = prefs.touchMode;
             if (prefs.touchHid !== before.touchHid) envPatch.touchHid = prefs.touchHid;
             if (prefs.dragLock !== before.dragLock) envPatch.dragLock = prefs.dragLock;
-            if (prefs.modalOpen !== before.modalOpen) envPatch.modalOpen = prefs.modalOpen;
+            if (pointerBlocked(prefs) !== pointerBlocked(before)) envPatch.modalOpen = pointerBlocked(prefs);
             if (prefs.windowFocused !== before.windowFocused) envPatch.windowFocused = prefs.windowFocused;
             if (Object.keys(envPatch).length > 0) sendEnv(envPatch);
             // Sampling goes on while the document is hidden only when somebody is watching.

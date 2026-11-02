@@ -69,7 +69,8 @@ describe("failure modes", () => {
         server.macrosPutStatus = 500;
         await open();
         await userEvent.click(screen.getByRole("switch", { name: "Shift" }));
-        expect(await screen.findByText(/Could not save macros/)).toBeInTheDocument();
+        // The KVM behind it is mounted and draws the same notice; the user sees the pane in front.
+        expect(await within(screen.getByRole("tabpanel")).findByText(/Could not save macros/)).toBeInTheDocument();
         expect(screen.getByRole("switch", { name: "Shift" })).toHaveAttribute("aria-checked", "true");
     });
 
@@ -206,6 +207,6 @@ describe("manager", () => {
             await rig.clock.settle();
         });
         expect(rig.sent()).toContain("key Tab:down");
-        expect(await screen.findByText("Login sent")).toBeInTheDocument();
+        expect(await within(screen.getByRole("tabpanel")).findByText("Login sent")).toBeInTheDocument();
     });
 });

@@ -13,6 +13,7 @@
 
 import { bindHiddenField } from "@pikvm/kvm-engine";
 import { useEffect, useRef } from "react";
+import { useKvmActive } from "./active";
 import type { FieldFocus } from "./field-focus";
 import type { KvmSession } from "./session";
 
@@ -61,12 +62,18 @@ function isOwnControl(target: EventTarget | null): boolean {
 
 export function KeyboardInput({ session, focus, desktop }: KeyboardInputProps) {
     const field = useRef<HTMLInputElement>(null);
+    // Read by the handlers below, which are bound once: a tab change must not rebind them (a
+    // rebind would release every held key, and it is the handlers' own answer that matters).
+    const active = useKvmActive();
+    const activeRef = useRef(active);
+    activeRef.current = active;
 
     useEffect(() => {
         const el = field.current;
         if (!el) return;
         const { keyboard, dialogs } = session;
-        const blocked = (): boolean => dialogs.store.getState().open !== null;
+        // Another tab in front, or a dialog open: either way the keys are not the target's.
+        const blocked = (): boolean => !activeRef.current || dialogs.store.getState().open !== null;
         const binding = bindHiddenField(el, { keyboard, isBlocked: blocked });
         const detachFocus = focus.attach(el);
         // After the field's own capture handler, ahead of everything it does on keydown.
@@ -114,6 +121,14 @@ export function KeyboardInput({ session, focus, desktop }: KeyboardInputProps) {
             binding.unbind();
         };
     }, [session, focus, desktop]);
+
+    // Leaving the KVM tab: the screen stays mounted, so nothing unmounts to let go of what the
+    // target is holding or to put the soft keyboard away. Both happen here, once, on the change.
+    useEffect(() => {
+        if (active) return;
+        session.keyboard.releaseAll();
+        focus.release();
+    }, [active, session, focus]);
 
     return (
         <input

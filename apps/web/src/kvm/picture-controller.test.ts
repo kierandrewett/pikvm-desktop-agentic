@@ -29,7 +29,7 @@ async function mount(extra: { desktop?: boolean; agent?: () => boolean } = {}) {
         focus: createFieldFocus(rig.clock),
         desktop: extra.desktop ?? false,
         ...(extra.agent ? { agent: extra.agent } : {}),
-        prefs: { touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true, watching: false },
+        prefs: { active: true, touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true, watching: false },
     });
     made.push(controller);
     return { rig, controller, img, video, freeze, pane, cursor };
@@ -194,5 +194,64 @@ describe("the cursor report", () => {
         const { rig, controller } = await mount({ desktop: true });
         await moveTheMouse(rig, controller);
         expect(reports()).toHaveLength(1);
+    });
+});
+
+describe("the KVM behind another tab", () => {
+    // The picture keeps streaming while another tab is in front, so it is live on return; but it is
+    // not where the person is pointing, and nothing about it may say so.
+    const reports = () =>
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => url === "/app/daemon/cursor");
+
+    async function moveTheMouse(rig: Awaited<ReturnType<typeof mount>>["rig"], controller: PictureController): Promise<void> {
+        controller.pointer.send({
+            type: "env",
+            env: { mouseMode: "absolute", pane: { left: 0, top: 0, width: 160, height: 90 }, nat: { w: 160, h: 90 } },
+        });
+        controller.pointer.send({ type: "enter", kind: "mouse" });
+        controller.pointer.send({ type: "move", id: 1, kind: "mouse", x: 20, y: 20, buttons: 0 });
+        controller.pointer.send({ type: "frame" });
+        rig.clock.advance(400);
+    }
+
+    it("takes no gestures: the pointer machine is told a modal owns it", async () => {
+        const { controller } = await mount();
+        expect(controller.pointer.machine.environment.modalOpen).toBe(false);
+        controller.setPrefs({ active: false });
+        expect(controller.pointer.machine.environment.modalOpen).toBe(true);
+        controller.setPrefs({ active: true });
+        expect(controller.pointer.machine.environment.modalOpen).toBe(false);
+    });
+
+    it("a real dialog stays open across a tab change", async () => {
+        const { controller } = await mount();
+        controller.setPrefs({ modalOpen: true });
+        controller.setPrefs({ active: false });
+        controller.setPrefs({ active: true });
+        expect(controller.pointer.machine.environment.modalOpen).toBe(true);
+    });
+
+    it("does not report a cursor position to the agent", async () => {
+        const { rig, controller } = await mount({ desktop: true });
+        controller.setPrefs({ active: false });
+        await moveTheMouse(rig, controller);
+        expect(reports()).toHaveLength(0);
+    });
+
+    it("reports again when it returns", async () => {
+        const { rig, controller } = await mount({ desktop: true });
+        controller.setPrefs({ active: false });
+        controller.setPrefs({ active: true });
+        await moveTheMouse(rig, controller);
+        expect(reports()).toHaveLength(1);
+    });
+
+    it("keeps its picture: the elements are the same and the signal is not reset", async () => {
+        const { controller, img } = await mount();
+        const before = { signal: controller.store.getState().signal, src: img.getAttribute("src") };
+        controller.setPrefs({ active: false });
+        controller.setPrefs({ active: true });
+        expect(controller.store.getState().signal).toBe(before.signal);
+        expect(img.getAttribute("src")).toBe(before.src);
     });
 });

@@ -11,6 +11,7 @@
 import { Link } from "@tanstack/react-router";
 import { type KeyboardEvent, type ReactNode, useRef } from "react";
 import { ChatIcon, MonitorIcon, SettingsIcon } from "../ui/icons";
+import { preloadChat } from "./chat-pane";
 
 export type TabId = "kvm" | "chat" | "settings";
 
@@ -19,16 +20,18 @@ interface TabDef {
     readonly to: "/kvm" | "/chat" | "/settings";
     readonly label: string;
     readonly icon: ReactNode;
+    /** Warm what the tab will need, when the pointer or focus arrives. */
+    readonly preload?: () => void;
 }
 
 export const TABS: ReadonlyArray<TabDef> = [
     { id: "kvm", to: "/kvm", label: "KVM", icon: <MonitorIcon /> },
-    { id: "chat", to: "/chat", label: "Chat", icon: <ChatIcon /> },
+    { id: "chat", to: "/chat", label: "Chat", icon: <ChatIcon />, preload: preloadChat },
     { id: "settings", to: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
 export const tabDomId = (id: TabId): string => `tab-${id}`;
-export const PANEL_ID = "app-panel";
+export const panelDomId = (id: TabId): string => `panel-${id}`;
 
 /** Which destination a pathname (basepath already stripped) belongs to. */
 export function activeTab(pathname: string): TabId | undefined {
@@ -38,9 +41,11 @@ export function activeTab(pathname: string): TabId | undefined {
 interface NavTabsProps {
     readonly active: TabId | undefined;
     readonly orientation: "horizontal" | "vertical";
+    /** The Settings page that was open when the user last left Settings, if any. */
+    readonly settingsPage?: string | undefined;
 }
 
-export function NavTabs({ active, orientation }: NavTabsProps) {
+export function NavTabs({ active, orientation, settingsPage }: NavTabsProps) {
     const list = useRef<HTMLDivElement>(null);
 
     const move = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -88,18 +93,25 @@ export function NavTabs({ active, orientation }: NavTabsProps) {
         >
             {TABS.map((tab) => {
                 const selected = tab.id === active;
+                // Settings opens where it was left, not at its list.
+                const target =
+                    tab.id === "settings" && settingsPage !== undefined
+                        ? ({ to: "/settings/$page", params: { page: settingsPage } } as const)
+                        : ({ to: tab.to } as const);
                 return (
                     <Link
                         key={tab.id}
-                        to={tab.to}
+                        {...target}
                         id={tabDomId(tab.id)}
                         role="tab"
                         className="nav-tab"
                         aria-selected={selected}
-                        aria-controls={PANEL_ID}
+                        aria-controls={panelDomId(tab.id)}
                         // Roving tabindex: one stop in the tab order, arrows do the rest.
                         tabIndex={selected || (active === undefined && tab.id === "kvm") ? 0 : -1}
                         draggable={false}
+                        onPointerEnter={tab.preload}
+                        onFocus={tab.preload}
                     >
                         {tab.icon}
                         <span>{tab.label}</span>

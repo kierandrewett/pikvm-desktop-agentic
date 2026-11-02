@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useKvmActive } from "./active";
 
 export type MenuEntry =
     | { readonly type: "separator" }
@@ -30,6 +31,8 @@ export function MenuButton({ label, icon, entries, className, disabled, testId }
     const button = useRef<HTMLButtonElement>(null);
     const menu = useRef<HTMLDivElement>(null);
     const id = useId();
+    // An Escape or a press on another tab is not for this menu, though it stays open for the return.
+    const active = useKvmActive();
 
     const close = (restoreFocus: boolean): void => {
         if (restoreFocus && menu.current?.contains(document.activeElement)) button.current?.focus();
@@ -37,7 +40,7 @@ export function MenuButton({ label, icon, entries, className, disabled, testId }
     };
 
     useEffect(() => {
-        if (!open) return;
+        if (!open || !active) return;
         const onDown = (e: PointerEvent): void => {
             const target = e.target;
             if (!(target instanceof Node)) return;
@@ -55,7 +58,7 @@ export function MenuButton({ label, icon, entries, className, disabled, testId }
             document.removeEventListener("pointerdown", onDown);
             document.removeEventListener("keydown", onKey);
         };
-    }, [open]);
+    }, [open, active]);
 
     return (
         <span className="kvm-menu-host">

@@ -19,6 +19,7 @@ import { HealthButton } from "./health-button";
 import { KeyRows } from "./key-rows";
 import type { PictureController } from "./picture-controller";
 import { usePictureState } from "./picture";
+import { useKvmActive } from "./active";
 import { useKvmSession, useTarget } from "./session";
 import { Sheet } from "./sheet";
 import { useStore } from "./use-store";
@@ -40,6 +41,7 @@ export interface DockProps {
 export function Dock(props: DockProps) {
     const { controller, focus } = props;
     const session = useKvmSession();
+    const active = useKvmActive();
     const picture = usePictureState(controller);
     const inputOpen = useTarget((s) => s.link.open);
     const { focused } = useStore(focus.store);
@@ -60,9 +62,10 @@ export function Dock(props: DockProps) {
         }
     };
 
-    // Outside taps and Escape put the sheet away.
+    // Outside taps and Escape put the sheet away. Only while the KVM is in front: an Escape typed
+    // on another tab is not for this sheet.
     useEffect(() => {
-        if (!sheet) return;
+        if (!sheet || !active) return;
         const onDown = (e: PointerEvent): void => {
             const target = e.target;
             if (!(target instanceof Node)) return;
@@ -79,7 +82,7 @@ export function Dock(props: DockProps) {
             document.removeEventListener("pointerdown", onDown);
             document.removeEventListener("keydown", onKey);
         };
-    }, [sheet]);
+    }, [sheet, active]);
 
     useEffect(() => {
         const offA = controller?.bindMeter("audio", audioButton.current);
