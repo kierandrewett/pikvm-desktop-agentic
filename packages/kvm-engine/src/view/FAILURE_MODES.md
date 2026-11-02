@@ -28,14 +28,23 @@ beside this file assert each one as behaviour.
 
 ## lens.ts (magnifier)
 
+The lens is an aid for precision: it stays out of the way while travelling and appears
+only once the finger has shown fine-adjustment intent. Speeds are the existing unit,
+finger px per ms, smoothed with a 140 ms time constant. Fast = smoothed >= 0.45 px/ms
+(450 px/s) or one event >= 1.2 px/ms (a flick); fine = smoothed < 0.25 px/ms.
+
 - L1. The first speed sample has no previous time: assume one frame (16 ms), never divide by zero; dt is at least 1 ms.
-- L2. A finger that stops sends no moves, so the speed must decay on its own.
-- L3. Size runs 168 px (slow) down to 64 px (fast) monotonically and never outside that range.
-- L4. Jitter must not pulse the size: a candidate within 18 px of the target is ignored, a new one must hold 160 ms, and a candidate that moves resets the wait.
-- L5. Easing converges on the target and snaps once within half a pixel.
-- L6. Magnification is max(1, 4/scale); under 1.2 (picture zoom >= 3.34x) the lens hides.
-- L7. No lens where the cursor position is a guess (relative mouse), with the socket down, under a dialog, with no picture, before a real frame (< 32 px), or after the linger time.
-- L8. At the picture's edge only the part inside the picture is sampled; wholly outside, nothing is.
+- L2. A finger that stops sends no moves, so the smoothed speed must decay on its own.
+- L3. Fast movement never shows the lens, and never grows it: a swipe or a flick (even a single big event the average has not caught up with) keeps it hidden.
+- L4. It appears only after ~1 s (1000 ms) of SUSTAINED fine movement: a run of moves each under the fine speed, no gap over 400 ms, and a path no longer than 160 px (a slow glide across the screen is travelling, not adjusting). Before that it is hidden, whatever else is true.
+- L5. Any fast move hides it at once and RESTARTS the 1 s timer from scratch; an in-between speed (0.25-0.45) before it has appeared restarts the timer too, but once it is up it does not flicker out.
+- L6. It starts small (40 px) and grows smoothly (eased, 450 ms) to its full size of 96 px (down from 168): never jumps, never overshoots, never exceeds full size.
+- L7. A pause longer than 400 ms before the lens has appeared breaks the run (the finger stopped adjusting); a touch that merely rests, or a tap, never shows it.
+- L8. A new touch starts from nothing: a lens lingering from the last gesture is dropped and the dwell restarts.
+- L9. After lift it lingers 1.4 s then hides (while a finger rests on the trackpad it keeps lingering). Fast movement during the linger still hides it.
+- L10. Magnification is max(1, 5/scale) (the picture's own zoom counts towards the total); under 1.2 (picture zoom >= 4.17x) the lens hides. A smaller lens at 5x still shows ~19 px around the cursor: enough for small targets.
+- L11. No lens where the cursor position is a guess (relative mouse), with the socket down, under a dialog, with no picture, before a real frame (< 32 px), or after the linger time.
+- L12. At the picture's edge only the part inside the picture is sampled; wholly outside, nothing is.
 
 ## cursor.ts (blob and host pointer)
 

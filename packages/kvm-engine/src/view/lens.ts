@@ -1,29 +1,38 @@
 // The trackpad magnifier: a lens round the cursor showing what is under it.
 //
-// The picture's own zoom counts towards the same total, so the lens magnifies
-// less the further the picture has been pinched in, and once the picture alone is
-// that close the lens has nothing to add and goes away.
+// It is an aid for precision, not a pointer decoration. While the finger is travelling
+// it stays out of the way (hidden, no growing). Only after about a second of sustained,
+// slow, small movements (fine adjustment, the finger is homing in on a small target)
+// does it appear, starting small and growing smoothly to its full size. Any fast move
+// hides it again at once and restarts the wait.
 //
-// The lens grows when the finger slows (you are aiming) and shrinks when it speeds
-// up (you are travelling and it would only be in the way). Speed is smoothed, and
-// the size only moves to a new target once that target has held for a moment and
-// differs by a clear step, then eases there, so it does not pulse with every
-// jitter of the finger.
+// The picture's own zoom counts towards the same total magnification, so the lens
+// magnifies less the further the picture has been pinched in, and once the picture alone
+// is that close the lens has nothing to add and goes away.
+//
+// Speeds are finger px per ms, smoothed with a 140 ms time constant.
 
 import type { Box, NaturalSize, Point } from "./geometry";
 
-export const LENS_MIN = 64; // CSS px, travelling fast
-export const LENS_MAX = 168; // CSS px, aiming slowly or holding still
-export const LENS_SLOW = 0.12; // finger px/ms at or below which the lens is largest
-export const LENS_FAST = 1.4; // finger px/ms at or above which it is smallest
-export const LENS_STEP = 18; // px a new size has to differ by to be taken
-export const LENS_SETTLE_MS = 160; // how long a new size has to hold before it is taken
+/** Smoothed speed at or above which the finger is travelling: 0.45 px/ms = 450 px/s. */
+export const LENS_FAST_SPEED = 0.45;
+/** One event at or above this is a flick (1.2 px/ms = 1200 px/s), even though the average has not caught up. */
+export const LENS_FLICK_SPEED = 1.2;
+/** Smoothed speed below which movement counts as a fine adjustment: 0.25 px/ms = 250 px/s. */
+export const LENS_FINE_SPEED = 0.25;
+/** Sustained fine movement needed before the lens appears. */
+export const LENS_DWELL_MS = 1000;
+/** A pause longer than this breaks the run before the lens has appeared. */
+export const LENS_RUN_GAP_MS = 400;
+/** A run that travels further than this is a slow glide, not an adjustment: the timer restarts. */
+export const LENS_FINE_PATH_MAX = 160;
+export const LENS_START = 40; // CSS px when it first appears
+export const LENS_FULL = 96; // CSS px once grown (was 168: too big for small adjustments)
+export const LENS_GROW_MS = 450;
 export const LENS_SPEED_TAU_MS = 140; // time constant of the speed average
-export const LENS_TOTAL = 4; // total magnification aimed for: lens x picture zoom
+export const LENS_TOTAL = 5; // total magnification aimed for: lens x picture zoom
 export const LENS_MIN_MAG = 1.2; // below this the lens adds nothing and hides
 export const LENS_LINGER_MS = 1400;
-export const LENS_EASE = 0.2; // share of the remaining distance covered per frame
-const LENS_INITIAL = 104;
 const LENS_FIRST_DT_MS = 16;
 const LENS_IDLE_MS = 60;
 
@@ -32,52 +41,82 @@ export interface LensSizeState {
     readonly speed: number;
     /** When `speed` was last updated; 0 before the first sample. */
     readonly speedAt: number;
-    /** The size being eased towards. */
-    readonly target: number;
-    /** The size currently drawn (fractional while easing). */
-    readonly shown: number;
-    /** A candidate size waiting to hold for LENS_SETTLE_MS. */
-    readonly pending: { readonly size: number; readonly since: number } | null;
+    /** When the current run of fine movement began, or null. */
+    readonly fineSince: number | null;
+    /** When the last move was seen. */
+    readonly lastMoveAt: number;
+    /** Finger path length since the run began, px. */
+    readonly path: number;
+    /** When the lens started appearing, or null while hidden. */
+    readonly shownAt: number | null;
 }
 
 export function createLensSize(): LensSizeState {
-    return { speed: 0, speedAt: 0, target: LENS_INITIAL, shown: LENS_INITIAL, pending: null };
+    return { speed: 0, speedAt: 0, fineSince: null, lastMoveAt: 0, path: 0, shownAt: null };
+}
+
+/** A new touch starts from nothing: whatever the last gesture earned is dropped. */
+export function beginLensGesture(s: LensSizeState): LensSizeState {
+    return { ...s, fineSince: null, path: 0, shownAt: null, speed: 0, speedAt: 0 };
+}
+
+function smooth(s: LensSizeState, distance: number | null, now: number): { state: LensSizeState; sample: number } {
+    const dt = s.speedAt ? Math.max(1, now - s.speedAt) : LENS_FIRST_DT_MS;
+    const a = 1 - Math.exp(-dt / LENS_SPEED_TAU_MS);
+    const sample = distance === null ? 0 : distance / dt;
+    return { state: { ...s, speedAt: now, speed: s.speed + (sample - s.speed) * a }, sample };
 }
 
 /** Fold one finger-speed sample (distance in px; null = "stopped") into the average. */
 export function smoothLensSpeed(s: LensSizeState, distance: number | null, now: number): LensSizeState {
-    const dt = s.speedAt ? Math.max(1, now - s.speedAt) : LENS_FIRST_DT_MS;
-    const a = 1 - Math.exp(-dt / LENS_SPEED_TAU_MS);
-    const sample = distance === null ? 0 : distance / dt;
-    return { ...s, speedAt: now, speed: s.speed + (sample - s.speed) * a };
+    return smooth(s, distance, now).state;
 }
 
-export function noteLensSpeed(s: LensSizeState, distance: number, now: number): LensSizeState {
-    return smoothLensSpeed(s, distance, now);
-}
-
-export function lensSizeForSpeed(speed: number): number {
-    const t = Math.max(0, Math.min(1, (speed - LENS_SLOW) / (LENS_FAST - LENS_SLOW)));
-    return Math.round(LENS_MAX - t * (LENS_MAX - LENS_MIN));
-}
-
-/** Advance the size one frame; returns the size to draw (whole CSS px). */
-export function updateLensSize(prev: LensSizeState, now: number): { state: LensSizeState; size: number } {
-    // A finger that has stopped sends no moves; let the speed fall away.
-    let s = now - prev.speedAt > LENS_IDLE_MS ? smoothLensSpeed(prev, null, now) : prev;
-    const want = lensSizeForSpeed(s.speed);
-    let target = s.target;
-    let pending = s.pending;
-    if (Math.abs(want - target) < LENS_STEP) pending = null;
-    else if (!pending || Math.abs(want - pending.size) >= LENS_STEP) pending = { size: want, since: now };
-    else if (now - pending.since >= LENS_SETTLE_MS) {
-        target = pending.size;
-        pending = null;
+/** One finger move of `distance` px: update the speed, and decide whether it hides, restarts or advances the dwell. */
+export function noteLensSpeed(prev: LensSizeState, distance: number, now: number): LensSizeState {
+    const { state: s, sample } = smooth(prev, distance, now);
+    if (sample >= LENS_FLICK_SPEED || s.speed >= LENS_FAST_SPEED) {
+        // Travelling: hidden, no growing, and the wait starts over.
+        return { ...s, fineSince: null, path: 0, shownAt: null, lastMoveAt: now };
     }
-    let shown = s.shown + (target - s.shown) * LENS_EASE;
-    if (Math.abs(target - shown) < 0.5) shown = target;
-    s = { ...s, target, pending, shown };
-    return { state: s, size: Math.round(shown) };
+    // Once up it stays up through in-between speeds; only a fast move takes it away.
+    if (s.shownAt !== null) return { ...s, lastMoveAt: now };
+    if (s.speed >= LENS_FINE_SPEED) return { ...s, fineSince: null, path: 0, lastMoveAt: now };
+    const broken = s.fineSince === null || now - s.lastMoveAt > LENS_RUN_GAP_MS;
+    if (broken) return { ...s, fineSince: now, path: distance, lastMoveAt: now };
+    const path = s.path + distance;
+    // A long slow glide is travelling, not adjusting: start the wait again from here.
+    if (path > LENS_FINE_PATH_MAX) return { ...s, fineSince: now, path: distance, lastMoveAt: now };
+    return { ...s, path, lastMoveAt: now };
+}
+
+export interface LensFrame {
+    readonly state: LensSizeState;
+    /** The finger has earned the lens (the context conditions in lensVisible still apply). */
+    readonly visible: boolean;
+    /** Whole CSS px to draw at; meaningful only when visible. */
+    readonly size: number;
+}
+
+function easeOutCubic(t: number): number {
+    return 1 - Math.pow(1 - t, 3);
+}
+
+/** Advance one frame. */
+export function updateLensSize(prev: LensSizeState, now: number): LensFrame {
+    // A finger that has stopped sends no moves; let the speed fall away.
+    let s = now - prev.speedAt > LENS_IDLE_MS && prev.speedAt ? smoothLensSpeed(prev, null, now) : prev;
+    if (s.shownAt === null && s.fineSince !== null) {
+        if (now - s.lastMoveAt > LENS_RUN_GAP_MS) {
+            // The finger stopped adjusting before the wait was up.
+            s = { ...s, fineSince: null, path: 0 };
+        } else if (now - s.fineSince >= LENS_DWELL_MS) {
+            s = { ...s, shownAt: now };
+        }
+    }
+    if (s.shownAt === null) return { state: s, visible: false, size: 0 };
+    const t = Math.max(0, Math.min(1, (now - s.shownAt) / LENS_GROW_MS));
+    return { state: s, visible: true, size: Math.round(LENS_START + (LENS_FULL - LENS_START) * easeOutCubic(t)) };
 }
 
 /** Lens magnification at a picture zoom: the lens makes up what the picture lacks. */
