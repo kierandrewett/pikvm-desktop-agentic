@@ -157,6 +157,3 @@ Status: **done**, **changed** (behaves differently on purpose, said how), **not 
    which the fake kvmd does not provide (`/janus/ws` is refused).
 5. **Soft-keyboard-up behaviour** of the phone sheets rests on `useViewportFrame` (tested with the shell);
    headless Chrome cannot show a soft keyboard, so it was not exercised in the E2E run.
-6. `yarn workspace @pikvm/web typecheck` currently stops with "`@pikvm/kvm-engine@workspace:*` is not in
-   your lockfile" (`yarn install` needed after the `package.json` change); the same check run directly,
-   `tsc --noEmit` in `apps/web`, is clean.
