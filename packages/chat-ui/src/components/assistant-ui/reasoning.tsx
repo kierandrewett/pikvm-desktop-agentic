@@ -18,7 +18,7 @@ import {
   type ReasoningMessagePartComponent,
   type ReasoningGroupComponent,
 } from "@assistant-ui/react";
-import { MarkdownText } from "./markdown-text";
+import { MarkdownText } from "./lazy-markdown";
 import {
   Collapsible,
   CollapsibleContent,

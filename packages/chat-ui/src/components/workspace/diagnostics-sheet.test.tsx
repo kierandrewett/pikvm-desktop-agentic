@@ -93,4 +93,38 @@ describe("DiagnosticsSheet", () => {
       screen.getByText("Select a conversation to inspect its events."),
     ).toBeVisible();
   });
+
+  it("builds at most the latest 250 events, newest first, and says it is a window", () => {
+    const events = Array.from({ length: 400 }, (_, index) => ({
+      sequence: index + 1,
+      kind: "action.attempted",
+      at: "2026-08-04T10:00:00Z",
+      data: {},
+    }));
+    render(
+      <DiagnosticsSheet
+        open
+        onOpenChange={vi.fn()}
+        run={run({ event_count: 400, event_cursor: 400, events: events as RunSnapshot["events"] })}
+      />,
+    );
+
+    const rows = document.querySelectorAll("details");
+    expect(rows).toHaveLength(250);
+    expect(rows[0]).toHaveTextContent("#400");
+    expect(rows[249]).toHaveTextContent("#151");
+    expect(screen.getByText("latest 250 shown")).toBeVisible();
+  });
+
+  it("builds nothing while closed", () => {
+    const events = [{ sequence: 1, kind: "run.created", at: "2026-08-04T10:00:00Z", data: {} }];
+    render(
+      <DiagnosticsSheet
+        open={false}
+        onOpenChange={vi.fn()}
+        run={run({ events: events as RunSnapshot["events"] })}
+      />,
+    );
+    expect(document.querySelectorAll("details")).toHaveLength(0);
+  });
 });

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ComputerSheet } from "./computer-sheet";
 import type { RunSnapshot } from "../../types";
@@ -94,5 +94,47 @@ describe("ComputerSheet", () => {
       screen.getByText("Managed PiKVM MCP is configured"),
     ).toBeVisible();
     expect(screen.queryByText("completed")).toBeNull();
+  });
+
+  it("revokes every frame URL it creates, stops polling on close and aborts the request in flight", async () => {
+    let created = 0;
+    const revoked: string[] = [];
+    vi.stubGlobal("URL", {
+      createObjectURL: () => `blob:frame-${++created}`,
+      revokeObjectURL: (url: string) => revoked.push(url),
+    });
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal);
+      return new Response("frame", { status: 200, headers: { "Content-Type": "image/jpeg" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sheet = (open: boolean) => (
+      <ComputerSheet
+        open={open}
+        onOpenChange={vi.fn()}
+        token="workspace-token"
+        run={{ run_id: "r-1", session_id: "s-1", status: "running" } as RunSnapshot}
+        connectionEnabled
+        onPause={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+    const view = render(sheet(true));
+
+    // Two polls, so the first URL must be revoked when the second replaces it.
+    await waitFor(() => expect(created).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    expect(revoked).toContain("blob:frame-1");
+
+    view.rerender(sheet(false));
+    await waitFor(() => expect(revoked).toContain(`blob:frame-${created}`));
+    const callsWhenClosed = fetchMock.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(fetchMock.mock.calls.length).toBe(callsWhenClosed);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    // Every URL ever created has been given back.
+    expect(new Set(revoked).size).toBe(created);
+    vi.unstubAllGlobals();
   });
 });

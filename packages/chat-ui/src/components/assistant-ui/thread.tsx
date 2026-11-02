@@ -6,7 +6,7 @@ import {
   UserMessageAttachments,
 } from "./attachment";
 import { ThreadFollowupSuggestions } from "./follow-up-suggestions";
-import { MarkdownText } from "./markdown-text";
+import { MarkdownText } from "./lazy-markdown";
 import {
   Reasoning,
   ReasoningContent,

@@ -12,6 +12,8 @@
  *  4. A starter prompt SENDS: the agent acts on a real machine, so choosing a suggestion
  *     must only fill the composer.
  *  5. The starters stay once a conversation exists.
+ *  6. Markdown is loaded lazily: a message is blank until the chunk arrives, or never
+ *     gains its formatting.
  */
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -93,5 +95,18 @@ describe("empty state", () => {
         render(<ChatWorkspace apiBase="/app/harness" managedToken="desktop-managed" compact={false} insets="host" />);
         await screen.findByText("There is 120 GB free on C:.");
         expect(screen.queryByRole("button", { name: STARTER_PROMPTS[0] })).toBeNull();
+    });
+
+    it("shows a message's text at once and formats it once the markdown chunk has loaded", async () => {
+        const run = baseRun({
+            conversation: [
+                { message_id: "u1", role: "user", content: "hi", created_at: "2026-11-02T08:00:00Z", event_cursor: 0 },
+                { message_id: "a1", role: "assistant", content: "There is **120 GB** free.", created_at: "2026-11-02T08:00:05Z", event_cursor: 0 },
+            ],
+        });
+        installFakeHarness({ runs: [run] });
+        render(<ChatWorkspace apiBase="/app/harness" managedToken="desktop-managed" compact={false} insets="host" />);
+        await waitFor(() => expect(document.querySelector('[data-slot="aui_assistant-message-root"]')).not.toBeNull());
+        await waitFor(() => expect(document.querySelector(".aui-md strong")).toHaveTextContent("120 GB"));
     });
 });
