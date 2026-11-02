@@ -237,7 +237,23 @@
         audio: { on: false, warn: false, label: "" },
         mic: { on: false, warn: false, label: "" },
     };
-    var repaintAv = function () {};
+    /* On the web and on a phone there is no titlebar, so the default painter
+     * draws the touch dock's speaker and mic from the same state instead. The
+     * desktop console replaces this with its titlebar painter. */
+    var repaintAv = function () {
+        ["audio", "mic"].forEach(function (which) {
+            var btn = document.getElementById(which === "mic" ? "dock-mic-btn" : "dock-audio-btn");
+            if (!btn) return;
+            var st = avState[which];
+            var base = which === "mic" ? "Microphone" : "Audio output";
+            btn.hidden = !avState.visible;
+            btn.classList.toggle("on", !!st.on);
+            btn.classList.toggle("warn", !!st.warn);
+            btn.setAttribute("aria-pressed", st.on ? "true" : "false");
+            btn.setAttribute("aria-label", st.warn && st.label ? base + " — " + st.label : base);
+            btn.title = btn.getAttribute("aria-label");
+        });
+    };
     var tbState = {
         health: { visible: false, error: false, label: "Health" },
         power: { visible: false, on: false, busy: false, label: "Power" },
@@ -455,14 +471,20 @@
         function connect() {
             if (open || connecting) return;
             connecting = true;
+            var sock;
             try {
-                ws = new WebSocket(url());
+                sock = ws = new WebSocket(url());
             } catch (e) {
                 connecting = false;
                 schedule();
                 return;
             }
-            ws.onopen = function () {
+            /* Every handler checks it still belongs to the CURRENT socket. kick()
+             * abandons a socket that looks open but is dead, and that socket's
+             * close can arrive after its replacement is up; acted on, it would
+             * mark the live one closed and start a needless retry. */
+            sock.onopen = function () {
+                if (sock !== ws) return;
                 open = true;
                 everSettled = true;
                 connecting = false;
@@ -477,7 +499,8 @@
                     if (isRelease(item.obj) || now - item.at < QUEUE_STALE_MS) raw(item.obj);
                 });
             };
-            ws.onclose = function () {
+            sock.onclose = function () {
+                if (sock !== ws) return;
                 open = false;
                 // A refused connection closes too, which is exactly the signal
                 // wanted: the attempt resolved, and the answer was no.
@@ -486,12 +509,13 @@
                 if (onStatus) onStatus(false);
                 schedule();
             };
-            ws.onerror = function () {
+            sock.onerror = function () {
                 try {
-                    ws.close();
+                    sock.close();
                 } catch (e) {}
             };
-            ws.onmessage = function (ev) {
+            sock.onmessage = function (ev) {
+                if (sock !== ws) return;
                 // Watch the target's caps-lock LED and its mouse mode. Format varies by
                 // kvmd version — probe the likely paths defensively.
                 try {
@@ -589,6 +613,26 @@
         }
         return {
             connect: connect,
+            /** Drop the current socket and connect afresh. For a page coming back from
+             *  the background: iOS can keep a socket that still reads open but carries
+             *  nothing, and taps sent into it vanish until its timeout, a minute on. */
+            kick: function () {
+                var old = ws;
+                ws = null;
+                open = false;
+                connecting = false;
+                if (retry) {
+                    clearTimeout(retry);
+                    retry = null;
+                }
+                retryMs = HID_RETRY_MIN_MS;
+                if (old) {
+                    try {
+                        old.close();
+                    } catch (e) {}
+                }
+                connect();
+            },
             isOpen: function () {
                 return open;
             },
@@ -624,15 +668,6 @@
             /** The target's pointer mode, or null if not yet known. */
             isRelative: function () {
                 return mouseAbsolute === false;
-            },
-            /** Drive a relative-mode cursor hard into the top-left corner, so its
-             *  position is KNOWN again (relative mode reports none). One event with a
-             *  list of full-size steps, unsquashed, so kvmd plays each one: 48 x 127
-             *  clears a 4K screen even before the target's own acceleration. */
-            homeRelative: function () {
-                var steps = [];
-                for (var i = 0; i < 48; i++) steps.push({ x: -127, y: -127 });
-                send({ event_type: "mouse_relative", event: { delta: steps, squash: false } });
             },
             /** True only once the Pi has REPORTED absolute mode; unknown is not absolute. */
             isAbsolute: function () {
@@ -5816,16 +5851,62 @@
     setInterval(sampleBlank, 1500);
 
     // Recover promptly when the phone wakes / regains network.
+    /* After a real stay in the background (an installed app switched away from,
+     * a phone locked), what still reads as connected usually is not: iOS freezes
+     * the page and its sockets go quiet without closing. So past a few seconds
+     * the HID socket is replaced and the stream reloaded, rather than trusted. */
+    var hiddenAt = 0;
     document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) {
-            hid.connect();
-            if (streamMode === "snapshot") scheduleSnapshot(0);
-            else {
-                pollHealth();
-                if (streamState !== "live") loadStream();
-            }
+        if (document.hidden) {
+            hiddenAt = Date.now();
+            releaseWakeLock();
+            return;
         }
+        var away = hiddenAt ? Date.now() - hiddenAt : 0;
+        hiddenAt = 0;
+        if (away > 3000) hid.kick();
+        else hid.connect();
+        if (streamMode === "snapshot") scheduleSnapshot(0);
+        else {
+            pollHealth();
+            if (away > 3000 || streamState !== "live") loadStream();
+        }
+        requestWakeLock();
     });
+    /* Keep the phone's screen on while the console is in front. A KVM is often
+     * left watching an install or a reboot, and the screen locking part way
+     * through drops the stream and the HID socket with it. Released when hidden
+     * (the browser drops it then anyway) and asked for again on return. Not in
+     * the desktop app, where holding the display awake is not this window's call. */
+    var wakeLock = null;
+    function requestWakeLock() {
+        if (window.desktopConsole) return;
+        if (wakeLock || document.hidden || !navigator.wakeLock || !navigator.wakeLock.request) return;
+        navigator.wakeLock
+            .request("screen")
+            .then(function (lock) {
+                wakeLock = lock;
+                lock.addEventListener("release", function () {
+                    if (wakeLock === lock) wakeLock = null;
+                });
+            })
+            .catch(function () {});
+    }
+    function releaseWakeLock() {
+        if (!wakeLock) return;
+        var lock = wakeLock;
+        wakeLock = null;
+        lock.release().catch(function () {});
+    }
+    // Browsers only grant it after a user gesture on some platforms, so the first
+    // touch asks again if the load-time request was refused.
+    requestWakeLock();
+    document.addEventListener("pointerdown", requestWakeLock, { passive: true });
+    // The installed-app worker (sw.js): an offline screen when the KVM is out of
+    // reach. Web only, and only where a service worker is allowed at all.
+    if (!window.desktopConsole && "serviceWorker" in navigator && window.isSecureContext) {
+        navigator.serviceWorker.register("/_agent/sw.js", { scope: "/_agent/" }).catch(function () {});
+    }
     window.addEventListener("online", function () {
         serverDown = false;
         hid.connect();
@@ -7120,25 +7201,38 @@
         // after a reconnect would snap the view back.
         if (freezeCanvas) freezeCanvas.style.transform = t;
         if (onXform) onXform(); // let the region overlay re-scale with the stream
+        var zr = document.getElementById("zoom-reset-btn");
+        if (zr) zr.hidden = scale <= 1;
     }
+    /* Keep the PICTURE, not the element, filling the pane.
+     *
+     * The element is pane-sized and the picture is letterboxed inside it, so the
+     * old bound (the element's edges) still showed the letterbox bars once
+     * zoomed. This bounds the picture itself: on an axis where the zoomed picture
+     * is at least as big as the pane it must cover the pane edge to edge, and on
+     * an axis where it is still smaller it sits centred. So zooming never shows
+     * black past the picture's edge, and the cursor-follow simply stops at the
+     * edge instead of dragging background into view. */
     function clampPan() {
         if (scale <= 1) {
             tx = 0;
             ty = 0;
             return;
         }
-        var pr = pane.getBoundingClientRect();
-        /* Following the trackpad cursor keeps it in the MIDDLE of the pane, right up
-         * to the picture's edge, so the view may travel half a pane past it.
-         * Clamping to the picture instead would slide the cursor off-centre exactly
-         * where precision matters most: corners, taskbars, close buttons. */
-        if (followingCursor()) {
-            tx = Math.min(pr.width / 2, Math.max(pr.width / 2 - pr.width * scale, tx));
-            ty = Math.min(pr.height / 2, Math.max(pr.height / 2 - pr.height * scale, ty));
-            return;
-        }
-        tx = Math.min(0, Math.max(-pr.width * (scale - 1), tx));
-        ty = Math.min(0, Math.max(-pr.height * (scale - 1), ty));
+        var W = pane.clientWidth;
+        var H = pane.clientHeight;
+        if (!W || !H) return;
+        var ar = geomW() / geomH();
+        var cw = W / H > ar ? H * ar : W;
+        var ch = W / H > ar ? H : W / ar;
+        var ox = (W - cw) / 2;
+        var oy = (H - ch) / 2;
+        var axis = function (t, size, c, o) {
+            if (scale * c <= size) return (size - scale * c) / 2 - scale * o;
+            return Math.min(-scale * o, Math.max(size - scale * (o + c), t));
+        };
+        tx = axis(tx, W, cw, ox);
+        ty = axis(ty, H, ch, oy);
     }
     /* The pan bound is a function of the pane's size, so anything that resizes the
      * pane can strand the picture outside it: the transform stays where it was
@@ -7188,21 +7282,24 @@
     var TOUCH_MODE_KEY = "pikvm-touch-mode";
     var TOUCH_HID_KEY = "pikvm-touch-hid";
     var touchMode = "trackpad"; // "trackpad" | "direct"
-    var touchHid = "rel"; // trackpad output: "rel" | "abs"
+    /* The trackpad's HID output. Absolute by default: the client then knows where
+     * the cursor is, so zoom can follow it and moves land exactly. Relative is for
+     * targets that ignore an absolute mouse (some BIOSes, games, VMs); it moves
+     * like PiKVM's own UI, but the view cannot follow a cursor it cannot see. */
+    var touchHid = "abs"; // trackpad output: "rel" | "abs"
     try {
         if (localStorage.getItem(TOUCH_MODE_KEY) === "direct") touchMode = "direct";
-        if (localStorage.getItem(TOUCH_HID_KEY) === "abs") touchHid = "abs";
+        if (localStorage.getItem(TOUCH_HID_KEY) === "rel") touchHid = "rel";
     } catch (e) {}
     // The input in use: touch, or a mouse/pen. A phone starts as touch, so the dock
     // and the Pi's mouse output are right before the first gesture.
     var lastInputTouch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
     var gestureDirect = false; // this one-finger gesture points directly (direct mode, or a pen)
-    var homedNoticeShown = false; // the relative-mode "cursor parked" note, once per page
     function trackpadActive() {
         return lastInputTouch && touchMode === "trackpad";
     }
     function followingCursor() {
-        return trackpadActive() && scale > 1;
+        return trackpadActive() && scale > 1 && !hid.isRelative();
     }
     /** The Pi output this input wants: true = absolute. */
     function wantAbsOutput() {
@@ -7291,7 +7388,18 @@
         clickMods = [];
     }
     var MOVE_SLOP = 8;
-    var SENS = 0.9; // trackpad sensitivity (finger px -> cursor travel)
+    /* A finger holding still is never perfectly still. Below this a touch is a
+     * tap or a hold and the cursor stays FROZEN where it was, so a long press
+     * still lands its right click where you aimed; past it the gesture is a
+     * drag. 8px (the two-finger slop) was inside ordinary thumb wobble. */
+    var TOUCH_SLOP = 16;
+    var SENS = 0.9; // trackpad sensitivity, absolute HID (finger px -> picture travel)
+    /* Relative HID: finger CSS pixels straight through, as PiKVM's own UI does
+     * (its sensitivity slider defaults to 1.0). The target's pointer acceleration
+     * then gives the familiar trackpad feel. Scaling up to picture pixels first,
+     * as this used to, multiplied a phone drag about 4x before that acceleration
+     * ran on top, so the cursor lurched instead of gliding. */
+    var REL_SENS = 1.0;
 
     // Virtual cursor in PiKVM absolute units; relative drags accumulate into it and
     // we send absolute moves, so trackpad mode works with the default (absolute)
@@ -7415,19 +7523,21 @@
         var fy = (dy / h) * SENS;
         vcur.x = Math.max(-32768, Math.min(32767, vcur.x + fx * 65534));
         vcur.y = Math.max(-32768, Math.min(32767, vcur.y + fy * 65534));
-        /* A relative-mode Pi gets the same travel as a delta in target pixels, so
-         * one finger-pixel is still one picture-pixel before the target applies
-         * its own pointer acceleration. vcur keeps an ESTIMATE alongside it for
-         * the zoom to follow; acceleration makes it drift, which is the trade
-         * for driving targets that only take a relative mouse. */
         if (hid.isRelative() || awaitingRelative()) {
             // Bounded, so a switch that never comes cannot bank a screen-crossing jump.
-            relOweX = Math.max(-4000, Math.min(4000, relOweX + fx * geomW()));
-            relOweY = Math.max(-4000, Math.min(4000, relOweY + fy * geomH()));
+            relOweX = Math.max(-4000, Math.min(4000, relOweX + dx * REL_SENS));
+            relOweY = Math.max(-4000, Math.min(4000, relOweY + dy * REL_SENS));
+            /* Sent on every move, not once a frame: each touch move is a small
+             * step, and kvmd squashes a burst itself. Batching per frame turned a
+             * steady drag into frame-sized hops. */
+            moveDirty = true;
+            flushMove();
+            return;
         }
         queueMove();
         followCursor();
         paintTrackpadCursor();
+        showLens();
     }
     /** Where the trackpad cursor sits, in client pixels, or null with no picture. */
     function vcurClient() {
@@ -7464,6 +7574,95 @@
         kvmCursor.style.left = at.x - pr.left + "px";
         kvmCursor.style.top = at.y - pr.top + "px";
         kvmCursor.style.display = "block";
+    }
+
+    /* ---- trackpad magnifier ----
+     * A lens round the cursor showing what is under it, enlarged, so a small
+     * button is visible before you tap it. The picture's own zoom counts towards
+     * the same total, so the lens magnifies less the further you have pinched in,
+     * and once the picture alone is that close the lens has nothing to add and
+     * goes away. It shows while the trackpad is in use and fades shortly after.
+     * Only where the cursor position is KNOWN (absolute HID): a lens on a guessed
+     * position would magnify the wrong place. */
+    var lens = document.getElementById("kvm-lens");
+    var LENS_D = 104; // CSS px
+    var LENS_TOTAL = 4; // total magnification aimed for: lens x picture zoom
+    var LENS_LINGER_MS = 1400;
+    var lensUntil = 0;
+    var lensRaf = 0;
+    function lensMag() {
+        return Math.max(1, LENS_TOTAL / scale);
+    }
+    function showLens() {
+        if (!lens) return;
+        lensUntil = Date.now() + LENS_LINGER_MS;
+        if (!lensRaf) lensRaf = raf(drawLens);
+    }
+    function hideLens() {
+        if (lens) lens.classList.remove("on");
+    }
+    function drawLens() {
+        lensRaf = 0;
+        var m = lensMag();
+        if (trackpadActive() && pts.size) lensUntil = Date.now() + LENS_LINGER_MS; // held still, still looking
+        var at = trackpadActive() && !hid.isRelative() && hid.isOpen() && !modalOpen() ? vcurClient() : null;
+        if (!at || m < 1.2 || Date.now() > lensUntil) {
+            hideLens();
+            return;
+        }
+        var src = streamEl();
+        var box = pictureBox();
+        var natW = geomW();
+        var natH = geomH();
+        if (!box || natW < 32 || natH < 32) {
+            hideLens();
+            return;
+        }
+        var dpr = window.devicePixelRatio || 1;
+        var px = Math.round(LENS_D * dpr);
+        if (lens.width !== px) {
+            lens.width = px;
+            lens.height = px;
+        }
+        // The square of the picture the lens covers, in the stream's own pixels.
+        var perClient = natW / box.w; // stream px per client px at the current zoom
+        var side = (LENS_D / m) * perClient;
+        var cx = ((at.x - box.left) / box.w) * natW;
+        var cy = ((at.y - box.top) / box.h) * natH;
+        var sx = cx - side / 2;
+        var sy = cy - side / 2;
+        var ctx = lens.getContext("2d");
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, px, px);
+        // Only the part inside the picture is drawn; beyond its edge stays black.
+        var ix = Math.max(0, sx);
+        var iy = Math.max(0, sy);
+        var iw = Math.min(natW, sx + side) - ix;
+        var ih = Math.min(natH, sy + side) - iy;
+        if (iw > 0 && ih > 0) {
+            var k = px / side;
+            try {
+                ctx.imageSmoothingEnabled = m < 2.5;
+                ctx.drawImage(src, ix, iy, iw, ih, (ix - sx) * k, (iy - sy) * k, iw * k, ih * k);
+            } catch (e) {
+                hideLens();
+                return;
+            }
+        }
+        // The cursor's hotspot, at the centre.
+        ctx.beginPath();
+        ctx.arc(px / 2, px / 2, 4 * dpr, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(91, 140, 255, 0.55)";
+        ctx.fill();
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.stroke();
+        var pr = pane.getBoundingClientRect();
+        lens.style.left = at.x - pr.left + "px";
+        lens.style.top = at.y - pr.top + "px";
+        lens.classList.add("on");
+        // Redrawn every frame while it shows, so the target's own changes appear in it.
+        lensRaf = raf(drawLens);
     }
     function tapClick(button) {
         flushMove(); // make sure the cursor is at its latest position first
@@ -7706,6 +7905,13 @@
                     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
                 } else {
                     kbd.focus({ preventScroll: true });
+                    /* And keep it there. The click's own default action runs after
+                     * this handler and focuses whatever was clicked; the picture is
+                     * not focusable, so that is the page body, and every key typed
+                     * next went nowhere. Stopping the default keeps the field
+                     * focused; the pointer events that drive the target are
+                     * unaffected. */
+                    e.preventDefault();
                 }
                 var b = hidButtonFor(e);
                 if (!b) return; // a thumb button the target's HID cannot carry
@@ -7747,6 +7953,12 @@
             }
             // First touch. A pen points directly, like the desktop mouse it stands in for.
             gestureDirect = e.pointerType !== "touch" || touchMode === "direct";
+            if (!gestureDirect) {
+                // A finger on the trackpad brings the cursor and its lens up, so you
+                // can see what a tap or a hold will hit before it does.
+                paintTrackpadCursor();
+                showLens();
+            }
             startPt = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
             moved = false;
             var now = Date.now();
@@ -7844,30 +8056,19 @@
                     else if (Math.hypot(c.x - twoStart.cx, c.y - twoStart.cy) > 14) twoStart.kind = "drag";
                 }
                 var kind = twoStart ? twoStart.kind : "pinch";
+                // The trackpad on an ABSOLUTE Pi knows exactly where the cursor is, so
+                // it zooms in on the cursor and keeps it centred (RustDesk's mouse
+                // mode). Anywhere the cursor is unknown (direct touch, relative HID)
+                // the zoom stays under the fingers.
+                var onCursor = trackpadActive() && !hid.isRelative();
                 if (kind === "pinch" && pinchDist > 0 && Math.abs(d / pinchDist - 1) > 0.004) {
-                    // The trackpad zooms in on its cursor and keeps it centred; direct
-                    // touch zooms around the fingers.
-                    /* A relative Pi never says where its cursor is, and the view is
-                     * about to follow it. Park it in the top-left corner first, so
-                     * the estimate starts true instead of at a guessed centre that
-                     * could put the real pointer off the zoomed view entirely. */
-                    if (scale === 1 && d > pinchDist && trackpadActive() && hid.isRelative() && !wantAbsOutput()) {
-                        hid.homeRelative();
-                        vcur.x = -32768;
-                        vcur.y = -32768;
-                        relOweX = 0;
-                        relOweY = 0;
-                        if (!homedNoticeShown) {
-                            homedNoticeShown = true;
-                            toast("Relative mouse: cursor parked top-left so the zoom can follow it. Abs tracks it exactly.");
-                        }
-                    }
-                    zoomAround(c.x, c.y, scale * (d / pinchDist));
+                    var at = onCursor ? vcurClient() : null;
+                    zoomAround(at ? at.x : c.x, at ? at.y : c.y, scale * (d / pinchDist));
                     followCursor();
                 }
-                // Two-finger drag scrolls the target. Direct touch pans a zoomed view
-                // instead, as does a pinch, so you can steer while zooming.
-                if (!trackpadActive() && scale > 1 && kind) {
+                // Two-finger drag scrolls the target, except while zoomed with no cursor
+                // to follow: then it moves the view, as does a pinch, so you can steer.
+                if (!onCursor && scale > 1 && kind) {
                     tx += c.x - pinchCx;
                     ty += c.y - pinchCy;
                     clampPan();
@@ -7888,7 +8089,7 @@
             // Single finger: the trackpad cursor, or the direct pointer.
             if (!startPt) return;
             var movedDist = Math.hypot(e.clientX - startPt.x, e.clientY - startPt.y);
-            if (!moved && movedDist > MOVE_SLOP) {
+            if (!moved && movedDist > TOUCH_SLOP) {
                 moved = true;
                 cancelLongPress();
             }
@@ -8289,6 +8490,24 @@
             refocusKbd();
         });
     });
+    /* Shortcut keys ("ControlLeft+KeyC"): the named modifiers plus any armed sticky
+     * ones, folded so a modifier armed AND named is pressed once. */
+    document.querySelectorAll("[data-chord]").forEach(function (btn) {
+        var parts = btn.getAttribute("data-chord").split("+");
+        var code = parts.pop();
+        btn.addEventListener("click", function () {
+            if (agentActing) return;
+            noteManualKvmInput();
+            var mods = parts.slice();
+            armedList().forEach(function (m) {
+                if (mods.indexOf(m) < 0) mods.push(m);
+            });
+            sendChord(mods, code, false);
+            clearArmed();
+            kbReset();
+            refocusKbd();
+        });
+    });
     document.querySelectorAll("[data-mod]").forEach(function (btn) {
         var codeName = btn.getAttribute("data-mod");
         /* A toggle says so before it is ever pressed, or the first press is the
@@ -8478,13 +8697,23 @@
     /* The keys drawer lives in the conversation column so it can overlay its
      * top on the stacked layout. With no column to sit in (the touch dock, or a
      * host with no terminal), it moves into the bar, under the status row. */
+    /** Put the drawer back at the top of the conversation column, where the
+     *  stacked and side-by-side layouts expect it once a terminal is there. */
+    function mountDrawerInChat() {
+        var chat = document.querySelector(".chat");
+        var drawer = document.getElementById("drawer");
+        if (chat && drawer && drawer.parentNode !== chat) chat.insertBefore(drawer, chatFrame);
+    }
     function mountDrawerInBar() {
         var bar = document.getElementById("bar");
         var drawer = document.getElementById("drawer");
         if (bar && drawer && drawer.parentNode !== bar) bar.appendChild(drawer);
     }
+    /* Decided by the user's intent, not by where focus happens to be: a tap on a
+     * dock key can blur the hidden field on the way through, and reading focus
+     * here then reopened a keyboard the user had just asked to close. */
     function toggleSoftKeyboard() {
-        if (document.activeElement === kbd) {
+        if (kbWanted) {
             kbWanted = false;
             kbd.blur();
         } else {
@@ -8501,7 +8730,8 @@
         }
         if (touchModeBtn) {
             var direct = touchMode === "direct";
-            touchModeBtn.textContent = direct ? "Touch" : "Trackpad";
+            var modePip = document.getElementById("touch-mode-pip");
+            if (modePip) modePip.textContent = direct ? "Touch" : "Trackpad";
             touchModeBtn.title = direct
                 ? "Touch: tap where you want to click. Tap to switch to trackpad."
                 : "Trackpad: drag to move the cursor, tap to click. Tap to switch to touch.";
@@ -8511,7 +8741,8 @@
             // Only the trackpad has a choice; direct touch is always absolute.
             touchHidBtn.hidden = touchMode !== "trackpad" || !hid.relativeAvailable();
             var rel = touchHid === "rel";
-            touchHidBtn.textContent = rel ? "Rel" : "Abs";
+            var hidPip = document.getElementById("touch-hid-pip");
+            if (hidPip) hidPip.textContent = rel ? "Relative" : "Absolute";
             touchHidBtn.title = rel
                 ? "Relative mouse: works with any target, the cursor follows the picture. Tap for absolute."
                 : "Absolute mouse: exact cursor position. Tap for relative.";
@@ -8519,6 +8750,7 @@
             // Still switching: the Pi has not reported the mode asked for yet.
             touchHidBtn.classList.toggle("pending", trackpadActive() && hid.isRelative() === wantAbsOutput());
         }
+        if (gestureHelp && gestureHelp.classList.contains("open")) paintGestureHelp();
     }
     function paintCaps(on) {
         if (!capsKey) return;
@@ -8568,11 +8800,203 @@
         });
     }
     kbd.addEventListener("focus", paintTouchControls);
+    /* When the last tap on the dock was moments ago, this blur is that tap passing
+     * through, not the user putting the keyboard away; the key's own handler gives
+     * focus straight back (refocusKbd). Before, it cleared the request, so a tap
+     * on Ctrl dropped the keyboard and the next letter of Ctrl+C had nowhere to go.
+     * Otherwise it is the keyboard's own "done" key or the OS closing it. */
+    var dockPressAt = 0;
     kbd.addEventListener("blur", function () {
-        // The keyboard's own "done" key, or the OS putting it away, ends the request.
-        kbWanted = false;
+        if (Date.now() - dockPressAt > 700) kbWanted = false;
         paintTouchControls();
     });
+    /* The extra-keys block, laid out like RustDesk's: two keyboard-like rows that
+     * are always there (modifiers, Esc/Tab and the Fn/More toggles; arrows and the
+     * editing keys), and two that open on demand (F1-F12; the rest of a full
+     * keyboard, the common shortcuts and the mouse buttons). Keys in a row share
+     * its width equally, so nothing has to be scrolled to. The buttons are the
+     * drawer's own, moved rather than copied, so their handlers come with them. */
+    function buildDockKeys() {
+        var drawer = document.getElementById("drawer");
+        if (!drawer || drawer.classList.contains("dock-grid")) return;
+        var pick = function (sel) {
+            return drawer.querySelector(sel);
+        };
+        var rows = {
+            main: ['[data-mod="ControlLeft"]', '[data-mod="AltLeft"]', '[data-mod="ShiftLeft"]', '[data-mod="MetaLeft"]',
+                '[data-key="Escape"]', '[data-key="Tab"]', "#fn-toggle", "#more-keys-toggle"],
+            nav: ['[data-key="ArrowLeft"]', '[data-key="ArrowUp"]', '[data-key="ArrowDown"]', '[data-key="ArrowRight"]',
+                '[data-key="Enter"]', '[data-key="Backspace"]', '[data-key="Delete"]', "#caps-key"],
+            fn: [".kx-fn"],
+            more: ['[data-key="Home"]', '[data-key="End"]', ".kx-more", "#cad"],
+            mouse: ["[data-click]", "#drag-lock", "[data-scroll]"],
+        };
+        var made = {};
+        Object.keys(rows).forEach(function (name) {
+            var row = document.createElement("div");
+            row.className = "krow krow-" + name;
+            row.setAttribute("role", "group");
+            row.setAttribute("aria-label", { main: "Modifiers", nav: "Navigation keys", fn: "Function keys", more: "More keys and mouse buttons" }[name]);
+            if (name === "fn" || name === "more") row.hidden = true;
+            rows[name].forEach(function (sel) {
+                if (sel.charAt(0) === "." || sel === "[data-click]" || sel === "[data-scroll]") {
+                    drawer.querySelectorAll(sel).forEach(function (el) {
+                        row.appendChild(el);
+                    });
+                } else {
+                    var el = pick(sel);
+                    if (el) row.appendChild(el);
+                }
+            });
+            made[name] = row;
+        });
+        drawer.querySelectorAll(".sep").forEach(function (s) {
+            s.remove();
+        });
+        // Anything not placed above still has to be reachable.
+        Array.prototype.slice.call(drawer.children).forEach(function (el) {
+            made.more.appendChild(el);
+        });
+        ["main", "nav", "fn", "more"].forEach(function (name) {
+            drawer.appendChild(made[name]);
+        });
+        drawer.classList.add("dock-grid");
+        /* The mouse buttons are not keys: taps already click, so they live in the
+         * ⋯ sheet, out of the way, for the rare middle click or held drag. */
+        var menu = document.getElementById("more-menu");
+        if (menu) {
+            var label = document.createElement("div");
+            label.className = "sheet-label";
+            label.textContent = "Mouse";
+            made.mouse.classList.add("sheet-row");
+            made.mouse.setAttribute("aria-label", "Mouse buttons");
+            menu.insertBefore(made.mouse, menu.firstChild);
+            menu.insertBefore(label, made.mouse);
+        }
+    }
+    /* Fn and More are one open at a time, as in RustDesk, so the keys block never
+     * grows past three rows while the soft keyboard is also on screen. */
+    function setKeyRow(name, open) {
+        var rowFn = document.querySelector(".krow-fn");
+        var rowMore = document.querySelector(".krow-more");
+        var fnBtn = document.getElementById("fn-toggle");
+        var moreBtn = document.getElementById("more-keys-toggle");
+        if (!rowFn || !rowMore) return;
+        rowFn.hidden = !(name === "fn" && open);
+        rowMore.hidden = !(name === "more" && open);
+        if (fnBtn) {
+            fnBtn.classList.toggle("on", !rowFn.hidden);
+            fnBtn.setAttribute("aria-pressed", rowFn.hidden ? "false" : "true");
+        }
+        if (moreBtn) {
+            moreBtn.classList.toggle("on", !rowMore.hidden);
+            moreBtn.setAttribute("aria-pressed", rowMore.hidden ? "false" : "true");
+        }
+    }
+    var gestureHelp = document.getElementById("gesture-help");
+    var gestureHelpBtn = document.getElementById("gesture-help-btn");
+    function paintGestureHelp() {
+        if (!gestureHelp) return;
+        var direct = touchMode === "direct";
+        var lines = direct
+            ? [
+                  ["Tap", "Click where you tap"],
+                  ["Long press", "Right click where you press"],
+                  ["Double tap and hold", "Drag from there"],
+                  ["Two-finger tap", "Right click"],
+                  ["Two-finger drag", "Scroll"],
+                  ["Pinch", "Zoom the picture"],
+                  ["One-finger drag, zoomed", "Move around the picture"],
+              ]
+            : [
+                  ["Drag", "Move the cursor"],
+                  ["Tap", "Left click"],
+                  ["Long press", "Right click"],
+                  ["Double tap and hold", "Drag"],
+                  ["Two-finger tap", "Right click"],
+                  ["Two-finger drag", "Scroll"],
+                  ["Pinch", "Zoom; the view follows the cursor"],
+              ];
+        gestureHelp.textContent = "";
+        var title = document.createElement("div");
+        title.className = "gh-title";
+        title.textContent = direct ? "Touch mode" : "Trackpad mode";
+        gestureHelp.appendChild(title);
+        var list = document.createElement("dl");
+        list.className = "gh-list";
+        lines.forEach(function (l) {
+            var dt = document.createElement("dt");
+            dt.textContent = l[0];
+            var dd = document.createElement("dd");
+            dd.textContent = l[1];
+            list.appendChild(dt);
+            list.appendChild(dd);
+        });
+        gestureHelp.appendChild(list);
+        var sw = document.createElement("button");
+        sw.type = "button";
+        sw.className = "more-item";
+        sw.textContent = direct ? "Switch to trackpad" : "Switch to touch";
+        sw.addEventListener("click", function () {
+            if (touchModeBtn) touchModeBtn.click();
+        });
+        gestureHelp.appendChild(sw);
+    }
+    function setGestureHelp(open) {
+        if (!gestureHelp || !gestureHelpBtn) return;
+        if (open) paintGestureHelp();
+        gestureHelp.classList.toggle("open", open);
+        gestureHelpBtn.setAttribute("aria-expanded", open ? "true" : "false");
+        gestureHelpBtn.classList.toggle("on", open);
+        if (open) placePopover(gestureHelpBtn, gestureHelp);
+    }
+    function wireDockActions() {
+        var fnBtn = document.getElementById("fn-toggle");
+        var moreKeysBtn = document.getElementById("more-keys-toggle");
+        if (fnBtn)
+            fnBtn.addEventListener("click", function () {
+                setKeyRow("fn", fnBtn.getAttribute("aria-pressed") !== "true");
+                refocusKbd();
+            });
+        if (moreKeysBtn)
+            moreKeysBtn.addEventListener("click", function () {
+                setKeyRow("more", moreKeysBtn.getAttribute("aria-pressed") !== "true");
+                refocusKbd();
+            });
+        var zr = document.getElementById("zoom-reset-btn");
+        if (zr)
+            zr.addEventListener("click", function () {
+                scale = 1;
+                tx = 0;
+                ty = 0;
+                applyXform();
+                refocusKbd();
+            });
+        var dp = document.getElementById("dock-paste-btn");
+        if (dp) dp.addEventListener("click", openPasteDialog);
+        // Speaker and mic press the same toggles as the ⋯ sheet, as the desktop's do.
+        [["dock-audio-btn", "audio-btn"], ["dock-mic-btn", "mic-btn"]].forEach(function (pair) {
+            var b = document.getElementById(pair[0]);
+            if (!b) return;
+            b.addEventListener("click", function () {
+                var real = document.getElementById(pair[1]);
+                if (real) real.click();
+            });
+        });
+        repaintAv();
+        if (gestureHelpBtn)
+            gestureHelpBtn.addEventListener("click", function () {
+                setGestureHelp(!gestureHelp.classList.contains("open"));
+            });
+        document.addEventListener("pointerdown", function (e) {
+            if (!gestureHelp || !gestureHelp.classList.contains("open")) return;
+            if (gestureHelp.contains(e.target) || gestureHelpBtn.contains(e.target)) return;
+            setGestureHelp(false);
+        });
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && gestureHelp && gestureHelp.classList.contains("open")) setGestureHelp(false);
+        });
+    }
     if (dockMode) {
         var root = document.documentElement;
         root.classList.add("touch-dock");
@@ -8585,8 +9009,16 @@
         /* A tap on a dock button must not take focus from the hidden field, or
          * the soft keyboard drops every time a key in the row is used. The click
          * still fires; scrolling the row is touch-action's, not this event's. */
-        document.getElementById("bar").addEventListener("pointerdown", function (e) {
-            if (e.pointerType !== "mouse" && e.target.closest && e.target.closest("button")) e.preventDefault();
+        var dockBar = document.getElementById("bar");
+        var holdFocus = function (e) {
+            if (!(e.target.closest && e.target.closest("button"))) return;
+            dockPressAt = Date.now();
+            if (e.pointerType !== "mouse") e.preventDefault();
+        };
+        dockBar.addEventListener("pointerdown", holdFocus);
+        // The compatibility mousedown is what moves focus on iOS, so it is held too.
+        dockBar.addEventListener("mousedown", function (e) {
+            if (e.target.closest && e.target.closest("button") && Date.now() - dockPressAt < 700) e.preventDefault();
         });
         var vv = window.visualViewport;
         var vvTallest = 0;
@@ -8615,6 +9047,13 @@
             setTimeout(paintViewport, 300);
         });
         paintViewport();
+        buildDockKeys();
+        // The ⋯ menu lives in the bar, above its button row, so opening it grows the
+        // bar upward instead of floating a popover (see setMenuOpen).
+        var dockMenu = document.getElementById("more-menu");
+        var dockBarMain = document.getElementById("bar-main");
+        if (dockMenu && dockBarMain) dockBarMain.parentNode.insertBefore(dockMenu, dockBarMain);
+        wireDockActions();
     }
     paintTouchControls();
 
@@ -9056,12 +9495,23 @@
             if (!open && moreMenu.contains(document.activeElement)) moreBtn.focus();
             moreMenu.classList.toggle("open", open);
             moreBtn.setAttribute("aria-expanded", open ? "true" : "false");
+            /* On a phone the menu is the bottom bar grown upward, the way Office
+             * mobile opens its ribbon: the soft keyboard goes away so the sheet
+             * has the room, and the key rows give way to it. Nothing reopens the
+             * keyboard afterwards; the ⌨ button is right there. */
+            if (dockMode) {
+                document.documentElement.classList.toggle("dock-sheet", open);
+                if (open && document.activeElement === kbd) {
+                    kbWanted = false;
+                    kbd.blur();
+                }
+            }
             return open;
         }
         setMenuOpen(moreMenu.classList.contains("open"));
         moreBtn.addEventListener("click", function (e) {
             e.stopPropagation();
-            if (setMenuOpen(!moreMenu.classList.contains("open"))) placeMenu();
+            if (setMenuOpen(!moreMenu.classList.contains("open")) && !dockMode) placeMenu();
         });
         // Picking an item closes it — EXCEPT the audio/mic toggles, which stay open
         // so you can flip both without the menu vanishing (the original bug), and
@@ -9093,7 +9543,7 @@
             setMenuOpen(false);
         });
         window.addEventListener("resize", function () {
-            if (moreMenu.classList.contains("open")) placeMenu();
+            if (moreMenu.classList.contains("open") && !dockMode) placeMenu();
         });
     }
 
@@ -9321,26 +9771,39 @@
     }
     var webTerminal = !window.desktopConsole || !window.desktopConsole.reportWorkspaceRect;
 
-    /* ---- pick up the server's keyboard layout (so symbols map right) ---- */
-    fetch("/_agent/api/state")
-        .then(function (r) {
-            return r.json();
-        })
-        .then(function (s) {
-            if (s && s.settings && (s.settings.keyboardLayout === "uk" || s.settings.keyboardLayout === "us"))
-                layout = s.settings.keyboardLayout;
-            if (!webTerminal) return;
-            if (s && s.features && s.features.terminal === false) {
-                document.documentElement.classList.add("no-terminal");
-                mountDrawerInBar();
-                return;
-            }
-            chatFrame.src = "/_agent/terminal.html";
-        })
-        .catch(function () {
-            // An older host, or no answer: the terminal was always there before.
-            if (webTerminal) chatFrame.src = "/_agent/terminal.html";
-        });
+    /* ---- pick up the server's keyboard layout (so symbols map right) ----
+     * And whether this host serves the shared terminal. The panel stays out of
+     * the layout until the host SAYS it has one: assuming it did put a red
+     * "Terminal disconnected" band on screen whenever this read was slow or
+     * failed, on a host that never had a terminal at all. A failed read is tried
+     * again rather than treated as an answer. */
+    if (webTerminal) {
+        document.documentElement.classList.add("no-terminal");
+        mountDrawerInBar();
+    }
+    var stateWait = 2000;
+    function readState() {
+        fetch("/_agent/api/state", { cache: "no-store" })
+            .then(function (r) {
+                if (!r.ok) throw r.status;
+                return r.json();
+            })
+            .then(function (s) {
+                if (s && s.settings && (s.settings.keyboardLayout === "uk" || s.settings.keyboardLayout === "us"))
+                    layout = s.settings.keyboardLayout;
+                if (!webTerminal) return;
+                // Older hosts send no features block; they always had the terminal.
+                if (s && s.features && s.features.terminal === false) return;
+                document.documentElement.classList.remove("no-terminal");
+                if (!dockMode) mountDrawerInChat();
+                chatFrame.src = "/_agent/terminal.html";
+            })
+            .catch(function () {
+                setTimeout(readState, stateWait);
+                stateWait = Math.min(stateWait * 2, 15000);
+            });
+    }
+    readState();
 
     // The agent X-ray overlay, meeting copilot, suggestion cards and the overlay/
     // ambient SSE streams were removed with the in-app agent. `clearRegionMapForManualInput`

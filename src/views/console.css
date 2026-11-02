@@ -787,6 +787,37 @@ html.modal-open .screen {
     display: none;
     will-change: left, top;
 }
+/* Trackpad magnifier (console.js drawLens). Centred on the cursor; the canvas
+   draws the enlarged picture and the hotspot dot, this is only the frame. */
+.kvm-lens {
+    position: absolute;
+    width: 104px;
+    height: 104px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 5;
+    border: 2px solid color-mix(in srgb, var(--primary) 70%, white);
+    box-shadow:
+        0 0 0 1px rgb(0 0 0 / 55%),
+        0 8px 24px -6px rgb(0 0 0 / 60%);
+    opacity: 0;
+    visibility: hidden;
+    transition:
+        opacity 0.18s,
+        visibility 0s linear 0.18s;
+}
+.kvm-lens.on {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.12s;
+}
+@media (prefers-reduced-motion: reduce) {
+    .kvm-lens,
+    .kvm-lens.on {
+        transition: none;
+    }
+}
 /* ---- resolution toast: pops over the top of the stream on a source/size change */
 .res-toast,
 .toast {
@@ -2537,13 +2568,8 @@ html.touch-dock .bar-keys .ibtn {
     min-width: 44px;
     font-size: 14px;
 }
-.mode-btn {
-    font-size: 12.5px;
-    font-weight: 600;
-    padding: 0 10px;
-}
 /* Asked for, not yet reported by the Pi. */
-.mode-btn.pending {
+.more-item.pending .more-pip {
     opacity: 0.6;
 }
 #caps-key.on {
@@ -2573,4 +2599,266 @@ html.touch-dock .bar-keys #drag-lock {
 html.touch-dock .more-menu,
 html.touch-dock .dev-menu {
     max-height: calc(var(--app-height, 100dvh) - 16px);
+}
+
+/* ---- touch dock extra keys (RustDesk layout) ----
+ * Rows of equal-width keys, built by console.js (buildDockKeys): always
+ * modifiers + Esc/Tab/Fn/More, and arrows + editing keys; Fn and More open one
+ * extra block at a time. */
+html.touch-dock .bar .bar-keys.dock-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    height: auto;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    overflow: visible;
+    mask-image: none;
+    /* .bar-keys centres its one row; these rows must span the bar. */
+    align-items: stretch;
+}
+.krow {
+    display: flex;
+    gap: 5px;
+}
+.krow[hidden] {
+    display: none;
+}
+html.touch-dock .krow > .ibtn {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 38px;
+    padding: 0 2px;
+    font-size: 13.5px;
+    white-space: nowrap;
+}
+/* The opened blocks wrap, six keys to a line, like the F-row on a laptop. */
+.krow-fn,
+.krow-more {
+    flex-wrap: wrap;
+}
+html.touch-dock .krow-fn > .ibtn,
+html.touch-dock .krow-more > .ibtn {
+    flex: 0 0 calc((100% - 25px) / 6);
+    font-size: 12.5px;
+}
+#fn-toggle.on,
+#more-keys-toggle.on,
+#gesture-help-btn.on {
+    color: var(--primary-foreground);
+    background: var(--primary);
+}
+/* The status text gives way first on a narrow phone; the dot keeps the state. */
+@media (max-width: 440px) {
+    html.touch-dock .bar-main .status {
+        display: none;
+    }
+}
+.gesture-help {
+    padding: 10px 12px;
+    max-width: min(340px, calc(100vw - 16px));
+    gap: 8px;
+}
+.gesture-help .gh-title {
+    font-weight: 650;
+    font-size: 14px;
+}
+.gesture-help .gh-list {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    margin: 0;
+    font-size: 13px;
+}
+.gesture-help dt {
+    color: var(--muted-foreground);
+}
+.gesture-help dd {
+    margin: 0;
+}
+
+/* ---- touch dock: the ⋯ menu as a bottom sheet (Office mobile style) ----
+ * console.js moves #more-menu into the bar above its button row; opening it
+ * hides the soft keyboard and the key rows, and the bar grows upward into the
+ * menu. In flow, so it pushes the picture up instead of covering it. */
+html.touch-dock .bar .more-menu {
+    position: static;
+    width: auto;
+    min-width: 0;
+    max-height: min(60vh, calc(var(--app-height, 100dvh) * 0.6));
+    border-radius: 0;
+    box-shadow: none;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left));
+    animation: dock-sheet-rise 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+html.touch-dock .bar .more-menu .more-item {
+    min-height: 44px;
+}
+html.touch-dock.dock-sheet .bar .bar-keys {
+    display: none;
+}
+html.touch-dock.dock-sheet #more-btn {
+    color: var(--primary-foreground);
+    background: var(--primary);
+}
+@keyframes dock-sheet-rise {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    html.touch-dock .bar .more-menu {
+        animation: none;
+    }
+}
+
+/* ---- touch dock: the desktop app's look ----
+ * The dock is the desktop titlebar's language at thumb size: a --card bar on a
+ * hairline, flat round icon buttons in muted ink that tint on press, quiet keys
+ * on --secondary with a 6px control radius and no borders, and blue only for
+ * what is ON. The web console's bordered .ibtn boxes are left as they are
+ * everywhere else. */
+html.touch-dock .bar {
+    background: var(--card);
+    border-top: 1px solid var(--border);
+}
+html.touch-dock .bar-main .ibtn {
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+html.touch-dock .bar-main .ibtn svg {
+    width: 18px;
+    height: 18px;
+}
+html.touch-dock .bar .krow > .ibtn {
+    border: 0;
+    background: var(--secondary);
+    color: var(--foreground);
+    height: 36px;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 550;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+html.touch-dock .bar .ibtn:active {
+    transform: none;
+    background: color-mix(in srgb, currentColor 26%, transparent);
+}
+/* ON: the desktop's active treatment, ink in the accent with a light wash,
+   rather than a solid block that shouts across the whole row. */
+html.touch-dock .bar .ibtn.on,
+html.touch-dock .bar #caps-key.on,
+html.touch-dock .bar #fn-toggle.on,
+html.touch-dock .bar #more-keys-toggle.on,
+html.touch-dock .bar #gesture-help-btn.on,
+html.touch-dock.dock-sheet #more-btn {
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+html.touch-dock .bar .bar-keys.dock-grid {
+    gap: 6px;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+    border-top: 1px solid var(--border);
+}
+html.touch-dock .krow {
+    gap: 6px;
+}
+html.touch-dock .krow-fn > .ibtn,
+html.touch-dock .krow-more > .ibtn {
+    flex: 0 0 calc((100% - 30px) / 6);
+}
+/* The ⋯ sheet: the mouse buttons sit at the top under a small label. */
+html.touch-dock .more-menu .sheet-label {
+    padding: 4px 8px 6px;
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted-foreground);
+}
+html.touch-dock .more-menu .sheet-row {
+    display: flex;
+    gap: 6px;
+    padding: 0 4px 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+html.touch-dock .more-menu .sheet-row > .ibtn {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 40px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 550;
+}
+/* Speaker and mic: the desktop titlebar's .tb-av, rule for rule. Waves only
+   while on, a light wash when armed (not a solid blob), amber on a problem, and
+   the live level rising in green behind the icon, clipped to the circle. */
+html.touch-dock .bar-main .dock-av {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+}
+html.touch-dock .dock-av .wave {
+    opacity: 0;
+}
+html.touch-dock .bar-main .dock-av.on {
+    color: var(--foreground);
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+html.touch-dock .dock-av.on .wave {
+    opacity: 1;
+}
+html.touch-dock .bar-main .dock-av.warn {
+    color: var(--warn);
+}
+html.touch-dock .dock-av::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--vol, 0) * 100%);
+    z-index: -1;
+    background: linear-gradient(to top, color-mix(in srgb, var(--ok) 72%, transparent), color-mix(in srgb, var(--ok) 18%, transparent));
+    transition: height 0.05s linear;
+    pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+    html.touch-dock .dock-av::before {
+        transition: none;
+    }
+}
+/* Installed (standalone) on a phone, the page runs under the status bar and,
+   in landscape, beside the notch: viewport-fit=cover with a black-translucent
+   status bar. The picture keeps clear of both; the dock already pads its own
+   sides and the home indicator. In a browser tab these insets are 0. */
+html.touch-dock .app {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+}
+html.touch-dock .screen {
+    margin-left: env(safe-area-inset-left);
+    margin-right: env(safe-area-inset-right);
 }

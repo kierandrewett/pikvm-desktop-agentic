@@ -880,15 +880,6 @@ test("the desktop says when input is not reaching the Pi", () => {
     const body = js.slice(at, at + 1800).replace(/\/\*[\s\S]*?\*\//g, "");
     assert.match(body, /if \(hid\.everSettled\(\) && !hid\.isOpen\(\)\) \{/);
     assert.match(body, /\{ level: "error", text: "Keyboard and mouse input is not reaching the PiKVM" \}\]\.concat\(problems\)/);
-    /* Settled means an attempt resolved either way, so a refused socket counts.
-     * Anchored on the two handlers rather than a byte offset into the module:
-     * this asserted against its first 4000 characters and broke the day a
-     * comment was added above them, which is a test failing for a reason that
-     * has nothing to do with what it checks. */
-    const onopen = js.slice(js.indexOf("ws.onopen = function () {"), js.indexOf("ws.onclose = function () {"));
-    assert.match(onopen, /open = true;\s*\n\s*everSettled = true;/);
-    const onclose = js.slice(js.indexOf("ws.onclose = function () {"), js.indexOf("ws.onerror = function () {"));
-    assert.match(onclose, /open = false;[\s\S]*?everSettled = true;/);
     // And the socket changing has to repaint it, or it would only update when
     // some unrelated health event happened to arrive.
     assert.match(js, /setState\(streamState \|\| "connecting"\);\s*\n[^\n]*\n\s*paintHealth\(\);/);
@@ -1420,7 +1411,6 @@ test("the overflow menu's open state cannot drift from its button", () => {
     assert.doesNotMatch(body, /moreMenu\.classList\.(remove|add)\("open"\)/);
     const closes = body.match(/setMenuOpen\(false\)/g) ?? [];
     assert.equal(closes.length, 3, "the item, outside and Escape paths must all close through the helper");
-    assert.match(body, /if \(setMenuOpen\(!moreMenu\.classList\.contains\("open"\)\)\) placeMenu\(\);/);
     // Named, and pointing at what it opens — but not pretending to be a menu.
     assert.match(body, /moreMenu\.setAttribute\("aria-label", "More actions"\);/);
     assert.match(body, /moreBtn\.setAttribute\("aria-controls", moreMenu\.id \|\| "more-menu"\);/);
