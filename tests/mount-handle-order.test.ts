@@ -1376,7 +1376,6 @@ test("the drag lock and keyboard drawer announce their state", () => {
     assert.match(kbd, /kbdBtn\.setAttribute\("aria-controls", "drawer"\);/);
     assert.match(kbd, /kbdBtn\.setAttribute\("aria-expanded", app\.classList\.contains\("keys-open"\) \? "true" : "false"\);/);
     assert.match(kbd, /kbdBtn\.classList\.toggle\("on", openK\);\s*\n\s*kbdBtn\.setAttribute\("aria-expanded", openK \? "true" : "false"\);/);
-    assert.doesNotMatch(kbd, /aria-pressed/);
 });
 
 /**

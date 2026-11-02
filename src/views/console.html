@@ -4,7 +4,7 @@
         <meta charset="UTF-8" />
         <meta
             name="viewport"
-            content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+            content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
         />
         <meta name="theme-color" content="#0a0a0c" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -408,6 +408,11 @@
                     <span class="dot" id="conn" title="Connection"></span>
                     <span class="status" id="conn-text">Connecting…</span>
                     <span class="spacer"></span>
+                    <!-- Touch input mode and the trackpad's mouse mode. Touch dock only
+                         (console.js shows them on touch screens); text faces, because
+                         the state IS the label and an icon would need a legend. -->
+                    <button class="ibtn dock-only mode-btn" id="touch-mode-btn" type="button">Trackpad</button>
+                    <button class="ibtn dock-only mode-btn" id="touch-hid-btn" type="button" hidden>Rel</button>
                     <button class="ibtn" id="kbd-btn" title="Keys &amp; mouse" aria-label="Controls">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                             stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path
@@ -534,6 +539,9 @@
                     <button class="ibtn" data-mod="ControlLeft">Ctrl</button>
                     <button class="ibtn" data-mod="AltLeft">Alt</button>
                     <button class="ibtn" data-mod="MetaLeft">Win</button>
+                    <!-- The target's Caps Lock, lit from the Pi's LED report. A toggle of
+                         remote state, so aria-pressed tracks the LED, not the tap. -->
+                    <button class="ibtn" id="caps-key" type="button" aria-pressed="false">Caps</button>
                     <button class="ibtn" data-key="ArrowLeft" aria-label="Left arrow">←</button>
                     <button class="ibtn" data-key="ArrowUp" aria-label="Up arrow">↑</button>
                     <button class="ibtn" data-key="ArrowDown" aria-label="Down arrow">↓</button>
@@ -593,6 +601,9 @@
             autocapitalize="off"
             autocorrect="off"
             spellcheck="false"
+            inputmode="text"
+            enterkeyhint="enter"
+            data-form-type="other"
         />
 
         <!-- WebRTC (Janus) wrapper — defines window.JanusStream; console.js consumes

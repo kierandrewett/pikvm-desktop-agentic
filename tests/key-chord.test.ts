@@ -96,9 +96,11 @@ test("bare modifiers ride the chord instead of being sent on their own", () => {
     }
 });
 
-test("Caps Lock is swallowed, never forwarded", () => {
-    const d = decide(ev("CapsLock"));
-    assert.equal(d.kind, "swallow");
+test("Caps Lock is forwarded bare, even with modifiers held", () => {
+    const d = decide(ev("CapsLock", { key: "CapsLock", shiftKey: true }), { armed: ["ControlLeft"] });
+    assert.equal(d.kind, "chord");
+    assert.equal(d.code, "CapsLock");
+    assert.deepEqual(d.mods, []);
 });
 
 test("an IME composition is left alone", () => {

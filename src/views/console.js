@@ -429,17 +429,25 @@
         // The TARGET's real Caps Lock state, read from the Pi's keyboard LED reports
         // (the ground truth). `capsKnown` stays false until the Pi actually sends one,
         // so we can fall back safely on setups that don't report LEDs.
+        //
+        // The state is SYNCED, not forced off: letter case is resolved against it at
+        // send time (see drainKeys), a host Caps Lock is mirrored onto it, and the
+        // on-screen Caps key toggles it. `capsPendingUntil` covers the gap between a
+        // toggle going out and the LED report that confirms it, so neither the host
+        // sync nor a stale report flips it twice.
         var targetCaps = false;
         var capsKnown = false;
-        var capsCorrecting = false; // guards the auto-off toggle from looping
-        // Target mouse pointer mode, read from the Pi's hid events. This client always
-        // drives the cursor with ABSOLUTE moves, so a Pi stuck in relative mode makes the
-        // pointer un-trackable — we auto-switch it to absolute when the user's mouse
-        // enters the surface (see ensureAbsolute). null = unknown until the first hid event.
+        var capsPendingUntil = 0;
+        var onCaps = null;
+        // Target mouse pointer mode, read from the Pi's hid events. null = unknown
+        // until the first hid event. The console switches it to suit the input in use
+        // (see setMouseOutput): absolute for a desktop mouse and direct touch, relative
+        // for the touch trackpad unless the user pinned one.
         var mouseAbsolute = null; // true | false | null
         var mouseOutputs = []; // available outputs, e.g. ["usb","usb_rel"]
-        var absSwitchAt = 0; // last switch attempt (ms) — throttle while it applies
-        var absSwitchBusy = false;
+        var outputSwitchAt = 0; // last switch attempt (ms) — throttle while it applies
+        var outputSwitchBusy = false;
+        var onMouseMode = null;
 
         function url() {
             return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/api/ws";
@@ -484,10 +492,8 @@
                 } catch (e) {}
             };
             ws.onmessage = function (ev) {
-                // Watch the target's caps-lock LED. We type letter case from the HOST's
-                // e.key (synchronous, race-free), which is only correct when the TARGET's
-                // caps is OFF — so if its LED ever shows ON, toggle it back off once.
-                // Format varies by kvmd version — probe the likely paths defensively.
+                // Watch the target's caps-lock LED and its mouse mode. Format varies by
+                // kvmd version — probe the likely paths defensively.
                 try {
                     var d = JSON.parse(ev.data);
                     var ed = d && d.event;
@@ -527,28 +533,28 @@
                     if (d && d.event_type === "ocr") setOcrState(ed);
                     var leds = ed && ((ed.keyboard && ed.keyboard.leds) || ed.leds);
                     if (leds && typeof leds.caps === "boolean") {
-                        targetCaps = leds.caps;
-                        capsKnown = true;
-                        if (leds.caps && open && !capsCorrecting && !agentActing) {
-                            capsCorrecting = true;
-                            raw({ event_type: "key", event: { key: "CapsLock", state: true } });
-                            setTimeout(function () {
-                                raw({ event_type: "key", event: { key: "CapsLock", state: false } });
-                            }, 12);
-                            setTimeout(function () {
-                                capsCorrecting = false;
-                            }, 500);
+                        /* A report that disagrees with a toggle still in flight is
+                         * the one from before it; the one after it is on its way. */
+                        var stale = Date.now() < capsPendingUntil && leds.caps !== targetCaps;
+                        if (!stale) {
+                            if (leds.caps === targetCaps) capsPendingUntil = 0;
+                            var changed = !capsKnown || targetCaps !== leds.caps;
+                            targetCaps = leds.caps;
+                            capsKnown = true;
+                            if (changed && onCaps) onCaps(targetCaps);
                         }
                     }
                     // Track the target's mouse mode (hid events carry it as a delta, so only
                     // overwrite the fields actually present in this message).
                     var mouse = ed && ed.mouse;
                     if (mouse) {
+                        var wasAbs = mouseAbsolute;
                         if (typeof mouse.absolute === "boolean") mouseAbsolute = mouse.absolute;
                         if (mouse.outputs && Array.isArray(mouse.outputs.available)) mouseOutputs = mouse.outputs.available;
                         // Fall back to the active-output name when 'absolute' isn't reported.
                         if (mouseAbsolute === null && mouse.outputs && typeof mouse.outputs.active === "string")
                             mouseAbsolute = mouse.outputs.active === "usb";
+                        if (wasAbs !== mouseAbsolute && onMouseMode) onMouseMode(mouseAbsolute);
                     }
                 } catch (e) {}
             };
@@ -605,34 +611,58 @@
             wheel: function (dx, dy) {
                 send({ event_type: "mouse_wheel", event: { delta: { x: dx, y: dy } } });
             },
-            /** A RELATIVE mouse nudge — wakes a sleeping/no-signal display where an
-             *  absolute position report alone often won't. Routed to the Pi's relative
-             *  mouse endpoint (a no-op if the Pi is absolute-only). */
+            /** A RELATIVE mouse move: the touch trackpad when the Pi is in relative
+             *  mode, and the nudge that wakes a sleeping/no-signal display where an
+             *  absolute report alone often won't. kvmd takes -127..127 per report
+             *  (its own UI clamps the same way); squash lets it merge a burst. */
             relative: function (dx, dy) {
-                send({ event_type: "mouse_relative", event: { delta: { x: Math.round(dx), y: Math.round(dy) }, squash: true } });
+                var x = Math.max(-127, Math.min(127, Math.round(dx)));
+                var y = Math.max(-127, Math.min(127, Math.round(dy)));
+                if (!x && !y) return;
+                send({ event_type: "mouse_relative", event: { delta: { x: x, y: y }, squash: true } });
             },
             /** The target's pointer mode, or null if not yet known. */
             isRelative: function () {
                 return mouseAbsolute === false;
             },
-            /** Switch the Pi to ABSOLUTE pointer mode if it's currently relative and an
-             *  absolute output ("usb") is available. This client always sends absolute
-             *  moves, so a relative-mode Pi can't track the cursor — call this when the
-             *  user's mouse enters the surface to recover it. Idempotent + throttled: a
-             *  no-op once the Pi reports absolute, and at most one POST per few seconds
-             *  while the change applies (a fresh hid event then flips mouseAbsolute true). */
-            ensureAbsolute: function () {
-                if (mouseAbsolute !== false) return; // unknown or already absolute
-                if (mouseOutputs.indexOf("usb") < 0) return; // no absolute output to switch to
+            /** Drive a relative-mode cursor hard into the top-left corner, so its
+             *  position is KNOWN again (relative mode reports none). One event with a
+             *  list of full-size steps, unsquashed, so kvmd plays each one: 48 x 127
+             *  clears a 4K screen even before the target's own acceleration. */
+            homeRelative: function () {
+                var steps = [];
+                for (var i = 0; i < 48; i++) steps.push({ x: -127, y: -127 });
+                send({ event_type: "mouse_relative", event: { delta: steps, squash: false } });
+            },
+            /** True only once the Pi has REPORTED absolute mode; unknown is not absolute. */
+            isAbsolute: function () {
+                return mouseAbsolute === true;
+            },
+            /** Whether the Pi offers a relative output to switch to. */
+            relativeAvailable: function () {
+                return mouseOutputs.indexOf("usb_rel") >= 0;
+            },
+            /** Switch the Pi's mouse output to absolute ("usb") or relative ("usb_rel").
+             *  A no-op while the mode is unknown, already right, or the output does not
+             *  exist, and at most one POST per 1.5s while a change applies (the hid event
+             *  that follows flips mouseAbsolute). Every caller can therefore ask on
+             *  every move without flooding the Pi. */
+            setMouseOutput: function (wantAbs) {
+                if (mouseAbsolute === null || mouseAbsolute === wantAbs) return;
+                var output = wantAbs ? "usb" : "usb_rel";
+                if (mouseOutputs.indexOf(output) < 0) return;
                 var now = Date.now();
-                if (absSwitchBusy || now - absSwitchAt < 3000) return;
-                absSwitchAt = now;
-                absSwitchBusy = true;
-                fetch("/api/hid/set_params?mouse_output=usb", { method: "POST", cache: "no-store" })
+                if (outputSwitchBusy || now - outputSwitchAt < 1500) return;
+                outputSwitchAt = now;
+                outputSwitchBusy = true;
+                fetch("/api/hid/set_params?mouse_output=" + output, { method: "POST", cache: "no-store" })
                     .catch(function () {})
                     .then(function () {
-                        absSwitchBusy = false;
+                        outputSwitchBusy = false;
                     });
+            },
+            onMouseMode: function (cb) {
+                onMouseMode = cb;
             },
             /** The target's current Caps Lock state (from its keyboard LED). */
             capsOn: function () {
@@ -641,6 +671,20 @@
             /** Whether the Pi actually reports the caps LED (so we can trust capsOn). */
             capsKnown: function () {
                 return capsKnown;
+            },
+            /** True between sending a Caps Lock press and the LED report confirming it. */
+            capsPending: function () {
+                return Date.now() < capsPendingUntil;
+            },
+            /** A Caps Lock press just went out: flip the expected state now, so letters
+             *  queued behind it resolve their case against the state they will meet. */
+            noteCapsToggle: function () {
+                targetCaps = !targetCaps;
+                capsPendingUntil = Date.now() + 1200;
+                if (onCaps) onCaps(targetCaps);
+            },
+            onCaps: function (cb) {
+                onCaps = cb;
             },
         };
     })();
@@ -4894,14 +4938,22 @@
         }
         keyDrained.push(cb);
     }
-    function sendChord(mods, codeName, shift) {
+    /* `letter` marks a key whose case Caps Lock inverts (A-Z). Its Shift is decided
+     * when the chord is PLAYED, against the target's Caps Lock at that moment, so a
+     * Caps toggle queued ahead of it (the Caps key, or the host sync) is already
+     * accounted for. Without it, a target with Caps on turned "Hello" into "hELLO". */
+    function sendChord(mods, codeName, shift, letter) {
         if (agentActing) return;
         var m = (mods || []).slice();
+        var hasShift = m.indexOf("ShiftLeft") >= 0 || m.indexOf("ShiftRight") >= 0;
         // Shift can arrive twice — once from the caller's flag, once from an armed
         // on-screen Shift. Pressing the same physical key twice leaves it stuck down
         // on the target, so fold them into one.
-        if (shift && m.indexOf("ShiftLeft") < 0 && m.indexOf("ShiftRight") < 0) m.push("ShiftLeft");
-        keyQ.push({ mods: m, code: codeName });
+        if (letter && !hasShift) keyQ.push({ mods: m, code: codeName, shift: !!shift, letter: true });
+        else {
+            if (shift && !hasShift) m.push("ShiftLeft");
+            keyQ.push({ mods: m, code: codeName });
+        }
         if (keyQ.length > 600) keyQ.shift(); // never let a runaway queue grow unbounded
         if (!keyBusy) drainKeys();
     }
@@ -4918,6 +4970,8 @@
         }
         keyBusy = true;
         var op = keyQ.shift();
+        if (op.letter && op.shift !== (hid.capsKnown() && hid.capsOn())) op.mods = op.mods.concat(["ShiftLeft"]);
+        if (op.code === "CapsLock") hid.noteCapsToggle();
         // A modifier the user is holding is already down on the target; pressing
         // it again is harmless but RELEASING it at the end of the chord would
         // drop it while their finger is still on the key. Leave those alone.
@@ -4935,16 +4989,18 @@
             op.mods.length ? KEY_MOD_SETTLE : 0,
         );
     }
-    /** A bare key (with any armed sticky modifiers). */
+    /** A bare key (with any armed sticky modifiers). The target's caret may move,
+     *  so the soft-keyboard buffer starts over (see kbSync). */
     function sendCode(codeName) {
         sendChord(armedList(), codeName, false);
         clearArmed();
+        kbReset();
     }
     /** A printable character (resolves to physical key + shift). */
     function sendChar(ch) {
         var k = charToKey(ch, layout);
         if (!k) return;
-        sendChord(armedList(), k.code, k.shift);
+        sendChord(armedList(), k.code, k.shift, /^Key[A-Z]$/.test(k.code));
         clearArmed();
     }
     function modsFromEvent(e) {
@@ -7068,6 +7124,15 @@
             return;
         }
         var pr = pane.getBoundingClientRect();
+        /* Following the trackpad cursor keeps it in the MIDDLE of the pane, right up
+         * to the picture's edge, so the view may travel half a pane past it.
+         * Clamping to the picture instead would slide the cursor off-centre exactly
+         * where precision matters most: corners, taskbars, close buttons. */
+        if (followingCursor()) {
+            tx = Math.min(pr.width / 2, Math.max(pr.width / 2 - pr.width * scale, tx));
+            ty = Math.min(pr.height / 2, Math.max(pr.height / 2 - pr.height * scale, ty));
+            return;
+        }
         tx = Math.min(0, Math.max(-pr.width * (scale - 1), tx));
         ty = Math.min(0, Math.max(-pr.height * (scale - 1), ty));
     }
@@ -7101,11 +7166,42 @@
     }
 
     /* ---- pointer input on the screen ----
-     * Touch = a relative TRACKPAD (drag moves the cursor by a delta, like a laptop
-     *   trackpad): tap = left click, two-finger tap = right click, two-finger drag
-     *   = scroll, pinch = zoom the view, tap-and-a-half / Drag-lock = hold to drag.
-     * Mouse (desktop) = ABSOLUTE: the cursor goes exactly where you point/click.
-     */
+     * Touch has two modes, after RustDesk's mobile client (toggle in the touch dock):
+     *   TRACKPAD (default): a drag moves the cursor by a delta; tap = left click,
+     *     long-press = right click, two-finger tap = right click, two-finger drag =
+     *     scroll, double-tap-and-hold = drag, pinch = zoom. While zoomed the view
+     *     follows the cursor and keeps it centred, so there is nothing to pan.
+     *   DIRECT: the touch point IS the pointer. Tap = click there, long-press =
+     *     right click there, double-tap-and-hold = drag, one-finger drag pans a
+     *     zoomed view, two-finger drag scrolls.
+     * Mouse and pen (desktop) = ABSOLUTE: the cursor goes exactly where you point.
+     *
+     * The Pi's mouse output follows the input in use: absolute for a mouse, a pen
+     * and direct touch; relative for the trackpad, unless the user pinned the
+     * trackpad to absolute or the Pi has no relative output. */
+    var TOUCH_MODE_KEY = "pikvm-touch-mode";
+    var TOUCH_HID_KEY = "pikvm-touch-hid";
+    var touchMode = "trackpad"; // "trackpad" | "direct"
+    var touchHid = "rel"; // trackpad output: "rel" | "abs"
+    try {
+        if (localStorage.getItem(TOUCH_MODE_KEY) === "direct") touchMode = "direct";
+        if (localStorage.getItem(TOUCH_HID_KEY) === "abs") touchHid = "abs";
+    } catch (e) {}
+    // The input in use: touch, or a mouse/pen. A phone starts as touch, so the dock
+    // and the Pi's mouse output are right before the first gesture.
+    var lastInputTouch = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    var gestureDirect = false; // this one-finger gesture points directly (direct mode, or a pen)
+    var homedNoticeShown = false; // the relative-mode "cursor parked" note, once per page
+    function trackpadActive() {
+        return lastInputTouch && touchMode === "trackpad";
+    }
+    function followingCursor() {
+        return trackpadActive() && scale > 1;
+    }
+    /** The Pi output this input wants: true = absolute. */
+    function wantAbsOutput() {
+        return !trackpadActive() || touchHid === "abs";
+    }
     var pts = new Map(); // pointerId -> {x,y}
     var startPt = null; // {x,y,t,id}
     var moved = false;
@@ -7228,11 +7324,32 @@
             }, 180);
         };
     })();
+    // Trackpad travel owed to a RELATIVE-mode Pi, in target pixels, carried as
+    // fractions so slow drags still add up to whole steps.
+    var relOweX = 0;
+    var relOweY = 0;
     function flushMove() {
         moveRaf = 0;
         if (!moveDirty) return;
         moveDirty = false;
         if (window.desktopConsole && !windowFocused) return; // background window: don't move the KVM cursor
+        if (hid.isRelative() && !wantAbsOutput()) {
+            var sx = Math.trunc(relOweX);
+            var sy = Math.trunc(relOweY);
+            relOweX -= sx;
+            relOweY -= sy;
+            // kvmd takes at most 127 per report; a fast flick is several.
+            while (sx || sy) {
+                var cx = Math.max(-127, Math.min(127, sx));
+                var cy = Math.max(-127, Math.min(127, sy));
+                hid.relative(cx, cy);
+                sx -= cx;
+                sy -= cy;
+            }
+            return;
+        }
+        relOweX = 0;
+        relOweY = 0;
         hid.move(Math.round(vcur.x), Math.round(vcur.y));
         reportCursor(vcur.x, vcur.y);
     }
@@ -7275,9 +7392,58 @@
         var box = pictureBox();
         var w = (box && box.w) || pane.clientWidth || 1;
         var h = (box && box.h) || pane.clientHeight || 1;
-        vcur.x = Math.max(-32768, Math.min(32767, vcur.x + (dx / w) * SENS * 65534));
-        vcur.y = Math.max(-32768, Math.min(32767, vcur.y + (dy / h) * SENS * 65534));
+        var fx = (dx / w) * SENS;
+        var fy = (dy / h) * SENS;
+        vcur.x = Math.max(-32768, Math.min(32767, vcur.x + fx * 65534));
+        vcur.y = Math.max(-32768, Math.min(32767, vcur.y + fy * 65534));
+        /* A relative-mode Pi gets the same travel as a delta in target pixels, so
+         * one finger-pixel is still one picture-pixel before the target applies
+         * its own pointer acceleration. vcur keeps an ESTIMATE alongside it for
+         * the zoom to follow; acceleration makes it drift, which is the trade
+         * for driving targets that only take a relative mouse. */
+        if (hid.isRelative() && !wantAbsOutput()) {
+            relOweX += fx * geomW();
+            relOweY += fy * geomH();
+        }
         queueMove();
+        followCursor();
+        paintTrackpadCursor();
+    }
+    /** Where the trackpad cursor sits, in client pixels, or null with no picture. */
+    function vcurClient() {
+        var box = pictureBox();
+        if (!box) return null;
+        return {
+            x: box.left + ((vcur.x + 32767) / 65534) * box.w,
+            y: box.top + ((vcur.y + 32767) / 65534) * box.h,
+        };
+    }
+    /** Keep the zoomed view centred on the trackpad cursor (RustDesk's mouse mode). */
+    function followCursor() {
+        if (!followingCursor()) return;
+        var at = vcurClient();
+        if (!at) return;
+        var pr = pane.getBoundingClientRect();
+        tx += pr.left + pr.width / 2 - at.x;
+        ty += pr.top + pr.height / 2 - at.y;
+        clampPan();
+        applyXform();
+    }
+    /* The trackpad's own cursor blob, drawn at once rather than waiting a video
+     * frame for the target's. Only when the Pi is absolute: in relative mode the
+     * position is an estimate, and the target's real pointer in the picture is
+     * the honest one to look at. */
+    function paintTrackpadCursor() {
+        if (!kvmCursor) return;
+        var at = trackpadActive() && !hid.isRelative() && hid.isOpen() && !modalOpen() ? vcurClient() : null;
+        if (!at) {
+            if (trackpadActive()) kvmCursor.style.display = "none";
+            return;
+        }
+        var pr = pane.getBoundingClientRect();
+        kvmCursor.style.left = at.x - pr.left + "px";
+        kvmCursor.style.top = at.y - pr.top + "px";
+        kvmCursor.style.display = "block";
     }
     function tapClick(button) {
         flushMove(); // make sure the cursor is at its latest position first
@@ -7291,6 +7457,52 @@
             }, 45);
         });
     }
+    /* Run a "point here, then press" step only once the Pi is ABSOLUTE.
+     *
+     * Direct touch can begin while the Pi is still relative from the trackpad,
+     * and a relative Pi ignores absolute moves: the press would land wherever
+     * the cursor already was, on whatever control happens to be there. So the
+     * step waits for the hid event that confirms absolute mode, and is dropped
+     * (with a word about it) if that does not come quickly. An unknown mode is
+     * waited on as well: before the first hid report there is no telling where
+     * a press would land. Latest step wins. */
+    var absPending = null;
+    function whenAbsolute(fn) {
+        if (hid.isAbsolute()) {
+            fn();
+            return;
+        }
+        hid.setMouseOutput(true);
+        absPending = { fn: fn, at: Date.now() };
+        setTimeout(function () {
+            if (!absPending || Date.now() - absPending.at < 2400) return;
+            absPending = null;
+            toast(
+                hid.isRelative()
+                    ? "The Pi did not switch to absolute mouse, so that tap was not sent"
+                    : "The Pi has not reported its mouse mode yet, so that tap was not sent",
+                true,
+            );
+        }, 2500);
+    }
+    /* Direct touch: put the cursor at (x, y), then press. Off the picture (the
+     * letterbox around it, or the dark margin of a zoomed view) there is nothing
+     * to point at, so nothing is sent; the desktop mouse already refuses those. */
+    function pointAt(x, y, press) {
+        if (!fracAt(x, y)) return;
+        whenAbsolute(function () {
+            moveTo(x, y, true);
+            press();
+        });
+    }
+    hid.onMouseMode(function (absolute) {
+        if (absolute && absPending) {
+            var step = absPending;
+            absPending = null;
+            if (Date.now() - step.at < 2400) step.fn();
+        }
+        paintTouchControls();
+    });
 
     function centroid() {
         var sx = 0,
@@ -7413,12 +7625,14 @@
         if (e.buttons !== 0) return;
         if (e.pointerType === "mouse" && kvmCursor) kvmCursor.style.display = "none";
     });
-    // When the user's mouse enters the live surface, make sure the target is in ABSOLUTE
-    // pointer mode — this client drives the cursor with absolute moves, so a Pi stuck in
-    // relative can't track it. ensureAbsolute is a throttled no-op once it's absolute.
+    // A mouse entering the live surface is a mouse in use: the Pi goes ABSOLUTE,
+    // since this client points a mouse exactly where it is. setMouseOutput is a
+    // throttled no-op once the Pi is already there.
     pane.addEventListener("pointerenter", function (e) {
         if (modalOpen()) return;
-        if (e.pointerType === "mouse") hid.ensureAbsolute();
+        if (e.pointerType !== "mouse") return;
+        lastInputTouch = false;
+        hid.setMouseOutput(true);
     });
 
     pane.addEventListener(
@@ -7439,6 +7653,8 @@
             }
             pane.setPointerCapture(e.pointerId);
             pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            lastInputTouch = e.pointerType === "touch";
+            hid.setMouseOutput(wantAbsOutput());
 
             if (e.pointerType === "mouse") {
                 // Only act on clicks INSIDE the actual picture — a click in the
@@ -7470,6 +7686,12 @@
                 return;
             }
             noteManualKvmInput();
+            /* Keep focus where it is. A touch that moves focus off the hidden field
+             * closes the soft keyboard, so every tap on the picture used to put it
+             * away mid-sentence. preventDefault on pointerdown stops the focus
+             * change and the compatibility mouse events, nothing else: the gesture
+             * below is all pointer events. */
+            e.preventDefault();
 
             if (pts.size === 2) {
                 cancelLongPress();
@@ -7483,7 +7705,7 @@
                  * and the pan both work off the delta since the last one — so
                  * measuring "has this moved?" against them asked whether the last
                  * event jumped 8px, not whether the gesture had travelled. */
-                twoStart = { t: Date.now(), moved: false, cx: c.x, cy: c.y };
+                twoStart = { t: Date.now(), moved: false, cx: c.x, cy: c.y, d0: pinchDist, kind: null };
                 /* A second finger means this is not a tap any more. `moved` is
                  * only ever set by the single-finger branch below, which returns
                  * early while two are down — so without this the first finger
@@ -7492,20 +7714,35 @@
                 moved = true;
                 return;
             }
-            // First touch.
+            // First touch. A pen points directly, like the desktop mouse it stands in for.
+            gestureDirect = e.pointerType !== "touch" || touchMode === "direct";
             startPt = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
             moved = false;
             var now = Date.now();
             if (dragLock || now - lastTapUp < 300) {
                 // Drag-lock, or the down-stroke of a "tap-and-a-half": hold left so
                 // the next move drags (and a quick non-move still reads as a click).
+                // Direct touch presses where the finger is, not where the cursor was.
                 pressing = true;
-                hid.button("left", true);
+                if (gestureDirect) {
+                    var pressX = e.clientX;
+                    var pressY = e.clientY;
+                    pointAt(pressX, pressY, function () {
+                        if (!pressing) return; // the finger lifted before the Pi switched
+                        hid.button("left", true);
+                    });
+                } else hid.button("left", true);
             } else {
-                // Long-press = right click.
+                // Long-press = right click (at the finger, in direct mode).
+                var lpX = e.clientX;
+                var lpY = e.clientY;
                 longPress = setTimeout(function () {
                     if (!moved) {
-                        tapClick("right");
+                        if (gestureDirect)
+                            pointAt(lpX, lpY, function () {
+                                tapClick("right");
+                            });
+                        else tapClick("right");
                         startPt = null;
                     }
                 }, 500);
@@ -7531,7 +7768,8 @@
                 // A move that reports no buttons down is proof the release
                 // happened, whether or not its pointerup ever reached us.
                 if (e.buttons === 0) releaseHeldMouseButtons();
-                hid.ensureAbsolute(); // recover absolute mode if the Pi reports relative (throttled no-op otherwise)
+                lastInputTouch = false;
+                hid.setMouseOutput(true); // a mouse points absolutely (throttled no-op once the Pi is there)
                 /* A held button means this move belongs to a drag that started on
                  * the picture, so it keeps steering the target even once the host
                  * pointer has left — pinned to the edge rather than thrown away.
@@ -7567,15 +7805,43 @@
                 // Against the START of the gesture, the same way the single-finger
                 // branch measures against startPt.
                 if (twoStart && Math.hypot(c.x - twoStart.cx, c.y - twoStart.cy) > MOVE_SLOP) twoStart.moved = true;
-                // Pinch -> zoom around the pinch centre.
-                if (pinchDist > 0 && Math.abs(d / pinchDist - 1) > 0.004) zoomAround(c.x, c.y, scale * (d / pinchDist));
-                // Two-finger drag: pan the view when zoomed, else scroll the target.
-                if (scale > 1) {
+                /* Decide once whether this is a pinch or a two-finger drag, then
+                 * stick to it. Doing both every frame scrolled the target while you
+                 * were only trying to zoom, because no pinch keeps its centre still. */
+                if (twoStart && !twoStart.kind && twoStart.d0 > 0) {
+                    if (Math.abs(d / twoStart.d0 - 1) > 0.12) twoStart.kind = "pinch";
+                    else if (Math.hypot(c.x - twoStart.cx, c.y - twoStart.cy) > 14) twoStart.kind = "drag";
+                }
+                var kind = twoStart ? twoStart.kind : "pinch";
+                if (kind === "pinch" && pinchDist > 0 && Math.abs(d / pinchDist - 1) > 0.004) {
+                    // The trackpad zooms in on its cursor and keeps it centred; direct
+                    // touch zooms around the fingers.
+                    /* A relative Pi never says where its cursor is, and the view is
+                     * about to follow it. Park it in the top-left corner first, so
+                     * the estimate starts true instead of at a guessed centre that
+                     * could put the real pointer off the zoomed view entirely. */
+                    if (scale === 1 && d > pinchDist && trackpadActive() && hid.isRelative() && !wantAbsOutput()) {
+                        hid.homeRelative();
+                        vcur.x = -32768;
+                        vcur.y = -32768;
+                        relOweX = 0;
+                        relOweY = 0;
+                        if (!homedNoticeShown) {
+                            homedNoticeShown = true;
+                            toast("Relative mouse: cursor parked top-left so the zoom can follow it. Abs tracks it exactly.");
+                        }
+                    }
+                    zoomAround(c.x, c.y, scale * (d / pinchDist));
+                    followCursor();
+                }
+                // Two-finger drag scrolls the target. Direct touch pans a zoomed view
+                // instead, as does a pinch, so you can steer while zooming.
+                if (!trackpadActive() && scale > 1 && kind) {
                     tx += c.x - pinchCx;
                     ty += c.y - pinchCy;
                     clampPan();
                     applyXform();
-                } else {
+                } else if (kind === "drag") {
                     scrollAcc += c.y - pinchCy;
                     while (Math.abs(scrollAcc) >= 22) {
                         hid.wheel(0, scrollAcc > 0 ? 1 : -1);
@@ -7588,7 +7854,7 @@
                 return;
             }
 
-            // Single finger: always the trackpad cursor (pan is two-finger when zoomed).
+            // Single finger: the trackpad cursor, or the direct pointer.
             if (!startPt) return;
             var movedDist = Math.hypot(e.clientX - startPt.x, e.clientY - startPt.y);
             if (!moved && movedDist > MOVE_SLOP) {
@@ -7597,7 +7863,15 @@
             }
             if (!moved) return;
             e.preventDefault();
-            relMove(e.clientX - prev.x, e.clientY - prev.y);
+            if (!gestureDirect) relMove(e.clientX - prev.x, e.clientY - prev.y);
+            else if (pressing) moveTo(e.clientX, e.clientY, false, true);
+            else if (scale > 1) {
+                // Direct touch: one finger pans a zoomed view, like a map.
+                tx += e.clientX - prev.x;
+                ty += e.clientY - prev.y;
+                clampPan();
+                applyXform();
+            } else moveTo(e.clientX, e.clientY, false);
         },
         true,
     );
@@ -7639,7 +7913,15 @@
         if (startPt && startPt.id === e.pointerId) {
             // Pure tap (no drag, no held button) = left click at the cursor. Two
             // quick taps send two clicks -> the target OS forms the double-click.
-            if (!moved && !wasPressing) tapClick("left");
+            if (!moved && !wasPressing) {
+                if (gestureDirect) {
+                    var tapX = startPt.x;
+                    var tapY = startPt.y;
+                    pointAt(tapX, tapY, function () {
+                        tapClick("left");
+                    });
+                } else tapClick("left");
+            }
             lastTapUp = Date.now();
             startPt = null;
             moved = false;
@@ -7738,12 +8020,49 @@
     function noteSent(codeName) {
         lastKey = { code: codeName, id: codeName + "|", ts: Date.now() };
     }
+    /* Keep the target's Caps Lock where the host's is.
+     *
+     * Key events carry the host's Caps Lock state, but a soft keyboard reports
+     * false there whatever is going on, so a plain "make the target match" would
+     * undo every tap of the on-screen Caps key on a phone. So only EVIDENCE of
+     * the host's state is acted on, and only from events that look like a real
+     * keyboard (a physical `code`, no IME keyCode 229, a known key):
+     *   - a change since the last such event (the host's Caps Lock was pressed);
+     *   - the first reading, only when it is ON (a soft keyboard never says so).
+     * One Caps Lock press then goes out ahead of whatever this key sends, so the
+     * target agrees before the next letter lands.
+     *
+     * The Caps Lock key itself is forwarded by handleKeydown. Platforms disagree
+     * on whether its own events report the state before or after the press (and
+     * macOS sends only a keyup when it turns OFF), so instead of trusting that
+     * event, the two are compared once the target's LED has answered. */
+    var hostCaps = null;
+    var capsReconcile = null;
+    function syncHostCaps(e) {
+        if (!e || typeof e.getModifierState !== "function") return;
+        if (!e.code || e.isComposing || e.keyCode === 229 || e.key === "Unidentified") return;
+        var prev = hostCaps;
+        var now = !!e.getModifierState("CapsLock");
+        hostCaps = now;
+        if (e.code === "CapsLock") {
+            clearTimeout(capsReconcile);
+            capsReconcile = setTimeout(function () {
+                if (agentActing || hostCaps === null || !hid.capsKnown() || hid.capsPending()) return;
+                if (hostCaps !== hid.capsOn()) sendChord([], "CapsLock", false);
+            }, 1400);
+            return;
+        }
+        if (prev === null ? !now : prev === now) return;
+        if (agentActing || !hid.capsKnown() || hid.capsPending()) return;
+        if (now !== hid.capsOn()) sendChord([], "CapsLock", false);
+    }
     /**
      * Act on a decided keydown. Shared by both keyboard paths so the gating, the
      * dedupe and the queue behave identically whichever one is live.
      * `printable` is false for the hidden field, where beforeinput produces characters.
      */
     function handleKeydown(e, printable) {
+        syncHostCaps(e);
         var d = KeyChord.decide(e, { armed: armedList(), printable: printable });
         if (d.kind === "ignore") {
             // A bare modifier rides the chord for typing, but it also has to be
@@ -7769,14 +8088,111 @@
     });
     kbd.addEventListener("keyup", function (e) {
         if (e.code) releaseMod(e.code);
+        if (e.code === "CapsLock") syncHostCaps(e);
+    });
+    /* ---- soft keyboard: mirror the field, do not trust the events ----
+     *
+     * Phone keyboards do not describe what they type. Android IMEs send keyCode
+     * 229 for everything and deliver words through composition; dictation drops
+     * whole phrases in at once and rewrites them as recognition settles; swipe
+     * typing inserts a word and then swaps it for a suggestion; an empty field
+     * gives Gboard nothing to delete, so its Backspace fires no event at all.
+     * Reading event by event loses keys in every one of those cases.
+     *
+     * So the field is treated as the record of what has been typed, and every
+     * change to it is replayed on the target as a diff against the last value:
+     * one Backspace per character removed after the common prefix, then the
+     * characters added. A rewrite in the middle (dictation correcting a word,
+     * the iOS space-bar cursor) becomes "back up to the edit, retype the rest",
+     * which is exactly what the target needs for its caret at the end.
+     *
+     * KB_PAD keeps something in front of the caret, so a Backspace on an
+     * "empty" field still changes it. Pad characters count as typed for
+     * deletion and are never sent themselves. */
+    var KB_PAD = "\u200b\u200b\u200b\u200b";
+    var KB_MAX = 96; // past this, start a fresh buffer between words
+    var kbPrev = "";
+    var kbComposing = false;
+    /* Typographic substitutions a phone keyboard makes on its own (smart quotes,
+     * "--" to an em dash). The target only has ASCII keys, and dropping the
+     * character would lose an apostrophe from every "don't" typed on an iPhone. */
+    var KB_FOLD = {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u2013": "-",
+        "\u2014": "--",
+        "\u2026": "...",
+        "\u00a0": " ",
+    };
+    function kbReset() {
+        kbPrev = KB_PAD;
+        if (kbd.value === KB_PAD) return;
+        kbd.value = KB_PAD;
+        try {
+            kbd.setSelectionRange(KB_PAD.length, KB_PAD.length);
+        } catch (e) {}
+    }
+    function kbSync() {
+        // U+FFFC is the placeholder iOS dictation holds the caret with while it listens.
+        var next = Array.from(kbd.value.replace(/\uFFFC/g, ""));
+        var prev = Array.from(kbPrev);
+        var p = 0;
+        while (p < prev.length && p < next.length && prev[p] === next[p]) p++;
+        if (p === prev.length && p === next.length) return;
+        kbPrev = next.join("");
+        for (var i = p; i < prev.length; i++) {
+            if (prev[i] === "\u200b" || KB_FOLD[prev[i]] || charToKey(prev[i], layout)) {
+                var fold = KB_FOLD[prev[i]];
+                for (var r = 0; r < (fold ? fold.length : 1); r++) sendChord([], "Backspace", false);
+            }
+        }
+        for (var j = p; j < next.length; j++) {
+            var c = next[j];
+            if (c === "\u200b") continue;
+            if (c === "\n") {
+                sendChord(armedList(), "Enter", false);
+                clearArmed();
+                continue;
+            }
+            var text = KB_FOLD[c] || c;
+            for (var k = 0; k < text.length; k++) sendChar(text[k]);
+        }
+    }
+    /* Bring the field back to the pad when the pad was eaten into or the buffer
+     * grew long. Never mid-composition: replacing the value under an IME aborts
+     * the word it is building. */
+    function kbSettle() {
+        if (kbComposing) return;
+        if (kbd.value.indexOf(KB_PAD) !== 0 || (kbd.value.length > KB_MAX && /\s$/.test(kbd.value))) kbReset();
+    }
+    kbReset();
+    /* Plain Backspace is left to the field, so the diff sends it and the field
+     * stays an exact record. Sent from keydown instead, the field would keep a
+     * character the target no longer has, and the next rewrite would back up one
+     * too far. Capture, so it runs ahead of the chord handler above. */
+    kbd.addEventListener(
+        "keydown",
+        function (e) {
+            if (e.key !== "Backspace" || e.ctrlKey || e.altKey || e.metaKey || armedList().length) return;
+            if (blockKvmInput(e)) return;
+            noteManualKvmInput();
+            e.stopImmediatePropagation();
+        },
+        true,
+    );
+    // Any other key the target took from keydown (arrows, Tab, Enter, Ctrl+X) has
+    // moved its caret away from the end of what the field holds.
+    kbd.addEventListener("keydown", function (e) {
+        if (e.defaultPrevented) kbReset();
     });
     kbd.addEventListener("beforeinput", function (e) {
         if (blockKvmInput(e)) return;
         noteManualKvmInput();
-        if (e.inputType === "insertText" && e.data) {
-            for (var i = 0; i < e.data.length; i++) sendChar(e.data[i]);
-            e.preventDefault();
-        } else if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
+        if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
             // Soft-keyboard fallback only. Match on the CODE, not the full chord, so a
             // Shift+Enter that keydown already sent isn't followed by a bare Enter.
             if (!recentlySent("Enter")) {
@@ -7784,17 +8200,28 @@
                 sendCode("Enter");
             }
             e.preventDefault();
-        } else if (e.inputType === "deleteContentBackward") {
-            if (!recentlySent("Backspace")) {
-                noteSent("Backspace");
-                sendCode("Backspace");
-            }
-            e.preventDefault();
         }
-        kbd.value = "";
     });
-    kbd.addEventListener("input", function () {
-        kbd.value = "";
+    kbd.addEventListener("input", function (e) {
+        if (agentActing || fullUiOn) {
+            kbReset();
+            return;
+        }
+        if (e.isComposing) kbComposing = true;
+        kbSync();
+        kbSettle();
+    });
+    kbd.addEventListener("compositionstart", function () {
+        kbComposing = true;
+    });
+    kbd.addEventListener("compositionend", function () {
+        kbComposing = false;
+        kbSync();
+        kbSettle();
+    });
+    kbd.addEventListener("blur", function () {
+        kbComposing = false;
+        kbReset();
     });
 
     /* ---- on-screen controls ---- */
@@ -7929,6 +8356,12 @@
         // textarea over the top of it is how the keyboard ended up with two
         // owners in the first place.
         if (fullUiOn) return;
+        // The touch dock's keys are always on screen, so "keys open" says nothing
+        // there; only give focus back if the soft keyboard was up.
+        if (dockMode) {
+            if (kbWanted) kbd.focus({ preventScroll: true });
+            return;
+        }
         if (app.classList.contains("keys-open")) kbd.focus({ preventScroll: true });
     }
 
@@ -7983,6 +8416,10 @@
         window.addEventListener("resize", paintMacroStripOverflow);
     })();
     kbdBtn.addEventListener("click", function () {
+        if (dockMode) {
+            toggleSoftKeyboard();
+            return;
+        }
         var openK = app.classList.toggle("keys-open");
         kbdBtn.classList.toggle("on", openK);
         kbdBtn.setAttribute("aria-expanded", openK ? "true" : "false");
@@ -7992,6 +8429,163 @@
         if (openK) kbd.focus({ preventScroll: true });
         else kbd.blur();
     });
+
+    /* ---- touch dock (phones and tablets) ----
+     *
+     * On a touch screen the controls sit at the BOTTOM, directly above the soft
+     * keyboard, the way Termius and RustDesk lay them out: the picture gets the
+     * whole top of the screen, and the keys you need while typing are where your
+     * thumbs already are. The keys row is always shown, the ⌨ button raises and
+     * lowers the system keyboard, and the dock rides up with the keyboard
+     * because the app is sized to the VISUAL viewport (the part the keyboard
+     * leaves), which is the only measure iOS updates for it. */
+    var dockMode = !window.desktopConsole && lastInputTouch;
+    var kbWanted = false; // the user raised the soft keyboard and has not put it away
+    var touchModeBtn = document.getElementById("touch-mode-btn");
+    var touchHidBtn = document.getElementById("touch-hid-btn");
+    var capsKey = document.getElementById("caps-key");
+    /* The keys drawer lives in the conversation column so it can overlay its
+     * top on the stacked layout. With no column to sit in (the touch dock, or a
+     * host with no terminal), it moves into the bar, under the status row. */
+    function mountDrawerInBar() {
+        var bar = document.getElementById("bar");
+        var drawer = document.getElementById("drawer");
+        if (bar && drawer && drawer.parentNode !== bar) bar.appendChild(drawer);
+    }
+    function toggleSoftKeyboard() {
+        if (document.activeElement === kbd) {
+            kbWanted = false;
+            kbd.blur();
+        } else {
+            kbWanted = true;
+            kbd.focus({ preventScroll: true });
+        }
+        paintTouchControls();
+    }
+    function paintTouchControls() {
+        if (dockMode) {
+            var up = document.activeElement === kbd;
+            kbdBtn.classList.toggle("on", up);
+            kbdBtn.setAttribute("aria-pressed", up ? "true" : "false");
+        }
+        if (touchModeBtn) {
+            var direct = touchMode === "direct";
+            touchModeBtn.textContent = direct ? "Touch" : "Trackpad";
+            touchModeBtn.title = direct
+                ? "Touch: tap where you want to click. Tap to switch to trackpad."
+                : "Trackpad: drag to move the cursor, tap to click. Tap to switch to touch.";
+            touchModeBtn.setAttribute("aria-label", "Touch input: " + (direct ? "touch" : "trackpad"));
+        }
+        if (touchHidBtn) {
+            // Only the trackpad has a choice; direct touch is always absolute.
+            touchHidBtn.hidden = touchMode !== "trackpad" || !hid.relativeAvailable();
+            var rel = touchHid === "rel";
+            touchHidBtn.textContent = rel ? "Rel" : "Abs";
+            touchHidBtn.title = rel
+                ? "Relative mouse: works with any target, the cursor follows the picture. Tap for absolute."
+                : "Absolute mouse: exact cursor position. Tap for relative.";
+            touchHidBtn.setAttribute("aria-label", "Trackpad mouse mode: " + (rel ? "relative" : "absolute"));
+            // Still switching: the Pi has not reported the mode asked for yet.
+            touchHidBtn.classList.toggle("pending", trackpadActive() && hid.isRelative() === wantAbsOutput());
+        }
+    }
+    function paintCaps(on) {
+        if (!capsKey) return;
+        capsKey.classList.toggle("on", !!on);
+        capsKey.setAttribute("aria-pressed", on ? "true" : "false");
+        capsKey.title = hid.capsKnown()
+            ? "Caps Lock is " + (on ? "on" : "off") + " on the target"
+            : "Caps Lock (the Pi has not reported the target's state yet)";
+    }
+    hid.onCaps(paintCaps);
+    paintCaps(false);
+    if (capsKey) {
+        capsKey.addEventListener("click", function () {
+            if (agentActing) return;
+            noteManualKvmInput();
+            sendChord([], "CapsLock", false);
+            refocusKbd();
+        });
+    }
+    if (touchModeBtn) {
+        touchModeBtn.addEventListener("click", function () {
+            touchMode = touchMode === "direct" ? "trackpad" : "direct";
+            try {
+                localStorage.setItem(TOUCH_MODE_KEY, touchMode);
+            } catch (e) {}
+            lastInputTouch = true;
+            hid.setMouseOutput(wantAbsOutput());
+            // The pan bounds differ between the modes; re-seat the view in the new one.
+            clampPan();
+            followCursor();
+            applyXform();
+            if (kvmCursor && touchMode === "direct") kvmCursor.style.display = "none";
+            paintTouchControls();
+            refocusKbd();
+        });
+    }
+    if (touchHidBtn) {
+        touchHidBtn.addEventListener("click", function () {
+            touchHid = touchHid === "rel" ? "abs" : "rel";
+            try {
+                localStorage.setItem(TOUCH_HID_KEY, touchHid);
+            } catch (e) {}
+            lastInputTouch = true;
+            hid.setMouseOutput(wantAbsOutput());
+            paintTouchControls();
+            refocusKbd();
+        });
+    }
+    kbd.addEventListener("focus", paintTouchControls);
+    kbd.addEventListener("blur", function () {
+        // The keyboard's own "done" key, or the OS putting it away, ends the request.
+        kbWanted = false;
+        paintTouchControls();
+    });
+    if (dockMode) {
+        var root = document.documentElement;
+        root.classList.add("touch-dock");
+        mountDrawerInBar();
+        app.classList.add("keys-open");
+        kbdBtn.removeAttribute("aria-expanded");
+        kbdBtn.removeAttribute("aria-controls");
+        kbdBtn.setAttribute("aria-label", "Keyboard");
+        kbdBtn.title = "Show or hide the keyboard";
+        /* A tap on a dock button must not take focus from the hidden field, or
+         * the soft keyboard drops every time a key in the row is used. The click
+         * still fires; scrolling the row is touch-action's, not this event's. */
+        document.getElementById("bar").addEventListener("pointerdown", function (e) {
+            if (e.pointerType !== "mouse" && e.target.closest && e.target.closest("button")) e.preventDefault();
+        });
+        var vv = window.visualViewport;
+        var vvTallest = 0;
+        var paintViewport = function () {
+            var h = vv ? vv.height : window.innerHeight;
+            root.style.setProperty("--app-height", Math.round(h) + "px");
+            root.style.setProperty("--app-top", Math.round(vv ? vv.offsetTop : 0) + "px");
+            /* Keyboard up = the viewport lost more than an address bar's worth.
+             * Read from the viewport, not from focus: focus can be held with the
+             * keyboard down (an external keyboard), and a missed blur would
+             * leave the dock stuck in its keyboard layout. */
+            vvTallest = Math.max(vvTallest, h);
+            root.classList.toggle("kb-open", vvTallest - h > 150);
+            paintDrawerOverflow();
+        };
+        if (vv) {
+            vv.addEventListener("resize", function () {
+                raf(paintViewport);
+            });
+            vv.addEventListener("scroll", function () {
+                raf(paintViewport);
+            });
+        }
+        window.addEventListener("orientationchange", function () {
+            vvTallest = 0;
+            setTimeout(paintViewport, 300);
+        });
+        paintViewport();
+    }
+    paintTouchControls();
 
     /* ---- size the split: auto-fit the screen to the stream aspect (no black
      * bars), until the user drags the bar. Drag is delta-based off a fixed start
@@ -8684,9 +9278,12 @@
         // WEB / MOBILE: load the SAME shared terminal as desktop. The PTYs are hosted on the
         // server; this page connects to the /_agent/terminal WebSocket and sees the same tabs
         // + live output as every other device (full control). No native view needed here.
-        chatFrame.src = "/_agent/terminal.html";
+        // Loaded once the state below says this host has one: the headless web host
+        // does not, and a frame whose socket can only ever close is a red
+        // "disconnected" banner taking half a phone screen.
         chatFrame.title = "Terminal";
     }
+    var webTerminal = !window.desktopConsole || !window.desktopConsole.reportWorkspaceRect;
 
     /* ---- pick up the server's keyboard layout (so symbols map right) ---- */
     fetch("/_agent/api/state")
@@ -8696,8 +9293,18 @@
         .then(function (s) {
             if (s && s.settings && (s.settings.keyboardLayout === "uk" || s.settings.keyboardLayout === "us"))
                 layout = s.settings.keyboardLayout;
+            if (!webTerminal) return;
+            if (s && s.features && s.features.terminal === false) {
+                document.documentElement.classList.add("no-terminal");
+                mountDrawerInBar();
+                return;
+            }
+            chatFrame.src = "/_agent/terminal.html";
         })
-        .catch(function () {});
+        .catch(function () {
+            // An older host, or no answer: the terminal was always there before.
+            if (webTerminal) chatFrame.src = "/_agent/terminal.html";
+        });
 
     // The agent X-ray overlay, meeting copilot, suggestion cards and the overlay/
     // ambient SSE streams were removed with the in-app agent. `clearRegionMapForManualInput`
@@ -8949,6 +9556,7 @@
          * down we must let it up, whatever the window state has become since. */
         document.addEventListener("keyup", function (e) {
             if (e.code) releaseMod(e.code);
+            if (e.code === "CapsLock" && windowFocused && !modalOpen()) syncHostCaps(e);
         });
 
         // The MAIN desktop window keeps the original ui.html titlebar ABOVE the

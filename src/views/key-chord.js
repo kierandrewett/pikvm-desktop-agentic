@@ -74,9 +74,10 @@
         var key = ev.key || "";
         if (ev.isComposing) return { kind: "ignore", why: "composing" };
         if (BARE_MODIFIER.test(code)) return { kind: "ignore", why: "bare-modifier" };
-        // Caps Lock is never forwarded: we hold the target's caps OFF and derive letter
-        // case from the host's e.key, which is synchronous and cannot race the LED.
-        if (code === "CapsLock" || key === "CapsLock") return { kind: "swallow", why: "caps-held-off" };
+        // Caps Lock is forwarded on its own, never inside a chord: the console keeps
+        // the target's Caps Lock in step with the host's and resolves letter case
+        // against the target's LED when each key is played (console.js drainKeys).
+        if (code === "CapsLock" || key === "CapsLock") return { kind: "chord", mods: [], code: "CapsLock" };
 
         var mods = chordMods(ev, o.armed);
         var ctl = CONTROL_KEYS[code] || CONTROL_KEYS[key] || (/^F\d{1,2}$/.test(code) ? code : null);
