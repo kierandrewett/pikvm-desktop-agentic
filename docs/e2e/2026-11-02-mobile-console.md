@@ -136,6 +136,21 @@ profile unless stated:
 | Host with a terminal (state faked) | terminal frame loaded, drawer back in the column | pass |
 | Deployed host, signed in (desktop Chrome) | Live · HD, new code served, service worker registered | pass |
 
+Later rounds (`8cd6e5a`, `c283fb6`):
+
+| Case | Observed | Result |
+| --- | --- | --- |
+| Win+Shift+S, keys delivered to the page (CDP), full screen with Keyboard Lock | MetaLeft+ ShiftLeft+ KeyS+ KeyS- ShiftLeft- MetaLeft- (was released before the S) | pass |
+| Two quick swipes | mouse moves only, no button | pass |
+| Hold 650ms, then move | armed class set; left down, moves, left up | pass |
+| Hold 650ms, then lift | right down/up | pass |
+| Tap | left down/up | pass |
+| Socket made silent in the page | closed after the 25s window and replaced by an open socket; status Live | pass |
+| `ping` over `/api/ws` through the web host (node client) | `pong` in 5 ms and 6 ms | pass |
+
+Not shown by these: whether the host OS releases a physical Win+Shift+S to
+Chrome in full screen, and behaviour through a real network dropout.
+
 ## Not covered
 
 A real phone: the iOS and Android soft keyboards, dictation, and the feel of

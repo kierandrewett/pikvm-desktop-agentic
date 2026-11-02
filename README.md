@@ -92,7 +92,9 @@ the desktop titlebar's style: speaker, mic, paste, keyboard and ⋯ in the bar,
 then rows of modifier and navigation keys (Fn and More open F1-F12 and the
 common shortcuts). ⋯ opens as a sheet in the bar; it also holds the mouse
 buttons and the input settings. Trackpad mode (the default) moves the cursor
-by drag, taps click, a long press right-clicks with the cursor held still,
+by drag and taps click. Holding still for half a second arms the touch: move
+to drag with the left button held, or lift to right-click. Quick swipes never
+press a button. Two fingers scroll,
 pinch zooms on the cursor and the view follows it, and a lens at the cursor
 magnifies what is under it. Touch mode points where you tap. The trackpad uses
 the Pi's absolute mouse by default; relative is in ⋯ for targets that need it.
