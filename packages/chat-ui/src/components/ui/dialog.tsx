@@ -4,6 +4,7 @@ import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 
 import { cn } from "../../lib/utils"
+import { useCompact, usePortalPresentation } from "../../layout/compact"
 import { Button } from "./button"
 import { XIcon } from "lucide-react"
 
@@ -47,6 +48,9 @@ function DialogContent({
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
 }) {
+  // A form that needs a keyboard is a bottom sheet on a phone, not a centred card.
+  const sheet = useCompact()
+  const presentation = usePortalPresentation()
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -59,8 +63,12 @@ function DialogContent({
           reachable rather than theoretical. */}
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        data-presentation={sheet ? "sheet" : "dialog"}
+        {...presentation}
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          sheet &&
+            "top-auto! bottom-0! left-0! max-h-[92dvh]! w-full! max-w-none! translate-x-0! translate-y-0! rounded-b-none! rounded-t-2xl! pb-[calc(1rem+var(--chat-safe-bottom,0px))]",
           className
         )}
         {...props}

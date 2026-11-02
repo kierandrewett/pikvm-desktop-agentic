@@ -25,6 +25,7 @@ import {
 } from "../ui/collapsible";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { useApprovalDocked } from "./approval-dock";
 import {
   parseModelSelectionReceipt,
   type ModelReceipt,
@@ -596,7 +597,7 @@ const approvalOptionLabel = (option: ToolApprovalOption) => {
   );
 };
 
-function ToolFallbackApproval({
+function ApprovalControls({
   className,
   addResult,
   resume,
@@ -790,6 +791,31 @@ function ToolFallbackApproval({
   );
 }
 
+/**
+ * The approval card's answer. While the dock owns the answer it only says so.
+ */
+function ToolFallbackApproval(
+  props: React.ComponentProps<typeof ApprovalControls>,
+) {
+  const docked = useApprovalDocked();
+  const { approval } = props;
+  const pending =
+    approval != null &&
+    approval.approved === undefined &&
+    approval.resolution === undefined;
+  if (docked && pending) {
+    return (
+      <p
+        data-slot="tool-fallback-approval-docked"
+        className="pt-1 text-muted-foreground"
+      >
+        Waiting for your answer in the approval bar below.
+      </p>
+    );
+  }
+  return <ApprovalControls {...props} />;
+}
+
 const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   toolName,
   args,
@@ -867,6 +893,7 @@ ToolFallback.Error = ToolFallbackError;
 ToolFallback.Approval = ToolFallbackApproval;
 
 export {
+  ApprovalControls,
   ToolFallback,
   ToolFallbackRoot,
   ToolFallbackTrigger,

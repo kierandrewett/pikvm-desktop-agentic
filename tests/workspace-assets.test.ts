@@ -258,7 +258,7 @@ test("the conversation panel says so when it cannot render", () => {
 
     // Wrapped OUTSIDE the shell: the throw that prompted this came from a
     // useMemo inside it, so a boundary within would have gone down with it.
-    assert.match(main, /<WorkspaceErrorBoundary>\s*<ChatWorkspace uiBuild=\{__PIKVM_UI_BUILD__\} \/>\s*<\/WorkspaceErrorBoundary>/);
+    assert.match(main, /<WorkspaceErrorBoundary>\s*<ChatWorkspace[\s\S]*?\/>\s*<\/WorkspaceErrorBoundary>/);
     assert.match(boundary, /static getDerivedStateFromError/);
     assert.match(boundary, /componentDidCatch/);
     // An alert, so it is announced rather than only drawn.

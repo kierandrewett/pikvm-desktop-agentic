@@ -244,8 +244,9 @@ describe("ComputerToolCall", () => {
 
   it("shows a marked pre-action crop beside a completed click", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new Blob(["target"], { type: "image/png" }), {
+      new Response("target", {
         status: 200,
+        headers: { "Content-Type": "image/png" },
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -293,8 +294,9 @@ describe("ComputerToolCall", () => {
 
   it("shows the same visual target for a guarded-direct click tool", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new Blob(["target"], { type: "image/png" }), {
+      new Response("target", {
         status: 200,
+        headers: { "Content-Type": "image/png" },
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -974,8 +976,9 @@ describe("ComputerActionReceipt", () => {
 
   it("shows the model handoff and authenticated before-after evidence", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new Blob(["image"], { type: "image/png" }), {
+      new Response("image", {
         status: 200,
+        headers: { "Content-Type": "image/png" },
       }),
     );
     vi.stubGlobal("fetch", fetchMock);

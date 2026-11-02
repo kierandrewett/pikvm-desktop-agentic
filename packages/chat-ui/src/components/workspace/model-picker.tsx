@@ -129,7 +129,7 @@ export function ModelPicker({
             ? "This task keeps the model it started with."
             : "Model that runs your next task"
         }
-        className="max-w-[38vw] border-none bg-transparent px-1.5 font-medium shadow-none sm:max-w-56 dark:bg-transparent"
+        className="compact:min-h-11 compact:max-w-[55vw] max-w-[38vw] border-none bg-transparent px-1.5 font-medium shadow-none sm:max-w-56 dark:bg-transparent"
       >
         {locked ? (
           <LockKeyholeIcon

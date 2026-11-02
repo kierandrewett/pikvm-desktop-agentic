@@ -23,6 +23,8 @@ import {
 } from "./tool-group";
 import { TooltipIconButton } from "./tooltip-icon-button";
 import { Button } from "../ui/button";
+import { useCompact } from "../../layout/compact";
+import { useMessageActions } from "./message-long-press";
 import { RunActivity } from "../workspace/run-activity";
 import { cn } from "../../lib/utils";
 import type { RunSnapshot } from "../../types";
@@ -35,7 +37,6 @@ import {
   ErrorPrimitive,
   groupPartByType,
   MessagePrimitive,
-  SuggestionPrimitive,
   ThreadPrimitive,
   type ToolCallMessagePartComponent,
   useAuiState,
@@ -76,6 +77,8 @@ export type ThreadComponents = {
   AssistantMessage?: ComponentType | undefined;
   Welcome?: ComponentType | undefined;
   ComposerToolbar?: ComponentType | undefined;
+  /** Rendered directly above the composer: the pending-approval dock, on a phone. */
+  AboveComposer?: ComponentType | undefined;
   ToolFallback?: ToolCallMessagePartComponent | undefined;
   ToolGroup?:
     ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
@@ -126,7 +129,9 @@ const ThreadRoot: FC<{ isEmpty: boolean; readOnly: boolean }> = ({
   isEmpty,
   readOnly,
 }) => {
-  const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
+  const { Welcome = ThreadWelcome, AboveComposer } = useContext(
+    ThreadComponentsContext,
+  );
 
   return (
     <ThreadPrimitive.Root
@@ -166,11 +171,12 @@ const ThreadRoot: FC<{ isEmpty: boolean; readOnly: boolean }> = ({
 
           <ThreadPrimitive.ViewportFooter
             className={cn(
-              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-4 md:pb-6",
+              "aui-thread-viewport-footer bg-background flex flex-col gap-3 overflow-visible pb-6 compact:gap-2 compact:pb-[calc(0.5rem+var(--chat-safe-bottom,0px))]",
               !isEmpty && "sticky bottom-0 mt-auto",
             )}
           >
             <ThreadScrollToBottom />
+            {AboveComposer ? <AboveComposer /> : null}
             {readOnly ? null : (
               <>
                 <ThreadFollowupSuggestions />
@@ -241,36 +247,42 @@ const ThreadWelcome: FC = () => {
   );
 };
 
+/**
+ * What to try first, on an empty thread. Choosing one fills the composer rather than
+ * sending: the agent can act on a real machine, so nothing is sent until the person has
+ * seen the words and pressed send.
+ */
+export const STARTER_PROMPTS = [
+  "Describe what is on the screen right now",
+  "Check whether this machine has pending updates",
+  "Open a terminal and show the free disk space",
+  "Look for any error dialogs and summarise them",
+] as const;
+
 const ThreadSuggestions: FC = () => {
   return (
-    <div className="aui-thread-welcome-suggestions flex w-full flex-wrap items-center justify-center gap-2 px-4">
-      <ThreadPrimitive.Suggestions>
-        {() => <ThreadSuggestionItem />}
-      </ThreadPrimitive.Suggestions>
-    </div>
-  );
-};
-
-const ThreadSuggestionItem: FC = () => {
-  return (
-    <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 animate-in fill-mode-both duration-200">
-      <SuggestionPrimitive.Trigger
-        send
-        render={
-          <Button
-            variant="ghost"
-            className="aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors"
-          />
-        }
-      >
-        <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1" />
-        <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 empty:hidden" />
-      </SuggestionPrimitive.Trigger>
+    <div
+      data-slot="aui_thread-starters"
+      className="aui-thread-welcome-suggestions flex w-full flex-wrap items-center justify-center gap-2 px-1"
+    >
+      {STARTER_PROMPTS.map((prompt) => (
+        <ThreadPrimitive.Suggestion
+          key={prompt}
+          prompt={prompt}
+          method="replace"
+          className="text-foreground hover:bg-muted border-border/60 compact:min-h-11 fade-in slide-in-from-bottom-2 animate-in fill-mode-both rounded-full border px-3.5 py-1.5 text-start text-[13px] transition-colors duration-200"
+        >
+          {prompt}
+        </ThreadPrimitive.Suggestion>
+      ))}
     </div>
   );
 };
 
 const Composer: FC = () => {
+  // Focusing on mount opens the soft keyboard the moment the Chat tab is shown, covering
+  // the conversation before anyone has asked to type. A phone focuses on tap.
+  const compact = useCompact();
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <ComposerPrimitive.AttachmentDropzone
@@ -284,9 +296,9 @@ const Composer: FC = () => {
         <ComposerAttachments />
         <ComposerPrimitive.Input
           placeholder="Message PiKVM Agent"
-          className="aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-32 min-h-9 w-full resize-none bg-transparent px-2 py-1 text-[13.5px] leading-[1.5] outline-none"
+          className="aui-composer-input caret-primary placeholder:text-muted-foreground/80 compact:min-h-11 compact:text-base max-h-32 min-h-9 w-full resize-none bg-transparent px-2 py-1 text-[13.5px] leading-[1.5] outline-none"
           rows={1}
-          autoFocus
+          autoFocus={!compact}
           enterKeyHint="send"
           aria-label="Message"
         />
@@ -318,7 +330,7 @@ const ComposerAction: FC = () => {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="aui-composer-dictate size-7 rounded-full"
+                  className="aui-composer-dictate compact:size-11 size-7 rounded-full"
                   aria-label="Start voice input"
                 />
               }
@@ -335,7 +347,7 @@ const ComposerAction: FC = () => {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="aui-composer-stop-dictation text-destructive size-7 rounded-full"
+                  className="aui-composer-stop-dictation text-destructive compact:size-11 size-7 rounded-full"
                   aria-label="Stop voice input"
                 />
               }
@@ -353,7 +365,7 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="default"
                 size="icon"
-                className="aui-composer-send size-7 rounded-full"
+                className="aui-composer-send compact:size-11 size-7 rounded-full"
                 aria-label="Send message"
               />
             }
@@ -368,7 +380,7 @@ const ComposerAction: FC = () => {
                 type="button"
                 variant="default"
                 size="icon"
-                className="aui-composer-cancel size-7 rounded-full"
+                className="aui-composer-cancel compact:size-11 size-7 rounded-full"
                 aria-label="Stop generating"
               />
             }
@@ -470,6 +482,7 @@ const AssistantMessage: FC = () => {
     ReasoningGroup,
   } = useContext(ThreadComponentsContext);
   const isLast = useAuiState((s) => s.message.isLast);
+  const { handlers, style: pressStyle, sheet } = useMessageActions();
 
   const ACTION_BAR_PT = "pt-1.5";
   // Keep the action bar inside the contained root's paint box, then cancel its reserved space in flow.
@@ -479,6 +492,8 @@ const AssistantMessage: FC = () => {
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
       data-role="assistant"
+      {...handlers}
+      style={pressStyle}
       className={cn(
         "fade-in slide-in-from-bottom-1 animate-in relative -mb-7.5 pb-7.5 duration-150 [contain-intrinsic-size:auto_200px]",
         !isLast && "[content-visibility:auto]",
@@ -546,6 +561,7 @@ const AssistantMessage: FC = () => {
       >
         <AssistantActionBar />
       </div>
+      {sheet}
     </MessagePrimitive.Root>
   );
 };
@@ -602,8 +618,11 @@ const AssistantActionBar: FC = () => {
 };
 
 const UserMessage: FC = () => {
+  const { handlers, style: pressStyle, sheet } = useMessageActions();
   return (
     <MessagePrimitive.Root
+      {...handlers}
+      style={pressStyle}
       data-slot="aui_user-message-root"
       className="fade-in slide-in-from-bottom-1 animate-in grid auto-rows-auto grid-cols-[minmax(24px,1fr)_auto] content-start gap-y-1.5 px-2 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto] [&:where(>*)]:col-start-2"
       data-role="user"
@@ -618,6 +637,7 @@ const UserMessage: FC = () => {
           <UserActionBar />
         </div>
       </div>
+      {sheet}
     </MessagePrimitive.Root>
   );
 };

@@ -12,6 +12,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The phone layout, chosen by the workspace (see layout/compact.tsx) and stamped on its
+   root as data-layout. Portalled sheets and menus sit outside that root, so the
+   components that need it read the same fact from context instead. */
+@custom-variant compact (&:where([data-layout="compact"], [data-layout="compact"] *));
+
 @theme inline {
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -107,23 +112,79 @@
 @custom-variant data-vertical (&:where([data-orientation="vertical"]));
 
 @layer components {
+  /* The workspace fills whatever it is given and never sizes itself from the window:
+     the standalone host gives it the page, the PiKVM app gives it the panel beside
+     its navigation. data-layout is the phone/wide decision (layout/compact.tsx);
+     data-insets says who handles the notch and home indicator. */
   .workspace-shell {
-    @apply grid h-dvh min-h-0 grid-cols-1 overflow-hidden bg-sidebar md:grid-cols-[13.5rem_minmax(0,1fr)];
+    --chat-safe-top: env(safe-area-inset-top, 0px);
+    --chat-safe-right: env(safe-area-inset-right, 0px);
+    --chat-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --chat-safe-left: env(safe-area-inset-left, 0px);
+    @apply relative grid h-full min-h-0 grid-cols-1 overflow-hidden bg-sidebar text-[13px];
+    /* The part of the bottom edge the soft keyboard covers (layout/keyboard.ts): the
+       composer is docked above it rather than behind it. */
+    padding-bottom: var(--chat-keyboard-inset, 0px);
+    padding-left: var(--chat-safe-left);
+    padding-right: var(--chat-safe-right);
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .workspace-shell[data-insets="host"] {
+    --chat-safe-top: 0px;
+    --chat-safe-right: 0px;
+    --chat-safe-bottom: 0px;
+    --chat-safe-left: 0px;
+  }
+
+  /* The keyboard covers the home indicator, so there is nothing to clear. */
+  .workspace-shell[data-keyboard="open"] {
+    --chat-safe-bottom: 0px;
+  }
+
+  .workspace-shell[data-layout="wide"] {
+    grid-template-columns: 13.5rem minmax(0, 1fr);
   }
 
   .workspace-rail {
-    @apply hidden min-h-0 flex-col border-r bg-sidebar md:flex;
+    @apply flex min-h-0 flex-col border-r bg-sidebar;
+  }
+
+  .workspace-main {
+    @apply flex min-h-0 min-w-0 flex-col bg-background;
   }
 
   /* Matches the console's own titlebar: same 38px height, same --card fill and
      bottom border, same 4px end padding. The two bars sit side by side in one
-     window, so anything that differs reads as a seam. */
+     window, so anything that differs reads as a seam. On a phone it is a 48px bar
+     with 44px buttons and clears the notch. */
   .workspace-header {
-    @apply flex h-[38px] items-center justify-between gap-2 border-b bg-card px-1;
+    @apply flex h-[38px] shrink-0 items-center justify-between gap-2 border-b bg-card px-1;
+  }
+
+  .workspace-shell[data-layout="compact"] .workspace-header {
+    height: calc(48px + var(--chat-safe-top));
+    padding-top: var(--chat-safe-top);
   }
 
   .workspace-thread {
-    @apply relative flex h-[calc(100dvh-38px)] min-h-0 flex-col overflow-hidden;
+    @apply relative flex min-h-0 flex-1 flex-col overflow-hidden;
+  }
+
+  /* Small controls keep their look and gain a 44px hit area on a phone, by extending an
+     invisible ::after past their box (only when they are smaller than 44px: the min()
+     is 0 for anything already big enough). Zero specificity, so a control that sizes
+     itself properly is untouched. */
+  .workspace-shell[data-layout="compact"] :where(button, [role="button"], [role="menuitem"], [role="tab"]) {
+    position: relative;
+  }
+
+  .workspace-shell[data-layout="compact"]
+    :where(button, [role="button"], [role="menuitem"], [role="tab"])::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - 44px) / 2));
   }
 
   .aui-md {

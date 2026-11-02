@@ -56,6 +56,7 @@ const STREAM_RETRY_BASE_MS = 500;
 const STREAM_RETRY_MAX_MS = 5_000;
 const LIVE_RECONCILE_MS = 15_000;
 const DEGRADED_RECONCILE_MS = 1_500;
+const MANAGED_RETRY_MS = 8_000;
 const MODEL_ROLES: ModelRole[] = [
   "assistant",
   "reasoner",
@@ -199,7 +200,38 @@ const summaryForRun = (run: RunSnapshot): RunSummary => ({
   error: run.error,
 });
 
-export function useHarnessWorkspace() {
+/**
+ * Why the harness could not be reached, as the empty state needs to say it.
+ *
+ * `status` is the HTTP status the host answered with, or null when nothing
+ * answered at all (the request itself failed). 502/503/504 mean the host is
+ * up but the agent behind it is not, which is a different thing to tell
+ * someone than "you are not signed in".
+ */
+export type ConnectFailure = {
+  status: number | null;
+  message: string;
+};
+
+export const agentIsDown = (failure: ConnectFailure | null) =>
+  failure !== null &&
+  (failure.status === null || [502, 503, 504].includes(failure.status));
+
+export type HarnessWorkspaceOptions = {
+  /**
+   * The host manages authentication: use this credential, never ask for one and
+   * never persist it. The PiKVM app's proxy attaches the real operator
+   * capability server-side and discards whatever the page sends, so the value
+   * is only a marker that a session exists.
+   */
+  managedToken?: string | undefined;
+};
+
+export function useHarnessWorkspace(options: HarnessWorkspaceOptions = {}) {
+  const { managedToken } = options;
+  const [connectFailure, setConnectFailure] = useState<ConnectFailure | null>(
+    null,
+  );
   const [token, setToken] = useState("");
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -345,6 +377,7 @@ export function useHarnessWorkspace() {
       }
       setLoading(true);
       setError("");
+      setConnectFailure(null);
       try {
         const [
           nextRuns,
@@ -369,7 +402,7 @@ export function useHarnessWorkspace() {
         ]);
         if (!mounted.current) return;
         setToken(accessToken);
-        storeToken(accessToken);
+        if (!managedToken) storeToken(accessToken);
         setRuns(nextRuns);
         setProviders(nextProviders);
         setProviderCatalog(nextCatalog);
@@ -412,21 +445,41 @@ export function useHarnessWorkspace() {
           }
         }
       } catch (cause) {
-        if (rejectsWorkspaceToken(cause)) clearStoredToken();
+        if (rejectsWorkspaceToken(cause) && !managedToken) clearStoredToken();
         if (!mounted.current) return;
         if (rejectsWorkspaceToken(cause)) setConnected(false);
-        setError(cause instanceof Error ? cause.message : "Connection failed.");
+        const message =
+          cause instanceof Error ? cause.message : "Connection failed.";
+        setConnectFailure({
+          status: cause instanceof HarnessApiError ? cause.status : null,
+          message,
+        });
+        setError(message);
       } finally {
         if (mounted.current) setLoading(false);
       }
     },
-    [loadRun],
+    [loadRun, managedToken],
   );
 
   useEffect(() => {
-    const stored = readStoredToken();
+    const stored = managedToken ?? readStoredToken();
     if (stored) void connect(stored);
-  }, [connect]);
+  }, [connect, managedToken]);
+
+  /* A managed host starts the agent on its own schedule, so "not up yet" is
+   * expected rather than final: keep asking until it answers instead of
+   * leaving the person to find a retry button for something that fixes itself. */
+  useEffect(() => {
+    if (!managedToken || connected || loading || !agentIsDown(connectFailure)) {
+      return;
+    }
+    const timer = window.setTimeout(
+      () => void connect(managedToken),
+      MANAGED_RETRY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [connect, connected, connectFailure, loading, managedToken]);
 
   useEffect(() => {
     if (!connected || !token) return;
@@ -730,6 +783,7 @@ export function useHarnessWorkspace() {
   );
 
   const disconnect = useCallback(() => {
+    if (managedToken) return;
     clearStoredToken();
     clearStoredRunId();
     setToken("");
@@ -749,7 +803,7 @@ export function useHarnessWorkspace() {
     setLiveUpdateStatus("offline");
     setLastLiveEventAt(null);
     autoFollowExternalRunRef.current = true;
-  }, []);
+  }, [managedToken]);
 
   const isRunning = Boolean(
     selectedRun &&
@@ -808,6 +862,7 @@ export function useHarnessWorkspace() {
       token,
       connected,
       loading,
+      connectFailure,
       runs,
       selectedId,
       selectedRun,
@@ -843,6 +898,7 @@ export function useHarnessWorkspace() {
       token,
       connected,
       loading,
+      connectFailure,
       runs,
       selectedId,
       selectedRun,

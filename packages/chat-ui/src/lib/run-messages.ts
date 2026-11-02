@@ -446,6 +446,80 @@ const completionMarkdown = (run: RunSnapshot) => {
   return "";
 };
 
+/**
+ * The two answers an approval offers: one exact allow with a second confirmation,
+ * and an immediate deny. Allow is never one tap, because what is being allowed is
+ * input to a real machine; deny is never two, because stopping must be easy.
+ */
+export const approvalOptions = (allow: {
+  description: string;
+  confirmTitle: string;
+  confirmDescription: string;
+}) => [
+  {
+    id: "approve",
+    kind: "allow-once" as const,
+    label: "Allow once",
+    description: allow.description,
+    confirm: {
+      title: allow.confirmTitle,
+      description: allow.confirmDescription,
+    },
+  },
+  {
+    id: "reject",
+    kind: "reject-once" as const,
+    label: "Deny & stop",
+  },
+];
+
+export type PendingApproval = {
+  id: string;
+  /** What is waiting, in a few words: the tool, or the kind of computer input. */
+  title: string;
+  /** Why it needs a person: the risk and reason the harness attached. */
+  detail: string;
+  options: ReturnType<typeof approvalOptions>;
+};
+
+/**
+ * The approval a run is stopped on, shaped for the dock that keeps it in reach.
+ *
+ * It offers the same options, with the same confirmation, as the card in the
+ * thread: the dock is a second place to answer the same question, not a second
+ * way to answer it.
+ */
+export const pendingApprovalForRun = (
+  run: RunSnapshot | null | undefined,
+): PendingApproval | null => {
+  if (!run || run.status !== "needs_approval") return null;
+  const pending = run.pending_approval;
+  const id = safeString(pending?.approval_id);
+  if (!pending || !id) return null;
+  const risk = safeString(pending.risk).replaceAll("_", " ").trim();
+  const reason = safeString(pending.reason).trim();
+  const detail = [risk, reason].filter(Boolean).join(": ");
+  const tool = safeString(pending.tool);
+  return {
+    id,
+    title: tool ? `Allow ${tool}?` : "Allow this computer action?",
+    detail,
+    options: approvalOptions({
+      description:
+        detail ||
+        (tool
+          ? "Permit this exact external tool call once."
+          : "Permit this exact computer input one time."),
+      confirmTitle: tool ? `Allow ${tool}?` : "Allow this computer action?",
+      confirmDescription:
+        reason ||
+        (tool
+          ? "The exact arguments shown in the conversation will be sent once."
+          : "The exact input shown in the conversation will be sent once."),
+    }),
+  };
+};
+
 const completionMarkdownForEvents = (events: readonly HarnessEvent[]) => {
   const completed = [...events]
     .reverse()
@@ -635,31 +709,19 @@ const toolParts = (
       isError: failed,
       ...(approvalId
         ? {
-          approval: {
-            id: approvalId,
-            options: [
-              {
-                id: "approve",
-                kind: "allow-once" as const,
-                label: "Allow once",
+            approval: {
+              id: approvalId,
+              options: approvalOptions({
                 description:
                   approvalDescription ||
                   "Permit this exact computer input one time.",
-                confirm: {
-                  title: "Allow this computer action?",
-                  description:
-                    approvalDescription ||
-                    "The exact input shown above will be sent once.",
-                },
-              },
-              {
-                id: "reject",
-                kind: "reject-once" as const,
-                label: "Deny & stop",
-              },
-            ],
-          },
-        }
+                confirmTitle: "Allow this computer action?",
+                confirmDescription:
+                  approvalDescription ||
+                  "The exact input shown above will be sent once.",
+              }),
+            },
+          }
         : {}),
     };
   });
@@ -771,31 +833,19 @@ const assistantToolParts = (
       isError: failed,
       ...(approval
         ? {
-          approval: {
-            id: callId,
-            options: [
-              {
-                id: "approve",
-                kind: "allow-once" as const,
-                label: "Allow once",
+            approval: {
+              id: callId,
+              options: approvalOptions({
                 description:
                   [risk, reason].filter(Boolean).join(": ") ||
                   "Permit this exact external tool call once.",
-                confirm: {
-                  title: `Allow ${toolName}?`,
-                  description:
-                    reason ||
-                    "The exact arguments shown here will be sent once.",
-                },
-              },
-              {
-                id: "reject",
-                kind: "reject-once" as const,
-                label: "Deny & stop",
-              },
-            ],
-          },
-        }
+                confirmTitle: `Allow ${toolName}?`,
+                confirmDescription:
+                  reason ||
+                  "The exact arguments shown here will be sent once.",
+              }),
+            },
+          }
         : {}),
     };
   });

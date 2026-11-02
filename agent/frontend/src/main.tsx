@@ -1,19 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  ChatWorkspace,
-  configureHarnessApi,
-  WorkspaceErrorBoundary,
-} from "@pikvm/chat-ui";
+import { ChatWorkspace, WorkspaceErrorBoundary } from "@pikvm/chat-ui";
 import "./styles.css";
 
 /* The desktop's console frames this build and sets the base before the bundle
    runs (see src/server/workspace.ts in the app); standalone, the harness serves
    it and there is no base. One built bundle, so the host says which it is. */
-configureHarnessApi({
-  apiBase: (globalThis as { __PIKVM_HARNESS_API_BASE__?: unknown })
-    .__PIKVM_HARNESS_API_BASE__,
-});
+const apiBase = (globalThis as { __PIKVM_HARNESS_API_BASE__?: unknown })
+  .__PIKVM_HARNESS_API_BASE__;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -21,7 +15,10 @@ createRoot(document.getElementById("root")!).render(
         a useMemo in the shell itself, so a boundary within it would have gone
         down with it. */}
     <WorkspaceErrorBoundary>
-      <ChatWorkspace uiBuild={__PIKVM_UI_BUILD__} />
+      <ChatWorkspace
+        apiBase={typeof apiBase === "string" ? apiBase : undefined}
+        uiBuild={__PIKVM_UI_BUILD__}
+      />
     </WorkspaceErrorBoundary>
   </StrictMode>,
 );

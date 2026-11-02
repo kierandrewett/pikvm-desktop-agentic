@@ -1,9 +1,14 @@
 import {
+  type ComponentProps,
+  createContext,
   lazy,
+  type CSSProperties,
   type ReactNode,
   Suspense,
+  useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -72,8 +77,19 @@ import { TaskRestoreState } from "./task-restore-state";
 import { WorkspaceErrorBoundary } from "./workspace-error-boundary";
 import { UiUpdateBadge } from "./ui-update-badge";
 import { useHarnessWorkspace } from "../../hooks/use-harness-workspace";
+import { ApprovalDockedProvider } from "../assistant-ui/approval-dock";
+import { CompactProvider, useCompactLayout } from "../../layout/compact";
+import { useKeyboardInset } from "../../layout/keyboard";
+import { configureHarnessApi } from "../../lib/harness-api";
+import {
+  messagesForRun,
+  type PendingApproval,
+  pendingApprovalForRun,
+} from "../../lib/run-messages";
+import { HarnessUnavailable } from "./harness-unavailable";
+import { PendingApprovalDock } from "./pending-approval-dock";
+import type { RespondToToolApprovalOptions } from "@assistant-ui/react";
 import { useConsoleTheme, usePanelPlacement } from "../../hooks/use-panel-placement";
-import { messagesForRun } from "../../lib/run-messages";
 import { cn } from "../../lib/utils";
 
 const ComputerSheet = lazy(async () => {
@@ -128,13 +144,13 @@ const WorkspaceToolCall = (props: ToolCallMessagePartProps) =>
  * utilities layer and win over anything declared in components.
  */
 const TITLEBAR_BUTTON = [
-  "size-[30px] shrink-0 rounded-full p-0",
+  "size-[30px] shrink-0 rounded-full p-0 compact:size-11",
   "text-muted-foreground transition-colors hover:text-foreground",
   "hover:bg-[color-mix(in_srgb,currentColor_16%,transparent)]",
   "active:bg-[color-mix(in_srgb,currentColor_26%,transparent)] active:scale-100",
   // Important because the button's own [&_svg]:size-4 is the same specificity
   // and tw-merge does not treat the two arbitrary variants as a conflict.
-  "[&_svg]:size-[15px]!",
+  "[&_svg]:size-[15px]! compact:[&_svg]:size-5!",
 ].join(" ");
 
 function RuntimeInstance({
@@ -259,8 +275,93 @@ function SheetFailure({
   );
 }
 
-export function ChatWorkspace({ uiBuild }: { uiBuild?: string }) {
-  const workspace = useHarnessWorkspace();
+export type ChatWorkspaceProps = {
+  /** Where the harness API is mounted ("/app/harness" in the PiKVM app). Omit for same-origin /api. */
+  apiBase?: string | undefined;
+  /**
+   * The host manages authentication: connect with this marker credential, never
+   * prompt for a token and never offer to disconnect. A host that does this has
+   * a proxy attaching the real operator capability server-side.
+   */
+  managedToken?: string | undefined;
+  /** Phone layout. Omit to decide from the device (coarse pointer or narrow window). */
+  compact?: boolean | undefined;
+  /**
+   * Who clears the notch and home indicator: "self" (default) pads for the safe
+   * areas, "host" when the surrounding shell already has.
+   */
+  insets?: "self" | "host" | undefined;
+  /** The build running, so the header can offer a reload when the server has a newer one. */
+  uiBuild?: string | undefined;
+};
+
+type ToolbarProps = {
+  show: boolean;
+  picker: ComponentProps<typeof ModelPicker>;
+};
+
+const ComposerToolbarContext = createContext<ToolbarProps | null>(null);
+
+/* Module-level components with their data in context, not closures built per render:
+ * a component created inside the shell has a new identity every render, so React
+ * would unmount and remount it on each streamed event, closing an open model sheet
+ * (and resetting an approval's "submitted" state) under the person's thumb. */
+function ComposerToolbarSlot() {
+  const toolbar = useContext(ComposerToolbarContext);
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      {toolbar?.show ? <ModelPicker {...toolbar.picker} /> : null}
+    </div>
+  );
+}
+
+type DockState = {
+  approval: PendingApproval;
+  /** Bumped after a failed answer, so the controls mount fresh and are live again. */
+  attempt: number;
+  error: string | undefined;
+  onRespond: (decision: RespondToToolApprovalOptions) => void;
+};
+
+const ApprovalDockContext = createContext<DockState | null>(null);
+
+function ApprovalDockSlot() {
+  const dock = useContext(ApprovalDockContext);
+  if (!dock) return null;
+  return (
+    <PendingApprovalDock
+      key={`${dock.approval.id}:${dock.attempt}`}
+      approval={dock.approval}
+      onRespond={dock.onRespond}
+      error={dock.error}
+    />
+  );
+}
+
+const THREAD_COMPONENTS = {
+  ComposerToolbar: ComposerToolbarSlot,
+  AboveComposer: ApprovalDockSlot,
+  ToolFallback: WorkspaceToolCall,
+  ToolGroup: WorkspaceToolGroup,
+};
+
+export function ChatWorkspace({
+  apiBase,
+  managedToken,
+  compact: compactOverride,
+  insets = "self",
+  uiBuild,
+}: ChatWorkspaceProps) {
+  // Before any child's effect can fetch: the API base is module state (lib/harness-api).
+  useState(() => {
+    if (apiBase !== undefined) configureHarnessApi({ apiBase });
+  });
+  const managed = managedToken !== undefined;
+  const detectedCompact = useCompactLayout();
+  const compact = compactOverride ?? detectedCompact;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const keyboard = useKeyboardInset(rootRef, compact);
+  const workspace = useHarnessWorkspace({ managedToken });
   const panel = usePanelPlacement();
   useConsoleTheme();
   const [computerOpen, setComputerOpen] = useState(false);
@@ -367,30 +468,112 @@ export function ChatWorkspace({ uiBuild }: { uiBuild?: string }) {
     unstable_capabilities: { copy: true },
   };
 
-  const ComposerToolbar = () => (
-    <div className="flex min-w-0 items-center gap-1">
-      {managedControl ? (
-        <ModelPicker
-          providers={workspace.providers}
-          preferences={workspace.modelPreferences}
-          activeRoute={workspace.selectedRun?.model_route}
-          activeProvider={workspace.selectedRun?.model_provider}
-          locked={workspace.routeLocked}
-          onPreferenceChange={workspace.setModelPreference}
-          onResetPreferences={workspace.resetModelPreferences}
-          onOpenModels={() => setModelsOpen(true)}
-        />
-      ) : null}
-    </div>
+  const toolbar = useMemo<ToolbarProps>(
+    () => ({
+      show: managedControl,
+      picker: {
+        providers: workspace.providers,
+        preferences: workspace.modelPreferences,
+        activeRoute: workspace.selectedRun?.model_route,
+        activeProvider: workspace.selectedRun?.model_provider,
+        locked: workspace.routeLocked,
+        onPreferenceChange: workspace.setModelPreference,
+        onResetPreferences: workspace.resetModelPreferences,
+        onOpenModels: () => setModelsOpen(true),
+      },
+    }),
+    [
+      managedControl,
+      workspace.modelPreferences,
+      workspace.providers,
+      workspace.resetModelPreferences,
+      workspace.routeLocked,
+      workspace.selectedRun?.model_provider,
+      workspace.selectedRun?.model_route,
+      workspace.setModelPreference,
+    ],
   );
 
+  /* The approval the agent is stopped on. On a phone it is answered in a dock above the
+   * composer (the thread card is then informational), on a wide screen in the card. A
+   * failed answer re-arms the controls: the dock is remounted by bumping its key. */
+  const pendingApproval = useMemo(
+    () => pendingApprovalForRun(workspace.selectedRun),
+    [workspace.selectedRun],
+  );
+  const docked = compact && pendingApproval !== null;
+  const [dockError, setDockError] = useState<string | undefined>();
+  const [dockAttempt, setDockAttempt] = useState(0);
+  const respondToApproval = workspace.respondToApproval;
+  const dock = useMemo<DockState | null>(
+    () =>
+      docked && pendingApproval
+        ? {
+            approval: pendingApproval,
+            attempt: dockAttempt,
+            error: dockError,
+            onRespond: (decision) => {
+              setDockError(undefined);
+              respondToApproval(decision).catch((cause: unknown) => {
+                setDockError(
+                  cause instanceof Error
+                    ? cause.message
+                    : "The answer did not go through.",
+                );
+                setDockAttempt((attempt) => attempt + 1);
+              });
+            },
+          }
+        : null,
+    [docked, dockAttempt, dockError, pendingApproval, respondToApproval],
+  );
+  useEffect(() => {
+    setDockError(undefined);
+  }, [pendingApproval?.id]);
+
+  const rootStyle = {
+    "--chat-keyboard-inset": `${keyboard.inset}px`,
+  } as CSSProperties;
+  const rootAttributes = {
+    "data-layout": compact ? "compact" : "wide",
+    "data-keyboard": keyboard.open ? "open" : "closed",
+    "data-insets": insets,
+  } as const;
+
+  if (managed && !workspace.connected) {
+    return (
+      <CompactProvider compact={compact} insets={insets}>
+        <div
+          ref={rootRef}
+          className="workspace-shell"
+          style={rootStyle}
+          {...rootAttributes}
+        >
+          <main className="workspace-main">
+            <HarnessUnavailable
+              failure={workspace.connectFailure}
+              connecting={workspace.loading || workspace.connectFailure === null}
+              onRetry={() => void workspace.connect(managedToken)}
+            />
+          </main>
+        </div>
+      </CompactProvider>
+    );
+  }
 
   return (
+    <CompactProvider compact={compact} insets={insets}>
     <WorkspaceRuntimeBoundary
       runtimeKey={workspace.selectedId ?? "new-task"}
       adapter={runtimeAdapter}
     >
-      <div className="workspace-shell">
+      <div
+        ref={rootRef}
+        className="workspace-shell"
+        style={rootStyle}
+        {...rootAttributes}
+      >
+        {compact ? null : (
         <aside className="workspace-rail">
           {/* A compact rail header, VS Code style: a section label rather than
               a brand block. The window title already says what this is. */}
@@ -407,18 +590,21 @@ export function ChatWorkspace({ uiBuild }: { uiBuild?: string }) {
             <ThreadList />
           </div>
         </aside>
+        )}
 
-        <main className="min-w-0 bg-background">
+        <main className="workspace-main">
           <header className="workspace-header">
             <div className="flex min-w-0 items-center gap-2">
-              <TooltipIconButton
-                tooltip="Tasks"
-                aria-label="Open tasks"
-                className={cn(TITLEBAR_BUTTON, "md:hidden")}
-                onClick={() => setTasksOpen(true)}
-              >
-                <MenuIcon />
-              </TooltipIconButton>
+              {compact ? (
+                <TooltipIconButton
+                  tooltip="Tasks"
+                  aria-label="Open tasks"
+                  className={TITLEBAR_BUTTON}
+                  onClick={() => setTasksOpen(true)}
+                >
+                  <MenuIcon />
+                </TooltipIconButton>
+              ) : null}
               {/* The console titlebar's own title treatment: small, semibold and
                   muted, so the run name reads as a window title rather than as
                   the first line of the conversation. */}
@@ -550,15 +736,19 @@ export function ChatWorkspace({ uiBuild }: { uiBuild?: string }) {
                     <ActivityIcon aria-hidden="true" />
                     Diagnostics
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    disabled={!workspace.connected}
-                    onClick={workspace.disconnect}
-                  >
-                    <LogOutIcon aria-hidden="true" />
-                    Disconnect
-                  </DropdownMenuItem>
+                  {managed ? null : (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={!workspace.connected}
+                        onClick={workspace.disconnect}
+                      >
+                        <LogOutIcon aria-hidden="true" />
+                        Disconnect
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -595,21 +785,23 @@ export function ChatWorkspace({ uiBuild }: { uiBuild?: string }) {
                   />
                 ) : null}
                 <ComputerToolEnvironmentProvider value={computerEnvironment}>
-                  <div className="flex min-h-0 flex-1 flex-col">
-                    <Thread
-                      readOnly={!managedControl}
-                      activity={workspace.selectedRun?.active_activity}
-                      working={
-                        workspace.isRunning &&
-                        hasFreshRunActivity(workspace.liveUpdateStatus)
-                      }
-                      components={{
-                        ComposerToolbar,
-                        ToolFallback: WorkspaceToolCall,
-                        ToolGroup: WorkspaceToolGroup,
-                      }}
-                    />
-                  </div>
+                  <ComposerToolbarContext.Provider value={toolbar}>
+                    <ApprovalDockContext.Provider value={dock}>
+                      <ApprovalDockedProvider value={docked}>
+                        <div className="flex min-h-0 flex-1 flex-col">
+                          <Thread
+                            readOnly={!managedControl}
+                            activity={workspace.selectedRun?.active_activity}
+                            working={
+                              workspace.isRunning &&
+                              hasFreshRunActivity(workspace.liveUpdateStatus)
+                            }
+                            components={THREAD_COMPONENTS}
+                          />
+                        </div>
+                      </ApprovalDockedProvider>
+                    </ApprovalDockContext.Provider>
+                  </ComposerToolbarContext.Provider>
                 </ComputerToolEnvironmentProvider>
               </>
             )}
@@ -617,8 +809,11 @@ export function ChatWorkspace({ uiBuild }: { uiBuild?: string }) {
         </main>
       </div>
 
-      <Sheet open={tasksOpen} onOpenChange={setTasksOpen}>
-        <SheetContent side="left" className="w-80">
+      <Sheet open={tasksOpen && compact} onOpenChange={setTasksOpen}>
+        <SheetContent
+          side="left"
+          className="w-[min(88vw,22rem)] data-[side=left]:w-[min(88vw,22rem)] pt-[var(--chat-safe-top,0px)]"
+        >
           <SheetHeader>
             <SheetTitle>Tasks</SheetTitle>
             <SheetDescription>
@@ -772,11 +967,12 @@ export function ChatWorkspace({ uiBuild }: { uiBuild?: string }) {
         </WorkspaceErrorBoundary>
       ) : null}
       <AuthDialog
-        open={!workspace.connected}
+        open={!managed && !workspace.connected}
         loading={workspace.loading}
         error={workspace.error}
         onConnect={workspace.connect}
       />
     </WorkspaceRuntimeBoundary>
+    </CompactProvider>
   );
 }
