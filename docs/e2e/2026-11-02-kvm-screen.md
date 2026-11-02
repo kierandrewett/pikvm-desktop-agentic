@@ -27,12 +27,15 @@ Touch is sent as raw CDP touch events, two fingers included. The fake has no Jan
 | iPhone 13 | Fn and More rows open one at a time | F-keys 12, F1 after opening More 0, shortcut keys 13 | pass |
 | iPhone 13 | alt+tab shortcut key sends the chord | key AltLeft down, key Tab down, key Tab up, key AltLeft up | pass |
 | iPhone 13 | macro tile in the ⋯ sheet runs on the target | key MetaLeft down, key KeyR down, key KeyR up, key MetaLeft up; typed "calc"; 3 separators in the sheet | pass |
-| iPhone 13 | socket drop recovers, input works again | offline seen, recovered in 1229 ms, then button left down, button left up | pass |
+| iPhone 13 | touch (direct) mode: a tap points at the finger, then clicks | move 10082,-11949, button left down, button left up | pass |
+| iPhone 13 | trackpad pinned to relative: the Pi is switched, then the drag goes out as relative moves | Pi switched true (absolute false); 10 relative moves, 75 px right, no absolute moves | pass |
+| iPhone 13 | trackpad back to absolute: the Pi is switched back by the first touch | absolute true | pass |
+| iPhone 13 | socket drop recovers, input works again | offline seen, recovered in 1216 ms, then button left down, button left up | pass |
 | iPhone 13 | no page errors | clean | pass |
 | desktop 1400x900 | resolution toast names the picture and its source | "320 × 180  ·  MJPEG" | pass |
 | desktop 1400x900 | picture fills the area, letterbox-correct | pane 1336x862, picture 320x180 object-fit contain | pass |
 | desktop 1400x900 | click on the picture = move, then left down and up | move 0,0, button left down, button left up | pass |
-| desktop 1400x900 | hover moves absolutely, one per frame | 7 moves, last move 4905,4360 | pass |
+| desktop 1400x900 | hover moves absolutely, one per frame | 5 moves, last move 4905,4360 | pass |
 | desktop 1400x900 | wheel scrolls the target; Ctrl+wheel zooms the picture (web only) | plain wheel wheel 0,1; Ctrl+wheel scale 1.21, wheel events sent 0 | pass |
 | desktop 1400x900 | click focuses the hardware keyboard; typing Hi | focused true; key ShiftLeft down, key KeyH down, key KeyH up, key ShiftLeft up, key KeyI down, key KeyI up | pass |
 | desktop 1400x900 | Ctrl + C from a real keyboard | key ControlLeft down, key KeyC down, key KeyC up, key ControlLeft up | pass |
@@ -45,7 +48,7 @@ Touch is sent as raw CDP touch events, two fingers included. The fake has no Jan
 | desktop 1400x900 | socket drop recovers, input works again | offline seen, recovered in 1228 ms, then move 0,-5232, button left down, button left up | pass |
 | desktop 1400x900 | no page errors | clean | pass |
 
-34 of 34 passed.
+37 of 37 passed.
 
 ## Screenshots
 

@@ -112,7 +112,7 @@ export function KvmScreen() {
                 {dock ? null : (
                     <Toolbar controller={controller} actions={actions} openDialog={openDialog} keysOpen={keysOpen} onKeys={setKeysOpen} />
                 )}
-                {!dock && keysOpen ? <KeyStrip keyboard={session.keyboard} focus={focus} /> : null}
+                {!dock && keysOpen ? <KeyStrip keyboard={session.keyboard} focus={focus} dragLock={dragLock} onDragLock={setDragLock} /> : null}
                 <div className="kvm-stage">
                     <Picture session={session} focus={focus} desktop={desktop} prefs={prefs} onController={setController} />
                     {fullUiOn ? <FullUiFrame onBack={() => toggleFullUi?.()} /> : null}

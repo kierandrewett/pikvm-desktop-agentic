@@ -107,6 +107,8 @@ export function KeyboardInput({ session, focus, desktop }: KeyboardInputProps) {
 
         return () => {
             for (const off of offs) off();
+            // Leaving the screen with a key down would leave it down on the target.
+            keyboard.releaseAll();
             el.removeEventListener("keydown", hostPaste, true);
             detachFocus();
             binding.unbind();

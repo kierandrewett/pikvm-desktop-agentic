@@ -45,6 +45,45 @@ export function sendScroll(link: TargetLink, keyboard: Keyboard, up: boolean): v
     });
 }
 
+/** Left, middle and right click, hold-left (drag-lock), and scroll: the mouse as a row of keys. */
+export function MouseButtons({ dragLock, onDragLock }: { readonly dragLock: boolean; readonly onDragLock: (on: boolean) => void }) {
+    const { link, keyboard, clock } = useKvmSession();
+    return (
+        <>
+            {(["left", "middle", "right"] as const).map((button) => (
+                <button
+                    key={button}
+                    type="button"
+                    className="kvm-key"
+                    data-click={button}
+                    title={`${button[0]?.toUpperCase()}${button.slice(1)} click`}
+                    aria-label={`${button[0]?.toUpperCase()}, ${button} click`}
+                    onClick={() => sendClick(link, keyboard, clock, button)}
+                >
+                    {button[0]?.toUpperCase()}
+                </button>
+            ))}
+            <button
+                type="button"
+                className={`kvm-key${dragLock ? " on" : ""}`}
+                aria-pressed={dragLock}
+                title="Hold left (drag)"
+                aria-label="Hold the left mouse button down, to drag"
+                data-drag-lock=""
+                onClick={() => onDragLock(!dragLock)}
+            >
+                {"\u291e"}
+            </button>
+            <button type="button" className="kvm-key" data-scroll="up" title="Scroll up" aria-label="Scroll up" onClick={() => sendScroll(link, keyboard, true)}>
+                {"\u25b2"}
+            </button>
+            <button type="button" className="kvm-key" data-scroll="down" title="Scroll down" aria-label="Scroll down" onClick={() => sendScroll(link, keyboard, false)}>
+                {"\u25bc"}
+            </button>
+        </>
+    );
+}
+
 function ActionButton({ action, onDone }: { action: Action; onDone: () => void }) {
     return (
         <button
@@ -73,11 +112,9 @@ function Group({ actions, onDone }: { actions: readonly Action[]; onDone: () => 
 
 export function Sheet(props: SheetProps) {
     const { controller, actions, touchMode, touchHid, dragLock, onClose } = props;
-    const session = useKvmSession();
     const picture = usePictureState(controller);
     const relativeAvailable = useTarget((s) => s.device.mouse.outputs.includes("usb_rel"));
     const relative = useTarget((s) => s.device.mouse.absolute === false);
-    const { link, keyboard, clock } = session;
     const direct = touchMode === "direct";
     const rel = touchHid === "rel";
     // Asked for, not yet reported by the Pi.
@@ -89,36 +126,7 @@ export function Sheet(props: SheetProps) {
         <div className="kvm-sheet" id="kvm-sheet" role="group" aria-label="More">
             <div className="kvm-sheet-label">Mouse</div>
             <div className="kvm-sheet-row" role="group" aria-label="Mouse buttons">
-                {(["left", "middle", "right"] as const).map((button) => (
-                    <button
-                        key={button}
-                        type="button"
-                        className="kvm-key"
-                        data-click={button}
-                        title={`${button[0]?.toUpperCase()}${button.slice(1)} click`}
-                        aria-label={`${button[0]?.toUpperCase()}, ${button} click`}
-                        onClick={() => sendClick(link, keyboard, clock, button)}
-                    >
-                        {button[0]?.toUpperCase()}
-                    </button>
-                ))}
-                <button
-                    type="button"
-                    className={`kvm-key${dragLock ? " on" : ""}`}
-                    aria-pressed={dragLock}
-                    title="Hold left (drag)"
-                    aria-label="Hold the left mouse button down, to drag"
-                    data-drag-lock=""
-                    onClick={() => props.onDragLock(!dragLock)}
-                >
-                    {"\u291e"}
-                </button>
-                <button type="button" className="kvm-key" data-scroll="up" title="Scroll up" aria-label="Scroll up" onClick={() => sendScroll(link, keyboard, true)}>
-                    {"\u25b2"}
-                </button>
-                <button type="button" className="kvm-key" data-scroll="down" title="Scroll down" aria-label="Scroll down" onClick={() => sendScroll(link, keyboard, false)}>
-                    {"\u25bc"}
-                </button>
+                <MouseButtons dragLock={dragLock} onDragLock={props.onDragLock} />
             </div>
 
             <MacroTiles onRun={onClose} />

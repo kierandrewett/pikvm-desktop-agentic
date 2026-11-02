@@ -305,6 +305,54 @@ async function phone(browser) {
         return [pass, `${lines.join(", ")}; typed "${prints[0]?.text}"; ${separators} separators in the sheet`];
     });
 
+    // The other touch modes. The stored choice is read at load, so each one reloads.
+    const setPrefs = async (prefs) => {
+        await page.evaluate((p) => {
+            for (const [k, v] of Object.entries(p)) localStorage.setItem(k, v);
+        }, prefs);
+        await page.reload({ waitUntil: "load" });
+        await live(page);
+    };
+    await setPrefs({ "pikvm-touch-mode": "direct" });
+    await check(profile, "touch (direct) mode: a tap points at the finger, then clicks", async () => {
+        await rec.mark();
+        await touch.tap(cx + 60, cy - 40);
+        const { events } = await rec.events();
+        const lines = describe(events);
+        return [lines.length === 3 && lines[0].startsWith("move ") && lines[1] === "button left down" && lines[2] === "button left up", lines.join(", ")];
+    });
+
+    await setPrefs({ "pikvm-touch-mode": "trackpad", "pikvm-touch-hid": "rel" });
+    await check(profile, "trackpad pinned to relative: the Pi is switched, then the drag goes out as relative moves", async () => {
+        await rec.mark();
+        const id = await touch.start(cx, cy);
+        await touch.drag(id, line([cx, cy], [cx + 90, cy + 30], 12), 30);
+        await touch.end(id);
+        await sleep(600);
+        const { events } = await rec.events();
+        const lines = describe(events);
+        const state = await fakeGet("/__fake/state");
+        const { requests } = await fakeGet("/__fake/requests");
+        const switched = requests.some((r) => r.path === "/api/hid/set_params" && r.query.mouse_output === "usb_rel");
+        const rel = lines.filter((l) => l.startsWith("relative "));
+        let dx = 0;
+        for (const l of rel) dx += Number(l.split(" ")[1].split(",")[0]);
+        return [switched && state.mouse.absolute === false && rel.length > 0 && dx > 40 && !lines.some((l) => l.startsWith("move ")), `Pi switched ${switched} (absolute ${state.mouse.absolute}); ${rel.length} relative moves, ${dx} px right, no absolute moves`];
+    });
+    await setPrefs({ "pikvm-touch-hid": "abs" });
+    await check(profile, "trackpad back to absolute: the Pi is switched back by the first touch", async () => {
+        await touch.tap(cx, cy);
+        await sleep(800);
+        const state = await fakeGet("/__fake/state");
+        return [state.mouse.absolute === true, `absolute ${state.mouse.absolute}`];
+    });
+    await page.evaluate(() => {
+        localStorage.removeItem("pikvm-touch-mode");
+        localStorage.removeItem("pikvm-touch-hid");
+    });
+    await page.reload({ waitUntil: "load" });
+    await live(page);
+
     // Socket drop.
     await check(profile, "socket drop recovers, input works again", async () => {
         const started = Date.now();

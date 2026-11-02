@@ -45,7 +45,7 @@ Caps pending window, output switch throttle: engine `link.test.ts`). What the sc
 | Pi reports: Caps LED, mouse mode and outputs, ATX, MSD, OCR, keymaps | done | state read through `useTarget`; E2E "Caps key toggles the fake LED and lights" |
 | Keys offered only while the socket is up (drawer disabled) | done | K21 `key-rows.test.tsx` |
 | Mouse blob not left claiming a remote cursor when the socket drops (`not-allowed`) | done | `picture-controller.test.ts` "input offline" |
-| Mouse output follows the input in use (absolute for mouse/pen/direct, relative for trackpad when pinned) | done | engine P/R/M12; toggling the setting asks the Pi at once (`setPrefs`); no E2E on a relative-capable fake |
+| Mouse output follows the input in use (absolute for mouse/pen/direct, relative for trackpad when pinned) | done | E2E "trackpad pinned to relative" (Pi switched to `usb_rel`, relative moves only) and "back to absolute"; changing the setting asks the Pi at once |
 
 ## 1.4 Keyboard engine and soft keyboard
 
@@ -83,7 +83,7 @@ and exercised through real touch events:
 | Trackpad: drag moves a cursor, tap = left click and nothing else | done | E2E "tap = one left click, no move" |
 | Hold-still arms (cue), move = hold-to-drag, lift = right click | done | E2E "hold, then drag" (cue shown, one down, moves, one up, no right click), "hold, then lift = one right click" |
 | Two-finger tap = right click; two-finger drag = wheel (22 px/step); pinch zoom | done | E2E "two-finger tap", "two-finger drag scrolls the target, no clicks, no zoom", "pinch zooms" |
-| Touch (direct) vs trackpad; absolute vs relative; stored under `pikvm-touch-mode`/`-hid` | done | K10 `kvm-screen.test.tsx` (keys written, direct hides the HID choice); machine D1-D9 |
+| Touch (direct) vs trackpad; absolute vs relative; stored under `pikvm-touch-mode`/`-hid` | done | K10 `kvm-screen.test.tsx`; E2E "touch (direct) mode" (move, then click, at the finger); machine D1-D9 |
 | Cursor dot, hold cue, magnifier lens (speed-sized, 4x total, lingers 1.4 s) | done | `cursor-lens.ts` over the engine's view module; E2E screenshot of the lens at the cursor; no pixel assertion |
 | Browser pinch suppressed | done | `gesturestart` handler in `kvm-screen.tsx` |
 

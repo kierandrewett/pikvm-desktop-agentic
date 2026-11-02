@@ -9,6 +9,7 @@
 
 import type { Keyboard } from "@pikvm/kvm-engine";
 import type { FieldFocus } from "./field-focus";
+import { MouseButtons } from "./sheet";
 import { useStore } from "./use-store";
 import { useTarget } from "./session";
 
@@ -236,7 +237,17 @@ export function KeyRows({ keyboard, focus, fnOpen, moreOpen, onFn, onMore }: Key
 }
 
 /** The same keys as one scrolling strip, for the desktop toolbar's drawer. */
-export function KeyStrip({ keyboard, focus }: { readonly keyboard: Keyboard; readonly focus: FieldFocus }) {
+export function KeyStrip({
+    keyboard,
+    focus,
+    dragLock,
+    onDragLock,
+}: {
+    readonly keyboard: Keyboard;
+    readonly focus: FieldFocus;
+    readonly dragLock: boolean;
+    readonly onDragLock: (on: boolean) => void;
+}) {
     const { armed, locked } = useStore(keyboard.armed);
     const capsOn = useTarget((s) => s.device.caps.on);
     const capsKnown = useTarget((s) => s.device.caps.known);
@@ -245,6 +256,8 @@ export function KeyStrip({ keyboard, focus }: { readonly keyboard: Keyboard; rea
     const strip: readonly KeyDef[] = [...MAIN_ROW, ...NAV_ROW, key("Home", "Home"), key("End", "End"), { kind: "cad" }];
     return (
         <div className="kvm-keys kvm-strip" role="group" aria-label="Controls">
+            <MouseButtons dragLock={dragLock} onDragLock={onDragLock} />
+            <span className="kvm-strip-sep" aria-hidden="true" />
             {strip.map((def, i) => (
                 <KeyButton key={`${def.kind}:${"code" in def ? def.code : i}`} def={def} {...shared} />
             ))}
