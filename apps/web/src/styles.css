@@ -1,0 +1,625 @@
+@import "tailwindcss";
+
+/*
+ * The desktop app's palette and component language (src/views/console.css, DESIGN.md),
+ * written once here. Names match the console's tokens so a rule can be lifted between the
+ * two without translation. The theme is an attribute, not a media query alone: the
+ * bootstrap script in index.html and src/theme.ts set data-theme from the stored choice,
+ * and fall back to prefers-color-scheme only when nothing is stored.
+ */
+:root {
+    color-scheme: dark;
+    --background: #0a0a0c;
+    --foreground: #ededf1;
+    --card: #121216;
+    --muted-foreground: #8a8a95;
+    --secondary: #1a1a20;
+    --accent: #23232b;
+    --border: #26262e;
+    --primary: #5b8cff;
+    --primary-foreground: #ffffff;
+    --danger: #f25555;
+    --warn: #e0a52b;
+    --ok: #46c773;
+
+    --radius-control: 6px;
+    --radius-field: 8px;
+    --radius-surface: 12px;
+
+    /* Set from visualViewport by the shell so the layout tracks the soft keyboard on iOS,
+       which does not resize the layout viewport the way Chrome's resizes-content does. */
+    --app-height: 100dvh;
+    --app-top: 0px;
+}
+
+[data-theme="light"] {
+    color-scheme: light;
+    --background: #eef0f4;
+    --foreground: #17171c;
+    --card: #ffffff;
+    --muted-foreground: #666672;
+    --secondary: #f1f2f6;
+    --accent: #e6e7ee;
+    --border: #dcdde4;
+    --primary: #3b6ef0;
+    --primary-foreground: #ffffff;
+    --danger: #d6453f;
+    /* Darker than the dark theme's amber: it is used as text on light surfaces. */
+    --warn: #8f620c;
+    --ok: #2faa5b;
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-muted: var(--muted-foreground);
+    --color-secondary: var(--secondary);
+    --color-accent: var(--accent);
+    --color-border: var(--border);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-danger: var(--danger);
+    --color-warn: var(--warn);
+    --color-ok: var(--ok);
+    --radius-control: 6px;
+    --radius-field: 8px;
+    --radius-surface: 12px;
+    --font-sans: "Geist Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* This is application chrome, not a document: nothing is selectable except where you
+   type. Dragging across a toolbar must not paint a text selection over half the UI. */
+* {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"],
+[contenteditable=""] {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* The `hidden` attribute has to win over any author display rule. */
+[hidden] {
+    display: none !important;
+}
+
+/* Lock the document: the app scrolls inside its panes, never as a page, so iOS cannot
+   rubber-band the whole shell. */
+html,
+body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+}
+
+#root {
+    height: 100%;
+}
+
+button,
+input,
+select {
+    font: inherit;
+    color: inherit;
+}
+
+button {
+    cursor: pointer;
+}
+
+:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+}
+
+/* ---- shell ---------------------------------------------------------------- */
+
+.app-shell {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--app-top);
+    height: var(--app-height);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    background: var(--background);
+}
+
+.app-shell[data-layout="wide"] {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.app-panel {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* Rail (wide) and bar (phone) share one tab language: icon over a small label, the
+   active destination in the primary colour. */
+.nav-tab {
+    -webkit-app-region: no-drag;
+    appearance: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 44px;
+    min-height: 44px;
+    border: 0;
+    border-radius: var(--radius-surface);
+    background: transparent;
+    color: var(--muted-foreground);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 550;
+    line-height: 1.2;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+
+.nav-tab svg {
+    width: 22px;
+    height: 22px;
+    pointer-events: none;
+}
+
+.nav-tab:hover {
+    color: var(--foreground);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.nav-tab[aria-selected="true"] {
+    color: var(--primary);
+}
+
+.nav-bar {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 4px;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+    background: var(--card);
+    border-top: 1px solid var(--border);
+}
+
+.nav-bar .nav-tab {
+    min-height: 48px;
+}
+
+.nav-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    width: 64px;
+    padding: 8px;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+}
+
+.nav-rail .nav-tab {
+    min-height: 52px;
+}
+
+/* ---- the titlebar's round icon button ------------------------------------- */
+
+.tb-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    text-decoration: none;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+
+.tb-btn svg {
+    width: 18px;
+    height: 18px;
+    pointer-events: none;
+}
+
+.tb-btn:hover {
+    background: color-mix(in srgb, currentColor 16%, transparent);
+    color: var(--foreground);
+}
+
+.tb-btn:active {
+    background: color-mix(in srgb, currentColor 26%, transparent);
+}
+
+@media (pointer: coarse) {
+    .tb-btn {
+        width: 44px;
+        height: 44px;
+    }
+}
+
+/* ---- settings -------------------------------------------------------------- */
+
+.page-title {
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+}
+
+.group-label {
+    padding: 0 16px 6px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-weight: 550;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.group-card {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-surface);
+    background: var(--card);
+}
+
+.group-card > * + * {
+    border-top: 1px solid var(--border);
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 8px 16px;
+    color: var(--foreground);
+    text-decoration: none;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    width: 100%;
+}
+
+a.row,
+button.row {
+    transition: background 0.15s;
+}
+
+a.row:hover,
+button.row:hover {
+    background: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+a.row:active,
+button.row:active {
+    background: color-mix(in srgb, var(--foreground) 9%, transparent);
+}
+
+a.row[aria-current="page"][data-selected="true"] {
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.row-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-control);
+    background: var(--secondary);
+    color: var(--foreground);
+}
+
+.row-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.row-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.row-label {
+    font-weight: 500;
+}
+
+.row-hint {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.row-value {
+    flex: none;
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted-foreground);
+}
+
+.segmented {
+    display: inline-flex;
+    flex: none;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-field);
+    background: var(--secondary);
+}
+
+.segmented label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    min-width: 56px;
+    padding: 0 12px;
+    border-radius: var(--radius-control);
+    color: var(--muted-foreground);
+    font-size: 13px;
+    font-weight: 550;
+    cursor: pointer;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+
+@media (pointer: coarse) {
+    .segmented label {
+        min-height: 40px;
+    }
+}
+
+.segmented input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.segmented label:has(input:checked) {
+    background: var(--primary);
+    color: var(--primary-foreground);
+}
+
+.segmented label:has(input:focus-visible) {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+}
+
+.segmented label:has(input:disabled) {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.switch {
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 46px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--secondary);
+    transition: background 0.15s;
+}
+
+/* The 44px touch target is the row; the switch itself stays its iOS size. */
+.switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+    transition:
+        transform 0.15s,
+        background 0.15s;
+}
+
+.switch[aria-checked="true"] {
+    background: var(--primary);
+    border-color: var(--primary);
+}
+
+.switch[aria-checked="true"]::after {
+    transform: translateX(18px);
+    background: var(--primary-foreground);
+}
+
+.switch:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.field-select {
+    flex: none;
+    max-width: 55%;
+    min-height: 36px;
+    padding: 0 28px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-field);
+    background: var(--secondary);
+    color: var(--foreground);
+}
+
+@media (pointer: coarse) {
+    .field-select {
+        min-height: 44px;
+        font-size: 16px;
+    }
+}
+
+.btn {
+    appearance: none;
+    min-height: 32px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--secondary);
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 550;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn:hover {
+    background: var(--accent);
+}
+
+.btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-foreground);
+}
+
+.btn-primary:hover {
+    background: color-mix(in srgb, var(--primary) 88%, #000);
+}
+
+@media (pointer: coarse) {
+    .btn {
+        min-height: 44px;
+    }
+}
+
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+}
+
+.status-dot[data-tone="ok"] {
+    background: var(--ok);
+}
+
+.status-dot[data-tone="warn"] {
+    background: var(--warn);
+}
+
+.status-dot[data-tone="danger"] {
+    background: var(--danger);
+}
+
+.inline-error {
+    margin: 0;
+    color: var(--danger);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* Inside a card it is a row of its own, so it lines up with the other rows' text. */
+.group-card > .inline-error {
+    padding: 10px 16px;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+/* ---- embedded surfaces ------------------------------------------------------- */
+
+.embed-frame {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: var(--background);
+}
+
+.empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted-foreground);
+}
+
+.empty-state h1 {
+    margin: 0;
+    color: var(--foreground);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.empty-state p {
+    margin: 0;
+    max-width: 38ch;
+    line-height: 1.5;
+}
+
+/* Motion stays restrained and is dropped entirely when asked. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+}
+
+/* The switch draws at its iOS size; this widens only the area that answers a tap. */
+.switch::before {
+    content: "";
+    position: absolute;
+    inset: -8px -4px;
+}

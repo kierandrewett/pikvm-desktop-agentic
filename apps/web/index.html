@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
+        />
+        <meta name="theme-color" content="#0a0a0c" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="PiKVM" />
+        <link rel="apple-touch-icon" href="/app/apple-touch-icon.png" />
+        <link rel="icon" href="/app/icon-192.png" />
+        <title>PiKVM</title>
+        <script>
+            // Runs before first paint so a light-theme user never sees a dark flash. The rule
+            // matches the console's: a saved choice wins, otherwise follow the OS.
+            try {
+                var t = localStorage.getItem("pikvm-console-theme");
+                if (t !== "light" && t !== "dark") {
+                    t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+                }
+                document.documentElement.setAttribute("data-theme", t);
+                document.documentElement.classList.toggle("dark", t === "dark");
+            } catch (e) {}
+        </script>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
+</html>
