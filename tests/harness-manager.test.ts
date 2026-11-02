@@ -14,6 +14,7 @@ import {
     bindArguments,
     HarnessManager,
     harnessDaemonSelectorEnvironment,
+    uiOriginsFor,
 } from "../src/harness-manager";
 import { readHarnessRuntime } from "../src/harness-runtime";
 import type {
@@ -236,4 +237,17 @@ test("a socket harness seeds no listen address into the generated config", async
         manager.stop();
         rmSync(dir, { recursive: true, force: true });
     }
+});
+
+test("the harness is told which origins the app's pages come from, or it refuses every request the page makes", () => {
+    // The window loads the control server on loopback: listed by address and by name.
+    assert.deepEqual(uiOriginsFor("127.0.0.1", 25650), ["http://127.0.0.1:25650", "http://localhost:25650"]);
+    // A wildcard bind is no origin a browser sends; only the loopback pair stays.
+    assert.deepEqual(uiOriginsFor("0.0.0.0", 25652), ["http://127.0.0.1:25652", "http://localhost:25652"]);
+    assert.deepEqual(uiOriginsFor("::", 25652), ["http://127.0.0.1:25652", "http://localhost:25652"]);
+    // A LAN address is where a phone loads the app from; an IPv6 one is bracketed as a browser writes it.
+    assert.deepEqual(uiOriginsFor("192.168.1.20", 25650), ["http://127.0.0.1:25650", "http://localhost:25650", "http://192.168.1.20:25650"]);
+    assert.ok(uiOriginsFor("fd00::20", 25650).includes("http://[fd00::20]:25650"));
+    // The port the walk settled on, not the one hoped for.
+    assert.ok(uiOriginsFor("127.0.0.1", 25654).every((o) => o.endsWith(":25654")));
 });

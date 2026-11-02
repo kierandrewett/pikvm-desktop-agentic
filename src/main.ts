@@ -22,7 +22,7 @@ import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TargetStore } from "./target-store";
 import { ManagedService } from "./service-manager";
-import { HarnessManager } from "./harness-manager";
+import { HarnessManager, uiOriginsFor } from "./harness-manager";
 import { activeManagedClientRuntimePath } from "./harness-runtime";
 import { WORKSPACE_PREFIX } from "./server/workspace";
 import { createAppWindow, focusAppWindow } from "./desktop/window";
@@ -410,6 +410,7 @@ async function startProxyAndHarness(
         command: harnessCommand,
         configPath: harnessConfig,
         runtimePath:
+        uiOrigins: uiOriginsFor(bindHost, CONTROL_PORT),
             process.env.PIKVM_HARNESS_RUNTIME ||
             resolve(settings.dir(), "harness-runtime.json"),
         managedClientRuntimePath: activeManagedClientRuntimePath(),

@@ -28,6 +28,10 @@ export interface HarnessManagerDeps {
     daemonOrigin: string;
     command: string;
     configPath: string;
+    /** The origins the app's own pages are served from (the control server's address). The harness
+     *  refuses a browser request whose Origin it does not list, and every request the page makes
+     *  through the desktop's proxy carries the page's origin. */
+    uiOrigins?: readonly string[];
     runtimePath: string;
     managedClientRuntimePath: string;
     cwd: string;
@@ -43,6 +47,21 @@ export function harnessDaemonSelectorEnvironment(
         PIKVM_AGENT_DAEMON: daemonOrigin,
         PIKVM_LAB_DAEMON_URL: daemonOrigin,
     };
+}
+
+/**
+ * The origins the app's pages are served from, for the harness's allow-list. The window loads the
+ * control server on loopback, so that is always listed (by address and by name); when the server is
+ * bound to a LAN address a phone on it loads the app from there, so that is listed too. A wildcard
+ * bind (0.0.0.0, ::) is no origin anyone can type, so it adds nothing.
+ */
+export function uiOriginsFor(bindHost: string, port: number): string[] {
+    const hosts = ["127.0.0.1", "localhost"];
+    const bound = bindHost.replace(/^\[|\]$/g, "");
+    if (bound && !["0.0.0.0", "::", "127.0.0.1", "localhost", "::1"].includes(bound)) {
+        hosts.push(bound.includes(":") ? `[${bound}]` : bound);
+    }
+    return hosts.map((host) => `http://${host}:${port}`);
 }
 
 /** host:port for `harness serve --listen`, from the origin we intend to use.
@@ -110,6 +129,9 @@ export class HarnessManager {
                     PIKVM_HARNESS_TOKEN: this.accessToken,
                     PIKVM_HARNESS_AGENT_TOKEN: this.agentToken,
                     PIKVM_HARNESS_OBSERVER_TOKEN: this.observerToken,
+                    ...(deps.uiOrigins && deps.uiOrigins.length > 0
+                        ? { PIKVM_HARNESS_ALLOWED_ORIGINS: deps.uiOrigins.join(",") }
+                        : {}),
                 },
                 adoptExisting: false,
                 ...(deps.log ? { log: deps.log } : {}),
