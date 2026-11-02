@@ -175,6 +175,11 @@ export class PointerMachine {
         return this.lastInputTouch;
     }
 
+    /** Pointers currently down. While a trackpad finger rests the lens keeps lingering ("held still, still looking"). */
+    get pointersDown(): number {
+        return this.pts.size;
+    }
+
     get phase(): PointerPhase {
         if (this.pts.size === 0) return this.pressing ? "dragging" : "idle";
         if (this.heldButtons.size > 0 || this.isMouseDown) return "mouse";
