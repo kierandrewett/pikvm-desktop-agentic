@@ -81,7 +81,7 @@ value and dispatched `InputEvent`, `CompositionEvent` and `KeyboardEvent`
 | Backspace on empty field | Backspace; pad restored | pass |
 | Composition h/he/hey | H E Y | pass |
 | LED caps on | Caps key lit, aria-pressed true | pass |
-| Type "aB" with target caps on | Shift+A, B (target shows "aB") | pass |
+| Type "aB" with target caps on | Shift+A, B (with Caps on, that should type "aB") | pass |
 | Caps key tap | CapsLock; stale LED report during pending ignored | pass |
 | Host Caps Lock on (first reading) | CapsLock before the key | pass |
 | Soft-keyboard event after that | nothing (initially sent a CapsLock; fixed) | pass |
@@ -99,8 +99,11 @@ Follow-up run (loopback-only host, same harness):
 | Direct double tap while the Pi is relative | nothing sent; after the absolute report, move + click, move + click, in order | pass |
 | ⋯ menu with the keyboard open (visual viewport 470px) | menu 8..462px, max-height 454px, scrolls | pass |
 | Trackpad drag while the Pi is absolute and Rel is wanted | nothing sent (no absolute jump); after the relative report, the held travel as `mouse_relative` 127,106 / 127,0 / 11,0 | pass |
-| Caps key, then "a" straight after (LED known off) | CapsLock, then Shift+A (target types `a`) | pass |
+| Caps key, then "a" straight after (the Pi's LED had reported off) | CapsLock, then Shift+A (with Caps now on, that should type `a`) | pass |
 | Dock with a terminal (picture / terminal / dock) | 0..464 / 464..751 / 751..844; trackpad cursor dot follows the picture on resize | pass |
+
+HID was intercepted throughout, so "should type" is what the captured sequence
+means for the target, not something read back from it.
 
 ## Not covered
 
