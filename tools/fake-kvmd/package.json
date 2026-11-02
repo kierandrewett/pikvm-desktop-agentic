@@ -1,0 +1,5 @@
+{
+  "name": "fake-kvmd",
+  "private": true,
+  "type": "module"
+}
