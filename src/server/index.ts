@@ -24,7 +24,7 @@ import { createApi } from "./api";
 import { createRouter } from "./routes";
 import { createDaemonProxy } from "./proxy/daemon";
 import { createPiKvmProxy } from "./proxy/kvmd";
-import { webAssets } from "./static";
+import { appAssets, webAssets } from "./static";
 import { createTerminalSocket } from "./terminal-socket";
 import { workspaceAssets } from "./workspace";
 
@@ -150,6 +150,7 @@ export function startControlServer(
         api,
         workspace: workspaceAssets,
         assets: webAssets,
+        app: appAssets,
         terminal,
     });
 

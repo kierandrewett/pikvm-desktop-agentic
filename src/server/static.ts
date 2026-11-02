@@ -39,20 +39,41 @@ function assetIn(dir: string, file: string): string | null {
 
 export function createWebAssets(dir: string = defaultAssetDir) {
     return {
+        /** Is there such a file in the bundle? */
+        has(subPath: string): boolean {
+            const file = subPath.replace(/^\/+/, "");
+            return file !== "" && assetIn(dir, file) !== null;
+        },
+
         /** Serve `<file>` from the bundle (a path relative to it, or with a
-         *  leading slash); returns true if handled. */
+         *  leading slash); returns true if handled.
+         *
+         *  Files under `assets/` carry a content hash in their name (the web
+         *  app's build), so they are cached for good; everything else is
+         *  revalidated, because the console files and the app's index.html keep
+         *  their names across releases. */
         serve(subPath: string, res: ServerResponse): boolean {
             const file = subPath.replace(/^\/+/, "");
             if (!file) return false;
             const p = assetIn(dir, file);
             if (!p) return false;
             const ext = file.slice(file.lastIndexOf("."));
-            res.writeHead(200, { "content-type": MIME[ext] ?? "application/octet-stream", "cache-control": "no-cache" });
+            res.writeHead(200, {
+                "content-type": MIME[ext] ?? "application/octet-stream",
+                "cache-control": file.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+            });
             res.end(readFileSync(p));
             return true;
         },
     };
 }
 
-/** The instance the server uses. */
+/** The web app's build output, beside the bundle in the repo and in the
+ *  packages that copy it there (the same trick as the workspace bundle). */
+export const defaultAppDir = resolve(__dirname, "..", "apps", "web", "dist");
+
+/** The console bundle the server uses. */
 export const webAssets = createWebAssets();
+
+/** The web app, when it has been built (`yarn workspace @pikvm/web build`). */
+export const appAssets = createWebAssets(defaultAppDir);

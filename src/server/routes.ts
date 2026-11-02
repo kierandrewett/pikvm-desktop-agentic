@@ -14,8 +14,9 @@
  *   /app/harness/*             harness proxy            (needs the workspace header)
  *   /app/workspace/*           agent workspace bundle
  *   /app/api/v1/*              our HttpApi
- *   /app/ and /app/legacy/     the console page
- *   /app/<file>                static bundle
+ *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
+ *                              /app/ until the app is built); /app/legacy/ the console
+ *   /app/<file>                the app's build (hashed /app/assets/*), then the console bundle
  *   /app/terminal  (upgrade)   shared terminal socket
  *   anything else              kvmd (HTTP and WebSocket upgrades alike)
  *
@@ -51,6 +52,8 @@ export interface RouteTargets {
         serve(path: string, res: ServerResponse): boolean;
     };
     assets: { serve(path: string, res: ServerResponse): boolean };
+    /** The built web app (apps/web/dist); `has` is false until it is built. */
+    app: { has(path: string): boolean; serve(path: string, res: ServerResponse): boolean };
     terminal: { upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void };
 }
 
@@ -81,6 +84,11 @@ function under(path: string, prefix: string): boolean {
 function redirect(res: ServerResponse, location: string, headers: Record<string, string> = {}): void {
     res.writeHead(302, { location, ...headers });
     res.end();
+}
+
+/** The client-side routes of the web app: the shell, KVM, Chat and Settings. */
+function isAppPage(path: string): boolean {
+    return path === "/app/" || path === "/app/kvm" || path === "/app/chat" || under(path, "/app/settings");
 }
 
 export function createRoutes(t: RouteTargets): Route[] {
@@ -195,6 +203,16 @@ export function createRoutes(t: RouteTargets): Route[] {
         },
 
         {
+            // The web app's pages. Its router lives in the browser, so each client
+            // route answers with the same index.html. Only when the app has been
+            // built: without it /app/ is still the console (below).
+            name: "web app page",
+            match: ({ method, path }) => method === "GET" && isAppPage(path) && t.app.has("index.html"),
+            run: ({ res }) => void t.app.serve("index.html", res),
+        },
+        {
+            // The console that predates the app. It stays at /app/legacy/ for the
+            // app's KVM tab to frame, and is /app/ itself while there is no app build.
             name: "console page",
             match: ({ method, path }) =>
                 method === "GET" && (path === "/app/" || path === "/app/legacy" || path === "/app/legacy/"),
@@ -205,10 +223,13 @@ export function createRoutes(t: RouteTargets): Route[] {
         {
             name: "static bundle",
             match: ({ method, path }) => method === "GET" && path.startsWith("/app/"),
-            // A missing file is a 404 of ours, not a fall-through to kvmd: the whole
-            // of /app belongs to this server.
+            // The app's build (hashed /app/assets/*, icons) first, then the console's
+            // files. A missing file is a 404 of ours, not a fall-through to kvmd: the
+            // whole of /app belongs to this server.
             run: ({ path, res }) => {
-                if (!t.assets.serve(path.slice("/app/".length), res)) json(res, 404, { error: "Not found" });
+                const file = path.slice("/app/".length);
+                if (t.app.serve(file, res) || t.assets.serve(file, res)) return;
+                json(res, 404, { error: "Not found" });
             },
         },
         {

@@ -117,3 +117,20 @@ if (existsSync(runtimeFrom)) {
             " — the packaged app will have NO agent. Build one with `make agent-runtime`.",
     );
 }
+
+/* The web app (apps/web), served at /app/.
+ *
+ * The server finds it as `resolve(__dirname, "..", "apps", "web", "dist")`, the
+ * same trick as harness_ui above, so in the package it must sit at
+ * resources/apps/web/dist. Not fatal when missing: without a build the server
+ * serves the console at /app/ instead, so a package built before the app
+ * existed keeps working. */
+const appFrom = join(root, "apps", "web", "dist");
+const appTo = join(root, "builds/pikvm-desktop-linux-x64/resources/apps/web/dist");
+if (existsSync(appFrom)) {
+    mkdirSync(dirname(appTo), { recursive: true });
+    cpSync(appFrom, appTo, { recursive: true, dereference: true });
+    console.log("copy-runtime-deps: shipped the web app build into resources/apps/");
+} else {
+    console.warn("copy-runtime-deps: WARNING no web app build at " + appFrom + " - run `yarn workspace @pikvm/web build`; /app/ will serve the console.");
+}

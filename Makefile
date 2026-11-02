@@ -9,6 +9,7 @@ agent-runtime:
 
 package: agent-runtime
 	yarn build
+	yarn workspace @pikvm/web build
 	node_modules/.bin/electron-packager dist pikvm-desktop \
 		--platform=linux \
 		--arch=x64 \
@@ -21,16 +22,20 @@ package: agent-runtime
 	node scripts/make-rpm.mjs
 
 # Docker build context for the headless web host (deploy/web/Dockerfile):
-# the server bundle, the console views and the shared workspace components.
+# the server bundle, the console views, the web app build and the shared
+# workspace components.
 # Electron's main bundle and the preloads stay out; nothing here loads them.
 web-bundle:
 	yarn build
+	yarn workspace @pikvm/web build
 	rm -rf builds/web
 	mkdir -p builds/web/dist
 	cp dist/web-server.js dist/package.json builds/web/dist/
 	cp -r dist/views dist/assets builds/web/dist/
 	find builds/web/dist/views -name '*.map' -delete
 	cp -r agent/pikvm_agent/harness_ui builds/web/harness_ui
+	mkdir -p builds/web/apps/web
+	cp -r apps/web/dist builds/web/apps/web/dist
 	cp deploy/web/Dockerfile builds/web/Dockerfile
 	# Readable by the container's node user whatever umask this ran under.
 	chmod -R a+rX builds/web

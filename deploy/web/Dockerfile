@@ -10,6 +10,8 @@ COPY dist ./dist
 # The console's shared button/dialog components (window.pikvmShared), served at
 # /app/workspace/ from this path relative to dist/.
 COPY harness_ui ./agent/pikvm_agent/harness_ui
+# The web app's build, served at /app/. Found relative to dist/ like the bundle above.
+COPY apps ./apps
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \

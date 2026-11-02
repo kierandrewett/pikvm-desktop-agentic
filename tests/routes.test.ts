@@ -14,7 +14,9 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import { WebSocket, WebSocketServer } from "ws";
 import { sessionValue, SESSION_COOKIE } from "../src/server/auth";
@@ -36,7 +38,7 @@ function marker(name: string) {
     };
 }
 
-function targets(over: { token?: string; harness?: boolean } = {}): RouteTargets {
+function targets(over: { token?: string; harness?: boolean; appDir?: string } = {}): RouteTargets {
     const kvmdSockets = new WebSocketServer({ noServer: true });
     const sessions = {
         ensurePrimary() {},
@@ -72,6 +74,7 @@ function targets(over: { token?: string; harness?: boolean } = {}): RouteTargets
         },
         // The real console bundle, so a page and its scripts are really served.
         assets: createWebAssets(resolve(process.cwd(), "src/views")),
+        app: createWebAssets(over.appDir ?? resolve(tmpdir(), "pikvm-routes-no-such-app")),
         terminal: createTerminalSocket(sessions),
     };
 }
@@ -416,5 +419,77 @@ test("an unauthenticated upgrade is refused when the gate is on", async () => {
         assert.equal(await socket(s.origin, "/janus/ws", { authorization: `Bearer ${TOKEN}` }), "kvmd /janus/ws");
     } finally {
         await s.close();
+    }
+});
+
+/** A directory shaped like apps/web/dist. */
+function fakeAppBuild(): string {
+    const dir = mkdtempSync(join(tmpdir(), "pikvm-app-build-"));
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "index.html"), "<!doctype html><title>app shell</title>");
+    writeFileSync(join(dir, "assets", "index-abc123.js"), "console.log('app')");
+    writeFileSync(join(dir, "icon-192.png"), "png");
+    return dir;
+}
+
+test("once the web app is built it owns /app/ and its client routes; the console moves to /app/legacy/", async () => {
+    const dir = fakeAppBuild();
+    const s = await run(targets({ appDir: dir }));
+    try {
+        for (const path of ["/app/", "/app/kvm", "/app/chat", "/app/settings", "/app/settings/keyboard/deep"]) {
+            const page = await call(s.origin, path);
+            assert.equal(page.status, 200, path);
+            assert.match(page.body, /app shell/, path);
+            assert.equal(page.headers.get("cache-control"), "no-cache");
+        }
+        // The old console is still reachable, and only there.
+        for (const path of ["/app/legacy", "/app/legacy/"]) {
+            const legacy = await call(s.origin, path);
+            assert.equal(legacy.status, 200, path);
+            assert.doesNotMatch(legacy.body, /app shell/);
+            assert.match(legacy.body, /<title>/);
+        }
+        assert.equal((await call(s.origin, "/app/console.js")).status, 200, "the console's own files still load");
+
+        // Hashed files are cached for good, the rest is revalidated.
+        const hashed = await call(s.origin, "/app/assets/index-abc123.js");
+        assert.equal(hashed.status, 200);
+        assert.match(hashed.headers.get("cache-control") ?? "", /immutable/);
+        assert.equal((await call(s.origin, "/app/icon-192.png")).headers.get("cache-control"), "no-cache");
+        // A hashed file that does not exist is a 404, not the shell.
+        assert.equal((await call(s.origin, "/app/assets/index-nope.js")).status, 404);
+        // Only GET is a page.
+        assert.equal((await call(s.origin, "/app/kvm", { method: "POST" })).status, 404);
+        // Framing is the app's job (its KVM and Chat tabs), so the server forbids none of it.
+        const legacy = await call(s.origin, "/app/legacy/");
+        assert.equal(legacy.headers.get("x-frame-options"), null);
+        assert.equal(legacy.headers.get("content-security-policy"), null);
+    } finally {
+        await s.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("without a web app build /app/ is the console and the client routes are not ours", async () => {
+    const s = await run(targets());
+    try {
+        assert.match((await call(s.origin, "/app/")).body, /<title>/);
+        assert.equal((await call(s.origin, "/app/kvm")).status, 404);
+        assert.equal((await call(s.origin, "/app/settings/x")).status, 404);
+    } finally {
+        await s.close();
+    }
+});
+
+test("the web app's pages are behind the gate; its icons are public", async () => {
+    const dir = fakeAppBuild();
+    const s = await run(targets({ appDir: dir, token: TOKEN }), true);
+    try {
+        assert.equal((await call(s.origin, "/app/kvm", { headers: { accept: "application/json" } })).status, 401);
+        assert.equal((await call(s.origin, "/app/assets/index-abc123.js", { headers: { accept: "application/json" } })).status, 401);
+        assert.equal((await call(s.origin, "/app/icon-192.png")).status, 200);
+    } finally {
+        await s.close();
+        rmSync(dir, { recursive: true, force: true });
     }
 });
