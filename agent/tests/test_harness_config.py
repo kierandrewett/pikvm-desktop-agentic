@@ -7,12 +7,14 @@ import pytest
 from pikvm_agent.harness.config import (
     HarnessSettings,
     McpToolServerSpec,
+    apply_deployment_overrides,
     build_model_budget_policy,
     build_model_pool,
     check_provider_prerequisites,
     ensure_safe_bind,
     ensure_provider_prerequisites,
     load_harness_settings,
+    parse_allowed_origins,
 )
 from pikvm_agent.harness.model_budget import ProviderCostTerms
 from pikvm_agent.harness.providers import (
@@ -987,3 +989,167 @@ def test_sensitive_provider_headers_are_rejected() -> None:
                 "verifier": ["gateway"],
             },
         )
+
+
+def _minimal_settings(**extra: object) -> HarnessSettings:
+    return HarnessSettings(
+        providers={
+            "model": {
+                "kind": "subprocess_json",
+                "model": "local",
+                "argv": ["model-bridge"],
+            }
+        },
+        routes={
+            "reasoner": ["model"],
+            "controller": ["model"],
+            "verifier": ["model"],
+        },
+        **extra,
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "kvm.drewett.dev",
+        "ftp://kvm.drewett.dev",
+        "https://kvm.drewett.dev/app",
+        "https://user:pw@kvm.drewett.dev",
+        "https://kvm.drewett.dev?x=1",
+        "*",
+    ],
+)
+def test_allowed_origins_must_be_bare_http_origins(raw: str) -> None:
+    # An allowlist entry that is not an exact browser Origin never matches, and
+    # one that is too loose would admit pages it should not: refuse both.
+    with pytest.raises(ValueError, match="allowed origin"):
+        parse_allowed_origins(raw)
+
+
+def test_allowed_origins_are_split_normalised_and_deduplicated() -> None:
+    assert parse_allowed_origins(
+        " https://kvm.drewett.dev/ , http://localhost:8080,https://kvm.drewett.dev"
+    ) == ["https://kvm.drewett.dev", "http://localhost:8080"]
+    assert parse_allowed_origins("") == []
+
+
+def test_a_per_run_deployment_can_open_a_remote_bind_but_only_with_origins() -> None:
+    settings = _minimal_settings()
+
+    # Binding wide without saying who may use it stays refused.
+    wide = apply_deployment_overrides(
+        settings,
+        listen="0.0.0.0:47616",
+        allow_remote_bind=True,
+        allowed_origins="",
+    )
+    with pytest.raises(ValueError, match="allowed_origins"):
+        ensure_safe_bind(wide)
+
+    # And naming origins without opting in to a remote bind is still refused.
+    closed = apply_deployment_overrides(
+        settings,
+        listen="0.0.0.0:47616",
+        allow_remote_bind=False,
+        allowed_origins="https://kvm.drewett.dev",
+    )
+    with pytest.raises(ValueError, match="non-loopback"):
+        ensure_safe_bind(closed)
+
+    opened = apply_deployment_overrides(
+        settings,
+        listen="0.0.0.0:47616",
+        allow_remote_bind=True,
+        allowed_origins="https://kvm.drewett.dev",
+    )
+    ensure_safe_bind(opened)
+    assert opened.resolved_origins() == {"https://kvm.drewett.dev"}
+    # The file's own settings are untouched: this is one run, not a rewrite.
+    assert settings.listen == "127.0.0.1:47616"
+    assert settings.allow_remote_bind is False
+
+
+def test_deployment_origins_add_to_the_configs_and_nothing_is_overridden_by_default() -> None:
+    settings = _minimal_settings(allowed_origins=["https://configured.example"])
+
+    unchanged = apply_deployment_overrides(
+        settings, listen="", allow_remote_bind=False, allowed_origins=""
+    )
+    assert unchanged == settings
+
+    merged = apply_deployment_overrides(
+        settings,
+        listen="",
+        allow_remote_bind=False,
+        allowed_origins="https://kvm.drewett.dev",
+    )
+    assert merged.allowed_origins == [
+        "https://configured.example",
+        "https://kvm.drewett.dev",
+    ]
+
+
+def _serve_config(tmp_path: Path) -> Path:
+    path = tmp_path / "harness.yaml"
+    path.write_text(
+        "providers:\n"
+        "  model:\n"
+        "    kind: subprocess_json\n"
+        "    model: local\n"
+        "    argv: [model-bridge]\n"
+        "routes:\n"
+        "  reasoner: [model]\n"
+        "  controller: [model]\n"
+        "  verifier: [model]\n"
+    )
+    return path
+
+
+def test_serve_refuses_a_bad_origin_and_a_wide_bind_without_origins(
+    tmp_path: Path,
+) -> None:
+    from typer.testing import CliRunner
+
+    from pikvm_agent.cli import app
+
+    config = _serve_config(tmp_path)
+    runner = CliRunner()
+
+    bad = runner.invoke(
+        app,
+        ["harness", "serve", "--config", str(config), "--allowed-origins", "kvm.drewett.dev"],
+    )
+    assert bad.exit_code == 2
+    assert "allowed origin" in bad.output
+
+    wide = runner.invoke(
+        app,
+        [
+            "harness",
+            "serve",
+            "--config",
+            str(config),
+            "--listen",
+            "0.0.0.0:47616",
+            "--allow-remote-bind",
+        ],
+    )
+    assert wide.exit_code == 2
+    assert "allowed_origins" in wide.output
+
+    closed = runner.invoke(
+        app,
+        [
+            "harness",
+            "serve",
+            "--config",
+            str(config),
+            "--listen",
+            "0.0.0.0:47616",
+            "--allowed-origins",
+            "https://kvm.drewett.dev",
+        ],
+    )
+    assert closed.exit_code == 2
+    assert "non-loopback" in closed.output

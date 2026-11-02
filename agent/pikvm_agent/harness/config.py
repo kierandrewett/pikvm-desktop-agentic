@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -574,6 +575,71 @@ def build_model_budget_policy(settings: HarnessSettings) -> ModelBudgetPolicy:
             if spec.billing is not None
         },
     )
+
+
+def parse_allowed_origins(raw: str) -> list[str]:
+    """Split a comma-separated list of browser origins, exactly as a browser sends them.
+
+    The harness compares the ``Origin`` header byte for byte, so an entry that is
+    not a bare ``scheme://host[:port]`` can never match, and a pattern would only
+    widen the gate. Both are refused here rather than accepted and ignored.
+    """
+
+    origins: list[str] = []
+    for item in raw.split(","):
+        value = item.strip().rstrip("/")
+        if not value:
+            continue
+        try:
+            parts = urlsplit(value)
+            ok = (
+                parts.scheme in {"http", "https"}
+                and bool(parts.hostname)
+                and parts.username is None
+                and parts.password is None
+                and not parts.path
+                and not parts.query
+                and not parts.fragment
+            )
+        except ValueError:
+            ok = False
+        if not ok:
+            raise ValueError(
+                f"allowed origin {item.strip()!r} must look like https://host[:port]"
+            )
+        if value not in origins:
+            origins.append(value)
+    return origins
+
+
+def apply_deployment_overrides(
+    settings: HarnessSettings,
+    *,
+    listen: str,
+    allow_remote_bind: bool,
+    allowed_origins: str,
+) -> HarnessSettings:
+    """One run's deployment choices laid over the config file.
+
+    A container binds a wide address behind a web host that vouches for its
+    users, and its public origin is a deployment fact, not a provider setting.
+    These come from the command line so the YAML, which carries the operator's
+    providers, is never rewritten to say so. The result still goes through
+    ``ensure_safe_bind``, so a wide bind without origins stays refused.
+    """
+
+    update: dict[str, object] = {}
+    if listen:
+        update["listen"] = listen
+    if allow_remote_bind:
+        update["allow_remote_bind"] = True
+    extra = parse_allowed_origins(allowed_origins)
+    if extra:
+        update["allowed_origins"] = [
+            *settings.allowed_origins,
+            *(origin for origin in extra if origin not in settings.allowed_origins),
+        ]
+    return settings.model_copy(update=update) if update else settings
 
 
 def ensure_safe_bind(settings: HarnessSettings) -> None:

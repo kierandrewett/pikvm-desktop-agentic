@@ -163,11 +163,31 @@ def harness_serve(
         "--uds",
         help="Listen on this unix socket instead of a host:port.",
     ),
+    allow_remote_bind: bool = typer.Option(
+        False,
+        "--allow-remote-bind",
+        envvar="PIKVM_HARNESS_ALLOW_REMOTE_BIND",
+        help=(
+            "Allow a non-loopback --listen for this run. Only behind a web "
+            "host that authenticates every request, and only with "
+            "--allowed-origins."
+        ),
+    ),
+    allowed_origins: str = typer.Option(
+        "",
+        "--allowed-origins",
+        envvar="PIKVM_HARNESS_ALLOWED_ORIGINS",
+        help=(
+            "Comma-separated browser origins (https://kvm.example.com) the "
+            "operator UI is served from, added to the config's for this run."
+        ),
+    ),
 ) -> None:
     """Run the authenticated local chat workspace and control API."""
     import uvicorn
 
     from pikvm_agent.harness.config import (
+        apply_deployment_overrides,
         ensure_safe_bind,
         load_harness_settings,
     )
@@ -185,6 +205,16 @@ def harness_serve(
         )
         raise typer.Exit(2)
     settings = load_harness_settings(config)
+    try:
+        settings = apply_deployment_overrides(
+            settings,
+            listen="",
+            allow_remote_bind=allow_remote_bind,
+            allowed_origins=allowed_origins,
+        )
+    except ValueError as exc:
+        typer.echo(f"harness serve refused: {exc}", err=True)
+        raise typer.Exit(2)
     if uds:
         # The same reasoning as the daemon's --uds. A socket file outlives the
         # process that made it and uvicorn will not bind over an existing path,
