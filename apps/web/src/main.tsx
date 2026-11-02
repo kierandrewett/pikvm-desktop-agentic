@@ -3,6 +3,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createAppRouter } from "./app/router";
+import { registerServiceWorkerForPage } from "./host/service-worker";
 import { initTheme } from "./theme";
 import "./styles.css";
 
@@ -14,6 +15,7 @@ const queryClient = new QueryClient({
 });
 
 initTheme();
+registerServiceWorkerForPage();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root");
