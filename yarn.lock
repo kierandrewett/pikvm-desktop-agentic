@@ -958,7 +958,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@pikvm/kvm-engine@workspace:packages/kvm-engine":
+"@pikvm/kvm-engine@workspace:*, @pikvm/kvm-engine@workspace:packages/kvm-engine":
   version: 0.0.0-use.local
   resolution: "@pikvm/kvm-engine@workspace:packages/kvm-engine"
   dependencies:
