@@ -35,6 +35,8 @@ const RESTART_DELAY_MS = 2000;
  * to catch a crash LOOP - a bad command, a missing venv, a config the service
  * refuses - not to ration restarts over the life of the app. */
 const MAX_RESTARTS = 5;
+/* How long a child gets to leave after SIGTERM before restart() kills it outright. */
+const RESTART_KILL_MS = 5000;
 /* Survive this long and the restart that produced you is deemed to have worked,
  * so the consecutive-failure count goes back to zero.
  *
@@ -52,6 +54,8 @@ export class ManagedService {
     private child: ChildProcess | null = null;
     private spawnedByUs = false;
     private stopping = false;
+    /** stop() was called: this service never starts again. */
+    private stopped = false;
     private restarts = 0;
     private restartTimer: NodeJS.Timeout | null = null;
     /** When the current child started, so its lifetime can be judged on exit. */
@@ -182,8 +186,46 @@ export class ManagedService {
         return false;
     }
 
+    /**
+     * Start the child again with more environment, once the old one is gone: how a service
+     * learns something it only reads at start (the PiKVM it drives). Resolves false when there
+     * is nothing of ours to restart (it was adopted, or never started), true when a new child
+     * was spawned. A service that was stopped for good stays stopped.
+     */
+    async restart(env: NodeJS.ProcessEnv = {}): Promise<boolean> {
+        if (this.stopped) return false;
+        if (!this.spawnedByUs) return false;
+        this.deps.env = { ...this.deps.env, ...env };
+        if (this.restartTimer) clearTimeout(this.restartTimer);
+        this.restartTimer = null;
+        const old = this.child;
+        // The exit handler reads this to tell a deliberate end from a crash.
+        this.stopping = true;
+        if (old) {
+            this.log(`[${this.deps.name}] restarting`);
+            await new Promise<void>((done) => {
+                const force = setTimeout(() => {
+                    old.kill("SIGKILL");
+                    done();
+                }, RESTART_KILL_MS);
+                old.once("exit", () => {
+                    clearTimeout(force);
+                    done();
+                });
+                old.kill("SIGTERM");
+            });
+        }
+        if (this.stopped) return false;
+        this.child = null;
+        this.stopping = false;
+        this.restarts = 0;
+        this.spawn();
+        return this.child !== null;
+    }
+
     /** Stop the child we spawned (no-op for an adopted service). */
     stop() {
+        this.stopped = true;
         this.stopping = true;
         if (this.restartTimer) clearTimeout(this.restartTimer);
         if (this.child && this.spawnedByUs) {

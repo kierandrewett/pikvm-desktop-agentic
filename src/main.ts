@@ -15,6 +15,7 @@ import {
     resolveAgentRuntime,
     type AgentRuntimeResolution,
 } from "./agent-runtime";
+import { agentTargetEnvironment, sameAgentTarget } from "./agent-target";
 import { parseEndpoint, unixEndpointValue } from "./endpoint";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
@@ -409,8 +410,8 @@ async function startProxyAndHarness(
         daemonOrigin,
         command: harnessCommand,
         configPath: harnessConfig,
-        runtimePath:
         uiOrigins: uiOriginsFor(bindHost, CONTROL_PORT),
+        runtimePath:
             process.env.PIKVM_HARNESS_RUNTIME ||
             resolve(settings.dir(), "harness-runtime.json"),
         managedClientRuntimePath: activeManagedClientRuntimePath(),
@@ -418,16 +419,24 @@ async function startProxyAndHarness(
         log: (line) => console.log(line),
     });
 
+    /* The agent drives the PiKVM the app is set to. The daemon reads its target when it starts, so a
+     * change made in Settings is handed to it by restarting it (set below, once the daemon exists). */
+    let agentTarget = targetStore.resolve();
+    let followTarget: (next: ReturnType<TargetStore["resolve"]>) => void = () => {};
+
     startControlServer(
         {
             control,
             settings,
             /* Settings can change the PiKVM from the desktop app. The password goes to its own file and
-             * is never returned; the control core follows the new target without a restart. */
+             * is never returned; the control core follows the new target without a restart, and the
+             * agent's daemon is restarted onto it. */
             target: {
                 view: () => targetStore.view(),
                 save: (change) => {
-                    control.setTarget(targetStore.save(change));
+                    const saved = targetStore.save(change);
+                    control.setTarget(saved);
+                    followTarget(saved);
                     return targetStore.view();
                 },
             },
@@ -492,10 +501,22 @@ async function startProxyAndHarness(
         env: {
             PIKVM_AGENT_DAEMON_TOKEN: harness.daemonActionToken,
             PIKVM_AGENT_HARNESS_TOKEN: harness.daemonHarnessToken,
+            // The app's own target, never the agent's config file's (see agent-target.ts).
+            ...agentTargetEnvironment(agentTarget),
         },
         adoptExisting: false,
         log: (line) => console.log(line),
     });
+    followTarget = (next) => {
+        if (sameAgentTarget(agentTarget, next)) return;
+        agentTarget = next;
+        void daemon
+            .restart(agentTargetEnvironment(next))
+            .then((restarted) => {
+                if (restarted) console.log("[daemon] restarted onto the new PiKVM target");
+            })
+            .catch((error: unknown) => console.error(`[daemon] could not restart onto the new target: ${String(error)}`));
+    };
     const harnessReady = daemon.start().then(async (outcome) => {
         if (outcome === "conflict") {
             throw new Error(

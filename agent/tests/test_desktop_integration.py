@@ -32,6 +32,22 @@ def test_pikvm_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert c.pikvm.verify_tls is True
 
 
+def test_the_apps_target_beats_a_config_file_and_the_shell(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """The desktop app starts the daemon with its own PiKVM in the environment (src/agent-target.ts):
+    the config file's address and a stray token from the launching shell must not decide."""
+    config = tmp_path / "config.yaml"
+    config.write_text("pikvm:\n  base_url: https://some-other-pikvm.example\n")
+    monkeypatch.setenv("PIKVM_BASE_URL", "http://127.0.0.1:4592")
+    monkeypatch.setenv("PIKVM_USER", "admin")
+    monkeypatch.setenv("PIKVM_PASSWORD", "app-password")
+    monkeypatch.setenv("PIKVM_TOKEN", "")
+    c = load_config(config)
+    assert c.pikvm.base_url == "http://127.0.0.1:4592"
+    assert c.pikvm.username == "admin"
+    assert c.pikvm.password == "app-password"
+    assert c.pikvm.token is None
+
+
 def test_dotenv_loaded_from_config_folder(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     # _isolate_config points DEFAULT_CONFIG_PATH at tmp_path/no-config.yaml.
     monkeypatch.delenv("PIKVM_USER", raising=False)
