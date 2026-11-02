@@ -1,0 +1,762 @@
+/*
+ * KVM dialogs. The desktop app's dialog language (console.css .dlg-*) on this app's tokens:
+ * a hairline ring instead of a border, 12px radius, 13px controls. On a phone (data-compact)
+ * every dialog becomes a bottom sheet, or a full page for the big editors, sized by the visual
+ * viewport so the keyboard never covers the actions.
+ */
+
+.dlg-scrim {
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: color-mix(in srgb, #000 62%, transparent);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    animation: dlg-fade 0.14s ease-out;
+}
+
+/* A confirmation sits over a dialog; its own scrim only deepens the dim. */
+.dlg-scrim[data-layer="confirm"] {
+    z-index: 65;
+}
+
+@keyframes dlg-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes dlg-rise {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.985);
+    }
+}
+
+@keyframes dlg-slide {
+    from {
+        transform: translateY(24px);
+        opacity: 0.4;
+    }
+}
+
+/* !important so the preference wins on merit, not on position in the file. */
+@media (prefers-reduced-motion: reduce) {
+    .dlg-scrim,
+    .dlg {
+        animation: none !important;
+    }
+}
+
+.dlg {
+    width: min(520px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+        0 16px 48px -12px rgb(0 0 0 / 60%);
+    animation: dlg-rise 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+    outline: none;
+    overflow: hidden;
+}
+
+.dlg[data-size="wide"] {
+    width: min(760px, 100%);
+}
+
+.dlg[data-size="full"] {
+    width: min(900px, 100%);
+    height: min(640px, 100%);
+}
+
+.dlg-head {
+    flex: none;
+    padding: 16px 20px 0;
+}
+
+.dlg-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+/* The one scroll container: actions stay pinned under it, whatever the content does. */
+.dlg-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 20px 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Content keeps its height and the body scrolls; a flex child left to shrink would be clipped instead. */
+.dlg-body > * {
+    flex-shrink: 0;
+}
+
+.dlg-body > .dlg-log {
+    flex-shrink: 1;
+}
+
+.dlg-actions {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--card);
+}
+
+.dlg-actions-start {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-right: auto;
+}
+
+.dlg-confirm-body {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.dlg-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dlg-row.wrap {
+    flex-wrap: wrap;
+}
+
+.dlg-label {
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+
+.dlg-grow {
+    flex: 1;
+    min-width: 0;
+}
+
+.dlg-hint {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+}
+
+.dlg-note {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted-foreground);
+}
+
+/* Weight and colour together, so the warning does not rest on hue alone. */
+.dlg-note.is-warn {
+    color: var(--warn);
+    font-weight: 550;
+}
+
+.dlg-hr {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+}
+
+.dlg-inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ---- buttons --------------------------------------------------------- */
+
+.dlg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background 0.12s,
+        border-color 0.12s;
+}
+
+.dlg-btn:hover:not(:disabled) {
+    background: var(--accent);
+    border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
+}
+
+.dlg-btn:focus-visible,
+.dlg-text:focus-visible,
+.dlg-select:focus-visible,
+.dlg-input:focus-visible,
+.dlg-file:focus-visible,
+.macro-icon:focus-visible,
+.macro-list button:focus-visible {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 32%, transparent);
+}
+
+/* White on the accent blue is 3.16:1; deepened to clear AA while staying the same colour. */
+.dlg-btn.primary {
+    background: color-mix(in srgb, var(--primary) 78%, #000);
+    border-color: color-mix(in srgb, var(--primary) 78%, #000);
+    color: var(--primary-foreground);
+}
+
+.dlg-btn.primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--primary) 88%, #000);
+}
+
+.dlg-btn.danger {
+    background: color-mix(in srgb, var(--danger) 78%, #000);
+    border-color: color-mix(in srgb, var(--danger) 78%, #000);
+    color: #fff;
+}
+
+.dlg-btn.danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 88%, #000);
+}
+
+.dlg-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* A switch is a state, so it is filled when on and says so with text as well. */
+.dlg-btn[role="switch"][aria-checked="true"] {
+    background: color-mix(in srgb, var(--primary) 78%, #000);
+    border-color: color-mix(in srgb, var(--primary) 78%, #000);
+    color: var(--primary-foreground);
+}
+
+/* ---- fields ---------------------------------------------------------- */
+
+.dlg-input,
+.dlg-text {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+}
+
+.dlg-input {
+    resize: vertical;
+    line-height: 1.5;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dlg-input:focus,
+.dlg-text:focus {
+    border-color: var(--primary);
+}
+
+.dlg-text:disabled,
+.dlg-select:disabled {
+    opacity: 0.5;
+}
+
+.dlg-select {
+    appearance: none;
+    min-height: 30px;
+    padding: 5px 26px 5px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background-color: var(--background);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8a95' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 7px center;
+    background-size: 13px;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    max-width: 100%;
+}
+
+[data-theme="light"] .dlg-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666672' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+.dlg-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    font-size: 13px;
+}
+
+.dlg-check input {
+    width: 15px;
+    height: 15px;
+}
+
+.dlg-range {
+    flex: 1;
+    min-width: 120px;
+    height: 24px;
+    margin: 0;
+    background: transparent;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+/* Sliders line up as a column: gutters sized to their widest content. */
+.dlg-sliders .dlg-row > .dlg-label {
+    min-width: 84px;
+}
+
+.dlg-sliders .dlg-row > .dlg-hint {
+    min-width: 72px;
+    text-align: right;
+}
+
+.dlg-file {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--foreground);
+}
+
+.dlg progress {
+    height: 8px;
+    accent-color: var(--primary);
+}
+
+/* ---- lists and log --------------------------------------------------- */
+
+.dlg-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.dlg-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+/* Warning is a ring, error is filled: the level does not ride on hue alone. */
+.dlg-list li::before {
+    content: "";
+    flex: none;
+    width: 7px;
+    height: 7px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 2px solid var(--warn);
+}
+
+.dlg-list li.is-error::before {
+    background: var(--danger);
+    border-color: var(--danger);
+}
+
+.dlg-log {
+    flex: 1 1 auto;
+    min-height: 160px;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--background);
+    color: var(--foreground);
+    font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.dlg[data-size="full"] .dlg-log {
+    min-height: 0;
+}
+
+.dlg-about {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* ---- ATX and GPIO ---------------------------------------------------- */
+
+.dlg-led {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+
+.dlg-led::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    box-sizing: border-box;
+    border: 2px solid var(--muted-foreground);
+}
+
+.dlg-led[data-on="true"]::before {
+    background: var(--ok);
+    border-color: var(--ok);
+}
+
+.dlg-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dlg-section-title {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+}
+
+/* ---- macros ---------------------------------------------------------- */
+
+.macro-body {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 16px;
+    min-height: 0;
+}
+
+.macro-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.macro-list button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.macro-list button:hover {
+    background: var(--secondary);
+}
+
+.macro-list button[aria-current="true"] {
+    background: var(--accent);
+    border-color: var(--border);
+}
+
+.macro-list button svg,
+.macro-row-icon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+}
+
+.macro-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
+.macro-icons {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 6px;
+}
+
+.macro-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.macro-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.macro-icon[aria-checked="true"] {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 18%, var(--secondary));
+    color: var(--primary);
+}
+
+.macro-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.macro-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--background);
+}
+
+.macro-kind {
+    flex: none;
+    width: 40px;
+    padding-top: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+}
+
+/* The controls stay together: when the key list wraps it is the list that moves, not the arrows. */
+.macro-step-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.macro-mods {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.dlg-btn.macro-mod {
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 12px;
+}
+
+.macro-key {
+    flex: 1 1 140px;
+}
+
+.macro-actions {
+    flex: none;
+    display: flex;
+    gap: 4px;
+}
+
+.dlg-btn.macro-move {
+    min-width: 30px;
+    padding: 0 6px;
+}
+
+.macro-step-add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* ---- phone: bottom sheets and full pages ----------------------------- */
+
+.dlg-scrim[data-compact="true"] {
+    padding: 0;
+    align-items: flex-end;
+}
+
+.dlg-scrim[data-compact="true"] .dlg {
+    width: 100%;
+    max-height: calc(100% - max(12px, env(safe-area-inset-top)));
+    border-radius: 16px 16px 0 0;
+    animation: dlg-slide 0.2s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.dlg-scrim[data-compact="true"] .dlg[data-size="full"] {
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+}
+
+/* The grab handle says "this is a sheet". */
+.dlg-scrim[data-compact="true"] .dlg:not([data-size="full"]) .dlg-head::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: -6px auto 10px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--foreground) 22%, transparent);
+}
+
+.dlg-scrim[data-compact="true"] .dlg-head,
+.dlg-scrim[data-compact="true"] .dlg-body,
+.dlg-scrim[data-compact="true"] .dlg-actions {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+}
+
+.dlg-scrim[data-compact="true"] .dlg-actions {
+    padding-top: 10px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+.dlg-scrim[data-compact="true"] .dlg-actions > .dlg-btn {
+    flex: 1 1 auto;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-actions-start {
+    flex: 1 0 100%;
+    margin-right: 0;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-actions-start > .dlg-btn {
+    flex: 1 1 auto;
+}
+
+/* 44px targets and 16px text (iOS zooms the page on a smaller focused field). */
+.dlg-scrim[data-compact="true"] .dlg-btn,
+.dlg-scrim[data-compact="true"] .dlg-select,
+.dlg-scrim[data-compact="true"] .dlg-text {
+    min-height: 44px;
+    font-size: 16px;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-input {
+    font-size: 16px;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-check {
+    min-height: 44px;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-check input {
+    width: 22px;
+    height: 22px;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-range {
+    height: 44px;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-btn.macro-mod {
+    min-height: 40px;
+    padding: 0 12px;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-btn.macro-move {
+    min-width: 44px;
+}
+
+.dlg-scrim[data-compact="true"] .macro-icon {
+    height: 44px;
+}
+
+.dlg-scrim[data-compact="true"] .macro-body {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+/* The list becomes a strip above the editor. */
+.dlg-scrim[data-compact="true"] .macro-list {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.dlg-scrim[data-compact="true"] .macro-list button {
+    flex: none;
+    width: auto;
+    min-height: 44px;
+    max-width: 60vw;
+    border-color: var(--border);
+}
+
+.dlg-scrim[data-compact="true"] .macro-step {
+    flex-direction: column;
+}
+
+.dlg-scrim[data-compact="true"] .macro-kind {
+    width: auto;
+    padding-top: 0;
+}
+
+.dlg-scrim[data-compact="true"] .macro-step-body {
+    width: 100%;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-row.stack {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-sliders .dlg-row {
+    flex-wrap: wrap;
+}
+
+.dlg-scrim[data-compact="true"] .dlg-sliders .dlg-row > .dlg-range {
+    flex: 1 0 100%;
+    order: 3;
+}
