@@ -29,6 +29,7 @@ import type { Duplex } from "node:stream";
 import { gate, hasWorkspaceHeader, loginPage, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
 import { json, readBody } from "./http";
 import { DESKTOP_SHELL_COOKIE } from "./static";
+import { RETIRE_WORKER } from "./legacy-prefix";
 
 /** A proxy that forwards a whole request to somewhere else. */
 export interface HttpForwarder {
@@ -238,6 +239,21 @@ export function createRoutes(t: RouteTargets): Route[] {
             run: ({ res }) => json(res, 404, { error: "Not found" }),
         },
 
+        {
+            // The only remnant of the old /_agent/ prefix; see legacy-prefix.ts for
+            // why it exists and when to delete it.
+            name: "retire the old service worker",
+            match: ({ method, path }) => method === "GET" && path === "/_agent/sw.js",
+            run: ({ res }) => {
+                res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
+                res.end(RETIRE_WORKER);
+            },
+        },
+        {
+            name: "old /_agent/ paths -> /app/",
+            match: ({ method, path }) => (method === "GET" || method === "HEAD") && under(path, "/_agent"),
+            run: ({ res }) => redirect(res, "/app/"),
+        },
         {
             name: "kvmd passthrough",
             match: () => true,

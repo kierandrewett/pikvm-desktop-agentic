@@ -493,3 +493,51 @@ test("the web app's pages are behind the gate; its icons are public", async () =
         rmSync(dir, { recursive: true, force: true });
     }
 });
+
+test("installs made before the move to /app can retire their old service worker", async () => {
+    const s = await run(targets());
+    try {
+        const worker = await call(s.origin, "/_agent/sw.js");
+        assert.equal(worker.status, 200);
+        assert.match(worker.headers.get("content-type") ?? "", /^text\/javascript/);
+        assert.equal(worker.headers.get("cache-control"), "no-store");
+        // It clears both caches the old worker used, unregisters itself and
+        // sends its windows to the new app.
+        assert.match(worker.body, /skipWaiting/);
+        assert.match(worker.body, /pikvm-console-v2/);
+        assert.match(worker.body, /pikvm-agent-v1/);
+        assert.match(worker.body, /registration\.unregister\(\)/);
+        assert.match(worker.body, /client\.navigate\(self\.location\.origin \+ "\/app\/"\)/);
+        // It is valid script, not just text that mentions the right words.
+        assert.doesNotThrow(() => new Function(worker.body));
+
+        // Everything else under the old prefix lands on the new one, with no path mapping.
+        for (const path of ["/_agent", "/_agent/", "/_agent/console", "/_agent/api/state", "/_agent/terminal.html?x=1"]) {
+            const moved = await call(s.origin, path);
+            assert.equal(moved.status, 302, path);
+            assert.equal(moved.headers.get("location"), "/app/", path);
+        }
+        const head = await call(s.origin, "/_agent/console", { method: "HEAD" });
+        assert.equal(head.status, 302);
+        // A lookalike is not the old prefix; it is kvmd's like any other path.
+        assert.equal((await call(s.origin, "/_agentx")).target, "kvmd");
+        // Writes are not redirected: nothing ever POSTed there that is worth sending on.
+        assert.equal((await call(s.origin, "/_agent/api/macros", { method: "PUT" })).target, "kvmd");
+    } finally {
+        await s.close();
+    }
+});
+
+test("the old prefix is behind the gate, except for the worker that retires it", async () => {
+    const s = await run(targets({ token: TOKEN }), true);
+    try {
+        const worker = await call(s.origin, "/_agent/sw.js");
+        assert.equal(worker.status, 200, "a browser fetches its worker without credentials");
+        assert.equal((await call(s.origin, "/_agent/console", { headers: { accept: "application/json" } })).status, 401);
+        const page = await call(s.origin, "/_agent/", { headers: { accept: "text/html" } });
+        assert.equal(page.status, 302);
+        assert.equal(page.headers.get("location"), "/app/login");
+    } finally {
+        await s.close();
+    }
+});

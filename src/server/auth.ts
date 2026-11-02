@@ -38,6 +38,8 @@ export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
     "/app/logout": true,
     "/app/manifest.webmanifest": true,
     "/app/sw.js": true,
+    // The retire worker for installs made before the move to /app (legacy-prefix.ts).
+    "/_agent/sw.js": true,
     "/app/icon.png": true,
     "/app/icon-192.png": true,
     "/app/icon-512.png": true,
