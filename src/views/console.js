@@ -9519,7 +9519,9 @@
             } catch (e) {}
         }
         var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute("content", t === "light" ? "#f5f5f7" : "#0a0a0c");
+        // On a phone the picture sits on black and the status bar should too, in
+        // either theme (Safari tints its bars from this and the page edges).
+        if (meta) meta.setAttribute("content", document.documentElement.classList.contains("touch-dock") ? "#000000" : t === "light" ? "#f5f5f7" : "#0a0a0c");
         /* The desktop conversation is a native child view, not that iframe, so
          * the postMessage above never reaches it. Without this the console went
          * light and the panel beside it stayed dark, in the same window. */

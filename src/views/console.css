@@ -2838,3 +2838,26 @@ html.touch-dock .screen {
     margin-left: env(safe-area-inset-left);
     margin-right: env(safe-area-inset-right);
 }
+/* Safari (and iOS standalone) colour the status bar and their own toolbar from
+   the page background and whatever is fixed at the top and bottom edges. So
+   the page is black behind the picture, and a strip in the dock's colour sits
+   fixed behind the bottom edge, under the app, so the toolbar below it (or the
+   home-indicator area) continues the bar instead of showing white. */
+html.touch-dock,
+html.touch-dock body {
+    background: #000;
+}
+html.touch-dock body::after {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 50vh;
+    background: var(--card);
+    z-index: -1;
+    pointer-events: none;
+}
+html.touch-dock .screen {
+    background: #000;
+}
