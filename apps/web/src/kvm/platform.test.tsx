@@ -62,12 +62,50 @@ describe("wake lock", () => {
         expect(sentinels[0]?.release).toHaveBeenCalled();
     });
 
-    it("does nothing in the desktop app, where holding the display awake is not this window's call", () => {
-        const { request } = stubWakeLock();
-        Object.defineProperty(window, "pikvmDesktop", { configurable: true, value: {} });
-        render(<WakeLock enabled />);
-        expect(request).not.toHaveBeenCalled();
-        Reflect.deleteProperty(window, "pikvmDesktop");
+    /* Desktop app. FAILURE MODES: the browser wake lock is used inside Electron (it may not work there);
+     * the display is held while the window is minimised or hidden; it is never released on unmount, so
+     * the machine stays awake after leaving the KVM; a disabled hook still holds it. */
+    describe("in the desktop app", () => {
+        const install = () => {
+            const keepDisplayAwake = vi.fn();
+            Object.defineProperty(window, "pikvmDesktop", { configurable: true, value: { keepDisplayAwake } });
+            return keepDisplayAwake;
+        };
+        afterEach(() => Reflect.deleteProperty(window, "pikvmDesktop"));
+
+        it("holds the display while visible, lets go when hidden, and takes it again on return", () => {
+            const keep = install();
+            const { request } = stubWakeLock();
+            let hidden = false;
+            vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+            render(<WakeLock enabled />);
+            expect(keep).toHaveBeenLastCalledWith(true);
+            hidden = true;
+            document.dispatchEvent(new Event("visibilitychange"));
+            expect(keep).toHaveBeenLastCalledWith(false);
+            hidden = false;
+            document.dispatchEvent(new Event("visibilitychange"));
+            expect(keep).toHaveBeenLastCalledWith(true);
+            expect(request).not.toHaveBeenCalled();
+        });
+
+        it("starts hidden without holding it", () => {
+            const keep = install();
+            vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+            render(<WakeLock enabled />);
+            expect(keep).toHaveBeenLastCalledWith(false);
+        });
+
+        it("releases on unmount, and a disabled hook never asks", () => {
+            const keep = install();
+            const { unmount } = render(<WakeLock enabled />);
+            expect(keep).toHaveBeenLastCalledWith(true);
+            unmount();
+            expect(keep).toHaveBeenLastCalledWith(false);
+            keep.mockClear();
+            render(<WakeLock enabled={false} />);
+            expect(keep).not.toHaveBeenCalled();
+        });
     });
 });
 

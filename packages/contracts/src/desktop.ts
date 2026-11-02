@@ -54,6 +54,13 @@ export interface DesktopBridge {
     readonly nativeControls: boolean;
     readonly window: DesktopWindowApi;
     /**
+     * Keep the display from sleeping (the OS's own "prevent display sleep", Electron's powerSaveBlocker)
+     * while this window is in front, for a KVM left watching an install. Idempotent per window: true
+     * twice holds one blocker, and the window's blocker is released when it closes. The page owns the
+     * rule for when (visible only), as it does for the web wake lock.
+     */
+    keepDisplayAwake(on: boolean): void;
+    /**
      * Pulse the taskbar or dock entry, for something that happened while the window was in the
      * background. Ignored while the window is focused; cleared the moment it is.
      */

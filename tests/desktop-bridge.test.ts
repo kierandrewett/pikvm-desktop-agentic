@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { CHANNELS } from "../src/desktop/channels";
+import { setDisplayBlocker } from "../src/desktop/display-blocker";
 import { externalUrl, navigationVerdict } from "../src/desktop/policy";
 
 const root = process.cwd();
@@ -101,4 +102,37 @@ test("main.ts holds no window chrome, settings window or console IPC any more", 
     ]) {
         assert.doesNotMatch(main, gone);
     }
+});
+
+/* The display blocker: one per window, never leaked. FAILURE MODES: asking twice starts two (one is
+ * then never stopped); stopping when none is held stops something that is not ours; the window's
+ * blocker outlives the window. */
+test("the display blocker is one per window, released on off and idempotent", () => {
+    const started: number[] = [];
+    const stopped: number[] = [];
+    let next = 100;
+    const blocker = {
+        start: (type: string) => {
+            assert.equal(type, "prevent-display-sleep");
+            started.push(next);
+            return next++;
+        },
+        stop: (id: number) => void stopped.push(id),
+    };
+    setDisplayBlocker(1, true, blocker);
+    setDisplayBlocker(1, true, blocker);
+    assert.deepEqual(started, [100]);
+    setDisplayBlocker(2, true, blocker);
+    assert.deepEqual(started, [100, 101]);
+    setDisplayBlocker(1, false, blocker);
+    setDisplayBlocker(1, false, blocker);
+    setDisplayBlocker(3, false, blocker);
+    assert.deepEqual(stopped, [100]);
+    setDisplayBlocker(2, false, blocker);
+    assert.deepEqual(stopped, [100, 101]);
+});
+
+test("a window's blocker is released when it closes", () => {
+    const window = readFileSync(resolve(root, "src/desktop/window.ts"), "utf8");
+    assert.match(window, /win\.on\("closed", \(\) => setDisplayBlocker\(windowId, false, powerSaveBlocker\)\);/);
 });

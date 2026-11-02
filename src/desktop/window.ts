@@ -1,7 +1,8 @@
-import { BrowserWindow, ipcMain, Menu, session, shell, type MenuItemConstructorOptions } from "electron";
+import { BrowserWindow, ipcMain, Menu, powerSaveBlocker, session, shell, type MenuItemConstructorOptions } from "electron";
 import { resolve } from "node:path";
 import { CHANNELS, VERSION_ARG } from "./channels";
 import { externalUrl, navigationVerdict } from "./policy";
+import { setDisplayBlocker } from "./display-blocker";
 import { requestAttention } from "../taskbar-attention";
 
 /* The one app window: the embedded server's /app/ in a frameless BrowserWindow.
@@ -70,6 +71,10 @@ function registerIpc(): void {
     ipcMain.handle(CHANNELS.setFullscreen, (e, on: unknown, lockKeyboard: unknown) => {
         const win = windowOf(e);
         return win ? setFullscreen(win, on === true, lockKeyboard === true) : false;
+    });
+    ipcMain.on(CHANNELS.keepDisplayAwake, (e, on: unknown) => {
+        const win = windowOf(e);
+        if (win) setDisplayBlocker(win.id, on === true, powerSaveBlocker);
     });
     // Re-checked there: focus can land between the page's sample and this message arriving.
     ipcMain.on(CHANNELS.requestAttention, (e) => {
@@ -168,6 +173,8 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
     const send = (channel: string, value: boolean): void => {
         if (!win.isDestroyed()) page.send(channel, value);
     };
+    const windowId = win.id;
+    win.on("closed", () => setDisplayBlocker(windowId, false, powerSaveBlocker));
     win.on("maximize", () => send(CHANNELS.maximiseChange, true));
     win.on("unmaximize", () => send(CHANNELS.maximiseChange, false));
     win.on("enter-full-screen", () => send(CHANNELS.fullscreenChange, true));

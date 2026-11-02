@@ -35,6 +35,7 @@ const bridge: DesktopBridge = {
         onFullscreenChange: (listener) => subscribe<boolean>(CHANNELS.fullscreenChange, listener),
         onFocusChange: (listener) => subscribe<boolean>(CHANNELS.focusChange, listener),
     },
+    keepDisplayAwake: (on) => ipcRenderer.send(CHANNELS.keepDisplayAwake, on === true),
     requestAttention: () => ipcRenderer.send(CHANNELS.requestAttention),
     onDownloadDone: (listener) => subscribe<DesktopDownload>(CHANNELS.downloadDone, listener),
     openExternal: (url) => ipcRenderer.invoke(CHANNELS.openExternal, url),

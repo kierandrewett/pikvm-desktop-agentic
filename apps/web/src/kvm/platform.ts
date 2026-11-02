@@ -25,11 +25,23 @@ export const DOCK_QUERY = "(pointer: coarse)";
  * Keep the phone's screen on while the KVM is in front of it. A KVM is often left watching an
  * install or a reboot, and the screen locking part way through drops the stream and the socket
  * with it. Released when hidden (the browser drops it then anyway) and asked for again on
- * return. Not in the desktop app, where holding the display awake is not this window's call.
+ * return. In the desktop app the shell holds it (Electron's power save blocker, through the bridge) on
+ * the same rule: while the page is visible.
  */
 export function useWakeLock(enabled: boolean): void {
     useEffect(() => {
-        if (!enabled || isDesktopApp() || !navigator.wakeLock?.request) return;
+        const bridge = desktopBridge();
+        if (bridge) {
+            if (!enabled) return;
+            const sync = (): void => bridge.keepDisplayAwake(!document.hidden);
+            sync();
+            document.addEventListener("visibilitychange", sync);
+            return () => {
+                document.removeEventListener("visibilitychange", sync);
+                bridge.keepDisplayAwake(false);
+            };
+        }
+        if (!enabled || !navigator.wakeLock?.request) return;
         let lock: WakeLockSentinel | null = null;
         let disposed = false;
         const request = (): void => {
