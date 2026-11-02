@@ -52,8 +52,7 @@ const PKG_ARCH = { x64: "amd64", arm64: "arm64" }[arch];
 const FORMATS = {
     linux: ["rpm", "deb", "archlinux", "appimage", "flatpak"],
     darwin: ["dmg", "zip"],
-    // No msi: pkgsmith's writer cannot hold the runtime's 24,000 files (see pkgsmith.star).
-    win32: ["nsis", "zip"],
+    win32: ["msi", "nsis", "zip"],
 };
 
 function run(command, args, options = {}) {

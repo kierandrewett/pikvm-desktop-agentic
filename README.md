@@ -79,7 +79,7 @@ bridge to the OS is `window.pikvmDesktop` (`packages/contracts/src/desktop.ts`, 
 | --- | --- | --- |
 | Linux (x64, arm64) | rpm, deb, Arch (`.pkg.tar.zst`), AppImage, Flatpak | needs `flatpak` on PATH for the Flatpak |
 | macOS (arm64, x64) | dmg, zip | unsigned, not notarised |
-| Windows (x64) | nsis, zip | needs `makensis` on PATH for nsis; unsigned. No msi yet: pkgsmith's msi writer overflows on the runtime's 24,000 files |
+| Windows (x64) | msi, nsis, zip | needs `makensis` on PATH for nsis and pkgsmith 4a66ca8 or later for the msi (three-byte string references); unsigned |
 
 ```bash
 make package          # build, then every format for THIS machine's platform
