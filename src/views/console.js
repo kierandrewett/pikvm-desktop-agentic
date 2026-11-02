@@ -4936,10 +4936,23 @@
     var modMirror = KeyChord.createModifierMirror(function (code, down) {
         hid.key(code, down);
     });
+    var modPressSeq = {}; // code -> count of presses, so a late release can tell it is stale
     function pressMod(code) {
+        modPressSeq[code] = (modPressSeq[code] || 0) + 1;
         modMirror.press(code);
     }
+    /* A modifier comes up only after the keys queued while it was held have gone
+     * out. Releasing it at once let Win+Shift+S arrive as Win, Shift, then a bare
+     * S: the keyups landed while the S chord was still waiting in the queue. A
+     * deferred release is dropped if the key was pressed again meanwhile. */
     function releaseMod(code) {
+        if (keyBusy || keyQ.length) {
+            var seq = modPressSeq[code];
+            afterKeys(function () {
+                if (modPressSeq[code] === seq) modMirror.release(code);
+            });
+            return;
+        }
         modMirror.release(code);
     }
     /** Let go of everything: focus loss, or a modal taking the keyboard. */
@@ -5902,6 +5915,43 @@
     // touch asks again if the load-time request was refused.
     requestWakeLock();
     document.addEventListener("pointerdown", requestWakeLock, { passive: true });
+    /* Full screen with Keyboard Lock (browsers, not the desktop app).
+     *
+     * The host OS keeps Super shortcuts and Alt+Tab for itself, so Win,
+     * Win+Shift+S or Alt+Tab never reached this page and could not be forwarded.
+     * Chrome's Keyboard Lock hands them to the page, but only in full screen, so
+     * the two go together. Holding Esc leaves, as Chrome tells the user. */
+    (function wireFullscreen() {
+        var btn = document.getElementById("fullscreen-btn");
+        var root = document.documentElement;
+        if (!btn || window.desktopConsole || !document.fullscreenEnabled || !root.requestFullscreen) return;
+        btn.hidden = false;
+        var paint = function () {
+            btn.textContent = document.fullscreenElement ? "Exit full screen" : "Full screen (send Win and Alt keys)";
+        };
+        btn.addEventListener("click", function () {
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(function () {});
+                return;
+            }
+            root.requestFullscreen({ navigationUI: "hide" })
+                .then(function () {
+                    if (navigator.keyboard && navigator.keyboard.lock) return navigator.keyboard.lock();
+                })
+                .catch(function () {
+                    toast("Full screen was refused by the browser", true);
+                })
+                .then(function () {
+                    // Typing goes through the hidden field, so put focus back on it.
+                    if (!fullUiOn) kbd.focus({ preventScroll: true });
+                });
+        });
+        document.addEventListener("fullscreenchange", function () {
+            if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
+            paint();
+        });
+        paint();
+    })();
     // The installed-app worker (sw.js): an offline screen when the KVM is out of
     // reach. Web only, and only where a service worker is allowed at all.
     if (!window.desktopConsole && "serviceWorker" in navigator && window.isSecureContext) {

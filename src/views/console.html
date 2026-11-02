@@ -514,6 +514,10 @@
                 <button class="more-item" id="atx-power-long" data-atx="power_long" hidden>Power button (hold 5s)</button>
                 <button class="more-item" id="atx-reset" data-atx="reset" hidden>Reset</button>
                 <div class="more-sep" id="atx-sep-end" hidden></div>
+                <!-- Browsers only: full screen with Keyboard Lock, so Win, Win+Shift+S,
+                     Alt+Tab and friends reach the target instead of this machine's OS.
+                     Hidden where the page cannot go full screen. -->
+                <button class="more-item" id="fullscreen-btn" hidden>Full screen (send Win and Alt keys)</button>
                 <button class="more-item" id="theme-btn">Toggle theme</button>
                 <!-- A toggle, not a link. It used to be <a href="/?native=1">, which
                      replaced this document — and on a frameless window the titlebar
