@@ -2,8 +2,8 @@
  * Headless web host: the same control server + PiKVM proxy + console the desktop
  * app runs, without Electron, for a container or any plain Node 22 host.
  *
- * What it serves is identical to the desktop's web surface (src/server.ts): the
- * console at `/` and the PiKVM UI proxied underneath it. It deliberately does
+ * What it serves is identical to the desktop's web surface (src/server/): the
+ * console at `/app/` and the PiKVM UI proxied underneath it. It deliberately does
  * NOT host the shared terminal or the agent harness. A shell on the server
  * would turn "can see the KVM" into "can run commands on the box that hosts
  * it", and the harness needs a desktop-owned runtime. The console reads
@@ -24,7 +24,8 @@
  *                          way in, so bind any HOST. Unset: loopback only.
  *   PIKVM_KEYBOARD_LAYOUT  "us" | "uk" default before the Pi reports its keymap
  *   PIKVM_DATA_DIR         where settings.json and macros.json live (default ./data)
- *   PIKVM_JIGGLER          "1" keeps the target awake while idle (default off)
+ *   PIKVM_JIGGLER          "1" makes the idle jiggler start on; only the first
+ *                          value, after that the saved setting wins (default off)
  *   PIKVM_DESKTOP_URL      the desktop app's console server, e.g.
  *                          http://fsociety.example.ts.net:25650. Set with
  *                          PIKVM_DESKTOP_TOKEN (its access token) to serve the
@@ -34,7 +35,7 @@
  *                          127.0.0.1:8080 otherwise)
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PiKvmControl } from "./pikvm-control";
 import type { ImageOps } from "./image-ops";
@@ -107,13 +108,27 @@ mkdirSync(dataDir, { recursive: true });
 
 /* The jiggler is off unless asked for. On the desktop it runs only while the app
  * is open; a server runs all day, so the same default would keep the target
- * awake around the clock whether or not anybody is using it. */
-const settings = new EnvSettingsStore(resolve(dataDir, "settings.json"), {
+ * awake around the clock whether or not anybody is using it.
+ *
+ * PIKVM_JIGGLER only seeds the FIRST value. SettingsStore writes its defaults
+ * into the file on any patch, so "is there a jiggler key" cannot be asked after
+ * the first patch; it is asked here, before anything has written. From then on
+ * the stored value is the setting, so the Settings switch
+ * (PATCH /app/api/v1/settings) actually takes effect. accessToken and bindHost
+ * stay pinned to the environment. */
+const settingsPath = resolve(dataDir, "settings.json");
+let hasStoredJiggler = false;
+try {
+    hasStoredJiggler = typeof JSON.parse(readFileSync(settingsPath, "utf-8")).jiggler === "boolean";
+} catch {
+    /* no file yet, or unreadable: nothing stored */
+}
+const settings = new EnvSettingsStore(settingsPath, {
     // The desktop's token gate stays off: sign-in is the proxy's job here.
     accessToken: "",
     bindHost: host,
-    jiggler: env("PIKVM_JIGGLER") === "1",
 });
+if (!hasStoredJiggler) settings.patch({ jiggler: env("PIKVM_JIGGLER") === "1" });
 
 const layout = env("PIKVM_KEYBOARD_LAYOUT");
 if (layout === "us" || layout === "uk") settings.patch({ keyboardLayout: layout });
