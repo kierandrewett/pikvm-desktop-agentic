@@ -135,7 +135,9 @@ Status: **done**, **changed** (behaves differently on purpose, said how), **not 
 | Delete with confirm, apart from the add buttons | done | T macros (35); E2E |
 | Limits (60 macros, 40 steps, 4000 text, 60 label) | done | T model |
 | Persisted by `PUT /app/api/v1/macros` | done | E2E: created macro is in `GET /app/api/v1/macros` |
-| Run | done: a Run button (closes the dialog, then `session.macros.run`); the pinned strip and sheet tiles are KvmScreen's | T macros; E2E keys and text reach the fake |
+| Run | done: a Run button (closes the dialog, then `session.macros.run`; in Settings it stays on the page); the pinned strip and sheet tiles are KvmScreen's | T macros, `settings/macros-page.test.tsx`; E2E keys and text reach the fake, also from Settings |
+| Reorder the list (the order of the tiles and strip) | done: Move up / down the list | T model, `macros-page.test.tsx`; E2E settings-macros |
+| Settings -> Macros | done: the same component drawn as a page (`presentation="page"`), a full page on a phone | T `settings/macros-page.test.tsx`; E2E settings-macros (iPhone 13 and desktop) |
 
 ### Not dialogs in the console either
 
@@ -150,9 +152,9 @@ Status: **done**, **changed** (behaves differently on purpose, said how), **not 
 ## Gaps
 
 1. **Paste cannot be stopped once kvmd is typing** (also true of the console; the dialog says so).
-2. **Desktop screenshot "saved / cancelled" from Electron's download event** is not wired (phase 6, the
-   desktop host); the web path toasts "Screenshot saved".
-3. **OCR on a phone** needs KvmScreen's overlay CSS fixed (reported); the dialog and the desktop path work.
+2. **Desktop screenshot "saved / cancelled" from Electron's download event** is wired through the bridge
+   (`onDownloadDone`); the web path toasts "Screenshot saved" because a browser reports nothing.
+3. **OCR on a phone** works (E2E drag on the phone profile).
 4. **Audio devices dialog has unit tests but no E2E**: its menu item only appears with live WebRTC audio,
    which the fake kvmd does not provide (`/janus/ws` is refused).
 5. **Soft-keyboard-up behaviour** of the phone sheets rests on `useViewportFrame` (tested with the shell);

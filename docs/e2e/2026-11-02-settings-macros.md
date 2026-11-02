@@ -9,7 +9,7 @@ Settings -> Macros is the same component as the KVM screen's Macros dialog. Each
 | Profile | Case | Observed | Result |
 | --- | --- | --- | --- |
 | iPhone 13 | empty list says how to start; the page is a page (no dialog, no Done) | "No macros yet.Use New macro to add one.New macro"; dialogs 0; Done false | pass |
-| iPhone 13 | create: name, Super+R, text and pause are stored by the server | {"id":"macro-mvzsomuz","label":"Run box","icon":"command","pinned":true,"steps":[{"type":"chord","mods":["MetaLeft"],"code":"KeyR"},{"type":"text","text":"calc"},{"type":"delay","ms":300}]} | pass |
+| iPhone 13 | create: name, Super+R, text and pause are stored by the server | {"id":"macro-mvztmgvb","label":"Run box","icon":"command","pinned":true,"steps":[{"type":"chord","mods":["MetaLeft"],"code":"KeyR"},{"type":"text","text":"calc"},{"type":"delay","ms":300}]} | pass |
 | iPhone 13 | edit: an icon, a step moved up, pin switched off and on | icon terminal; steps text,chord,delay; unpinned true; repinned true | pass |
 | iPhone 13 | run from Settings: keys over the socket, text through kvmd, the page stays | key MetaLeft down, key KeyR down, key KeyR up, key MetaLeft up; typed "calc"; still on /app/settings/macros; toast "Run box sent" | pass |
 | iPhone 13 | second macro, then reorder: the list on the server follows | Run box > Task manager  ->  Task manager > Run box | pass |
@@ -18,7 +18,7 @@ Settings -> Macros is the same component as the KVM screen's Macros dialog. Each
 | iPhone 13 | delete asks first: Cancel keeps the macro, Delete removes it from the server | after Cancel both kept; after Delete: Run box | pass |
 | iPhone 13 | no page errors | clean | pass |
 | Desktop 1400x900 | empty list says how to start; the page is a page (no dialog, no Done) | "No macros yet.Use New macro to add one.New macro"; dialogs 0; Done false | pass |
-| Desktop 1400x900 | create: name, Super+R, text and pause are stored by the server | {"id":"macro-mvzsovfx","label":"Run box","icon":"command","pinned":true,"steps":[{"type":"chord","mods":["MetaLeft"],"code":"KeyR"},{"type":"text","text":"calc"},{"type":"delay","ms":300}]} | pass |
+| Desktop 1400x900 | create: name, Super+R, text and pause are stored by the server | {"id":"macro-mvztmpar","label":"Run box","icon":"command","pinned":true,"steps":[{"type":"chord","mods":["MetaLeft"],"code":"KeyR"},{"type":"text","text":"calc"},{"type":"delay","ms":300}]} | pass |
 | Desktop 1400x900 | edit: an icon, a step moved up, pin switched off and on | icon terminal; steps text,chord,delay; unpinned true; repinned true | pass |
 | Desktop 1400x900 | run from Settings: keys over the socket, text through kvmd, the page stays | key MetaLeft down, key KeyR down, key KeyR up, key MetaLeft up; typed "calc"; still on /app/settings/macros; toast "Run box sent" | pass |
 | Desktop 1400x900 | second macro, then reorder: the list on the server follows | Run box > Task manager  ->  Task manager > Run box | pass |

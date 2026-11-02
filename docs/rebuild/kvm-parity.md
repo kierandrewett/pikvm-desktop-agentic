@@ -23,7 +23,7 @@ Evidence names:
 | Freeze canvas holding the last frame | done | `kvm.css` `.frozen`; the machine's `freeze`/`thaw` effects drive it (engine V7) |
 | Stream only while needed (collapsed preview, Full UI) | done for Full UI, n/a for the collapsed preview | Full UI sends `fullUi` to the machine (`kvm-screen.test.tsx` "the Pi's own UI"); the new layout has no collapsible preview |
 | Visual "no signal" (uniform-frame detector) | done | engine B1-B4; `sampleBlank` is wired by `createVideoDom` |
-| Background screen-change alerts (desktop taskbar pulse), toggle in More | done, unverified in Electron | `screen-alerts.ts` over the engine's detector and the bridge's `requestAttention`; `screen-alerts.test.ts` |
+| Background screen-change alerts: taskbar pulse in the desktop app; tab title, app badge and notification in a browser; not offered on a phone (the page is suspended) | done; the Electron pulse is unverified in Electron | `screen-alerts.ts` over the engine's detector, `attention.ts` for the sink; `attention.test.ts`, `screen-alerts.test.ts`; E2E `2026-11-02-parity.md` (hidden tab). See `parity-matrix.md` |
 | WebRTC/Janus H.264 + audio, muted start, play watchdog, MJPEG fallback | done | Real PiKVM, video only: `docs/e2e/2026-11-02-kvm-real-pikvm-video.md` (60 fps, live audio track, 1920x1080 label). Fallback: E2E against the fake's 503 |
 | Resolution toast "W x H . source" with the audio badge, 2.6 s | done | `picture-controller.test.ts` "the resolution toast"; E2E "resolution toast names the picture" |
 | Generic toast: error styling and role, sticky, emptied after the fade | done | K15 `notices.test.ts` |
@@ -112,10 +112,10 @@ The screen owns the seam; the dialogs agent owns the content.
 | Item | Status | Evidence |
 |---|---|---|
 | Run through the engine's runner, with its refusals (another macro or a paste running, socket down for key steps) | done | engine macros tests; K11 `kvm-screen.test.tsx` (runs, greys while running, refusal, text-only still works) |
-| Pinned macros as tiles in the phone sheet with their icons | done | E2E phone "macro tile in the sheet runs on the target" (Win+R, then "calc" typed) |
+| Pinned macros as tiles in the phone sheet with their icons (the order is the manager's list order) | done | E2E phone "macro tile in the sheet runs on the target" (Win+R, then "calc" typed) |
 | Pinned macros as a strip in the desktop toolbar; all macros in Send keys | done | E2E desktop "pinned macro in the toolbar runs on the target" |
 | "Running ... about N s" sticky notice for slow runs | done | engine runner; notices K15 |
-| Macro editor | seam | dialogs module (`macros`); icon names and drawings are exported from `icons.tsx` for it |
+| Macro editor | done | the dialogs module's `macros`, and the same component as Settings -> Macros (`presentation="page"`); E2E `2026-11-02-settings-macros.md` |
 
 ## 1.10 Audio and mic
 
@@ -169,4 +169,4 @@ The screen owns the seam; the dialogs agent owns the content.
 | Wake lock while visible, not in the desktop app, asked again on first touch | done | `platform.test.tsx` "wake lock" (held, released on hidden, re-asked on return, retried after a refusal, released on unmount, skipped in Electron) |
 | Visibility: kick after more than 3 s hidden; `online` kicks; stream reloaded | done | K20; the video machine does the reload (engine L1-L3) |
 | Full screen with Keyboard Lock (web only) | done | `platform.test.tsx` "full screen"; E2E "More menu" offers it. Headless cannot enter full screen, so the real lock is unverified |
-| Manifest, service worker | n/a here | the shell and server |
+| Manifest, service worker, "can't reach the KVM" page | done | `apps/web/public/manifest.webmanifest`, `sw.js`, `host/service-worker.ts`; `public-files.test.ts`; E2E `2026-11-02-parity.md` (Chrome's installability check, network cut, recovery) |
