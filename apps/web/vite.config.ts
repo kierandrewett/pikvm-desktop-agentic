@@ -42,5 +42,8 @@ export default defineConfig({
         setupFiles: ["./src/test/setup.ts"],
         include: ["src/**/*.test.{ts,tsx}"],
         css: false,
+        // Cleanup (registered first, in test/setup.ts) must run BEFORE a file's afterEach that unstubs
+        // globals: an unmount after matchMedia is gone throws from a late re-render.
+        sequence: { hooks: "list" },
     },
 });
