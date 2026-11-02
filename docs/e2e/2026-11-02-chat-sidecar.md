@@ -10,20 +10,20 @@ The two CLI sign-in cases start the real `codex` and `claude` sign-in inside the
 | --- | --- | --- | --- |
 | phone | the host offers Chat because the agent answers | features.chat=true; the workspace rendered | pass |
 | phone | the operator token is held by the host, not the browser | bare request 403; browser sent Bearer desktop-managed; token absent from requests, responses, storage and page | pass |
-| phone | Settings -> Providers: add an API provider and its key | fake-phone-3ffd: the key is listed as set: yes; no response carries it: yes; the config does not hold it: yes; the store is 0600: yes; no other file on the volume holds it: yes; store mode 600 | pass |
-| phone | Settings -> Providers: Codex sign-in shows the URL and one-time code, and can be cancelled | link https://auth.openai.com/codex/device; code WAYW-1DLG3; after Cancel sign-in: cancelled | pass |
+| phone | Settings -> Providers: add an API provider and its key | fake-phone-81a1: the key is listed as set: yes; no response carries it: yes; the config does not hold it: yes; the store is 0600: yes; no other file on the volume holds it: yes; store mode 600 | pass |
+| phone | Settings -> Providers: Codex sign-in shows the URL and one-time code, and can be cancelled | link https://auth.openai.com/codex/device; code WBTB-LH6CP; after Cancel sign-in: cancelled | pass |
 | phone | Settings -> Providers: Claude sign-in shows the URL and a box for the code, and can be cancelled | link https://claude.com/cai/oauth/authorize?code=true&client_id=9...; 1 code field; after Cancel sign-in: cancelled | pass |
-| phone | Chat: a run streams its events and a click reaches the kvmd | event stream opened: true; fake kvmd received button left down, button left up; the model was called with the stored key (…e94f) | pass |
+| phone | Chat: a run streams its events and a click reaches the kvmd | event stream opened: true; fake kvmd received button left down, button left up; the model was called with the stored key (…105a) | pass |
 | phone | Chat: an action the harness holds is not delivered until the person allows it | while waiting the fake kvmd received 0 key events; after Allow once -> Confirm it received key Enter down, key Enter up; approval POST 200 | pass |
 | phone | Chat: denying a held action delivers nothing | run status rejected; the fake kvmd received 0 key events | pass |
 | phone | a host whose agent is down does not offer Chat, and says so | features.chat=false; the Chat page says "Chat is not available" and shows no workspace | pass |
 | phone | no page errors | clean | pass |
 | desktop | the host offers Chat because the agent answers | features.chat=true; the workspace rendered | pass |
 | desktop | the operator token is held by the host, not the browser | bare request 403; browser sent Bearer desktop-managed; token absent from requests, responses, storage and page | pass |
-| desktop | Settings -> Providers: add an API provider and its key | fake-desktop-6a33: the key is listed as set: yes; no response carries it: yes; the config does not hold it: yes; the store is 0600: yes; no other file on the volume holds it: yes; store mode 600 | pass |
-| desktop | Settings -> Providers: Codex sign-in shows the URL and one-time code, and can be cancelled | link https://auth.openai.com/codex/device; code WB00-FNQG8; after Cancel sign-in: cancelled | pass |
+| desktop | Settings -> Providers: add an API provider and its key | fake-desktop-8a1d: the key is listed as set: yes; no response carries it: yes; the config does not hold it: yes; the store is 0600: yes; no other file on the volume holds it: yes; store mode 600 | pass |
+| desktop | Settings -> Providers: Codex sign-in shows the URL and one-time code, and can be cancelled | link https://auth.openai.com/codex/device; code WBUH-V58DP; after Cancel sign-in: cancelled | pass |
 | desktop | Settings -> Providers: Claude sign-in shows the URL and a box for the code, and can be cancelled | link https://claude.com/cai/oauth/authorize?code=true&client_id=9...; 1 code field; after Cancel sign-in: cancelled | pass |
-| desktop | Chat: a run streams its events and a click reaches the kvmd | event stream opened: true; fake kvmd received button left down, button left up; the model was called with the stored key (…73aa) | pass |
+| desktop | Chat: a run streams its events and a click reaches the kvmd | event stream opened: true; fake kvmd received button left down, button left up; the model was called with the stored key (…6e2a) | pass |
 | desktop | Chat: an action the harness holds is not delivered until the person allows it | while waiting the fake kvmd received 0 key events; after Allow once -> Confirm it received key Enter down, key Enter up; approval POST 200 | pass |
 | desktop | Chat: denying a held action delivers nothing | run status rejected; the fake kvmd received 0 key events | pass |
 | desktop | a host whose agent is down does not offer Chat, and says so | features.chat=false; the Chat page says "Chat is not available" and shows no workspace | pass |
