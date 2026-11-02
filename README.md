@@ -53,3 +53,27 @@ node dist/mcp-launcher.js \
 
 The runtime handoff is mode `0600`, tied to the live desktop process, and never
 contains the browser operator token or daemon approval capability.
+
+## Web host
+
+`src/web-server.ts` runs the console and the PiKVM proxy without Electron, for
+phones and browsers. It has no shared terminal and no agent harness.
+
+```bash
+make web-bundle                      # builds/web/: Docker context
+docker build -t pikvm-web builds/web
+docker run -p 8080:8080 \
+  -e PIKVM_URL=https://pikvm.example.ts.net \
+  -e PIKVM_PASSWORD=... -e PIKVM_ACCESS_TOKEN=... \
+  -v pikvm-web:/data pikvm-web
+```
+
+The environment is the whole contract; the header of `src/web-server.ts` lists
+every variable. `PIKVM_ACCESS_TOKEN` is required, and the idle jiggler stays off
+unless `PIKVM_JIGGLER=1`.
+
+On a touch screen the console docks its controls above the soft keyboard.
+Trackpad mode (the default) moves the cursor by drag, taps click, long-press
+right-clicks, pinch zooms and the zoomed view follows the cursor. Touch mode
+points where you tap. The trackpad uses the Pi's relative mouse unless the dock
+is set to Abs; a mouse, a pen and touch mode always use absolute.
