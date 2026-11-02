@@ -75,6 +75,7 @@ Plain JSON, not the kvmd envelope. `seq` numbers all records in one order;
 | `POST /__fake/event` | Body `{"event_type": "...", "event": {...}}` is pushed to every connected client as-is. It does not change the fake's own state. |
 | `POST /__fake/drop[?graceful=1][&refuse_ms=N]` | Closes every WebSocket (abruptly by default, so the client sees 1006). `refuse_ms` makes new `/api/ws` connections fail with 503 for that long, to exercise reconnect backoff. |
 | `POST /__fake/source?online=0\|1` | Marks the video source offline/online and emits a `streamer` event. |
+| `POST /__fake/picture?name=bars\|changed` | Which picture the stream and snapshots serve: the colour bars, or a dialog-sized change (a light window over a dark desktop), so a test can make the target's screen change. Reset by `/__fake/reset`. |
 
 Example:
 

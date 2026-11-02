@@ -13,7 +13,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { resolve } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
-import { FRAME_HEIGHT, FRAME_JPEG, FRAME_WIDTH } from "./frame.ts";
+import { CHANGED_JPEG, FRAME_HEIGHT, FRAME_JPEG, FRAME_WIDTH } from "./frame.ts";
 
 type Json = Record<string, unknown>;
 
@@ -103,6 +103,8 @@ function freshState() {
         // that a list of names broke the picker once); the console reads the keys.
         keymaps: { default: "en-us", available: { "en-us": {}, "en-gb": {}, de: {}, fr: {} } as Record<string, object> },
         source: { online: true },
+        /** Which picture the streamer serves: the colour bars, or a window-sized change. */
+        picture: "bars" as "bars" | "changed",
         streamerApplied: {
             quality: 80,
             desired_fps: 30,
@@ -346,6 +348,8 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
 
     // ---- video ---------------------------------------------------------------
 
+    const currentFrame = (): Buffer => (state.picture === "changed" ? CHANGED_JPEG : FRAME_JPEG);
+
     const serveMjpeg = (req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(200, {
             "Content-Type": `multipart/x-mixed-replace;boundary=${MJPEG_BOUNDARY}`,
@@ -356,10 +360,10 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
         streams.add(res);
         const write = () => {
             res.write(
-                `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${FRAME_JPEG.length}\r\n` +
+                `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${currentFrame().length}\r\n` +
                     `X-Timestamp: ${(Date.now() / 1000).toFixed(6)}\r\n\r\n`,
             );
-            res.write(FRAME_JPEG);
+            res.write(currentFrame());
             res.write("\r\n");
         };
         write();
@@ -382,13 +386,13 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
         }
         res.writeHead(200, {
             "Content-Type": "image/jpeg",
-            "Content-Length": FRAME_JPEG.length,
+            "Content-Length": currentFrame().length,
             "Cache-Control": "no-store",
             "X-UStreamer-Online": String(state.source.online),
             "X-UStreamer-Width": String(FRAME_WIDTH),
             "X-UStreamer-Height": String(FRAME_HEIGHT),
         });
-        res.end(FRAME_JPEG);
+        res.end(currentFrame());
     };
 
     // ---- kvmd routes ---------------------------------------------------------
@@ -711,6 +715,14 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                     else ws.terminate();
                 }
                 json(res, 200, { ok: true, dropped });
+                return;
+            }
+            case "/__fake/picture": {
+                requireMethod(req, "POST");
+                const name = q.get("name");
+                if (name !== "bars" && name !== "changed") throw new HttpError(400, "ValidatorError", "name must be bars or changed");
+                state.picture = name;
+                json(res, 200, { ok: true, picture: name });
                 return;
             }
             case "/__fake/source":
