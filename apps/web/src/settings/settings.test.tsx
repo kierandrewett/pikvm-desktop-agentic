@@ -443,11 +443,3 @@ describe("settings navigation", () => {
         expect(await screen.findByText("No such setting")).toBeInTheDocument();
     });
 });
-
-describe("kvm", () => {
-    it("fills the area with the console frame", async () => {
-        renderApp("/kvm");
-        await waitFor(() => expect(document.querySelector("iframe")).not.toBeNull());
-        expect(document.querySelector("iframe")).toHaveAttribute("src", "/app/legacy/");
-    });
-});

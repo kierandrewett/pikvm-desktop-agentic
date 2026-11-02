@@ -1,0 +1,149 @@
+/**
+ * The desktop toolbar: the same actions as the phone dock, in the desktop app's titlebar
+ * language (a slim bar, flat round icon buttons in muted ink, blue only for what is on). On the
+ * left the connection; on the right the pinned macros, then Send keys, Power, the audio pair,
+ * zoom-out and the ⋯ menu.
+ */
+
+import { STATUS, statusLabel } from "@pikvm/kvm-engine";
+import { useEffect, useRef } from "react";
+import { useMacros } from "../api/queries";
+import { SHORTCUTS, type ActionSections } from "./actions";
+import type { DialogName } from "./dialog-seam";
+import { KeyboardIcon, MicIcon, MoreIcon, PowerIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
+import { MacroStrip, runnable, useMacroBlocked } from "./macro-buttons";
+import { MenuButton, type MenuEntry } from "./menu-button";
+import type { PictureController } from "./picture-controller";
+import { usePictureState } from "./picture";
+import { isDesktopApp } from "./platform";
+import { useKvmSession, useTarget } from "./session";
+
+export interface ToolbarProps {
+    readonly controller: PictureController | null;
+    readonly actions: ActionSections;
+    readonly openDialog: (name: DialogName) => void;
+    readonly keysOpen: boolean;
+    readonly onKeys: (open: boolean) => void;
+}
+
+export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: ToolbarProps) {
+    const session = useKvmSession();
+    const picture = usePictureState(controller);
+    const inputOpen = useTarget((s) => s.link.open);
+    const atxOn = useTarget((s) => s.device.atx?.leds["power"] === true);
+    const atxBusy = useTarget((s) => s.device.atx?.busy === true);
+    const macros = useMacros();
+    const blocked = useMacroBlocked();
+    const audioButton = useRef<HTMLButtonElement>(null);
+    const micButton = useRef<HTMLButtonElement>(null);
+    const { audio } = picture;
+
+    useEffect(() => {
+        const offA = controller?.bindMeter("audio", audioButton.current);
+        const offM = controller?.bindMeter("mic", micButton.current);
+        return () => {
+            offA?.();
+            offM?.();
+        };
+    }, [controller, audio.available]);
+
+    const label = statusLabel(picture.signal, inputOpen);
+
+    const sendKeys: MenuEntry[] = [
+        { id: "keys", label: "Show on-screen keys", checked: keysOpen, run: () => onKeys(!keysOpen) },
+        { id: "paste", label: "Paste text\u2026", run: () => openDialog("paste") },
+    ];
+    const all = macros.data ?? [];
+    if (all.length > 0) {
+        sendKeys.push({ type: "separator" });
+        for (const macro of all) {
+            sendKeys.push({
+                id: `macro:${macro.id}`,
+                label: macro.label,
+                disabled: blocked(macro),
+                run: () => void session.macros.run(runnable(macro)),
+            });
+        }
+    }
+    sendKeys.push({ type: "separator" });
+    for (const shortcut of SHORTCUTS) {
+        sendKeys.push({
+            id: `kb:${shortcut.id}`,
+            label: shortcut.label,
+            run: () => session.keyboard.sendChord(shortcut.mods, shortcut.code, false),
+        });
+    }
+
+    const toEntries = (list: readonly ActionSections["tools"][number][]): MenuEntry[] =>
+        list.map((a) => ({ id: a.id, label: a.label, run: a.run, ...(a.disabled !== undefined ? { disabled: a.disabled } : {}) }));
+    const more: MenuEntry[] = [];
+    if (audio.available) more.push({ id: "audio-devices", label: "Audio devices\u2026", run: () => openDialog("audio-devices") }, { type: "separator" });
+    more.push(...toEntries(actions.tools), { type: "separator" }, ...toEntries(actions.view));
+
+    const powerLabel = actions.power.length === 0 ? "Power" : atxBusy ? "Power \u2014 busy" : atxOn ? "Power \u2014 target is on" : "Power \u2014 target is off";
+
+    return (
+        <div className="kvm-toolbar" data-desktop-app={isDesktopApp()}>
+            <div className="kvm-tb-left">
+                <span className={`kvm-dot ${STATUS[picture.signal].tone}`} title={label} role="img" aria-label={label} />
+                <span className="kvm-status">{label}</span>
+            </div>
+            <div className="kvm-tb-right">
+                <MacroStrip />
+                <MenuButton label="Send keys" icon={<KeyboardIcon />} entries={sendKeys} testId="send-keys" />
+                {actions.power.length > 0 ? (
+                    <MenuButton
+                        label={powerLabel}
+                        icon={<PowerIcon />}
+                        entries={toEntries(actions.power)}
+                        className={`kvm-tb-btn${atxBusy ? " atx-busy" : atxOn ? " atx-on" : ""}`}
+                        testId="power"
+                    />
+                ) : null}
+                {audio.available ? (
+                    <>
+                        <span className="kvm-tb-sep" />
+                        <button
+                            ref={audioButton}
+                            type="button"
+                            className={`kvm-tb-btn kvm-av${audio.audioOn ? " on" : ""}`}
+                            data-tb="audio"
+                            aria-pressed={audio.audioOn}
+                            aria-label="Audio output"
+                            title="Audio output"
+                            onClick={() => controller?.toggleAudio()}
+                        >
+                            <SpeakerIcon />
+                        </button>
+                        <button
+                            ref={micButton}
+                            type="button"
+                            className={`kvm-tb-btn kvm-av${audio.micOn ? " on" : ""}${audio.micWarn ? " warn" : ""}`}
+                            data-tb="mic"
+                            aria-pressed={audio.micOn}
+                            aria-label="Microphone"
+                            title={audio.micWarn ? audio.micLabel : "Microphone"}
+                            onClick={() => controller?.toggleMic()}
+                        >
+                            <MicIcon />
+                        </button>
+                    </>
+                ) : null}
+                {picture.scale > 1 ? (
+                    <button
+                        type="button"
+                        className="kvm-tb-btn"
+                        data-testid="zoom-reset"
+                        title="Zoom out to the whole screen"
+                        aria-label="Zoom out to the whole screen"
+                        onClick={() => controller?.resetZoom()}
+                    >
+                        <ZoomOutIcon />
+                    </button>
+                ) : null}
+                <span className="kvm-tb-sep" />
+                <MenuButton label="More" icon={<MoreIcon />} entries={more} testId="more" />
+            </div>
+        </div>
+    );
+}

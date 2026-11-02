@@ -977,6 +977,7 @@ __metadata:
     "@effect/platform": "npm:^0.97.3"
     "@pikvm/chat-ui": "workspace:*"
     "@pikvm/contracts": "workspace:*"
+    "@pikvm/kvm-engine": "workspace:*"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@tanstack/react-query": "npm:^5.105.1"
     "@tanstack/react-router": "npm:^1.170.46"

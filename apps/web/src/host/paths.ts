@@ -1,10 +1,6 @@
 /**
- * Every server path the shell depends on, in one place. The console frame is temporary:
- * phase 4 replaces it with the KVM screen and its constant goes away.
+ * Every server path the shell depends on, in one place.
  */
-
-/** The existing console, served by the host until the KVM screen is ported. */
-export const LEGACY_CONSOLE_PATH: string = import.meta.env.VITE_LEGACY_CONSOLE_PATH ?? "/app/legacy/";
 
 /** The agent harness's API, forwarded by the host with the operator capability attached server-side. */
 export const HARNESS_API_BASE = "/app/harness";

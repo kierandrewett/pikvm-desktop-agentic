@@ -1,6 +1,6 @@
 /**
  * The route table. Everything the app shows is one of:
- *   /kvm              the KVM screen (the legacy console, until phase 4)
+ *   /kvm              the KVM screen
  *   /chat             the agent workspace (@pikvm/chat-ui)
  *   /settings[/page]  Settings
  * and `/` goes to the KVM, the thing the app is for.
@@ -14,7 +14,7 @@ import {
     lazyRouteComponent,
     redirect,
 } from "@tanstack/react-router";
-import { LegacyConsoleFrame } from "../kvm/legacy-console-frame";
+import { KvmRoute } from "../kvm/kvm-screen";
 import { SettingsDetail, SettingsIndex, SettingsLayout } from "../settings/settings-layout";
 import { Shell } from "./shell";
 
@@ -28,7 +28,7 @@ const indexRoute = createRoute({
     },
 });
 
-const kvmRoute = createRoute({ getParentRoute: () => rootRoute, path: "/kvm", component: LegacyConsoleFrame });
+const kvmRoute = createRoute({ getParentRoute: () => rootRoute, path: "/kvm", component: KvmRoute });
 
 // The conversation is most of the app's weight (markdown, tool cards, the provider forms)
 // and the KVM and Settings never need it, so it loads when Chat is first opened.

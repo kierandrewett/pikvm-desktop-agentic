@@ -1,0 +1,952 @@
+/*
+ * The KVM screen. Class names are all `kvm-` so nothing here can collide with the shell's or the
+ * settings pages' (`.row`, `.tb-btn` and friends live in styles.css). The look is the console's:
+ * the dock is the desktop titlebar's language at thumb size (a --card bar on a hairline, flat
+ * round icon buttons in muted ink, quiet keys on --secondary with a 6px radius and no borders,
+ * and blue only for what is ON), and the toolbar is that same titlebar on a computer.
+ */
+
+.kvm-screen {
+    /* The overlay is near-black in BOTH themes because it covers the video, where a light panel
+       would be wrong. Its ink is therefore fixed rather than --foreground, which flips. */
+    --overlay-glass: #121216;
+    --overlay-ink: #ededf1;
+    --overlay-danger: #f25555;
+    --overlay-warn: #e0a52b;
+    --overlay-accent: #5b8cff;
+
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--background);
+}
+
+/* Safari and the installed app colour the status bar from the page background, so on a phone
+   the page is black behind the picture. */
+.kvm-screen[data-layout="dock"] {
+    background: #000;
+}
+.app-shell:has(> .app-panel > .kvm-screen[data-layout="dock"]) {
+    background: #000;
+}
+html:has(.kvm-screen[data-layout="dock"]) {
+    background: #000;
+}
+html:has(.kvm-screen[data-layout="dock"]) body {
+    background: transparent;
+}
+
+.kvm-stage {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+    background: #000;
+}
+
+/* ---- the picture ---------------------------------------------------------- */
+
+.kvm-pane {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: #000;
+    /* The picture handles every touch itself; never let the browser pan or zoom it. */
+    touch-action: none;
+    /* Hidden in favour of our own cursor, which is the only thing showing where you point. */
+    cursor: none;
+}
+
+/* The MJPEG <img> and the WebRTC <video> share ONE box, sizing, object-fit and transform origin,
+   so the coordinate maths is identical for either source. Only one shows at a time. */
+.kvm-img,
+.kvm-video,
+.kvm-freeze {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    transform-origin: 0 0;
+    -webkit-user-drag: none;
+    background: #000;
+}
+.kvm-pane .hidden {
+    display: none !important;
+}
+/* Decoding but not yet confirmed playing: rendered (so Safari actually decodes it and fires
+   "playing") but transparent, so the MJPEG underneath stays visible. */
+.kvm-video.warming {
+    opacity: 0;
+}
+.kvm-pane:not(.has-frame) .kvm-img,
+.kvm-pane:not(.has-frame) .kvm-video {
+    visibility: hidden;
+}
+/* The held frame: shown only while the live source has nothing to paint. */
+.kvm-freeze {
+    display: none;
+    z-index: 1;
+}
+.kvm-pane.frozen .kvm-freeze {
+    display: block;
+}
+.kvm-pane.frozen .kvm-img,
+.kvm-pane.frozen .kvm-video {
+    visibility: hidden;
+}
+
+.kvm-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: var(--overlay-ink);
+    background:
+        radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--overlay-glass) 74%, transparent), transparent 42%),
+        #07080a;
+    padding: 24px;
+    pointer-events: none;
+}
+.kvm-pane.offline .kvm-overlay {
+    display: flex;
+}
+/* A cue, not a cover: with a held frame the overlay is only a dim at the bottom and the pill. */
+.kvm-pane.has-frame .kvm-overlay {
+    align-items: flex-end;
+    justify-content: flex-start;
+    background: linear-gradient(to top, rgba(5, 6, 8, 0.34), rgba(5, 6, 8, 0.04) 26%);
+}
+.kvm-stream-state {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid color-mix(in srgb, var(--overlay-ink) 16%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--overlay-glass) 96%, transparent);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+.kvm-spinner {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--overlay-ink) 24%, transparent);
+    border-top-color: var(--overlay-accent);
+    animation: kvm-spin 0.7s linear infinite;
+}
+.kvm-spinner[hidden] {
+    display: none;
+}
+.kvm-pane[data-stream-state="nosignal"] .kvm-stream-state {
+    color: var(--overlay-warn);
+}
+.kvm-pane[data-stream-state="offline"] .kvm-stream-state,
+.kvm-pane[data-stream-state="disconnected"] .kvm-stream-state {
+    color: var(--overlay-danger);
+}
+@keyframes kvm-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* PiKVM's cursor: a small translucent blue dot with a two-tone ring, a light one for dark
+   backgrounds and a dark one outside it for light ones, so one of the two always reads. */
+.kvm-cursor {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(91, 144, 187, 0.5);
+    border: 1px solid rgba(232, 232, 232, 0.85);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 5;
+    display: none;
+    will-change: left, top;
+}
+/* Held still long enough to arm: moving now drags, lifting now right-clicks. */
+.kvm-pane.hold-armed .kvm-cursor {
+    width: 16px;
+    height: 16px;
+    box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--ok) 75%, transparent),
+        0 0 0 4px rgb(0 0 0 / 55%);
+}
+.kvm-pane.hold-armed .kvm-lens {
+    border-color: var(--ok);
+}
+/* The trackpad magnifier. Centred on the cursor; the canvas draws the enlarged picture and the
+   hotspot dot, this is only the frame. */
+.kvm-lens {
+    position: absolute;
+    width: 104px;
+    height: 104px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 5;
+    border: 2px solid color-mix(in srgb, var(--primary) 70%, white);
+    box-shadow:
+        0 0 0 1px rgb(0 0 0 / 55%),
+        0 8px 24px -6px rgb(0 0 0 / 60%);
+    opacity: 0;
+    visibility: hidden;
+    transition:
+        opacity 0.18s,
+        visibility 0s linear 0.18s;
+}
+.kvm-lens.on {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.12s;
+}
+
+/* ---- toasts ---------------------------------------------------------------- */
+
+.kvm-res-toast,
+.kvm-toast {
+    position: absolute;
+    left: 50%;
+    transform: translate(-50%, -10px);
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 82%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    color: var(--foreground);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition:
+        opacity 0.25s ease,
+        transform 0.25s ease;
+}
+.kvm-res-toast {
+    top: max(10px, env(safe-area-inset-top));
+}
+.kvm-res-toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+.kvm-res-av {
+    color: color-mix(in srgb, var(--foreground) 72%, transparent);
+    border-left: 1px solid var(--border);
+    padding-left: 8px;
+}
+/* Window-level and above the dialogs: most of what it says is fired FROM one ("Paste failed"). */
+.kvm-toast {
+    position: fixed;
+    z-index: 70;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    transform: translate(-50%, 10px);
+    max-width: min(520px, calc(100% - 32px));
+    white-space: normal;
+    text-align: center;
+}
+.kvm-toast:empty {
+    display: none;
+}
+.kvm-toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+/* Pinned to the dark glass, surface and ink together, so it reads over any picture. */
+.kvm-toast.is-error {
+    background: color-mix(in srgb, #121216 96%, transparent);
+    border-color: color-mix(in srgb, #f25555 55%, #121216);
+    color: color-mix(in srgb, #f25555 88%, #ededf1);
+}
+
+/* ---- the hidden field ------------------------------------------------------- */
+
+.kvm-kbd {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: 0;
+    padding: 0;
+    font-size: 16px;
+    background: transparent;
+    pointer-events: none;
+}
+
+/* ---- buttons, keys, menu items ---------------------------------------------- */
+
+.kvm-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+    flex: none;
+    transition: background 0.2s;
+}
+/* Connected is the expected state, so it stays neutral: colour is for what needs attention. */
+.kvm-dot.warn {
+    background: var(--warn);
+}
+.kvm-dot.bad {
+    background: var(--danger);
+}
+.kvm-status {
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 550;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.kvm-spacer {
+    flex: 1;
+    min-width: 4px;
+}
+
+.kvm-ibtn,
+.kvm-tb-btn {
+    -webkit-app-region: no-drag;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground);
+    padding: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1;
+    touch-action: manipulation;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+.kvm-ibtn {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+}
+.kvm-tb-btn {
+    width: 30px;
+    height: 30px;
+}
+.kvm-ibtn svg {
+    width: 18px;
+    height: 18px;
+    pointer-events: none;
+}
+.kvm-tb-btn svg {
+    width: 15px;
+    height: 15px;
+    pointer-events: none;
+}
+.kvm-tb-btn:hover,
+.kvm-ibtn:hover {
+    background: color-mix(in srgb, currentColor 16%, transparent);
+    color: var(--foreground);
+}
+.kvm-tb-btn:active,
+.kvm-ibtn:active {
+    background: color-mix(in srgb, currentColor 26%, transparent);
+}
+.kvm-tb-btn:disabled,
+.kvm-ibtn:disabled {
+    opacity: 0.4;
+    cursor: default;
+    background: transparent;
+}
+/* ON: the active treatment, ink in the accent with a light wash, not a solid block. */
+.kvm-ibtn.on,
+.kvm-tb-btn.on,
+.kvm-tb-btn[aria-expanded="true"],
+.kvm-tb-btn.atx-on {
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.kvm-tb-btn.atx-on {
+    color: var(--foreground);
+}
+.kvm-tb-btn.atx-busy {
+    color: var(--warn);
+}
+
+/* Speaker and mic: waves only while on, a light wash when armed, amber on a problem, and the
+   live level rising in green behind the icon, clipped to the circle. */
+.kvm-av {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+}
+.kvm-av .wave {
+    opacity: 0;
+}
+.kvm-av.on {
+    color: var(--foreground);
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.kvm-av.on .wave {
+    opacity: 1;
+}
+.kvm-av.warn {
+    color: var(--warn);
+}
+.kvm-av::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--vol, 0) * 100%);
+    z-index: -1;
+    background: linear-gradient(to top, color-mix(in srgb, var(--ok) 72%, transparent), color-mix(in srgb, var(--ok) 18%, transparent));
+    transition: height 0.05s linear;
+    pointer-events: none;
+}
+
+.kvm-key {
+    appearance: none;
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 38px;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 550;
+    white-space: nowrap;
+    touch-action: manipulation;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+.kvm-key:active {
+    background: color-mix(in srgb, currentColor 26%, transparent);
+}
+.kvm-key.on {
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+/* A double-tapped modifier is locked: a small bar says so, since colour alone is the same as armed. */
+.kvm-key-lock {
+    position: absolute;
+    left: 28%;
+    right: 28%;
+    bottom: 4px;
+    height: 2px;
+    border-radius: 1px;
+    background: currentColor;
+}
+
+.kvm-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--foreground);
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 7px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    display: block;
+    width: 100%;
+    transition: background 0.12s;
+}
+.kvm-item:hover,
+.kvm-item:active {
+    background: var(--accent);
+}
+.kvm-item:disabled {
+    opacity: 0.45;
+    cursor: default;
+    background: transparent;
+}
+.kvm-item:focus-visible,
+.kvm-key:focus-visible,
+.kvm-ibtn:focus-visible,
+.kvm-tb-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+}
+.kvm-item.toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.kvm-pip {
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted-foreground);
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 9px;
+}
+/* Deepened so the 11px pip clears 4.5:1 without changing the accent. */
+.kvm-item.on .kvm-pip {
+    color: var(--primary-foreground);
+    background: color-mix(in srgb, var(--primary) 78%, #000);
+    border-color: color-mix(in srgb, var(--primary) 78%, #000);
+}
+.kvm-item.warn .kvm-pip {
+    color: #1a1407;
+    background: var(--warn);
+    border-color: var(--warn);
+}
+.kvm-item.pending .kvm-pip {
+    opacity: 0.6;
+}
+.kvm-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 6px 0;
+    flex: none;
+}
+
+/* ---- the phone dock ---------------------------------------------------------- */
+
+.kvm-bar {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+}
+.kvm-bar-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 44px;
+    padding: 0 max(8px, env(safe-area-inset-right)) 0 max(11px, env(safe-area-inset-left));
+}
+.kvm-keys {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left));
+    border-top: 1px solid var(--border);
+}
+.kvm-krow {
+    display: flex;
+    gap: 6px;
+}
+.kvm-krow > .kvm-key {
+    height: 36px;
+}
+/* The opened blocks wrap, six keys to a line, like the F-row on a laptop. */
+.kvm-krow-wrap {
+    flex-wrap: wrap;
+}
+.kvm-krow-wrap > .kvm-key {
+    flex: 0 0 calc((100% - 30px) / 6);
+    font-size: 12.5px;
+}
+/* The status text gives way first on a narrow phone; the dot keeps the state. */
+@media (max-width: 440px) {
+    .kvm-bar-main .kvm-status {
+        display: none;
+    }
+}
+
+/* The ⋯ sheet: the dock grown upward, in flow so it pushes the picture up. */
+.kvm-sheet {
+    display: flex;
+    flex-direction: column;
+    max-height: min(60vh, calc(var(--app-height, 100dvh) * 0.6));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left));
+    animation: kvm-sheet-rise 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.kvm-sheet .kvm-item {
+    min-height: 44px;
+}
+.kvm-sheet-label {
+    padding: 4px 8px 6px;
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted-foreground);
+}
+.kvm-sheet-row {
+    display: flex;
+    gap: 6px;
+    padding: 0 4px 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+.kvm-sheet-row > .kvm-key {
+    height: 40px;
+}
+.kvm-sheet-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 0 4px 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+.kvm-macro-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 64px;
+    padding: 8px 4px;
+    border-radius: 6px;
+    background: var(--secondary);
+    text-align: center;
+}
+.kvm-macro-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    color: var(--foreground);
+    font-size: 12px;
+    font-weight: 650;
+}
+.kvm-macro-icon svg {
+    width: 22px;
+    height: 22px;
+}
+.kvm-macro-label {
+    font-size: 11.5px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+@keyframes kvm-sheet-rise {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+}
+
+/* ---- the desktop toolbar ------------------------------------------------------- */
+
+.kvm-toolbar {
+    -webkit-app-region: drag;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex: none;
+    height: 38px;
+    /* The desktop app's frameless window puts its own controls over this corner. */
+    padding: 0 calc(8px + var(--window-controls-inset, 0px)) 0 12px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+}
+.kvm-tb-left,
+.kvm-tb-right {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+}
+.kvm-tb-left {
+    gap: 7px;
+}
+.kvm-tb-sep {
+    flex: none;
+    width: 1px;
+    height: 16px;
+    margin: 0 4px;
+    background: var(--border);
+}
+.kvm-macro-strip {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    overflow: hidden;
+}
+.kvm-menu-host {
+    position: relative;
+    display: inline-flex;
+}
+.kvm-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    min-width: 224px;
+    max-height: calc(100dvh - 80px);
+    overflow-y: auto;
+    padding: 5px;
+    background: var(--card);
+    border-radius: 10px;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+        0 12px 32px -8px rgb(0 0 0 / 55%);
+    animation: kvm-sheet-rise 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.kvm-menu .kvm-item[aria-pressed="true"]::after {
+    content: "\2713";
+    float: right;
+    color: var(--primary);
+}
+.kvm-strip {
+    flex-direction: row;
+    flex: none;
+    gap: 6px;
+    padding: 6px 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--card);
+    border-top: 0;
+    border-bottom: 1px solid var(--border);
+}
+.kvm-strip .kvm-key {
+    flex: 0 0 auto;
+    min-width: 44px;
+    padding: 0 10px;
+    height: 32px;
+}
+
+/* ---- the Pi's own UI, framed --------------------------------------------------- */
+
+.kvm-full-ui {
+    position: absolute;
+    inset: 0;
+    z-index: 9;
+    background: var(--background);
+}
+.kvm-full-ui-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+.kvm-full-ui-note {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: var(--background);
+    color: var(--muted-foreground);
+}
+.kvm-full-ui-back {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--card) 90%, transparent);
+    box-shadow: 0 0 0 1px var(--border);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* ---- picking a region to read --------------------------------------------------- */
+
+.kvm-ocr-pick {
+    position: fixed;
+    z-index: 20;
+    cursor: crosshair;
+    touch-action: none;
+    background: rgb(0 0 0 / 35%);
+}
+.kvm-ocr-hint {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--card) 90%, transparent);
+    font-size: 12px;
+    font-weight: 600;
+    pointer-events: none;
+}
+.kvm-ocr-rect {
+    position: absolute;
+    border: 2px solid var(--primary);
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+    pointer-events: none;
+}
+
+/* ---- dialogs -------------------------------------------------------------------- */
+
+.kvm-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgb(0 0 0 / 55%);
+    animation: kvm-fade 0.14s ease;
+}
+.kvm-dialog {
+    width: min(560px, 100%);
+    max-height: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px;
+    background: var(--card);
+    color: var(--foreground);
+    border-radius: 12px;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+        0 24px 60px -12px rgb(0 0 0 / 60%);
+}
+.kvm-dialog.wide {
+    width: min(760px, 100%);
+}
+.kvm-dialog-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+.kvm-dialog-note {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 13px;
+}
+.kvm-dialog-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.kvm-dialog-label {
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+.kvm-dialog-hint {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted-foreground);
+}
+.kvm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.kvm-textarea,
+.kvm-select {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-field);
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+}
+.kvm-textarea {
+    width: 100%;
+    resize: vertical;
+    padding: 10px;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.kvm-select {
+    min-height: 32px;
+    padding: 0 8px;
+}
+.kvm-textarea:focus,
+.kvm-select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+.kvm-btn {
+    appearance: none;
+    min-height: 34px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--secondary);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+}
+.kvm-btn:hover {
+    background: var(--accent);
+}
+.kvm-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.kvm-btn.primary {
+    background: color-mix(in srgb, var(--primary) 78%, #000);
+    border-color: color-mix(in srgb, var(--primary) 78%, #000);
+    color: var(--primary-foreground);
+}
+@keyframes kvm-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .kvm-sheet,
+    .kvm-menu,
+    .kvm-scrim {
+        animation: none;
+    }
+    .kvm-lens,
+    .kvm-lens.on {
+        transition: none;
+    }
+    .kvm-res-toast,
+    .kvm-toast {
+        transform: translate(-50%, 0);
+        transition: opacity 0.25s ease;
+    }
+    .kvm-spinner {
+        animation: none;
+        border-top-color: var(--primary);
+    }
+    .kvm-av::before {
+        transition: none;
+    }
+}
