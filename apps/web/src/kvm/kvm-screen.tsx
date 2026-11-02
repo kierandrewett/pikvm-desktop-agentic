@@ -12,6 +12,8 @@ import { useAppState } from "../api/queries";
 import { useMediaQuery } from "../app/viewport";
 import { TOUCH_HID_KEY, TOUCH_MODE_KEY, readTouchHid, readTouchMode, useStoredValue } from "../settings/local-prefs";
 import { useActions } from "./actions";
+import { desktopBridge } from "../host/desktop";
+import { SCREEN_ALERTS_KEY, readScreenAlerts, watchingForChange } from "./screen-alerts";
 import { onAudioDevicesChanged } from "./audio-devices-event";
 import { DialogHost } from "./dialog-host";
 import type { DialogName } from "./dialog-seam";
@@ -38,6 +40,7 @@ export function KvmScreen() {
     const [controller, setController] = useState<PictureController | null>(null);
     const [touchMode, setTouchMode] = useStoredValue(TOUCH_MODE_KEY, readTouchMode);
     const [touchHid, setTouchHid] = useStoredValue(TOUCH_HID_KEY, readTouchHid);
+    const [alerts, setAlerts] = useStoredValue(SCREEN_ALERTS_KEY, readScreenAlerts);
     const [dragLock, setDragLock] = useState(false);
     const [keysOpen, setKeysOpen] = useState(false);
     const { open } = useStore(session.dialogs.store);
@@ -85,8 +88,15 @@ export function KvmScreen() {
     }, [desktop]);
 
     const prefs = useMemo<PicturePrefs>(
-        () => ({ touchMode, touchHid, dragLock, modalOpen, windowFocused }),
-        [touchMode, touchHid, dragLock, modalOpen, windowFocused],
+        () => ({
+            touchMode,
+            touchHid,
+            dragLock,
+            modalOpen,
+            windowFocused,
+            watching: watchingForChange(desktopBridge(), alerts === "on", windowFocused),
+        }),
+        [touchMode, touchHid, dragLock, modalOpen, windowFocused, alerts],
     );
 
     const openDialog = useCallback((name: DialogName) => session.dialogs.open(name), [session]);
@@ -104,7 +114,13 @@ export function KvmScreen() {
             }
         };
     }, [controller, picture.mode, focus, session]);
-    const actions = useActions({ openDialog, toggleFullUi, fullUiOn, isFullscreen });
+    const actions = useActions({
+        openDialog,
+        toggleFullUi,
+        fullUiOn,
+        isFullscreen,
+        screenAlerts: desktop ? { on: alerts === "on", toggle: () => setAlerts(alerts === "on" ? "off" : "on") } : null,
+    });
 
     return (
         <OcrPickerProvider controller={controller}>

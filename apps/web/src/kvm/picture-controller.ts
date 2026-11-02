@@ -36,6 +36,8 @@ import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
 import { buzz } from "./haptics";
 import { createJanusBridge } from "./janus-stream";
+import { createScreenAlerts } from "./screen-alerts";
+import { desktopBridge } from "../host/desktop";
 import { createPointerExecutor } from "./pointer-executor";
 import type { KvmSession } from "./session";
 import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice } from "../settings/local-prefs";
@@ -85,6 +87,8 @@ export interface PicturePrefs {
     readonly dragLock: boolean;
     readonly modalOpen: boolean;
     readonly windowFocused: boolean;
+    /** The desktop window is in the background and its taskbar entry should pulse when the screen changes. */
+    readonly watching: boolean;
 }
 
 export interface PictureController {
@@ -381,7 +385,9 @@ export function createPictureController(options: PictureOptions): PictureControl
 
     /* ---- video ---- */
 
+    const alerts = createScreenAlerts({ clock, bridge: desktopBridge(), watching: () => prefs.watching });
     const dom = createVideoDom({
+        onLuma: (lum) => alerts.sample(lum),
         elements: { pane, img, video, freezeCanvas: freeze },
         onSignal: (signal) => {
             patch({ signal, hasFrame: pane.classList.contains("has-frame") });
@@ -525,6 +531,8 @@ export function createPictureController(options: PictureOptions): PictureControl
             if (prefs.modalOpen !== before.modalOpen) envPatch.modalOpen = prefs.modalOpen;
             if (prefs.windowFocused !== before.windowFocused) envPatch.windowFocused = prefs.windowFocused;
             if (Object.keys(envPatch).length > 0) sendEnv(envPatch);
+            // Sampling goes on while the document is hidden only when somebody is watching.
+            if (prefs.watching !== before.watching) driver.send({ type: "need", collapsed: false, watching: prefs.watching });
             if (envPatch.touchMode !== undefined || envPatch.touchHid !== undefined) {
                 // The Pi's mouse output follows the choice at once, not at the next touch.
                 link.setMouseOutput(prefs.touchMode === "direct" || prefs.touchHid === "abs");

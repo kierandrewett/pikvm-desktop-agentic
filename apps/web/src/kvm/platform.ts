@@ -131,18 +131,47 @@ export function screenshotName(now: Date = new Date()): string {
     return `pikvm-${day}-${time}.jpg`;
 }
 
-/** Fetch a full-resolution frame and hand it to the browser as a download. */
-export async function saveScreenshot(fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<void> {
+/** Fetch a full-resolution frame and hand it to the browser as a download. Resolves with the file's name. */
+export async function saveScreenshot(fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<string> {
     const res = await fetchImpl("/api/streamer/snapshot?allow_offline=1", { cache: "no-store" });
     if (!res.ok) throw new Error(`The screenshot failed (${res.status})`);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = screenshotName();
+    const name = screenshotName();
+    link.download = name;
     document.body.appendChild(link);
     link.click();
     link.remove();
     // Not at once: some browsers start the download after the click returns.
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    return name;
+}
+
+/** How long to wait for the desktop app to say a download is done before assuming it was saved. */
+export const DOWNLOAD_WAIT_MS = 20_000;
+
+export type DownloadOutcome = "completed" | "cancelled" | "interrupted";
+
+/**
+ * Clicking a download link only hands the file to the OS: it may ask where to save, and the user may say no.
+ * In the desktop app "saved" is therefore only true once the shell says so; a browser has no such report,
+ * so it is taken as saved, and so is a shell that stays silent for `DOWNLOAD_WAIT_MS`.
+ */
+export function awaitDownload(name: string, wait: number = DOWNLOAD_WAIT_MS): Promise<DownloadOutcome> {
+    const bridge = desktopBridge();
+    if (!bridge) return Promise.resolve("completed");
+    return new Promise((resolve) => {
+        const off = bridge.onDownloadDone((download) => {
+            if (download.name !== name) return;
+            clearTimeout(timer);
+            off();
+            resolve(download.state);
+        });
+        const timer = setTimeout(() => {
+            off();
+            resolve("completed");
+        }, wait);
+    });
 }

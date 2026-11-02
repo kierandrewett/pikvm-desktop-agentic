@@ -8,7 +8,7 @@ import { errorMessage } from "@pikvm/kvm-engine";
 import { useMemo, useState } from "react";
 import { currentTheme, setThemeChoice } from "../theme";
 import type { DialogName } from "./dialog-seam";
-import { fullscreenSupported, saveScreenshot, toggleFullscreen } from "./platform";
+import { awaitDownload, fullscreenSupported, saveScreenshot, toggleFullscreen } from "./platform";
 import { useKvmSession, useTarget } from "./session";
 
 export interface Action {
@@ -67,6 +67,8 @@ export interface ActionInputs {
     readonly toggleFullUi: (() => void) | null;
     readonly fullUiOn: boolean;
     readonly isFullscreen: boolean;
+    /** The desktop app's "pulse the taskbar when the screen changes" switch; null outside it. */
+    readonly screenAlerts: { readonly on: boolean; readonly toggle: () => void } | null;
 }
 
 export function useActions(inputs: ActionInputs): ActionSections {
@@ -76,7 +78,9 @@ export function useActions(inputs: ActionInputs): ActionSections {
     const atxEnabled = useTarget((s) => s.device.atx?.enabled === true);
     const atxBusy = useTarget((s) => s.device.atx?.busy === true);
     const [shooting, setShooting] = useState(false);
-    const { openDialog, toggleFullUi, fullUiOn, isFullscreen } = inputs;
+    const { openDialog, toggleFullUi, fullUiOn, isFullscreen, screenAlerts } = inputs;
+    const alertsOn = screenAlerts?.on;
+    const alertsToggle = screenAlerts?.toggle;
 
     return useMemo<ActionSections>(() => {
         const { notify } = session.notices;
@@ -84,7 +88,12 @@ export function useActions(inputs: ActionInputs): ActionSections {
         const shoot = (): void => {
             setShooting(true);
             saveScreenshot()
-                .then(() => notify({ text: "Screenshot saved" }))
+                .then(awaitDownload)
+                .then((state) => {
+                    if (state === "completed") notify({ text: "Screenshot saved" });
+                    else if (state === "cancelled") notify({ text: "Screenshot not saved" });
+                    else notify({ text: "Screenshot save failed", error: true });
+                })
                 .catch((e: unknown) => notify({ text: errorMessage(e), error: true }))
                 .finally(() => setShooting(false));
         };
@@ -123,9 +132,17 @@ export function useActions(inputs: ActionInputs): ActionSections {
             label: "Toggle theme",
             run: () => setThemeChoice(currentTheme() === "dark" ? "light" : "dark"),
         });
+        if (alertsToggle) {
+            view.push({
+                id: "screen-alerts",
+                label: "Pulse the taskbar when the screen changes",
+                checked: alertsOn === true,
+                run: alertsToggle,
+            });
+        }
         if (toggleFullUi) {
             view.push({ id: "full-ui", label: fullUiOn ? "Back to console" : "Full PiKVM UI", run: toggleFullUi });
         }
         return { tools, power, view };
-    }, [session, openDialog, toggleFullUi, fullUiOn, isFullscreen, msdEnabled, ocrEnabled, atxEnabled, atxBusy, shooting]);
+    }, [session, openDialog, toggleFullUi, fullUiOn, isFullscreen, alertsOn, alertsToggle, msdEnabled, ocrEnabled, atxEnabled, atxBusy, shooting]);
 }

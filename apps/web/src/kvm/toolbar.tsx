@@ -115,7 +115,13 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
     }
 
     const toEntries = (list: readonly ActionSections["tools"][number][]): MenuEntry[] =>
-        list.map((a) => ({ id: a.id, label: a.label, run: a.run, ...(a.disabled !== undefined ? { disabled: a.disabled } : {}) }));
+        list.map((a) => ({
+            id: a.id,
+            label: a.label,
+            run: a.run,
+            ...(a.disabled !== undefined ? { disabled: a.disabled } : {}),
+            ...(a.checked !== undefined ? { checked: a.checked } : {}),
+        }));
     const more: MenuEntry[] = [];
     if (audio.available) more.push({ id: "audio-devices", label: "Audio devices\u2026", run: () => openDialog("audio-devices") }, { type: "separator" });
     more.push(...toEntries(actions.tools), { type: "separator" }, ...toEntries(actions.view));

@@ -3,7 +3,7 @@
 import { DESKTOP_BRIDGE_KEY } from "@pikvm/contracts/desktop";
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { saveScreenshot, screenshotName, toggleFullscreen, useWakeLock } from "./platform";
+import { awaitDownload, saveScreenshot, screenshotName, toggleFullscreen, useWakeLock } from "./platform";
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -133,10 +133,40 @@ describe("screenshot", () => {
         expect(fetchImpl).toHaveBeenCalledWith("/api/streamer/snapshot?allow_offline=1", { cache: "no-store" });
         expect(clicked).toHaveLength(1);
         expect(clicked[0]).toMatch(/^pikvm-\d{8}-\d{6}\.jpg blob:frame/);
+        expect(await saveScreenshot(fetchImpl as unknown as typeof fetch)).toMatch(/^pikvm-\d{8}-\d{6}\.jpg$/);
     });
 
     it("fails with the status when kvmd refuses", async () => {
         const fetchImpl = vi.fn(async () => new Response("no", { status: 503 }));
         await expect(saveScreenshot(fetchImpl as unknown as typeof fetch)).rejects.toThrow("The screenshot failed (503)");
+    });
+});
+
+describe("waiting for the download to land", () => {
+    function bridgeWith() {
+        const listeners = new Set<(d: { name: string; state: string; path: string }) => void>();
+        const bridge = { onDownloadDone: (l: (d: { name: string; state: string; path: string }) => void) => (listeners.add(l), () => listeners.delete(l)) };
+        Object.defineProperty(window, DESKTOP_BRIDGE_KEY, { configurable: true, value: bridge });
+        return { emit: (d: { name: string; state: string; path: string }) => listeners.forEach((l) => l(d)), listeners };
+    }
+    afterEach(() => Reflect.deleteProperty(window, DESKTOP_BRIDGE_KEY));
+
+    it("a browser has no report, so the file is taken as saved", async () => {
+        expect(await awaitDownload("a.jpg")).toBe("completed");
+    });
+
+    it("in the desktop app it is the shell's word for THIS file that counts", async () => {
+        const { emit, listeners } = bridgeWith();
+        const result = awaitDownload("a.jpg");
+        emit({ name: "other.jpg", state: "cancelled", path: "" });
+        emit({ name: "a.jpg", state: "cancelled", path: "" });
+        expect(await result).toBe("cancelled");
+        expect(listeners.size).toBe(0);
+    });
+
+    it("a shell that stays silent is taken as saved after the wait, and stops listening", async () => {
+        const { listeners } = bridgeWith();
+        expect(await awaitDownload("a.jpg", 10)).toBe("completed");
+        expect(listeners.size).toBe(0);
     });
 });

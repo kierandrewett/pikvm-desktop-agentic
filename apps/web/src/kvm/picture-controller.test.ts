@@ -28,7 +28,7 @@ async function mount() {
         elements: { pane, img, video, freeze, cursor, lens },
         focus: createFieldFocus(rig.clock),
         desktop: false,
-        prefs: { touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true },
+        prefs: { touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true, watching: false },
     });
     made.push(controller);
     return { rig, controller, img, video, freeze, pane, cursor };

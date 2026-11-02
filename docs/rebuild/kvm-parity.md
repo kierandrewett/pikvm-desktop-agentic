@@ -23,14 +23,14 @@ Evidence names:
 | Freeze canvas holding the last frame | done | `kvm.css` `.frozen`; the machine's `freeze`/`thaw` effects drive it (engine V7) |
 | Stream only while needed (collapsed preview, Full UI) | done for Full UI, n/a for the collapsed preview | Full UI sends `fullUi` to the machine (`kvm-screen.test.tsx` "the Pi's own UI"); the new layout has no collapsible preview |
 | Visual "no signal" (uniform-frame detector) | done | engine B1-B4; `sampleBlank` is wired by `createVideoDom` |
-| Background screen-change alerts (desktop taskbar pulse) | gap | needs the desktop bridge; the luminance grid hook (`onLuma`) is the seam. Phase 6 |
+| Background screen-change alerts (desktop taskbar pulse), toggle in More | done, unverified in Electron | `screen-alerts.ts` over the engine's detector and the bridge's `requestAttention`; `screen-alerts.test.ts` |
 | WebRTC/Janus H.264 + audio, muted start, play watchdog, MJPEG fallback | done | Real PiKVM, video only: `docs/e2e/2026-11-02-kvm-real-pikvm-video.md` (60 fps, live audio track, 1920x1080 label). Fallback: E2E against the fake's 503 |
 | Resolution toast "W x H . source" with the audio badge, 2.6 s | done | `picture-controller.test.ts` "the resolution toast"; E2E "resolution toast names the picture" |
 | Generic toast: error styling and role, sticky, emptied after the fade | done | K15 `notices.test.ts` |
 | Full PiKVM UI framed under the screen, 12 s load note, keyboard hand-off, Back | done | `kvm-screen.test.tsx` "the Pi's own UI"; `/?native=1` reaches kvmd (routes.ts). Not in the E2E |
 | Zoom/pan transform on img, video and freeze canvas; zoom-out button | done | K18 `picture-controller.test.ts`; E2E "pinch zooms the picture; the zoom-out button restores it" (4.2x, restored, hidden), "Ctrl+wheel zooms" |
 | Coordinate mapping through the letterbox and transform | done | engine view/pointer tests; E2E "click on the picture" lands at the picture's centre (0,0) |
-| Screenshot (full-resolution JPEG download) | done | `platform.test.tsx` "screenshot" (offline source allowed, filename, failure). Desktop's wait for the download-done IPC is not ported (phase 6) |
+| Screenshot (full-resolution JPEG download), desktop waits for the shell's download-done | done | `platform.test.tsx` "screenshot" and "waiting for the download to land" (saved, cancelled, silent shell) |
 | OCR: drag a region, kvmd reads it | seam | the region picker (`useOcrPicker`, K19 `ocr-picker.test.tsx`) is built; the "ocr" dialog, the request and the result are the dialogs module's |
 
 ## 1.3 HID socket
