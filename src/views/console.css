@@ -2643,8 +2643,7 @@ html.touch-dock .krow-more > .ibtn {
     font-size: 12.5px;
 }
 #fn-toggle.on,
-#more-keys-toggle.on,
-#gesture-help-btn.on {
+#more-keys-toggle.on {
     color: var(--primary-foreground);
     background: var(--primary);
 }
@@ -2653,28 +2652,6 @@ html.touch-dock .krow-more > .ibtn {
     html.touch-dock .bar-main .status {
         display: none;
     }
-}
-.gesture-help {
-    padding: 10px 12px;
-    max-width: min(340px, calc(100vw - 16px));
-    gap: 8px;
-}
-.gesture-help .gh-title {
-    font-weight: 650;
-    font-size: 14px;
-}
-.gesture-help .gh-list {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 6px 12px;
-    margin: 0;
-    font-size: 13px;
-}
-.gesture-help dt {
-    color: var(--muted-foreground);
-}
-.gesture-help dd {
-    margin: 0;
 }
 
 /* ---- touch dock: the ⋯ menu as a bottom sheet (Office mobile style) ----
@@ -2768,7 +2745,6 @@ html.touch-dock .bar .ibtn.on,
 html.touch-dock .bar #caps-key.on,
 html.touch-dock .bar #fn-toggle.on,
 html.touch-dock .bar #more-keys-toggle.on,
-html.touch-dock .bar #gesture-help-btn.on,
 html.touch-dock.dock-sheet #more-btn {
     color: var(--primary);
     background: color-mix(in srgb, var(--primary) 18%, transparent);

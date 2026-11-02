@@ -8750,7 +8750,6 @@
             // Still switching: the Pi has not reported the mode asked for yet.
             touchHidBtn.classList.toggle("pending", trackpadActive() && hid.isRelative() === wantAbsOutput());
         }
-        if (gestureHelp && gestureHelp.classList.contains("open")) paintGestureHelp();
     }
     function paintCaps(on) {
         if (!capsKey) return;
@@ -8893,63 +8892,6 @@
             moreBtn.setAttribute("aria-pressed", rowMore.hidden ? "false" : "true");
         }
     }
-    var gestureHelp = document.getElementById("gesture-help");
-    var gestureHelpBtn = document.getElementById("gesture-help-btn");
-    function paintGestureHelp() {
-        if (!gestureHelp) return;
-        var direct = touchMode === "direct";
-        var lines = direct
-            ? [
-                  ["Tap", "Click where you tap"],
-                  ["Long press", "Right click where you press"],
-                  ["Double tap and hold", "Drag from there"],
-                  ["Two-finger tap", "Right click"],
-                  ["Two-finger drag", "Scroll"],
-                  ["Pinch", "Zoom the picture"],
-                  ["One-finger drag, zoomed", "Move around the picture"],
-              ]
-            : [
-                  ["Drag", "Move the cursor"],
-                  ["Tap", "Left click"],
-                  ["Long press", "Right click"],
-                  ["Double tap and hold", "Drag"],
-                  ["Two-finger tap", "Right click"],
-                  ["Two-finger drag", "Scroll"],
-                  ["Pinch", "Zoom; the view follows the cursor"],
-              ];
-        gestureHelp.textContent = "";
-        var title = document.createElement("div");
-        title.className = "gh-title";
-        title.textContent = direct ? "Touch mode" : "Trackpad mode";
-        gestureHelp.appendChild(title);
-        var list = document.createElement("dl");
-        list.className = "gh-list";
-        lines.forEach(function (l) {
-            var dt = document.createElement("dt");
-            dt.textContent = l[0];
-            var dd = document.createElement("dd");
-            dd.textContent = l[1];
-            list.appendChild(dt);
-            list.appendChild(dd);
-        });
-        gestureHelp.appendChild(list);
-        var sw = document.createElement("button");
-        sw.type = "button";
-        sw.className = "more-item";
-        sw.textContent = direct ? "Switch to trackpad" : "Switch to touch";
-        sw.addEventListener("click", function () {
-            if (touchModeBtn) touchModeBtn.click();
-        });
-        gestureHelp.appendChild(sw);
-    }
-    function setGestureHelp(open) {
-        if (!gestureHelp || !gestureHelpBtn) return;
-        if (open) paintGestureHelp();
-        gestureHelp.classList.toggle("open", open);
-        gestureHelpBtn.setAttribute("aria-expanded", open ? "true" : "false");
-        gestureHelpBtn.classList.toggle("on", open);
-        if (open) placePopover(gestureHelpBtn, gestureHelp);
-    }
     function wireDockActions() {
         var fnBtn = document.getElementById("fn-toggle");
         var moreKeysBtn = document.getElementById("more-keys-toggle");
@@ -8984,18 +8926,6 @@
             });
         });
         repaintAv();
-        if (gestureHelpBtn)
-            gestureHelpBtn.addEventListener("click", function () {
-                setGestureHelp(!gestureHelp.classList.contains("open"));
-            });
-        document.addEventListener("pointerdown", function (e) {
-            if (!gestureHelp || !gestureHelp.classList.contains("open")) return;
-            if (gestureHelp.contains(e.target) || gestureHelpBtn.contains(e.target)) return;
-            setGestureHelp(false);
-        });
-        document.addEventListener("keydown", function (e) {
-            if (e.key === "Escape" && gestureHelp && gestureHelp.classList.contains("open")) setGestureHelp(false);
-        });
     }
     if (dockMode) {
         var root = document.documentElement;
