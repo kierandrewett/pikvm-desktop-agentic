@@ -31,8 +31,10 @@ import {
     type VideoDriver,
     type ViewTransform,
 } from "@pikvm/kvm-engine";
+import { createCursorReporter } from "./cursor-report";
 import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
+import { buzz } from "./haptics";
 import { createJanusBridge } from "./janus-stream";
 import { createPointerExecutor } from "./pointer-executor";
 import type { KvmSession } from "./session";
@@ -201,6 +203,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         inputChanged: () => painter?.inputChanged(),
         dispose: () => painter?.dispose(),
     };
+    const reporter = desktop ? createCursorReporter(clock) : null;
     const execute = createPointerExecutor({
         link,
         keyboard,
@@ -208,6 +211,8 @@ export function createPictureController(options: PictureOptions): PictureControl
         notify: session.notices.notify,
         painter: painterProxy,
         applyView,
+        ...(reporter ? { reportCursor: reporter.report } : {}),
+        cue: () => buzz("light"),
     });
     const sink = createDomCommandSink({
         pane,
@@ -614,6 +619,7 @@ export function createPictureController(options: PictureOptions): PictureControl
             if (meterRaf) cancelAnimationFrame(meterRaf);
             clearTimeout(meterTimer ?? undefined);
             painter?.dispose();
+            reporter?.dispose();
             pointer.dispose();
             driver.dispose();
         },

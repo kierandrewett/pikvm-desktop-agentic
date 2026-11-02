@@ -6,11 +6,15 @@
  */
 
 import { STATUS, statusLabel } from "@pikvm/kvm-engine";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useMacros } from "../api/queries";
 import { SHORTCUTS, type ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
-import { KeyboardIcon, MicIcon, MoreIcon, PowerIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
+import { ChevronDownIcon, HealthIcon, KeyboardIcon, MicIcon, MoreIcon, PowerIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
+import { audioDevicesSupported, speakerSelectionSupported, useAudioDevices } from "../settings/pages/audio-devices";
+import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice } from "../settings/local-prefs";
+import { emitAudioDevicesChanged } from "./audio-devices-event";
+import { healthProblems } from "./dialogs/model/health";
 import { MacroStrip, runnable, useMacroBlocked } from "./macro-buttons";
 import { MenuButton, type MenuEntry } from "./menu-button";
 import type { PictureController } from "./picture-controller";
@@ -26,12 +30,48 @@ export interface ToolbarProps {
     readonly onKeys: (open: boolean) => void;
 }
 
+/**
+ * The device popout beside a toggle: a shortcut to the choice the Audio devices dialog makes, and
+ * its own control because the toggle has to keep meaning on/off. "System default" is first, and a
+ * pinned device that has gone still appears, and says so, so the choice is never silently lost.
+ */
+function DeviceMenu({ kind }: { readonly kind: "audio" | "mic" }) {
+    const devices = useAudioDevices();
+    const key = kind === "mic" ? MIC_DEVICE_KEY : OUT_DEVICE_KEY;
+    const list = kind === "mic" ? devices.inputs : devices.outputs;
+    const current = readDeviceChoice(key);
+    const noun = kind === "mic" ? "microphone" : "audio output";
+    const pick = (id: string, label: string): void => {
+        writeDeviceChoice(key, { id, label });
+        emitAudioDevicesChanged();
+    };
+    const entries: MenuEntry[] = [
+        { id: "default", label: "Follow the system default", checked: current.id === "", run: () => pick("", "") },
+        ...list.map((device, i) => ({
+            id: device.id,
+            label: device.label || `${kind === "mic" ? "Microphone" : "Output"} ${i + 1}`,
+            checked: device.id === current.id,
+            run: () => pick(device.id, device.label),
+        })),
+    ];
+    if (current.id && !list.some((d) => d.id === current.id)) {
+        entries.push({ id: current.id, label: `${current.label || "Chosen device"} (not connected)`, checked: true, run: () => {} });
+    }
+    return <MenuButton label={`Choose ${noun}`} icon={<ChevronDownIcon />} entries={entries} className="kvm-tb-btn kvm-tb-dev" />;
+}
+
 export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: ToolbarProps) {
     const session = useKvmSession();
     const picture = usePictureState(controller);
     const inputOpen = useTarget((s) => s.link.open);
     const atxOn = useTarget((s) => s.device.atx?.leds["power"] === true);
     const atxBusy = useTarget((s) => s.device.atx?.busy === true);
+    const device = useTarget((s) => s.device);
+    const link = useTarget((s) => s.link);
+    const problems = useMemo(
+        () => healthProblems({ device, everSettled: link.everSettled, inputOpen: link.open }),
+        [device, link.everSettled, link.open],
+    );
     const macros = useMacros();
     const blocked = useMacroBlocked();
     const audioButton = useRef<HTMLButtonElement>(null);
@@ -89,6 +129,18 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                 <span className="kvm-status">{label}</span>
             </div>
             <div className="kvm-tb-right">
+                {problems.length > 0 ? (
+                    <button
+                        type="button"
+                        className={`kvm-tb-btn kvm-health${problems.some((p) => p.level === "error") ? " is-error" : ""}`}
+                        data-testid="health"
+                        title={problems.map((p) => p.text).join("\n")}
+                        aria-label={`Health: ${problems.map((p) => p.text).join("; ")}`}
+                        onClick={() => openDialog("health")}
+                    >
+                        <HealthIcon />
+                    </button>
+                ) : null}
                 <MacroStrip />
                 <MenuButton label="Send keys" icon={<KeyboardIcon />} entries={sendKeys} testId="send-keys" />
                 {actions.power.length > 0 ? (
@@ -115,6 +167,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                         >
                             <SpeakerIcon />
                         </button>
+                        {audioDevicesSupported() && speakerSelectionSupported() ? <DeviceMenu kind="audio" /> : null}
                         <button
                             ref={micButton}
                             type="button"
@@ -127,6 +180,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                         >
                             <MicIcon />
                         </button>
+                        {audioDevicesSupported() ? <DeviceMenu kind="mic" /> : null}
                     </>
                 ) : null}
                 {picture.scale > 1 ? (

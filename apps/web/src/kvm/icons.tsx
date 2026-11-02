@@ -69,6 +69,19 @@ export const MoreIcon = (p: IconProps) => (
     </Glyph>
 );
 
+export const ChevronDownIcon = (p: IconProps) => (
+    <Glyph {...p}>
+        <path d="m6 9 6 6 6-6" />
+    </Glyph>
+);
+
+/** Activity pulse: the console's health glyph. */
+export const HealthIcon = (p: IconProps) => (
+    <Glyph {...p}>
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </Glyph>
+);
+
 export const PowerIcon = (p: IconProps) => (
     <Glyph {...p}>
         <path d="M12 2v10" />

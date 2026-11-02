@@ -393,6 +393,26 @@ html:has(.kvm-screen[data-layout="dock"]) body {
 .kvm-tb-btn.atx-on {
     color: var(--foreground);
 }
+/* Health is only ever drawn when something is wrong, so it earns the attention it draws. */
+.kvm-tb-btn.kvm-health {
+    color: var(--warn);
+}
+.kvm-tb-btn.kvm-health.is-error {
+    color: var(--danger);
+}
+/* The device chevron tucks against the toggle it belongs to. */
+.kvm-tb-btn.kvm-tb-dev {
+    width: 16px;
+    margin-left: -3px;
+    border-radius: 8px;
+}
+.kvm-tb-btn.kvm-tb-dev svg {
+    width: 11px;
+    height: 11px;
+}
+.kvm-tb-btn.kvm-tb-dev[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+}
 .kvm-tb-btn.atx-busy {
     color: var(--warn);
 }
@@ -739,6 +759,16 @@ html:has(.kvm-screen[data-layout="dock"]) body {
     border-top: 0;
     border-bottom: 1px solid var(--border);
 }
+/* The row continues past this edge: a fade at whichever side has more behind it. */
+.kvm-strip.more-after {
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.kvm-strip.more-before {
+    mask-image: linear-gradient(to right, transparent, #000 32px);
+}
+.kvm-strip.more-before.more-after {
+    mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
 .kvm-strip-sep {
     flex: none;
     width: 1px;
@@ -794,6 +824,7 @@ html:has(.kvm-screen[data-layout="dock"]) body {
 
 .kvm-ocr-pick {
     position: fixed;
+    inset: 0;
     z-index: 20;
     cursor: crosshair;
     touch-action: none;

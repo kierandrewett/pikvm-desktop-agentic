@@ -88,6 +88,7 @@ export function OcrPickerProvider({ controller, children }: { controller: Pictur
                 // A second request supersedes the first rather than leaving it hanging.
                 settle(null);
                 return new Promise<PicturePixelRect | null>((resolve) => {
+                    controller?.remeasure();
                     const pane = controller?.pointer.machine.environment.pane ?? { left: 0, top: 0, width: 0, height: 0 };
                     const next: Pending = { resolve, pane };
                     pendingRef.current = next;
@@ -126,7 +127,8 @@ export function OcrPickerProvider({ controller, children }: { controller: Pictur
                 <div
                     className="kvm-ocr-pick"
                     data-kvm-ui=""
-                    style={pending.pane}
+                    // Over the picture's pane when it is known; the whole window rather than a sliver when not.
+                    style={pending.pane.width > 0 && pending.pane.height > 0 ? pending.pane : undefined}
                     role="application"
                     aria-label="Drag over the part of the screen to read. Escape cancels."
                     onPointerDown={(e) => {

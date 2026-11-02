@@ -8,6 +8,7 @@
  */
 
 import type { Keyboard } from "@pikvm/kvm-engine";
+import { useEffect, useRef, useState } from "react";
 import type { FieldFocus } from "./field-focus";
 import { MouseButtons } from "./sheet";
 import { useStore } from "./use-store";
@@ -254,8 +255,34 @@ export function KeyStrip({
     const offline = !useTarget((s) => s.link.open);
     const shared = { keyboard, focus, armed, locked, capsOn, capsKnown, offline };
     const strip: readonly KeyDef[] = [...MAIN_ROW, ...NAV_ROW, key("Home", "Home"), key("End", "End"), { kind: "cad" }];
+    const row = useRef<HTMLDivElement>(null);
+    const [fade, setFade] = useState({ before: false, after: false });
+    // The strip scrolls with its scrollbar hidden, so keys past the edge are given away by nothing
+    // at all unless the edge says so. Faded only where there is more behind it, so the ends of the
+    // row are not dimmed once there is nothing left to reach.
+    useEffect(() => {
+        const el = row.current;
+        if (!el) return;
+        const paint = (): void => {
+            const max = el.scrollWidth - el.clientWidth;
+            const next = { before: max > 2 && el.scrollLeft > 2, after: max > 2 && el.scrollLeft < max - 2 };
+            setFade((f) => (f.before === next.before && f.after === next.after ? f : next));
+        };
+        paint();
+        el.addEventListener("scroll", paint, { passive: true });
+        window.addEventListener("resize", paint);
+        return () => {
+            el.removeEventListener("scroll", paint);
+            window.removeEventListener("resize", paint);
+        };
+    }, []);
     return (
-        <div className="kvm-keys kvm-strip" role="group" aria-label="Controls">
+        <div
+            ref={row}
+            className={`kvm-keys kvm-strip${fade.before ? " more-before" : ""}${fade.after ? " more-after" : ""}`}
+            role="group"
+            aria-label="Controls"
+        >
             <MouseButtons dragLock={dragLock} onDragLock={onDragLock} />
             <span className="kvm-strip-sep" aria-hidden="true" />
             {strip.map((def, i) => (
