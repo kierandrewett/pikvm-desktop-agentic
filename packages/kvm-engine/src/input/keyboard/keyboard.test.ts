@@ -158,6 +158,19 @@ describe("armed sticky modifiers", () => {
         expect(keyboard.armed.getState().armed).toEqual([]);
     });
 
+    it("takeArmed returns the armed modifiers and clears the unlocked ones without pressing anything", () => {
+        const { clock, target, keyboard } = setup();
+        keyboard.tapModifier("ControlLeft");
+        clock.advance(10);
+        keyboard.tapModifier("ControlLeft"); // double tap: locked
+        keyboard.tapModifier("ShiftLeft");
+        expect(keyboard.takeArmed()).toEqual(["ControlLeft", "ShiftLeft"]);
+        expect(keyboard.armed.getState().armed).toEqual(["ControlLeft"]);
+        expect(keyboard.takeArmed()).toEqual(["ControlLeft"]);
+        clock.advance(1000);
+        expect(target.events).toEqual([]);
+    });
+
     it("withArmedModifiers leaves a physically held modifier alone", () => {
         const { target, keyboard } = setup();
         keyboard.keydown(ev("ControlLeft", { ctrlKey: true }), false);

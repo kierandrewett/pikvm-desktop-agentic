@@ -70,6 +70,11 @@ export interface Keyboard {
      * the end would drop it while their finger is still down. A locked modifier stays armed.
      */
     withArmedModifiers(act: (release: () => void) => void): void;
+    /**
+     * Read the armed sticky modifiers (locked ones included) and clear the non-locked ones,
+     * pressing nothing. For a caller that presses modifiers itself, such as the pointer machine.
+     */
+    takeArmed(): string[];
     /** Let go of everything: focus loss, or a modal taking the keyboard. */
     releaseAll(): void;
 }
@@ -205,6 +210,11 @@ export function createKeyboard(options: KeyboardOptions): Keyboard {
             ev.key === "Backspace" && !ev.ctrlKey && !ev.altKey && !ev.metaKey && armed.list().length === 0,
 
         tapModifier: (code) => armed.tap(code),
+        takeArmed() {
+            const mods = armed.list();
+            armed.clear();
+            return mods;
+        },
         withArmedModifiers(act) {
             const mods = mirror.owned(armed.list());
             for (const m of mods) target.key(m, true);
