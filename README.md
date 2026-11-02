@@ -107,11 +107,16 @@ uploads the packages as artefacts. The icon sizes in `packaging/icons` come from
 ## Web host
 
 `src/web-server.ts` runs the console and the PiKVM proxy without Electron, for
-phones and browsers. It has no shared terminal and no agent harness.
+phones and browsers. It has no shared terminal. Chat works there too: the host
+forwards `/app/harness/*`, with an operator token the browser never sees, to an
+agent sidecar (`deploy/agent`: the daemon and the harness, with the `claude` and
+`codex` CLIs) or to the desktop app. [docs/deploy-web.md](docs/deploy-web.md) has
+the variables and the exact compose block for both.
 
 ```bash
-make web-bundle                      # builds/web/: Docker context
+make web-bundle agent-bundle         # builds/web/ and builds/agent/: Docker contexts
 docker build -t pikvm-web builds/web
+docker build -t pikvm-agent builds/agent
 ```
 
 The environment is the whole contract; the header of `src/web-server.ts` lists
@@ -130,6 +135,8 @@ flowchart LR
     proxy -->|OIDC| pocket[Pocket ID]
     proxy -->|kvm-internal network only| kvm[kvm: web-server.ts]
     kvm --> pi[PiKVM]
+    kvm -->|/app/harness, token added here| agent[kvm-agent]
+    agent --> pi
 ```
 
 Let these public static paths through the authenticating proxy without sign-in
