@@ -1,0 +1,16 @@
+{
+  "name": "@pikvm/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Effect Schemas and the HttpApi for the PiKVM app, shared by the server and the web client",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./kvmd": "./src/kvmd.ts",
+    "./api": "./src/api.ts"
+  },
+  "dependencies": {
+    "@effect/platform": "^0.97.2",
+    "effect": "^3.22.3"
+  }
+}
