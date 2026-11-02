@@ -24,6 +24,7 @@ import { createApi } from "./api";
 import type { TargetEditor } from "./api";
 import { createRouter } from "./routes";
 import { createDaemonProxy } from "./proxy/daemon";
+import { createHarnessProxy, HARNESS_PREFIX } from "./proxy/harness";
 import { createPiKvmProxy } from "./proxy/kvmd";
 import { appAssets, webAssets } from "./static";
 import { createTerminalSocket } from "./terminal-socket";
@@ -55,10 +56,11 @@ export interface ServerDeps {
      *  proxy so it never exists in renderer JavaScript. */
     harnessToken?: string;
     /** Prefix stripped before forwarding to harnessOrigin. Default "/app/harness",
-     *  for a harness reached directly. The headless web host instead forwards to
-     *  the DESKTOP's console server, which mounts the harness at that same path
-     *  and injects the operator capability itself, so it passes "" to keep the
-     *  path whole and its token is the desktop's access token, not the harness's. */
+     *  for a harness reached directly (the desktop app's own, or the web host's
+     *  deploy/agent sidecar). The web host reaching the DESKTOP's console server
+     *  instead passes "": that server mounts the harness at the same path and
+     *  injects the operator capability itself, so the path stays whole and the
+     *  token is the desktop's access token, not the harness's. */
     harnessPrefix?: string;
 }
 
@@ -124,10 +126,10 @@ export function startControlServer(
      * this server, which is worse than no route at all. */
     const harness =
         deps.harnessOrigin && deps.harnessToken
-            ? createDaemonProxy({
+            ? createHarnessProxy({
                   origin: deps.harnessOrigin,
-                  bearerToken: deps.harnessToken,
-                  prefix: deps.harnessPrefix ?? "/app/harness",
+                  token: deps.harnessToken,
+                  prefix: deps.harnessPrefix ?? HARNESS_PREFIX,
               })
             : null;
 
@@ -138,8 +140,10 @@ export function startControlServer(
         jigglerStatus: () => jiggler.status(),
         /* What this host actually serves. The headless web host has no shared
          * terminal, and the console should not frame a panel whose socket would
-         * only ever close. */
-        features: () => ({ terminal: !!deps.terminalSessions, chat: !!harness }),
+         * only ever close. Chat is offered when the agent ANSWERS, not merely
+         * when a route to it is configured: a sidecar that is down should show
+         * the app's own "not available" state, not a workspace that fails. */
+        features: async () => ({ terminal: !!deps.terminalSessions, chat: harness ? await harness.available() : false }),
         version: readVersion(),
         ...(deps.target ? { target: deps.target } : {}),
     });

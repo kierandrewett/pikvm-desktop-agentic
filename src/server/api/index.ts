@@ -39,9 +39,9 @@ export interface ApiDeps {
     settings: SettingsStore;
     macros: MacroStore;
     jigglerStatus: () => JigglerStatus;
-    /** What this host serves; read per request because the harness proxy may
-     *  be configured after the API is built. */
-    features: () => Features;
+    /** What this host serves; read per request because it can change while the
+     *  server runs (the agent behind the Chat tab comes and goes). */
+    features: () => Features | Promise<Features>;
     /** The app's version string. */
     version: string;
     /** Present where the host owns the PiKVM setting (the desktop app). */
@@ -60,7 +60,7 @@ async function readState(deps: ApiDeps): Promise<State> {
     const target = await deps.control.proxyTarget();
     return {
         settings: publicSettings(deps),
-        features: deps.features(),
+        features: await deps.features(),
         jigglerStatus: deps.jigglerStatus(),
         pikvm: {
             origin: target.origin.origin,

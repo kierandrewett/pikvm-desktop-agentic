@@ -3,11 +3,12 @@
  * app runs, without Electron, for a container or any plain Node 22 host.
  *
  * What it serves is identical to the desktop's web surface (src/server/): the
- * console at `/app/` and the PiKVM UI proxied underneath it. It deliberately does
- * NOT host the shared terminal or the agent harness. A shell on the server
- * would turn "can see the KVM" into "can run commands on the box that hosts
- * it", and the harness needs a desktop-owned runtime. The console reads
- * `features.terminal` from /app/api/v1/state and hides the panel.
+ * console at `/app/` and the PiKVM UI proxied underneath it. It does NOT host the
+ * shared terminal: a shell on the server would turn "can see the KVM" into "can
+ * run commands on the box that hosts it". The console reads `features.terminal`
+ * from /app/api/v1/state and hides the panel. The agent behind the Chat tab is a
+ * separate process (the deploy/agent sidecar, or the desktop app), reached through
+ * /app/harness with a capability this server holds and the browser never does.
  *
  * It has no login of its own. Sign-in belongs to the identity provider in
  * front of it (an OIDC proxy such as oauth2-proxy), and the deployment must
@@ -26,16 +27,22 @@
  *   PIKVM_DATA_DIR         where settings.json and macros.json live (default ./data)
  *   PIKVM_JIGGLER          "1" makes the idle jiggler start on; only the first
  *                          value, after that the saved setting wins (default off)
- *   PIKVM_DESKTOP_URL      the desktop app's console server, e.g.
- *                          http://fsociety.example.ts.net:25650. Set with
- *                          PIKVM_DESKTOP_TOKEN (its access token) to serve the
- *                          desktop's agent workspace as the Chat tab. The token
- *                          is attached here, server-side; browsers never see it.
+ *   PIKVM_HARNESS_URL      the agent harness sidecar's origin, e.g.
+ *                          http://kvm-agent:47616 (deploy/agent). Set with
+ *                          PIKVM_HARNESS_TOKEN, its operator capability (32+
+ *                          characters), to serve Chat. Attached server-side;
+ *                          browsers never see it. Chat shows as available when
+ *                          the harness answers its health route.
+ *   PIKVM_DESKTOP_URL      alternatively the desktop app's console server, e.g.
+ *                          http://fsociety.example.ts.net:25650, with
+ *                          PIKVM_DESKTOP_TOKEN (its access token). Set one of
+ *                          the two pairs, never both.
  *   HOST / PORT            bind address (default 0.0.0.0:8080 behind a proxy,
  *                          127.0.0.1:8080 otherwise)
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
+import { resolveHarnessUpstream, type HarnessUpstream } from "./server/proxy/harness";
 import { resolve } from "node:path";
 import { PiKvmControl } from "./pikvm-control";
 import type { ImageOps } from "./image-ops";
@@ -143,21 +150,15 @@ const control = new PiKvmControl(
 );
 control.setLayout(settings.get().keyboardLayout, { source: "auto" });
 
-/* The Chat tab: the desktop's agent workspace, reached through the desktop's own
- * console server. That server already proxies /app/harness with the harness
- * operator capability attached, so this one forwards the path unchanged and
- * authenticates as a client of it. Both values come from the environment only;
- * no request can choose where this goes. */
-const desktopUrl = env("PIKVM_DESKTOP_URL");
-const desktopToken = env("PIKVM_DESKTOP_TOKEN");
-if (!!desktopUrl !== !!desktopToken) fail("PIKVM_DESKTOP_URL and PIKVM_DESKTOP_TOKEN go together");
-if (desktopUrl) {
-    try {
-        const u = new URL(desktopUrl);
-        if (u.username || u.password || u.pathname !== "/" || u.search) throw new Error("origin only");
-    } catch {
-        fail(`PIKVM_DESKTOP_URL must be a bare origin like http://host:25650, not ${desktopUrl}`);
-    }
+/* The Chat tab's agent: a harness of its own (PIKVM_HARNESS_URL, the deploy/agent
+ * sidecar) or the desktop's console server (PIKVM_DESKTOP_URL). One function
+ * chooses; the credential is attached server-side and no request can pick where
+ * it goes. */
+let agent: HarnessUpstream | null = null;
+try {
+    agent = resolveHarnessUpstream(process.env);
+} catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
 }
 
 const server = startControlServer(
@@ -165,7 +166,7 @@ const server = startControlServer(
         control,
         settings,
         daemonToken: "",
-        ...(desktopUrl ? { harnessOrigin: new URL(desktopUrl).origin, harnessToken: desktopToken, harnessPrefix: "" } : {}),
+        ...(agent ? { harnessOrigin: agent.origin, harnessToken: agent.token, harnessPrefix: agent.prefix } : {}),
     },
     port,
     host,

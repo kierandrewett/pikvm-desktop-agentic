@@ -28,13 +28,22 @@ export interface DaemonProxyDeps {
     bearerToken: string;
     /** Namespace prefix stripped from req.url before forwarding. Default /app/daemon. */
     prefix?: string;
+    /** Request headers never forwarded, lower case. The proxy always replaces
+     *  `authorization`; a caller adds what the upstream has no business seeing
+     *  (the harness proxy drops the browser's session cookie). */
+    dropHeaders?: readonly string[];
+    /** The `error` a 502 carries when the upstream is down. Default "daemon_unreachable". */
+    unreachableError?: string;
 }
 
 export function createDaemonProxy({
     origin,
     bearerToken,
     prefix = "/app/daemon",
+    dropHeaders = [],
+    unreachableError = "daemon_unreachable",
 }: DaemonProxyDeps) {
+    const drop = new Set(["authorization", ...dropHeaders.map((name) => name.toLowerCase())]);
     const endpoint = parseEndpoint(origin);
     const doRequest = endpointIsTls(endpoint) ? httpsRequest : httpRequest;
 
@@ -48,9 +57,7 @@ export function createDaemonProxy({
         // capability. The stronger harness capability is never available here.
         // endpointRequestOptions sets Host to match whichever transport this is.
         const headers = {
-            ...Object.fromEntries(
-                Object.entries(req.headers).filter(([name]) => name.toLowerCase() !== "authorization"),
-            ),
+            ...Object.fromEntries(Object.entries(req.headers).filter(([name]) => !drop.has(name.toLowerCase()))),
             authorization: `Bearer ${bearerToken}`,
         };
 
@@ -63,8 +70,12 @@ export function createDaemonProxy({
         );
         proxyReq.on("error", () => {
             if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-            res.end(JSON.stringify({ error: "daemon_unreachable", origin }));
+            res.end(JSON.stringify({ error: unreachableError, origin }));
         });
+        // An event stream outlives the request that opened it. A phone that
+        // suspends drops its connection without a word, and the upstream would
+        // otherwise keep the subscription for as long as the run lasts.
+        res.on("close", () => proxyReq.destroy());
         req.pipe(proxyReq);
     }
 
