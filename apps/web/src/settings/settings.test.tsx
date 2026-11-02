@@ -22,7 +22,7 @@
  * 12. Link state shown as connected when the server says otherwise.
  * 13. Account appears on a host that is not behind the proxy (an HTML 200 for an unknown
  *     path counts as "no"), or the check failing the page.
- * 14. Macros: an empty list or a failed load drawn as a blank group.
+ * 14. (Macros are the KVM's own manager; its failure modes are in macros-page.test.tsx.)
  *
  * Navigation
  * 15. A phone shows list and page together, or no way back; a wide screen opens on nothing.
@@ -369,46 +369,6 @@ describe("connection: changing the PiKVM", () => {
         await screen.findByText("https://pikvm.example");
         expect(screen.queryByLabelText("Password")).toBeNull();
         expect(requests.some((r) => r.method === "PUT")).toBe(false);
-    });
-});
-
-describe("macros", () => {
-    it("lists macros with step counts and pin state, read-only", async () => {
-        server.macros = [
-            { id: "a", label: "Open terminal", pinned: true, steps: [{ type: "chord", mods: ["ControlLeft"], code: "KeyT" }] },
-            {
-                id: "b",
-                label: "Sign in",
-                steps: [
-                    { type: "text", text: "me" },
-                    { type: "delay", ms: 200 },
-                ],
-            },
-        ];
-        renderApp("/settings/macros");
-        const first = (await screen.findByText("Open terminal")).closest(".row") as HTMLElement;
-        expect(within(first).getByText("1 step")).toBeInTheDocument();
-        expect(within(first).getByText("Pinned")).toBeInTheDocument();
-        const second = screen.getByText("Sign in").closest(".row") as HTMLElement;
-        expect(within(second).getByText("2 steps")).toBeInTheDocument();
-        expect(within(second).queryByText("Pinned")).toBeNull();
-        expect(screen.queryByRole("button", { name: /run|edit/i })).toBeNull();
-    });
-
-    it("says so when there are none", async () => {
-        renderApp("/settings/macros");
-        expect(await screen.findByText("No macros yet")).toBeInTheDocument();
-    });
-
-    it("shows the failure when the list cannot be loaded", async () => {
-        const real = globalThis.fetch;
-        vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-            const path = new URL(input instanceof Request ? input.url : String(input), "http://localhost").pathname;
-            if (path === "/app/api/v1/macros") return new Response(JSON.stringify({ error: "store unreadable" }), { status: 500 });
-            return real(input, init);
-        });
-        renderApp("/settings/macros");
-        expect(await screen.findByRole("alert")).toHaveTextContent("store unreadable");
     });
 });
 

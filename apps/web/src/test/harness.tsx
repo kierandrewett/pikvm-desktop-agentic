@@ -11,6 +11,7 @@ import { render } from "@testing-library/react";
 import { vi } from "vitest";
 import { createAppRouter } from "../app/router";
 import { COMPACT_QUERY } from "../app/viewport";
+import { KvmSessionProvider, type KvmSession } from "../kvm/session";
 
 export interface RecordedRequest {
     readonly method: string;
@@ -24,6 +25,8 @@ export interface ServerState {
     chat: boolean;
     link: "connected" | "connecting" | "offline" | "unknown";
     macros: ReadonlyArray<unknown>;
+    /** Status for PUT /macros; anything but 200 fails the save. */
+    macrosPutStatus: number;
     /** Status for PATCH /settings; anything but 200 fails the save with `error` in the body. */
     patchStatus: number;
     patchError: string;
@@ -47,6 +50,7 @@ export const defaultServer = (): ServerState => ({
     chat: true,
     link: "connected",
     macros: [],
+    macrosPutStatus: 200,
     patchStatus: 200,
     patchError: "",
     stateStatus: 200,
@@ -107,7 +111,14 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                 }
                 return json(200, server.target);
             }
-            if (url.pathname === "/app/api/v1/macros") return json(200, { macros: server.macros });
+            if (url.pathname === "/app/api/v1/macros") {
+                if (method === "PUT") {
+                    if (server.macrosPutStatus !== 200) return json(server.macrosPutStatus, { error: "macro store is read-only" });
+                    const put = body as { macros?: ReadonlyArray<unknown> } | undefined;
+                    server.macros = put?.macros ?? [];
+                }
+                return json(200, { macros: server.macros });
+            }
             if (url.pathname === "/app/api/v1/settings" && method === "PATCH") {
                 await server.patchGate;
                 if (server.patchStatus !== 200) return json(server.patchStatus, { error: server.patchError });
@@ -124,6 +135,8 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
 
 export interface Env {
     compact?: boolean;
+    /** The KVM session pages that send to the target use; a rig's, so no real socket opens. */
+    session?: KvmSession;
 }
 
 export function installMatchMedia({ compact = false }: Env): void {
@@ -173,9 +186,10 @@ export function renderApp(path: string, env: Env = {}) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const history = createMemoryHistory({ initialEntries: [`/app${path}`] });
     const router = createAppRouter({ history, basepath: "/app" });
+    const app = <RouterProvider router={router} />;
     const view = render(
         <QueryClientProvider client={queryClient}>
-            <RouterProvider router={router} />
+            {env.session ? <KvmSessionProvider session={env.session}>{app}</KvmSessionProvider> : app}
         </QueryClientProvider>,
     );
     return { ...view, router, history, queryClient };

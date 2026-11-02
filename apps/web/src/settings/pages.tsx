@@ -44,6 +44,8 @@ export interface SettingsPageDef {
     readonly component: ComponentType;
     /** Omit the page when this says it cannot work here. */
     readonly available?: () => boolean;
+    /** A page with a list beside an editor, which wants more than a column of rows. */
+    readonly wide?: boolean;
 }
 
 export interface SettingsGroupDef {
@@ -64,7 +66,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
         pages: [
             { id: "keyboard", title: "Keyboard", icon: <KeyboardIcon />, component: KeyboardPage },
             { id: "input", title: "Touch and mouse", icon: <PointerIcon />, component: InputPage },
-            { id: "macros", title: "Macros", icon: <BoltIcon />, component: MacrosPage },
+            { id: "macros", title: "Macros", icon: <BoltIcon />, component: MacrosPage, wide: true },
         ],
     },
     {

@@ -31,7 +31,8 @@ import {
     type TargetState,
     type TypingGate,
 } from "@pikvm/kvm-engine";
-import { createContext, useContext, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useAppState } from "../api/queries";
 import { createDialogCenter, type DialogCenter } from "./dialog-seam";
 import { createNoticeCenter, type NoticeCenter } from "./notices";
 
@@ -138,6 +139,28 @@ export function useKvmSession(): KvmSession {
     const session = useContext(SessionContext);
     if (!session) throw new Error("useKvmSession needs a KvmSessionProvider");
     return session;
+}
+
+/**
+ * The app's session for a page that is not the KVM screen but still sends to the target (the
+ * Settings macro manager runs macros). A provider above wins, which is how tests bring their own.
+ */
+export function useAppKvmSession(): KvmSession {
+    return useContext(SessionContext) ?? sharedKvmSession();
+}
+
+/**
+ * Whatever has to be true before a session can type: the link is up, and keys are laid out as
+ * the settings say (US or UK; the Pi's own keymap is a separate choice, for paste).
+ */
+export function useSessionReady(session: KvmSession): void {
+    const settings = useAppState().data?.settings;
+    useEffect(() => {
+        session.start();
+    }, [session]);
+    useEffect(() => {
+        if (settings) session.keyboard.setLayout(settings.keyboardLayout);
+    }, [session, settings]);
 }
 
 /** The whole link and device state. Prefer `useTarget(select)` where only a part is read. */

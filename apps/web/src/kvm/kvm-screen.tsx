@@ -8,7 +8,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAppState } from "../api/queries";
 import { useMediaQuery } from "../app/viewport";
 import { TOUCH_HID_KEY, TOUCH_MODE_KEY, readTouchHid, readTouchMode, useStoredValue } from "../settings/local-prefs";
 import { useActions } from "./actions";
@@ -26,7 +25,7 @@ import { FullUiFrame, Toast } from "./overlays";
 import { Picture, usePictureState } from "./picture";
 import type { PictureController, PicturePrefs } from "./picture-controller";
 import { DOCK_QUERY, isDesktopApp, useIsFullscreen, useWakeLock } from "./platform";
-import { KvmSessionProvider, useKvmSession } from "./session";
+import { KvmSessionProvider, useKvmSession, useSessionReady } from "./session";
 import { Toolbar } from "./toolbar";
 import { useStore } from "./use-store";
 import "./kvm.css";
@@ -46,17 +45,9 @@ export function KvmScreen() {
     const { open } = useStore(session.dialogs.store);
     const picture = usePictureState(controller);
     const isFullscreen = useIsFullscreen();
-    const settings = useAppState().data?.settings;
 
-    useEffect(() => {
-        session.start();
-    }, [session]);
+    useSessionReady(session);
     useWakeLock(true);
-
-    // The layout characters are typed with (US or UK); the Pi's own keymap is a separate choice, for paste.
-    useEffect(() => {
-        if (settings) session.keyboard.setLayout(settings.keyboardLayout);
-    }, [session, settings]);
 
     useEffect(() => {
         // Safari's own pinch-zoom of the page would fight the picture's pinch.

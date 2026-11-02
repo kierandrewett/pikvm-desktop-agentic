@@ -104,7 +104,7 @@ export function SettingsDetail({ page }: { page: string }) {
 
     const Page = def.component;
     return (
-        <div className="max-w-2xl px-4 pb-8">
+        <div className={`${def.wide ? "max-w-4xl" : "max-w-2xl"} px-4 pb-8`}>
             <header className="flex items-center gap-1 py-3">
                 {compact ? (
                     <Link to="/settings" className="tb-btn -ml-2" aria-label="Back to settings">
