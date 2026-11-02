@@ -31,7 +31,7 @@ async function mount() {
         prefs: { touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true },
     });
     made.push(controller);
-    return { rig, controller, img, video, freeze };
+    return { rig, controller, img, video, freeze, pane, cursor };
 }
 
 describe("the view", () => {
@@ -70,6 +70,47 @@ describe("the view", () => {
     });
 });
 
+describe("the resolution toast", () => {
+    it("pops when the first real frame arrives, once, then fades and empties", async () => {
+        const { rig, controller, img } = await mount();
+        Object.defineProperty(img, "naturalWidth", { configurable: true, value: 1920 });
+        Object.defineProperty(img, "naturalHeight", { configurable: true, value: 1080 });
+        img.dispatchEvent(new Event("load"));
+        expect(controller.store.getState().res).toEqual({ text: "1920 \u00d7 1080  \u00b7  MJPEG", av: "", show: true });
+
+        // The same picture again is not news.
+        rig.clock.advance(2600);
+        expect(controller.store.getState().res.show).toBe(false);
+        img.dispatchEvent(new Event("load"));
+        expect(controller.store.getState().res.show).toBe(false);
+
+        rig.clock.advance(300);
+        expect(controller.store.getState().res.text).toBe("");
+    });
+
+    it("says nothing before there is a real frame", async () => {
+        const { controller, img } = await mount();
+        img.dispatchEvent(new Event("load"));
+        expect(controller.store.getState().res.show).toBe(false);
+    });
+});
+
+describe("input offline", () => {
+    it("the pointer over the picture says it cannot be used, and the blob is not left claiming a remote cursor", async () => {
+        const { rig, pane, cursor } = await mount();
+        cursor.style.display = "block";
+        rig.hub.last.serverClose();
+        await rig.clock.settle();
+        expect(pane.style.cursor).toBe("not-allowed");
+        expect(cursor.style.display).toBe("none");
+
+        await rig.clock.advanceAsync(1300);
+        rig.hub.last.serverOpen();
+        await rig.clock.settle();
+        expect(pane.style.cursor).toBe("");
+    });
+});
+
 describe("the session", () => {
     it("K20: the link lifecycle is bound once: a long stay in the background replaces the socket exactly once", async () => {
         const rig = await openRig({ bindLifecycle: true });
@@ -86,6 +127,15 @@ describe("the session", () => {
         document.dispatchEvent(new Event("visibilitychange"));
         await rig.clock.settle();
 
+        expect(rig.hub.sockets).toHaveLength(2);
+        await rig.session.stop();
+    });
+
+    it("K20: the network coming back replaces the socket too, once", async () => {
+        const rig = await openRig({ bindLifecycle: true });
+        rig.session.start();
+        window.dispatchEvent(new Event("online"));
+        await rig.clock.settle();
         expect(rig.hub.sockets).toHaveLength(2);
         await rig.session.stop();
     });

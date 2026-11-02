@@ -85,6 +85,26 @@ describe("the Caps key", () => {
     });
 });
 
+describe("input offline", () => {
+    it("K21: every key is disabled while the HID socket is down, and comes back with it", async () => {
+        const rig = await mount({ moreOpen: true });
+        expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled();
+        await act(async () => {
+            rig.hub.last.serverClose();
+            await rig.clock.settle();
+        });
+        for (const name of ["Tab", "Ctrl", "Caps", "Fn", "More keys", "Ctrl+C"]) {
+            expect(screen.getByRole("button", { name })).toBeDisabled();
+        }
+        await act(async () => {
+            await rig.clock.advanceAsync(1300);
+            rig.hub.last.serverOpen();
+            await rig.clock.settle();
+        });
+        expect(screen.getByRole("button", { name: "Tab" })).toBeEnabled();
+    });
+});
+
 describe("rows", () => {
     it("K8: the Fn block and the More block are separate groups that are drawn only when open", async () => {
         await mount({ fnOpen: true });

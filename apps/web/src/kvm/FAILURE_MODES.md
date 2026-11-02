@@ -1,11 +1,12 @@
 # KVM screen: failure modes
 
 What goes wrong in the UI layer, which the engine's own FAILURE_MODES.md files do not cover.
-The engine decides (gestures, keys, video, view maths); this layer wires it and draws it, and
-its bugs are about ownership and timing. `*.test.ts(x)` beside the code assert each as
-something a person or the target would observe, never source text. The end-to-end run
-(`apps/web/e2e/kvm.e2e.mjs`, results in `docs/e2e/kvm-screen/`) covers the same ground against
-a real host and the fake kvmd.
+The engine decides (gestures, keys, video, view maths); this layer wires and draws it, so its
+bugs are about ownership and timing.
+
+Tests beside the code assert each mode as something a person or the target would observe, never
+source text. The end-to-end run (`apps/web/e2e/kvm.e2e.mjs`) covers the same ground against a real
+host and the fake kvmd.
 
 ## Focus and the soft keyboard
 
@@ -21,6 +22,8 @@ a real host and the fake kvmd.
 - K7. The Caps key shows the TARGET's LED, not the last tap: it is `aria-pressed` from the Pi's report, and says so in its title when the Pi has not reported.
 - K8. Fn and More are one block at a time. Opening one closes the other, and they never both push the dock past three rows.
 - K9. A shortcut key (Ctrl+C, Alt+Tab) goes out as one chord through the engine's queue, with any armed modifier folded in once.
+
+- K21. While the HID socket is down every key in the rows is disabled: a press then goes nowhere, and the offline queue drops anything that old, so offering the key is a promise nobody keeps.
 
 ## The sheet and the toolbar
 

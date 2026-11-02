@@ -77,9 +77,11 @@ export interface KeyButtonProps {
     readonly locked: readonly string[];
     readonly capsOn: boolean;
     readonly capsKnown: boolean;
+    /** The HID socket is down: a key pressed now goes nowhere, so it is not offered. */
+    readonly offline: boolean;
 }
 
-function KeyButton({ def, keyboard, focus, armed, locked, capsOn, capsKnown }: KeyButtonProps) {
+function KeyButton({ def, keyboard, focus, armed, locked, capsOn, capsKnown, offline }: KeyButtonProps) {
     const after = (): void => focus.refocus();
     switch (def.kind) {
         case "mod": {
@@ -89,6 +91,7 @@ function KeyButton({ def, keyboard, focus, armed, locked, capsOn, capsKnown }: K
                     type="button"
                     className={`kvm-key${on ? " on" : ""}`}
                     data-mod={def.code}
+                    disabled={offline}
                     aria-pressed={on}
                     title={locked.includes(def.code) ? `${def.label} is locked` : undefined}
                     onClick={() => {
@@ -107,6 +110,7 @@ function KeyButton({ def, keyboard, focus, armed, locked, capsOn, capsKnown }: K
                     type="button"
                     className="kvm-key"
                     data-key={def.code}
+                    disabled={offline}
                     aria-label={def.name}
                     onClick={() => {
                         keyboard.sendCode(def.code);
@@ -122,6 +126,7 @@ function KeyButton({ def, keyboard, focus, armed, locked, capsOn, capsKnown }: K
                     type="button"
                     className="kvm-key"
                     data-chord={def.spec}
+                    disabled={offline}
                     aria-label={def.name}
                     onClick={() => {
                         keyboard.sendShortcut(def.spec);
@@ -137,6 +142,7 @@ function KeyButton({ def, keyboard, focus, armed, locked, capsOn, capsKnown }: K
                     type="button"
                     className="kvm-key"
                     data-chord="cad"
+                    disabled={offline}
                     title="Ctrl+Alt+Del"
                     aria-label="C-A-D, send Ctrl+Alt+Del"
                     onClick={() => {
@@ -154,6 +160,7 @@ function KeyButton({ def, keyboard, focus, armed, locked, capsOn, capsKnown }: K
                     type="button"
                     className={`kvm-key${capsOn ? " on" : ""}`}
                     data-caps=""
+                    disabled={offline}
                     aria-pressed={capsOn}
                     title={
                         capsKnown
@@ -184,7 +191,8 @@ export function KeyRows({ keyboard, focus, fnOpen, moreOpen, onFn, onMore }: Key
     const { armed, locked } = useStore(keyboard.armed);
     const capsOn = useTarget((s) => s.device.caps.on);
     const capsKnown = useTarget((s) => s.device.caps.known);
-    const shared = { keyboard, focus, armed, locked, capsOn, capsKnown };
+    const offline = !useTarget((s) => s.link.open);
+    const shared = { keyboard, focus, armed, locked, capsOn, capsKnown, offline };
     const draw = (defs: readonly KeyDef[]) =>
         defs.map((def, i) => <KeyButton key={`${def.kind}:${"code" in def ? def.code : "spec" in def ? def.spec : i}`} def={def} {...shared} />);
 
@@ -192,12 +200,13 @@ export function KeyRows({ keyboard, focus, fnOpen, moreOpen, onFn, onMore }: Key
         <div className="kvm-keys" role="group" aria-label="Controls">
             <div className="kvm-krow" role="group" aria-label="Modifiers">
                 {draw(MAIN_ROW)}
-                <button type="button" className={`kvm-key${fnOpen ? " on" : ""}`} aria-pressed={fnOpen} data-toggle="fn" onClick={() => { onFn(); focus.refocus(); }}>
+                <button type="button" className={`kvm-key${fnOpen ? " on" : ""}`} disabled={offline} aria-pressed={fnOpen} data-toggle="fn" onClick={() => { onFn(); focus.refocus(); }}>
                     Fn
                 </button>
                 <button
                     type="button"
                     className={`kvm-key${moreOpen ? " on" : ""}`}
+                    disabled={offline}
                     aria-pressed={moreOpen}
                     aria-label="More keys"
                     data-toggle="more"
@@ -231,7 +240,8 @@ export function KeyStrip({ keyboard, focus }: { readonly keyboard: Keyboard; rea
     const { armed, locked } = useStore(keyboard.armed);
     const capsOn = useTarget((s) => s.device.caps.on);
     const capsKnown = useTarget((s) => s.device.caps.known);
-    const shared = { keyboard, focus, armed, locked, capsOn, capsKnown };
+    const offline = !useTarget((s) => s.link.open);
+    const shared = { keyboard, focus, armed, locked, capsOn, capsKnown, offline };
     const strip: readonly KeyDef[] = [...MAIN_ROW, ...NAV_ROW, key("Home", "Home"), key("End", "End"), { kind: "cad" }];
     return (
         <div className="kvm-keys kvm-strip" role="group" aria-label="Controls">

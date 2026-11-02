@@ -215,6 +215,23 @@ describe("macros", () => {
     });
 });
 
+describe("the Pi's own UI", () => {
+    it("is framed over the picture from the sheet, takes the keyboard from the target, and gives the console back", async () => {
+        const rig = await mount({ dock: true });
+        rig.session.keyboard.modifiers.press("ShiftLeft");
+        fireEvent.click(screen.getByRole("button", { name: "More" }));
+        fireEvent.click(screen.getByRole("button", { name: "Full PiKVM UI" }));
+
+        const frame = screen.getByTitle("Full PiKVM UI");
+        expect(frame).toHaveAttribute("src", "/?native=1");
+        // Two things must never type at the target at once.
+        expect(rig.sent()).toContain("key ShiftLeft:up");
+
+        fireEvent.click(within(frame.parentElement as HTMLElement).getByRole("button", { name: "Back to console" }));
+        expect(screen.queryByTitle("Full PiKVM UI")).toBeNull();
+    });
+});
+
 describe("host paste", () => {
     function clipboard(text: string | Error): void {
         Object.defineProperty(navigator, "clipboard", {

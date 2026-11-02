@@ -1,15 +1,13 @@
 /**
  * What differs between the three places the screen runs: the desktop app (Electron), a browser
  * on a computer, and a phone or tablet. Each question is asked here once so the components do
- * not scatter `window.desktopConsole` checks.
+ * not scatter `window.pikvmDesktop` checks.
  */
 
 import { useEffect, useSyncExternalStore } from "react";
+import { desktopBridge, isDesktopApp } from "../host/desktop";
 
-/** The Electron app's preload exposes this; nothing else does. */
-export function isDesktopApp(): boolean {
-    return typeof window !== "undefined" && Boolean(Reflect.get(window, "desktopConsole"));
-}
+export { isDesktopApp };
 
 /** Chrome's Keyboard Lock. Not in the DOM typings, and absent outside Chromium. */
 interface KeyboardLockApi {
@@ -77,7 +75,7 @@ export function useWakeLock(enabled: boolean): void {
  * full screen, so the two go together. Holding Esc leaves, as Chrome tells the user.
  */
 export function fullscreenSupported(): boolean {
-    return !isDesktopApp() && !!document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === "function";
+    return isDesktopApp() || (!!document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === "function");
 }
 
 function subscribeFullscreen(notify: () => void): () => void {
@@ -101,6 +99,16 @@ export function useIsFullscreen(): boolean {
 
 /** Enter or leave full screen. Resolves false when the browser refused. */
 export async function toggleFullscreen(): Promise<boolean> {
+    const bridge = desktopBridge();
+    if (bridge) {
+        // The shell owns the window, so it does both halves (full screen and Keyboard Lock) and
+        // the page does not need a user gesture still being live by the time the IPC answers.
+        const entering = !document.fullscreenElement;
+        return bridge.window.setFullscreen(entering, { lockKeyboard: true }).then(
+            () => true,
+            () => false,
+        );
+    }
     if (document.fullscreenElement) {
         await document.exitFullscreen().catch(() => {});
         return true;

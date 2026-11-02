@@ -1,8 +1,7 @@
 # @pikvm/web
 
-The PiKVM app: the shell (navigation, layout), Settings, the agent Chat (the shared
-`@pikvm/chat-ui` workspace, rendered natively), and for now a frame around the existing console
-until phase 4 replaces it. Vite, React 19,
+The PiKVM app: the shell (navigation, layout), the KVM screen, Settings and the agent Chat (the
+shared `@pikvm/chat-ui` workspace, rendered natively). Vite, React 19,
 Tailwind 4, TanStack Router and Query, Effect. Served by the host under `/app/`.
 
 ## Develop
@@ -20,9 +19,9 @@ origin (same paths, same cookies, no CORS): `/app/api`, `/app/legacy`,
 `/app/harness`, `/api` (WebSocket too), `/streamer`, `/janus` and `/oauth2`. Point it at a
 different host with `PIKVM_WEB_HOST=http://127.0.0.1:9000 yarn workspace @pikvm/web dev`.
 
-The KVM tab frames the host's `/app/legacy/` (override with `VITE_LEGACY_CONSOLE_PATH`). Chat talks to
-the harness at `/app/harness` and needs no frame. Without a host behind the proxy the shell, navigation and Settings
-still load; their data shows its error state.
+Chat talks to the harness at `/app/harness` and needs no frame. The KVM screen talks to kvmd
+through the host (`/api/ws`, `/streamer`, `/janus/ws`). Without a host behind the proxy the shell,
+navigation and Settings still load; their data shows its error state.
 
 ## Build and check
 
@@ -43,7 +42,7 @@ src/app/                shell, route table, navigation (bar on phones, rail when
 src/api/                typed client over @pikvm/contracts, and the Query bindings
 src/settings/           the Settings list and one page per section
 src/chat/               the Chat route: host states around @pikvm/chat-ui's ChatWorkspace
-src/kvm/                TEMPORARY frame around the existing console
+src/kvm/                the KVM screen: picture, dock and toolbar, key rows, sheet, dialog seam (see FAILURE_MODES.md)
 src/host/paths.ts       every server path the app depends on
 src/theme.ts            the stored theme, shared with the console's key
 src/ui/                 icons and the grouped-list controls
@@ -74,3 +73,10 @@ src/styles.css          tokens (the desktop app's palette) and component classes
   running"; a 502/503 from the proxy shows "The agent is not running" and the workspace retries on
   its own. The route is a lazy chunk. Its tests are in `src/chat/`; the phone behaviours (sheets,
   keyboard docking, approval dock, long-press) are tested in `packages/chat-ui`.
+- **KVM screen** is the engine (`@pikvm/kvm-engine`) wired to elements.
+  - One session per app (`kvm/session.tsx`) owns the kvmd link, the key queue and the paste and macro runners, outside React.
+  - `kvm/picture-controller.ts` wires the video and pointer machines to the picture.
+  - A phone (`(pointer: coarse)`) gets the dock and a computer the toolbar.
+  - Dialogs open through `session.dialogs.open(name)`; what appears is what `registerDialog` holds for the name.
+  - `public/janus/` is the vendored Janus client, loaded on demand for WebRTC.
+  - The end-to-end run against the fake kvmd is `e2e/kvm.e2e.mjs` (see `docs/e2e/README.md`).
