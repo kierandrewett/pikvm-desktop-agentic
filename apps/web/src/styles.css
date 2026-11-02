@@ -1,4 +1,11 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "tw-shimmer";
+/* The agent conversation (packages/chat-ui). tokens.css derives the shadcn names its
+   components use from the nine base tokens below, so it is this palette, not a second one. */
+@import "../../../packages/chat-ui/src/styles/tokens.css";
+@import "../../../packages/chat-ui/src/styles/chat.css";
+@source "../../../packages/chat-ui/src";
 
 /*
  * The desktop app's palette and component language (src/views/console.css, DESIGN.md),
@@ -53,7 +60,6 @@
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --color-card: var(--card);
-    --color-muted: var(--muted-foreground);
     --color-secondary: var(--secondary);
     --color-accent: var(--accent);
     --color-border: var(--border);
@@ -68,70 +74,78 @@
     --font-sans: "Geist Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-* {
-    box-sizing: border-box;
-    -webkit-tap-highlight-color: transparent;
-}
+/*
+ * Global resets live in the base layer, below Tailwind's utilities. The chat's components
+ * are Tailwind: unlayered rules such as `button { font: inherit }` would beat every
+ * `text-sm font-medium` on a button, whatever the specificity. The app's own classes
+ * below stay unlayered, so they still beat the utilities where both apply.
+ */
+@layer base {
+    * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+    }
 
-/* This is application chrome, not a document: nothing is selectable except where you
-   type. Dragging across a toolbar must not paint a text selection over half the UI. */
-* {
-    -webkit-user-select: none;
-    user-select: none;
-}
+    /* This is application chrome, not a document: nothing is selectable except where you
+       type. Dragging across a toolbar must not paint a text selection over half the UI. */
+    * {
+        -webkit-user-select: none;
+        user-select: none;
+    }
 
-input,
-textarea,
-select,
-[contenteditable="true"],
-[contenteditable=""] {
-    -webkit-user-select: text;
-    user-select: text;
-}
+    input,
+    textarea,
+    select,
+    [contenteditable="true"],
+    [contenteditable=""] {
+        -webkit-user-select: text;
+        user-select: text;
+    }
 
-/* The `hidden` attribute has to win over any author display rule. */
-[hidden] {
-    display: none !important;
-}
+    /* The `hidden` attribute has to win over any author display rule. */
+    [hidden] {
+        display: none !important;
+    }
 
-/* Lock the document: the app scrolls inside its panes, never as a page, so iOS cannot
-   rubber-band the whole shell. */
-html,
-body {
-    margin: 0;
-    height: 100%;
-    overflow: hidden;
-    position: fixed;
-    inset: 0;
-    background: var(--background);
-    color: var(--foreground);
-    font-family: var(--font-sans);
-    font-size: 14px;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
-    -webkit-text-size-adjust: 100%;
-    overscroll-behavior: none;
-    touch-action: manipulation;
-}
+    /* Lock the document: the app scrolls inside its panes, never as a page, so iOS cannot
+       rubber-band the whole shell. */
+    html,
+    body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        position: fixed;
+        inset: 0;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: 100%;
+        overscroll-behavior: none;
+        touch-action: manipulation;
+    }
 
-#root {
-    height: 100%;
-}
+    #root {
+        height: 100%;
+    }
 
-button,
-input,
-select {
-    font: inherit;
-    color: inherit;
-}
+    button,
+    input,
+    select {
+        font: inherit;
+        color: inherit;
+    }
 
-button {
-    cursor: pointer;
-}
+    button {
+        cursor: pointer;
+    }
 
-:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+    :focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+    }
 }
 
 /* ---- shell ---------------------------------------------------------------- */
@@ -579,6 +593,25 @@ a.row[aria-current="page"][data-selected="true"] {
     border: 0;
     display: block;
     background: var(--background);
+}
+
+/* The conversation is content, not chrome: it is read and copied from. Unlayered, because
+   the app's `* { user-select: none }` applies to every element directly and so a rule on
+   the workspace root alone would not reach its children. Buttons stay unselectable. */
+.chat-surface {
+    position: absolute;
+    inset: 0;
+}
+
+.chat-surface .workspace-shell,
+.chat-surface .workspace-shell * {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.chat-surface .workspace-shell :is(button, [role="button"], [role="menuitem"], [role="tab"]) {
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .empty-state {

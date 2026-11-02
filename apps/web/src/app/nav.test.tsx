@@ -23,8 +23,14 @@
 
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultServer, installFakeServer, installViewport, renderApp } from "../test/harness";
+
+// Chat is a lazy chunk and the router waits for it before rendering /chat; warm it so the
+// first test to land there is not racing a cold import.
+beforeAll(async () => {
+    await import("../chat/chat-route");
+}, 30_000);
 
 beforeEach(() => {
     installFakeServer(defaultServer());

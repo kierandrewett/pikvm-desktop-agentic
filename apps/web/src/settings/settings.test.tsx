@@ -26,7 +26,7 @@
  *
  * Navigation
  * 15. A phone shows list and page together, or no way back; a wide screen opens on nothing.
- * 16. Chat opens its frame when the host cannot serve chat.
+ * 16. (Chat's own failure modes are listed in chat/chat-route.test.tsx.)
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -441,39 +441,6 @@ describe("settings navigation", () => {
     it("says so for an unknown settings page", async () => {
         renderApp("/settings/nope", { compact: true });
         expect(await screen.findByText("No such setting")).toBeInTheDocument();
-    });
-});
-
-describe("chat", () => {
-    it("explains what to do when the host cannot reach the desktop app", async () => {
-        server.chat = false;
-        renderApp("/chat");
-        expect(await screen.findByRole("heading", { name: "Chat needs the desktop app running" })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
-        expect(document.querySelector("iframe")).toBeNull();
-    });
-
-    it("opens the workspace frame when chat is available", async () => {
-        renderApp("/chat");
-        await waitFor(() => expect(document.querySelector("iframe")).not.toBeNull());
-        expect(document.querySelector("iframe")).toHaveAttribute("src", "/app/workspace/");
-    });
-
-    it("recovers when Check again finds the desktop app", async () => {
-        const user = userEvent.setup();
-        server.chat = false;
-        renderApp("/chat");
-        await user.click(await screen.findByRole("button", { name: "Check again" }));
-        server.chat = true;
-        await user.click(await screen.findByRole("button", { name: "Check again" }));
-        await waitFor(() => expect(document.querySelector("iframe")).not.toBeNull());
-    });
-
-    it("shows a retry, not a frame, when the state cannot be loaded", async () => {
-        server.stateStatus = 500;
-        renderApp("/chat");
-        expect(await screen.findByRole("heading", { name: "Cannot reach the app server" })).toBeInTheDocument();
-        expect(document.querySelector("iframe")).toBeNull();
     });
 });
 

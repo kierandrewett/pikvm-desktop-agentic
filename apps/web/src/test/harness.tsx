@@ -4,6 +4,7 @@
  * what a user would see and what the server would receive.
  */
 
+import { baseRun, createFakeHarness } from "@pikvm/chat-ui/testing";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
@@ -31,6 +32,8 @@ export interface ServerState {
     patchGate: Promise<void> | undefined;
     /** What HEAD /oauth2/userinfo answers: a status and content type, or a network failure. */
     userinfo: { status: number; contentType: string } | "network-error";
+    /** The agent behind /app/harness/*; set its `status` to 502/503 for a proxy whose agent is down. */
+    harness: ReturnType<typeof createFakeHarness>;
 }
 
 export const defaultServer = (): ServerState => ({
@@ -44,6 +47,7 @@ export const defaultServer = (): ServerState => ({
     stateStatus: 200,
     patchGate: undefined,
     userinfo: { status: 404, contentType: "text/plain" },
+    harness: createFakeHarness({ runs: [baseRun()] }),
 });
 
 const json = (status: number, body: unknown): Response =>
@@ -60,6 +64,8 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
     vi.stubGlobal(
         "fetch",
         vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+            const proxied = server.harness.handle(input, init);
+            if (proxied) return proxied;
             const request = input instanceof Request ? input : undefined;
             const url = new URL(request?.url ?? String(input), "http://localhost");
             const method = (init?.method ?? request?.method ?? "GET").toUpperCase();

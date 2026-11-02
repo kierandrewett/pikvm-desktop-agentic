@@ -37,11 +37,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@assistant-ui/core@npm:^0.2.22":
-  version: 0.2.23
-  resolution: "@assistant-ui/core@npm:0.2.23"
+"@assistant-ui/core@npm:0.2.22":
+  version: 0.2.22
+  resolution: "@assistant-ui/core@npm:0.2.22"
   dependencies:
-    assistant-stream: "npm:^0.3.28"
+    assistant-stream: "npm:^0.3.27"
     nanoid: "npm:^6.0.0"
   peerDependencies:
     "@assistant-ui/store": ^0.2.13
@@ -59,7 +59,7 @@ __metadata:
       optional: true
     zustand:
       optional: true
-  checksum: 10c0/aadaf8d6a309bdb3d65d7dbda85f48a8fb7ab3336e7bcaecf8529fd0a47f52b19f0b518d0bfae637047bc903d968e8946df967714a2c862d041c70b10d8982f9
+  checksum: 10c0/b0db4c5e288fb0dba5085f1127874685a6ed69d3dd7347b27359009b35fa6cb1de7a9877e95112027ae649946a8e5815e75ad740cc63158a3c988478dbe8086c
   languageName: node
   linkType: hard
 
@@ -119,9 +119,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@assistant-ui/store@npm:^0.2.21":
-  version: 0.2.22
-  resolution: "@assistant-ui/store@npm:0.2.22"
+"@assistant-ui/store@npm:0.2.21":
+  version: 0.2.21
+  resolution: "@assistant-ui/store@npm:0.2.21"
   dependencies:
     use-effect-event: "npm:^2.0.3"
   peerDependencies:
@@ -131,22 +131,20 @@ __metadata:
   peerDependenciesMeta:
     "@types/react":
       optional: true
-  checksum: 10c0/c5f2ac184fe9112c476766ac3bb05a694c65ea8bb739db20b628fe8ee4f7aad18512d3dc46f1cb88c765dcaaf3d43b8d4fb87214cd4a58939947fb0bd58d68d9
+  checksum: 10c0/08a3b99c49c44774247ee847cbdc327218ed2131897398fc84f69f3d6ad9de34e9537ffeb19f705ee8ed741447ec195f606a2807f6cfb84cd512d1291f670b06
   languageName: node
   linkType: hard
 
-"@assistant-ui/tap@npm:^0.9.5":
-  version: 0.9.24
-  resolution: "@assistant-ui/tap@npm:0.9.24"
+"@assistant-ui/tap@npm:0.9.5":
+  version: 0.9.5
+  resolution: "@assistant-ui/tap@npm:0.9.5"
   peerDependencies:
     "@types/react": "*"
     react: ^18 || ^19
   peerDependenciesMeta:
     "@types/react":
       optional: true
-    react:
-      optional: true
-  checksum: 10c0/baf5aa9aa4c3b23b0bc3afc2a2f3d3a4eae974d5b8b4b5edc6a9cfa8f072c0fa4e40b179e414ffd9beb013f9af6f888f378692e9643b1e4c3651e87562dfeb5b
+  checksum: 10c0/52a0dde2ad6756ddc3dbd8753392db3b43e6d97a5f12aae7579d1a226c7889576f6a4017af08d079e4d569919eb74ddf88ca59c79f2ad41102f6b286c10a6693
   languageName: node
   linkType: hard
 
@@ -914,7 +912,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@pikvm/chat-ui@workspace:packages/chat-ui":
+"@pikvm/chat-ui@workspace:*, @pikvm/chat-ui@workspace:packages/chat-ui":
   version: 0.0.0-use.local
   resolution: "@pikvm/chat-ui@workspace:packages/chat-ui"
   dependencies:
@@ -941,6 +939,7 @@ __metadata:
     react-dom: "npm:^19"
     remark-gfm: "npm:^4.0.1"
     tailwind-merge: "npm:^3.3.1"
+    tailwindcss: "npm:^4.3.3"
     tw-animate-css: "npm:^1.4.0"
     tw-shimmer: "npm:0.4.12"
     typescript: "npm:^7.0.2"
@@ -976,6 +975,7 @@ __metadata:
   resolution: "@pikvm/web@workspace:apps/web"
   dependencies:
     "@effect/platform": "npm:^0.97.3"
+    "@pikvm/chat-ui": "workspace:*"
     "@pikvm/contracts": "workspace:*"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@tanstack/react-query": "npm:^5.105.1"
@@ -994,6 +994,8 @@ __metadata:
     react: "npm:^19"
     react-dom: "npm:^19"
     tailwindcss: "npm:^4.3.3"
+    tw-animate-css: "npm:^1.4.0"
+    tw-shimmer: "npm:0.4.12"
     typescript: "npm:^7.0.2"
     vite: "npm:^8.3.5"
     vitest: "npm:^5.0.5"
@@ -3298,7 +3300,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"assistant-stream@npm:^0.3.27, assistant-stream@npm:^0.3.28, assistant-stream@npm:^0.3.41":
+"assistant-stream@npm:^0.3.27, assistant-stream@npm:^0.3.41":
   version: 0.3.55
   resolution: "assistant-stream@npm:0.3.55"
   dependencies:

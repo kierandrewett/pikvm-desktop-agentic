@@ -1,7 +1,8 @@
 # @pikvm/web
 
-The PiKVM app: the shell (navigation, layout), Settings, and for now frames that host the
-existing console and agent workspace until phases 3 and 4 replace them. Vite, React 19,
+The PiKVM app: the shell (navigation, layout), Settings, the agent Chat (the shared
+`@pikvm/chat-ui` workspace, rendered natively), and for now a frame around the existing console
+until phase 4 replaces it. Vite, React 19,
 Tailwind 4, TanStack Router and Query, Effect. Served by the host under `/app/`.
 
 ## Develop
@@ -15,13 +16,12 @@ yarn workspace @pikvm/web dev        # http://localhost:5173/app/
 ```
 
 The dev server forwards what it cannot serve itself to the host, so dev behaves like the real
-origin (same paths, same cookies, no CORS): `/app/api`, `/app/legacy`, `/app/workspace`,
+origin (same paths, same cookies, no CORS): `/app/api`, `/app/legacy`,
 `/app/harness`, `/api` (WebSocket too), `/streamer`, `/janus` and `/oauth2`. Point it at a
 different host with `PIKVM_WEB_HOST=http://127.0.0.1:9000 yarn workspace @pikvm/web dev`.
 
-The KVM tab frames the host's `/app/legacy/` and the Chat tab its `/app/workspace/`. Both
-paths are constants in `src/host/paths.ts` and can be overridden with `VITE_LEGACY_CONSOLE_PATH`
-and `VITE_WORKSPACE_PATH`. Without a host behind the proxy the shell, navigation and Settings
+The KVM tab frames the host's `/app/legacy/` (override with `VITE_LEGACY_CONSOLE_PATH`). Chat talks to
+the harness at `/app/harness` and needs no frame. Without a host behind the proxy the shell, navigation and Settings
 still load; their data shows its error state.
 
 ## Build and check
@@ -42,7 +42,8 @@ src/main.tsx            entry: theme, query client, router
 src/app/                shell, route table, navigation (bar on phones, rail when wide), viewport hooks
 src/api/                typed client over @pikvm/contracts, and the Query bindings
 src/settings/           the Settings list and one page per section
-src/kvm/ src/chat/      TEMPORARY frames around the existing console and workspace
+src/chat/               the Chat route: host states around @pikvm/chat-ui's ChatWorkspace
+src/kvm/                TEMPORARY frame around the existing console
 src/host/paths.ts       every server path the app depends on
 src/theme.ts            the stored theme, shared with the console's key
 src/ui/                 icons and the grouped-list controls
@@ -66,3 +67,10 @@ src/styles.css          tokens (the desktop app's palette) and component classes
 - **Phone layout** is chosen by `(pointer: coarse), (max-width: 719px)`. The bottom bar hides
   while the soft keyboard is up, judged from `visualViewport` the way the console does: more
   than 150px lost from the tallest height seen since the last orientation change.
+- **Chat** renders `ChatWorkspace` from `packages/chat-ui` with `apiBase=/app/harness`, the marker
+  credential `desktop-managed` (the proxy attaches the real operator capability; every request also
+  carries `x-pikvm-workspace: 1`) and `insets="host"` (the shell already pads the safe areas and
+  sizes itself to the visual viewport). `features.chat=false` shows "Chat needs the desktop app
+  running"; a 502/503 from the proxy shows "The agent is not running" and the workspace retries on
+  its own. The route is a lazy chunk. Its tests are in `src/chat/`; the phone behaviours (sheets,
+  keyboard docking, approval dock, long-press) are tested in `packages/chat-ui`.

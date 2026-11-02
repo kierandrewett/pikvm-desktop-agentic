@@ -30,7 +30,6 @@ export default defineConfig({
         proxy: {
             "/app/api": forward(false),
             "/app/legacy": forward(true),
-            "/app/workspace": forward(true),
             "/app/harness": forward(true),
             "/api": forward(true),
             "/streamer": forward(false),

@@ -80,9 +80,10 @@ apps/web/                 the app (Vite, React 19, Tailwind 4, TanStack, Effect)
   src/input/              keyboard, soft-keyboard mirror, pointer/touch machines, macros
   src/view/               coordinate maths, zoom/pan/clamp, cursor, lens
   src/kvm/                KVM screen: picture, dock, key rows, sheets, dialogs
-  src/chat/               agent workspace (moved from agent/frontend, shared)
+  src/chat/               the Chat route (host states around @pikvm/chat-ui)
   src/settings/           settings pages
 packages/contracts/       Effect Schemas: our API + kvmd messages
+packages/chat-ui/         the agent workspace, shared by apps/web and agent/frontend (the harness's UI)
 src/server/               one Node server for desktop and web host
   routes.ts               the route table
   api/                    Effect HttpApi handlers for /app/api/v1/*
