@@ -83,3 +83,17 @@ test("every build produces a distinct package", () => {
     assert.match(pack, /\$\{count\}\.\$\{stamp\}/);
     assert.match(pack, /"--build-arg", `RELEASE=\$\{buildRelease\(\)\}`/);
 });
+
+test("the Windows runtime is cross-built from wheels, with a relocatable exe launcher", () => {
+    /* A Windows tree cannot run on the machine building it, so what is pinned here is the way it is made:
+     * the interpreter is the standalone Windows build, the dependencies are the lock resolved FOR Windows
+     * and wheels only (nothing may compile), and the launcher is an exe that finds python.exe beside
+     * itself, not a .cmd (Node will not spawn one) and not pip's absolute-path script. */
+    assert.match(build, /--python-platform", WINDOWS_TRIPLE/);
+    assert.match(build, /"--only-binary", ":all:"/);
+    assert.match(build, /#!<launcher_dir>\\\\python\.exe/);
+    assert.match(build, /does not understand <launcher_dir>/);
+    assert.match(build, /the Windows runtime is incomplete/);
+    assert.match(pack, /runtime-win32-x64/);
+    assert.doesNotMatch(read(".github/workflows/package.yml"), /allow-no-runtime/);
+});

@@ -14,7 +14,7 @@
 //
 // Electron trees for another platform are downloaded by electron-packager, so any machine can
 // make any tree. What it cannot do is carry the agent runtime across: that is a CPython built for
-// one platform, made by `just agent-runtime` on that platform. A tree built without one says so
+// one platform, made by `make agent-runtime` on that platform (Windows: also from any host). A tree built without one says so
 // and is refused unless --allow-no-runtime is given.
 import { packager } from "@electron/packager";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -52,7 +52,8 @@ const PKG_ARCH = { x64: "amd64", arm64: "arm64" }[arch];
 const FORMATS = {
     linux: ["rpm", "deb", "archlinux", "appimage", "flatpak"],
     darwin: ["dmg", "zip"],
-    win32: ["msi", "nsis", "zip"],
+    // No msi: pkgsmith's writer cannot hold the runtime's 24,000 files (see pkgsmith.star).
+    win32: ["nsis", "zip"],
 };
 
 function run(command, args, options = {}) {
@@ -174,17 +175,20 @@ await shipPty();
 log(`shipped the terminal addon for ${target}`);
 
 /* The agent runtime: a self-contained CPython with the agent installed into it, built by
- * `just agent-runtime` for the machine it runs on. dereference:false keeps the interpreter's
+ * `make agent-runtime` for the machine it runs on. dereference:false keeps the interpreter's
  * internal symlinks (python3 -> python3.12) as symlinks; following them turns a handful of
  * links into a handful of extra copies of a 100MB binary. */
-const runtime = join(root, "agent", "runtime");
-const runtimeFits = platform === process.platform && arch === process.arch;
+/* One per target. A native build is agent/runtime; the Windows one is agent/runtime-win32-x64, which any
+ * host can make (`node scripts/build-agent-runtime.mjs --platform win32 --arch x64`). macOS and Linux
+ * runtimes are built on their own platform. */
+const runtime = join(root, "agent", platform === "win32" ? "runtime-win32-x64" : "runtime");
+const runtimeFits = platform === "win32" ? arch === "x64" : platform === process.platform && arch === process.arch;
 if (existsSync(runtime) && runtimeFits) {
     mkdirSync(join(resources, "agent"), { recursive: true });
     cpSync(runtime, join(resources, "agent", "runtime"), { recursive: true, dereference: false, verbatimSymlinks: true });
     log("shipped the agent runtime");
 } else {
-    const why = runtimeFits ? "agent/runtime is not built; run `just agent-runtime`" : `agent/runtime is a ${process.platform}-${process.arch} build, not ${target}; build it on a ${target} machine`;
+    const why = runtimeFits ? `${runtime} is not built; run \`make agent-runtime\` (\`node scripts/build-agent-runtime.mjs --platform win32 --arch x64\` for Windows)` : `the agent runtime is built per platform and this is a ${process.platform}-${process.arch} machine, not ${target}; build it on a ${target} machine`;
     if (!opts["allow-no-runtime"]) throw new Error(`no agent runtime for ${target}: ${why} (--allow-no-runtime packages the app without an agent)`);
     console.warn(`[package] WARNING: ${why}; this package has NO agent.`);
 }

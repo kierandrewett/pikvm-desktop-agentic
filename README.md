@@ -79,7 +79,7 @@ bridge to the OS is `window.pikvmDesktop` (`packages/contracts/src/desktop.ts`, 
 | --- | --- | --- |
 | Linux (x64, arm64) | rpm, deb, Arch (`.pkg.tar.zst`), AppImage, Flatpak | needs `flatpak` on PATH for the Flatpak |
 | macOS (arm64, x64) | dmg, zip | unsigned, not notarised |
-| Windows (x64) | msi, nsis, zip | needs `makensis` on PATH for nsis; unsigned |
+| Windows (x64) | nsis, zip | needs `makensis` on PATH for nsis; unsigned. No msi yet: pkgsmith's msi writer overflows on the runtime's 24,000 files |
 
 ```bash
 make package          # build, then every format for THIS machine's platform
@@ -96,10 +96,13 @@ release yet, so build it from its repository (`cargo build --release --workspace
 sit beside the binary). The package release is `<commit count>.<timestamp>` (plus `.dirty`), so a
 rebuild is always a different package to `dnf` and `apt`.
 
-A tree for another platform can be made anywhere (`--platform win32 --arch x64 --tree-only`), but the
-agent runtime is built per platform, so packages for macOS and Windows come from
-`.github/workflows/package.yml`, which runs the build on a runner of each system and uploads the
-packages as artefacts. The icon sizes in `packaging/icons` come from `make icons`.
+A tree for another platform can be made anywhere (`--platform win32 --arch x64 --tree-only`). The agent
+runtime is a CPython built for one platform: Linux and macOS ones must be built on that platform, but
+the Windows one cross-builds from any host (`node scripts/build-agent-runtime.mjs --platform win32
+--arch x64` into `agent/runtime-win32-x64`: the standalone Windows CPython, the locked dependencies as
+Windows wheels, and a `pikvm-agent.exe` launcher that finds `python.exe` beside itself). So the macOS
+packages come from `.github/workflows/package.yml`, which runs the build on a runner of each system and
+uploads the packages as artefacts. The icon sizes in `packaging/icons` come from `make icons`.
 
 ## Web host
 

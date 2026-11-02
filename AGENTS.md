@@ -23,3 +23,7 @@ make package                        # build + pkgsmith packages for this platfor
 - The PiKVM address and credentials: `src/target-store.ts` (`pikvm.json` = address + user name; the password only in
   `pikvm-credentials.json`, 0600, atomic). Never put a password in pikvm.json, an API reply, a log or an error.
   Do not print pikvm.json: an older install has `user:pass` in its address.
+- Agent runtime paths: `agentExecutablePaths()` in `src/agent-runtime.ts` (POSIX `runtime/bin/pikvm-agent`;
+  Windows `runtime\pikvm-agent.exe` and `.venv\Scripts\pikvm-agent.exe`). A Windows runtime can be built and checked
+  from Linux: `node scripts/build-agent-runtime.mjs --platform win32 --arch x64`, then `wine` runs its python.exe
+  and `pikvm-agent.exe --help` (needs `WINEPREFIX` somewhere writable).

@@ -11,7 +11,7 @@ import { createServer as createProbeServer } from "net";
 import { get as httpGet } from "node:http";
 import { resolve, isAbsolute, extname } from "path";
 import {
-    AGENT_EXECUTABLE,
+    agentExecutablePaths,
     describeAgentRuntime,
     resolveAgentRuntime,
     type AgentRuntimeResolution,
@@ -116,8 +116,7 @@ function agentRuntime(...preferred: (string | undefined)[]): AgentRuntimeResolut
         {
             configured,
             env,
-            bundled: resolve(__dirname, "..", "agent", "runtime", "bin", AGENT_EXECUTABLE),
-            workspace: resolve(__dirname, "..", "agent", ".venv", "bin", AGENT_EXECUTABLE),
+            ...agentExecutablePaths(resolve(__dirname, "..", "agent")),
         },
         { exists: existsSync },
     );

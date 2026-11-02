@@ -26,6 +26,8 @@
  * assertions in desktop-layout.test.ts were standing in for.
  */
 
+import { posix, win32 } from "node:path";
+
 /** Which candidate won, in the order they are tried. */
 export type AgentRuntimeSource =
     /** An explicit setting or env var. The operator asked for this one by name. */
@@ -73,6 +75,33 @@ export interface AgentRuntimeProbes {
 
 /** The name the runtime installs itself as inside a venv's bin directory. */
 export const AGENT_EXECUTABLE = "pikvm-agent";
+
+/**
+ * Where the runtime's executable sits under `agentDir` (the `agent/` folder, in the repo or beside the
+ * app's resources), per platform.
+ *
+ * POSIX: `runtime/bin/pikvm-agent`, a shell launcher, and `.venv/bin/pikvm-agent` in a checkout.
+ * Windows: `runtime\pikvm-agent.exe` beside python.exe (the standalone Windows layout has no bin/), and
+ * `.venv\Scripts\pikvm-agent.exe` in a checkout. It has to be an exe: the app spawns it directly and
+ * Node will not start a .cmd without a shell. Separators follow the platform, not the machine running this,
+ * so the answer can be checked for either.
+ */
+export function agentExecutablePaths(
+    agentDir: string,
+    platform: NodeJS.Platform = process.platform,
+): { bundled: string; workspace: string } {
+    if (platform === "win32") {
+        const exe = `${AGENT_EXECUTABLE}.exe`;
+        return {
+            bundled: win32.join(agentDir, "runtime", exe),
+            workspace: win32.join(agentDir, ".venv", "Scripts", exe),
+        };
+    }
+    return {
+        bundled: posix.join(agentDir, "runtime", "bin", AGENT_EXECUTABLE),
+        workspace: posix.join(agentDir, ".venv", "bin", AGENT_EXECUTABLE),
+    };
+}
 
 const HINT =
     `No ${AGENT_EXECUTABLE} runtime found. Build the bundled one with ` +

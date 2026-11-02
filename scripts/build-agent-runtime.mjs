@@ -23,14 +23,36 @@
 // Relocatable on purpose: the tree gets copied to resources/agent/runtime at
 // package time and installed under /usr/lib, so nothing inside may hardcode the
 // path it was built at. See writeLauncher() for the one place that matters.
+//
+// Windows: `--platform win32 --arch x64`, from any host. The interpreter is the standalone Windows
+// build, downloaded here (uv only installs for the machine it runs on), and the dependencies are
+// the locked set resolved FOR WINDOWS (`uv pip install --python-platform`), wheels only. It lands
+// in agent/runtime-win32-x64, not agent/runtime, so a Linux checkout keeps its own runtime. See
+// buildWindows() for the layout and why the launcher is an exe.
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { readdir, lstat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+
+const { values: opts } = parseArgs({
+    options: {
+        platform: { type: "string", default: process.platform },
+        arch: { type: "string", default: process.arch },
+    },
+});
+const targetWindows = opts.platform === "win32";
+if (targetWindows && opts.arch !== "x64") throw new Error(`no Windows ${opts.arch} runtime: only x64 is built`);
+if (!targetWindows && (opts.platform !== process.platform || opts.arch !== process.arch)) {
+    throw new Error(
+        `a ${opts.platform}-${opts.arch} runtime must be built on that platform (only win32-x64 cross-builds)`,
+    );
+}
 
 const root = resolve(import.meta.dirname, "..");
 const agentDir = join(root, "agent");
-const runtimeDir = join(agentDir, "runtime");
+const runtimeDir = join(agentDir, targetWindows ? "runtime-win32-x64" : "runtime");
 
 const log = (msg) => console.log(`[agent-runtime] ${msg}`);
 const run = (cmd, args, opts = {}) =>
@@ -202,7 +224,138 @@ function compileEverything(python, dir, short) {
 
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(0)}MB`;
 
+/** The Windows runtime. Laid out as the standalone Windows Python is (python.exe at the top, Lib/, DLLs/), with
+ *  the agent in Lib/site-packages and a launcher, `pikvm-agent.exe`, beside python.exe. */
+const WINDOWS_TRIPLE = "x86_64-pc-windows-msvc";
+
+/** libarchive's tar: it reads .tar.gz and writes zip on every OS. On Windows that is System32's tar.exe, because
+ *  a GNU tar earlier on PATH (Git for Windows) writes neither. */
+const BSDTAR = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "bsdtar";
+
+/** The standalone Windows CPython tarball, downloaded once into ~/.cache. uv lists every platform's URL. */
+async function windowsInterpreterArchive(version) {
+    const listing = JSON.parse(
+        run("uv", ["python", "list", "--all-platforms", "--all-arches", "--only-downloads", "--output-format", "json", version]),
+    );
+    const found = listing.find(
+        (p) => p.implementation === "cpython" && p.os === "windows" && p.arch === "x86_64" && p.variant === "default" && p.url,
+    );
+    if (!found) throw new Error(`uv knows no standalone Windows x86_64 CPython ${version}`);
+    const file = join(homedir(), ".cache", "pikvm-build", decodeURIComponent(found.url.split("/").pop()));
+    if (!existsSync(file)) {
+        log(`downloading ${found.url}`);
+        const res = await fetch(found.url);
+        if (!res.ok) throw new Error(`cannot download ${found.url}: ${res.status}`);
+        mkdirSync(join(file, ".."), { recursive: true });
+        writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+    }
+    return file;
+}
+
+/**
+ * pikvm-agent.exe: the launcher pip writes for a console script (distlib's t64.exe, which the Windows
+ * Python ships inside pip), then a shebang line, then a zip holding __main__.py.
+ *
+ * The shebang is `#!<launcher_dir>\python.exe`: the launcher substitutes its own folder, so the exe finds
+ * the interpreter beside it wherever the runtime is installed. pip writes an ABSOLUTE path there, which
+ * is the Windows version of the failure the sh launcher above exists to avoid. An exe, not a .cmd:
+ * Node refuses to spawn a .cmd without a shell, and the app spawns this directly.
+ */
+function writeWindowsLauncher(dir) {
+    const launcher = join(dir, "Lib", "site-packages", "pip", "_vendor", "distlib", "t64.exe");
+    if (!existsSync(launcher)) throw new Error(`the Windows Python has no distlib launcher at ${launcher}`);
+    const exe = readFileSync(launcher);
+    if (!exe.includes(Buffer.from("<launcher_dir>", "utf16le")) && !exe.includes(Buffer.from("<launcher_dir>"))) {
+        throw new Error("this distlib launcher does not understand <launcher_dir>; the exe would not be relocatable");
+    }
+    const work = join(dir, ".launcher-build");
+    rmSync(work, { recursive: true, force: true });
+    mkdirSync(work, { recursive: true });
+    // argv[0] is set so Typer's usage line names a command the user can type, as the sh launcher does.
+    writeFileSync(
+        join(work, "__main__.py"),
+        'import sys\nsys.argv[0] = "pikvm-agent"\nfrom pikvm_agent.cli import app\napp()\n',
+    );
+    run(BSDTAR, ["--format", "zip", "-cf", join(work, "main.zip"), "-C", work, "__main__.py"]);
+    const out = Buffer.concat([exe, Buffer.from("#!<launcher_dir>\\python.exe\r\n"), readFileSync(join(work, "main.zip"))]);
+    writeFileSync(join(dir, "pikvm-agent.exe"), out);
+    rmSync(work, { recursive: true, force: true });
+}
+
+/** What a complete Windows tree must hold, checked by listing because nothing here can run Windows code. */
+function checkWindowsTree(dir, short) {
+    const must = [
+        "python.exe",
+        `python${short.replace(".", "")}.dll`,
+        "pikvm-agent.exe",
+        join("Lib", "site-packages", "pikvm_agent", "__init__.py"),
+        join("Lib", "site-packages", "pikvm_agent", "cli.py"),
+        join("Lib", "site-packages", "fastapi", "__init__.py"),
+        join("Lib", "os.py"),
+        join("DLLs", "_ctypes.pyd"),
+    ];
+    const missing = must.filter((p) => !existsSync(join(dir, p)));
+    if (missing.length) throw new Error(`the Windows runtime is incomplete, missing: ${missing.join(", ")}`);
+}
+
+async function buildWindows() {
+    const version = pinnedPythonVersion();
+    const short = version.split(".").slice(0, 2).join(".");
+    log(`building a self-contained Windows x64 runtime for Python ${version}`);
+
+    const archive = await windowsInterpreterArchive(version);
+    rmSync(runtimeDir, { recursive: true, force: true });
+    mkdirSync(runtimeDir, { recursive: true });
+    // The tarball's top folder is python/; the runtime IS that folder. bsdtar reads a .tar.gz on every OS.
+    run(BSDTAR, ["-xf", archive, "-C", runtimeDir, "--strip-components=1"]);
+    const sitePackages = join(runtimeDir, "Lib", "site-packages");
+    if (!existsSync(join(runtimeDir, "python.exe"))) throw new Error(`no python.exe after unpacking ${archive}`);
+
+    log("exporting the locked dependency set");
+    const requirements = join(runtimeDir, "requirements.lock.txt");
+    run("uv", [
+        "export", "--project", agentDir, "--frozen", "--no-dev", "--extra", "cua",
+        "--no-emit-project", "--no-hashes", "--format", "requirements-txt", "-o", requirements,
+    ]);
+
+    /* Wheels only, resolved for Windows: nothing here can compile or run a Windows build step. A package with no
+     * Windows wheel stops the build and is named by uv. --no-deps because the export is already the whole closure. */
+    const target = ["--python-platform", WINDOWS_TRIPLE, "--python-version", version, "--target", sitePackages];
+    log("installing locked dependencies for Windows (wheels only)");
+    run("uv", ["pip", "install", ...target, "--only-binary", ":all:", "--no-deps", "--no-cache", "-r", requirements], { stdio: "inherit" });
+    log("installing the agent itself");
+    run("uv", ["pip", "install", ...target, "--no-deps", "--no-cache", agentDir], { stdio: "inherit" });
+    rmSync(requirements, { force: true });
+
+    writeWindowsLauncher(runtimeDir);
+
+    let removed = 0;
+    for (const p of ["include", "libs", "tcl", join("Lib", "test"), join("Lib", "idlelib"), join("Lib", "tkinter"), join("Lib", "turtledemo")]) {
+        const t = join(runtimeDir, p);
+        if (!existsSync(t)) continue;
+        removed += await directorySize(t);
+        rmSync(t, { recursive: true, force: true });
+    }
+    log(`pruned ${mb(removed)} of headers, import libraries, Tcl and tests`);
+
+    /* Bytecode, as on Linux, so a read-only install does not re-compile every module on every launch. Windows code
+     * cannot run here, but CPython 3.12's bytecode is the same on every OS, so the build host's own 3.12 writes it. */
+    run("uv", ["python", "install", version], { stdio: "inherit" });
+    const host = run("uv", ["python", "find", version]).trim();
+    try {
+        run(host, ["-m", "compileall", "-q", "-j", "0", "--invalidation-mode", "unchecked-hash", join(runtimeDir, "Lib")], {
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+    } catch {
+        /* a few packages ship deliberately broken sample files; everything importable compiled */
+    }
+
+    checkWindowsTree(runtimeDir, short);
+    log(`ok: ${runtimeDir} (${mb(await directorySize(runtimeDir))}); listing check passed (python.exe, python${short.replace(".", "")}.dll, pikvm-agent.exe, the agent and its dependencies)`);
+}
+
 async function main() {
+    if (targetWindows) return buildWindows();
     const version = pinnedPythonVersion();
     log(`building a self-contained runtime for Python ${version}`);
 

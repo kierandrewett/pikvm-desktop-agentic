@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
     AGENT_EXECUTABLE,
+    agentExecutablePaths,
     describeAgentRuntime,
     resolveAgentRuntime,
     type AgentRuntimeLocations,
@@ -106,4 +107,36 @@ test("the success description names which candidate won", () => {
     const line = describeAgentRuntime(resolveAgentRuntime(LOCATIONS, only(LOCATIONS.bundled)));
     assert.ok(line.includes(LOCATIONS.bundled));
     assert.match(line, /\(bundled\)/);
+});
+
+/* Windows paths. FAILURE MODES: the bundled runtime is looked for at a POSIX path (bin/pikvm-agent) that
+ * a Windows tree does not have, so the app reports "no runtime" beside a complete one; the answer uses the
+ * separators of the machine running the check instead of the target; the dev checkout is looked for in
+ * .venv/bin instead of .venv\Scripts; a POSIX result gains an .exe. */
+test("agentExecutablePaths: Windows uses pikvm-agent.exe beside python.exe and .venv\\Scripts", () => {
+    const paths = agentExecutablePaths("C:\\Program Files\\PiKVM Desktop\\resources\\agent", "win32");
+    assert.equal(paths.bundled, "C:\\Program Files\\PiKVM Desktop\\resources\\agent\\runtime\\pikvm-agent.exe");
+    assert.equal(paths.workspace, "C:\\Program Files\\PiKVM Desktop\\resources\\agent\\.venv\\Scripts\\pikvm-agent.exe");
+});
+
+test("agentExecutablePaths: POSIX keeps runtime/bin/pikvm-agent and .venv/bin, with no .exe", () => {
+    for (const platform of ["linux", "darwin"] as const) {
+        const paths = agentExecutablePaths("/usr/lib/pikvm-desktop/resources/agent", platform);
+        assert.equal(paths.bundled, "/usr/lib/pikvm-desktop/resources/agent/runtime/bin/pikvm-agent");
+        assert.equal(paths.workspace, "/usr/lib/pikvm-desktop/resources/agent/.venv/bin/pikvm-agent");
+    }
+});
+
+test("agentExecutablePaths: forward slashes in a Windows base path are normalised", () => {
+    assert.equal(
+        agentExecutablePaths("C:/app/resources/agent", "win32").bundled,
+        "C:\\app\\resources\\agent\\runtime\\pikvm-agent.exe",
+    );
+});
+
+test("a Windows bundled runtime resolves when only the exe exists", () => {
+    const { bundled, workspace } = agentExecutablePaths("D:\\agent", "win32");
+    const found = resolveAgentRuntime({ bundled, workspace }, { exists: (p) => p === bundled });
+    assert.equal(found.found, true);
+    if (found.found) assert.equal(found.source, "bundled");
 });

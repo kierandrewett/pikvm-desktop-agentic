@@ -268,7 +268,7 @@ test("the daemon and the harness resolve one pikvm-agent installation", () => {
     // end up launching different builds. The ORDER itself is tested properly in
     // agent-runtime.test.ts against the real function; what matters here is that
     // main.ts still has exactly one place that builds the candidate list.
-    const lists = main.match(/bundled: resolve\(__dirname/g) ?? [];
+    const lists = main.match(/agentExecutablePaths\(resolve\(__dirname/g) ?? [];
     assert.equal(lists.length, 1, "the candidate list is duplicated again");
     assert.match(main, /function agentRuntime\(\.\.\.preferred/);
     assert.match(main, /resolveDaemonRuntime\(configured\?: string\)/);

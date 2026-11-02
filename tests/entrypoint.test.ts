@@ -26,8 +26,8 @@ test("the launcher and the app look for the same agent installation", () => {
      * builds. The order lives in two languages, so it gets pinned here. */
     // Written out per file rather than through one clever regex: they are two
     // languages, and the thing being pinned is the ORDER, not the syntax.
-    const bundled = { launcher: /\$\{root\}\/agent\/runtime\/bin/, main: /"agent", "runtime", "bin"/ };
-    const inRepo = { launcher: /\$\{root\}\/agent\/\.venv/, main: /"agent", "\.venv"/ };
+    const bundled = { launcher: /\$\{root\}\/agent\/runtime\/bin/, main: /\.\.\.agentExecutablePaths\(/ };
+    const inRepo = { launcher: /\$\{root\}\/agent\/\.venv/, main: /agentExecutablePaths\(resolve\(__dirname, "\.\.", "agent"\)\)/ };
     /* Matched as CODE, not as the string "dev/pikvm-agent" — both files carry a
      * comment saying the retired checkout was removed, and an assertion that
      * cannot tell an explanation from a candidate fails on its own documentation. */
@@ -51,7 +51,7 @@ test("the launcher and the app look for the same agent installation", () => {
      * main.ts the overrides are handed in by the CALLERS, which sit below the
      * function that lists the fixed locations, so position says the opposite of
      * what actually happens. */
-    assert.match(main, /configured,\s*\n\s*env,\s*\n\s*bundled:/);
+    assert.match(main, /configured,\s*\n\s*env,\s*\n\s*\.\.\.agentExecutablePaths/);
     assert.ok(launcher.search(env) < launcher.search(bundled.launcher), "launcher: env is not checked first");
 
     /* Neither may end on a bare name. Passing "pikvm-agent" to exec/spawn and

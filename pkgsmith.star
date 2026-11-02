@@ -183,13 +183,19 @@ elif OS == "windows":
     # option names it.
     expose(tree("/", "/" + PRODUCT), file(LICENSE, "/" + PRODUCT + "/LICENSE.pikvm-desktop.txt", mode = "0644"))
     installer = {"prefix": "/" + PRODUCT, "install_dir": PRODUCT}
-    package("msi", options = dict(installer, manufacturer = "Kieran Drewett"), **common)
     package(
         "nsis",
         options = dict(installer, install_dir = "$PROGRAMFILES64\\" + PRODUCT, shortcuts = ["/" + PRODUCT + "/" + PRODUCT + ".exe"]),
         **common
     )
     package("zip", **common)
+
+    # Off by default. pkgsmith's msi writer (the msi crate, 0.11.1) cannot hold this tree: an MSI keeps its
+    # strings in a pool of 65535 entries, each file costs several, and the 23,900 files (14,000 without
+    # the bytecode) make the writer panic with "Too many strings; rewriting to long string refs is not yet
+    # supported". Pass --build-arg WITH_MSI=1 once pkgsmith can write one.
+    if arg("WITH_MSI", ""):
+        package("msi", options = dict(installer, manufacturer = "Kieran Drewett"), **common)
 
 else:
     fail("PKG_OS must be linux, macos or windows, not " + OS)
