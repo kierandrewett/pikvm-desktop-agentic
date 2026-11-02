@@ -12,6 +12,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import (
     FileResponse,
@@ -26,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pikvm_agent.harness.agent import AgentHarness
 from pikvm_agent.harness.assistant import AssistantHarness
+from pikvm_agent.harness.cursor_relay import CursorRelay
 from pikvm_agent.harness.agent_models import (
     TERMINAL_RUN_STATUSES,
     ArtifactAcceptance,
@@ -212,6 +214,15 @@ class ModelPreferences(BaseModel):
         ):
             raise ValueError("model preferences must select at least one role")
         return self
+
+
+class CursorReport(BaseModel):
+    """A pointer position in kvmd's absolute units."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    x: int = Field(ge=-32768, le=32767, strict=True)
+    y: int = Field(ge=-32768, le=32767, strict=True)
 
 
 class CreateRunBody(BaseModel):
@@ -507,6 +518,7 @@ def create_harness_app(
     credentials: CredentialStore | None = None,
     provider_specs: Callable[[], Mapping[str, ProviderSpec]] | None = None,
     cli_signin: CliSignInManager | None = None,
+    cursor_relay: CursorRelay | None = None,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None,
 ) -> FastAPI:
     """Create the local operator API.
@@ -847,6 +859,17 @@ def create_harness_app(
     @app.get("/api/providers")
     async def providers() -> dict[str, dict[str, object]]:
         return models.health()
+
+    @app.post("/api/cursor", status_code=204)
+    async def report_cursor(body: CursorReport) -> Response:
+        """Where the person just moved the pointer, for the daemon (see cursor_relay)."""
+        if cursor_relay is None:
+            raise HTTPException(503, "no machine-control daemon is configured")
+        try:
+            await cursor_relay.report(body.x, body.y)
+        except httpx.HTTPError:
+            raise HTTPException(502, "the machine-control daemon did not take the report")
+        return Response(status_code=204)
 
     @app.get("/api/computer-connection")
     async def computer_connection() -> dict[str, str | bool]:

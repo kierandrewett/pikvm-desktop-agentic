@@ -17,6 +17,7 @@ from pikvm_agent.harness.agent import AgentHarness
 from pikvm_agent.harness.agent_models import HarnessConfig
 from pikvm_agent.harness.agent_store import SqliteRunStore
 from pikvm_agent.harness.assistant import AssistantHarness
+from pikvm_agent.harness.cursor_relay import DaemonCursorRelay
 from pikvm_agent.harness.api import create_harness_app
 from pikvm_agent.harness.model_catalog import ModelCatalogService
 from pikvm_agent.harness.config import (
@@ -73,6 +74,7 @@ def build_harness_app(
     if daemon_url is None:
         tool_client = None
         live_frames = None
+        cursor_relay = None
         computer = UnavailableComputerDriver()
         direct_calls = None
     else:
@@ -87,6 +89,7 @@ def build_harness_app(
             daemon_url,
             bearer_token=harness_token,
         )
+        cursor_relay = DaemonCursorRelay(daemon_url, bearer_token=harness_token)
         computer = McpComputerDriver(tool_client)
         direct_calls = DirectCallCoordinator(store=store, computer=computer)
     harness = AgentHarness(
@@ -158,6 +161,8 @@ def build_harness_app(
                 await tool_client.close()
             if live_frames is not None:
                 await live_frames.aclose()
+            if cursor_relay is not None:
+                await cursor_relay.aclose()
             await cli_signin.aclose()
             for provider in models.providers.values():
                 close = getattr(provider, "aclose", None)
@@ -188,6 +193,7 @@ def build_harness_app(
         ),
         allowed_origins=settings.resolved_origins(),
         live_frames=live_frames,
+        cursor_relay=cursor_relay,
         direct_calls=direct_calls,
         provider_connections=provider_connections,
         max_autonomous_resumes=settings.max_autonomous_resumes,
