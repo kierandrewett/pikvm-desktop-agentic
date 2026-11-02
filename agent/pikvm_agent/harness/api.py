@@ -6,7 +6,7 @@ import asyncio
 import json
 import re
 import secrets
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from io import BytesIO
 from pathlib import Path
@@ -37,7 +37,10 @@ from pikvm_agent.harness.agent_models import (
     RunStatus,
 )
 from pikvm_agent.harness.agent_store import RunNotFoundError, RunStore
-from pikvm_agent.harness.config import HARNESS_ACCESS_TOKEN_MIN_LENGTH
+from pikvm_agent.harness.config import (
+    HARNESS_ACCESS_TOKEN_MIN_LENGTH,
+    ProviderSpec,
+)
 from pikvm_agent.harness.direct_calls import (
     DirectCallBegin,
     DirectCallCoordinator,
@@ -53,6 +56,9 @@ from pikvm_agent.harness.provider_connections import (
 from pikvm_agent.harness.provider_support import public_provider_catalog
 from pikvm_agent.harness.model_catalog import ModelCatalogService
 from pikvm_agent.harness.redaction import redact_secrets
+from pikvm_agent.harness.cli_signin import CliSignInManager
+from pikvm_agent.harness.credential_store import CredentialStore
+from pikvm_agent.harness.provider_auth_api import install_provider_auth_routes
 from pikvm_agent.harness.showcase import ShowcaseRepository
 
 RUN_EVENT_TAIL_LIMIT = 500
@@ -498,6 +504,9 @@ def create_harness_app(
     showcase_dir: Path | None = None,
     ui_dir: Path | None = None,
     model_catalog: ModelCatalogService | None = None,
+    credentials: CredentialStore | None = None,
+    provider_specs: Callable[[], Mapping[str, ProviderSpec]] | None = None,
+    cli_signin: CliSignInManager | None = None,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None,
 ) -> FastAPI:
     """Create the local operator API.
@@ -1694,6 +1703,15 @@ def create_harness_app(
                     f"emergency stop: {body.reason}",
                 )
         return _visible_run(run)
+
+    install_provider_auth_routes(
+        app,
+        credentials=credentials,
+        provider_specs=provider_specs,
+        provider_connections=provider_connections,
+        models=models,
+        cli_signin=cli_signin,
+    )
 
     resolved_ui = ui_dir or Path(__file__).resolve().parent.parent / "harness_ui"
     if resolved_ui.is_dir():

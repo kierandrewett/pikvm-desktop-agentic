@@ -50,9 +50,9 @@ every contract.
 
 The harness never reads or copies a saved CLI credential. Codex app-server,
 Codex exec, Claude, and Gemini CLI processes own their login stores. API
-secrets are named by environment variable and are neither written to harness
-configuration nor returned by readiness, health, support-bundle, UI, or
-conformance endpoints.
+secrets are named by environment variable or stored through the write-only key
+endpoint (below), and are neither written to harness configuration nor returned
+by readiness, health, support-bundle, UI, or conformance endpoints.
 
 Azure and Vertex command credentials are obtained through an exact argument
 vector with empty standard input and an allow-listed environment. Only the
@@ -67,9 +67,10 @@ the bridge remains the bridge operator's responsibility.
 The Models sheet provides an additive setup flow for the provider-owned Codex
 app-server/CLI, Claude CLI, and Gemini CLI logins and four common API routes
 (`openai_responses`, `anthropic_api`, `gemini_api`, and
-`openai_compatible`). The browser never accepts a credential value. It sends
+`openai_compatible`). This form never accepts a credential value. It sends
 only a unique provider alias, model ID, optional safe base URL, and the name of
-the server environment variable that already owns an API credential.
+the server environment variable that already owns an API credential; a key is
+accepted only by the separate write-only routes described below.
 Provider-owned login processes continue to use their own login store.
 
 New providers are written atomically to the harness configuration with mode
@@ -82,6 +83,42 @@ simplified browser flow.
 
 This is not a hosted OAuth broker. The only OAuth involved in the simple flow
 is the provider CLI's own sign-in outside the browser form.
+
+## Stored API keys and browser sign-in
+
+Two groups of operator-only routes extend the flow above without changing it; the
+plain `POST /api/providers` still accepts no credential value.
+
+**Stored keys.** `PUT /api/providers/{alias}/key` with `{"api_key": "..."}` is
+the one place a key is accepted. It is stored in `provider-keys.json` beside the
+harness config (file `0600`, directory `0700` when created, atomic replace), never
+in the YAML, never returned, and never logged (`api_key` and `auth_code` are in
+the redaction set; these bodies are parsed by hand so a validation error cannot
+echo them). A provider resolves its stored key first and falls back to its named
+environment variable on every request, so setting, replacing, or removing a
+key takes effect at once and readiness in `GET /api/providers` follows it
+(`credential: stored-key`). `DELETE` removes it; `GET /api/provider-keys` lists
+`set`, `updated_at`, and `source` (`stored`, `environment`, `missing`) per API
+provider. `POST /api/providers/with-key` connects a provider and stores its key
+in one call. A file store was chosen over the OS keyring because the harness
+is a child of the desktop app or a headless service where Secret Service may be
+absent or locked; encrypting the file would need a key stored next to it.
+
+**CLI sign-in.** `GET /api/cli-auth` reports, per CLI, whether it is installed
+and signed in. `POST /api/cli-auth/{cli}/sign-in` runs the CLI's own login and
+returns the verification URL (and one-time code) it prints; the attempt is
+polled with `GET`, finished with `DELETE` (cancel), and
+`POST .../sign-out` runs the CLI's logout. Codex (`codex login --device-auth`)
+shows a URL and a one-time code. Claude (`claude auth login`) shows a URL; the
+page it leads to shows a code that is pasted back through
+`POST .../sign-in/code` and written to the CLI's stdin. Gemini CLI has no login
+command (sign-in is inside its interactive terminal UI), so the API reports
+`browser_sign_in: false` with the exact command to run on the desktop. Signing
+in over an existing login needs `replace: true`: with codex-cli 0.158 a device
+flow that is cancelled or fails removes the saved `auth.json` (observed), which
+leaves the CLI signed out. The harness still never reads a CLI's tokens;
+status comes from the CLI's own status command (Gemini: the presence of its
+credential file and the active account name only).
 
 ## Readiness is not compatibility
 

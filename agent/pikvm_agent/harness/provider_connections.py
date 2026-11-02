@@ -24,6 +24,7 @@ from pikvm_agent.harness.config import (
     ProviderSpec,
     build_model_pool,
 )
+from pikvm_agent.harness.credential_store import CredentialLookup
 from pikvm_agent.harness.model_pool import ModelPool
 
 ConnectableProviderKind = Literal[
@@ -297,11 +298,19 @@ class ProviderConnectionManager:
         settings: HarnessSettings,
         settings_path: Path,
         models: ModelPool,
+        credentials: CredentialLookup | None = None,
     ) -> None:
         self._settings = settings
         self._settings_path = settings_path.expanduser().resolve()
         self._models = models
+        self._credentials = credentials
         self._lock = asyncio.Lock()
+
+    @property
+    def settings(self) -> HarnessSettings:
+        """The live configuration, including providers connected so far."""
+
+        return self._settings
 
     async def connect(
         self,
@@ -339,7 +348,8 @@ class ProviderConnectionManager:
                 )
             }
             staged = build_model_pool(
-                HarnessSettings.model_validate(isolated_raw)
+                HarnessSettings.model_validate(isolated_raw),
+                credentials=self._credentials,
             )
             try:
                 self._write_config(candidate)

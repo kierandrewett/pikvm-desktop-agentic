@@ -7,6 +7,7 @@ from typing import Any
 REDACTED_VALUE = "••••••••"
 _ALWAYS_SECRET_KEYS = {
     "access_token",
+    "auth_code",
     "api_key",
     "authorization",
     "password",

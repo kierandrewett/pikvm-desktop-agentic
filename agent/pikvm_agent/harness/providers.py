@@ -2,7 +2,8 @@
 
 The harness never reads or copies a CLI's OAuth tokens.  A subprocess adapter
 invokes the provider's supported headless command and lets that command own its
-credential store.  API adapters read one explicitly named environment variable.
+credential store.  API adapters read a key stored through the operator UI
+(see ``credential_store``), else one explicitly named environment variable.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import signal
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -28,6 +29,10 @@ from pikvm_agent.harness.agent_models import ModelRequest, ModelResponse
 from pikvm_agent.harness.codex_app_server import (
     CodexAppServerClient,
     CodexAppServerSession,
+)
+from pikvm_agent.harness.credential_store import (
+    CredentialLookup,
+    resolve_api_key,
 )
 
 
@@ -202,6 +207,11 @@ class EnvironmentHeaderAuth:
     env_name: str
     header: str = "Authorization"
     scheme: str = ""
+    # The provider alias whose stored key (if any) wins over the variable.
+    alias: str | None = None
+    credentials: CredentialLookup | None = field(
+        default=None, compare=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         allowed_headers = {
@@ -216,7 +226,11 @@ class EnvironmentHeaderAuth:
             raise ValueError("unsupported credential header")
 
     async def headers(self) -> dict[str, str]:
-        credential = os.environ.get(self.env_name)
+        credential = (
+            resolve_api_key(self.alias, self.env_name, self.credentials)
+            if self.alias is not None
+            else os.environ.get(self.env_name)
+        )
         if not credential:
             raise RuntimeError(f"{self.env_name} is not set")
         return {self.header: f"{self.scheme}{credential}"}
@@ -968,17 +982,21 @@ class _HttpApiProvider:
         api_key_env: str,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 90.0,
+        credentials: CredentialLookup | None = None,
     ) -> None:
         self.name = name
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.api_key_env = api_key_env
         self.timeout_s = timeout_s
+        self._credentials = credentials
         self._transport = transport
         self._http: httpx.AsyncClient | None = None
 
     def _api_key(self) -> str:
-        api_key = os.environ.get(self.api_key_env)
+        api_key = resolve_api_key(
+            self.name, self.api_key_env, self._credentials
+        )
         if not api_key:
             raise RuntimeError(f"{self.api_key_env} is not set")
         return api_key
@@ -1029,6 +1047,7 @@ class OpenAICompatibleProvider(_HttpApiProvider):
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 90.0,
         headers: dict[str, str] | None = None,
+        credentials: CredentialLookup | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -1037,6 +1056,7 @@ class OpenAICompatibleProvider(_HttpApiProvider):
             api_key_env=api_key_env,
             transport=transport,
             timeout_s=timeout_s,
+            credentials=credentials,
         )
         self.extra_headers = dict(headers or {})
 
@@ -1124,6 +1144,7 @@ class OpenAIResponsesProvider(_HttpApiProvider):
         max_output_tokens: int = 4096,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 90.0,
+        credentials: CredentialLookup | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -1132,6 +1153,7 @@ class OpenAIResponsesProvider(_HttpApiProvider):
             api_key_env=api_key_env or "",
             transport=transport,
             timeout_s=timeout_s,
+            credentials=credentials,
         )
         if auth is not None and api_key_env is not None:
             raise ValueError("provide auth or api_key_env, not both")
@@ -1141,6 +1163,8 @@ class OpenAIResponsesProvider(_HttpApiProvider):
             auth = EnvironmentHeaderAuth(
                 env_name=api_key_env,
                 scheme="Bearer ",
+                alias=name,
+                credentials=credentials,
             )
         self.auth = auth
         self.reasoning_effort = reasoning_effort
@@ -1260,6 +1284,7 @@ class AnthropicApiProvider(_HttpApiProvider):
         max_tokens: int = 4096,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 90.0,
+        credentials: CredentialLookup | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -1268,6 +1293,7 @@ class AnthropicApiProvider(_HttpApiProvider):
             api_key_env=api_key_env,
             transport=transport,
             timeout_s=timeout_s,
+            credentials=credentials,
         )
         self.max_tokens = max_tokens
 
@@ -1358,6 +1384,7 @@ class GeminiApiProvider(_HttpApiProvider):
         base_url: str = "https://generativelanguage.googleapis.com/v1beta",
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 90.0,
+        credentials: CredentialLookup | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -1366,6 +1393,7 @@ class GeminiApiProvider(_HttpApiProvider):
             api_key_env=api_key_env or "",
             transport=transport,
             timeout_s=timeout_s,
+            credentials=credentials,
         )
         if auth is not None and api_key_env is not None:
             raise ValueError("provide auth or api_key_env, not both")
@@ -1375,6 +1403,8 @@ class GeminiApiProvider(_HttpApiProvider):
             auth = EnvironmentHeaderAuth(
                 env_name=api_key_env,
                 header="x-goog-api-key",
+                alias=name,
+                credentials=credentials,
             )
         self.auth = auth
 

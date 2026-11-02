@@ -1634,6 +1634,10 @@ def harness_check(
         ensure_provider_prerequisites,
         load_harness_settings,
     )
+    from pikvm_agent.harness.credential_store import (
+        CredentialStore,
+        credential_store_path,
+    )
 
     try:
         settings = load_harness_settings(config)
@@ -1656,8 +1660,12 @@ def harness_check(
                 f"{settings.daemon_url_env} is required by "
                 "--require-computer"
             )
-        provider_statuses = check_provider_prerequisites(settings)
-        ensure_provider_prerequisites(settings)
+        # Keys set from the operator UI count, as they do when serving.
+        credentials = CredentialStore(credential_store_path(config))
+        provider_statuses = check_provider_prerequisites(
+            settings, credentials=credentials
+        )
+        ensure_provider_prerequisites(settings, credentials=credentials)
     except ValueError as exc:
         typer.echo(f"Harness check failed: {exc}", err=True)
         raise typer.Exit(2)

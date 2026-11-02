@@ -334,6 +334,27 @@ class ModelPool:
         if name in source._failure_cooldowns:
             self._failure_cooldowns[name] = source._failure_cooldowns[name]
 
+    def set_credential_state(
+        self,
+        name: str,
+        *,
+        credential: str,
+        ready: bool,
+        readiness_error: str | None,
+    ) -> None:
+        """Reflect a key being set or removed without rebuilding the provider.
+
+        Only API-key providers use this: their readiness is exactly whether a
+        key resolves. The key itself never passes through here.
+        """
+
+        health = self._health.get(name)
+        if health is None:
+            raise ValueError(f"unknown provider: {name}")
+        health.credential = credential
+        health.ready = ready
+        health.readiness_error = readiness_error
+
     def health(self) -> dict[str, dict[str, object]]:
         now = self._monotonic()
         for name, deadline in list(self._cooldown_deadlines.items()):

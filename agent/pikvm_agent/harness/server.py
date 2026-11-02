@@ -37,6 +37,14 @@ from pikvm_agent.harness.general_tools import (
     McpServerConnection,
     McpToolBroker,
 )
+from pikvm_agent.harness.cli_signin import (
+    CliSignInManager,
+    executables_from_settings,
+)
+from pikvm_agent.harness.credential_store import (
+    CredentialStore,
+    credential_store_path,
+)
 from pikvm_agent.harness.provider_connections import ProviderConnectionManager
 
 
@@ -48,9 +56,18 @@ def build_harness_app(
     """Wire adapters once; the :class:`AgentHarness` owns the workflow."""
 
     ensure_safe_bind(settings)
-    ensure_provider_prerequisites(settings)
+    # API keys set from the operator UI live beside the config, never in it.
+    credentials = (
+        CredentialStore(credential_store_path(settings_path))
+        if settings_path is not None
+        else None
+    )
+    ensure_provider_prerequisites(settings, credentials=credentials)
     settings.artifact_dir.mkdir(parents=True, exist_ok=True)
-    models = build_model_pool(settings)
+    models = build_model_pool(settings, credentials=credentials)
+    cli_signin = CliSignInManager(
+        executables=executables_from_settings(settings.providers)
+    )
     store = SqliteRunStore(settings.state_path)
     daemon_url = settings.optional_daemon_url()
     if daemon_url is None:
@@ -122,6 +139,7 @@ def build_harness_app(
             settings=settings,
             settings_path=settings_path,
             models=models,
+            credentials=credentials,
         )
         if settings_path is not None
         else None
@@ -140,12 +158,20 @@ def build_harness_app(
                 await tool_client.close()
             if live_frames is not None:
                 await live_frames.aclose()
+            await cli_signin.aclose()
             for provider in models.providers.values():
                 close = getattr(provider, "aclose", None)
                 if close is not None:
                     await close()
 
     app = create_harness_app(
+        credentials=credentials,
+        provider_specs=(
+            (lambda: provider_connections.settings.providers)
+            if provider_connections is not None
+            else None
+        ),
+        cli_signin=cli_signin,
         harness=harness,
         assistant=assistant,
         store=store,

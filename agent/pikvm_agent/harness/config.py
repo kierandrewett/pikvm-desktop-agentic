@@ -26,6 +26,11 @@ from pikvm_agent.harness.provider_support import (
     ProviderKind,
     provider_support,
 )
+from pikvm_agent.harness.credential_store import (
+    CREDENTIAL_STATE_LABEL,
+    CredentialLookup,
+    credential_source,
+)
 from pikvm_agent.harness.providers import (
     AnthropicApiProvider,
     ClaudeCodeProvider,
@@ -626,6 +631,7 @@ def _provider_auth_metadata(spec: ProviderSpec) -> dict[str, str]:
 
 def check_provider_prerequisites(
     settings: HarnessSettings,
+    credentials: CredentialLookup | None = None,
 ) -> dict[str, dict[str, object]]:
     """Report provider readiness without reading or returning credentials."""
 
@@ -659,12 +665,10 @@ def check_provider_prerequisites(
                     status["error"] = "executable-not-found"
             else:
                 env_name = str(spec.credential_env)
-                present = bool(os.environ.get(env_name))
-                status["credential"] = (
-                    "env-present" if present else "env-missing"
-                )
+                source = credential_source(name, env_name, credentials)
+                status["credential"] = CREDENTIAL_STATE_LABEL[source]
                 status["credential_env"] = env_name
-                if not present:
+                if source == "missing":
                     status["ready"] = False
                     status["error"] = "credential-env-missing"
         elif spec.kind in {
@@ -711,20 +715,23 @@ def check_provider_prerequisites(
                     status["error"] = "profile-home-not-dedicated"
         else:
             env_name = str(spec.api_key_env)
-            present = bool(os.environ.get(env_name))
-            status["credential"] = "env-present" if present else "env-missing"
+            source = credential_source(name, env_name, credentials)
+            status["credential"] = CREDENTIAL_STATE_LABEL[source]
             status["credential_env"] = env_name
-            if not present:
+            if source == "missing":
                 status["ready"] = False
                 status["error"] = "credential-env-missing"
         statuses[name] = status
     return statuses
 
 
-def ensure_provider_prerequisites(settings: HarnessSettings) -> None:
+def ensure_provider_prerequisites(
+    settings: HarnessSettings,
+    credentials: CredentialLookup | None = None,
+) -> None:
     """Fail closed unless every role route has at least one ready provider."""
 
-    statuses = check_provider_prerequisites(settings)
+    statuses = check_provider_prerequisites(settings, credentials=credentials)
     roles = ["reasoner", "controller", "verifier"]
     if settings.routes.assistant is not None:
         roles.insert(0, "assistant")
@@ -746,7 +753,10 @@ def ensure_provider_prerequisites(settings: HarnessSettings) -> None:
         )
 
 
-def build_model_pool(settings: HarnessSettings) -> ModelPool:
+def build_model_pool(
+    settings: HarnessSettings,
+    credentials: CredentialLookup | None = None,
+) -> ModelPool:
     providers = {}
     for name, spec in settings.providers.items():
         common = {
@@ -796,6 +806,7 @@ def build_model_pool(settings: HarnessSettings) -> ModelPool:
                 base_url=str(spec.base_url),
                 api_key_env=str(spec.api_key_env),
                 headers=spec.headers,
+                credentials=credentials,
             )
         elif spec.kind == "openai_responses":
             providers[name] = OpenAIResponsesProvider(
@@ -804,17 +815,22 @@ def build_model_pool(settings: HarnessSettings) -> ModelPool:
                 api_key_env=str(spec.api_key_env),
                 reasoning_effort=spec.reasoning_effort,
                 max_output_tokens=spec.max_tokens,
+                credentials=credentials,
             )
         elif spec.kind == "azure_openai_responses":
             if spec.auth_mode == "api_key":
                 auth = EnvironmentHeaderAuth(
                     env_name=str(spec.credential_env),
                     header="api-key",
+                    alias=name,
+                    credentials=credentials,
                 )
             elif spec.auth_mode == "bearer_env":
                 auth = EnvironmentHeaderAuth(
                     env_name=str(spec.credential_env),
                     scheme="Bearer ",
+                    alias=name,
+                    credentials=credentials,
                 )
             else:
                 auth = CommandBearerAuth(
@@ -836,6 +852,8 @@ def build_model_pool(settings: HarnessSettings) -> ModelPool:
                 auth = EnvironmentHeaderAuth(
                     env_name=str(spec.credential_env),
                     scheme="Bearer ",
+                    alias=name,
+                    credentials=credentials,
                 )
             else:
                 auth = CommandBearerAuth(
@@ -855,16 +873,21 @@ def build_model_pool(settings: HarnessSettings) -> ModelPool:
                 **common,
                 "api_key_env": str(spec.api_key_env),
                 "max_tokens": spec.max_tokens,
+                "credentials": credentials,
             }
             if spec.base_url:
                 args["base_url"] = spec.base_url
             providers[name] = AnthropicApiProvider(**args)
         else:
-            args = {**common, "api_key_env": str(spec.api_key_env)}
+            args = {
+                **common,
+                "api_key_env": str(spec.api_key_env),
+                "credentials": credentials,
+            }
             if spec.base_url:
                 args["base_url"] = spec.base_url
             providers[name] = GeminiApiProvider(**args)
-    metadata = check_provider_prerequisites(settings)
+    metadata = check_provider_prerequisites(settings, credentials=credentials)
     for name in providers:
         metadata[name]["routes"] = []
         metadata[name]["configured_model"] = settings.providers[name].model
