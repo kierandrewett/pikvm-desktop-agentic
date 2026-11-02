@@ -69,22 +69,10 @@ export const MoreIcon = (p: IconProps) => (
     </Glyph>
 );
 
-export const ChevronDownIcon = (p: IconProps) => (
-    <Glyph {...p}>
-        <path d="m6 9 6 6 6-6" />
-    </Glyph>
-);
-
 export const PowerIcon = (p: IconProps) => (
     <Glyph {...p}>
         <path d="M12 2v10" />
         <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
-    </Glyph>
-);
-
-export const FullscreenIcon = (p: IconProps) => (
-    <Glyph {...p}>
-        <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
     </Glyph>
 );
 

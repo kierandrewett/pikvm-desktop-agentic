@@ -23,7 +23,7 @@ type KeyDef =
 const key = (code: string, label: string, name?: string): KeyDef => ({ kind: "key", code, label, ...(name ? { name } : {}) });
 const chord = (spec: string, label: string, name?: string): KeyDef => ({ kind: "chord", spec, label, ...(name ? { name } : {}) });
 
-export const MODIFIER_KEYS: readonly KeyDef[] = [
+const MODIFIER_KEYS: readonly KeyDef[] = [
     { kind: "mod", code: "ControlLeft", label: "Ctrl" },
     { kind: "mod", code: "AltLeft", label: "Alt" },
     { kind: "mod", code: "ShiftLeft", label: "Shift" },
