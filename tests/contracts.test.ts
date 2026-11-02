@@ -4,6 +4,11 @@ import { decodeKvmdFrame, HidCommand, isRelease, SettingsPatch } from "@pikvm/co
 import { Schema } from "effect";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { WebSocket } from "ws";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const decodeCommand = Schema.decodeUnknownEither(HidCommand);
 
@@ -83,4 +88,53 @@ test("a settings patch names its fields and nothing else", () => {
     assert.equal(decode({ jiggler: true })._tag, "Right");
     assert.equal(decode({})._tag, "Right");
     assert.equal(decode({ accessToken: "x" })._tag, "Left");
+});
+
+test("every frame the fake kvmd sends on connect decodes against the contracts", async () => {
+    // The fake emits the shapes kvmd does (keymaps as a map, state as deltas), so
+    // a schema that is stricter than the real protocol fails here, not on a Pi.
+    // The fake has a top-level await, which the CJS test bundle cannot hold, so it is
+    // bundled to ESM on its own and imported, from inside node_modules so that its
+    // `ws` import resolves.
+    const out = mkdtempSync(join(process.cwd(), "node_modules", ".fake-kvmd-"));
+    execFileSync(
+        resolve(process.cwd(), "node_modules/.bin/esbuild"),
+        [
+            resolve(process.cwd(), "tools/fake-kvmd/server.ts"),
+            `--outfile=${join(out, "fake-kvmd.mjs")}`,
+            "--platform=node",
+            "--format=esm",
+            "--bundle",
+            "--packages=external",
+            "--log-level=error",
+        ],
+    );
+    const { startFakeKvmd } = (await import(pathToFileURL(join(out, "fake-kvmd.mjs")).href)) as {
+        startFakeKvmd: () => Promise<{ url: string; close(): Promise<void> }>;
+    };
+    const fake = await startFakeKvmd();
+    try {
+        const types: string[] = [];
+        await new Promise<void>((done, fail) => {
+            const ws = new WebSocket(fake.url.replace("http", "ws") + "/api/ws");
+            ws.on("message", (data) => {
+                const text = data.toString();
+                const event = decodeKvmdFrame(text);
+                const type = (JSON.parse(text) as { event_type: string }).event_type;
+                if (!event) return fail(new Error(`a ${type} frame did not decode: ${text}`));
+                types.push(type);
+                if (type === "loop") {
+                    ws.close();
+                    done();
+                }
+            });
+            ws.on("error", fail);
+        });
+        for (const wanted of ["hid", "hid_keymaps", "streamer", "info", "atx", "msd", "gpio", "ocr", "loop"]) {
+            assert.ok(types.includes(wanted), `the initial bundle had no ${wanted} event`);
+        }
+    } finally {
+        await fake.close();
+        rmSync(out, { recursive: true, force: true });
+    }
 });

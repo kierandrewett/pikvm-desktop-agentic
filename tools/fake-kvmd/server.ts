@@ -99,7 +99,9 @@ function freshState() {
         jiggler: { enabled: true, active: false, interval: 60 },
         keysDown: new Set<string>(),
         buttonsDown: new Set<string>(),
-        keymaps: { default: "en-us", available: ["en-us", "en-gb", "de", "fr"] },
+        // A map of name -> details, as kvmd sends it (console.js fillKeymaps records
+        // that a list of names broke the picker once); the console reads the keys.
+        keymaps: { default: "en-us", available: { "en-us": {}, "en-gb": {}, de: {}, fr: {} } as Record<string, object> },
         source: { online: true },
         streamerApplied: {
             quality: 80,
@@ -158,7 +160,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
         },
         jiggler: { ...state.jiggler },
     });
-    const keymapsEvent = (): Json => ({ keymaps: { ...state.keymaps, available: [...state.keymaps.available] } });
+    const keymapsEvent = (): Json => ({ keymaps: { ...state.keymaps, available: { ...state.keymaps.available } } });
     const streamerEvent = (): Json => ({
         features: { quality: true, resolution: true, h264: true, zero_delay: false },
         limits: {
@@ -454,7 +456,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                 return;
             case "/api/hid/keymaps":
                 requireMethod(req, "GET");
-                okJson(res, { keymaps: { default: state.keymaps.default, available: state.keymaps.available } });
+                okJson(res, { keymaps: { default: state.keymaps.default, available: { ...state.keymaps.available } } });
                 return;
             case "/api/hid/set_params": {
                 requireMethod(req, "POST");
