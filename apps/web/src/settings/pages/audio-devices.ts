@@ -63,9 +63,10 @@ export function useAudioDevices(): AudioDevices {
 
     useEffect(() => {
         void refresh();
-        const media = navigator.mediaDevices;
-        media.addEventListener?.("devicechange", refresh);
-        return () => media.removeEventListener?.("devicechange", refresh);
+        // Absent outside a secure context (a phone on plain http): there is nothing to listen to.
+        const media: MediaDevices | undefined = navigator.mediaDevices;
+        media?.addEventListener?.("devicechange", refresh);
+        return () => media?.removeEventListener?.("devicechange", refresh);
     }, [refresh]);
 
     const allowAccess = useCallback(async () => {
