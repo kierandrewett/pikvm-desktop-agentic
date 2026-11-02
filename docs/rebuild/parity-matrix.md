@@ -135,7 +135,7 @@ matrix records its rows and defers to those documents for evidence.
 
 | Feature | Desktop | Web | Mobile | Evidence and notes |
 |---|---|---|---|---|
-| Conversation, composer, run activity, approvals, model picker, diagnostics, computer sheet | available (harness runs beside the app) | available when the host has an agent (sidecar, or the desktop app) | available (same; phone layout) | `@pikvm/chat-ui` is the one implementation for all three; T `chat-route.test.tsx`, `packages/chat-ui`; E2E `docs/e2e/chat-sidecar` |
+| Conversation, composer, run activity, approvals, model picker, diagnostics, computer sheet | available (harness runs beside the app) | available when the host has an agent (sidecar, or the desktop app) | available (same; phone layout) | `@pikvm/chat-ui` is the one implementation for all three; T `chat-route.test.tsx`, `packages/chat-ui`; E2E `docs/e2e/chat-sidecar`; desktop: E2E `docs/e2e/2026-11-02-chat-desktop.md` (the real Electron app under sway, embedded harness: run, events, held action; the agent acts on the app's PiKVM and follows a Settings change) |
 | "Chat is not available" page and automatic reconnect when the agent is down | available | available | available | T `chat-route.test.tsx` |
 | Provider connections inside Chat | available | available | available | same component as Settings -> Providers |
 | Shared terminal (the old xterm panel over `/app/terminal`) | removed: chat replaces the terminal | removed: chat replaces the terminal | removed: chat replaces the terminal | Kieran's decision. The PTY sessions, `/app/terminal`, the xterm bundle, `features.terminal` and the GUI-MCP ticket for shell agents are deleted. The Chat tab (`@pikvm/chat-ui`) is the one agent surface, against the desktop's embedded harness |
@@ -190,3 +190,4 @@ The four sweeps the audit was asked to make, and what each found.
 | Real PiKVM, video and audio only (input guarded) | `docs/e2e/2026-11-02-kvm-real-pikvm-video.md` |
 | Desktop: change the PiKVM address | `docs/e2e/2026-11-02-desktop-change-address.md` |
 | Chat on the hosted web | `docs/e2e/chat-sidecar/` |
+| Chat in the desktop app (Electron under headless sway, embedded harness) | `docs/e2e/2026-11-02-chat-desktop.md`, `apps/web/e2e/chat-desktop.e2e.mjs` |

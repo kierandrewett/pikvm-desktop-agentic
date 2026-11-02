@@ -32,6 +32,14 @@ kvmd on 127.0.0.1:14510, so run it with `KVM_WEB=http://127.0.0.1:18080 KVM_FAKE
 It writes `docs/e2e/<date>-chat-sidecar.md`. The two CLI sign-in cases start the real `codex` and `claude`
 sign-in inside the sidecar and need outbound internet; nothing is submitted and each is cancelled.
 
+`apps/web/e2e/chat-desktop.e2e.mjs` drives the real Electron app (not a browser) under a headless sway: the packaged
+layout, its embedded harness, the fake kvmd and the fake model. Start the app with
+`env -u ENABLE_VULKAN_RENDERDOC_CAPTURE ... --remote-debugging-port=9334`, with its output going to a FILE (a pipe that
+closes, as `| head` does, makes the app's next log line an uncaught EPIPE and Electron's error dialog freezes the
+whole main process), and with `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `PIKVM_AGENT_CONFIG` pointing at a scratch
+config whose PiKVM is a decoy: the agent must act on the app's own target, and the run asserts it never opened a
+socket outside loopback. It writes `docs/e2e/<date>-chat-desktop.md`.
+
 Other runs share the same two servers and the same environment: `apps/web/e2e/settings-macros.e2e.mjs`
 (Settings -> Macros, `docs/e2e/<date>-settings-macros.md`), and the parity runs listed in
 `docs/rebuild/parity-matrix.md`.
