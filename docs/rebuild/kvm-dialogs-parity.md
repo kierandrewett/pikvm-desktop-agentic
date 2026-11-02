@@ -144,7 +144,7 @@ Status: **done**, **changed** (behaves differently on purpose, said how), **not 
 | Item | Owner |
 |---|---|
 | Full screen and Keyboard Lock ("Full screen (send Win and Alt keys)") | a menu item, KvmScreen (`platform.ts`) |
-| Terminal | the chat frame, not a dialog; ChatApp (`/app/terminal`) |
+| Terminal | removed: the Chat tab replaces it |
 | Full PiKVM UI | a view mode, KvmScreen |
 | Theme toggle | a menu item, KvmScreen |
 | Screen-alerts toggle, touch modes | menu items, KvmScreen |

@@ -16,7 +16,7 @@ the same:
 
 | Host | Shell | Has |
 |---|---|---|
-| Desktop (Electron, fsociety) | native window | harness, terminal, native menus, window focus |
+| Desktop (Electron, fsociety) | native window | harness (embedded), native menus, window focus |
 | Web host (container, bsociety) | browser, Pocket ID in front | KVM; Chat via the desktop |
 | Phone | installed PWA | touch, soft keyboard, dictation, background suspends |
 
@@ -46,7 +46,7 @@ another domain's state.
    health. Request/response over kvmd HTTP plus state from the target link.
 6. **Agent**: harness runs, conversation, approvals, providers and routing.
 7. **Host**: settings, auth, PWA lifecycle (wake lock, visibility, offline),
-   desktop capabilities (window, menus, terminal). A `Host` interface with a web
+   desktop capabilities (window, menus, the embedded harness). A `Host` interface with a web
    and a desktop implementation replaces `if (window.desktopConsole)` scattered
    through the code.
 
@@ -105,7 +105,6 @@ kvmd owns `/`, `/kvm/`, `/login/`, `/api/`, `/streamer/`, `/janus/`, `/share/`,
 | `/app/assets/*` | built assets, immutable, hashed |
 | `/app/api/v1/*` | our API (state, settings, macros, providers, session) |
 | `/app/harness/*` | harness proxy, operator capability server-side only |
-| `/app/terminal` | terminal WS (desktop) |
 | `/app/sw.js`, `/app/manifest.webmanifest`, icons | PWA files, public |
 | `/` | redirect to `/app/` |
 | anything else | kvmd passthrough |

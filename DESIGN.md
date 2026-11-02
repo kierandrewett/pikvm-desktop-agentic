@@ -89,7 +89,7 @@ interface is quiet, precise, and trustworthy. It favours one coherent workspace
 over a collection of monitoring panels.
 
 Chat is the primary surface. The live computer, activity evidence, approvals,
-terminal, diagnostics, and manual KVM controls are supporting context that
+diagnostics, and manual KVM controls are supporting context that
 appears when useful and recedes when it is not. Density comes from concise
 language and strong hierarchy, not from tiny typography or unexplained
 telemetry. The system explicitly rejects NOC dashboards, terminal cosplay,
@@ -162,7 +162,7 @@ size. Raw tool names and identifiers never become the dominant hierarchy.
 The system is flat by default. Depth is conveyed through tonal layering and
 one-pixel structure. Shadows are reserved for surfaces that genuinely leave the
 document plane: dialogs, menus, and transient approval prompts. Resting chat,
-computer, activity, and terminal surfaces do not receive decorative shadows.
+computer and activity surfaces do not receive decorative shadows.
 
 ### Shadow Vocabulary
 
@@ -211,8 +211,7 @@ content, honest state, and no nested-card scaffolding.
 
 ### Navigation
 
-The task title and live status sit in one 56px header. Chat and Terminal use a
-compact, left-aligned segmented switch; Chat is always the default. Supporting
+The task title and live status sit in one 56px header. Chat is the default view. Supporting
 computer, model, and diagnostic views use labelled tooltips and keyboard
 shortcuts. At narrow widths, history moves into a sheet rather than shrinking
 the conversation.

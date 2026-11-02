@@ -27,13 +27,6 @@ is in git history (`docs/web-client-migration.md`, removed with the /app cutover
       Whatever it prints must equal the StartupWMClass line. Not changed blind:
       scripts/make-rpm.mjs exists purely to inject that value, so it was almost
       certainly observed once and is probably right.
-- [ ] **Terminal copy/paste in the packaged app.** `src/preload-terminal.ts`
-      exposed a `termClipboard` bridge for a terminal that ran in its own
-      WebContentsView. The terminal is an iframe now, an iframe cannot carry a
-      preload, and no window ever loaded it — so it has been deleted and the
-      only live path is `navigator.clipboard`. That preload's own comment said
-      `readText()` is unreliable behind Electron's permission model, so paste in
-      particular wants trying on a real desktop build.
 
 ## Known and deliberately not done
 

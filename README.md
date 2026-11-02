@@ -90,7 +90,7 @@ node scripts/package.mjs --tree-only           # just the Electron tree in build
 
 `make package` builds the agent runtime first (`make agent-runtime`, a CPython for this platform, about
 800MB), then `scripts/package.mjs` runs the builds, has electron-packager write the Electron tree,
-fills its `resources/` (web app, harness UI, terminal addon, agent runtime) and runs
+fills its `resources/` (web app, harness UI, agent runtime) and runs
 `pkgsmith build` over that tree. Point `PKGSMITH` at the binary if it is not on PATH; pkgsmith has no
 release yet, so build it from its repository (`cargo build --release --workspace`; its plugins must
 sit beside the binary). The package release is `<commit count>.<timestamp>` (plus `.dirty`), so a
@@ -107,7 +107,7 @@ uploads the packages as artefacts. The icon sizes in `packaging/icons` come from
 ## Web host
 
 `src/web-server.ts` runs the console and the PiKVM proxy without Electron, for
-phones and browsers. It has no shared terminal. Chat works there too: the host
+phones and browsers. There is no terminal anywhere: the agent is the Chat tab. Chat works there too: the host
 forwards `/app/harness/*`, with an operator token the browser never sees, to an
 agent sidecar (`deploy/agent`: the daemon and the harness, with the `claude` and
 `codex` CLIs) or to the desktop app. [docs/deploy-web.md](docs/deploy-web.md) has

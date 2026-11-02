@@ -138,7 +138,7 @@ matrix records its rows and defers to those documents for evidence.
 | Conversation, composer, run activity, approvals, model picker, diagnostics, computer sheet | available (harness runs beside the app) | available when the host has an agent (sidecar, or the desktop app) | available (same; phone layout) | `@pikvm/chat-ui` is the one implementation for all three; T `chat-route.test.tsx`, `packages/chat-ui`; E2E `docs/e2e/chat-sidecar` |
 | "Chat is not available" page and automatic reconnect when the agent is down | available | available | available | T `chat-route.test.tsx` |
 | Provider connections inside Chat | available | available | available | same component as Settings -> Providers |
-| Shared terminal (the old xterm panel over `/app/terminal`) | missing, blocked B1 | missing, blocked B1 | missing, blocked B1 | The server socket remains; nothing in the app opens it |
+| Shared terminal (the old xterm panel over `/app/terminal`) | removed: chat replaces the terminal | removed: chat replaces the terminal | removed: chat replaces the terminal | Kieran's decision. The PTY sessions, `/app/terminal`, the xterm bundle, `features.terminal` and the GUI-MCP ticket for shell agents are deleted. The Chat tab (`@pikvm/chat-ui`) is the one agent surface, against the desktop's embedded harness |
 
 ## 8. The desktop bridge (`packages/contracts/src/desktop.ts`)
 
@@ -176,7 +176,7 @@ The four sweeps the audit was asked to make, and what each found.
 
 | | What | Why it is not done | What unblocks it |
 |---|---|---|---|
-| B1 | The shared terminal has no view in the app. The server still hosts the PTY sessions and the `/app/terminal` socket (`src/server/terminal-socket.ts`; `features.terminal` in `/state` is read by nothing). | `docs/PRODUCT_REQUIREMENTS.md` makes the chat the only primary harness surface with "no terminal-first default", and the PLAN lists the terminal as a desktop capability. Whether the rebuild brings an xterm view back (a Settings or Chat subpage that attaches to the socket) is a product decision, not a parity fix: it is absent on every platform, not one. The hosted host also has no PTY (`terminalSessions` is desktop-only). | A decision to keep the terminal. Then a lazy xterm route over `/app/terminal` (the protocol is in `src/terminal-protocol.ts`), desktop first; the hosted web host would need the sidecar to expose its PTY. Otherwise delete the socket and `features.terminal`. |
+| B1 | Removed: chat replaces the terminal. | Decision from Kieran: no terminal on any platform. Nothing is blocked; the row stays so the number is not reused. | |
 | B2 | ~~Screen wake lock inside the desktop app.~~ Done: the bridge member `keepDisplayAwake(on)` (Electron `powerSaveBlocker`, "prevent-display-sleep", one per window, released when the window closes) is driven by `useWakeLock` on the web wake lock's visibility rule. | | |
 
 ## Evidence index

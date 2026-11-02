@@ -12,8 +12,8 @@ remain able to see, understand, interrupt, and approve what is happening.
 
 The primary workflow is conversational: the user describes an outcome, watches
 the live computer and action evidence, intervenes when needed, and receives a
-verified result. Manual KVM controls and a shared terminal remain available as
-supporting tools and recovery paths rather than competing primary interfaces.
+verified result. Manual KVM controls remain available as supporting tools and
+recovery paths rather than a competing primary interface. There is no terminal.
 
 ## Product Purpose
 
