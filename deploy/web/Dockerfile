@@ -16,7 +16,9 @@ ENV NODE_ENV=production \
     PORT=8080 \
     PIKVM_DATA_DIR=/data
 
-RUN mkdir -p /data && chown node:node /data
+# Readable by the unprivileged user whatever umask the context was built with:
+# a 077 build once shipped files only root could open, and node exited EACCES.
+RUN mkdir -p /data && chown node:node /data && chmod -R a+rX /app
 USER node
 VOLUME ["/data"]
 EXPOSE 8080
