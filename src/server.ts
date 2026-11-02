@@ -53,6 +53,12 @@ export interface ServerDeps {
      *  authorises computer input and approvals — and, like it, injected by the
      *  proxy so it never exists in renderer JavaScript. */
     harnessToken?: string;
+    /** Prefix stripped before forwarding to harnessOrigin. Default "/_agent/harness",
+     *  for a harness reached directly. The headless web host instead forwards to
+     *  the DESKTOP's console server, which mounts the harness at that same path
+     *  and injects the operator capability itself, so it passes "" to keep the
+     *  path whole and its token is the desktop's access token, not the harness's. */
+    harnessPrefix?: string;
 }
 
 function json(res: ServerResponse, status: number, body: unknown) {
@@ -125,7 +131,7 @@ export function startControlServer(
             ? createDaemonProxy({
                   origin: deps.harnessOrigin,
                   bearerToken: deps.harnessToken,
-                  prefix: "/_agent/harness",
+                  prefix: deps.harnessPrefix ?? "/_agent/harness",
               })
             : null;
 
@@ -144,7 +150,7 @@ export function startControlServer(
             /* What this host actually serves. The headless web host has no
              * shared terminal, and the console should not frame a panel whose
              * socket would only ever close. */
-            features: { terminal: !!deps.terminalSessions },
+            features: { terminal: !!deps.terminalSessions, chat: !!harnessProxy },
             jigglerStatus: jiggler.status(),
         };
     };

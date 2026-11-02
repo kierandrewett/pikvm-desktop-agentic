@@ -25,6 +25,11 @@
  *   PIKVM_KEYBOARD_LAYOUT  "us" | "uk" default before the Pi reports its keymap
  *   PIKVM_DATA_DIR         where settings.json and macros.json live (default ./data)
  *   PIKVM_JIGGLER          "1" keeps the target awake while idle (default off)
+ *   PIKVM_DESKTOP_URL      the desktop app's console server, e.g.
+ *                          http://fsociety.example.ts.net:25650. Set with
+ *                          PIKVM_DESKTOP_TOKEN (its access token) to serve the
+ *                          desktop's agent workspace as the Chat tab. The token
+ *                          is attached here, server-side; browsers never see it.
  *   HOST / PORT            bind address (default 0.0.0.0:8080 behind a proxy,
  *                          127.0.0.1:8080 otherwise)
  */
@@ -123,9 +128,36 @@ const control = new PiKvmControl(
 );
 control.setLayout(settings.get().keyboardLayout, { source: "auto" });
 
-const server = startControlServer({ control, settings, daemonToken: "" }, port, host, (err) => {
-    fail(`server error on ${host}:${port}: ${err.message}`);
-});
+/* The Chat tab: the desktop's agent workspace, reached through the desktop's own
+ * console server. That server already proxies /_agent/harness with the harness
+ * operator capability attached, so this one forwards the path unchanged and
+ * authenticates as a client of it. Both values come from the environment only;
+ * no request can choose where this goes. */
+const desktopUrl = env("PIKVM_DESKTOP_URL");
+const desktopToken = env("PIKVM_DESKTOP_TOKEN");
+if (!!desktopUrl !== !!desktopToken) fail("PIKVM_DESKTOP_URL and PIKVM_DESKTOP_TOKEN go together");
+if (desktopUrl) {
+    try {
+        const u = new URL(desktopUrl);
+        if (u.username || u.password || u.pathname !== "/" || u.search) throw new Error("origin only");
+    } catch {
+        fail(`PIKVM_DESKTOP_URL must be a bare origin like http://host:25650, not ${desktopUrl}`);
+    }
+}
+
+const server = startControlServer(
+    {
+        control,
+        settings,
+        daemonToken: "",
+        ...(desktopUrl ? { harnessOrigin: new URL(desktopUrl).origin, harnessToken: desktopToken, harnessPrefix: "" } : {}),
+    },
+    port,
+    host,
+    (err) => {
+        fail(`server error on ${host}:${port}: ${err.message}`);
+    },
+);
 
 server.on("listening", () => {
     console.log(`[web] console on http://${host}:${port}/ proxying ${originUrl.origin} (data ${dataDir})`);
