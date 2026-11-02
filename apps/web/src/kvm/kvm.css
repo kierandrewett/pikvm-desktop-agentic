@@ -28,13 +28,13 @@
 .kvm-screen[data-layout="dock"] {
     background: #000;
 }
-.app-shell:has(> .app-panel > .kvm-screen[data-layout="dock"]) {
+.app-shell[data-tab="kvm"]:has(.kvm-screen[data-layout="dock"]) {
     background: #000;
 }
-html:has(.kvm-screen[data-layout="dock"]) {
+html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) {
     background: #000;
 }
-html:has(.kvm-screen[data-layout="dock"]) body {
+html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     background: transparent;
 }
 
@@ -193,8 +193,8 @@ html:has(.kvm-screen[data-layout="dock"]) body {
    hotspot dot, this is only the frame. */
 .kvm-lens {
     position: absolute;
-    width: 104px;
-    height: 104px;
+    width: 96px;
+    height: 96px;
     border-radius: 50%;
     transform: translate(-50%, -50%);
     pointer-events: none;
@@ -205,9 +205,10 @@ html:has(.kvm-screen[data-layout="dock"]) body {
         0 8px 24px -6px rgb(0 0 0 / 60%);
     opacity: 0;
     visibility: hidden;
+    /* Fast movement hides it: fade out quickly so it never trails the finger. */
     transition:
-        opacity 0.18s,
-        visibility 0s linear 0.18s;
+        opacity 0.09s,
+        visibility 0s linear 0.09s;
 }
 .kvm-lens.on {
     opacity: 1;

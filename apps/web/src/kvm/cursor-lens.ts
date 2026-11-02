@@ -7,6 +7,7 @@
 import {
     LENS_LINGER_MS,
     LENS_MIN_MAG,
+    beginLensGesture,
     createLensSize,
     lensMag,
     lensSource,
@@ -41,7 +42,7 @@ export interface Painter {
     hideMouse(): void;
     /** The trackpad's virtual cursor moved or appeared. */
     trackpad(): void;
-    /** Bring the lens up (and fold this move's finger travel into its size). */
+    /** A finger moved `distance` px (feeds the lens's fine-adjustment detection); no distance = a new touch began. */
     lens(distance?: number): void;
     /** The socket opened or closed: the blob must not claim a remote cursor that has stopped. */
     inputChanged(): void;
@@ -83,7 +84,10 @@ export function createPainter(deps: PainterDeps): Painter {
         const env = machine.environment;
         const scale = machine.currentView.scale;
         const box = machine.pictureBox;
-        const visible = lensVisible({
+        // The finger earns the lens by sustained fine movement; the clock runs even while it is hidden.
+        const stepped = updateLensSize(lensSize, now);
+        lensSize = stepped.state;
+        const allowed = lensVisible({
             trackpadActive: machine.trackpadActive,
             relative: relative(),
             hidOpen: deps.hidOpen(),
@@ -95,12 +99,16 @@ export function createPainter(deps: PainterDeps): Painter {
             box,
             nat: env.nat,
         });
-        if (!visible || !at || !box) {
+        if (!allowed || !at || !box) {
             hideLens();
             return;
         }
-        const stepped = updateLensSize(lensSize, now);
-        lensSize = stepped.state;
+        if (!stepped.visible) {
+            // Not earned yet (travelling, or still within the first second): stay out of the way, keep watching.
+            hideLens();
+            lensFrame = deps.frame(draw);
+            return;
+        }
         const size = stepped.size;
         const dpr = window.devicePixelRatio || 1;
         const px = Math.round(size * dpr);
@@ -167,7 +175,11 @@ export function createPainter(deps: PainterDeps): Painter {
             else hideCursor();
         },
         lens(distance) {
-            if (distance !== undefined) lensSize = noteLensSpeed(lensSize, distance, clock.now());
+            if (distance === undefined) {
+                // A new touch starts from nothing: no lens, and the second starts when it moves.
+                lensSize = beginLensGesture(lensSize);
+                hideLens();
+            } else lensSize = noteLensSpeed(lensSize, distance, clock.now());
             // The lens magnifies less the further the picture is pinched in, and goes away once it adds nothing.
             if (lensMag(machine.currentView.scale) < LENS_MIN_MAG) return;
             lensUntil = clock.now() + LENS_LINGER_MS;
