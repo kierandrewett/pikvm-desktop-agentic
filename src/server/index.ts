@@ -21,6 +21,7 @@ import type { PiKvmControl } from "../pikvm-control";
 import type { SettingsStore } from "../settings";
 import type { TerminalSessions } from "../terminal-server";
 import { createApi } from "./api";
+import type { TargetEditor } from "./api";
 import { createRouter } from "./routes";
 import { createDaemonProxy } from "./proxy/daemon";
 import { createPiKvmProxy } from "./proxy/kvmd";
@@ -33,6 +34,8 @@ export interface ServerDeps {
      *  the idle jiggler nudges the cursor through it. */
     control: PiKvmControl;
     settings: SettingsStore;
+    /** Lets Settings change the PiKVM. Only the desktop app passes it. */
+    target?: TargetEditor;
     /** Server-hosted terminal sessions, streamed to all devices over /app/terminal. */
     terminalSessions?: TerminalSessions;
     /** Base URL of the pikvm-agent daemon, reverse-proxied at /app/daemon/* so the
@@ -138,6 +141,7 @@ export function startControlServer(
          * only ever close. */
         features: () => ({ terminal: !!deps.terminalSessions, chat: !!harness }),
         version: readVersion(),
+        ...(deps.target ? { target: deps.target } : {}),
     });
 
     const terminal = createTerminalSocket(deps.terminalSessions);

@@ -1,13 +1,21 @@
 /** TanStack Query bindings for the app API. Request/response data only; sockets are not Query's. */
 
-import { type Macro, type Settings, type SettingsPatch, type State } from "@pikvm/contracts/api";
+import {
+    type Macro,
+    type Settings,
+    type SettingsPatch,
+    type State,
+    type TargetConfig,
+    type TargetPatch,
+} from "@pikvm/contracts/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiFailure, getState, listMacros, patchSettings, replaceMacros, runApi } from "./client";
+import { ApiFailure, getState, getTarget, listMacros, patchSettings, putTarget, replaceMacros, runApi } from "./client";
 import { OAUTH_USERINFO_PATH } from "../host/paths";
 
 export const stateKey = ["state"] as const;
 export const macrosKey = ["macros"] as const;
 export const accountKey = ["account"] as const;
+export const targetKey = ["target"] as const;
 
 export function useAppState() {
     return useQuery<State, ApiFailure>({
@@ -73,5 +81,25 @@ export function useProxySession() {
         queryFn: ({ signal }) => detectProxySession(signal),
         staleTime: 5 * 60_000,
         retry: false,
+    });
+}
+
+/** The PiKVM this host connects to, and whether this app may change it. */
+export function useTarget() {
+    return useQuery<TargetConfig, ApiFailure>({
+        queryKey: targetKey,
+        queryFn: ({ signal }) => runApi(getTarget(), signal),
+    });
+}
+
+/** Save a change to the target. The reply never carries the password, so neither does the cache. */
+export function useSaveTarget() {
+    const queryClient = useQueryClient();
+    return useMutation<TargetConfig, ApiFailure, TargetPatch>({
+        mutationFn: (patch) => runApi(putTarget(patch)),
+        onSuccess: (target) => {
+            queryClient.setQueryData(targetKey, target);
+            void queryClient.invalidateQueries({ queryKey: stateKey });
+        },
     });
 }

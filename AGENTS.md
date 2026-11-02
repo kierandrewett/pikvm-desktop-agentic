@@ -20,3 +20,6 @@ make package                        # build + pkgsmith packages for this platfor
   pkgsmith is built from source (`PKGSMITH=/path/to/pkgsmith`).
 - Running Electron under a headless sway needs `env -u ENABLE_VULKAN_RENDERDOC_CAPTURE`: the RenderDoc
   Vulkan layer deadlocks Chromium's GPU process.
+- The PiKVM address and credentials: `src/target-store.ts` (`pikvm.json` = address + user name; the password only in
+  `pikvm-credentials.json`, 0600, atomic). Never put a password in pikvm.json, an API reply, a log or an error.
+  Do not print pikvm.json: an older install has `user:pass` in its address.

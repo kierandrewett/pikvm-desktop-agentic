@@ -1126,6 +1126,30 @@ export class PiKvmControl {
         }
     }
 
+    /**
+     * Point at another PiKVM, or sign in differently, without restarting. The proxy reads the target on
+     * every request, so HTTP follows at once; the event socket is closed so the next use reconnects to the
+     * new origin. Anything the browser holds open through the proxy (the video, the HID socket) belongs to
+     * the old target until the page reloads.
+     */
+    setTarget(target: { origin: string; username: string; password: string }): void {
+        const u = new URL(target.origin);
+        u.username = "";
+        u.password = "";
+        u.pathname = "/";
+        this.origin = u;
+        this.user = target.username;
+        this.pass = target.password;
+        this.kvmdState = {};
+        try {
+            this.ws?.close();
+        } catch {
+            /* already closed */
+        }
+        this.ws = undefined;
+        this.wsReady = undefined;
+    }
+
     dispose(): void {
         const held = this.heldHotkey;
         this.clearHeldHotkeyState();

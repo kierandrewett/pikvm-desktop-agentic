@@ -21,6 +21,7 @@ import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
 import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
+import { TargetStore } from "./target-store";
 import { TerminalSessions } from "./terminal-server";
 import { ManagedService } from "./service-manager";
 import { HarnessManager } from "./harness-manager";
@@ -303,13 +304,13 @@ async function settleControlPort(bindHost: string): Promise<number> {
 let guiMcp: GuiMcp | null = null;
 
 async function startProxyAndHarness(
-    origin: string,
+    targetStore: TargetStore,
     settings: SettingsStore,
     harnessRuntime: AgentRuntimeResolution,
 ) {
     const control = new PiKvmControl(
         {
-            origin,
+            ...targetStore.resolve(),
             // Reuse the logged-in PiKVM web session so proxied requests are authorized
             // even when credentials aren't in the URL.
             getCookie: async () => {
@@ -485,6 +486,15 @@ async function startProxyAndHarness(
         {
             control,
             settings,
+            /* Settings can change the PiKVM from the desktop app. The password goes to its own file and
+             * is never returned; the control core follows the new target without a restart. */
+            target: {
+                view: () => targetStore.view(),
+                save: (change) => {
+                    control.setTarget(targetStore.save(change));
+                    return targetStore.view();
+                },
+            },
             terminalSessions,
             daemonOrigin,
             daemonToken: harness.daemonActionToken,
@@ -598,7 +608,8 @@ async function createWindow() {
     console.log("Creating window");
 
     const config = loadConfig();
-    const origin: string = config.origin;
+    // Not config.origin: that may still carry user:pass from an older install. The store reads both.
+    const targetStore = new TargetStore(app.getPath("userData"));
 
     // The first-party chat harness is the desktop's sole workspace. Its isolated
     // session lets main inject the operator credential without ever exposing that
@@ -701,7 +712,7 @@ async function createWindow() {
     // remote console, where the remote host owns the proxy + terminal.
     const backend = remoteConsole
         ? null
-        : await startProxyAndHarness(origin, settings, harnessRuntime);
+        : await startProxyAndHarness(targetStore, settings, harnessRuntime);
     if (backend) {
         /* Nothing to load here any more: the conversation is rendered in the
          * console page, which waits for the harness itself and retries there.

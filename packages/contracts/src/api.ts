@@ -75,6 +75,26 @@ export const PikvmTarget = Schema.Struct({
 });
 export type PikvmTarget = typeof PikvmTarget.Type;
 
+/** The PiKVM this host connects to, as a client may see it. `editable` is true only where the host owns
+ *  the setting (the desktop app); a hosted build pins it by environment and says so here. The password
+ *  is never part of any reply: `passwordSet` is all a client learns. */
+export const TargetConfig = Schema.Struct({
+    origin: Schema.String,
+    username: Schema.String,
+    passwordSet: Schema.Boolean,
+    editable: Schema.Boolean,
+});
+export type TargetConfig = typeof TargetConfig.Type;
+
+/** A change to the target: any subset. `password` is write-only: omitted keeps it, "" removes it. Credentials
+ *  typed into `origin` (`https://user:pass@pikvm/`) are taken as the user name and password. */
+export const TargetPatch = Schema.Struct({
+    origin: Schema.optional(Schema.String),
+    username: Schema.optional(Schema.String),
+    password: Schema.optional(Schema.String),
+}).annotations({ parseOptions: { onExcessProperty: "error" } });
+export type TargetPatch = typeof TargetPatch.Type;
+
 /** `GET /state`: everything the app needs to start. */
 export const State = Schema.Struct({
     settings: Settings,
@@ -161,6 +181,14 @@ export class BadRequest extends Schema.Class<BadRequest>("BadRequest")(
     HttpApiSchema.annotations({ status: 400 }),
 ) {}
 
+/** The host does not let the app change this (a hosted build pins it by environment). `pinned` is what makes this
+ *  shape different from {@link BadRequest}: with the same fields the encoder cannot tell the two apart and sends
+ *  the first one's status. */
+export class Forbidden extends Schema.Class<Forbidden>("Forbidden")(
+    { error: Schema.String, pinned: Schema.Literal(true) },
+    HttpApiSchema.annotations({ status: 403 }),
+) {}
+
 /* ------------------------------------------------------------------ */
 /* The API                                                             */
 /* ------------------------------------------------------------------ */
@@ -182,4 +210,19 @@ export const SettingsGroup = HttpApiGroup.make("settings")
     .add(HttpApiEndpoint.get("get", "/settings").addSuccess(Settings))
     .add(HttpApiEndpoint.patch("update", "/settings").setPayload(SettingsPatch).addSuccess(Settings));
 
-export const PikvmApi = HttpApi.make("pikvm").add(StateGroup).add(MacrosGroup).add(SettingsGroup).prefix(API_PREFIX);
+export const TargetGroup = HttpApiGroup.make("target")
+    .add(HttpApiEndpoint.get("get", "/target").addSuccess(TargetConfig))
+    .add(
+        HttpApiEndpoint.put("update", "/target")
+            .setPayload(TargetPatch)
+            .addSuccess(TargetConfig)
+            .addError(BadRequest)
+            .addError(Forbidden),
+    );
+
+export const PikvmApi = HttpApi.make("pikvm")
+    .add(StateGroup)
+    .add(MacrosGroup)
+    .add(SettingsGroup)
+    .add(TargetGroup)
+    .prefix(API_PREFIX);

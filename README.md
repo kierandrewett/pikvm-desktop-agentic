@@ -54,6 +54,20 @@ node dist/mcp-launcher.js \
 The runtime handoff is mode `0600`, tied to the live desktop process, and never
 contains the browser operator token or daemon approval capability.
 
+## The PiKVM address and credentials
+
+In the desktop app, Settings > Connection edits the PiKVM address, user name and password; the change
+applies at once (the proxy and the control core follow it) and the app reloads. A hosted web build keeps
+them read-only, pinned by its environment.
+
+`pikvm.json` in the app's user data folder holds the address and user name. The password is in
+`pikvm-credentials.json` beside it, mode 0600, written through a temporary file and a rename into a
+folder that is 0700 when the app created it. It is write-only: no API reply, log line or error carries it,
+and the form never shows it. Installs from before this kept `user:pass` inside the address; that is still
+read, never rewritten at startup, and moves to the credentials file the first time you save from Settings.
+The API is `GET`/`PUT /app/api/v1/target` (`@pikvm/contracts`); a host that pins the PiKVM answers
+`403` to the `PUT`.
+
 ## Packaging
 
 The desktop app is an Electron app whose one window loads the embedded server's `/app/`; its only

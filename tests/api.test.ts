@@ -6,7 +6,7 @@
  * what the server sends and what the web app expects fails here.
  */
 
-import { Macro, MacrosResponse, Settings, State } from "@pikvm/contracts/api";
+import { Macro, MacrosResponse, Settings, State, TargetConfig } from "@pikvm/contracts/api";
 import { Schema } from "effect";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -18,33 +18,60 @@ import test from "node:test";
 import { startControlServer } from "../src/server";
 import type { PiKvmControl } from "../src/pikvm-control";
 import { SettingsStore } from "../src/settings";
+import { TargetStore } from "../src/target-store";
 
 interface Running {
     origin: string;
     settings: SettingsStore;
     layouts: string[];
+    /** Every target the control core was told to use. */
+    targets: { origin: string; username: string; password: string }[];
+    dir: string;
     close(): Promise<void>;
 }
 
-async function start(): Promise<Running> {
+async function start(options: { editable?: boolean } = {}): Promise<Running> {
     const dir = mkdtempSync(join(tmpdir(), "pikvm-api-test-"));
     const settings = new SettingsStore(join(dir, "settings.json"));
     settings.patch({ accessToken: "a-secret-that-must-never-be-readable", jiggler: false });
     const layouts: string[] = [];
+    const targets: Running["targets"] = [];
+    const store = new TargetStore(dir);
     const control = {
+        setTarget: (t: Running["targets"][number]) => targets.push(t),
         proxyTarget: async () => ({ origin: new URL("https://kvm.example.test:8443"), headers: {}, rejectUnauthorized: false }),
         getHidState: () => undefined,
         setLayout: (layout: string) => layouts.push(layout),
         lastInputAt: () => 0,
         noteObservedMouse: () => {},
     } as unknown as PiKvmControl;
-    const server: Server = startControlServer({ control, settings, daemonToken: "unused" }, 0);
+    const server: Server = startControlServer(
+        {
+            control,
+            settings,
+            daemonToken: "unused",
+            ...(options.editable
+                ? {
+                      target: {
+                          view: () => store.view(),
+                          save: (change) => {
+                              control.setTarget(store.save(change));
+                              return store.view();
+                          },
+                      },
+                  }
+                : {}),
+        },
+        0,
+    );
     await new Promise<void>((done) => server.once("listening", done));
     const { port } = server.address() as AddressInfo;
     return {
         origin: `http://127.0.0.1:${port}`,
         settings,
         layouts,
+        targets,
+        dir,
         close: () =>
             new Promise<void>((done) => {
                 server.closeAllConnections();
@@ -185,6 +212,95 @@ test("an unknown API path is a JSON 404", async () => {
         const missing = await fetch(`${s.origin}/app/api/v1/nothing`);
         assert.equal(missing.status, 404);
         assert.equal(typeof ((await missing.json()) as { error: unknown }).error, "string");
+    } finally {
+        await s.close();
+    }
+});
+
+/* FAILURE MODES (target)
+ *  1. A pinned (hosted) host lets a client change the PiKVM, or reports it as editable.
+ *  2. The password appears in ANY reply, or in the file the origin is stored in.
+ *  3. A bad address is a 500 or a silent success; the control core is told anyway.
+ *  4. A save does not reach the control core, so the new address only works after a restart.
+ *  5. An unknown field (accessToken, say) is ignored instead of refused.
+ */
+
+test("target: a host that pins the PiKVM reports it read-only and refuses a change", async () => {
+    const s = await start();
+    try {
+        const got = Schema.decodeUnknownSync(TargetConfig)(await (await fetch(`${s.origin}/app/api/v1/target`)).json());
+        assert.deepEqual(got, { origin: "https://kvm.example.test:8443/", username: "", passwordSet: false, editable: false });
+        const res = await fetch(`${s.origin}/app/api/v1/target`, {
+            method: "PUT",
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ origin: "https://elsewhere/" }),
+        });
+        const refusal = await res.text();
+        assert.equal(res.status, 403, refusal);
+        assert.match(JSON.parse(refusal).error, /configuration/);
+        assert.deepEqual(s.targets, []);
+    } finally {
+        await s.close();
+    }
+});
+
+test("target: a save reaches the control core at once, and no reply carries the password", async () => {
+    const s = await start({ editable: true });
+    try {
+        const url = `${s.origin}/app/api/v1/target`;
+        const res = await fetch(url, {
+            method: "PUT",
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ origin: "https://pikvm.lan/", username: "admin", password: "hunter2-secret" }),
+        });
+        const text = await res.text();
+        assert.equal(res.status, 200);
+        assert.doesNotMatch(text, /hunter2-secret/);
+        assert.deepEqual(Schema.decodeUnknownSync(TargetConfig)(JSON.parse(text)), {
+            origin: "https://pikvm.lan/",
+            username: "admin",
+            passwordSet: true,
+            editable: true,
+        });
+        assert.deepEqual(s.targets, [{ origin: "https://pikvm.lan/", username: "admin", password: "hunter2-secret" }]);
+        const again = await (await fetch(url)).text();
+        assert.doesNotMatch(again, /hunter2-secret/);
+        assert.match(again, /"passwordSet":true/);
+        const state = await (await fetch(`${s.origin}/app/api/v1/state`)).text();
+        assert.doesNotMatch(state, /hunter2-secret/);
+    } finally {
+        await s.close();
+    }
+});
+
+test("target: a bad address is a 400 with a sentence, and the control core is not told", async () => {
+    const s = await start({ editable: true });
+    try {
+        const res = await fetch(`${s.origin}/app/api/v1/target`, {
+            method: "PUT",
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ origin: "ftp://admin:hunter2@pikvm/" }),
+        });
+        assert.equal(res.status, 400);
+        const body = await res.text();
+        assert.match(JSON.parse(body).error, /http/);
+        assert.doesNotMatch(body, /hunter2/);
+        assert.deepEqual(s.targets, []);
+    } finally {
+        await s.close();
+    }
+});
+
+test("target: an unknown field is refused", async () => {
+    const s = await start({ editable: true });
+    try {
+        const res = await fetch(`${s.origin}/app/api/v1/target`, {
+            method: "PUT",
+            headers: JSON_HEADERS,
+            body: JSON.stringify({ accessToken: "x" }),
+        });
+        assert.equal(res.status, 400);
+        assert.deepEqual(s.targets, []);
     } finally {
         await s.close();
     }

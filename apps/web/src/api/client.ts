@@ -8,7 +8,15 @@
  */
 
 import { FetchHttpClient, HttpApiClient, HttpClient, HttpClientError } from "@effect/platform";
-import { type Macro, PikvmApi, type Settings, type SettingsPatch, type State } from "@pikvm/contracts/api";
+import {
+    type Macro,
+    PikvmApi,
+    type Settings,
+    type SettingsPatch,
+    type State,
+    type TargetConfig,
+    type TargetPatch,
+} from "@pikvm/contracts/api";
 import { Cause, Data, Effect, Exit, Option } from "effect";
 
 export class ApiFailure extends Data.TaggedError("ApiFailure")<{
@@ -45,6 +53,10 @@ const describe = (error: unknown): Effect.Effect<ApiFailure> => {
             case "BadRequest":
                 return Effect.succeed(
                     new ApiFailure({ message: bodyError(error) ?? "The server refused that change.", status: 400 }),
+                );
+            case "Forbidden":
+                return Effect.succeed(
+                    new ApiFailure({ message: bodyError(error) ?? "This host does not allow that.", status: 403 }),
                 );
             case "ParseError":
             case "HttpApiDecodeError":
@@ -101,3 +113,9 @@ export const runApi = async <A>(effect: Effect.Effect<A, ApiFailure>, signal?: A
  */
 export const replaceMacros = (macros: ReadonlyArray<unknown>): Effect.Effect<ReadonlyArray<Macro>, ApiFailure> =>
     withClient((client) => Effect.map(client.macros.replace({ payload: { macros: [...macros] } }), (reply) => reply.macros));
+
+export const getTarget = (): Effect.Effect<TargetConfig, ApiFailure> => withClient((client) => client.target.get());
+
+/** The password in the patch is write-only: nothing in any reply carries it back. */
+export const putTarget = (patch: TargetPatch): Effect.Effect<TargetConfig, ApiFailure> =>
+    withClient((client) => client.target.update({ payload: patch }));

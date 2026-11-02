@@ -28,6 +28,11 @@ export interface ServerState {
     patchStatus: number;
     patchError: string;
     stateStatus: number;
+    /** The PiKVM target: `editable` is what the desktop app's server says, and false for a hosted one. */
+    target: { origin: string; username: string; passwordSet: boolean; editable: boolean };
+    /** Status and error for PUT /target; anything but 200 fails the save. */
+    targetPutStatus: number;
+    targetPutError: string;
     /** When set, PATCH /settings waits for it, so a test can look at the in-flight state. */
     patchGate: Promise<void> | undefined;
     /** What HEAD /oauth2/userinfo answers: a status and content type, or a network failure. */
@@ -45,6 +50,9 @@ export const defaultServer = (): ServerState => ({
     patchStatus: 200,
     patchError: "",
     stateStatus: 200,
+    target: { origin: "https://pikvm.example/", username: "", passwordSet: false, editable: false },
+    targetPutStatus: 200,
+    targetPutError: "",
     patchGate: undefined,
     userinfo: { status: 404, contentType: "text/plain" },
     harness: createFakeHarness({ runs: [baseRun()] }),
@@ -88,6 +96,16 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                     pikvm: { origin: "https://pikvm.example", link: server.link },
                     version: "9.9.9",
                 });
+            }
+            if (url.pathname === "/app/api/v1/target") {
+                if (method === "PUT") {
+                    if (server.targetPutStatus !== 200) return json(server.targetPutStatus, { error: server.targetPutError });
+                    const put = body as { origin?: string; username?: string; password?: string };
+                    if (put.origin !== undefined) server.target.origin = put.origin;
+                    if (put.username !== undefined) server.target.username = put.username;
+                    if (put.password !== undefined) server.target.passwordSet = put.password !== "";
+                }
+                return json(200, server.target);
             }
             if (url.pathname === "/app/api/v1/macros") return json(200, { macros: server.macros });
             if (url.pathname === "/app/api/v1/settings" && method === "PATCH") {

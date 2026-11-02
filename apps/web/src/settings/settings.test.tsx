@@ -34,6 +34,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultServer, installFakeServer, renderApp, type RecordedRequest, type ServerState } from "../test/harness";
 
+// jsdom cannot reload; the form calls this after a successful save.
+const reload = vi.hoisted(() => vi.fn());
+vi.mock("../host/reload", () => ({ reloadApp: reload }));
+
 let server: ServerState;
 let requests: RecordedRequest[];
 
@@ -254,10 +258,117 @@ describe("connection", () => {
         expect(screen.queryByText("Connected")).toBeNull();
     });
 
-    it("has no control that edits the address", async () => {
+    it("has no control that edits the address when the host pins it", async () => {
         renderApp("/settings/connection");
         await screen.findByText("https://pikvm.example");
         expect(screen.queryByRole("textbox")).toBeNull();
+        expect(screen.getByText(/set when the host starts/)).toBeInTheDocument();
+    });
+});
+
+/* FAILURE MODES (editing the PiKVM, desktop app only)
+ *  1. A pinned host shows a form, or sends a PUT.
+ *  2. The password field is ever filled from the server, or kept in the page after a save.
+ *  3. Saving with the password field empty wipes the stored password; typing does not replace it.
+ *  4. A bad address is sent to the server instead of being caught first.
+ *  5. A refused save loses what the user typed, or says nothing.
+ *  6. A save does not reload the app, so the video and the input socket stay on the old address.
+ *  7. The password is sent as anything but the password field's own value.
+ */
+describe("connection: changing the PiKVM", () => {
+    const editable = () => {
+        server.target = { origin: "https://pikvm.example/", username: "admin", passwordSet: true, editable: true };
+    };
+
+    beforeEach(() => {
+        reload.mockClear();
+    });
+
+    it("shows the current address and user, and a password field that is empty", async () => {
+        editable();
+        renderApp("/settings/connection");
+        expect(await screen.findByLabelText("Address")).toHaveValue("https://pikvm.example/");
+        expect(screen.getByLabelText("User name")).toHaveValue("admin");
+        const password = screen.getByLabelText("Password");
+        expect(password).toHaveValue("");
+        expect(password).toHaveAttribute("type", "password");
+        expect(password).toHaveAttribute("placeholder", expect.stringMatching(/stored/));
+    });
+
+    it("a save with the password left empty does not send one, so the stored one is kept", async () => {
+        editable();
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        const address = await screen.findByLabelText("Address");
+        await user.clear(address);
+        await user.type(address, "https://other.lan/");
+        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        const put = requests.find((r) => r.method === "PUT" && r.path === "/app/api/v1/target");
+        expect(put?.body).toEqual({ origin: "https://other.lan/", username: "admin" });
+        expect(server.target.passwordSet).toBe(true);
+    });
+
+    it("a typed password is sent once, replaces the stored one, and is cleared from the page", async () => {
+        editable();
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        const password = await screen.findByLabelText("Password");
+        await user.type(password, "hunter2-typed");
+        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        const put = requests.find((r) => r.method === "PUT");
+        expect(put?.body).toMatchObject({ password: "hunter2-typed" });
+        expect(password).toHaveValue("");
+        expect(document.body.innerHTML).not.toContain("hunter2-typed");
+    });
+
+    it("removing the stored password sends an empty one", async () => {
+        editable();
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByLabelText("Remove the stored password"));
+        expect(screen.getByLabelText("Password")).toBeDisabled();
+        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        expect(requests.find((r) => r.method === "PUT")?.body).toMatchObject({ password: "" });
+        expect(server.target.passwordSet).toBe(false);
+    });
+
+    it("catches a bad address before any request, and clears the complaint when it is corrected", async () => {
+        editable();
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        const address = await screen.findByLabelText("Address");
+        await user.clear(address);
+        await user.type(address, "pikvm");
+        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+        expect(await screen.findByRole("alert")).toHaveTextContent(/not a URL/);
+        expect(address).toHaveAttribute("aria-invalid", "true");
+        expect(requests.some((r) => r.method === "PUT")).toBe(false);
+        await user.type(address, "://x");
+        expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("a refused save says why, keeps what was typed and does not reload", async () => {
+        editable();
+        server.targetPutStatus = 400;
+        server.targetPutError = "The address must start with http:// or https://";
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        const password = await screen.findByLabelText("Password");
+        await user.type(password, "keep-me");
+        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+        expect(await screen.findByRole("alert")).toHaveTextContent(/must start with http/);
+        expect(password).toHaveValue("keep-me");
+        expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("a pinned host sends no PUT and draws no form", async () => {
+        renderApp("/settings/connection");
+        await screen.findByText("https://pikvm.example");
+        expect(screen.queryByLabelText("Password")).toBeNull();
+        expect(requests.some((r) => r.method === "PUT")).toBe(false);
     });
 });
 

@@ -720,3 +720,57 @@ a.row[aria-current="page"][data-selected="true"] {
     position: absolute;
     inset: -8px -4px;
 }
+
+/* ---- text fields (the PiKVM connection form) --------------------------------- */
+
+.field-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 16px;
+    font-size: 13px;
+}
+
+.field-stack > label {
+    margin-top: 6px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+}
+
+.field-input {
+    min-height: 36px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-field);
+    background: var(--secondary);
+    color: var(--foreground);
+}
+
+.field-input[aria-invalid="true"] {
+    border-color: var(--danger);
+}
+
+.field-input:disabled {
+    opacity: 0.5;
+}
+
+.field-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    color: var(--foreground);
+}
+
+.field-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 16px 12px;
+}
+
+@media (pointer: coarse) {
+    .field-input {
+        min-height: 44px;
+        font-size: 16px;
+    }
+}

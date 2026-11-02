@@ -5,7 +5,16 @@
  */
 
 import { HttpApiBuilder, HttpServer } from "@effect/platform";
-import { BadRequest, PikvmApi, type Features, type Macro, type Settings, type State } from "@pikvm/contracts/api";
+import {
+    BadRequest,
+    Forbidden,
+    PikvmApi,
+    type Features,
+    type Macro,
+    type Settings,
+    type State,
+    type TargetConfig,
+} from "@pikvm/contracts/api";
 import { Effect, Layer } from "effect";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { MacroStore } from "../../macros";
@@ -13,6 +22,17 @@ import type { JigglerStatus } from "../../mouse-jiggler";
 import type { PiKvmControl } from "../../pikvm-control";
 import type { SettingsStore } from "../../settings";
 import { serveWith } from "./web-handler";
+
+/** What the desktop app offers for changing the PiKVM it talks to. Absent on a host that pins it. */
+export interface TargetEditor {
+    view(): { origin: string; username: string; passwordSet: boolean };
+    /** Validates, stores and applies. Throws an Error whose message is fit to show; never returns the password. */
+    save(change: { origin?: string | undefined; username?: string | undefined; password?: string | undefined }): {
+        origin: string;
+        username: string;
+        passwordSet: boolean;
+    };
+}
 
 export interface ApiDeps {
     control: PiKvmControl;
@@ -24,6 +44,8 @@ export interface ApiDeps {
     features: () => Features;
     /** The app's version string. */
     version: string;
+    /** Present where the host owns the PiKVM setting (the desktop app). */
+    target?: TargetEditor;
 }
 
 /** The user-editable slice of the settings file. An allow-list on purpose:
@@ -69,6 +91,29 @@ function apiLayer(deps: ApiDeps) {
             }),
     );
 
+    const target = HttpApiBuilder.group(PikvmApi, "target", (handlers) =>
+        handlers
+            .handle("get", () =>
+                Effect.promise(async (): Promise<TargetConfig> => {
+                    if (deps.target) return { ...deps.target.view(), editable: true };
+                    const pinned = await deps.control.proxyTarget();
+                    return { origin: pinned.origin.origin + "/", username: "", passwordSet: false, editable: false };
+                }),
+            )
+            .handle("update", ({ payload }) => {
+                const editor = deps.target;
+                if (!editor) {
+                    return Effect.fail(
+                        new Forbidden({ error: "This host sets the PiKVM in its own configuration, not here.", pinned: true }),
+                    );
+                }
+                return Effect.try({
+                    try: (): TargetConfig => ({ ...editor.save(payload), editable: true }),
+                    catch: (err) => new BadRequest({ error: err instanceof Error ? err.message : "Invalid address" }),
+                });
+            }),
+    );
+
     const settings = HttpApiBuilder.group(PikvmApi, "settings", (handlers) =>
         handlers
             .handle("get", () => Effect.sync(() => publicSettings(deps)))
@@ -90,6 +135,7 @@ function apiLayer(deps: ApiDeps) {
         Layer.provide(state),
         Layer.provide(macros),
         Layer.provide(settings),
+        Layer.provide(target),
     );
 }
 
