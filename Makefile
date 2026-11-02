@@ -32,3 +32,5 @@ web-bundle:
 	find builds/web/dist/views -name '*.map' -delete
 	cp -r agent/pikvm_agent/harness_ui builds/web/harness_ui
 	cp deploy/web/Dockerfile builds/web/Dockerfile
+	# Readable by the container's node user whatever umask this ran under.
+	chmod -R a+rX builds/web
