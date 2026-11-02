@@ -104,12 +104,12 @@ describe("macro list and editor", () => {
 
     it("40: pinned unless turned off; the toggle saves", async () => {
         const { server } = await mountMacros([reboot, login]);
-        const pinned = screen.getByLabelText("Show in the toolbar");
+        const pinned = screen.getByLabelText("Pin to the toolbar and menu");
         expect(pinned).toBeChecked();
         fireEvent.click(pinned);
         await waitFor(() => expect(lastPut(server)[0]?.pinned).toBe(false));
         fireEvent.click(within(screen.getByRole("group", { name: "Saved macros" })).getByRole("button", { name: "Login" }));
-        expect(screen.getByLabelText("Show in the toolbar")).not.toBeChecked();
+        expect(screen.getByLabelText("Pin to the toolbar and menu")).not.toBeChecked();
     });
 });
 

@@ -18,6 +18,7 @@ import {
     fromStored,
     isPinned,
     macroWouldPersist,
+    moveMacro,
     moveStep,
     newMacro,
     newStep,
@@ -408,6 +409,17 @@ describe("macro draft (32, 36, 37, 39, 40)", () => {
         expect(removeStep(m, 1).steps).toHaveLength(2);
         expect(removeStep({ ...m, steps: [chord("KeyA")] }, 0).steps).toEqual([newStep("chord")]);
         expect(newStep("delay")).toEqual({ type: "delay", ms: 200 });
+    });
+
+    it("moves a macro within the list and stops at the ends and for an unknown id", () => {
+        const list: DraftMacro[] = ["a", "b", "c"].map((id) => ({ id, label: id, steps: [chord("KeyA")] }));
+        const ids = (l: readonly DraftMacro[]) => l.map((x) => x.id);
+        expect(ids(moveMacro(list, "b", -1))).toEqual(["b", "a", "c"]);
+        expect(ids(moveMacro(list, "b", 1))).toEqual(["a", "c", "b"]);
+        expect(ids(moveMacro(list, "a", -1))).toEqual(["a", "b", "c"]);
+        expect(ids(moveMacro(list, "c", 1))).toEqual(["a", "b", "c"]);
+        expect(ids(moveMacro(list, "zzz", 1))).toEqual(["a", "b", "c"]);
+        expect(ids(list)).toEqual(["a", "b", "c"]);
     });
 
     it("round-trips what the server stores", () => {

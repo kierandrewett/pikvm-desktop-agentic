@@ -111,6 +111,17 @@ export function updateMacro(
     return draft.map((m) => (m.id === id ? change(m) : m));
 }
 
+/** The order of the list is the order of the toolbar and the phone menu, so it can be changed. */
+export function moveMacro(draft: readonly DraftMacro[], id: string, delta: -1 | 1): DraftMacro[] {
+    const from = draft.findIndex((m) => m.id === id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= draft.length) return draft.slice();
+    const next = draft.slice();
+    const [moved] = next.splice(from, 1);
+    if (moved) next.splice(to, 0, moved);
+    return next;
+}
+
 export function updateStep(macro: DraftMacro, index: number, change: (step: DraftStep) => DraftStep): DraftMacro {
     return { ...macro, steps: macro.steps.map((s, i) => (i === index ? change(s) : s)) };
 }

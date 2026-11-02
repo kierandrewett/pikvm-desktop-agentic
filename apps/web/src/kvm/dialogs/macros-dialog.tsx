@@ -3,6 +3,10 @@
  * above it on a phone). Every edit saves (`PUT /app/api/v1/macros`); the draft is the editor's own
  * and only the parts the server would keep are sent (see model/macros.ts).
  *
+ * One component serves both places the manager lives: a dialog on the KVM screen and the
+ * Settings page (`presentation="page"`). Only the frame differs; the draft, the saves and the
+ * controls are these.
+ *
  * Saves are serialised through one chain shared by every instance of the dialog and coalesced
  * (failure mode 33): the last draft wins, and a dialog reopened a moment after an edit waits for
  * that edit to land before it reads the list.
@@ -22,6 +26,7 @@ import {
     isPinned,
     MACRO_LIMITS,
     macroWouldPersist,
+    moveMacro,
     moveStep,
     newMacro,
     newStep,
@@ -34,7 +39,7 @@ import {
     type DraftMacro,
     type DraftStep,
 } from "./model/macros";
-import { Btn, CommitInput, DialogShell, Note, useConfirm } from "./shell";
+import { Btn, CommitInput, DialogShell, Note, useConfirm, type DialogPresentation } from "./shell";
 
 /** Every save, in order, across dialog instances. */
 let saveChain: Promise<void> = Promise.resolve();
@@ -45,7 +50,12 @@ export function resetMacroSaveChainForTests(): void {
     saveVersion = 0;
 }
 
-export function MacrosDialog({ session, onClose }: DialogProps) {
+export interface MacrosDialogProps extends DialogProps {
+    /** `page` draws the manager in place (Settings): running a macro does not close it. */
+    readonly presentation?: DialogPresentation;
+}
+
+export function MacrosDialog({ session, onClose, presentation = "modal" }: MacrosDialogProps) {
     const queryClient = useQueryClient();
     const [draft, setDraft] = useState<readonly DraftMacro[] | null>(null);
     const [selected, setSelected] = useState<string | null>(null);
@@ -86,8 +96,10 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
         const root = body.current?.closest(".dlg") ?? null;
         const find = (k: string): HTMLElement | null => root?.querySelector<HTMLElement>(`[data-fk="${k}"]`) ?? null;
         let el = find(key);
-        // A move can push the step to an end, which disables the arrow that got it there: the opposite one is still under the finger.
-        if (el instanceof HTMLButtonElement && el.disabled && /^[un]\d+$/.test(key)) el = find(`${key[0] === "u" ? "n" : "u"}${key.slice(1)}`);
+        // A move can push the step or macro to an end, which disables the arrow that got it there: the opposite one is still under the finger.
+        if (el instanceof HTMLButtonElement && el.disabled && /^([un]\d+|m[ud])$/.test(key)) {
+            el = find(/^m/.test(key) ? (key === "mu" ? "md" : "mu") : `${key[0] === "u" ? "n" : "u"}${key.slice(1)}`);
+        }
         if (el && !(el instanceof HTMLButtonElement && el.disabled)) {
             el.focus();
             if (el instanceof HTMLInputElement && el.type === "text") el.select();
@@ -157,7 +169,7 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
     const run = (target: DraftMacro): void => {
         const [ready] = persistable([target]);
         if (!ready) return;
-        onClose();
+        if (presentation === "modal") onClose();
         void session.macros.run(ready);
     };
 
@@ -197,6 +209,7 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
                 title="Macros"
                 size="full"
                 onClose={onClose}
+                presentation={presentation}
                 testId="macros-dialog"
                 initialFocus="[data-fk='first']"
                 startActions={
@@ -205,9 +218,11 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
                     </Btn>
                 }
                 actions={
-                    <Btn variant="primary" onClick={onClose}>
-                        Done
-                    </Btn>
+                    presentation === "modal" ? (
+                        <Btn variant="primary" onClick={onClose}>
+                            Done
+                        </Btn>
+                    ) : undefined
                 }
             >
                 <div className="macro-body" ref={body}>
@@ -298,7 +313,7 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
                                         checked={isPinned(macro)}
                                         onChange={(e) => edit((m) => ({ ...m, pinned: e.target.checked }))}
                                     />
-                                    Show in the toolbar
+                                    Pin to the toolbar and menu
                                 </label>
 
                                 <div className="macro-steps" role="list" aria-label="Steps">
@@ -345,6 +360,25 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
                                     <Btn variant="primary" disabled={!macroWouldPersist(macro)} onClick={() => run(macro)}>
                                         Run
                                     </Btn>
+                                    {/* The list's order is the order of the pinned tiles, so it can be changed here. */}
+                                    {list.length > 1 ? (
+                                        <>
+                                            <Btn
+                                                data-fk="mu"
+                                                disabled={list[0]?.id === macro.id}
+                                                onClick={() => apply(moveMacro(list, macro.id, -1), "mu")}
+                                            >
+                                                Move up the list
+                                            </Btn>
+                                            <Btn
+                                                data-fk="md"
+                                                disabled={list[list.length - 1]?.id === macro.id}
+                                                onClick={() => apply(moveMacro(list, macro.id, 1), "md")}
+                                            >
+                                                Move down the list
+                                            </Btn>
+                                        </>
+                                    ) : null}
                                     {/* Destructive, and apart from the buttons that add. */}
                                     <Btn variant="danger" style={{ marginLeft: "auto" }} onClick={() => void remove(macro)}>
                                         Delete macro
