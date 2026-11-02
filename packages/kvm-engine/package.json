@@ -11,7 +11,8 @@
     "./input": "./src/input/index.ts",
     "./view": "./src/view/index.ts",
     "./pointer": "./src/pointer/index.ts",
-    "./video": "./src/video/index.ts"
+    "./video": "./src/video/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
