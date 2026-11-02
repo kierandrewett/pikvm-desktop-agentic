@@ -141,6 +141,10 @@ export function startControlServer(
                 jiggler: s.jiggler,
                 bindHost: s.bindHost,
             },
+            /* What this host actually serves. The headless web host has no
+             * shared terminal, and the console should not frame a panel whose
+             * socket would only ever close. */
+            features: { terminal: !!deps.terminalSessions },
             jigglerStatus: jiggler.status(),
         };
     };

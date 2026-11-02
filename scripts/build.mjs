@@ -23,6 +23,9 @@ await build({
     entryPoints: [
         resolve(root, "src/main.ts"),
         resolve(root, "src/mcp-launcher.ts"),
+        // The headless web host (container deploys). Same server and proxy as
+        // the desktop, no Electron import anywhere in its graph.
+        resolve(root, "src/web-server.ts"),
         // Every preload, discovered. They used to be listed, and a preload left
         // off the list simply was not built: Electron then fails to load it and
         // the window keeps running with that bridge missing, so the feature it

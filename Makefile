@@ -1,4 +1,4 @@
-.PHONY: package agent-runtime
+.PHONY: package agent-runtime web-bundle
 
 # The self-contained Python runtime the app ships with: a standalone CPython
 # with the agent and its core dependencies installed into it. Roughly 430MB and
@@ -19,3 +19,16 @@ package: agent-runtime
 		--icon=src/assets/icon
 	node scripts/copy-runtime-deps.mjs
 	node scripts/make-rpm.mjs
+
+# Docker build context for the headless web host (deploy/web/Dockerfile):
+# the server bundle, the console views and the shared workspace components.
+# Electron's main bundle and the preloads stay out; nothing here loads them.
+web-bundle:
+	yarn build
+	rm -rf builds/web
+	mkdir -p builds/web/dist
+	cp dist/web-server.js dist/package.json builds/web/dist/
+	cp -r dist/views dist/assets builds/web/dist/
+	find builds/web/dist/views -name '*.map' -delete
+	cp -r agent/pikvm_agent/harness_ui builds/web/harness_ui
+	cp deploy/web/Dockerfile builds/web/Dockerfile
