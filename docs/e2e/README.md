@@ -24,6 +24,10 @@ Puppeteer is not a dependency of the repo, so the run takes its locations from t
 
 The run exits non-zero if any case fails.
 
+Other runs share the same two servers and the same environment: `apps/web/e2e/settings-macros.e2e.mjs`
+(Settings -> Macros, `docs/e2e/<date>-settings-macros.md`), and the parity runs listed in
+`docs/rebuild/parity-matrix.md`.
+
 The profiles are the iPhone 13 device (touch, coarse pointer, 390x844) and a 1400x900 desktop
 window. Touch is sent as raw CDP touch events so two-finger gestures are real. The fake has no
 Janus, so the picture is MJPEG; WebRTC and the audio buttons that depend on it are covered by
