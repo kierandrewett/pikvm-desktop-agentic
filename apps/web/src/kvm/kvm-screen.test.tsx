@@ -4,7 +4,7 @@ import { macroDuration, type MacroLike } from "@pikvm/kvm-engine";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultServer, installFakeServer, installViewport, type ServerState } from "../test/harness";
-import { PasteDialog } from "./dialog-defaults";
+import { PasteDialog, UnavailableDialog } from "./dialog-defaults";
 import { registerDialog, type DialogProps } from "./dialog-seam";
 import { KvmScreen } from "./kvm-screen";
 import { DOCK_QUERY } from "./platform";
@@ -126,8 +126,11 @@ describe("dialogs", () => {
 
     it("K16: a name with nothing real behind it still opens a labelled dialog that closes on Escape", async () => {
         const rig = await mount({ dock: false });
-        act(() => rig.session.dialogs.open("health"));
-        const dialog = screen.getByRole("dialog", { name: "System, GPIO & health" });
+        // Every name has a real dialog registered now, so put the stand-in back for one of them.
+        registerDialog("log", (props) => <UnavailableDialog name="log" {...props} />);
+        act(() => rig.session.dialogs.open("log"));
+        const dialog = screen.getByRole("dialog", { name: "PiKVM log" });
+        expect(within(dialog).getByText("This is not available in this build.")).toBeInTheDocument();
         fireEvent.keyDown(dialog, { key: "Escape" });
         expect(screen.queryByRole("dialog")).toBeNull();
     });
