@@ -9,7 +9,7 @@
 //   1. yarn build, and the web app's build (skipped with --skip-build).
 //   2. electron-packager: the Electron tree for the target, into builds/.
 //   3. Fill the tree's resources/ with what the app finds there at run time: the web app, the
-//      agent harness UI, the agent runtime and the native terminal addon.
+//      agent harness UI and the agent runtime.
 //   4. pkgsmith build over that tree, into builds/packages/<platform>-<arch>/.
 //
 // Electron trees for another platform are downloaded by electron-packager, so any machine can
@@ -19,7 +19,6 @@
 import { packager } from "@electron/packager";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -143,35 +142,6 @@ const place = (from, to) => {
 place(join(root, "apps", "web", "dist"), join("apps", "web", "dist"));
 place(join(root, "agent", "pikvm_agent", "harness_ui"), join("agent", "pikvm_agent", "harness_ui"));
 log("shipped the web app and the harness UI");
-
-/* @lydell/node-pty is a prebuilt native addon, one npm package per platform, and esbuild leaves
- * it external. Without it the terminal import throws at runtime; that only shows in the package,
- * never under `yarn start` where the repo's node_modules is still on disk. The platform packages
- * are fetched from the registry for the TARGET, so a tree for another OS gets its own addon. */
-async function shipPty() {
-    const ptyVersion = JSON.parse(readFileSync(join(root, "node_modules", "@lydell", "node-pty", "package.json"), "utf8")).version;
-    const scope = join(resources, "app", "node_modules", "@lydell");
-    mkdirSync(scope, { recursive: true });
-    cpSync(join(root, "node_modules", "@lydell", "node-pty"), join(scope, "node-pty"), { recursive: true, dereference: true });
-    const native = `node-pty-${platform}-${arch}`;
-    const installed = join(root, "node_modules", "@lydell", native);
-    if (existsSync(installed)) {
-        cpSync(installed, join(scope, native), { recursive: true, dereference: true });
-        return;
-    }
-    const meta = await (await fetch(`https://registry.npmjs.org/@lydell/${native}/${ptyVersion}`)).json();
-    const tarball = await fetch(meta.dist.tarball);
-    if (!tarball.ok) throw new Error(`cannot download @lydell/${native}@${ptyVersion}: ${tarball.status}`);
-    const work = join(tmpdir(), `pikvm-pty-${process.pid}`);
-    mkdirSync(work, { recursive: true });
-    const file = join(work, "pty.tgz");
-    writeFileSync(file, Buffer.from(await tarball.arrayBuffer()));
-    mkdirSync(join(scope, native), { recursive: true });
-    execFileSync("tar", ["-xzf", file, "-C", join(scope, native), "--strip-components=1"]);
-    rmSync(work, { recursive: true, force: true });
-}
-await shipPty();
-log(`shipped the terminal addon for ${target}`);
 
 /* The agent runtime: a self-contained CPython with the agent installed into it, built by
  * `make agent-runtime` for the machine it runs on. dereference:false keeps the interpreter's
