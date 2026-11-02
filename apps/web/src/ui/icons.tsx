@@ -122,3 +122,28 @@ export const PinIcon = (p: IconProps) => (
         <path d="m15 4 5 5-3 1-3.5 3.5.5 4-1.5 1.5-3-3L5 20l-0.5-0.5L8 14.5l-3-3L6.5 10l4 .5L14 7z" />
     </Icon>
 );
+
+export const MinimiseIcon = (p: IconProps) => (
+    <Icon {...p}>
+        <path d="M6 12h12" />
+    </Icon>
+);
+
+export const MaximiseIcon = (p: IconProps) => (
+    <Icon {...p}>
+        <rect x="6" y="6" width="12" height="12" rx="1.5" />
+    </Icon>
+);
+
+export const RestoreIcon = (p: IconProps) => (
+    <Icon {...p}>
+        <rect x="5.5" y="9" width="9.5" height="9.5" rx="1.5" />
+        <path d="M9 9V6.5A1.5 1.5 0 0 1 10.5 5h8A1.5 1.5 0 0 1 20 6.5v8a1.5 1.5 0 0 1-1.5 1.5H15" />
+    </Icon>
+);
+
+export const CloseIcon = (p: IconProps) => (
+    <Icon {...p}>
+        <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" />
+    </Icon>
+);
