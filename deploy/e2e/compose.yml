@@ -1,0 +1,83 @@
+# The hosted deployment on one machine, with nothing real in it: the web host and
+# the agent sidecar (the two images this repo builds), a fake kvmd standing in for
+# the PiKVM and a scripted model standing in for a provider. docs/e2e/ records a run.
+#
+#   make web-bundle agent-bundle
+#   podman build -t pikvm-web:local builds/web && podman build -t pikvm-agent:local builds/agent
+#   podman compose -f deploy/e2e/compose.yml up -d
+#   open http://127.0.0.1:18080/app/chat
+#
+# The web host listens on 127.0.0.1 only here (PIKVM_AUTH=proxy states that an
+# authenticating proxy is in front, which on this machine is "nobody can reach it").
+services:
+    fake-kvmd:
+        image: docker.io/library/node:22-alpine
+        init: true
+        working_dir: /repo
+        command: ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "tools/fake-kvmd/server.ts", "--host", "0.0.0.0", "--port", "4510"]
+        volumes:
+            - ../..:/repo:ro
+        # Fedora's SELinux refuses a bind mount of the checkout without a relabel.
+        security_opt: ["label=disable"]
+        ports:
+            # The browser run reads back what the fake received (/__fake/hid).
+            - "127.0.0.1:14510:4510"
+        networks: [kvm-internal]
+
+    fake-model:
+        image: pikvm-agent:local
+        init: true
+        entrypoint: ["python", "/fake/server.py", "--host", "0.0.0.0", "--port", "9000", "--dump"]
+        volumes:
+            - ../../tools/fake-model:/fake:ro
+        security_opt: ["label=disable"]
+        # The harness accepts only https or LOOPBACK http provider URLs, so the
+        # stand-in model shares the sidecar's network namespace and is 127.0.0.1:9000.
+        network_mode: "service:kvm-agent"
+        depends_on: [kvm-agent]
+
+    kvm:
+        image: pikvm-web:local
+        environment:
+            PIKVM_URL: http://fake-kvmd:4510
+            PIKVM_USER: admin
+            PIKVM_PASSWORD: anything
+            PIKVM_AUTH: proxy
+            PIKVM_HARNESS_URL: http://kvm-agent:47616
+            PIKVM_HARNESS_TOKEN: ${KVM_HARNESS_TOKEN:-e2e-operator-capability-0123456789abcdef}
+            PORT: "8080"
+        ports:
+            - "127.0.0.1:18080:8080"
+        volumes:
+            - kvm-data:/data
+        networks: [kvm-internal]
+        depends_on: [fake-kvmd]
+        # As on bsociety: nothing in either image needs a writable root or a capability.
+        read_only: true
+        tmpfs: [/tmp]
+        cap_drop: [ALL]
+        security_opt: ["no-new-privileges:true"]
+
+    kvm-agent:
+        image: pikvm-agent:local
+        environment:
+            PIKVM_URL: http://fake-kvmd:4510
+            PIKVM_USER: admin
+            PIKVM_PASSWORD: anything
+            PIKVM_HARNESS_TOKEN: ${KVM_HARNESS_TOKEN:-e2e-operator-capability-0123456789abcdef}
+            PIKVM_HARNESS_ALLOWED_ORIGINS: http://127.0.0.1:18080
+        volumes:
+            - kvm-agent-data:/data
+        networks: [kvm-internal]
+        depends_on: [fake-kvmd]
+        read_only: true
+        tmpfs: [/tmp]
+        cap_drop: [ALL]
+        security_opt: ["no-new-privileges:true"]
+
+volumes:
+    kvm-data:
+    kvm-agent-data:
+
+networks:
+    kvm-internal:
