@@ -12,7 +12,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   /* Relative, so ONE built bundle works wherever it is mounted. The harness
    * serves it at /app/; the desktop serves the same files from its own origin
-   * under /_agent/workspace/, and an absolute /app/ base would have sent every
+   * under /app/workspace/, and an absolute /app/ base would have sent every
    * asset request there to the PiKVM target instead.
    *
    * The cost is that the document must be served at a path ending in "/", or

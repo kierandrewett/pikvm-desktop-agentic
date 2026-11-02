@@ -1,6 +1,6 @@
 // Service worker for the PiKVM console as an installed app (PWA).
 //
-// Scope is /_agent/ (served from /_agent/sw.js), which holds the console and
+// Scope is /app/ (served from /app/sw.js), which holds the console and
 // its assets; the proxied PiKVM UI, stream and HID socket at "/" never pass
 // through it.
 //
@@ -73,7 +73,7 @@ function offlinePage() {
 }
 
 // Live or per-session paths: never touched, not even as a fallback.
-const LIVE = /^\/_agent\/(api|daemon|harness|terminal|mcp)(\/|$)/;
+const LIVE = /^\/app\/(api|daemon|harness|terminal)(\/|$)/;
 
 self.addEventListener("fetch", (e) => {
     const req = e.request;
@@ -86,7 +86,7 @@ self.addEventListener("fetch", (e) => {
         e.respondWith(fetch(req).catch(offlinePage));
         return;
     }
-    if (!url.pathname.startsWith("/_agent/") || LIVE.test(url.pathname)) return;
+    if (!url.pathname.startsWith("/app/") || LIVE.test(url.pathname)) return;
 
     // Static assets: the network's answer, kept as a fallback for a flaky link.
     e.respondWith(

@@ -1,7 +1,7 @@
 /**
  * Server-hosted terminal sessions. PTYs live in the backend, not in any one client.
  * Every connected device (desktop WebContentsView,
- * mobile/web console) subscribes over the /_agent/terminal WebSocket and sees the SAME
+ * mobile/web console) subscribes over the /app/terminal WebSocket and sees the SAME
  * tabs + live output, and can drive them (shared-tmux model). Whoever hosts the server owns
  * the sessions; they persist as long as the host runs.
  *
@@ -24,8 +24,6 @@ const DEFAULT_KIND: SessionKind = "shell";
 export interface TerminalSessionsDeps {
     /** The vault folder (cwd for every terminal session). */
     vaultPath: () => string;
-    /** CONTROL_PORT — for the permcheck hook URL. */
-    port: number;
     /** Prepare project-local config/wrappers before spawning the PTY (no-op now). */
     prepareAgent: (agent: SessionKind, sessionId: string) => void;
     /** Called when a session's PTY exits (e.g. release its KVM control lease). */
@@ -147,7 +145,6 @@ export class TerminalSessions {
                 PATH: [...(this.deps.extraPath?.() ?? []), localBin, originalPath].join(delimiter),
                 PIKVM_ORIGINAL_PATH: originalPath,
                 PIKVM_WORKSPACE: cwd,
-                PIKVM_PERMCHECK_URL: `http://127.0.0.1:${this.deps.port}/_agent/api/permcheck`,
                 PIKVM_SESSION_ID: id,
             },
         });

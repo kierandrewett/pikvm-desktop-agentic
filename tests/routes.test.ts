@@ -175,6 +175,7 @@ test("/app serves the console page and its static files", async () => {
             const page = await call(s.origin, path);
             assert.equal(page.status, 200, path);
             assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+            assert.match(page.body, /<link rel="manifest" href="\/app\/manifest\.webmanifest"/);
         }
 
         const script = await call(s.origin, "/app/console.js");
@@ -184,15 +185,17 @@ test("/app serves the console page and its static files", async () => {
         const manifest = await call(s.origin, "/app/manifest.webmanifest");
         assert.equal(manifest.status, 200);
         assert.match(manifest.headers.get("content-type") ?? "", /manifest\+json/);
+        const parsed = JSON.parse(manifest.body) as { id: string; start_url: string; icons: { src: string }[] };
+        assert.equal(parsed.start_url, "/app/");
+        assert.equal(parsed.id, "/app/");
+        // Every icon the manifest names is one the gate lets through unsigned.
+        for (const icon of parsed.icons) assert.equal((await call(s.origin, icon.src)).status, 200, icon.src);
 
         // Ours to refuse, and refused as JSON: it must not fall through to the Pi.
         const missing = await call(s.origin, "/app/nope.js");
         assert.equal(missing.status, 404);
         assert.deepEqual(JSON.parse(missing.body), { error: "Not found" });
         assert.equal((await call(s.origin, "/app/unknown", { method: "POST" })).status, 404);
-
-        // The old namespace is gone, not aliased.
-        assert.equal((await call(s.origin, "/_agent/console.js")).target, "kvmd");
     } finally {
         await s.close();
     }

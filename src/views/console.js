@@ -1079,7 +1079,7 @@
 
 
     function loadMacros() {
-        return fetch("/_agent/api/macros", { cache: "no-store" })
+        return fetch("/app/api/v1/macros", { cache: "no-store" })
             .then(function (r) {
                 return r.ok ? r.json() : { macros: [] };
             })
@@ -1094,7 +1094,7 @@
     }
 
     function saveMacros() {
-        return fetch("/_agent/api/macros", {
+        return fetch("/app/api/v1/macros", {
             method: "PUT",
             cache: "no-store",
             headers: { "Content-Type": "application/json" },
@@ -5991,7 +5991,7 @@
     // The installed-app worker (sw.js): an offline screen when the KVM is out of
     // reach. Web only, and only where a service worker is allowed at all.
     if (!window.desktopConsole && "serviceWorker" in navigator && window.isSecureContext) {
-        navigator.serviceWorker.register("/_agent/sw.js", { scope: "/_agent/" }).catch(function () {});
+        navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }).catch(function () {});
     }
     window.addEventListener("online", function () {
         serverDown = false;
@@ -7516,8 +7516,8 @@
                 timer = null;
                 var p = pending; pending = null;
                 if (!p) return;
-                fetch("/_agent/daemon/cursor", {
-                    method: "POST", headers: { "content-type": "application/json" },
+                fetch("/app/daemon/cursor", {
+                    method: "POST", headers: { "content-type": "application/json", "x-pikvm-workspace": "1" },
                     body: JSON.stringify(p), keepalive: true,
                 }).catch(function () {});
             }, 180);
@@ -9245,7 +9245,7 @@
      * Every call is a no-op until it loads (and on devices without a vibrator). */
     var haptics = null;
     if (typeof navigator !== "undefined") {
-        import("/_agent/haptics.js")
+        import("/app/haptics.js")
             .then(function (m) {
                 try {
                     haptics = new m.WebHaptics();
@@ -9800,7 +9800,7 @@
          * dependency and needs no wait-and-retry before it is shown. */
         chatFrame.title = "Terminal";
         chatFrame.removeAttribute("aria-hidden");
-        chatFrame.src = "/_agent/terminal.html";
+        chatFrame.src = "/app/terminal.html";
         chatFrame.hidden = false;
 
         // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
@@ -9838,7 +9838,7 @@
                 bsEl.title = tip;
             };
             var pollBackend = function () {
-                fetch("/_agent/daemon/status", { cache: "no-store" })
+                fetch("/app/daemon/status", { cache: "no-store", headers: { "x-pikvm-workspace": "1" } })
                     .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
                     .then(function (s) {
                         var d = s.dependencies || {};
@@ -9886,7 +9886,7 @@
         }
     } else {
         // WEB / MOBILE: load the SAME shared terminal as desktop. The PTYs are hosted on the
-        // server; this page connects to the /_agent/terminal WebSocket and sees the same tabs
+        // server; this page connects to the /app/terminal WebSocket and sees the same tabs
         // + live output as every other device (full control). No native view needed here.
         // Loaded once the state below says this host has one: the headless web host
         // does not, and a frame whose socket can only ever close is a red
@@ -9907,7 +9907,7 @@
     }
     var stateWait = 2000;
     function readState() {
-        fetch("/_agent/api/state", { cache: "no-store" })
+        fetch("/app/api/v1/state", { cache: "no-store" })
             .then(function (r) {
                 if (!r.ok) throw r.status;
                 return r.json();
@@ -9920,7 +9920,7 @@
                 if (s && s.features && s.features.terminal === false) return;
                 document.documentElement.classList.remove("no-terminal");
                 if (!dockMode) mountDrawerInChat();
-                chatFrame.src = "/_agent/terminal.html";
+                chatFrame.src = "/app/terminal.html";
             })
             .catch(function () {
                 setTimeout(readState, stateWait);

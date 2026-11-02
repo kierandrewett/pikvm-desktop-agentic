@@ -1,7 +1,7 @@
 # TODO
 
 What is actually open. The completed web-client migration that used to live here
-is in `docs/web-client-migration.md`.
+is in git history (`docs/web-client-migration.md`, removed with the /app cutover).
 
 ## Needs hardware — cannot be settled from a dev box
 

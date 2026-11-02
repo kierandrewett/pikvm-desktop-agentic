@@ -48,7 +48,7 @@ const fetchRaw = (origin: string, path: string) =>
     });
 
 test("the workspace mount redirects to its trailing slash", async () => {
-    // Assets are referenced relatively, so a document at /_agent/workspace would
+    // Assets are referenced relatively, so a document at /app/workspace would
     // resolve "./app.js" against the PARENT and load nothing.
     const s = await listen();
     try {

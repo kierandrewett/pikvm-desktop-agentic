@@ -8,7 +8,7 @@ FROM node:22-alpine
 WORKDIR /app
 COPY dist ./dist
 # The console's shared button/dialog components (window.pikvmShared), served at
-# /_agent/workspace/ from this path relative to dist/.
+# /app/workspace/ from this path relative to dist/.
 COPY harness_ui ./agent/pikvm_agent/harness_ui
 
 ENV NODE_ENV=production \
@@ -24,6 +24,6 @@ VOLUME ["/data"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null http://127.0.0.1:8080/_agent/login || exit 1
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/app/login || exit 1
 
 CMD ["node", "dist/web-server.js"]

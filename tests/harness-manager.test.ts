@@ -178,7 +178,7 @@ test("fails closed when another credential-bound harness owns the port", async (
  *         /tmp/pkvm-udd/harness.yaml --uds /tmp/pkvm-udd/run/harness.sock
  *     [harness] Chat workspace: unix:/tmp/pkvm-udd/run/harness.sock (/app/)
  *     ss -lx:   u_str LISTEN 2048 /tmp/pkvm-udd/run/harness.sock
- *     GET :25692/_agent/harness/api/runs?limit=1  ->  200
+ *     GET :25692/app/harness/api/runs?limit=1  ->  200
  *
  * with no port anywhere in either child's arguments.
  */

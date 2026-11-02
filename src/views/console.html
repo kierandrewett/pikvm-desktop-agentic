@@ -11,10 +11,10 @@
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="PiKVM" />
-        <link rel="manifest" href="/_agent/manifest.webmanifest" />
-        <link rel="apple-touch-icon" href="/_agent/apple-touch-icon.png" />
-        <link rel="icon" href="/_agent/icon-192.png" />
-        <link rel="stylesheet" href="/_agent/console.css" />
+        <link rel="manifest" href="/app/manifest.webmanifest" />
+        <link rel="apple-touch-icon" href="/app/apple-touch-icon.png" />
+        <link rel="icon" href="/app/icon-192.png" />
+        <link rel="stylesheet" href="/app/.css" />
         <!-- The conversation's own component library, so the two halves of this
              window are one interface rather than two that share a frame.
 
@@ -29,8 +29,8 @@
              reordering these two links: .dark carries forty tokens and
              console.css names nine, so console.css winning gives a half-dark
              window. -->
-        <link rel="stylesheet" href="/_agent/workspace/styles.css" />
-        <script type="module" src="/_agent/workspace/shared.js"></script>
+        <link rel="stylesheet" href="/app/workspace/styles.css" />
+        <script type="module" src="/app/workspace/shared.js"></script>
         <title>PiKVM Console</title>
     </head>
     <body>
@@ -692,9 +692,9 @@
 
         <!-- WebRTC (Janus) wrapper — defines window.JanusStream; console.js consumes
              it and falls back to MJPEG if it is missing or Janus is down. -->
-        <script src="/_agent/webrtc.js"></script>
+        <script src="/app/webrtc.js"></script>
         <!-- Keyboard chord decisions — defines window.KeyChord; console.js consumes it. -->
-        <script src="/_agent/key-chord.js"></script>
-        <script src="/_agent/console.js"></script>
+        <script src="/app/key-chord.js"></script>
+        <script src="/app/.js"></script>
     </body>
 </html>

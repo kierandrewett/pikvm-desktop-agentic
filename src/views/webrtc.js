@@ -18,7 +18,7 @@
     var Janus = null;
     function ensureJanus(cb) {
         if (Janus) return cb(true);
-        import("/_agent/janus.js")
+        import("/app/janus.js")
             .then(function (m) {
                 m.Janus.init({
                     debug: false,

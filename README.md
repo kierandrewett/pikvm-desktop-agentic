@@ -82,10 +82,21 @@ flowchart LR
     kvm --> pi[PiKVM]
 ```
 
-Let the manifest, its icons (`icon-192.png`, `icon-512.png`,
-`apple-touch-icon.png`) and `sw.js` under `/_agent/` through without sign-in:
-browsers fetch them without cookies. The idle jiggler stays off unless
-`PIKVM_JIGGLER=1`.
+Let these public static paths through the authenticating proxy without sign-in
+(oauth2-proxy: `--skip-auth-route` or `skip_auth_routes`), because browsers
+fetch them without cookies and the installed app needs them before anyone is
+signed in:
+
+```
+GET=^/app/manifest\.webmanifest$
+GET=^/app/sw\.js$
+GET=^/app/(icon|icon-192|icon-512|apple-touch-icon)\.png$
+```
+
+Everything else under `/app/`, and everything the host proxies to the Pi, stays
+behind sign-in. The idle jiggler is off unless `PIKVM_JIGGLER=1` sets its
+first value; once it has been changed in Settings (`PATCH /app/api/v1/settings`)
+the saved value wins.
 
 On a touch screen the console docks its controls above the soft keyboard, in
 the desktop titlebar's style: speaker, mic, paste, keyboard and ⋯ in the bar,

@@ -1,5 +1,7 @@
 # E2E run: mobile console on the headless web host (2026-11-02)
 
+Paths below use the current `/app` prefix. The run itself used the previous namespace, where the state endpoint was `api/state` rather than `api/v1/state`.
+
 Covers commits `f610350` (headless web host) and `b19b997` (touch dock, touch
 modes, soft-keyboard mirror, Caps Lock sync).
 
@@ -8,11 +10,11 @@ The token login these runs used was replaced by Pocket ID sign-in in
 
 | Case | Observed | Result |
 | --- | --- | --- |
-| `/`, `/_agent/api/state`, `/api/info` signed out | 302 to `id.drewett.dev/authorize` with S256 PKCE | pass |
-| `/_agent/manifest.webmanifest`, `/_agent/icon.png` signed out | 200 | pass |
+| `/`, `/app/api/v1/state`, `/api/info` signed out | 302 to `id.drewett.dev/authorize` with S256 PKCE | pass |
+| `/app/manifest.webmanifest`, `/app/icon.png` signed out | 200 | pass |
 | Container on `intranet` reaching `kvm:8080` | name does not resolve | pass |
 | Container on `kvm-internal` reaching the Pi | HTTPS answered | pass |
-| Full sign-in in desktop Chrome (consent accepted) | console "Live · HD", `/_agent/api/state` 200, `/api/info` 200 | pass |
+| Full sign-in in desktop Chrome (consent accepted) | console "Live · HD", `/app/api/v1/state` 200, `/api/info` 200 | pass |
 
 ## Environment
 
@@ -129,7 +131,7 @@ profile unless stated:
 | Pinch to 6x on the cursor, drag into the corner | picture edges on the pane edges (390, 708); no background shown | pass |
 | Lens | shown during a trackpad drag at the cursor, gone 2s after release, shown and following when zoomed 1.9x | pass |
 | Speaker and mic | shown with WebRTC audio; speaker on (wash, waves), mic off | pass |
-| Service worker and icons | registered at `/_agent/`; manifest icons and apple-touch-icon 200 | pass |
+| Service worker and icons | registered at `/app/`; manifest icons and apple-touch-icon 200 | pass |
 | Server stopped, app opened | "Can't reach the KVM"; server back, console live again with no reload | pass |
 | Desktop browser (1400x900), click picture then type | field keeps focus; Shift+H, I, Shift+1, Enter, Backspace, Ctrl+C | pass |
 | Desktop app keyboard path (stubbed bridge) | desktop layout classes; ShiftLeft KeyH KeyI Enter | pass |

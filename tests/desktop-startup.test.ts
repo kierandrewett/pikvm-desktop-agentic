@@ -131,7 +131,7 @@ test("the control port settles before any URL is built from it", () => {
     /* The walk lived inside startProxyAndHarness(), which createWindow() awaits
      * only AFTER it has already built PROXY_ORIGIN from CONTROL_PORT. So when
      * 25650 was taken and the walk moved to 25652, the window kept loading
-     * http://127.0.0.1:25650/_agent/console and got ERR_CONNECTION_REFUSED
+     * http://127.0.0.1:25650/app/ and got ERR_CONNECTION_REFUSED
      * forever - no console at all - while the log said the backend was
      * listening on 25652. Observed, not theorised. */
     const settleAt = main.indexOf("await settleControlPort(");

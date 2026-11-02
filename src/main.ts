@@ -109,7 +109,7 @@ async function firstFreePort(from: number, host: string, tries = 20): Promise<nu
     throw new Error(`no free port between ${from} and ${from + tries - 1}`);
 }
 
-// The unified web console (/_agent/console) is the PRIMARY desktop UI: the main
+// The unified web console (/app/) is the PRIMARY desktop UI: the main
 // window loads it and the console draws its own titlebar/chrome (via the console
 // preload's `window.desktopConsole`). The legacy native KVM-page + sidebar
 // composition is kept behind PIKVM_NATIVE_UI=1.
@@ -144,7 +144,7 @@ function workspaceUrl(): string {
 /** The shared terminal the agent panel shows (console.js), for the detached
  *  window too, so detaching never swaps what the panel holds. */
 function terminalUrl(): string {
-    return `http://127.0.0.1:${CONTROL_PORT}/_agent/terminal.html`;
+    return `http://127.0.0.1:${CONTROL_PORT}/app/terminal.html`;
 }
 
 /** Where the pikvm-agent runtime might be, best candidate first.
@@ -317,7 +317,7 @@ let controlPortSettled = false;
  * This used to live inside startProxyAndHarness(), which is called from
  * createWindow() AFTER createWindow has already built PROXY_ORIGIN from
  * CONTROL_PORT. So when 25650 was taken and the walk moved us to 25652, the
- * window went on loading http://127.0.0.1:25650/_agent/console and got
+ * window went on loading http://127.0.0.1:25650/app/ and got
  * ERR_CONNECTION_REFUSED forever — the console never appeared at all, while the
  * log cheerfully said the backend was listening on 25652. The old comment said
  * this had to settle "before anything reads it" and it was the one thing that
@@ -424,7 +424,6 @@ async function startProxyAndHarness(
     }
     const terminalSessions = new TerminalSessions({
         vaultPath,
-        port: CONTROL_PORT,
         prepareAgent: () => {},
         extraPath: () => guiMcp?.path ?? [],
         resolveImage: (path) => {
@@ -564,7 +563,7 @@ async function startProxyAndHarness(
             );
         },
     );
-    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /_agent/*; daemon ${daemonOrigin})`);
+    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /app/*; daemon ${daemonOrigin})`);
 
     const daemonRuntime = resolveDaemonRuntime(settings.get().daemonCmd);
     console.log(describeAgentRuntime(daemonRuntime));
@@ -1043,7 +1042,7 @@ async function createWindow() {
     const CONSOLE_ORIGIN = (config.consoleOrigin || process.env.PIKVM_CONSOLE_ORIGIN || PROXY_ORIGIN).replace(/\/$/, "");
     const remoteConsole = CONSOLE_ORIGIN !== PROXY_ORIGIN;
     const viewOrigin = () => (desktopProxy ? PROXY_ORIGIN : origin);
-    const CONSOLE_URL = `${CONSOLE_ORIGIN}/_agent/console`;
+    const CONSOLE_URL = `${CONSOLE_ORIGIN}/app/`;
     if (desktopProxy) {
         // Mark this Electron session as the desktop shell so the proxy suppresses
         // the injected floating panel (the desktop has its own native sidebar).
@@ -1254,7 +1253,7 @@ async function createWindow() {
          * real operator token on requests to the harness origin. Nothing in a
          * renderer talks to that origin any more: both the embedded frame and
          * the detached window load from ours, and their API goes through the
-         * /_agent/harness proxy, which attaches the credential server-side and
+         * /app/harness proxy, which attaches the credential server-side and
          * never lets it reach a page at all. A rewrite that can no longer fire
          * is not defence in depth, it is a claim about how auth works that
          * stopped being true. */
@@ -1389,7 +1388,7 @@ async function createWindow() {
             const p = new URL(wc.getURL()).pathname;
             // The unified console (default) always shows the live KVM screen; the
             // legacy native UI only does on its /kvm page.
-            onKVM = useConsole ? p.startsWith("/_agent/console") : p.startsWith("/kvm");
+            onKVM = useConsole ? p.startsWith("/app/") : p.startsWith("/kvm");
         } catch {
             /* not a real URL yet */
         }

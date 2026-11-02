@@ -114,6 +114,11 @@ export function isRelease(command: HidCommand): boolean {
 
 const optional = Schema.optional;
 
+/** A set of names as kvmd sends it: a MAP of name -> details (the console's
+ *  `fillKeymaps` records that a list was assumed once and broke the keymap
+ *  picker), though a plain list is tolerated. The names are the keys or items. */
+const NameSet = Schema.Union(Schema.Array(Schema.String), Schema.Record({ key: Schema.String, value: Schema.Unknown }));
+
 const Leds = Schema.Struct({
     caps: optional(Schema.Boolean),
     scroll: optional(Schema.Boolean),
@@ -160,7 +165,7 @@ export const HidKeymapsState = Schema.Struct({
     keymaps: optional(
         Schema.Struct({
             default: optional(Schema.String),
-            available: optional(Schema.Array(Schema.String)),
+            available: optional(NameSet),
         }),
     ),
 });
@@ -230,7 +235,7 @@ export const OcrState = Schema.Struct({
     langs: optional(
         Schema.Struct({
             default: optional(Schema.Array(Schema.String)),
-            available: optional(Schema.Array(Schema.String)),
+            available: optional(NameSet),
         }),
     ),
 });

@@ -27,7 +27,7 @@ export interface AppSettings {
      *  directly (one rendering path with the web client). Off by default. */
     desktopUseProxy: boolean;
     /** Base URL of the pikvm-agent daemon the Agent panel talks to (proxied at
-     *  /_agent/daemon/*). Defaults to http://127.0.0.1:47615; env PIKVM_AGENT_DAEMON
+     *  /app/daemon/*). Defaults to http://127.0.0.1:47615; env PIKVM_AGENT_DAEMON
      *  overrides. */
     daemonUrl?: string;
     /** Executable that launches the pikvm-agent daemon (run with `daemon`). The app

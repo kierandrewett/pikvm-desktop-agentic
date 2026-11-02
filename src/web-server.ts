@@ -7,7 +7,7 @@
  * NOT host the shared terminal or the agent harness. A shell on the server
  * would turn "can see the KVM" into "can run commands on the box that hosts
  * it", and the harness needs a desktop-owned runtime. The console reads
- * `features.terminal` from /_agent/api/state and hides the panel.
+ * `features.terminal` from /app/api/v1/state and hides the panel.
  *
  * It has no login of its own. Sign-in belongs to the identity provider in
  * front of it (an OIDC proxy such as oauth2-proxy), and the deployment must
@@ -129,7 +129,7 @@ const control = new PiKvmControl(
 control.setLayout(settings.get().keyboardLayout, { source: "auto" });
 
 /* The Chat tab: the desktop's agent workspace, reached through the desktop's own
- * console server. That server already proxies /_agent/harness with the harness
+ * console server. That server already proxies /app/harness with the harness
  * operator capability attached, so this one forwards the path unchanged and
  * authenticates as a client of it. Both values come from the environment only;
  * no request can choose where this goes. */

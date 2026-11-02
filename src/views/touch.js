@@ -8,7 +8,7 @@
 // We apply a CSS transform to the stream element itself. PiKVM maps input via the
 // element's getBoundingClientRect(), which reflects the transform, so one-finger
 // input still lands on the right remote pixel while zoomed. Served at
-// /_agent/touch.js and injected into proxied pages.
+// /app/touch.js and injected into proxied pages.
 //
 // Needs on-device validation (gesture feel + that PiKVM's input mapping really is
 // rect-relative on the target firmware). Self-contained so it is easy to tweak.

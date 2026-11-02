@@ -12,7 +12,7 @@ up as a difference in every one of those diffs forever.
 
 | file | what it is | lines |
 |---|---|---|
-| `janus.js` | The Janus WebRTC gateway's browser client, from janus-gateway (Meetecho, MIT). Loaded dynamically by `webrtc.js` via `import("/_agent/janus.js")`. | 3208 |
+| `janus.js` | The Janus WebRTC gateway's browser client, from janus-gateway (Meetecho, MIT). Loaded dynamically by `webrtc.js` via `import("/app/janus.js")`. | 3208 |
 | `adapter.js` | webrtc-adapter (The WebRTC project authors, BSD), the browser-shim bundle janus.js expects to find. Vendored only because janus.js needs it. | 3364 |
 
 ## Provenance, and what is not known

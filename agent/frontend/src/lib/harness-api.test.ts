@@ -236,20 +236,20 @@ describe("API base", () => {
   });
 
   it("prefixes root-relative API paths when the host supplies a base", async () => {
-    const harnessUrl = await withBase("/_agent/harness");
-    expect(harnessUrl("/api/runs")).toBe("/_agent/harness/api/runs");
+    const harnessUrl = await withBase("/app/harness");
+    expect(harnessUrl("/api/runs")).toBe("/app/harness/api/runs");
     expect(harnessUrl("/api/runs/abc/steer")).toBe(
-      "/_agent/harness/api/runs/abc/steer",
+      "/app/harness/api/runs/abc/steer",
     );
   });
 
   it("does not double the separator on a trailing slash", async () => {
-    const harnessUrl = await withBase("/_agent/harness/");
-    expect(harnessUrl("/api/runs")).toBe("/_agent/harness/api/runs");
+    const harnessUrl = await withBase("/app/harness/");
+    expect(harnessUrl("/api/runs")).toBe("/app/harness/api/runs");
   });
 
   it("leaves an already-absolute URL exactly as the caller wrote it", async () => {
-    const harnessUrl = await withBase("/_agent/harness");
+    const harnessUrl = await withBase("/app/harness");
     expect(harnessUrl("http://127.0.0.1:47616/api/runs")).toBe(
       "http://127.0.0.1:47616/api/runs",
     );

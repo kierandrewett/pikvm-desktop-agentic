@@ -303,7 +303,7 @@ test("the operator credential never reaches a renderer", () => {
      * renderer's network stack even if never in its JavaScript.
      *
      * Both hosts of the conversation now load from OUR origin and reach the
-     * harness through the /_agent/harness proxy, which drops whatever
+     * harness through the /app/harness proxy, which drops whatever
      * Authorization a renderer sent and attaches the desktop's own — so the
      * token is only ever in the main process. The rewrite is gone because it
      * could no longer fire, and a rule that cannot fire is not defence in
@@ -980,7 +980,7 @@ test("the conversation pane is never a white slab waiting for the daemon", () =>
     /* Since 2026-10-05 the desktop panel is the terminal, served by this app's
        own process, so it gets its src BEFORE it is shown and is never srcless:
        there is no harness to wait for and no drop to empty it on. */
-    assert.match(js, /chatFrame\.src = "\/_agent\/terminal\.html";\s*chatFrame\.hidden = false;/);
+    assert.match(js, /chatFrame\.src = "\/app\/terminal\.html";\s*chatFrame\.hidden = false;/);
     assert.doesNotMatch(js, /WORKSPACE_URL/);
     /* And it only hides because this sheet forces the attribute to win.
        #chat-frame sets display:block, which beats the UA's [hidden] rule on
@@ -2218,7 +2218,7 @@ test("the modal focus trap ignores disabled controls", () => {
  * adoption, then cannot spawn its own on a taken port. So every workspace call
  * is signed with a token the surviving harness has never seen:
  *
- *     GET /_agent/harness/api/runs?limit=1
+ *     GET /app/harness/api/runs?limit=1
  *     401 {"detail":"valid harness bearer token required"}
  *
  * The panel is gated on that call, so it simply never appeared. Everything else
@@ -2529,7 +2529,7 @@ test("only the three buttons the HID can carry are sent", () => {
  *     [harness] 127.0.0.1:47616 is in use, using http://127.0.0.1:47618 instead
  *     [harness] starting: …/pikvm-agent harness serve --config … --listen 127.0.0.1:47618
  *
- *     GET /_agent/harness/api/runs?limit=1   ->  200   (was 401)
+ *     GET /app/harness/api/runs?limit=1   ->  200   (was 401)
  *     GET 47618/api/health                   ->  200
  *
  * with zero Errno 98, zero adoption refusals and zero startup failures in the
@@ -2732,8 +2732,8 @@ test("only what is wrong goes in the audio dialog's live region", () => {
  *     stat     drwx------ 700 /tmp/pkvm-udd/run
  *              srw-rw-rw- 666 /tmp/pkvm-udd/run/{daemon,harness}.sock
  *
- *     GET :25692/_agent/harness/api/runs?limit=1  ->  200
- *     GET :25692/_agent/daemon/healthz            ->  200
+ *     GET :25692/app/harness/api/runs?limit=1  ->  200
+ *     GET :25692/app/daemon/healthz            ->  200
  *
  * The sockets themselves are world read/write and that is not an oversight:
  * uvicorn chmods a uds to 0666 AFTER binding it, so the directory is the only

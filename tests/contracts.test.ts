@@ -62,6 +62,13 @@ test("state events decode as partial deltas, in either LED shape", () => {
     );
     assert.ok(keymaps && keymaps.event_type === "hid_keymaps" && keymaps.event.keymaps?.available?.length === 2);
 
+    // kvmd itself sends the available keymaps as a map of name -> details.
+    const real = decodeKvmdFrame(
+        JSON.stringify({ event_type: "hid_keymaps", event: { keymaps: { default: "en-us", available: { "en-us": {}, "en-gb": {}, de: {} } } } }),
+    );
+    assert.ok(real && real.event_type === "hid_keymaps");
+    assert.deepEqual(Object.keys(real.event.keymaps?.available ?? {}).sort(), ["de", "en-gb", "en-us"]);
+
     assert.equal(decodeKvmdFrame('{"event_type":"pong","event":{}}')?.event_type, "pong");
 });
 

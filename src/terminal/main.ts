@@ -1,6 +1,6 @@
 /**
  * Renderer for the shared terminal (xterm.js). A pure WebSocket client of the
- * server-hosted sessions (/_agent/terminal) - the SAME code runs in the desktop
+ * server-hosted sessions (/app/terminal) - the SAME code runs in the desktop
  * WebContentsView and the mobile/web console, so every device sees the same tabs + live
  * output and can drive them. The PTYs live on the server; this just renders + relays input.
  */
@@ -117,7 +117,7 @@ try {
 // ---- WebSocket transport ---------------------------------------------------------------
 const wsUrl = (() => {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    return `${proto}//${location.host}/_agent/terminal`;
+    return `${proto}//${location.host}/app/terminal`;
 })();
 let ws: WebSocket | null = null;
 let authCols = 120;
