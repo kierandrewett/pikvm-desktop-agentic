@@ -394,10 +394,12 @@ html:has(.kvm-screen[data-layout="dock"]) body {
     color: var(--foreground);
 }
 /* Health is only ever drawn when something is wrong, so it earns the attention it draws. */
-.kvm-tb-btn.kvm-health {
+.kvm-tb-btn.kvm-health,
+.kvm-ibtn.kvm-health {
     color: var(--warn);
 }
-.kvm-tb-btn.kvm-health.is-error {
+.kvm-tb-btn.kvm-health.is-error,
+.kvm-ibtn.kvm-health.is-error {
     color: var(--danger);
 }
 /* The device chevron tucks against the toggle it belongs to. */

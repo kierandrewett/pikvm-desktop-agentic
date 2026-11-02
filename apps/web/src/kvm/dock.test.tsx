@@ -250,3 +250,30 @@ describe("the bar", () => {
         expect(props.openDialog).toHaveBeenCalledWith("paste");
     });
 });
+
+describe("health indicator (a problem is visible on a phone too)", () => {
+    it("is not drawn while nothing is wrong; with a problem it names it, turns red for an error and opens the System dialog", async () => {
+        const openDialog = vi.fn();
+        const { rig } = await mount({ openDialog });
+        expect(screen.queryByTestId("health")).toBeNull();
+
+        await act(async () => {
+            rig.hub.last.serverMessage({ event_type: "streamer", event: { streamer: { source: { online: false } } } });
+            await rig.clock.settle();
+        });
+        const button = screen.getByTestId("health");
+        expect(button).toHaveAttribute("title", "No video signal from the target");
+        expect(button).toHaveClass("kvm-ibtn", "is-error");
+        fireEvent.click(button);
+        expect(openDialog).toHaveBeenCalledWith("health");
+    });
+
+    it("a dead input socket is reported there too, because a phone has no other sign that typing goes nowhere", async () => {
+        const { rig } = await mount();
+        await act(async () => {
+            rig.hub.last.serverClose();
+            await rig.clock.settle();
+        });
+        expect(screen.getByTestId("health").title.split("\n")[0]).toMatch(/input|keyboard/i);
+    });
+});

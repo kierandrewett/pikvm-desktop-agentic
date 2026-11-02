@@ -15,6 +15,7 @@ import type { ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
 import type { FieldFocus } from "./field-focus";
 import { KeyboardIcon, MicIcon, MoreIcon, PasteIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
+import { HealthButton } from "./health-button";
 import { KeyRows } from "./key-rows";
 import type { PictureController } from "./picture-controller";
 import { usePictureState } from "./picture";
@@ -127,6 +128,7 @@ export function Dock(props: DockProps) {
                 <span className={`kvm-dot ${tone}`} title={label} role="img" aria-label={label} />
                 <span className="kvm-status">{label}</span>
                 <span className="kvm-spacer" />
+                <HealthButton className="kvm-ibtn" openDialog={props.openDialog} />
                 {audio.available ? (
                     <>
                         <button

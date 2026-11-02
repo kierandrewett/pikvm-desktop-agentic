@@ -6,15 +6,15 @@
  */
 
 import { STATUS, statusLabel } from "@pikvm/kvm-engine";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useMacros } from "../api/queries";
 import { SHORTCUTS, type ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
-import { ChevronDownIcon, HealthIcon, KeyboardIcon, MicIcon, MoreIcon, PowerIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
+import { ChevronDownIcon, KeyboardIcon, MicIcon, MoreIcon, PowerIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
 import { audioDevicesSupported, speakerSelectionSupported, useAudioDevices } from "../settings/pages/audio-devices";
 import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice } from "../settings/local-prefs";
 import { emitAudioDevicesChanged } from "./audio-devices-event";
-import { healthProblems } from "./dialogs/model/health";
+import { HealthButton } from "./health-button";
 import { MacroStrip, runnable, useMacroBlocked } from "./macro-buttons";
 import { MenuButton, type MenuEntry } from "./menu-button";
 import type { PictureController } from "./picture-controller";
@@ -66,12 +66,6 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
     const inputOpen = useTarget((s) => s.link.open);
     const atxOn = useTarget((s) => s.device.atx?.leds["power"] === true);
     const atxBusy = useTarget((s) => s.device.atx?.busy === true);
-    const device = useTarget((s) => s.device);
-    const link = useTarget((s) => s.link);
-    const problems = useMemo(
-        () => healthProblems({ device, everSettled: link.everSettled, inputOpen: link.open }),
-        [device, link.everSettled, link.open],
-    );
     const macros = useMacros();
     const blocked = useMacroBlocked();
     const audioButton = useRef<HTMLButtonElement>(null);
@@ -135,18 +129,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                 <span className="kvm-status">{label}</span>
             </div>
             <div className="kvm-tb-right">
-                {problems.length > 0 ? (
-                    <button
-                        type="button"
-                        className={`kvm-tb-btn kvm-health${problems.some((p) => p.level === "error") ? " is-error" : ""}`}
-                        data-testid="health"
-                        title={problems.map((p) => p.text).join("\n")}
-                        aria-label={`Health: ${problems.map((p) => p.text).join("; ")}`}
-                        onClick={() => openDialog("health")}
-                    >
-                        <HealthIcon />
-                    </button>
-                ) : null}
+                <HealthButton className="kvm-tb-btn" openDialog={openDialog} />
                 <MacroStrip />
                 <MenuButton label="Send keys" icon={<KeyboardIcon />} entries={sendKeys} testId="send-keys" />
                 {actions.power.length > 0 ? (
