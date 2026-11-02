@@ -252,13 +252,13 @@ test("the conversation panel says so when it cannot render", () => {
     const root = process.cwd();
     const main = readFileSync(resolve(root, "agent/frontend/src/main.tsx"), "utf8");
     const boundary = readFileSync(
-        resolve(root, "agent/frontend/src/components/workspace/workspace-error-boundary.tsx"),
+        resolve(root, "packages/chat-ui/src/components/workspace/workspace-error-boundary.tsx"),
         "utf8",
     );
 
     // Wrapped OUTSIDE the shell: the throw that prompted this came from a
     // useMemo inside it, so a boundary within would have gone down with it.
-    assert.match(main, /<WorkspaceErrorBoundary>\s*<WorkspaceShell \/>\s*<\/WorkspaceErrorBoundary>/);
+    assert.match(main, /<WorkspaceErrorBoundary>\s*<ChatWorkspace uiBuild=\{__PIKVM_UI_BUILD__\} \/>\s*<\/WorkspaceErrorBoundary>/);
     assert.match(boundary, /static getDerivedStateFromError/);
     assert.match(boundary, /componentDidCatch/);
     // An alert, so it is announced rather than only drawn.
@@ -296,8 +296,8 @@ test("the conversation panel says so when it cannot render", () => {
 test("a bad stored run id is neither written nor obeyed", () => {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const root = process.cwd();
-    const api = readFileSync(resolve(root, "agent/frontend/src/lib/harness-api.ts"), "utf8");
-    const hook = readFileSync(resolve(root, "agent/frontend/src/hooks/use-harness-workspace.ts"), "utf8");
+    const api = readFileSync(resolve(root, "packages/chat-ui/src/lib/harness-api.ts"), "utf8");
+    const hook = readFileSync(resolve(root, "packages/chat-ui/src/hooks/use-harness-workspace.ts"), "utf8");
 
     // One predicate, used by both sides.
     assert.match(api, /const usableRunId = \(value: unknown\): value is string =>/);
@@ -319,8 +319,8 @@ test("a bad stored run id is neither written nor obeyed", () => {
 test("an unrestorable task is reported once, by the surface that can act on it", () => {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const root = process.cwd();
-    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
-    const card = readFileSync(resolve(root, "agent/frontend/src/components/workspace/task-restore-state.tsx"), "utf8");
+    const shell = readFileSync(resolve(root, "packages/chat-ui/src/components/workspace/chat-workspace.tsx"), "utf8");
+    const card = readFileSync(resolve(root, "packages/chat-ui/src/components/workspace/task-restore-state.tsx"), "utf8");
     /* One failure, told three times: a destructive "Task unavailable" badge in
        the header, the restore card, and between them an Alert carrying whatever
        string the daemon put in `detail`. Reproduced by restarting the daemon
@@ -359,12 +359,12 @@ test("an unrestorable task is reported once, by the surface that can act on it",
 test("a sheet that cannot render fails inside itself, not over the workspace", () => {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const root = process.cwd();
-    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
+    const shell = readFileSync(resolve(root, "packages/chat-ui/src/components/workspace/chat-workspace.tsx"), "utf8");
     const boundary = readFileSync(
-        resolve(root, "agent/frontend/src/components/workspace/workspace-error-boundary.tsx"),
+        resolve(root, "packages/chat-ui/src/components/workspace/workspace-error-boundary.tsx"),
         "utf8",
     );
-    const showcase = readFileSync(resolve(root, "agent/frontend/src/components/workspace/showcase-sheet.tsx"), "utf8");
+    const showcase = readFileSync(resolve(root, "packages/chat-ui/src/components/workspace/showcase-sheet.tsx"), "utf8");
     /* One boundary at the root was not enough. Opening Recorded proof against a
        daemon that answered /api/showcases/current with a different shape threw
        during render — "TypeError: e.tasks is not iterable" — and with nothing
@@ -405,8 +405,8 @@ test("a sheet that cannot render fails inside itself, not over the workspace", (
 test("the task list can tell one run from another", () => {
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const root = process.cwd();
-    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
-    const listPath = resolve(root, "agent/frontend/src/components/assistant-ui/thread-list.tsx");
+    const shell = readFileSync(resolve(root, "packages/chat-ui/src/components/workspace/chat-workspace.tsx"), "utf8");
+    const listPath = resolve(root, "packages/chat-ui/src/components/assistant-ui/thread-list.tsx");
     const threadList = readFileSync(listPath, "utf8");
     /* The task list is the one place you go to find a task again, and it showed
        nothing but a truncated title. Seen with five runs open — failed,
@@ -445,10 +445,10 @@ test("the task list calls an untitled run what the rest of the app calls it", ()
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const root = process.cwd();
     const threadList = readFileSync(
-        resolve(root, "agent/frontend/src/components/assistant-ui/thread-list.tsx"),
+        resolve(root, "packages/chat-ui/src/components/assistant-ui/thread-list.tsx"),
         "utf8",
     );
-    const shell = readFileSync(resolve(root, "agent/frontend/src/components/workspace/workspace-shell.tsx"), "utf8");
+    const shell = readFileSync(resolve(root, "packages/chat-ui/src/components/workspace/chat-workspace.tsx"), "utf8");
     /* The row rendered fallback="New Chat" while the filter directly above it
        matched an untitled run against the literal string "New task". So the row
        said one word and answered to another: typing "chat" — what you could

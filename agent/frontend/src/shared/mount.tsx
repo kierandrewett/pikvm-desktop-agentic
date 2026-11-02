@@ -20,8 +20,7 @@ import { StrictMode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 
-import { Button } from "@/components/ui/button";
-import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import { Button, TooltipIconButton } from "@pikvm/chat-ui/ui";
 
 export type IconButtonSpec = {
     /** Stable identity, so the console can find it again after a re-render. */

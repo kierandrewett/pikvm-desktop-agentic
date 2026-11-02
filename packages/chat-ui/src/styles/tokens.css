@@ -1,0 +1,62 @@
+/*
+ * The shadcn token names the workspace's components use, derived from the nine
+ * base tokens every host defines:
+ *
+ *   --background --foreground --card --muted-foreground --secondary
+ *   --accent --border --primary --primary-foreground
+ *
+ * Surfaces and text follow the host; only the status colours (destructive,
+ * evidence, caution, info) are fixed here, and they are the console's own
+ * --danger / --ok / --warn values, darkened in the light theme until small text
+ * on them clears 4.5:1. `.dark` is the dark theme in every host.
+ */
+:root {
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--secondary);
+  --accent-foreground: var(--foreground);
+  --input: var(--border);
+  --ring: var(--primary);
+  --radius: 0.5rem;
+
+  --destructive: #bd332d;
+  --evidence: #2faa5b;
+  --evidence-foreground: #1c6a39;
+  --evidence-soft: #e4f6eb;
+  --caution: #b9831a;
+  --caution-foreground: #7a5610;
+  --caution-soft: #fbf1dd;
+  --info: var(--primary);
+  --info-foreground: #24479c;
+  --info-soft: #e6edfd;
+
+  --chart-1: var(--primary);
+  --chart-2: var(--muted-foreground);
+  --chart-3: var(--evidence);
+  --chart-4: var(--caution);
+  --chart-5: var(--destructive);
+
+  /* The rail is a shade off the conversation, as in the console. */
+  --sidebar: color-mix(in srgb, var(--background), var(--foreground) 3%);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--secondary);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--primary);
+}
+
+.dark {
+  --destructive: #f25555;
+  --evidence: #46c773;
+  --evidence-foreground: #9fe3ba;
+  --evidence-soft: #14301f;
+  --caution: #e0a52b;
+  --caution-foreground: #f0cd86;
+  --caution-soft: #33280f;
+  --info-foreground: #b3c8ff;
+  --info-soft: #16203a;
+}

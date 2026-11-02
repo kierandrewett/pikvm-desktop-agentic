@@ -1,4 +1,5 @@
-import { defineConfig } from "vite";
+import type { Plugin } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
@@ -8,8 +9,29 @@ import { computeUiBuildId } from "./scripts/ui-build-id.mjs";
 const frontendRoot = fileURLToPath(new URL(".", import.meta.url));
 const buildId = await computeUiBuildId(frontendRoot);
 
+/* The conversation lives in @pikvm/chat-ui, a yarn workspace package, while this
+ * host keeps its own npm tree. A bare import inside the package would walk up from
+ * packages/chat-ui and find the yarn tree (or nothing); resolving it as though the
+ * host had written the import keeps ONE copy of react, assistant-ui and the rest
+ * in this bundle, at the versions this package-lock pins. */
+const chatUiRoot = resolve(frontendRoot, "../../packages/chat-ui");
+const resolveChatUiDependencies = (): Plugin => ({
+  name: "pikvm:chat-ui-dependencies",
+  enforce: "pre",
+  async resolveId(source, importer, options) {
+    if (!importer?.startsWith(chatUiRoot)) return null;
+    if (/^(\.|\/|\0|[a-z]+:)/.test(source) || source.startsWith("@pikvm/")) {
+      return null;
+    }
+    return this.resolve(source, resolve(frontendRoot, "index.html"), {
+      ...options,
+      skipSelf: true,
+    });
+  },
+});
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [resolveChatUiDependencies(), react(), tailwindcss()],
   /* Relative, so ONE built bundle works wherever it is mounted. The harness
    * serves it at /app/; the desktop serves the same files from its own origin
    * under /app/workspace/, and an absolute /app/ base would have sent every
@@ -24,8 +46,21 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": resolve(frontendRoot, "src"),
+      "@pikvm/chat-ui/ui": resolve(chatUiRoot, "src/ui.ts"),
+      "@pikvm/chat-ui": resolve(chatUiRoot, "src/index.ts"),
     },
+  },
+  server: {
+    fs: { allow: [resolve(frontendRoot, "../..")] },
+  },
+  test: {
+    /* The workspace's tests moved with its code; running them here as well
+     * proves the package against this host's pinned dependencies, not only
+     * against the yarn tree the app builds with. */
+    dir: chatUiRoot,
+    include: ["src/**/*.test.{ts,tsx}"],
+    setupFiles: [resolve(chatUiRoot, "src/test/setup.ts")],
+    css: false,
   },
   build: {
     outDir: "../pikvm_agent/harness_ui",
