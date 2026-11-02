@@ -64,6 +64,6 @@ EXPOSE 47616
 # The harness answers /api/health without a credential. Loopback inside the
 # container, because that is the only place it is certain to be bound.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:47616/api/health', timeout=4).status == 200 else 1)"
+    CMD python -c "import os,sys,urllib.request as u; p=os.environ.get('PIKVM_HARNESS_LISTEN','0.0.0.0:47616').rsplit(':',1)[1]; sys.exit(0 if u.urlopen(f'http://127.0.0.1:{p}/api/health',timeout=4).status==200 else 1)"
 
 ENTRYPOINT ["tini", "--", "pikvm-agent-entrypoint"]
