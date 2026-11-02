@@ -22,6 +22,8 @@ import { KeepAwakePage } from "./pages/keep-awake";
 import { KeyboardPage } from "./pages/keyboard";
 import { MacrosPage } from "./pages/macros";
 import { audioDevicesSupported } from "./pages/audio-devices";
+import { KeyIcon } from "./providers/icon";
+import { ProvidersPage } from "./providers/providers-page";
 
 export type PageId =
     | "connection"
@@ -29,6 +31,7 @@ export type PageId =
     | "keyboard"
     | "input"
     | "macros"
+    | "providers"
     | "display"
     | "audio"
     | "account"
@@ -63,6 +66,10 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
             { id: "input", title: "Touch and mouse", icon: <PointerIcon />, component: InputPage },
             { id: "macros", title: "Macros", icon: <BoltIcon />, component: MacrosPage },
         ],
+    },
+    {
+        title: "Agent",
+        pages: [{ id: "providers", title: "Providers", icon: <KeyIcon />, component: ProvidersPage }],
     },
     {
         title: "App",
