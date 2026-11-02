@@ -69,8 +69,8 @@ src/styles.css          tokens (the desktop app's palette) and component classes
 - **Chat** renders `ChatWorkspace` from `packages/chat-ui` with `apiBase=/app/harness`, the marker
   credential `desktop-managed` (the proxy attaches the real operator capability; every request also
   carries `x-pikvm-workspace: 1`) and `insets="host"` (the shell already pads the safe areas and
-  sizes itself to the visual viewport). `features.chat=false` shows "Chat needs the desktop app
-  running"; a 502/503 from the proxy shows "The agent is not running" and the workspace retries on
+  sizes itself to the visual viewport). `features.chat=false` (no agent configured, or its health
+  route does not answer) shows "Chat is not available"; a 502/503 from the proxy shows "The agent is not running" and the workspace retries on
   its own. The route is a lazy chunk. Its tests are in `src/chat/`; the phone behaviours (sheets,
   keyboard docking, approval dock, long-press) are tested in `packages/chat-ui`.
 - **KVM screen** is the engine (`@pikvm/kvm-engine`) wired to elements.

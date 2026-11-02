@@ -17,8 +17,8 @@ function Unavailable({ title, error }: { title: string; error: HarnessError }) {
 
 /**
  * Model providers: API keys (write-only) and CLI account sign-in, all held by the agent
- * harness. The harness runs with the desktop app, so a phone or web host reaches it through
- * the host's proxy; when it is not running there is nothing here to manage.
+ * harness. The harness runs beside the host (the sidecar, or the desktop app), so a phone or web
+ * browser reaches it through the host's proxy; when it is not running there is nothing here to manage.
  */
 export function ProvidersPage() {
     const queryClient = useQueryClient();
@@ -43,7 +43,7 @@ export function ProvidersPage() {
                 title="Providers"
                 footer={
                     gone
-                        ? "Providers are held by the agent harness, which runs with the desktop app. Open the app on that computer and try again."
+                        ? "Providers are held by the agent harness, which runs beside this host (its agent service, or the desktop app). Check that it is running and try again."
                         : undefined
                 }
             >

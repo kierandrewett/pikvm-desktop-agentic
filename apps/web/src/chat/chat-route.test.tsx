@@ -4,7 +4,7 @@
  *  1. The route still frames another document, so the conversation cannot share the app's
  *     theme, viewport or safe areas.
  *  2. A host without chat (features.chat false) lands on a broken or empty workspace
- *     instead of "Chat needs the desktop app running", or cannot recover without a reload.
+ *     instead of "Chat is not available", or cannot recover without a reload.
  *  3. The state endpoint failing shows a blank panel rather than a retry.
  *  4. The harness proxy answering 502/503 looks like an empty conversation.
  *  5. The workspace talks to the wrong place: not under /app/harness, or without the
@@ -49,11 +49,11 @@ describe("chat route", () => {
         expect(server.harness.calls.every((call) => call.headers["x-pikvm-workspace"] === "1")).toBe(true);
     });
 
-    it("explains what to do when the host cannot reach the desktop app, and recovers on Check again", async () => {
+    it("explains what to do when the host cannot reach the agent, and recovers on Check again", async () => {
         const user = userEvent.setup();
         server.chat = false;
         renderApp("/chat");
-        expect(await screen.findByRole("heading", { name: "Chat needs the desktop app running" })).toBeInTheDocument();
+        expect(await screen.findByRole("heading", { name: "Chat is not available" })).toBeInTheDocument();
         expect(server.harness.calls).toHaveLength(0);
 
         server.chat = true;

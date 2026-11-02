@@ -402,7 +402,7 @@ describe("reachability", () => {
 
         expect(await screen.findByText("The agent harness is not reachable")).toBeInTheDocument();
         expect(screen.queryByRole("button", { name: /Set key|Sign in|Add provider/ })).not.toBeInTheDocument();
-        expect(screen.getByText(/Open the app on that computer/)).toBeInTheDocument();
+        expect(screen.getByText(/Check that it is running and try again/)).toBeInTheDocument();
 
         fake.down = "no";
         await user.click(screen.getByRole("button", { name: "Try again" }));

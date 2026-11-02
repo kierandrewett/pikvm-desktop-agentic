@@ -43,7 +43,7 @@ export function HarnessUnavailable({
       ? "Chat was refused"
       : "Chat could not connect";
   const advice = down
-    ? "The app server is up, but the agent behind it is not answering. Start the PiKVM desktop app and keep it running; this page reconnects on its own."
+    ? "The app server is up, but the agent behind it is not answering. It may still be starting, or it is not running (the agent service on this host, or the desktop app); this page reconnects on its own."
     : refused
       ? "The app server did not accept this request. Sign in again, then retry."
       : "Something unexpected came back from the app server.";

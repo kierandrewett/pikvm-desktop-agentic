@@ -4,9 +4,9 @@
  *
  * Three states come before the conversation, in this order:
  *   - the host cannot be reached at all        -> say so, offer a retry;
- *   - the host says chat is not available      -> "Chat needs the desktop app running"
- *     (features.chat is false when the host has no harness proxy, e.g. the web container
- *     before the desktop app has connected to it);
+ *   - the host says chat is not available      -> "Chat is not available"
+ *     (features.chat is false when the host has no agent configured, or the agent does not
+ *     answer its health route: the sidecar or the desktop app is not running);
  *   - chat is available but the agent behind the proxy answers 502/503 -> the workspace's
  *     own unavailable state, which keeps retrying by itself.
  *
@@ -41,10 +41,10 @@ export function ChatRoute() {
     if (!state.data.features.chat) {
         return (
             <div className="empty-state">
-                <h1>Chat needs the desktop app running</h1>
+                <h1>Chat is not available</h1>
                 <p>
-                    The agent runs inside the PiKVM desktop app on your computer, and this host reaches it from there. Open
-                    the desktop app, keep it running, then check again.
+                    The agent runs as its own service next to this host (or inside the PiKVM desktop app), and it is not
+                    answering. If it was just started, give it a moment and check again.
                 </p>
                 <button type="button" className="btn btn-primary" onClick={() => void state.refetch()}>
                     Check again
