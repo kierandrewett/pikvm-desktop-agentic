@@ -2843,9 +2843,13 @@ html.touch-dock .screen {
    the page is black behind the picture, and a strip in the dock's colour sits
    fixed behind the bottom edge, under the app, so the toolbar below it (or the
    home-indicator area) continues the bar instead of showing white. */
-html.touch-dock,
-html.touch-dock body {
+/* Black on the root only: a body background would paint over the strip below
+   (a negative z-index sits under the body's own background). */
+html.touch-dock {
     background: #000;
+}
+html.touch-dock body {
+    background: transparent;
 }
 html.touch-dock body::after {
     content: "";
@@ -2853,7 +2857,9 @@ html.touch-dock body::after {
     left: 0;
     right: 0;
     bottom: 0;
-    height: 50vh;
+    /* The bottom edge only: the home-indicator area plus a margin for a
+       browser toolbar that overlaps the page. */
+    height: calc(env(safe-area-inset-bottom) + 120px);
     background: var(--card);
     z-index: -1;
     pointer-events: none;
