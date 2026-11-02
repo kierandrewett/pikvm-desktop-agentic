@@ -87,7 +87,7 @@ export interface PicturePrefs {
     readonly dragLock: boolean;
     readonly modalOpen: boolean;
     readonly windowFocused: boolean;
-    /** The desktop window is in the background and its taskbar entry should pulse when the screen changes. */
+    /** The window is in the background and the screen should be watched: its taskbar entry (desktop app) or tab (browser) is flagged when the picture changes. */
     readonly watching: boolean;
 }
 
