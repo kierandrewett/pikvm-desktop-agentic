@@ -1,10 +1,10 @@
 /**
  * Serves the conversation workspace from OUR origin.
  *
- * The same built bundle the harness serves at /app/, mounted here at
- * /_agent/workspace/ so the desktop can show it as part of the page instead of
+ * The same built bundle the harness serves at its own root, mounted here at
+ * /app/workspace/ so the desktop can show it as part of the page instead of
  * loading it from another origin into a native view. Its API comes back through
- * /_agent/harness/*, which is same-origin from here, so nothing needs CORS and
+ * /app/harness/*, which is same-origin from here, so nothing needs CORS and
  * the operator credential stays in the proxy.
  */
 
@@ -34,10 +34,10 @@ const MIME: Record<string, string> = {
 };
 
 /** Where this host answers the harness API. Read by the bundle at load. */
-export const WORKSPACE_API_BASE = "/_agent/harness";
+export const WORKSPACE_API_BASE = "/app/harness";
 
 /** The mount point. Assets resolve relative to it, so the trailing slash matters. */
-export const WORKSPACE_PREFIX = "/_agent/workspace";
+export const WORKSPACE_PREFIX = "/app/workspace";
 
 /**
  * Tells the bundle where its API is.
@@ -169,8 +169,8 @@ export function createWorkspaceAssets(workspaceDir: string = defaultWorkspaceDir
          * caller can answer 404 rather than an empty 200.
          */
         serve(path: string, res: ServerResponse): boolean {
-        // "./app.js" beside a document at /_agent/workspace resolves to
-        // /_agent/app.js — the parent. Redirect so relative assets land.
+        // "./app.js" beside a document at /app/workspace resolves to
+        // /app/app.js — the parent. Redirect so relative assets land.
         if (path === WORKSPACE_PREFIX) {
             res.writeHead(302, { location: WORKSPACE_PREFIX + "/" });
             res.end();

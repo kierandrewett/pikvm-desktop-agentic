@@ -2,31 +2,27 @@
  * Reverse proxy to the PiKVM target.
  *
  * The web/desktop clients never talk to the Pi directly. They talk to our server,
- * which forwards everything that is not under our own `/_agent` namespace straight
+ * which forwards everything that is not under our own `/app` namespace straight
  * to the Pi (its web UI, the MJPEG stream, the HID WebSocket, login, all of it),
  * injecting the PiKVM auth on every request so the client does not have to log in
- * to the Pi itself. We bolt our agent UI on by injecting a small bundle into the
- * proxied HTML.
+ * to the Pi itself.
  *
  * Why proxy instead of rebuilding the viewer: the Pi already has a working stream,
  * HID and input pipeline. Re-implementing that would be a lot of fragile work for
- * no gain. Proxying keeps a single source of truth (the Pi) and lets us bolt on
- * what we need.
+ * no gain. Proxying keeps a single source of truth (the Pi).
+ *
+ * Responses are relayed byte for byte. This file used to splice a floating-button
+ * bundle into proxied HTML; the sidebar it opened no longer exists, so the
+ * injection only added buffering and a dead button to the Full-UI frame.
  */
 
 import { request as httpRequest, type IncomingMessage, type ServerResponse, type OutgoingHttpHeaders } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { Duplex } from "node:stream";
-import type { PiKvmControl } from "./pikvm-control";
+import type { PiKvmControl } from "../../pikvm-control";
 
 export interface ProxyDeps {
     control: PiKvmControl;
-    /**
-     * Markup spliced into proxied HTML: `head` before </head>, `body` before
-     * </body>. Request-aware so the desktop shell (which has its own native
-     * sidebar) can suppress the body injection.
-     */
-    htmlInjection: (req: IncomingMessage) => { head: string; body: string };
     /**
      * Signalled on user HID input over the proxied input WebSocket (/api/ws) — so the
      * idle mouse-jiggler knows the user is active and holds off.
@@ -140,10 +136,9 @@ export function createPiKvmProxy(deps: ProxyDeps) {
         const isHttps = origin.protocol === "https:";
         const requestFn = isHttps ? httpsRequest : httpRequest;
 
-        // Strip accept-encoding so HTML comes back uncompressed and we can inject
-        // into it cheaply; the stream and binary assets are unaffected.
+        // The body is relayed untouched, so accept-encoding passes through and the
+        // Pi's compression reaches the client as it was sent.
         const outHeaders: OutgoingHttpHeaders = { ...req.headers, ...auth, host: origin.host };
-        delete outHeaders["accept-encoding"];
         delete outHeaders["connection"];
 
         const proxyReq = requestFn(
@@ -170,34 +165,8 @@ export function createPiKvmProxy(deps: ProxyDeps) {
                     headers["location"] = rewriteLocation(headers["location"], origin);
                 }
 
-                const contentType = String(proxyRes.headers["content-type"] ?? "");
-                const isHtml = contentType.includes("text/html");
-                if (!isHtml) {
-                    res.writeHead(status, headers);
-                    proxyRes.pipe(res);
-                    return;
-                }
-
-                // Buffer the HTML, inject our bundle before </head>, fix length.
-                const chunks: Buffer[] = [];
-                proxyRes.on("data", (c: Buffer) => chunks.push(c));
-                proxyRes.on("end", () => {
-                    let body = Buffer.concat(chunks).toString("utf8");
-                    const inject = deps.htmlInjection(req);
-                    if (inject.head) {
-                        if (body.includes("</head>")) body = body.replace("</head>", `${inject.head}</head>`);
-                        else body = inject.head + body;
-                    }
-                    if (inject.body) {
-                        if (body.includes("</body>")) body = body.replace("</body>", `${inject.body}</body>`);
-                        else body += inject.body;
-                    }
-                    const buf = Buffer.from(body, "utf8");
-                    delete headers["content-length"];
-                    headers["content-length"] = String(buf.byteLength);
-                    res.writeHead(status, headers);
-                    res.end(buf);
-                });
+                res.writeHead(status, headers);
+                proxyRes.pipe(res);
             },
         );
 

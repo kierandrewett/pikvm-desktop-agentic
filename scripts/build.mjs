@@ -1,6 +1,6 @@
 // Dual esbuild: Node (Electron main + preloads) and the browser terminal renderer.
 import { build } from "esbuild";
-import { rmSync, cpSync, mkdirSync, readdirSync } from "fs";
+import { rmSync, cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -50,7 +50,13 @@ await build({
 });
 
 // 2. Static assets and views.
-cpSync(resolve(root, "package.json"), resolve(dist, "package.json"));
+/* The app's package.json, minus the workspace declaration. dist/ is what
+   electron-packager and the web image ship; it is not a workspace root, and a
+   "workspaces" field there makes package managers look for packages/ and apps/
+   that are not in it. @pikvm/contracts is a devDependency because esbuild
+   inlines it above, so nothing at runtime needs it installed. */
+const { workspaces: _workspaces, ...distPackage } = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+writeFileSync(resolve(dist, "package.json"), JSON.stringify(distPackage, null, 4) + "\n");
 cpSync(resolve(root, "src/static"), resolve(dist, "static"), { recursive: true });
 /* Views, minus documentation. src/views is copied wholesale, so a .md written
    beside the files it describes would otherwise be served to browsers and
@@ -79,7 +85,7 @@ cpSync(resolve(root, "node_modules/@xterm/xterm/css/xterm.css"), resolve(dist, "
 // The PreToolUse guardrail hook ships as a plain script the spawned claude runs.
 
 // 3b. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
-//     statically-served) console dynamically imports as /_agent/haptics.js.
+//     statically-served) console dynamically imports as /app/haptics.js.
 await build({
     entryPoints: [resolve(root, "src/haptics-entry.js")],
     outfile: resolve(dist, "views/haptics.js"),

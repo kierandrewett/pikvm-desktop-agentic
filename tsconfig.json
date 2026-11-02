@@ -2,7 +2,7 @@
     // Visit https://aka.ms/tsconfig to read more about this file
     "compilerOptions": {
         // File Layout
-        "rootDir": "./src",
+        "rootDir": ".",
         "outDir": "./dist",
         "baseUrl": ".",
         "paths": { "@/*": ["./src/sidebar/*"] },
@@ -39,12 +39,17 @@
         "skipLibCheck": true
     },
     // Source lives in src/; scripts/ are esbuild-bundled smoke tests, not part of
-    // the app typecheck (they import across rootDir on purpose).
+    // the app typecheck. rootDir is the repo root because src/ imports the
+    // @pikvm/contracts workspace package, whose source sits outside src/.
     //
     // agent/ is the daemon subtree and owns its own toolchain: a Python package
     // plus a Vite/React app with its own tsconfig, JSX runtime and lib set. The
     // default "**/*" include swallowed it the moment it landed in this repo, and
-    // every one of its .tsx files then failed rootDir on a project that only
-    // compiles src/. Its typecheck runs from agent/frontend, not from here.
-    "exclude": ["scripts", "tests", "dist", "node_modules", "agent"]
+    // its .tsx files do not compile under this project's settings. Its typecheck
+    // runs from agent/frontend, not from here.
+    //
+    // apps/, packages/ and tools/ are workspaces with their own tsconfigs and
+    // environments (DOM, Vite, vitest); this project only reaches the ones the
+    // server imports, through the import graph.
+    "exclude": ["scripts", "tests", "dist", "node_modules", "agent", "apps", "packages", "tools"]
 }

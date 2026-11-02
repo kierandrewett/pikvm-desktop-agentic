@@ -1,0 +1,273 @@
+/**
+ * The whole route table, in the order it is evaluated.
+ *
+ * Read it top to bottom: the first route that matches handles the request, and
+ * the last one forwards to kvmd. Our surface lives under `/app`; kvmd owns `/`,
+ * `/kvm/`, `/login/`, `/api/`, `/streamer/`, `/janus/`, `/share/` and `/extras/`
+ * and everything else.
+ *
+ *   /                          redirect to /app/ (kvmd's own page for ?native=1
+ *                              and for the desktop shell)
+ *   /app/login, /logout, /auth sign-in (public)
+ *   /app/{manifest,sw.js,icons} PWA files (public, see auth.ts)
+ *   /app/daemon/*              agent daemon proxy       (needs the workspace header)
+ *   /app/harness/*             harness proxy            (needs the workspace header)
+ *   /app/workspace/*           agent workspace bundle
+ *   /app/api/v1/*              our HttpApi
+ *   /app/ and /app/legacy/     the console page
+ *   /app/<file>                static bundle
+ *   /app/terminal  (upgrade)   shared terminal socket
+ *   anything else              kvmd (HTTP and WebSocket upgrades alike)
+ *
+ * The gate (auth.ts) runs before the table, once, for HTTP and for upgrades;
+ * no route below checks a token itself.
+ */
+
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
+import { gate, hasWorkspaceHeader, loginPage, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
+import { json, readBody } from "./http";
+import { DESKTOP_SHELL_COOKIE } from "./static";
+
+/** A proxy that forwards a whole request to somewhere else. */
+export interface HttpForwarder {
+    handleHttp(req: IncomingMessage, res: ServerResponse): void | Promise<void>;
+}
+
+/** Everything a route can dispatch to. The server builds these; the table only
+ *  decides which one a request reaches. */
+export interface RouteTargets {
+    /** The access token, read per request so a change takes effect at once. */
+    accessToken: () => string;
+    kvmd: HttpForwarder & {
+        handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void | Promise<void>;
+    };
+    daemon: HttpForwarder;
+    /** Null when the harness is not configured: no route to it exists. */
+    harness: HttpForwarder | null;
+    api: { handle(req: IncomingMessage, res: ServerResponse): Promise<void> };
+    workspace: {
+        handles(path: string): boolean;
+        serve(path: string, res: ServerResponse): boolean;
+    };
+    assets: { serve(path: string, res: ServerResponse): boolean };
+    terminal: { upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void };
+}
+
+/** One request, parsed once. */
+interface Hit {
+    req: IncomingMessage;
+    res: ServerResponse;
+    url: URL;
+    /** The pathname, e.g. `/app/api/v1/state`. */
+    path: string;
+    method: string;
+}
+
+interface Route {
+    /** Shown in tests and logs; says what the route is for. */
+    name: string;
+    match(hit: Hit): boolean;
+    run(hit: Hit): void | Promise<void>;
+}
+
+const CONSOLE_PAGE = "console.html";
+
+/** `/app/x` matches prefix `/app/x` and `/app/x/...`, never `/app/xy`. */
+function under(path: string, prefix: string): boolean {
+    return path === prefix || path.startsWith(prefix + "/");
+}
+
+function redirect(res: ServerResponse, location: string, headers: Record<string, string> = {}): void {
+    res.writeHead(302, { location, ...headers });
+    res.end();
+}
+
+export function createRoutes(t: RouteTargets): Route[] {
+    return [
+        {
+            // `/?native=1` is the Full-UI frame and the desktop shell loads the
+            // Pi's own page by design; neither is ours to redirect.
+            name: "kvmd's own front page",
+            match: ({ method, path, url, req }) =>
+                method === "GET" &&
+                path === "/" &&
+                (url.searchParams.get("native") === "1" || (req.headers.cookie ?? "").includes(`${DESKTOP_SHELL_COOKIE}=desktop`)),
+            run: ({ req, res }) => void t.kvmd.handleHttp(req, res),
+        },
+        {
+            name: "root -> /app/",
+            match: ({ method, path }) => (method === "GET" || method === "HEAD") && path === "/",
+            run: ({ res }) => redirect(res, "/app/"),
+        },
+        {
+            name: "/app -> /app/",
+            match: ({ method, path }) => method === "GET" && path === "/app",
+            run: ({ res }) => redirect(res, "/app/"),
+        },
+
+        /* Sign-in. Public: auth.ts lets these three through the gate. */
+        {
+            name: "login page",
+            match: ({ method, path }) => method === "GET" && path === "/app/login",
+            run: ({ res, url }) => {
+                res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+                res.end(loginPage(url.searchParams.get("error") === "1", url.searchParams.get("bye") === "1"));
+            },
+        },
+        {
+            name: "logout",
+            match: ({ path }) => path === "/app/logout",
+            run: ({ res }) =>
+                redirect(res, "/app/login?bye=1", {
+                    "set-cookie": `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`,
+                }),
+        },
+        {
+            name: "sign in",
+            match: ({ method, path }) => method === "POST" && path === "/app/auth",
+            run: async ({ req, res }) => {
+                const submitted = new URLSearchParams(await readBody(req)).get("token") ?? "";
+                const token = t.accessToken();
+                if (tokenMatches(submitted, token)) {
+                    redirect(res, "/app/", {
+                        "set-cookie": `${SESSION_COOKIE}=${sessionValue(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000`,
+                    });
+                    return;
+                }
+                redirect(res, "/app/login?error=1");
+            },
+        },
+
+        /* The two capability proxies. Each attaches a credential the page never
+         * holds, and the gate exempts loopback, so each also demands a header no
+         * cross-origin page can set without a preflight (and no preflight is ever
+         * answered). Without it a web page could POST to 127.0.0.1 and have the
+         * credential attached for it: a run started, an approval given, the
+         * daemon's panic-stop or session routes driven. */
+        {
+            name: "agent daemon proxy",
+            match: ({ path }) => under(path, "/app/daemon"),
+            run: ({ req, res }) => {
+                if (!hasWorkspaceHeader(req)) return json(res, 403, { error: "Missing workspace header" });
+                void t.daemon.handleHttp(req, res);
+            },
+        },
+        {
+            name: "harness proxy",
+            match: ({ path }) => under(path, "/app/harness"),
+            run: ({ req, res }) => {
+                // Mounted only with both an origin and a token: half a configuration
+                // would expose an UNAUTHENTICATED route to the operator API.
+                if (!t.harness) {
+                    res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+                    res.end("harness proxy not configured");
+                    return;
+                }
+                if (!hasWorkspaceHeader(req)) return json(res, 403, { error: "Missing workspace header" });
+                void t.harness.handleHttp(req, res);
+            },
+        },
+
+        {
+            name: "agent workspace bundle",
+            match: ({ method, path }) => method === "GET" && t.workspace.handles(path),
+            run: ({ path, res }) => {
+                if (t.workspace.serve(path, res)) return;
+                res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+                res.end("workspace build not found");
+            },
+        },
+
+        {
+            name: "our API",
+            match: ({ path }) => under(path, "/app/api"),
+            run: ({ req, res, method }) => {
+                // A cross-site page can send a text/plain POST without a preflight,
+                // and loopback skips the gate; requiring JSON forces the preflight,
+                // which this server never answers. So the API is same-origin only.
+                const mutating = method !== "GET" && method !== "HEAD";
+                if (mutating && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
+                    return json(res, 415, { error: "Expected application/json" });
+                }
+                void t.api.handle(req, res);
+            },
+        },
+
+        {
+            name: "console page",
+            match: ({ method, path }) =>
+                method === "GET" && (path === "/app/" || path === "/app/legacy" || path === "/app/legacy/"),
+            run: ({ res }) => {
+                if (!t.assets.serve(CONSOLE_PAGE, res)) json(res, 404, { error: "Not found" });
+            },
+        },
+        {
+            name: "static bundle",
+            match: ({ method, path }) => method === "GET" && path.startsWith("/app/"),
+            // A missing file is a 404 of ours, not a fall-through to kvmd: the whole
+            // of /app belongs to this server.
+            run: ({ path, res }) => {
+                if (!t.assets.serve(path.slice("/app/".length), res)) json(res, 404, { error: "Not found" });
+            },
+        },
+        {
+            name: "unknown /app path",
+            match: ({ path }) => under(path, "/app"),
+            run: ({ res }) => json(res, 404, { error: "Not found" }),
+        },
+
+        {
+            name: "kvmd passthrough",
+            match: () => true,
+            run: ({ req, res }) => void t.kvmd.handleHttp(req, res),
+        },
+    ];
+}
+
+export interface Router {
+    onRequest(req: IncomingMessage, res: ServerResponse): void;
+    onUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void;
+}
+
+export function createRouter(targets: RouteTargets): Router {
+    const routes = createRoutes(targets);
+
+    return {
+        onRequest(req, res) {
+            const url = new URL(req.url ?? "/", "http://localhost");
+            const path = url.pathname;
+
+            const verdict = gate(req, path, targets.accessToken());
+            if (verdict === "login") return redirect(res, "/app/login");
+            if (verdict === "deny") return json(res, 401, { error: "Unauthorized" });
+
+            const hit: Hit = { req, res, url, path, method: req.method ?? "GET" };
+            // The final route matches everything, so there is always one.
+            const route = routes.find((r) => r.match(hit))!;
+            void Promise.resolve(route.run(hit)).catch((err: unknown) => {
+                console.error(`[server] route "${route.name}" failed:`, err);
+                if (!res.headersSent) json(res, 500, { error: "Internal error" });
+                else res.end();
+            });
+        },
+
+        /* WebSocket upgrades. The same gate, then two destinations: our terminal
+         * socket, or kvmd (the HID/event socket and Janus). An unknown `/app/*`
+         * upgrade is refused here; it used to be forwarded to the Pi as a path
+         * the Pi has never heard of. */
+        onUpgrade(req, socket, head) {
+            const path = new URL(req.url ?? "/", "http://localhost").pathname;
+            if (gate(req, path, targets.accessToken()) !== "allow") {
+                socket.destroy();
+                return;
+            }
+            if (path === "/app/terminal") return targets.terminal.upgrade(req, socket, head);
+            if (under(path, "/app")) {
+                socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
+                return;
+            }
+            void targets.kvmd.handleUpgrade(req, socket, head);
+        },
+    };
+}

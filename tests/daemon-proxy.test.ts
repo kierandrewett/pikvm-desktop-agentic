@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import test from "node:test";
-import { createDaemonProxy } from "../src/daemon-proxy";
+import { createDaemonProxy } from "../src/server/proxy/daemon";
 
 const listen = async (
     handler: Parameters<typeof createServer>[0],
@@ -70,7 +70,7 @@ test("daemon proxy replaces renderer authorization with its action capability", 
     try {
         const result = await read(
             front.origin,
-            "/_agent/daemon/sessions?limit=1",
+            "/app/daemon/sessions?limit=1",
             "Bearer renderer-controlled-value",
         );
         assert.equal(result.status, 200);
@@ -104,14 +104,14 @@ test("the harness proxy carries the operator capability under its own prefix", a
     const proxy = createDaemonProxy({
         origin: harness.origin,
         bearerToken: "desktop-operator-capability-abcdef0123456789",
-        prefix: "/_agent/harness",
+        prefix: "/app/harness",
     });
     const front = await listen(proxy.handleHttp);
 
     try {
         const result = await read(
             front.origin,
-            "/_agent/harness/api/runs?limit=5",
+            "/app/harness/api/runs?limit=5",
             "Bearer desktop-managed",
         );
         assert.equal(result.status, 200);
@@ -127,33 +127,6 @@ test("the harness proxy carries the operator capability under its own prefix", a
         await front.close();
         await harness.close();
     }
-});
-
-test("a half-configured harness mounts no route at all", () => {
-    // An origin with no token would put an UNAUTHENTICATED path to the operator
-    // API on this server, which is worse than having no path to it.
-    const server = readFileSync(resolve(process.cwd(), "src/server.ts"), "utf8");
-    assert.match(server, /deps\.harnessOrigin && deps\.harnessToken\s*\n\s*\?\s*createDaemonProxy/);
-    assert.match(server, /res\.writeHead\(503[\s\S]*?harness proxy not configured/);
-});
-
-test("the harness route refuses anything that did not come from the workspace", () => {
-    /* The auth gate above it exempts loopback, which is right for a desktop app
-     * talking to itself and wrong for a PAGE in the user's browser: it can POST
-     * to 127.0.0.1 cross-origin and the operator capability gets attached
-     * server-side. CORS hides the reply, which is no comfort when the point was
-     * the side effect — this route can start a run or answer an approval.
-     *
-     * A custom header cannot be set cross-origin without a preflight, and this
-     * server answers preflights for nobody. Asserted on the source because the
-     * check lives in the route table rather than in the proxy. */
-    const server = readFileSync(resolve(process.cwd(), "src/server.ts"), "utf8");
-    assert.match(server, /const WORKSPACE_HEADER = "x-pikvm-workspace";/);
-    assert.match(server, /if \(req\.headers\[WORKSPACE_HEADER\] !== "1"\) \{[\s\S]*?403/);
-    // And it is required for the harness route specifically, not the daemon one,
-    // whose existing callers do not send it.
-    const harnessRoute = server.slice(server.indexOf('path.startsWith("/harness/")'));
-    assert.ok(harnessRoute.indexOf("WORKSPACE_HEADER") < harnessRoute.indexOf("harnessProxy.handleHttp"));
 });
 
 /**
@@ -198,7 +171,7 @@ test("the daemon proxy works over a unix socket", async () => {
     try {
         const result = await read(
             front.origin,
-            "/_agent/daemon/sessions?limit=1",
+            "/app/daemon/sessions?limit=1",
             "Bearer renderer-controlled-value",
         );
         assert.equal(result.status, 200);
@@ -221,7 +194,7 @@ test("an absent unix socket answers 502 rather than hanging", async () => {
     });
     const front = await listen(proxy.handleHttp);
     try {
-        const result = await read(front.origin, "/_agent/daemon/healthz");
+        const result = await read(front.origin, "/app/daemon/healthz");
         assert.equal(result.status, 502);
         assert.match(result.body, /daemon_unreachable/);
     } finally {

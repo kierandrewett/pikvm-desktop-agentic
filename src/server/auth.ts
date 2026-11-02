@@ -1,20 +1,48 @@
 /**
- * Single-token access gate for the server + proxy.
+ * The one access gate for the server, its proxies and its WebSocket upgrades.
  *
- * When `settings.accessToken` is set, every request (proxied or `/_agent/*`) must
- * carry a valid session cookie, the token as `?token=`, or `Authorization: Bearer
- * <token>`. The session cookie value is derived from the token so it survives
- * restarts. PiKVM credentials stay server-side (the proxy injects them), so a
- * client only ever needs this one token - that is the auth simplification.
+ * When `settings.accessToken` is set, every request (proxied or under `/app`)
+ * must carry a valid session cookie, the token as `?token=`, or
+ * `Authorization: Bearer <token>`. The session cookie value is derived from the
+ * token so it survives restarts. PiKVM credentials stay server-side (the proxy
+ * injects them), so a client only ever needs this one token.
  *
- * Empty token = open (loopback dev, the default).
+ * Empty token = open (loopback dev, the default). routes.ts asks `gate()` once
+ * per request and once per upgrade; nothing else in the server checks a token.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
 const SALT = "pikvm-agent.session.v1";
 export const SESSION_COOKIE = "__agent_session";
+
+/** Marks a request as coming from our own workspace bundle or console. Its
+ *  only job is to be un-settable by a cross-origin request without a preflight,
+ *  and this server answers preflights for nobody. Required by the routes that
+ *  carry a server-held capability (the harness and the daemon proxies). */
+export const WORKSPACE_HEADER = "x-pikvm-workspace";
+
+/** Paths that never need a session, token or not.
+ *
+ *  The sign-in endpoints must be reachable to sign in. The PWA files are public
+ *  because the sign-in page itself links its icon and manifest, and a browser
+ *  fetches the manifest and the service worker without credentials: behind the
+ *  gate they answered 401, so the installed app had no icon until it was already
+ *  signed in. None of them carries anything private (icons, a manifest, a
+ *  script that only caches). An authenticating reverse proxy in front must skip
+ *  the same list; the README names it. */
+export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
+    "/app/login": true,
+    "/app/auth": true,
+    "/app/logout": true,
+    "/app/manifest.webmanifest": true,
+    "/app/sw.js": true,
+    "/app/icon.png": true,
+    "/app/icon-192.png": true,
+    "/app/icon-512.png": true,
+    "/app/apple-touch-icon.png": true,
+};
 
 /** Stable cookie value for a token (so sessions persist across restarts). */
 export function sessionValue(token: string): string {
@@ -36,7 +64,7 @@ function parseCookies(header: string | undefined): Record<string, string> {
     return out;
 }
 
-/** Is this request allowed through? Always true when no token is configured. */
+/** Does this request carry the token, in a cookie, `?token=` or a bearer header? */
 export function isAuthed(req: IncomingMessage, token: string): boolean {
     if (!token) return true;
     const cookies = parseCookies(req.headers.cookie);
@@ -50,6 +78,41 @@ export function isAuthed(req: IncomingMessage, token: string): boolean {
     const auth = req.headers["authorization"];
     if (typeof auth === "string" && auth === `Bearer ${token}`) return true;
     return false;
+}
+
+/** Compare a submitted token with the real one without leaking, through timing,
+ *  how much of it was right. Hashing first gives both sides equal length. */
+export function tokenMatches(submitted: string, token: string): boolean {
+    const a = createHash("sha256").update(submitted).digest();
+    const b = createHash("sha256").update(token).digest();
+    return token !== "" && timingSafeEqual(a, b);
+}
+
+/** What the gate decides about one request. */
+export type GateVerdict =
+    /** Carry on to the route. */
+    | "allow"
+    /** Not signed in, and the client asked for a page: send it to the sign-in page. */
+    | "login"
+    /** Not signed in: refuse (401 for HTTP, the socket is destroyed for an upgrade). */
+    | "deny";
+
+/** The gate. `path` is the request's pathname, already parsed by the caller.
+ *
+ *  Loopback is exempt because the desktop app talks to itself over it. That is
+ *  only safe against processes on the machine: the gate cannot tell a browser
+ *  page POSTing to 127.0.0.1 from the app, which is why the routes that attach
+ *  a capability also demand WORKSPACE_HEADER. It also means a reverse proxy on
+ *  the same host defeats the gate; the web host therefore refuses a non-loopback
+ *  bind unless an authenticating proxy is declared (src/web-server.ts). */
+export function gate(req: IncomingMessage, path: string, token: string): GateVerdict {
+    if (!token || Object.hasOwn(PUBLIC_PATHS, path) || isLoopback(req) || isAuthed(req, token)) return "allow";
+    return String(req.headers.accept ?? "").includes("text/html") ? "login" : "deny";
+}
+
+/** Does the request carry the header that proves it came from our own pages? */
+export function hasWorkspaceHeader(req: IncomingMessage): boolean {
+    return req.headers[WORKSPACE_HEADER] === "1";
 }
 
 /**
@@ -67,9 +130,9 @@ export function loginPage(error = false, signedOut = false): string {
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="PiKVM">
-<link rel="manifest" href="/_agent/manifest.webmanifest">
-<link rel="apple-touch-icon" href="/_agent/icon.png">
-<link rel="icon" href="/_agent/icon.png">
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/app/icon.png">
+<link rel="icon" href="/app/icon.png">
 <title>PiKVM Agent - sign in</title>
 <style>
   :root{color-scheme:dark}
@@ -100,8 +163,8 @@ export function loginPage(error = false, signedOut = false): string {
   input[aria-invalid="true"]:focus{border-color:#f97583}
 </style></head>
 <body>
-  <form method="POST" action="/_agent/auth">
-    <img class="logo" src="/_agent/icon.png" alt="" width="52" height="52">
+  <form method="POST" action="/app/auth">
+    <img class="logo" src="/app/icon.png" alt="" width="52" height="52">
     <h1>PiKVM Agent</h1>
     <p>Enter the access token to use this server.</p>
     <label for="t">Access token</label>

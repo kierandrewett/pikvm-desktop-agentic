@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MouseJiggler, type JigglerControl } from "../src/mouse-jiggler";
-import { makeHidTap } from "../src/proxy";
+import { makeHidTap } from "../src/server/proxy/kvmd";
 
 /** A control stub that records nudges and can be told to fail. */
 function stubControl(overrides: Partial<JigglerControl> = {}) {

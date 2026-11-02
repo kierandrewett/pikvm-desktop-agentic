@@ -36,7 +36,7 @@ test("a port already in use is walked past, not fatal", () => {
 });
 
 test("a listen failure is reported, not thrown", () => {
-    const server = readFileSync(resolve(root, "src/server.ts"), "utf8");
+    const server = readFileSync(resolve(root, "src/server/index.ts"), "utf8");
     assert.match(server, /onListenError\?: \(err: NodeJS\.ErrnoException\) => void,/);
     assert.match(server, /server\.on\("error", \(err: NodeJS\.ErrnoException\) => \{[\s\S]*?onListenError\(err\);/);
     // Registered before listen, or the first failure still escapes.

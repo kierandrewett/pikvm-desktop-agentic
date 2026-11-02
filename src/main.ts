@@ -39,7 +39,7 @@ import { ManagedService } from "./service-manager";
 import { HarnessManager } from "./harness-manager";
 import { activeManagedClientRuntimePath } from "./harness-runtime";
 import { HarnessViewLifecycle } from "./harness-view-lifecycle";
-import { WORKSPACE_PREFIX } from "./workspace-assets";
+import { WORKSPACE_PREFIX } from "./server/workspace";
 import { requestAttention } from "./taskbar-attention";
 import { prepareGuiMcp, type GuiMcp } from "./gui-mcp";
 

@@ -1,0 +1,185 @@
+/**
+ * Our server API, `/app/api/v1/*`.
+ *
+ * The same definition is implemented by the Node server (src/server/api) and
+ * consumed by the web app through `HttpApiClient`, so a change here is a type
+ * error on both sides instead of a runtime surprise on one.
+ *
+ * What is deliberately NOT here: anything secret. `accessToken`, the PiKVM
+ * password and the desktop capabilities stay on the server. Settings are an
+ * explicit allow-list of user-editable fields, not a view of the settings file.
+ */
+
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import { Schema } from "effect";
+
+/* ------------------------------------------------------------------ */
+/* Shared shapes                                                       */
+/* ------------------------------------------------------------------ */
+
+/** The layout of the physical keyboard the target expects. */
+export const KeyboardLayout = Schema.Literal("us", "uk");
+export type KeyboardLayout = typeof KeyboardLayout.Type;
+
+/** What the idle mouse-jiggler has been doing: the evidence trail for "my
+ *  target went to sleep anyway". Mirrors `JigglerStatus` in src/mouse-jiggler.ts. */
+export const JigglerStatus = Schema.Struct({
+    enabled: Schema.Boolean,
+    /** `pi`: kvmd's own jiggler is running it. `local`: we nudge from here. */
+    mode: Schema.Literal("pi", "local"),
+    /** How many times we had to switch the Pi's jiggler back on. */
+    nativeSwitchOns: Schema.Number,
+    /** ms since the epoch of the last successful nudge; 0 if never. */
+    lastNudgeAt: Schema.Number,
+    nudges: Schema.Number,
+    /** Consecutive failures since the last success. */
+    failures: Schema.Number,
+    lastError: Schema.optional(Schema.String),
+});
+export type JigglerStatus = typeof JigglerStatus.Type;
+
+/** What this host actually serves, so the app does not draw a panel whose
+ *  socket would only ever close. */
+export const Features = Schema.Struct({
+    /** The shared terminal. The headless web host has none. */
+    terminal: Schema.Boolean,
+    /** The agent workspace, reached through the harness proxy. */
+    chat: Schema.Boolean,
+});
+export type Features = typeof Features.Type;
+
+/** The user-editable settings: the fields the Settings pages may show and
+ *  change. Everything else in the settings file is intentionally absent. */
+export const Settings = Schema.Struct({
+    keyboardLayout: KeyboardLayout,
+    jiggler: Schema.Boolean,
+});
+export type Settings = typeof Settings.Type;
+
+/** A change to {@link Settings}: any subset. An unknown key (`accessToken`,
+ *  say) is a 400, not a silent no-op, so a client that thinks it can set a
+ *  secret here finds out at once. */
+export const SettingsPatch = Schema.Struct({
+    keyboardLayout: Schema.optional(KeyboardLayout),
+    jiggler: Schema.optional(Schema.Boolean),
+}).annotations({ parseOptions: { onExcessProperty: "error" } });
+export type SettingsPatch = typeof SettingsPatch.Type;
+
+/** Where the server forwards kvmd traffic, and what it knows of the link.
+ *  `link` is `connected` once kvmd's event socket has delivered state, else
+ *  `unknown`: the server holds that socket open lazily, so "not yet" is not
+ *  the same as "down". */
+export const PikvmTarget = Schema.Struct({
+    origin: Schema.String,
+    link: Schema.Literal("connected", "connecting", "offline", "unknown"),
+});
+export type PikvmTarget = typeof PikvmTarget.Type;
+
+/** `GET /state`: everything the app needs to start. */
+export const State = Schema.Struct({
+    settings: Settings,
+    features: Features,
+    jigglerStatus: JigglerStatus,
+    pikvm: PikvmTarget,
+    /** The app's version (package.json). */
+    version: Schema.String,
+});
+export type State = typeof State.Type;
+
+/* ------------------------------------------------------------------ */
+/* Macros                                                              */
+/* ------------------------------------------------------------------ */
+
+/* The limits are the ones src/macros.ts (MacroStore) applies on write. They
+ * are written here so the editor can enforce them before saving instead of
+ * learning from a dropped step. */
+
+/** A physical key code (`KeyS`, `F5`, `ControlLeft`). */
+const MacroKeyCode = Schema.String.pipe(Schema.pattern(/^[A-Za-z][A-Za-z0-9]{0,23}$/));
+
+export const MacroChordStep = Schema.Struct({
+    type: Schema.Literal("chord"),
+    /** Modifiers held while `code` is pressed; at most 6. */
+    mods: Schema.Array(MacroKeyCode).pipe(Schema.maxItems(6)),
+    code: MacroKeyCode,
+});
+
+/** Text typed on the target through the Pi's own keymap. */
+export const MacroTextStep = Schema.Struct({
+    type: Schema.Literal("text"),
+    text: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(4000)),
+});
+
+/** A pause for targets that need a moment between steps. */
+export const MacroDelayStep = Schema.Struct({
+    type: Schema.Literal("delay"),
+    ms: Schema.Number.pipe(Schema.between(1, 10_000)),
+});
+
+export const MacroStep = Schema.Union(MacroChordStep, MacroTextStep, MacroDelayStep);
+export type MacroStep = typeof MacroStep.Type;
+
+export const Macro = Schema.Struct({
+    id: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64)),
+    label: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(60)),
+    /** A named icon from the console's set, or (for macros written before the
+     *  picker existed) one or two literal characters. */
+    icon: Schema.optional(Schema.String),
+    /** Show it in the titlebar's custom area instead of only the menu. */
+    pinned: Schema.optional(Schema.Boolean),
+    /** 1 to 40 steps. */
+    steps: Schema.Array(MacroStep).pipe(Schema.minItems(1), Schema.maxItems(40)),
+});
+export type Macro = typeof Macro.Type;
+
+/** At most 60 macros. This is what the server stores and returns. */
+export const MacroList = Schema.Array(Macro).pipe(Schema.maxItems(60));
+
+export const MacrosResponse = Schema.Struct({ macros: MacroList });
+export type MacrosResponse = typeof MacrosResponse.Type;
+
+/** What `PUT /macros` accepts: a bare array or `{macros}`. Deliberately loose.
+ *  The server applies the store's own validation, which DROPS a macro or step
+ *  it cannot read rather than rejecting the whole save (one bad macro should
+ *  not cost the user the other fifty). Only a body that is not a list at all
+ *  is refused, because saving that would wipe every macro and report success. */
+export const MacrosPayload = Schema.Union(
+    Schema.Array(Schema.Unknown),
+    Schema.Struct({ macros: Schema.Array(Schema.Unknown) }),
+);
+export type MacrosPayload = typeof MacrosPayload.Type;
+
+/* ------------------------------------------------------------------ */
+/* Errors                                                              */
+/* ------------------------------------------------------------------ */
+
+/** Every error body from this API carries `error: string`, whichever layer
+ *  produced it. The Node adapter rewrites the framework's own decode failures
+ *  into this shape so a client reads one field. */
+export class BadRequest extends Schema.Class<BadRequest>("BadRequest")(
+    { error: Schema.String },
+    HttpApiSchema.annotations({ status: 400 }),
+) {}
+
+/* ------------------------------------------------------------------ */
+/* The API                                                             */
+/* ------------------------------------------------------------------ */
+
+export const API_PREFIX = "/app/api/v1";
+
+export const StateGroup = HttpApiGroup.make("state").add(HttpApiEndpoint.get("get", "/state").addSuccess(State));
+
+export const MacrosGroup = HttpApiGroup.make("macros")
+    .add(HttpApiEndpoint.get("list", "/macros").addSuccess(MacrosResponse))
+    .add(
+        HttpApiEndpoint.put("replace", "/macros")
+            .setPayload(MacrosPayload)
+            .addSuccess(MacrosResponse)
+            .addError(BadRequest),
+    );
+
+export const SettingsGroup = HttpApiGroup.make("settings")
+    .add(HttpApiEndpoint.get("get", "/settings").addSuccess(Settings))
+    .add(HttpApiEndpoint.patch("update", "/settings").setPayload(SettingsPatch).addSuccess(Settings));
+
+export const PikvmApi = HttpApi.make("pikvm").add(StateGroup).add(MacrosGroup).add(SettingsGroup).prefix(API_PREFIX);

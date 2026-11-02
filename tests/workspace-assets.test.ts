@@ -6,7 +6,7 @@ import {
     createWorkspaceAssets,
     WORKSPACE_API_BASE,
     WORKSPACE_PREFIX,
-} from "../src/workspace-assets";
+} from "../src/server/workspace";
 
 /* Pointed at the real build output. The default resolves from __dirname, which
  * is dist/ at runtime but a temp directory under the test runner — which is the

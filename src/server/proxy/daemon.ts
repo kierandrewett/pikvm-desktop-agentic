@@ -3,7 +3,7 @@
  *
  * The conversation workspace is served from our own origin and talks to the
  * daemon's HTTP API (sessions, frames, traces, approvals) through this proxy
- * mounted at `/_agent/daemon/*`. Same-origin means it can `fetch` without CORS,
+ * mounted at `/app/daemon/*`. Same-origin means it can `fetch` without CORS,
  * and remote clients are already gated by the server's access token.
  *
  * It streams both directions untouched — JSON request bodies in, and crucially the
@@ -17,7 +17,7 @@
 
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { parseEndpoint, endpointRequestOptions, endpointIsTls } from "./endpoint";
+import { parseEndpoint, endpointRequestOptions, endpointIsTls } from "../../endpoint";
 
 export interface DaemonProxyDeps {
     /** Where the daemon is: either an origin (http://127.0.0.1:47615) or a
@@ -26,14 +26,14 @@ export interface DaemonProxyDeps {
     origin: string;
     /** Desktop-owned action capability. Renderer-supplied auth is discarded. */
     bearerToken: string;
-    /** Namespace prefix stripped from req.url before forwarding. Default /_agent/daemon. */
+    /** Namespace prefix stripped from req.url before forwarding. Default /app/daemon. */
     prefix?: string;
 }
 
 export function createDaemonProxy({
     origin,
     bearerToken,
-    prefix = "/_agent/daemon",
+    prefix = "/app/daemon",
 }: DaemonProxyDeps) {
     const endpoint = parseEndpoint(origin);
     const doRequest = endpointIsTls(endpoint) ? httpsRequest : httpRequest;
@@ -42,7 +42,7 @@ export function createDaemonProxy({
         // Strip the namespace → the daemon path (keep the query string).
         const raw = req.url ?? "/";
         let rest = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
-        if (!rest.startsWith("/")) rest = "/" + rest; // "/_agent/daemon" → "/"
+        if (!rest.startsWith("/")) rest = "/" + rest; // "/app/daemon" → "/"
 
         // Forward ordinary headers, but never let a renderer choose the daemon
         // capability. The stronger harness capability is never available here.

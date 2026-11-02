@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loginPage } from "../src/web-auth";
+import { loginPage } from "../src/server/auth";
 
 /** Just the markup. The <style> block carries an input[aria-invalid] rule in
  *  every variant, so a check for "no error wiring" has to look at the form. */
