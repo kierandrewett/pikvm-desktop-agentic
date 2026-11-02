@@ -1,6 +1,7 @@
 import { createManualClock, ALERT_QUIET_MS } from "@pikvm/kvm-engine";
-import { describe, expect, it, vi } from "vitest";
-import { createScreenAlerts, watchingForChange } from "./screen-alerts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DESKTOP_BRIDGE_KEY } from "@pikvm/contracts/desktop";
+import { createScreenAlerts, readScreenAlerts, SCREEN_ALERTS_KEY, watchingForChange } from "./screen-alerts";
 
 const grid = (fill: number, changed = 0): Float32Array => {
     const g = new Float32Array(960).fill(fill);
@@ -9,12 +10,14 @@ const grid = (fill: number, changed = 0): Float32Array => {
 };
 
 describe("watching", () => {
-    it("only a backgrounded desktop window with alerts on is watching", () => {
-        const bridge = { requestAttention: () => {} };
-        expect(watchingForChange(bridge, true, false)).toBe(true);
-        expect(watchingForChange(bridge, true, true)).toBe(false);
-        expect(watchingForChange(bridge, false, false)).toBe(false);
-        expect(watchingForChange(undefined, true, false)).toBe(false);
+    it("only a backgrounded window where the page keeps running, with alerts on, is watching", () => {
+        expect(watchingForChange(true, true, true)).toBe(true);
+        // In front: already being looked at.
+        expect(watchingForChange(true, true, false)).toBe(false);
+        // Switched off by the user.
+        expect(watchingForChange(true, false, true)).toBe(false);
+        // A phone: the page is suspended behind another app, so nothing could be watching.
+        expect(watchingForChange(false, true, true)).toBe(false);
     });
 });
 
@@ -23,7 +26,7 @@ describe("screen alerts", () => {
         const clock = createManualClock(1_000_000);
         const bridge = { requestAttention: vi.fn() };
         let on = watching;
-        const alerts = createScreenAlerts({ clock, bridge, watching: () => on });
+        const alerts = createScreenAlerts({ clock, attention: bridge, watching: () => on });
         return { clock, bridge, alerts, watch: (v: boolean) => (on = v) };
     }
 
@@ -55,5 +58,28 @@ describe("screen alerts", () => {
         watch(true);
         alerts.sample(grid(50, 400)); // the first sample after watching begins only re-baselines
         expect(bridge.requestAttention).not.toHaveBeenCalled();
+    });
+});
+
+describe("the stored choice", () => {
+    afterEach(() => {
+        localStorage.removeItem(SCREEN_ALERTS_KEY);
+        Reflect.deleteProperty(window, DESKTOP_BRIDGE_KEY);
+    });
+
+    it("a browser starts with alerts off (they keep the stream running and ask for notifications), the desktop app with them on", () => {
+        expect(readScreenAlerts()).toBe("off");
+        Reflect.set(window, DESKTOP_BRIDGE_KEY, { requestAttention() {} });
+        expect(readScreenAlerts()).toBe("on");
+    });
+
+    it("what the user chose wins in both places, and an unreadable value falls back to the default", () => {
+        localStorage.setItem(SCREEN_ALERTS_KEY, "on");
+        expect(readScreenAlerts()).toBe("on");
+        Reflect.set(window, DESKTOP_BRIDGE_KEY, { requestAttention() {} });
+        localStorage.setItem(SCREEN_ALERTS_KEY, "off");
+        expect(readScreenAlerts()).toBe("off");
+        localStorage.setItem(SCREEN_ALERTS_KEY, "banana");
+        expect(readScreenAlerts()).toBe("on");
     });
 });

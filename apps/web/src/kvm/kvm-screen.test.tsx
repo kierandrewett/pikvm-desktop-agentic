@@ -307,3 +307,32 @@ describe("paste dialog", () => {
         expect(rig.http.requests).toHaveLength(0);
     });
 });
+
+describe("screen-change alerts", () => {
+    const ITEM = "Alert me when the screen changes";
+
+    afterEach(() => {
+        localStorage.removeItem("pikvm-console-screen-alerts");
+    });
+
+    it("A browser on a computer offers the switch in More, starting off, and the choice is stored", async () => {
+        const request = vi.fn(async () => "granted");
+        vi.stubGlobal("Notification", { permission: "default", requestPermission: request });
+        await mount({ dock: false });
+        fireEvent.click(screen.getByRole("button", { name: "More" }));
+        const item = screen.getByRole("button", { name: ITEM });
+        expect(item).toHaveAttribute("aria-pressed", "false");
+        fireEvent.click(item);
+        expect(localStorage.getItem("pikvm-console-screen-alerts")).toBe("on");
+        expect(request).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByRole("button", { name: "More" }));
+        expect(screen.getByRole("button", { name: ITEM })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("A phone is not offered it: the page is suspended behind another app", async () => {
+        await mount({ dock: true });
+        fireEvent.click(screen.getByRole("button", { name: "More" }));
+        expect(screen.getByRole("button", { name: "Save screenshot" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: ITEM })).toBeNull();
+    });
+});

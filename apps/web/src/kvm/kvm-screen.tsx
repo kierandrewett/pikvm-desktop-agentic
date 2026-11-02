@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMediaQuery } from "../app/viewport";
 import { TOUCH_HID_KEY, TOUCH_MODE_KEY, readTouchHid, readTouchMode, useStoredValue } from "../settings/local-prefs";
 import { useActions } from "./actions";
-import { desktopBridge } from "../host/desktop";
+import { askForAlertPermission } from "./attention";
 import { SCREEN_ALERTS_KEY, readScreenAlerts, watchingForChange } from "./screen-alerts";
 import { onAudioDevicesChanged } from "./audio-devices-event";
 import { DialogHost } from "./dialog-host";
@@ -24,7 +24,7 @@ import { OcrPickerProvider } from "./ocr-picker";
 import { FullUiFrame, Toast } from "./overlays";
 import { Picture, usePictureState } from "./picture";
 import type { PictureController, PicturePrefs } from "./picture-controller";
-import { DOCK_QUERY, isDesktopApp, useIsFullscreen, useWakeLock } from "./platform";
+import { DOCK_QUERY, isDesktopApp, useInBackground, useIsFullscreen, useWakeLock } from "./platform";
 import { KvmSessionProvider, useKvmSession, useSessionReady } from "./session";
 import { Toolbar } from "./toolbar";
 import { useStore } from "./use-store";
@@ -45,6 +45,9 @@ export function KvmScreen() {
     const { open } = useStore(session.dialogs.store);
     const picture = usePictureState(controller);
     const isFullscreen = useIsFullscreen();
+    const background = useInBackground();
+    // A phone suspends the page behind another app, so there is nothing running to watch the picture.
+    const alertsAvailable = desktop || !dock;
 
     useSessionReady(session);
     useWakeLock(true);
@@ -85,9 +88,9 @@ export function KvmScreen() {
             dragLock,
             modalOpen,
             windowFocused,
-            watching: watchingForChange(desktopBridge(), alerts === "on", windowFocused),
+            watching: watchingForChange(alertsAvailable, alerts === "on", background),
         }),
-        [touchMode, touchHid, dragLock, modalOpen, windowFocused, alerts],
+        [touchMode, touchHid, dragLock, modalOpen, windowFocused, alerts, alertsAvailable, background],
     );
 
     const openDialog = useCallback((name: DialogName) => session.dialogs.open(name), [session]);
@@ -110,7 +113,17 @@ export function KvmScreen() {
         toggleFullUi,
         fullUiOn,
         isFullscreen,
-        screenAlerts: desktop ? { on: alerts === "on", toggle: () => setAlerts(alerts === "on" ? "off" : "on") } : null,
+        screenAlerts: alertsAvailable
+            ? {
+                  on: alerts === "on",
+                  toggle: () => {
+                      const next = alerts === "on" ? "off" : "on";
+                      setAlerts(next);
+                      // The click is the gesture a browser wants before it shows its notification prompt.
+                      if (next === "on" && !desktop) void askForAlertPermission();
+                  },
+              }
+            : null,
     });
 
     return (

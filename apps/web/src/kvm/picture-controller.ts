@@ -31,13 +31,13 @@ import {
     type VideoDriver,
     type ViewTransform,
 } from "@pikvm/kvm-engine";
+import { attentionSink } from "./attention";
 import { createCursorReporter } from "./cursor-report";
 import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
 import { buzz } from "./haptics";
 import { createJanusBridge } from "./janus-stream";
 import { createScreenAlerts } from "./screen-alerts";
-import { desktopBridge } from "../host/desktop";
 import { createPointerExecutor } from "./pointer-executor";
 import type { KvmSession } from "./session";
 import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice } from "../settings/local-prefs";
@@ -385,7 +385,7 @@ export function createPictureController(options: PictureOptions): PictureControl
 
     /* ---- video ---- */
 
-    const alerts = createScreenAlerts({ clock, bridge: desktopBridge(), watching: () => prefs.watching });
+    const alerts = createScreenAlerts({ clock, attention: attentionSink(), watching: () => prefs.watching });
     const dom = createVideoDom({
         onLuma: (lum) => alerts.sample(lum),
         elements: { pane, img, video, freezeCanvas: freeze },

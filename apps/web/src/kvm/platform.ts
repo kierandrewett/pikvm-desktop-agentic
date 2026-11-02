@@ -67,6 +67,28 @@ export function useWakeLock(enabled: boolean): void {
     }, [enabled]);
 }
 
+/* ---- in the background ---- */
+
+function subscribeBackground(notify: () => void): () => void {
+    document.addEventListener("visibilitychange", notify);
+    window.addEventListener("focus", notify);
+    window.addEventListener("blur", notify);
+    return () => {
+        document.removeEventListener("visibilitychange", notify);
+        window.removeEventListener("focus", notify);
+        window.removeEventListener("blur", notify);
+    };
+}
+
+/** The window is hidden, or visible but not the one being typed into (another window is in front). */
+export function useInBackground(): boolean {
+    return useSyncExternalStore(
+        subscribeBackground,
+        () => document.hidden || !document.hasFocus(),
+        () => false,
+    );
+}
+
 /* ---- full screen with Keyboard Lock ---- */
 
 /**

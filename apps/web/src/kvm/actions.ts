@@ -8,7 +8,7 @@ import { errorMessage } from "@pikvm/kvm-engine";
 import { useMemo, useState } from "react";
 import { currentTheme, setThemeChoice } from "../theme";
 import type { DialogName } from "./dialog-seam";
-import { awaitDownload, fullscreenSupported, saveScreenshot, toggleFullscreen } from "./platform";
+import { awaitDownload, fullscreenSupported, isDesktopApp, saveScreenshot, toggleFullscreen } from "./platform";
 import { useKvmSession, useTarget } from "./session";
 
 export interface Action {
@@ -67,7 +67,7 @@ export interface ActionInputs {
     readonly toggleFullUi: (() => void) | null;
     readonly fullUiOn: boolean;
     readonly isFullscreen: boolean;
-    /** The desktop app's "pulse the taskbar when the screen changes" switch; null outside it. */
+    /** The "tell me when the screen changes" switch; null where the page is suspended in the background (a phone). */
     readonly screenAlerts: { readonly on: boolean; readonly toggle: () => void } | null;
 }
 
@@ -135,7 +135,7 @@ export function useActions(inputs: ActionInputs): ActionSections {
         if (alertsToggle) {
             view.push({
                 id: "screen-alerts",
-                label: "Pulse the taskbar when the screen changes",
+                label: isDesktopApp() ? "Pulse the taskbar when the screen changes" : "Alert me when the screen changes",
                 checked: alertsOn === true,
                 run: alertsToggle,
             });
