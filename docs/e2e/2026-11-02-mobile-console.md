@@ -3,6 +3,17 @@
 Covers commits `f610350` (headless web host) and `b19b997` (touch dock, touch
 modes, soft-keyboard mirror, Caps Lock sync).
 
+The token login these runs used was replaced by Pocket ID sign-in in
+`7786b08`. That change was checked on the deployed host instead:
+
+| Case | Observed | Result |
+| --- | --- | --- |
+| `/`, `/_agent/api/state`, `/api/info` signed out | 302 to `id.drewett.dev/authorize` with S256 PKCE | pass |
+| `/_agent/manifest.webmanifest`, `/_agent/icon.png` signed out | 200 | pass |
+| Container on `intranet` reaching `kvm:8080` | name does not resolve | pass |
+| Container on `kvm-internal` reaching the Pi | HTTPS answered | pass |
+| Full sign-in in desktop Chrome (consent accepted) | console "Live · HD", `/_agent/api/state` 200, `/api/info` 200 | pass |
+
 ## Environment
 
 - Host under test: `node dist/web-server.js` on the workstation (port 8099),
