@@ -12,7 +12,7 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-async function mount() {
+async function mount(extra: { desktop?: boolean; agent?: () => boolean } = {}) {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     const rig = await openRig();
     const pane = document.createElement("div");
@@ -27,7 +27,8 @@ async function mount() {
         session: rig.session,
         elements: { pane, img, video, freeze, cursor, lens },
         focus: createFieldFocus(rig.clock),
-        desktop: false,
+        desktop: extra.desktop ?? false,
+        ...(extra.agent ? { agent: extra.agent } : {}),
         prefs: { touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true, watching: false },
     });
     made.push(controller);
@@ -157,5 +158,41 @@ describe("WebRTC", () => {
         vi.stubGlobal("RTCPeerConnection", class {});
         expect(bridge.port.available()).toBe(true);
         expect(bridge.current()).toBeNull();
+    });
+});
+
+describe("the cursor report", () => {
+    const reports = () =>
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => url === "/app/daemon/cursor");
+
+    async function moveTheMouse(rig: Awaited<ReturnType<typeof mount>>["rig"], controller: PictureController): Promise<void> {
+        // jsdom has no layout: give the machine a pane and a Pi that has said it is absolute.
+        controller.pointer.send({
+            type: "env",
+            env: { mouseMode: "absolute", pane: { left: 0, top: 0, width: 160, height: 90 }, nat: { w: 160, h: 90 } },
+        });
+        controller.pointer.send({ type: "enter", kind: "mouse" });
+        controller.pointer.send({ type: "move", id: 1, kind: "mouse", x: 20, y: 20, buttons: 0 });
+        // Moves are coalesced to the display's next frame.
+        controller.pointer.send({ type: "frame" });
+        rig.clock.advance(400);
+    }
+
+    it("goes to the agent when the host has one, so a hosted page tells it where the person moved", async () => {
+        const { rig, controller } = await mount({ agent: () => true });
+        await moveTheMouse(rig, controller);
+        expect(reports()).toHaveLength(1);
+    });
+
+    it("is not sent where nothing would take it: a browser on a host with no agent", async () => {
+        const { rig, controller } = await mount({ agent: () => false });
+        await moveTheMouse(rig, controller);
+        expect(reports()).toHaveLength(0);
+    });
+
+    it("is sent from the desktop app whatever the host says about an agent", async () => {
+        const { rig, controller } = await mount({ desktop: true });
+        await moveTheMouse(rig, controller);
+        expect(reports()).toHaveLength(1);
     });
 });

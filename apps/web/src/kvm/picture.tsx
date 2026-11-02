@@ -7,6 +7,7 @@
 
 import { createStore, STATUS, type ReadableStore } from "@pikvm/kvm-engine";
 import { useEffect, useRef, useState } from "react";
+import { useAppState } from "../api/queries";
 import type { FieldFocus } from "./field-focus";
 import { createPictureController, type PictureController, type PicturePrefs, type PictureState } from "./picture-controller";
 import type { KvmSession } from "./session";
@@ -51,6 +52,9 @@ export function Picture({ session, focus, desktop, prefs, onController }: Pictur
     const [controller, setController] = useState<PictureController | null>(null);
     const latest = useRef(prefs);
     latest.current = prefs;
+    // Read when a cursor report is due, so the agent starting or stopping does not remake the picture.
+    const agent = useRef(false);
+    agent.current = useAppState().data?.features.chat === true;
     const shown = usePictureState(controller);
 
     useEffect(() => {
@@ -68,6 +72,7 @@ export function Picture({ session, focus, desktop, prefs, onController }: Pictur
             elements: { pane: els.pane, img: els.img, video: els.video, freeze: els.freeze, cursor: els.cursor, lens: els.lens },
             focus,
             desktop,
+            agent: () => agent.current,
             prefs: latest.current,
         });
         setController(created);

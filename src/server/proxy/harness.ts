@@ -158,3 +158,28 @@ export function createHarnessProxy(
         },
     };
 }
+
+/**
+ * The one piece of the daemon's API a hosted page may use: where the person just moved the pointer.
+ *
+ * The desktop app has the daemon behind `/app/daemon`. A hosted host has no daemon of its own, only
+ * the agent, whose operator API takes the same report at `/api/cursor` and relays it. So this
+ * answers `POST /app/daemon/cursor` by sending it to the agent, through the same upstream and with
+ * the same credential as the rest of Chat, and refuses everything else under `/app/daemon` rather
+ * than carry the daemon's other routes to a host that never had them.
+ */
+export function createCursorRelay(agent: Pick<HarnessProxy, "handleHttp">): Pick<HarnessProxy, "handleHttp"> {
+    const notFound = (res: ServerResponse, status: number, error: string, headers: Record<string, string> = {}): void => {
+        res.writeHead(status, { "content-type": "application/json", ...headers });
+        res.end(JSON.stringify({ error }));
+    };
+    return {
+        handleHttp(req, res) {
+            const url = new URL(req.url ?? "/", "http://x");
+            if (url.pathname !== "/app/daemon/cursor") return notFound(res, 404, "Not found");
+            if (req.method !== "POST") return notFound(res, 405, "Method not allowed", { allow: "POST" });
+            req.url = `${HARNESS_PREFIX}/api/cursor`;
+            agent.handleHttp(req, res);
+        },
+    };
+}

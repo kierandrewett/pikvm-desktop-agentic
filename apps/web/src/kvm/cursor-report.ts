@@ -1,8 +1,9 @@
 /**
  * Tell the agent daemon where the USER just moved the cursor (kvmd units, -32768..32767), so its
  * tracked position follows manual moves: kvmd does not broadcast position, so this is the only
- * way the daemon can observe them. Debounced and best-effort; only the desktop app has a daemon
- * behind `/app/daemon`, and the proxy refuses a request without the workspace header.
+ * way the daemon can observe them. Debounced and best-effort. The desktop app has the daemon behind
+ * `/app/daemon`; a hosted host relays this one path to its agent sidecar. The host refuses a request
+ * without the workspace header.
  */
 
 import type { Clock } from "@pikvm/kvm-engine";

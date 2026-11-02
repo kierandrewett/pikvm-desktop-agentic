@@ -115,6 +115,9 @@ export interface PictureOptions {
     readonly elements: PictureElements;
     readonly focus: FieldFocus;
     readonly desktop: boolean;
+    /** Is there an agent behind this host that wants to know where the person moves the pointer?
+     *  Asked at each report, not at construction: the agent comes and goes while the page stays. */
+    readonly agent?: () => boolean;
     readonly prefs: PicturePrefs;
 }
 
@@ -207,7 +210,13 @@ export function createPictureController(options: PictureOptions): PictureControl
         inputChanged: () => painter?.inputChanged(),
         dispose: () => painter?.dispose(),
     };
-    const reporter = desktop ? createCursorReporter(clock) : null;
+    // The desktop app has the daemon behind /app/daemon; a hosted page has the agent sidecar, which
+    // the host relays the report to. A host with neither answers the report with an error we ignore,
+    // so it is not sent.
+    const reporter = createCursorReporter(clock);
+    const reportCursor = (x: number, y: number): void => {
+        if (desktop || options.agent?.()) reporter.report(x, y);
+    };
     const execute = createPointerExecutor({
         link,
         keyboard,
@@ -215,7 +224,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         notify: session.notices.notify,
         painter: painterProxy,
         applyView,
-        ...(reporter ? { reportCursor: reporter.report } : {}),
+        reportCursor,
         cue: () => buzz("light"),
     });
     const sink = createDomCommandSink({
@@ -627,7 +636,7 @@ export function createPictureController(options: PictureOptions): PictureControl
             if (meterRaf) cancelAnimationFrame(meterRaf);
             clearTimeout(meterTimer ?? undefined);
             painter?.dispose();
-            reporter?.dispose();
+            reporter.dispose();
             pointer.dispose();
             driver.dispose();
         },

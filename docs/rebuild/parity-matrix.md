@@ -76,7 +76,7 @@ bridge's unit tests, and says so.
 | Cursor dot, hold cue, magnifier lens | n/p R7 | n/p R7 | available | E2E kvm-screen (screenshot) |
 | Absolute or relative trackpad mouse; touch mode | available (Settings -> Touch and mouse; in effect only on a touch screen) | available (same) | available (Settings and the More sheet) | T `kvm-screen.test.tsx` (K10); E2E kvm-screen |
 | Haptics on the hold cue | n/p R6 | n/p R6 | available | T `haptics.test.ts` |
-| Cursor position reported to the agent daemon | available | missing, blocked B3 | missing, blocked B3 | T `cursor-report.test.ts`. The host forwards only the harness on the hosted deployment |
+| Cursor position reported to the agent daemon | available | available | available | T `cursor-report.test.ts`, `picture-controller.test.ts`, `tests/harness-proxy.test.ts`, `agent/tests/test_harness_cursor.py`. On the hosted deployment the host relays `POST /app/daemon/cursor` (and only that daemon route) to the sidecar's `POST /api/cursor`, which sends it to its daemon; the page reports whenever `features.chat` is true |
 
 ## 3. The KVM screen: keys and typing
 
@@ -161,7 +161,7 @@ The four sweeps the audit was asked to make, and what each found.
 
 - **Shown only when `window.pikvmDesktop` exists** (`grep -rn "desktopBridge\|isDesktopApp" apps/web/src`): the
   window titlebar and controls (R1), the taskbar pulse (now a browser alert as well), the download-done wait (R9),
-  the cursor report to the agent daemon (B3), the wake-lock exemption (B2), and the Connection form (editable
+  the wake-lock exemption (B2), and the Connection form (editable
   in the desktop app, read-only on a hosted host, R8). Nothing else.
 - **Only in the desktop toolbar**: Send keys shortcuts (the phone lacked Task Manager and the Windows key:
   fixed), the health indicator (the phone lacked it: fixed), Power, the macro strip (phone: tiles) and the audio
@@ -178,7 +178,6 @@ The four sweeps the audit was asked to make, and what each found.
 |---|---|---|---|
 | B1 | The shared terminal has no view in the app. The server still hosts the PTY sessions and the `/app/terminal` socket (`src/server/terminal-socket.ts`; `features.terminal` in `/state` is read by nothing). | `docs/PRODUCT_REQUIREMENTS.md` makes the chat the only primary harness surface with "no terminal-first default", and the PLAN lists the terminal as a desktop capability. Whether the rebuild brings an xterm view back (a Settings or Chat subpage that attaches to the socket) is a product decision, not a parity fix: it is absent on every platform, not one. The hosted host also has no PTY (`terminalSessions` is desktop-only). | A decision to keep the terminal. Then a lazy xterm route over `/app/terminal` (the protocol is in `src/terminal-protocol.ts`), desktop first; the hosted web host would need the sidecar to expose its PTY. Otherwise delete the socket and `features.terminal`. |
 | B2 | ~~Screen wake lock inside the desktop app.~~ Done: the bridge member `keepDisplayAwake(on)` (Electron `powerSaveBlocker`, "prevent-display-sleep", one per window, released when the window closes) is driven by `useWakeLock` on the web wake lock's visibility rule. | | |
-| B3 | Cursor position reports to the agent daemon (`POST /app/daemon/cursor`) from the web and the phone. | The hosted host forwards only the harness (`docs/deploy-web.md`); `/app/daemon/*` on it has no daemon behind it (`daemonToken: ""`), and the sidecar's daemon is not exposed. The report only helps the agent start its next mouse move from where the user left the cursor; without it the agent re-reads the pointer, so the loss is small. | The sidecar exposing its daemon on the internal network and the host mounting it (WebChat's `src/server/proxy` work). The page side needs only `desktop ? ... : null` replaced by a feature flag from `/state`. |
 
 ## Evidence index
 

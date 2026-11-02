@@ -24,7 +24,7 @@ import { createApi } from "./api";
 import type { TargetEditor } from "./api";
 import { createRouter } from "./routes";
 import { createDaemonProxy } from "./proxy/daemon";
-import { createHarnessProxy, HARNESS_PREFIX } from "./proxy/harness";
+import { createCursorRelay, createHarnessProxy, HARNESS_PREFIX } from "./proxy/harness";
 import { createPiKvmProxy } from "./proxy/kvmd";
 import { appAssets, webAssets } from "./static";
 import { createTerminalSocket } from "./terminal-socket";
@@ -113,10 +113,6 @@ export function startControlServer(
         onHidMouseMove: (x, y) => control.noteObservedMouse(x, y),
     });
 
-    const daemon = createDaemonProxy({
-        origin: deps.daemonOrigin ?? "http://127.0.0.1:47615",
-        bearerToken: deps.daemonToken,
-    });
 
     /* The same reverse proxy pointed at the harness, so the conversation can be
      * served from this origin and still reach its own API.
@@ -132,6 +128,16 @@ export function startControlServer(
                   prefix: deps.harnessPrefix ?? HARNESS_PREFIX,
               })
             : null;
+
+    /* The desktop has the daemon itself. A host with only an agent relays the one daemon route a
+     * page uses (the cursor report) to it; see createCursorRelay. */
+    const daemon =
+        !deps.daemonOrigin && harness
+            ? createCursorRelay(harness)
+            : createDaemonProxy({
+                  origin: deps.daemonOrigin ?? "http://127.0.0.1:47615",
+                  bearerToken: deps.daemonToken,
+              });
 
     const api = createApi({
         control,

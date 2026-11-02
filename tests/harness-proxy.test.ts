@@ -379,3 +379,53 @@ test("through the server, /app/harness needs the workspace header and carries th
         await agent.close();
     }
 });
+
+/* ------------------------------------------------------------ cursor reports */
+
+test("a hosted page's cursor report reaches the agent at its own path, and nothing else of the daemon does", async () => {
+    // The desktop has the daemon behind /app/daemon. A hosted host has none, only the agent, so it
+    // relays this one report and answers 404 to the rest of the daemon's API.
+    const agent = await upstream((_req, res) => {
+        res.writeHead(204);
+        res.end();
+    });
+    const host = await serverWith(agent.origin);
+    const post = (path: string, headers: Record<string, string> = { "x-pikvm-workspace": "1" }) =>
+        fetch(`${host.origin}${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", ...headers },
+            body: '{"x":1,"y":2}',
+        });
+    try {
+        assert.equal((await post("/app/daemon/cursor", {})).status, 403, "no workspace header");
+
+        const reported = await post("/app/daemon/cursor");
+        assert.equal(reported.status, 204);
+        const forwarded = agent.seen.find((s) => s.url === "/api/cursor");
+        assert.equal(forwarded?.method, "POST");
+        assert.equal(forwarded?.headers.authorization, `Bearer ${OPERATOR}`);
+
+        const before = agent.seen.length;
+        assert.equal((await post("/app/daemon/sessions")).status, 404);
+        assert.equal((await post("/app/daemon/cursor/extra")).status, 404);
+        assert.equal((await fetch(`${host.origin}/app/daemon/cursor`, { headers: { "x-pikvm-workspace": "1" } })).status, 405);
+        assert.equal(agent.seen.length, before, "none of those reached the agent");
+    } finally {
+        await host.close();
+        await agent.close();
+    }
+});
+
+test("a cursor report with the agent down is a 502, not a hang", async () => {
+    const host = await serverWith("http://127.0.0.1:1");
+    try {
+        const res = await fetch(`${host.origin}/app/daemon/cursor`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-pikvm-workspace": "1" },
+            body: '{"x":1,"y":2}',
+        });
+        assert.equal(res.status, 502);
+    } finally {
+        await host.close();
+    }
+});

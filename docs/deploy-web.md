@@ -172,6 +172,16 @@ and `PIKVM_DESKTOP_TOKEN` its access token. That server mounts the harness at `/
 attaches its own operator capability, so the web host forwards the path whole and authenticates as a client
 of it. Same proxy, same health probe, same rule that the browser never holds a credential.
 
+## The cursor report
+
+When a person moves the pointer on the picture, the page tells the agent's daemon where it went
+(`POST /app/daemon/cursor`, kvmd units): kvmd never broadcasts the position, and the daemon ends the agent's
+control of the machine when a person takes the mouse. On the desktop the daemon is behind `/app/daemon`. A
+hosted host has no daemon of its own, so it relays that one route, and no other under `/app/daemon` (they
+answer 404), to the agent through the same upstream and credential as Chat: the sidecar's operator API takes it
+at `POST /api/cursor` (operator token only; the model-side agent token is refused) and sends it to its daemon.
+The page sends reports while `features.chat` is true.
+
 ## What the host does not forward
 
 The proxy sets `Authorization` itself (whatever the browser sent is dropped) and does not forward the
