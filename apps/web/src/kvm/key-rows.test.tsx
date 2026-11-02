@@ -2,6 +2,7 @@
 
 import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { SHORTCUTS } from "./actions";
 import { createFieldFocus } from "./field-focus";
 import { KeyRows } from "./key-rows";
 import { hidFrame, openRig, renderWithSession } from "./test-support";
@@ -115,8 +116,34 @@ describe("rows", () => {
 
     it("the More block carries the shortcuts a phone keyboard cannot type", async () => {
         await mount({ moreOpen: true });
-        for (const name of ["Ctrl+Z", "Alt+Tab", "Alt+F4", "Win+D, show the desktop", "Win+R, run", "Win+L, lock the target", "C-A-D, send Ctrl+Alt+Del", "Page up", "Print screen", "Context menu key"]) {
+        for (const name of ["Ctrl+Z", "Alt+Tab", "Alt+F4", "Win+D, show the desktop", "Win+R, run", "Win+L, lock the target", "C-A-D, send Ctrl+Alt+Del", "Page up", "Print screen", "Context menu key", "Ctrl+Shift+Esc, Task Manager", "Windows key on its own"]) {
             expect(screen.getByRole("button", { name })).toBeInTheDocument();
         }
+    });
+
+    it("the Windows key on its own and Task Manager go out whole: the same keys the desktop's Send keys menu sends", async () => {
+        const rig = await mount({ moreOpen: true });
+        fireEvent.click(screen.getByRole("button", { name: "Windows key on its own" }));
+        rig.clock.advance(1000);
+        expect(rig.sent()).toEqual(["key MetaLeft:down", "key MetaLeft:up"]);
+
+        fireEvent.click(screen.getByRole("button", { name: "Ctrl+Shift+Esc, Task Manager" }));
+        rig.clock.advance(1000);
+        expect(rig.sent().slice(2)).toEqual([
+            "key ControlLeft:down",
+            "key ShiftLeft:down",
+            "key Escape:down",
+            "key Escape:up",
+            "key ShiftLeft:up",
+            "key ControlLeft:up",
+        ]);
+    });
+
+    it("every shortcut the desktop's Send keys menu has is reachable on a phone", async () => {
+        await mount({ moreOpen: true });
+        // Escape is on the main row; the rest are in More.
+        const reachable = ["Escape", "C-A-D, send Ctrl+Alt+Del", "Ctrl+Shift+Esc, Task Manager", "Alt+Tab", "Alt+F4", "Windows key on its own", "Win+D, show the desktop", "Win+L, lock the target", "Win+R, run", "Print screen"];
+        for (const name of reachable) expect(screen.getByRole("button", { name }), name).toBeInTheDocument();
+        expect(reachable).toHaveLength(SHORTCUTS.length);
     });
 });

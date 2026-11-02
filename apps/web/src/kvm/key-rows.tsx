@@ -68,6 +68,10 @@ const MORE_ROW: readonly KeyDef[] = [
     chord("MetaLeft+KeyD", "Win+D", "Win+D, show the desktop"),
     chord("MetaLeft+KeyR", "Win+R", "Win+R, run"),
     chord("MetaLeft+KeyL", "Win+L", "Win+L, lock the target"),
+    // The two the desktop's Send keys menu has that a phone otherwise cannot make: a tapped Win
+    // modifier is only armed, and never goes out bare.
+    chord("ControlLeft+ShiftLeft+Escape", "Ctrl+Shift+Esc", "Ctrl+Shift+Esc, Task Manager"),
+    key("MetaLeft", "Win key", "Windows key on its own"),
     { kind: "cad" },
 ];
 
