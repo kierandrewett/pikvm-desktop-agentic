@@ -1,8 +1,8 @@
 /** TanStack Query bindings for the app API. Request/response data only; sockets are not Query's. */
 
-import { type Settings, type SettingsPatch, type State } from "@pikvm/contracts/api";
+import { type Macro, type Settings, type SettingsPatch, type State } from "@pikvm/contracts/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiFailure, getState, listMacros, patchSettings, runApi } from "./client";
+import { ApiFailure, getState, listMacros, patchSettings, replaceMacros, runApi } from "./client";
 import { OAUTH_USERINFO_PATH } from "../host/paths";
 
 export const stateKey = ["state"] as const;
@@ -20,6 +20,20 @@ export function useMacros() {
     return useQuery({
         queryKey: macrosKey,
         queryFn: ({ signal }) => runApi(listMacros(), signal),
+    });
+}
+
+/**
+ * Replace the stored macro list. The cache takes the server's reply (it drops what it cannot
+ * read), so the settings page and the KVM toolbar agree with what is stored.
+ */
+export function useSaveMacros() {
+    const queryClient = useQueryClient();
+    return useMutation<ReadonlyArray<Macro>, ApiFailure, ReadonlyArray<unknown>>({
+        mutationFn: (macros) => runApi(replaceMacros(macros)),
+        onSuccess: (stored) => {
+            queryClient.setQueryData(macrosKey, stored);
+        },
     });
 }
 

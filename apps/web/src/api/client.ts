@@ -94,3 +94,10 @@ export const runApi = async <A>(effect: Effect.Effect<A, ApiFailure>, signal?: A
     // Interrupted (the caller aborted) or a defect: not something to show the user.
     throw new ApiFailure({ message: "The request was cancelled." });
 };
+
+/**
+ * Replace the whole macro list. The server keeps what it can read and returns that, so what a
+ * caller holds afterwards is what is stored, not what it sent.
+ */
+export const replaceMacros = (macros: ReadonlyArray<unknown>): Effect.Effect<ReadonlyArray<Macro>, ApiFailure> =>
+    withClient((client) => Effect.map(client.macros.replace({ payload: { macros: [...macros] } }), (reply) => reply.macros));
