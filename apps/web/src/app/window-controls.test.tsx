@@ -48,6 +48,8 @@ function fakeBridge(platform: DesktopPlatform, maximised = false): FakeBridge {
             onFullscreenChange: () => () => {},
             onFocusChange: () => () => {},
         },
+        requestAttention: () => void calls.push("requestAttention"),
+        onDownloadDone: () => () => {},
         openExternal: () => Promise.resolve(),
     };
     return { bridge, calls, listeners, emitMaximise: (value) => listeners.forEach((listener) => listener(value)) };

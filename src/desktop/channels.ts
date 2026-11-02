@@ -7,6 +7,8 @@ export const CHANNELS = {
     setFullscreen: "desktop:window:set-fullscreen",
     isFullscreen: "desktop:window:is-fullscreen",
     openExternal: "desktop:open-external",
+    requestAttention: "desktop:request-attention",
+    downloadDone: "desktop:download-done",
     maximiseChange: "desktop:window:maximise-change",
     fullscreenChange: "desktop:window:fullscreen-change",
     focusChange: "desktop:window:focus-change",

@@ -35,6 +35,14 @@ export interface DesktopWindowApi {
     onFocusChange(listener: (focused: boolean) => void): () => void;
 }
 
+/** What became of a download the page started, once the OS is done with it. */
+export interface DesktopDownload {
+    readonly name: string;
+    readonly state: "completed" | "cancelled" | "interrupted";
+    /** Where it was saved. Empty unless it completed. */
+    readonly path: string;
+}
+
 export interface DesktopBridge {
     readonly platform: DesktopPlatform;
     /** The desktop app's version, from its package.json. */
@@ -45,6 +53,17 @@ export interface DesktopBridge {
      */
     readonly nativeControls: boolean;
     readonly window: DesktopWindowApi;
+    /**
+     * Pulse the taskbar or dock entry, for something that happened while the window was in the
+     * background. Ignored while the window is focused; cleared the moment it is.
+     */
+    requestAttention(): void;
+    /**
+     * A download the page started has finished, been cancelled or failed. Clicking a download
+     * link only hands the file to the OS (it may ask where to save, and the user may say no), so
+     * "saved" is only true once this fires with `completed`.
+     */
+    onDownloadDone(listener: (download: DesktopDownload) => void): () => void;
     /** Open http(s) and mailto links in the user's browser or mail client. Other schemes are refused. */
     openExternal(url: string): Promise<void>;
 }

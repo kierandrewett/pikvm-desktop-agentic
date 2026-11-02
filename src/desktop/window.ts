@@ -1,7 +1,8 @@
-import { BrowserWindow, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron";
+import { BrowserWindow, ipcMain, Menu, session, shell, type MenuItemConstructorOptions } from "electron";
 import { resolve } from "node:path";
 import { CHANNELS, VERSION_ARG } from "./channels";
 import { externalUrl, navigationVerdict } from "./policy";
+import { requestAttention } from "../taskbar-attention";
 
 /* The one app window: the embedded server's /app/ in a frameless BrowserWindow.
  *
@@ -69,6 +70,25 @@ function registerIpc(): void {
     ipcMain.handle(CHANNELS.setFullscreen, (e, on: unknown, lockKeyboard: unknown) => {
         const win = windowOf(e);
         return win ? setFullscreen(win, on === true, lockKeyboard === true) : false;
+    });
+    // Re-checked there: focus can land between the page's sample and this message arriving.
+    ipcMain.on(CHANNELS.requestAttention, (e) => {
+        const win = windowOf(e);
+        if (win) requestAttention(win);
+    });
+    /* Tell the page whether a download actually landed. Clicking an <a download> only HANDS the
+     * file to the download machinery: it can open a save dialog the user cancels, or fail on a
+     * full or read-only disk, and a page that toasts "saved" on the click reports an outcome it
+     * never observed. */
+    session.defaultSession.on("will-download", (_event, item, page) => {
+        item.once("done", (_done, state) => {
+            if (page.isDestroyed()) return;
+            page.send(CHANNELS.downloadDone, {
+                name: item.getFilename(),
+                state,
+                path: state === "completed" ? item.getSavePath() : "",
+            });
+        });
     });
     ipcMain.handle(CHANNELS.openExternal, async (_e, url: unknown) => {
         const target = typeof url === "string" ? externalUrl(url) : null;

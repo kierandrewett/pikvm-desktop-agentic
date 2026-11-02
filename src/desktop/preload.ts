@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { DESKTOP_BRIDGE_KEY, type DesktopBridge, type DesktopPlatform } from "@pikvm/contracts/desktop";
+import { DESKTOP_BRIDGE_KEY, type DesktopBridge, type DesktopDownload, type DesktopPlatform } from "@pikvm/contracts/desktop";
 import { CHANNELS, VERSION_ARG } from "./channels";
 
 /*
@@ -35,6 +35,8 @@ const bridge: DesktopBridge = {
         onFullscreenChange: (listener) => subscribe<boolean>(CHANNELS.fullscreenChange, listener),
         onFocusChange: (listener) => subscribe<boolean>(CHANNELS.focusChange, listener),
     },
+    requestAttention: () => ipcRenderer.send(CHANNELS.requestAttention),
+    onDownloadDone: (listener) => subscribe<DesktopDownload>(CHANNELS.downloadDone, listener),
     openExternal: (url) => ipcRenderer.invoke(CHANNELS.openExternal, url),
 };
 
