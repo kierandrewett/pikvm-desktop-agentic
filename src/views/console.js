@@ -962,10 +962,8 @@
             btn.hidden = !show;
             btn.disabled = busy;
         });
-        ["atx-sep", "atx-sep-end"].forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.hidden = !show;
-        });
+        var atxSep = document.getElementById("atx-sep");
+        if (atxSep) atxSep.hidden = !show;
         var powered = atx.powered();
         tbState.power = {
             visible: !!show,
@@ -7624,6 +7622,7 @@
         queueMove();
         followCursor();
         paintTrackpadCursor();
+        noteLensSpeed(Math.hypot(dx, dy));
         showLens();
     }
     /** Where the trackpad cursor sits, in client pixels, or null with no picture. */
@@ -7672,7 +7671,46 @@
      * Only where the cursor position is KNOWN (absolute HID): a lens on a guessed
      * position would magnify the wrong place. */
     var lens = document.getElementById("kvm-lens");
-    var LENS_D = 104; // CSS px
+    /* The lens grows when the finger slows (you are aiming) and shrinks when it
+     * speeds up (you are travelling and it would only be in the way). Speed is
+     * smoothed, and the size only moves to a new target once that target has
+     * held for a moment and differs by a clear step, then eases there, so it does
+     * not pulse with every jitter of the finger. */
+    var LENS_MIN = 64; // CSS px, travelling fast
+    var LENS_MAX = 168; // CSS px, aiming slowly or holding still
+    var LENS_SLOW = 0.12; // finger px/ms at or below which the lens is largest
+    var LENS_FAST = 1.4; // finger px/ms at or above which it is smallest
+    var LENS_STEP = 18; // px a new size has to differ by to be taken
+    var LENS_SETTLE_MS = 160; // how long a new size has to hold before it is taken
+    var lensSpeed = 0; // smoothed finger speed, px/ms
+    var lensSpeedAt = 0;
+    var lensTarget = 104;
+    var lensShown = 104;
+    var lensPending = null; // {size, since}
+    function smoothLensSpeed(sample, now) {
+        var dt = lensSpeedAt ? Math.max(1, now - lensSpeedAt) : 16;
+        lensSpeedAt = now;
+        var a = 1 - Math.exp(-dt / 140);
+        lensSpeed += ((sample === null ? 0 : sample / dt) - lensSpeed) * a;
+    }
+    function noteLensSpeed(dist) {
+        smoothLensSpeed(dist, Date.now());
+    }
+    function updateLensSize(now) {
+        // A finger that has stopped sends no moves; let the speed fall away.
+        if (now - lensSpeedAt > 60) smoothLensSpeed(null, now);
+        var t = Math.max(0, Math.min(1, (lensSpeed - LENS_SLOW) / (LENS_FAST - LENS_SLOW)));
+        var want = Math.round(LENS_MAX - t * (LENS_MAX - LENS_MIN));
+        if (Math.abs(want - lensTarget) < LENS_STEP) lensPending = null;
+        else if (!lensPending || Math.abs(want - lensPending.size) >= LENS_STEP) lensPending = { size: want, since: now };
+        else if (now - lensPending.since >= LENS_SETTLE_MS) {
+            lensTarget = lensPending.size;
+            lensPending = null;
+        }
+        lensShown += (lensTarget - lensShown) * 0.2;
+        if (Math.abs(lensTarget - lensShown) < 0.5) lensShown = lensTarget;
+        return Math.round(lensShown);
+    }
     var LENS_TOTAL = 4; // total magnification aimed for: lens x picture zoom
     var LENS_LINGER_MS = 1400;
     var lensUntil = 0;
@@ -7705,15 +7743,20 @@
             hideLens();
             return;
         }
+        var size = updateLensSize(Date.now());
         var dpr = window.devicePixelRatio || 1;
-        var px = Math.round(LENS_D * dpr);
+        var px = Math.round(size * dpr);
         if (lens.width !== px) {
             lens.width = px;
             lens.height = px;
+            lens.style.width = size + "px";
+            lens.style.height = size + "px";
         }
         // The square of the picture the lens covers, in the stream's own pixels.
+        // Same magnification at any lens size: a bigger lens shows more around
+        // the cursor, not a bigger blow-up of the same spot.
         var perClient = natW / box.w; // stream px per client px at the current zoom
-        var side = (LENS_D / m) * perClient;
+        var side = (size / m) * perClient;
         var cx = ((at.x - box.left) / box.w) * natW;
         var cy = ((at.y - box.top) / box.h) * natH;
         var sx = cx - side / 2;

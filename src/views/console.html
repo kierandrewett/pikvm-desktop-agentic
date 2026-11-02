@@ -513,7 +513,9 @@
                 <button class="more-item" id="atx-power" data-atx="power" hidden>Power button</button>
                 <button class="more-item" id="atx-power-long" data-atx="power_long" hidden>Power button (hold 5s)</button>
                 <button class="more-item" id="atx-reset" data-atx="reset" hidden>Reset</button>
-                <div class="more-sep" id="atx-sep-end" hidden></div>
+                <!-- Always shown: it closes off the actions above (and the power
+                     group, when there is one) from the view settings below. -->
+                <div class="more-sep" id="atx-sep-end"></div>
                 <!-- Browsers only: full screen with Keyboard Lock, so Win, Win+Shift+S,
                      Alt+Tab and friends reach the target instead of this machine's OS.
                      Hidden where the page cannot go full screen. -->

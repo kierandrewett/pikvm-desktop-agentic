@@ -2938,3 +2938,14 @@ html.touch-dock .more-menu .sheet-grid .macro-run-label {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
 }
+/* .dock-only shows its elements as inline-flex, which gave the separator under
+   the input settings no width at all: a divider that never drew. */
+html.touch-dock .more-sep.dock-only {
+    display: block;
+}
+/* In the phone sheet the dividers run the full width, like the section rules
+   under the mouse and macro tiles, with room either side. */
+html.touch-dock .bar .more-menu .more-sep {
+    margin: 6px 0;
+    flex: none;
+}
