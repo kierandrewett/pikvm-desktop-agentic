@@ -5,11 +5,10 @@ import {
     existsSync,
     mkdirSync,
     writeFileSync,
-    statSync,
 } from "fs";
 import { createServer as createProbeServer } from "net";
 import { get as httpGet } from "node:http";
-import { resolve, isAbsolute, extname } from "path";
+import { resolve, isAbsolute } from "path";
 import {
     agentExecutablePaths,
     describeAgentRuntime,
@@ -22,13 +21,11 @@ import { electronImageOps } from "./image-ops-electron";
 import { startControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TargetStore } from "./target-store";
-import { TerminalSessions } from "./terminal-server";
 import { ManagedService } from "./service-manager";
 import { HarnessManager } from "./harness-manager";
 import { activeManagedClientRuntimePath } from "./harness-runtime";
 import { WORKSPACE_PREFIX } from "./server/workspace";
 import { createAppWindow, focusAppWindow } from "./desktop/window";
-import { prepareGuiMcp, type GuiMcp } from "./gui-mcp";
 
 const appIconPath = resolve(__dirname, "assets/icon.png");
 
@@ -133,7 +130,7 @@ function reportMissingAgentRuntime(r: AgentRuntimeResolution): void {
     dialog.showErrorBox(
         "PiKVM Desktop could not start its agent",
         `${r.hint}\n\nLooked in:\n${r.tried.map((t) => `  ${t}`).join("\n")}\n\n` +
-            "The KVM view, terminal and console all work without it. Only the agent is unavailable.",
+            "The KVM view and the console work without it. Only the agent (the Chat tab) is unavailable.",
     );
 }
 
@@ -299,9 +296,6 @@ async function settleControlPort(bindHost: string): Promise<number> {
     return CONTROL_PORT;
 }
 
-/** This run's ticket for the `pikvm` MCP server (src/gui-mcp.ts). */
-let guiMcp: GuiMcp | null = null;
-
 async function startProxyAndHarness(
     targetStore: TargetStore,
     settings: SettingsStore,
@@ -335,63 +329,6 @@ async function startProxyAndHarness(
     const bindHost = process.env.PIKVM_BIND_HOST || settings.get().bindHost || "127.0.0.1";
 
     await settleControlPort(bindHost);
-
-    // Keep the optional browser/mobile shell service available for compatibility.
-    // The desktop window has no terminal of its own; the web app's /app/terminal socket uses this.
-    const vaultPath = (): string => {
-        const path = settings.get().atlas?.vaultPath;
-        return path && path.trim() ? path : app.getPath("home");
-    };
-    const resolvePath = (path: string): string => {
-        if (path.startsWith("~/")) return resolve(app.getPath("home"), path.slice(2));
-        return isAbsolute(path) ? path : resolve(vaultPath(), path);
-    };
-    const imageMime: Record<string, string> = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-        ".bmp": "image/bmp",
-        ".svg": "image/svg+xml",
-    };
-    /* The `pikvm` MCP server (agent/docs/CUA.md) has tools only for a harness
-     * started in these shells. A failure here costs that one feature, never
-     * the terminal or the KVM. */
-    try {
-        guiMcp = prepareGuiMcp({
-            directory: resolve(settings.dir(), "gui-mcp"),
-            agentCommand: harnessRuntime.found ? harnessRuntime.command : null,
-        });
-        if (guiMcp.serverCommand) {
-            console.log(`[gui-mcp] register this as the pikvm MCP server: ${guiMcp.serverCommand}`);
-        }
-    } catch (error) {
-        console.error(`[gui-mcp] could not prepare the terminal MCP ticket: ${String(error)}`);
-    }
-    const terminalSessions = new TerminalSessions({
-        vaultPath,
-        prepareAgent: () => {},
-        extraPath: () => guiMcp?.path ?? [],
-        resolveImage: (path) => {
-            try {
-                const absolute = resolvePath(path);
-                const mime = imageMime[extname(absolute).toLowerCase()];
-                if (!mime || !existsSync(absolute)) return null;
-                if (statSync(absolute).size > 12 * 1024 * 1024) return null;
-                return `data:${mime};base64,${readFileSync(absolute).toString("base64")}`;
-            } catch {
-                return null;
-            }
-        },
-        openPath: (path) => {
-            const absolute = resolvePath(path);
-            if (existsSync(absolute)) void shell.openPath(absolute);
-        },
-        openExternal: (url) => {
-            if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
-        },
-    });
 
     // The desktop owns both local services and creates two non-interchangeable
     // daemon capabilities. Guarded-direct clients receive only the action
@@ -461,7 +398,6 @@ async function startProxyAndHarness(
         return {
             control,
             settings,
-            terminalSessions,
             daemon: null,
             harness: null,
             harnessReady: Promise.resolve(),
@@ -494,7 +430,6 @@ async function startProxyAndHarness(
                     return targetStore.view();
                 },
             },
-            terminalSessions,
             daemonOrigin,
             daemonToken: harness.daemonActionToken,
             /* So the conversation can be served from this origin and still reach
@@ -528,7 +463,7 @@ async function startProxyAndHarness(
          * something that is not there, since the harness resolved above without
          * consulting them. The harness is left running; only the daemon is out. */
         reportMissingAgentRuntime(daemonRuntime);
-        return { control, settings, terminalSessions, daemon: null, harness, harnessReady: Promise.resolve() };
+        return { control, settings, daemon: null, harness, harnessReady: Promise.resolve() };
     }
     const { command } = daemonRuntime;
     const args = ["daemon"];
@@ -580,7 +515,6 @@ async function startProxyAndHarness(
     return {
         control,
         settings,
-        terminalSessions,
         daemon,
         harness,
         harnessReady,
@@ -700,15 +634,13 @@ async function createWindow() {
     setTimeout(revealWindow, 4000); // fallback in case load never finishes
 
     win.on("closed", () => {
-        backend?.terminalSessions.killAll();
-        guiMcp?.dispose();
         backend?.harness?.stop();
         backend?.daemon?.stop();
     });
 
-    // Start the local backend (PiKVM control core for the proxy + the shared
-    // terminal + the control server) — UNLESS we're a thin client pointing at a
-    // remote console, where the remote host owns the proxy + terminal.
+    // Start the local backend (PiKVM control core for the proxy, the agent harness and
+    // the control server) — UNLESS we're a thin client pointing at a remote console,
+    // where the remote host owns the proxy and the agent.
     const backend = remoteConsole
         ? null
         : await startProxyAndHarness(targetStore, settings, harnessRuntime);

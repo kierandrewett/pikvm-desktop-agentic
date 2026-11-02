@@ -22,8 +22,6 @@ import { WebSocket, WebSocketServer } from "ws";
 import { sessionValue, SESSION_COOKIE } from "../src/server/auth";
 import { createRouter, type RouteTargets } from "../src/server/routes";
 import { createWebAssets } from "../src/server/static";
-import { createTerminalSocket } from "../src/server/terminal-socket";
-import type { TerminalSessions } from "../src/terminal-server";
 
 const TOKEN = "correct horse battery staple";
 const WORKSPACE = { "x-pikvm-workspace": "1" };
@@ -40,14 +38,6 @@ function marker(name: string) {
 
 function targets(over: { token?: string; harness?: boolean; appDir?: string } = {}): RouteTargets {
     const kvmdSockets = new WebSocketServer({ noServer: true });
-    const sessions = {
-        ensurePrimary() {},
-        subscribe(send: (msg: unknown) => void) {
-            send({ terminal: "stub" });
-            return () => {};
-        },
-        handle() {},
-    } as unknown as TerminalSessions;
     return {
         accessToken: () => over.token ?? "",
         kvmd: {
@@ -75,7 +65,6 @@ function targets(over: { token?: string; harness?: boolean; appDir?: string } = 
         // The real console bundle, so a page and its scripts are really served.
         assets: createWebAssets(resolve(process.cwd(), "src/views")),
         app: createWebAssets(over.appDir ?? resolve(tmpdir(), "pikvm-routes-no-such-app")),
-        terminal: createTerminalSocket(sessions),
     };
 }
 
@@ -393,13 +382,14 @@ test("loopback skips the gate, which is why the capability routes need their hea
     }
 });
 
-test("WebSocket upgrades: kvmd's sockets, our terminal, nothing else under /app", async () => {
+test("WebSocket upgrades: kvmd's sockets, nothing else under /app (there is no terminal socket)", async () => {
     const s = await run(targets());
     try {
         assert.equal(await socket(s.origin, "/api/ws"), "kvmd /api/ws");
         assert.equal(await socket(s.origin, "/api/ws?stream=0"), "kvmd /api/ws?stream=0");
         assert.equal(await socket(s.origin, "/janus/ws"), "kvmd /janus/ws");
-        assert.equal(await socket(s.origin, "/app/terminal"), JSON.stringify({ terminal: "stub" }));
+        // The terminal was removed: the chat replaces it, so its socket is refused like any other /app path.
+        assert.equal(await socket(s.origin, "/app/terminal"), "refused 404");
         // The bare /terminal alias is gone: it is kvmd's path now, like any other.
         assert.equal(await socket(s.origin, "/terminal"), "kvmd /terminal");
         // Used to be forwarded to the Pi as a path the Pi has never heard of.
@@ -409,16 +399,28 @@ test("WebSocket upgrades: kvmd's sockets, our terminal, nothing else under /app"
     }
 });
 
+test("the terminal is gone: its page is a 404 of ours, not kvmd's", async () => {
+    const s = await run(targets());
+    try {
+        for (const path of ["/app/terminal.html", "/app/terminal.js", "/app/xterm.css"]) {
+            const res = await call(s.origin, path);
+            assert.equal(res.status, 404, path);
+            assert.notEqual(res.target, "kvmd", path);
+        }
+    } finally {
+        await s.close();
+    }
+});
+
 test("an unauthenticated upgrade is refused when the gate is on", async () => {
     const s = await run(targets({ token: TOKEN }), true);
     try {
-        for (const path of ["/api/ws", "/janus/ws", "/app/terminal"]) {
+        for (const path of ["/api/ws", "/janus/ws"]) {
             const result = await socket(s.origin, path);
             assert.match(result, /^error /, `${path}: ${result}`);
         }
         const signedIn = { cookie: `${SESSION_COOKIE}=${sessionValue(TOKEN)}` };
         assert.equal(await socket(s.origin, "/api/ws", signedIn), "kvmd /api/ws");
-        assert.equal(await socket(s.origin, "/app/terminal", signedIn), JSON.stringify({ terminal: "stub" }));
         // And a bearer token is as good as a cookie.
         assert.equal(await socket(s.origin, "/janus/ws", { authorization: `Bearer ${TOKEN}` }), "kvmd /janus/ws");
     } finally {

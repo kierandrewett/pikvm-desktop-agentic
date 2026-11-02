@@ -95,7 +95,7 @@ test("GET /state is what the contract says, and carries no secret", async () => 
         assert.doesNotMatch(text, /a-secret-that-must-never-be-readable/);
         const state = Schema.decodeUnknownSync(State)(JSON.parse(text));
         assert.deepEqual(state.settings, { keyboardLayout: "us", jiggler: false });
-        assert.deepEqual(state.features, { terminal: false, chat: false });
+        assert.deepEqual(state.features, { chat: false });
         assert.equal(state.pikvm.origin, "https://kvm.example.test:8443");
         assert.equal(state.pikvm.link, "unknown");
         assert.equal(state.jigglerStatus.enabled, false);

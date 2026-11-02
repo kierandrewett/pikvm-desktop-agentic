@@ -1,6 +1,6 @@
 /**
  * Our own static bundle: the console, its scripts and styles, the PWA files
- * and the terminal renderer, all served from `dist/views` under `/app/`.
+ * served from `dist/views` under `/app/`.
  */
 
 import { readFileSync, existsSync, statSync } from "node:fs";

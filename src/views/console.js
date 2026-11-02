@@ -9737,22 +9737,8 @@
         applyTheme(storedTheme() || (osThemeMq.matches ? "dark" : "light"), false);
     } catch (e) {}
     if (window.desktopConsole) {
-        /* DESKTOP: the panel is the shared terminal, the same page web and
-         * mobile load below. Kieran chose this on 2026-10-05 so any agent
-         * harness (Claude Code, Codex, OpenCode, ...) runs in it, and only its
-         * shells get the token for the GUI-only `pikvm` MCP server
-         * (src/gui-mcp.ts, agent/docs/CUA.md).
-         *
-         * It replaced the first-party chat workspace that was framed here.
-         * That page could not load when a harness left over from an earlier
-         * run held the socket (401, "The agent panel could not start"). The
-         * terminal is served by this app's own process, so it has no such
-         * dependency and needs no wait-and-retry before it is shown. */
-        chatFrame.title = "Terminal";
-        chatFrame.removeAttribute("aria-hidden");
-        chatFrame.src = "/app/terminal.html";
-        chatFrame.hidden = false;
-
+        /* DESKTOP: there is no terminal. The agent is the Chat tab of the app
+         * (@pikvm/chat-ui), so this old console frames nothing beside the screen. */
         // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
         // colour the titlebar dot. Tooltip enumerates each dependency the daemon needs.
         var bsEl = document.getElementById("backend-status");
@@ -9834,23 +9820,13 @@
             pollBackend();
             setInterval(pollBackend, 5000);
         }
-    } else {
-        // WEB / MOBILE: load the SAME shared terminal as desktop. The PTYs are hosted on the
-        // server; this page connects to the /app/terminal WebSocket and sees the same tabs
-        // + live output as every other device (full control). No native view needed here.
-        // Loaded once the state below says this host has one: the headless web host
-        // does not, and a frame whose socket can only ever close is a red
-        // "disconnected" banner taking half a phone screen.
-        chatFrame.title = "Terminal";
     }
     var webTerminal = !window.desktopConsole;
 
     /* ---- pick up the server's keyboard layout (so symbols map right) ----
-     * And whether this host serves the shared terminal. The panel stays out of
-     * the layout until the host SAYS it has one: assuming it did put a red
-     * "Terminal disconnected" band on screen whenever this read was slow or
-     * failed, on a host that never had a terminal at all. A failed read is tried
-     * again rather than treated as an answer. */
+     * The panel beside the screen stays out of the layout for good: there is no
+     * terminal any more. A failed read is tried again rather than treated as an
+     * answer. */
     if (webTerminal) {
         document.documentElement.classList.add("no-terminal");
         mountDrawerInBar();
@@ -9865,12 +9841,6 @@
             .then(function (s) {
                 if (s && s.settings && (s.settings.keyboardLayout === "uk" || s.settings.keyboardLayout === "us"))
                     layout = s.settings.keyboardLayout;
-                if (!webTerminal) return;
-                // Older hosts send no features block; they always had the terminal.
-                if (s && s.features && s.features.terminal === false) return;
-                document.documentElement.classList.remove("no-terminal");
-                if (!dockMode) mountDrawerInChat();
-                chatFrame.src = "/app/terminal.html";
             })
             .catch(function () {
                 setTimeout(readState, stateWait);

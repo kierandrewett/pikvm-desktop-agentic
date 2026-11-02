@@ -23,8 +23,6 @@
     },
     "dependencies": {
         "@lydell/node-pty": "^1.1.0",
-        "@xterm/addon-fit": "^0.11",
-        "@xterm/xterm": "6.1.0-beta.287",
         "axios": "^1.13.2",
         "web-haptics": "^0.0.6",
         "ws": "^8.21.0"

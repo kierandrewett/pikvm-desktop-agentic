@@ -17,7 +17,6 @@
  *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
  *                              /app/ until the app is built); /app/legacy/ the console
  *   /app/<file>                the app's build (hashed /app/assets/*), then the console bundle
- *   /app/terminal  (upgrade)   shared terminal socket
  *   anything else              kvmd (HTTP and WebSocket upgrades alike)
  *
  * The gate (auth.ts) runs before the table, once, for HTTP and for upgrades;
@@ -54,7 +53,6 @@ export interface RouteTargets {
     assets: { serve(path: string, res: ServerResponse): boolean };
     /** The built web app (apps/web/dist); `has` is false until it is built. */
     app: { has(path: string): boolean; serve(path: string, res: ServerResponse): boolean };
-    terminal: { upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void };
 }
 
 /** One request, parsed once. */
@@ -285,8 +283,8 @@ export function createRouter(targets: RouteTargets): Router {
             });
         },
 
-        /* WebSocket upgrades. The same gate, then two destinations: our terminal
-         * socket, or kvmd (the HID/event socket and Janus). An unknown `/app/*`
+        /* WebSocket upgrades. The same gate, then kvmd (the HID/event socket and
+         * Janus). An unknown `/app/*`
          * upgrade is refused here; it used to be forwarded to the Pi as a path
          * the Pi has never heard of. */
         onUpgrade(req, socket, head) {
@@ -295,7 +293,6 @@ export function createRouter(targets: RouteTargets): Router {
                 socket.destroy();
                 return;
             }
-            if (path === "/app/terminal") return targets.terminal.upgrade(req, socket, head);
             if (under(path, "/app")) {
                 socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
                 return;

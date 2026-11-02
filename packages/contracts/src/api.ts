@@ -41,8 +41,6 @@ export type JigglerStatus = typeof JigglerStatus.Type;
 /** What this host actually serves, so the app does not draw a panel whose
  *  socket would only ever close. */
 export const Features = Schema.Struct({
-    /** The shared terminal. The headless web host has none. */
-    terminal: Schema.Boolean,
     /** The agent workspace, reached through the harness proxy. */
     chat: Schema.Boolean,
 });

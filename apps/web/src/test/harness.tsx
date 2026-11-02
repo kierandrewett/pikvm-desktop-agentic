@@ -95,7 +95,7 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                 if (server.stateStatus !== 200) return json(server.stateStatus, { error: "state is down" });
                 return json(200, {
                     settings: { keyboardLayout: server.keyboardLayout, jiggler: server.jiggler },
-                    features: { terminal: true, chat: server.chat },
+                    features: { chat: server.chat },
                     jigglerStatus: { enabled: server.jiggler, mode: "local", nativeSwitchOns: 0, lastNudgeAt: 0, nudges: 0, failures: 0 },
                     pikvm: { origin: "https://pikvm.example", link: server.link },
                     version: "9.9.9",

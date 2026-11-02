@@ -33,7 +33,7 @@ test("a port already in use is walked past, not fatal", () => {
     assert.match(main, /^let CONTROL_PORT = Number\(process\.env\.PIKVM_CONTROL_PORT\) \|\| 25650;/m);
     assert.match(main, /CONTROL_PORT = await firstFreePort\(wantedPort, bindHost\);/);
     const start = main.indexOf("CONTROL_PORT = await firstFreePort");
-    assert.ok(start > 0 && start < main.indexOf("new TerminalSessions("), "the port must settle before TerminalSessions reads it");
+    assert.ok(start > 0, "the port must settle in startup");
     assert.ok(start < main.indexOf("startControlServer("), "the port must settle before the server binds");
 });
 

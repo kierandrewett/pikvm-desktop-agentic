@@ -1,4 +1,4 @@
-// Dual esbuild: Node (Electron main + preloads) and the browser terminal renderer.
+// Dual esbuild: Node (Electron main + preloads) and the browser haptics module.
 import { build } from "esbuild";
 import { rmSync, cpSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
@@ -29,15 +29,13 @@ await build({
     platform: "node",
     format: "cjs",
     bundle: true,
-    // electron is provided by the runtime. @lydell/node-pty is a prebuilt native
-    // (.node) addon, so it cannot be bundled and must resolve from node_modules at
-    // runtime — scripts/copy-runtime-deps.mjs ships it into the packaged app.
+    // electron is provided by the runtime.
     //
     // nodejs-whisper and tesseract.js were listed here until the desktop app was
     // slimmed to a pure PiKVM client. Neither is a dependency or installed any
     // more, and nothing imports them; naming them here suggested a build that
     // still handled transcription and local OCR.
-    external: ["electron", "@lydell/node-pty"],
+    external: ["electron"],
     sourcemap: true,
     logLevel: "info",
 });
@@ -61,22 +59,7 @@ cpSync(resolve(root, "src/views"), resolve(dist, "views"), {
 });
 cpSync(resolve(root, "src/assets"), resolve(dist, "assets"), { recursive: true });
 
-// 3a. Terminal renderer (xterm.js) → dist/views/terminal.js, beside its
-//     HTML. Plus the xterm stylesheet it needs.
-await build({
-    entryPoints: [resolve(root, "src/terminal/main.ts")],
-    outfile: resolve(dist, "views/terminal.js"),
-    platform: "browser",
-    format: "iife",
-    bundle: true,
-    define: { "process.env.NODE_ENV": '"production"' },
-    sourcemap: true,
-    logLevel: "info",
-});
-cpSync(resolve(root, "node_modules/@xterm/xterm/css/xterm.css"), resolve(dist, "views/xterm.css"));
-// The PreToolUse guardrail hook ships as a plain script the spawned claude runs.
-
-// 3b. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
+// 3. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
 //     statically-served) console dynamically imports as /app/haptics.js.
 await build({
     entryPoints: [resolve(root, "src/haptics-entry.js")],

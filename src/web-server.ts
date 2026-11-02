@@ -3,10 +3,9 @@
  * app runs, without Electron, for a container or any plain Node 22 host.
  *
  * What it serves is identical to the desktop's web surface (src/server/): the
- * console at `/app/` and the PiKVM UI proxied underneath it. It does NOT host the
- * shared terminal: a shell on the server would turn "can see the KVM" into "can
- * run commands on the box that hosts it". The console reads `features.terminal`
- * from /app/api/v1/state and hides the panel. The agent behind the Chat tab is a
+ * console at `/app/` and the PiKVM UI proxied underneath it. There is no shell on
+ * it, and no terminal anywhere: a shell on the server would turn "can see the KVM"
+ * into "can run commands on the box that hosts it". The agent behind the Chat tab is a
  * separate process (the deploy/agent sidecar, or the desktop app), reached through
  * /app/harness with a capability this server holds and the browser never does.
  *

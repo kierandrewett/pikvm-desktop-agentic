@@ -19,7 +19,6 @@ import { MacroStore } from "../macros";
 import { MouseJiggler } from "../mouse-jiggler";
 import type { PiKvmControl } from "../pikvm-control";
 import type { SettingsStore } from "../settings";
-import type { TerminalSessions } from "../terminal-server";
 import { createApi } from "./api";
 import type { TargetEditor } from "./api";
 import { createRouter } from "./routes";
@@ -27,7 +26,6 @@ import { createDaemonProxy } from "./proxy/daemon";
 import { createCursorRelay, createHarnessProxy, HARNESS_PREFIX } from "./proxy/harness";
 import { createPiKvmProxy } from "./proxy/kvmd";
 import { appAssets, webAssets } from "./static";
-import { createTerminalSocket } from "./terminal-socket";
 import { workspaceAssets } from "./workspace";
 
 export interface ServerDeps {
@@ -37,8 +35,6 @@ export interface ServerDeps {
     settings: SettingsStore;
     /** Lets Settings change the PiKVM. Only the desktop app passes it. */
     target?: TargetEditor;
-    /** Server-hosted terminal sessions, streamed to all devices over /app/terminal. */
-    terminalSessions?: TerminalSessions;
     /** Base URL of the pikvm-agent daemon, reverse-proxied at /app/daemon/* so the
      *  same-origin console can reach its HTTP API without CORS. */
     daemonOrigin?: string;
@@ -144,17 +140,13 @@ export function startControlServer(
         settings,
         macros,
         jigglerStatus: () => jiggler.status(),
-        /* What this host actually serves. The headless web host has no shared
-         * terminal, and the console should not frame a panel whose socket would
-         * only ever close. Chat is offered when the agent ANSWERS, not merely
-         * when a route to it is configured: a sidecar that is down should show
+        /* What this host actually serves. Chat is offered when the agent ANSWERS, not
+         * merely when a route to it is configured: a sidecar that is down should show
          * the app's own "not available" state, not a workspace that fails. */
-        features: async () => ({ terminal: !!deps.terminalSessions, chat: harness ? await harness.available() : false }),
+        features: async () => ({ chat: harness ? await harness.available() : false }),
         version: readVersion(),
         ...(deps.target ? { target: deps.target } : {}),
     });
-
-    const terminal = createTerminalSocket(deps.terminalSessions);
 
     const router = createRouter({
         accessToken: () => settings.get().accessToken,
@@ -165,14 +157,12 @@ export function startControlServer(
         workspace: workspaceAssets,
         assets: webAssets,
         app: appAssets,
-        terminal,
     });
 
     const server = createServer((req, res) => router.onRequest(req, res));
     server.on("upgrade", (req, socket, head) => router.onUpgrade(req, socket, head));
     server.on("close", () => {
         jiggler.stop();
-        terminal.close();
         void api.dispose();
     });
     server.on("error", (err: NodeJS.ErrnoException) => {
