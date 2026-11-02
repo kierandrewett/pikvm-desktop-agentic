@@ -80,6 +80,7 @@ export function createMacroRunner(options: MacroRunnerOptions): MacroRunner {
                 notify({ text: `Running ${macro.label} \u2014 ${humanDuration(runFor)}\u2026`, sticky: true });
             }
 
+            // Executor form on purpose: Promise.withResolvers is iOS 17.4+ and this runs on phones.
             return new Promise<MacroResult>((resolve) => {
                 const steps = macro.steps;
                 let i = 0;
