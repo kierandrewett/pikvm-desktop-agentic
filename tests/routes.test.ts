@@ -181,6 +181,14 @@ test("/app serves the console page and its static files", async () => {
             assert.match(page.body, /<link rel="manifest" href="\/app\/manifest\.webmanifest"/);
         }
 
+        // Every script and stylesheet the page names is a file we serve. A path
+        // rewrite once turned /app/console.js into /app/.js and the page came up
+        // bare while every route test still passed.
+        const page = await call(s.origin, "/app/");
+        const refs = [...page.body.matchAll(/<(?:script|link)\b[^>]*\b(?:src|href)="(\/app\/[^"]+)"/g)].map((m) => m[1]);
+        assert.ok(refs.includes("/app/console.js") && refs.includes("/app/console.css"), refs.join(" "));
+        for (const ref of refs) assert.equal((await call(s.origin, ref)).status, 200, ref);
+
         const script = await call(s.origin, "/app/console.js");
         assert.equal(script.status, 200);
         assert.match(script.headers.get("content-type") ?? "", /text\/javascript/);
