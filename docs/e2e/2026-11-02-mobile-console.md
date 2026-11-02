@@ -116,6 +116,26 @@ Follow-up run (loopback-only host, same harness):
 HID was intercepted throughout, so "should type" is what the captured sequence
 means for the target, not something read back from it.
 
+Dock, lens and PWA round (`7d4e3d7`, `285c782`), same harness, iPhone 13
+profile unless stated:
+
+| Case | Observed | Result |
+| --- | --- | --- |
+| Key rows | Ctrl Alt Shift Win Esc Tab Fn More / ← ↑ ↓ → ⏎ ⌫ Del Caps; Fn and More rows hidden until toggled | pass |
+| Ctrl tap that blurs the field, then "c" | keyboard focus back; ControlLeft+ KeyC+ KeyC- ControlLeft- | pass |
+| Ctrl+V button | ControlLeft KeyV | pass |
+| ⋯ opens | sheet inside the bar, position static, field blurred, key rows hidden, mouse row L M R ⤞ ▲ ▼ at the top | pass |
+| Long press with 12px of wobble | right down/up only, no moves | pass |
+| Pinch to 6x on the cursor, drag into the corner | picture edges on the pane edges (390, 708); no background shown | pass |
+| Lens | shown during a trackpad drag at the cursor, gone 2s after release, shown and following when zoomed 1.9x | pass |
+| Speaker and mic | shown with WebRTC audio; speaker on (wash, waves), mic off | pass |
+| Service worker and icons | registered at `/_agent/`; manifest icons and apple-touch-icon 200 | pass |
+| Server stopped, app opened | "Can't reach the KVM"; server back, console live again with no reload | pass |
+| Desktop browser (1400x900), click picture then type | field keeps focus; Shift+H, I, Shift+1, Enter, Backspace, Ctrl+C | pass |
+| Desktop app keyboard path (stubbed bridge) | desktop layout classes; ShiftLeft KeyH KeyI Enter | pass |
+| Host with a terminal (state faked) | terminal frame loaded, drawer back in the column | pass |
+| Deployed host, signed in (desktop Chrome) | Live · HD, new code served, service worker registered | pass |
+
 ## Not covered
 
 A real phone: the iOS and Android soft keyboards, dictation, and the feel of

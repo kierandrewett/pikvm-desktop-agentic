@@ -82,12 +82,21 @@ flowchart LR
     kvm --> pi[PiKVM]
 ```
 
-Let `/_agent/manifest.webmanifest` and `/_agent/icon.png` through without
-sign-in: browsers fetch both without cookies. The idle jiggler stays off unless
+Let the manifest, its icons (`icon-192.png`, `icon-512.png`,
+`apple-touch-icon.png`) and `sw.js` under `/_agent/` through without sign-in:
+browsers fetch them without cookies. The idle jiggler stays off unless
 `PIKVM_JIGGLER=1`.
 
-On a touch screen the console docks its controls above the soft keyboard.
-Trackpad mode (the default) moves the cursor by drag, taps click, long-press
-right-clicks, pinch zooms and the zoomed view follows the cursor. Touch mode
-points where you tap. The trackpad uses the Pi's relative mouse unless the dock
-is set to Abs; a mouse, a pen and touch mode always use absolute.
+On a touch screen the console docks its controls above the soft keyboard, in
+the desktop titlebar's style: speaker, mic, paste, keyboard and ⋯ in the bar,
+then rows of modifier and navigation keys (Fn and More open F1-F12 and the
+common shortcuts). ⋯ opens as a sheet in the bar; it also holds the mouse
+buttons and the input settings. Trackpad mode (the default) moves the cursor
+by drag, taps click, a long press right-clicks with the cursor held still,
+pinch zooms on the cursor and the view follows it, and a lens at the cursor
+magnifies what is under it. Touch mode points where you tap. The trackpad uses
+the Pi's absolute mouse by default; relative is in ⋯ for targets that need it.
+
+Installed as an app (PWA), it keeps the screen on while open, reconnects after
+being in the background, and shows a "Can't reach the KVM" screen that
+retries by itself when the host is out of reach.
