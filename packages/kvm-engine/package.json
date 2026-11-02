@@ -1,0 +1,29 @@
+{
+  "name": "@pikvm/kvm-engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Framework-free KVM engine: the kvmd link, input interpreters, view maths and video sources",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./target": "./src/target/index.ts",
+    "./input": "./src/input/index.ts",
+    "./view": "./src/view/index.ts",
+    "./pointer": "./src/pointer/index.ts",
+    "./video": "./src/video/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "3.22.4"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
