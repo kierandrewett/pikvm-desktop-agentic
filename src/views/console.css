@@ -2569,3 +2569,8 @@ html.touch-dock .bar-keys [data-click],
 html.touch-dock .bar-keys #drag-lock {
     order: 2;
 }
+/* Menus fit the part of the screen the soft keyboard leaves, not the whole of it. */
+html.touch-dock .more-menu,
+html.touch-dock .dev-menu {
+    max-height: calc(var(--app-height, 100dvh) - 16px);
+}

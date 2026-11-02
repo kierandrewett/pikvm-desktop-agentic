@@ -7465,18 +7465,22 @@
      * step waits for the hid event that confirms absolute mode, and is dropped
      * (with a word about it) if that does not come quickly. An unknown mode is
      * waited on as well: before the first hid report there is no telling where
-     * a press would land. Latest step wins. */
-    var absPending = null;
+     * a press would land. Steps queue in order, so a double tap made during
+     * the switch still reaches the target as two clicks. */
+    var absPending = [];
     function whenAbsolute(fn) {
-        if (hid.isAbsolute()) {
+        if (hid.isAbsolute() && !absPending.length) {
             fn();
             return;
         }
         hid.setMouseOutput(true);
-        absPending = { fn: fn, at: Date.now() };
+        absPending.push({ fn: fn, at: Date.now() });
         setTimeout(function () {
-            if (!absPending || Date.now() - absPending.at < 2400) return;
-            absPending = null;
+            var before = absPending.length;
+            absPending = absPending.filter(function (s) {
+                return Date.now() - s.at < 2400;
+            });
+            if (absPending.length === before) return;
             toast(
                 hid.isRelative()
                     ? "The Pi did not switch to absolute mouse, so that tap was not sent"
@@ -7496,10 +7500,15 @@
         });
     }
     hid.onMouseMode(function (absolute) {
-        if (absolute && absPending) {
-            var step = absPending;
-            absPending = null;
-            if (Date.now() - step.at < 2400) step.fn();
+        if (absolute && absPending.length) {
+            var steps = absPending.filter(function (s) {
+                return Date.now() - s.at < 2400;
+            });
+            absPending = [];
+            // Spaced past tapClick's 45ms hold, so one click is up before the next goes down.
+            steps.forEach(function (s, i) {
+                setTimeout(s.fn, i * 90);
+            });
         }
         paintTouchControls();
     });
@@ -8944,7 +8953,12 @@
         var M = 8; // viewport margin
         var r = anchor.getBoundingClientRect();
         var vw = window.innerWidth;
-        var vh = window.innerHeight;
+        /* The VISIBLE area: on a phone the soft keyboard covers the bottom of the
+         * layout viewport, and innerHeight still counts it, so a tall menu could
+         * be clamped to end behind the keyboard. */
+        var vv = window.visualViewport;
+        var vTop = vv ? vv.offsetTop : 0;
+        var vh = vv ? vv.offsetTop + vv.height : window.innerHeight;
         // Measure with left/top anchoring (it's position:fixed, so size is stable).
         menu.style.right = "auto";
         menu.style.bottom = "auto";
@@ -8956,7 +8970,7 @@
         var above = r.top - GAP - mh;
         var below = r.bottom + GAP;
         var top = r.top - GAP >= mh || r.top > vh - r.bottom ? above : below;
-        top = Math.max(M, Math.min(top, vh - mh - M));
+        top = Math.max(vTop + M, Math.min(top, vh - mh - M));
         menu.style.left = left + "px";
         menu.style.top = top + "px";
     }

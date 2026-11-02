@@ -92,8 +92,21 @@ value and dispatched `InputEvent`, `CompositionEvent` and `KeyboardEvent`
 
 Unit suite on the committed tree (clean worktree): 314 pass, 0 fail.
 
+Follow-up run (loopback-only host, same harness):
+
+| Case | Observed | Result |
+| --- | --- | --- |
+| Direct double tap while the Pi is relative | nothing sent; after the absolute report, move + click, move + click, in order | pass |
+| ⋯ menu with the keyboard open (visual viewport 470px) | menu 8..462px, max-height 454px, scrolls | pass |
+
 ## Not covered
 
 A real phone: the iOS and Android soft keyboards, dictation, and the feel of
-the gestures. Headless Chrome cannot raise a system keyboard. Check these on
-the phone at `https://kvm.drewett.dev`.
+the gestures. Headless Chrome cannot raise a system keyboard, so the keyboard
+cases above replay the event patterns those keyboards are documented to send;
+they are not proof of the devices. Check these on the phone at
+`https://kvm.drewett.dev`.
+
+Known limit: dictation or typing of characters outside the US/UK key maps
+(accented letters, emoji) sends nothing for those characters. Use "Paste text
+to the target" for such text; kvmd types it with its own keymap.
