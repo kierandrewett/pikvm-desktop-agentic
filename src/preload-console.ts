@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 /**
  * Bridge for the unified console rendered as a *desktop* Electron window
- * (`openUnifiedConsole()` in main.ts). The console UI is normally served to a
+ * (`createWindow()` in main.ts). The console UI is normally served to a
  * phone/browser over plain HTTP and needs no IPC; this preload is ONLY injected
  * into the desktop window, so the console treats the presence of
  * `window.desktopConsole` as the single signal that it is running inside the
@@ -62,8 +62,6 @@ export interface DesktopConsoleApi {
     popupMenu(items: DesktopMenuItem[], anchor?: { x: number; y: number }): void;
     /** Subscribe to native-menu command picks; returns an unsubscribe fn. */
     onMenuCommand(cb: (id: string) => void): () => void;
-    /** Report where the first-party chat workspace belongs in the native shell. */
-    reportWorkspaceRect(rect: { x: number; y: number; width: number; height: number }): void;
     /** Open Settings in its own window.
      *
      *  This took an id of "settings" | "ambient" | "history" and main ignored
@@ -72,31 +70,9 @@ export interface DesktopConsoleApi {
      *  existed for either for some time, so a caller asking for one would have
      *  been handed Settings without a word. */
     openSettingsWindow(): void;
-    /** Detach the conversation into its own window. A second call while detached
-     *  closes that window instead (a toggle); re-attachment is signalled via
-     *  onAgentAttached when the window closes, however it closes. */
-    detachAgent(): void;
-    /** Tell the conversation which theme the console is in; it shares the window. */
+    /** Tell the desktop which theme the console is in, so its Settings window
+     *  follows it. */
     reportAgentTheme(theme: "dark" | "light"): void;
-    /** The conversation asking, on its first paint, which theme to be in. */
-    onAgentThemeRequest(cb: () => void): () => void;
-    /** A rebuilt workspace bundle is on disk; reload the frame showing it. Dev
-     *  only — main watches the build directory. */
-    onWorkspaceReload(cb: () => void): () => void;
-    /** Tell the conversation's own header where it currently sits. */
-    reportAgentPlacement(placement: { side: "left" | "right"; detached: boolean }): void;
-    /** Placement asks coming FROM that header: move to a side, detach/re-attach,
-     *  or (on its first paint) simply report where things stand. */
-    onAgentPlacementCommand(
-        cb: (
-            command:
-                | { type: "side"; side: "left" | "right" }
-                | { type: "toggle-detached" }
-                | { type: "request" },
-        ) => void,
-    ): () => void;
-    /** Fired when the detached conversation window closes — re-embed the panel. */
-    onAgentAttached(cb: () => void): () => void;
     /** True WINDOW focus (from the main process), so the KVM mouse tracks window focus —
      *  not the console view's focus, which a focused terminal child view would steal. */
     onWindowFocus(cb: (focused: boolean) => void): () => void;
@@ -139,43 +115,9 @@ const api: DesktopConsoleApi = {
         ipcRenderer.on("console:menu-command", listener);
         return () => ipcRenderer.removeListener("console:menu-command", listener);
     },
-    reportWorkspaceRect: (rect: { x: number; y: number; width: number; height: number }) => ipcRenderer.send("console:workspace-rect", rect),
     openSettingsWindow: () => ipcRenderer.send("console:open-settings"),
-    detachAgent: () => ipcRenderer.send("agent:detach"),
-    /* Panel placement is driven from the conversation's own header now, so the
-     * console answers requests from it rather than owning the only buttons. */
-    reportAgentPlacement: (placement: { side: "left" | "right"; detached: boolean }) =>
-        ipcRenderer.send("console:agent-placement", placement),
     reportAgentTheme: (theme: "dark" | "light") =>
         ipcRenderer.send("console:agent-theme", theme),
-    onWorkspaceReload: (cb) => {
-        const listener = () => cb();
-        ipcRenderer.on("console:workspace-reload", listener);
-        return () => ipcRenderer.removeListener("console:workspace-reload", listener);
-    },
-    onAgentThemeRequest: (cb) => {
-        const listener = () => cb();
-        ipcRenderer.on("console:agent-theme-request", listener);
-        return () => ipcRenderer.removeListener("console:agent-theme-request", listener);
-    },
-    onAgentPlacementCommand: (cb) => {
-        const side = (_e: unknown, value: "left" | "right") => cb({ type: "side", side: value });
-        const toggle = () => cb({ type: "toggle-detached" });
-        const request = () => cb({ type: "request" });
-        ipcRenderer.on("console:agent-side", side);
-        ipcRenderer.on("console:agent-detach-toggle", toggle);
-        ipcRenderer.on("console:agent-placement-request", request);
-        return () => {
-            ipcRenderer.removeListener("console:agent-side", side);
-            ipcRenderer.removeListener("console:agent-detach-toggle", toggle);
-            ipcRenderer.removeListener("console:agent-placement-request", request);
-        };
-    },
-    onAgentAttached: (cb) => {
-        const listener = () => cb();
-        ipcRenderer.on("agent:attached", listener);
-        return () => ipcRenderer.removeListener("agent:attached", listener);
-    },
     onWindowFocus: (cb) => {
         const listener = (_e: unknown, focused: boolean) => cb(!!focused);
         ipcRenderer.on("kvm:input-enabled", listener);

@@ -128,37 +128,6 @@ test("reduced motion stops the things that travel", () => {
 });
 
 /**
- * The legacy native UI (PIKVM_NATIVE_UI=1) had an "Agent sidebar" button left
- * over from before the agent moved out of the app. src/sidebar was deleted,
- * agent.svg with it, but the button, its icon reference and the whole
- * sidebar:toggle path survived — so pressing it grew the window, shrank the
- * KVM view by the same amount and left an empty band with nothing in it.
- *
- * The second half matters more than the first: ui.html reads every control it
- * touches out of the DOM once and uses them inside onState, which fires on
- * every window-state update. A getElementById that returns null there throws
- * and takes the rest of the handler with it — the fit, maximise and minimise
- * buttons stop updating too.
- */
-test("the legacy titlebar has no controls it cannot resolve", () => {
-    const html = readFileSync(resolve(process.cwd(), "src/views/ui.html"), "utf8");
-    const main = readFileSync(resolve(process.cwd(), "src/main.ts"), "utf8");
-
-    const ids = new Set([...html.matchAll(/id="([\w-]+)"/g)].map((m) => m[1]));
-    const script = html.slice(html.indexOf("<script>"), html.lastIndexOf("</script>"));
-    for (const m of script.matchAll(/getElementById\("([\w-]+)"\)/g)) {
-        assert.ok(ids.has(m[1]), `ui.html reads #${m[1]} but no element has that id`);
-    }
-
-    // The dead path is gone rather than merely hidden.
-    assert.doesNotMatch(html, /sidebar:toggle/);
-    assert.doesNotMatch(html, /agent\.svg/);
-    assert.doesNotMatch(main, /ipcMain\.on\("sidebar:toggle"/);
-    // sidebarWidth stays: it is the detached conversation window's width now.
-    assert.match(main, /width: Math\.max\(760, sidebarWidth\)/);
-});
-
-/**
  * Every getElementById in the console has to resolve to something.
  *
  * Moving the dialog actions onto the shared component library swapped their
@@ -1240,9 +1209,8 @@ test("stale queued input is dropped, but releases never are", () => {
     assert.match(mod, /queue\.push\(\{ at: Date\.now\(\), obj: obj \}\)/);
     // Dropped on the way out only if it is old AND not a release.
     assert.match(mod, /if \(isRelease\(item\.obj\) \|\| now - item\.at < QUEUE_STALE_MS\) raw\(item\.obj\);/);
-    // One predicate, shared with the agent carve-out that reasons the same way.
+    // One predicate for what survives the cutoff, shared with the dequeue above.
     assert.match(mod, /function isRelease\(obj\) \{[\s\S]*?ev\.state === false && \(obj\.event_type === "key" \|\| obj\.event_type === "mouse_button"\)/);
-    assert.match(mod, /if \(agentActing\) \{[\s\S]*?if \(!isRelease\(obj\)\) return;/);
 });
 
 /**

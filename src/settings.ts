@@ -18,7 +18,6 @@ export interface AppSettings {
     wpm: number;
     /** Target keyboard layout (sets glyphs for the physical key codes sent). */
     keyboardLayout: "us" | "uk";
-    sidebarWidth: number;
     /** Host the control server + proxy binds to. "0.0.0.0" exposes it on the LAN. */
     bindHost: string;
     /** Single access token gating the server when set. Empty = open (loopback dev). */
@@ -58,7 +57,6 @@ const DEFAULTS: AppSettings = {
     jiggler: true,
     wpm: 95,
     keyboardLayout: "us",
-    sidebarWidth: 440,
     bindHost: "127.0.0.1",
     accessToken: "",
     desktopUseProxy: false,

@@ -1183,11 +1183,6 @@ html.desktop-console .backend-status[data-state="ready"] {
 .titlebar {
     display: none;
 }
-/* Native shell: the window already has the ui.html titlebar above us, so the
- * console's own titlebar stays hidden and the .app fills the whole view. */
-html.desktop-console.native-titlebar .titlebar {
-    display: none;
-}
 
 html.desktop-console,
 html.desktop-console body {
@@ -2145,28 +2140,6 @@ html.desktop-console.agent-right .app.computer-collapsed {
     grid-template-columns: 0 minmax(0, 1fr);
 }
 html.desktop-console.agent-right .app.computer-collapsed .screen {
-    border-right: 0;
-}
-
-/* ---- conversation DETACHED into its own window (html.agent-detached) --------
- * The embedded chat column collapses to zero; the reported workspace rect goes
- * to 0x0, which hides the native harness view, and the screen takes the full
- * window until the detached window closes. */
-html.desktop-console.agent-detached .app {
-    grid-template-columns: 0 minmax(0, 1fr);
-}
-html.desktop-console.agent-detached.agent-right .app {
-    grid-template-columns: minmax(0, 1fr) 0;
-}
-html.desktop-console.agent-detached .chat {
-    overflow: hidden;
-    pointer-events: none;
-}
-html.desktop-console.agent-detached .chat-resize {
-    display: none;
-}
-html.desktop-console.agent-detached .screen {
-    border-left: 0;
     border-right: 0;
 }
 

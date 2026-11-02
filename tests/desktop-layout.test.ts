@@ -302,19 +302,18 @@ test("the operator credential never reaches a renderer", () => {
      * session header rewrite, which meant the credential existed in the
      * renderer's network stack even if never in its JavaScript.
      *
-     * Both hosts of the conversation now load from OUR origin and reach the
-     * harness through the /app/harness proxy, which drops whatever
-     * Authorization a renderer sent and attaches the desktop's own — so the
-     * token is only ever in the main process. The rewrite is gone because it
-     * could no longer fire, and a rule that cannot fire is not defence in
-     * depth, it is a claim about auth that stopped being true. */
+     * The conversation loads from OUR origin and reaches the harness through
+     * the /app/harness proxy, which drops whatever Authorization a renderer
+     * sent and attaches the desktop's own — so the token is only ever in the
+     * main process. The rewrite is gone because it could no longer fire, and a
+     * rule that cannot fire is not defence in depth, it is a claim about auth
+     * that stopped being true. */
     assert.doesNotMatch(main, /onBeforeSendHeaders/);
     assert.doesNotMatch(main, /withHarnessAuthorization/);
     assert.doesNotMatch(main, /seedHarnessAuth/);
     assert.doesNotMatch(main, /agentView/);
-    // The detached window shows the same terminal as the panel, on our origin.
-    assert.match(main, /function terminalUrl\(\)/);
-    assert.match(main, /agentWin\.loadURL\(terminalUrl\(\)\)/);
+    // No second window loads the conversation, so nothing else needs the credential.
+    assert.doesNotMatch(main, /agentWin|preload-agent/);
     // And the proxy that carries the capability is still wired with both halves.
     assert.match(main, /harnessOrigin,\n\s+harnessToken: harness\.accessToken,/);
 });
@@ -2008,8 +2007,8 @@ test("the console's own stream is released while the full UI is up", () => {
  * put nothing on the wire; leaving restored it and key d landed normally.
  */
 test("the full UI owns the keyboard while it is framed", () => {
-    // The gate the agent path already uses, not a second one beside it.
-    assert.match(js, /function blockKvmInput\(e\) \{\s*\n\s*if \(!agentActing && !fullUiOn\) return false;/);
+    // One gate for every input entry point.
+    assert.match(js, /function blockKvmInput\(e\) \{\s*\n\s*if \(!fullUiOn\) return false;/);
     // Nothing hands the hidden textarea its focus back underneath the frame.
     const refocus = js.slice(js.indexOf("function refocusKbd() {"));
     assert.match(refocus.slice(0, refocus.indexOf("}")), /if \(fullUiOn\) return;/);

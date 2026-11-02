@@ -57,7 +57,6 @@ await build({
    inlines it above, so nothing at runtime needs it installed. */
 const { workspaces: _workspaces, ...distPackage } = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 writeFileSync(resolve(dist, "package.json"), JSON.stringify(distPackage, null, 4) + "\n");
-cpSync(resolve(root, "src/static"), resolve(dist, "static"), { recursive: true });
 /* Views, minus documentation. src/views is copied wholesale, so a .md written
    beside the files it describes would otherwise be served to browsers and
    packaged into the RPM. VENDOR.md did exactly that the moment it was added.

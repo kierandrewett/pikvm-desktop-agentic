@@ -275,22 +275,15 @@
      * below that point — titlebar, keyboard handlers, the lot. */
     var KeyChord = window.KeyChord;
 
-    // True while the agent is driving the target — user HID input is dropped then.
-    var agentActing = false;
-    var clearRegionMapForManualInput = function () {};
-    function noteManualKvmInput() {
-        if (!agentActing) clearRegionMapForManualInput();
-    }
-    /* Two things must never type at the target at once.
+    /* The full PiKVM UI must never type at the target alongside us.
      *
-     * agentActing is one. The full PiKVM UI is the other: while it is framed,
-     * the Pi's own UI owns the keyboard, and our #kbd is a 1x1 invisible
-     * textarea that keeps focus for as long as the on-screen keys drawer is
-     * open. Open the keys, switch to the full UI, and every keystroke went to
-     * the target through a control that was no longer on screen — measured on
-     * the wire as key:KeyB:true/false with the frame up. */
+     * While it is framed, the Pi's own UI owns the keyboard, and our #kbd is a
+     * 1x1 invisible textarea that keeps focus for as long as the on-screen keys
+     * drawer is open. Open the keys, switch to the full UI, and every keystroke
+     * went to the target through a control that was no longer on screen —
+     * measured on the wire as key:KeyB:true/false with the frame up. */
     function blockKvmInput(e) {
-        if (!agentActing && !fullUiOn) return false;
+        if (!fullUiOn) return false;
         if (e && e.preventDefault) e.preventDefault();
         if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
         if (e && e.stopPropagation) e.stopPropagation();
@@ -638,14 +631,6 @@
             } catch (e) {}
         }
         function send(obj) {
-            // While the AGENT is in control, the user must NOT be able to drive the
-            // target — drop all user HID input (mouse/keys) at the source. The agent's
-            // own input goes through the server-side control core, not this socket.
-            if (agentActing) {
-                // Release events are allowed through so a button/key held just before
-                // automation starts cannot get stuck down on the target.
-                if (!isRelease(obj)) return;
-            }
             if (open && ws && ws.readyState === 1) raw(obj);
             else {
                 if (queue.length < 256) queue.push({ at: Date.now(), obj: obj });
@@ -1184,12 +1169,6 @@
     /** Run a macro's steps in order, through the same queue manual keys use. */
     function runMacro(macro) {
         if (!macro) return;
-        if (agentActing) {
-            // Silently doing nothing is the worst answer: the user cannot tell a
-            // blocked macro from one whose chord the target ignored.
-            toast("The agent is driving the target — macros are held until it stops.", true);
-            return;
-        }
         if (macroRunning) {
             /* Reachable from the send-keys menu, which has no disabled state to
              * show. Saying so beats dropping the click in silence. */
@@ -1213,7 +1192,6 @@
             toast(macro.label + " has key steps and input is offline", true);
             return;
         }
-        noteManualKvmInput();
         macroRunning = macro;
         paintMacroButtons();
         repaintPasteActions(); // the paste dialog may be open on top of this
@@ -5030,7 +5008,6 @@
      * Caps toggle queued ahead of it (the Caps key, or the host sync) is already
      * accounted for. Without it, a target with Caps on turned "Hello" into "hELLO". */
     function sendChord(mods, codeName, shift, letter) {
-        if (agentActing) return;
         var m = (mods || []).slice();
         var hasShift = m.indexOf("ShiftLeft") >= 0 || m.indexOf("ShiftRight") >= 0;
         // Shift can arrive twice — once from the caller's flag, once from an armed
@@ -7509,7 +7486,7 @@
     var reportCursor = (function () {
         var pending = null, timer = null;
         return function (nx, ny) {
-            if (agentActing || !window.desktopConsole) return;
+            if (!window.desktopConsole) return;
             pending = { x: Math.round(nx), y: Math.round(ny) };
             if (timer) return;
             timer = setTimeout(function () {
@@ -8026,7 +8003,6 @@
                     pts.delete(e.pointerId);
                     return;
                 }
-                noteManualKvmInput();
                 // Real buttons, absolute move. In the native desktop window the global
                 // keydown handler captures keys; elsewhere focus the hidden input so
                 // typing (and the soft keyboard) goes to the target. Either way, blur
@@ -8052,7 +8028,6 @@
                 hid.button(b, true);
                 return;
             }
-            noteManualKvmInput();
             /* Keep focus where it is. A touch that moves focus off the hidden field
              * closes the soft keyboard, so every tap on the picture used to put it
              * away mid-sentence. preventDefault on pointerdown stops the focus
@@ -8353,7 +8328,6 @@
         function (e) {
             if (blockKvmInput(e)) return;
             if (modalOpen()) return;
-            noteManualKvmInput();
             e.preventDefault();
             var dy = e.deltaY < 0 ? 1 : -1;
             /* Ctrl+wheel zooms the LOCAL view on a phone, where there is no other
@@ -8456,13 +8430,13 @@
         if (e.code === "CapsLock") {
             clearTimeout(capsReconcile);
             capsReconcile = setTimeout(function () {
-                if (agentActing || hostCaps === null || !hid.capsKnown() || hid.capsPending()) return;
+                if (hostCaps === null || !hid.capsKnown() || hid.capsPending()) return;
                 if (hostCaps !== hid.capsOn()) sendChord([], "CapsLock", false);
             }, 1400);
             return;
         }
         if (prev === null ? !now : prev === now) return;
-        if (agentActing || !hid.capsKnown() || hid.capsPending()) return;
+        if (!hid.capsKnown() || hid.capsPending()) return;
         if (now !== hid.capsOn()) sendChord([], "CapsLock", false);
     }
     /**
@@ -8492,7 +8466,6 @@
     }
     kbd.addEventListener("keydown", function (e) {
         if (blockKvmInput(e)) return;
-        noteManualKvmInput();
         handleKeydown(e, false);
     });
     kbd.addEventListener("keyup", function (e) {
@@ -8588,7 +8561,6 @@
         function (e) {
             if (e.key !== "Backspace" || e.ctrlKey || e.altKey || e.metaKey || armedList().length) return;
             if (blockKvmInput(e)) return;
-            noteManualKvmInput();
             e.stopImmediatePropagation();
         },
         true,
@@ -8600,7 +8572,6 @@
     });
     kbd.addEventListener("beforeinput", function (e) {
         if (blockKvmInput(e)) return;
-        noteManualKvmInput();
         if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
             // Soft-keyboard fallback only. Match on the CODE, not the full chord, so a
             // Shift+Enter that keydown already sent isn't followed by a bare Enter.
@@ -8612,7 +8583,7 @@
         }
     });
     kbd.addEventListener("input", function (e) {
-        if (agentActing || fullUiOn) {
+        if (fullUiOn) {
             kbReset();
             return;
         }
@@ -8661,8 +8632,6 @@
     }
     document.querySelectorAll("[data-key]").forEach(function (btn) {
         btn.addEventListener("click", function () {
-            if (agentActing) return;
-            noteManualKvmInput();
             sendCode(btn.getAttribute("data-key"));
             refocusKbd();
         });
@@ -8673,8 +8642,6 @@
         var parts = btn.getAttribute("data-chord").split("+");
         var code = parts.pop();
         btn.addEventListener("click", function () {
-            if (agentActing) return;
-            noteManualKvmInput();
             var mods = parts.slice();
             armedList().forEach(function (m) {
                 if (mods.indexOf(m) < 0) mods.push(m);
@@ -8693,8 +8660,6 @@
         btn.setAttribute("aria-pressed", armed[codeName] ? "true" : "false");
         var lastTap = 0;
         btn.addEventListener("click", function () {
-            if (agentActing) return;
-            noteManualKvmInput();
             var now = Date.now();
             if (armed[codeName]) {
                 if (now - lastTap < 350 && !modLock[codeName]) {
@@ -8735,8 +8700,6 @@
     }
     document.querySelectorAll("[data-click]").forEach(function (btn) {
         btn.addEventListener("click", function () {
-            if (agentActing) return;
-            noteManualKvmInput();
             var b = btn.getAttribute("data-click");
             withArmedMods(function (release) {
                 hid.button(b, true);
@@ -8749,8 +8712,6 @@
     });
     document.querySelectorAll("[data-scroll]").forEach(function (btn) {
         btn.addEventListener("click", function () {
-            if (agentActing) return;
-            noteManualKvmInput();
             var up = btn.getAttribute("data-scroll") === "up";
             withArmedMods(function (release) {
                 hid.wheel(0, up ? 2 : -2);
@@ -8759,8 +8720,6 @@
         });
     });
     document.getElementById("cad").addEventListener("click", function () {
-        if (agentActing) return;
-        noteManualKvmInput();
         sendChord(["ControlLeft", "AltLeft"], "Delete", false);
     });
     var dragBtn = document.getElementById("drag-lock");
@@ -8771,8 +8730,6 @@
      * accessibility node carried no pressed state at all. */
     dragBtn.setAttribute("aria-pressed", dragLock ? "true" : "false");
     dragBtn.addEventListener("click", function () {
-        if (agentActing) return;
-        noteManualKvmInput();
         dragLock = !dragLock;
         dragBtn.classList.toggle("on", dragLock);
         dragBtn.setAttribute("aria-pressed", dragLock ? "true" : "false");
@@ -8940,8 +8897,6 @@
     paintCaps(false);
     if (capsKey) {
         capsKey.addEventListener("click", function () {
-            if (agentActing) return;
-            noteManualKvmInput();
             sendChord([], "CapsLock", false);
             refocusKbd();
         });
@@ -9781,12 +9736,7 @@
          * conversation view beside us which theme to draw. */
         applyTheme(storedTheme() || (osThemeMq.matches ? "dark" : "light"), false);
     } catch (e) {}
-    // First paint of the embedded chat should match; pass the theme on its URL and
-    // re-assert on load (in case it booted before the message handler attached).
-    // Inside the native desktop console the chat workspace is a native child view;
-    // on web/mobile the legacy embedded workspace remains available.
-    var EMBED_PARAM = window.desktopConsole ? "desktop" : "1";
-    if (window.desktopConsole && window.desktopConsole.reportWorkspaceRect) {
+    if (window.desktopConsole) {
         /* DESKTOP: the panel is the shared terminal, the same page web and
          * mobile load below. Kieran chose this on 2026-10-05 so any agent
          * harness (Claude Code, Codex, OpenCode, ...) runs in it, and only its
@@ -9893,7 +9843,7 @@
         // "disconnected" banner taking half a phone screen.
         chatFrame.title = "Terminal";
     }
-    var webTerminal = !window.desktopConsole || !window.desktopConsole.reportWorkspaceRect;
+    var webTerminal = !window.desktopConsole;
 
     /* ---- pick up the server's keyboard layout (so symbols map right) ----
      * And whether this host serves the shared terminal. The panel stays out of
@@ -9930,8 +9880,7 @@
     readState();
 
     // The agent X-ray overlay, meeting copilot, suggestion cards and the overlay/
-    // ambient SSE streams were removed with the in-app agent. `clearRegionMapForManualInput`
-    // and `onXform` keep their safe no-op/null defaults declared above.
+    // ambient SSE streams were removed with the in-app agent.
 
     // Keep the picture from being zoomed by the browser's own pinch.
     document.addEventListener("gesturestart", function (e) {
@@ -9948,140 +9897,26 @@
      * ===================================================================== */
     (function desktopConsole() {
         var dc = window.desktopConsole;
-        /* The guard the comment above promises, at the top where it belongs.
-         *
-         * It used to sit ninety-eight lines further down, after three
-         * `if (dc.onAgentAttached)`-style subscriptions that dereference dc at
-         * load time. On web and mobile dc is undefined, so the block did not
-         * skip — it threw:
-         *
-         *     TypeError: Cannot read properties of undefined
-         *       (reading 'onAgentAttached')
-         *
-         * on every page load, and the guard itself was then unreachable. The
-         * effect was benign only by luck: this IIFE is the last thing in the
-         * file, so the abort took nothing else with it, and everything above
-         * the throw is either a function declaration or desktop-only. Anything
-         * appended to this file later would have silently not run on web.
-         *
-         * Safe to move because the two statements it now skips do not matter
-         * off the desktop: the panel-message listener below is answered for
-         * EVERY platform by the copy near applyTheme (its own comment says
-         * why), and every html.agent-right rule in console.css is scoped to
-         * html.desktop-console, so setting that class on a phone styled
-         * nothing. */
+        /* Web and mobile skip everything below: only the Electron preload
+         * defines window.desktopConsole. */
         if (!dc) return; // web/mobile: nothing below runs
 
-        /* ---- conversation placement: which side, or its own window ----
-         * Side is a lasting preference (localStorage, like the theme and panel
-         * width); detached is session state and intentionally not persisted. */
-        var AGENT_SIDE_KEY = "pikvm-console-agent-side";
-        function agentOnRight() {
-            return document.documentElement.classList.contains("agent-right");
-        }
-        function agentDetached() {
-            return document.documentElement.classList.contains("agent-detached");
-        }
-        /* The conversation's own header carries these controls, so it has to be
-         * told where things stand — on its first paint and after every change,
-         * whoever made it. The console stays the single owner of the state. */
-        function currentPlacement() {
-            return { side: agentOnRight() ? "right" : "left", detached: agentDetached() };
-        }
-        /* The conversation is a same-origin frame now, not a native view with a
-         * preload, so its placement bridge is a postMessage rather than IPC. Both
-         * are told: the detached WINDOW is still a native view and still needs the
-         * IPC, and the two must never disagree about which side we are on. */
-        function postToWorkspace(type, value) {
-            var w = chatFrame && chatFrame.contentWindow;
-            if (!w) return;
-            try {
-                w.postMessage({ channel: "pikvm-panel", type: type, value: value }, location.origin);
-            } catch (e) {}
-        }
-        function publishAgentPlacement() {
-            postToWorkspace("placement", currentPlacement());
-            if (!dc.reportAgentPlacement) return;
-            dc.reportAgentPlacement(currentPlacement());
-        }
-        /* Requests coming back the other way. Only from our own frame and our own
-         * origin: this moves the panel and can open a window, so a message from
-         * anywhere else is not a control input. */
-        window.addEventListener("message", function (e) {
-            if (!chatFrame || e.source !== chatFrame.contentWindow) return;
-            if (e.origin !== location.origin) return;
-            var d = e.data;
-            if (!d || d.channel !== "pikvm-panel") return;
-            if (d.type === "set-side") setAgentSide(d.value === "left" ? "left" : "right");
-            else if (d.type === "toggle-detached") toggleAgentDetached();
-            else if (d.type === "subscribe") {
-                // It has just mounted and wants the current state, not the next change.
-                postToWorkspace("placement", currentPlacement());
-                postToWorkspace("theme", currentTheme());
-            }
-        });
-        function setAgentSide(side) {
-            document.documentElement.classList.toggle("agent-right", side === "right");
-            try { localStorage.setItem(AGENT_SIDE_KEY, side); } catch (e) {}
-            // Re-report the workspace rect NOW rather than at the next poll tick, so
-            // the native harness view lands on the new side in the same frame.
-            window.dispatchEvent(new Event("resize"));
-            publishAgentPlacement();
-        }
-        // Right by default. The screen is what you look at, so it keeps the left
-        // of the window; the conversation reads as a panel alongside it. Only an
-        // explicit choice of "left" moves it back, so a storage failure lands on
-        // the default rather than silently on the old side.
-        var storedAgentSide = null;
-        try {
-            storedAgentSide = localStorage.getItem(AGENT_SIDE_KEY);
-        } catch (e) {}
-        if (storedAgentSide !== "left") document.documentElement.classList.add("agent-right");
-        function toggleAgentDetached() {
-            if (!dc.detachAgent) return;
-            // Optimistically collapse the embedded panel; main opens the window. When
-            // already detached the same message closes that window instead, and the
-            // attach signal below restores the panel.
-            if (!agentDetached()) {
-                document.documentElement.classList.add("agent-detached");
-                window.dispatchEvent(new Event("resize"));
-            }
-            dc.detachAgent();
-            publishAgentPlacement();
-        }
-        if (dc.onAgentAttached) {
-            dc.onAgentAttached(function () {
-                document.documentElement.classList.remove("agent-detached");
-                window.dispatchEvent(new Event("resize"));
-                publishAgentPlacement();
-            });
-        }
-        if (dc.onAgentThemeRequest) {
-            dc.onAgentThemeRequest(function () {
-                if (dc.reportAgentTheme) dc.reportAgentTheme(currentTheme());
-            });
-        }
-        if (dc.onAgentPlacementCommand) {
-            dc.onAgentPlacementCommand(function (command) {
-                if (command.type === "side") setAgentSide(command.side);
-                else if (command.type === "toggle-detached") toggleAgentDetached();
-                else publishAgentPlacement();
-            });
-        }
+        /* The conversation sits right of the screen, which keeps the left of the
+         * window; the html.agent-right rules in console.css lay that out. It used
+         * to be a stored choice of side, changed from the conversation's own
+         * header, but nothing in the terminal panel can send that choice, so the
+         * class is simply set. */
+        document.documentElement.classList.add("agent-right");
 
         /* How much vertical space fit-native has to reserve above the picture.
          *
          * Measured rather than repeated: the height is set in console.css, and a
          * copy here would silently start reserving the wrong amount the moment
-         * that changed. The fallback only covers the native shell, where the bar
-         * belongs to ui.html and is not in this document to measure. */
-        var NATIVE_SHELL_TITLEBAR_H = 38; // ui.html's strip; = TITLEBAR_HEIGHT in main.ts
-        var nativeShellTitlebar = false;
+         * that changed. The fallback only covers a bar not yet laid out. */
         function titlebarHeight() {
-            if (nativeShellTitlebar) return NATIVE_SHELL_TITLEBAR_H;
             var el = document.getElementById("titlebar");
             var measured = el ? Math.round(el.getBoundingClientRect().height) : 0;
-            return measured || NATIVE_SHELL_TITLEBAR_H;
+            return measured || 38;
         }
         var savedPanelW = readPanelWidth();
         if (savedPanelW) applyPanelWidth(savedPanelW);
@@ -10167,7 +10002,6 @@
             var t = e.target;
             if (t && (t.isContentEditable || (t.closest && t.closest(FOCUSABLE)))) return;
             if (blockKvmInput(e)) return;
-            noteManualKvmInput();
             // Printable keys are ours here (there is no hidden field in play), so the
             // produced character goes through — e.key already reflects the host's Shift
             // and Caps Lock, which is why the case is right on the caps-off target.
@@ -10181,21 +10015,6 @@
             if (e.code) releaseMod(e.code);
             if (e.code === "CapsLock" && windowFocused && !modalOpen()) syncHostCaps(e);
         });
-
-        // The MAIN desktop window keeps the original ui.html titlebar ABOVE the
-        // console (?shell=native) — hide the console's own titlebar then, but keep all
-        // the other desktop chrome (agent header, native menus, fit-native).
-        var nativeShell = false;
-        try {
-            nativeShell = new URLSearchParams(location.search).get("shell") === "native";
-        } catch (e) {}
-        if (nativeShell) {
-            document.documentElement.classList.add("native-titlebar");
-            /* The console draws no titlebar in this mode, but ui.html's strip sits
-             * above this view, so fit-native still has to reserve it — and it
-             * cannot be measured from in here. */
-            nativeShellTitlebar = true;
-        }
 
         var titlebar = document.getElementById("titlebar");
         if (titlebar) titlebar.setAttribute("aria-hidden", "false");
@@ -10674,12 +10493,7 @@
             return !!(audioBtnEl && !audioBtnEl.hidden);
         }
         /* The conversation owns its own history and copy controls, so this outer
-         * shell menu carries neither. The branch that offered them was picked by
-         * isDesktopWorkspace, which is invariably true here: everything in this
-         * block runs only when window.desktopConsole exists, and the preload
-         * always defines reportWorkspaceRect on it. So the alternative was
-         * unreachable, and its two commands posted messages into a frame that is
-         * blank on the desktop and, on web, runs a terminal that ignores them. */
+         * shell menu carries neither. */
         function buildMenu() {
             var items = [{ id: "settings", label: "Settings" }];
             if (avAvailable()) {
@@ -10690,10 +10504,6 @@
                 // added there and not here is unreachable in the packaged app.
                 items.push({ id: "audio-devices", label: "Audio devices…" });
             }
-            /* Detaching the conversation and swapping its side used to sit here,
-             * in the menu belonging to the OTHER half of the window. They live in
-             * the conversation's own header now, next to everything else about
-             * it; runCommand still answers both ids for the non-desktop path. */
             items.push({ type: "separator" });
             items.push({ id: "paste", label: "Paste text to the target…" });
             if (atx.available()) {
