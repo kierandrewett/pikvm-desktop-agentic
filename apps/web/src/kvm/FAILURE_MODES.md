@@ -44,3 +44,13 @@ host and the fake kvmd.
 - K18. The view transform reaches the image, the video and the held frame together, and the zoom state published to the UI is the machine's, not a copy.
 - K19. A region picked for OCR is in the picture's own pixels whatever the letterbox or zoom, clipped to the picture, and a tap, a miss or Escape resolve to nothing.
 - K20. The link lifecycle is bound once per session: a long stay in the background kicks the socket exactly once, not once per mounted screen.
+
+## Behind another tab
+
+The screen stays mounted for the whole visit (see `app/panes.tsx`), so "mounted" no longer means "in use". `useKvmActive()` says whether it is the tab in front.
+
+- K22. The picture, its stream and the link are never torn down by a tab change: the same `<img>`, the same source, no new socket or stream request, live on return.
+- K23. Nothing typed on another tab reaches the target: the hidden field refuses keys, the desktop app's window-level forwarding and host-paste shortcut are off, and the pane is `inert` so no pointer or focus reaches it.
+- K24. Changing tab lets go of what the target holds (modifiers) and puts the soft keyboard away, once, from the change itself; the handlers stay bound for the return.
+- K25. The pointer machine treats "another tab is in front" like "a dialog is open" (no gestures, no cursor), and a real dialog stays open across the change. No cursor report goes to the agent while hidden.
+- K26. The screen wake lock and the document-level handlers (Escape and outside press for menus, the OCR picker's Escape, the Safari pinch guard) follow the tab being in front, not the screen being mounted.

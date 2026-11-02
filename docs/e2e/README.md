@@ -41,7 +41,7 @@ config whose PiKVM is a decoy: the agent must act on the app's own target, and t
 socket outside loopback. It writes `docs/e2e/<date>-chat-desktop.md`.
 
 Other runs share the same two servers and the same environment: `apps/web/e2e/settings-macros.e2e.mjs`
-(Settings -> Macros, `docs/e2e/<date>-settings-macros.md`), and the parity runs listed in
+(Settings -> Macros, `docs/e2e/<date>-settings-macros.md`), `apps/web/e2e/keep-alive.e2e.mjs` (the tabs stay mounted: no new socket or stream, keys on Settings never reach the fake, `docs/e2e/<date>-keep-alive.md`), and the parity runs listed in
 `docs/rebuild/parity-matrix.md`.
 
 The profiles are the iPhone 13 device (touch, coarse pointer, 390x844) and a 1400x900 desktop

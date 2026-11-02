@@ -66,6 +66,14 @@ src/styles.css          tokens (the desktop app's palette) and component classes
 - **Phone layout** is chosen by `(pointer: coarse), (max-width: 719px)`. The bottom bar hides
   while the soft keyboard is up, judged from `visualViewport` the way the console does: more
   than 150px lost from the tallest height seen since the last orientation change.
+- **Tabs stay mounted.** The KVM mounts when the app starts (even on `/settings/...`); Chat and
+  Settings mount when first opened. A tab change only hides one pane and shows another
+  (`src/app/panes.tsx`): hidden panes are `inert` and `aria-hidden` but keep their size, so the
+  picture, its stream and the kvmd link are never torn down, Chat keeps its stream, draft and scroll,
+  and Settings returns to the page that was open (its tab links there). The URL still says which
+  pane is in front, so back and forward work. The KVM is told whether it is in front
+  (`kvm/active.ts`): keyboard capture, the hidden field, pointer gestures, cursor reports, the
+  wake lock and the document-level shortcuts are all off while it is not.
 - **Chat** renders `ChatWorkspace` from `packages/chat-ui` with `apiBase=/app/harness`, the marker
   credential `desktop-managed` (the proxy attaches the real operator capability; every request also
   carries `x-pikvm-workspace: 1`) and `insets="host"` (the shell already pads the safe areas and
