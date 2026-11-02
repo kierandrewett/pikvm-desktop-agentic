@@ -56,7 +56,17 @@ const FORMATS = {
 
 function run(command, args, options = {}) {
     const result = spawnSync(command, args, { stdio: "inherit", cwd: root, ...options });
-    if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} exited ${result.status ?? result.signal}`);
+    if (result.status !== 0) {
+        const why = result.error?.message ?? `exited ${result.status ?? result.signal}`;
+        throw new Error(`${command} ${args.join(" ")}: ${why}`);
+    }
+}
+
+/* On Windows `yarn` is a .cmd shim, which Node only starts through a shell (since the
+ * CVE-2024-27980 fix it refuses .cmd files without one), so spawnSync("yarn") fails with no
+ * exit status. The arguments here are fixed words, so the shell cannot split anything. */
+function yarn(args) {
+    run("yarn", args, { shell: process.platform === "win32" });
 }
 
 /* Every build must be a DIFFERENT package, or fixes do not reach the machine.
@@ -86,8 +96,8 @@ function buildRelease() {
 
 // ── 1. build ─────────────────────────────────────────────────────────────────────────────────
 if (!opts["skip-build"]) {
-    run("yarn", ["build"]);
-    run("yarn", ["workspace", "@pikvm/web", "build"]);
+    yarn(["build"]);
+    yarn(["workspace", "@pikvm/web", "build"]);
 }
 for (const [what, path] of [
     ["the app bundle", join(root, "dist", "main.js")],
