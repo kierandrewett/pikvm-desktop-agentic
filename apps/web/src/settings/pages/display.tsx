@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Group, Row, Segmented } from "../../ui/controls";
 import { readThemeChoice, setThemeChoice, type ThemeChoice } from "../../theme";
+import { ScreenAlertsGroup } from "./screen-alerts";
 
 const CHOICES = [
     { value: "light", label: "Light" },
@@ -12,18 +13,21 @@ export function DisplayPage() {
     const [choice, setChoice] = useState<ThemeChoice>(readThemeChoice);
 
     return (
-        <Group title="Appearance" footer="System follows your device and changes with it.">
-            <Row label="Theme">
-                <Segmented
-                    label="Theme"
-                    options={CHOICES}
-                    value={choice}
-                    onChange={(next) => {
-                        setChoice(next);
-                        setThemeChoice(next);
-                    }}
-                />
-            </Row>
-        </Group>
+        <>
+            <Group title="Appearance" footer="System follows your device and changes with it.">
+                <Row label="Theme">
+                    <Segmented
+                        label="Theme"
+                        options={CHOICES}
+                        value={choice}
+                        onChange={(next) => {
+                            setChoice(next);
+                            setThemeChoice(next);
+                        }}
+                    />
+                </Row>
+            </Group>
+            <ScreenAlertsGroup />
+        </>
     );
 }

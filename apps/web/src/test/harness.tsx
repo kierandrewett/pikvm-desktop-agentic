@@ -135,15 +135,17 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
 
 export interface Env {
     compact?: boolean;
+    /** A coarse primary pointer: a phone or tablet, which gets the touch dock. */
+    coarse?: boolean;
     /** The KVM session pages that send to the target use; a rig's, so no real socket opens. */
     session?: KvmSession;
 }
 
-export function installMatchMedia({ compact = false }: Env): void {
+export function installMatchMedia({ compact = false, coarse = false }: Env): void {
     vi.stubGlobal(
         "matchMedia",
         vi.fn((query: string) => ({
-            matches: query === COMPACT_QUERY ? compact : false,
+            matches: query === COMPACT_QUERY ? compact : query === "(pointer: coarse)" ? coarse : false,
             media: query,
             addEventListener: () => {},
             removeEventListener: () => {},
