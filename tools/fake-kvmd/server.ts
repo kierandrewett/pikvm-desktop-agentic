@@ -105,8 +105,10 @@ function freshState() {
         // that a list of names broke the picker once); the console reads the keys.
         keymaps: { default: "en-us", available: { "en-us": {}, "en-gb": {}, de: {}, fr: {} } as Record<string, object> },
         source: { online: true, width: FRAME_WIDTH, height: FRAME_HEIGHT },
-        /** Which picture the streamer serves: the colour bars, a window-sized change, or (snapshots only) the two alternating. */
-        picture: "bars" as "bars" | "changed" | "flicker",
+        /** Which picture the streamer serves: the colour bars, a window-sized change, (snapshots only) the two alternating, or a JPEG the test uploaded. */
+        picture: "bars" as "bars" | "changed" | "flicker" | "custom",
+        /** The JPEG POST /__fake/picture?name=custom was given. */
+        custom: null as Buffer | null,
         streamerApplied: {
             quality: 80,
             desired_fps: 30,
@@ -357,7 +359,8 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
 
     // ---- video ---------------------------------------------------------------
 
-    const currentFrame = (): Buffer => (state.picture === "changed" ? CHANGED_JPEG : FRAME_JPEG);
+    const currentFrame = (): Buffer =>
+        state.picture === "custom" && state.custom ? state.custom : state.picture === "changed" ? CHANGED_JPEG : FRAME_JPEG;
     let flicker = false;
     /** One snapshot's picture: under `flicker` it differs from the one before, so the screen never settles. */
     const snapshotFrame = (): Buffer => {
@@ -739,8 +742,15 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
             case "/__fake/picture": {
                 requireMethod(req, "POST");
                 const name = q.get("name");
-                if (name !== "bars" && name !== "changed" && name !== "flicker") {
-                    throw new HttpError(400, "ValidatorError", "name must be bars, changed or flicker");
+                if (name !== "bars" && name !== "changed" && name !== "flicker" && name !== "custom") {
+                    throw new HttpError(400, "ValidatorError", "name must be bars, changed, flicker or custom");
+                }
+                if (name === "custom") {
+                    // A JPEG (SOI marker) in the request body: a test that needs a picture with real content on it.
+                    if (body.length < 4 || body[0] !== 0xff || body[1] !== 0xd8) {
+                        throw new HttpError(400, "ValidatorError", "name=custom needs a JPEG as the request body");
+                    }
+                    state.custom = Buffer.from(body);
                 }
                 state.picture = name;
                 json(res, 200, { ok: true, picture: name });

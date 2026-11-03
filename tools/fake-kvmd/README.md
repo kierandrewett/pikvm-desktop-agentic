@@ -78,7 +78,7 @@ Plain JSON, not the kvmd envelope. `seq` numbers all records in one order;
 | `POST /__fake/resolution?width=W&height=H` | The resolution the streamer reports: the `streamer` event, `X-UStreamer-Width`/`Height` on snapshots and `/streamer/state`. The JPEG served keeps its own 320x180 size. Reset by `/__fake/reset`. |
 | `POST /__fake/ocr[?enabled=0\|1]` | Sets what an `ocr=1` snapshot answers (the request body, as text) and whether OCR is on; broadcasts an `ocr` event. With OCR off the snapshot is a 503. |
 | `POST /__fake/keymap?name=en-gb` | Sets kvmd's default keymap and broadcasts `hid_keymaps`. |
-| `POST /__fake/picture?name=bars\|changed\|flicker` | Which picture the stream and snapshots serve: the colour bars, or a dialog-sized change (a light window over a dark desktop), so a test can make the target's screen change. `flicker` makes each snapshot differ from the one before, a screen that never settles. Reset by `/__fake/reset`. |
+| `POST /__fake/picture?name=bars\|changed\|flicker\|custom` | Which picture the stream and snapshots serve: the colour bars, or a dialog-sized change (a light window over a dark desktop), so a test can make the target's screen change. `flicker` makes each snapshot differ from the one before, a screen that never settles. `custom` serves the JPEG in the request body (a 400 if it is not one), for a test that needs a picture with real content on it. Reset by `/__fake/reset`. |
 
 Example:
 
