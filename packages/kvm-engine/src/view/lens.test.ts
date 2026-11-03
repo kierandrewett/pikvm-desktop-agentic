@@ -1,4 +1,4 @@
-// Failure modes L1-L10: see FAILURE_MODES.md.
+// Failure modes L1-L17: see FAILURE_MODES.md.
 //
 // A finger is simulated on a plain time axis: `drag` feeds touch moves of `px` pixels every `everyMs`.
 // No real timers.
@@ -8,21 +8,28 @@ import {
     LENS_ENGAGE_PX,
     LENS_FLIP_BACK_PX,
     LENS_GAP,
+    LENS_HIDE_DELAY_MS,
     LENS_HIDE_SPEED,
     LENS_MAX_DT_MS,
     LENS_MIN_MAG,
     LENS_MIN_MOVES,
+    LENS_SHOW_DELAY_MS,
     LENS_SHOW_SPEED,
     LENS_SIZE,
     LENS_SPEED_TAU_MS,
     LENS_ZOOM,
+    beginLensTouch,
     createLensSize,
+    lensActive,
     lensMag,
     lensPlace,
     lensReachable,
     lensSource,
     lensVisible,
+    noteLensFingers,
     noteLensSpeed,
+    quenchLens,
+    settleLens,
 } from "./lens";
 import type { LensSizeState, LensVisibilityInput } from "./lens";
 
@@ -43,6 +50,13 @@ class Finger {
 
     get on(): boolean {
         return this.state.shown;
+    }
+
+    /** Time passes with no move: the finger rests. */
+    rest(ms: number): void {
+        this.t += ms;
+        this.state = settleLens(this.state, this.t);
+        this.shown.push(this.state.shown);
     }
 }
 
@@ -122,10 +136,11 @@ describe("on and off", () => {
         expect(LENS_ENGAGE_PX).toBeLessThan(16); // inside the tap slop, so a tap's jitter is under it
     });
 
-    it("L3: no wait: a slowly moving finger shows it on its second move", () => {
+    it("L3/L11: the second move of a slow finger decides; the lens follows after the show delay", () => {
         const f = new Finger();
         f.drag(...SLOW, 32);
-        expect(f.shown).toEqual([false, true]);
+        expect(f.state.want).toBe(true);
+        expect(f.shown).toEqual([false, false]);
     });
 
     it("L4: a fast finger never shows it, from the first move, however long it goes on", () => {
@@ -137,11 +152,11 @@ describe("on and off", () => {
         expect(flick.shown.some(Boolean)).toBe(false);
     });
 
-    it("L4: speeding up hides it within a few moves, and slowing down brings it back", () => {
+    it("L4: speeding up hides it, and slowing down brings it back (each after its delay)", () => {
         const f = new Finger();
         f.drag(...SLOW, 400);
         expect(f.on).toBe(true);
-        f.drag(...FAST, 96);
+        f.drag(...FAST, 400);
         expect(f.on).toBe(false);
         f.drag(...SLOW, 800);
         expect(f.on).toBe(true);
@@ -150,11 +165,11 @@ describe("on and off", () => {
     it("L5: a finger that stops sending moves keeps the decision: a swipe's rest never lets it in, a nudge's rest keeps it", () => {
         const swipe = new Finger();
         swipe.drag(...FAST, 400);
-        swipe.t += 5000;
+        swipe.rest(5000);
         expect(swipe.on).toBe(false);
         const nudge = new Finger();
         nudge.drag(...MID, 400);
-        nudge.t += 5000;
+        nudge.rest(5000);
         expect(nudge.on).toBe(true);
     });
 
@@ -185,6 +200,208 @@ describe("on and off", () => {
             if (changes.at(-1) !== wobble.state.shown) changes.push(wobble.state.shown);
         }
         expect(changes.length).toBeLessThanOrEqual(2);
+    });
+});
+
+describe("delays", () => {
+    /** Moves until `want` flips to `value`; returns the time it did. */
+    const until = (f: Finger, move: readonly [number, number], value: boolean): number => {
+        for (let i = 0; i < 200 && f.state.want !== value; i++) f.drag(...move, move[1]);
+        expect(f.state.want).toBe(value);
+        return f.t;
+    };
+
+    it("the delays are deliberate: a fraction of a second each, the hide a little longer than the show", () => {
+        for (const ms of [LENS_SHOW_DELAY_MS, LENS_HIDE_DELAY_MS]) {
+            expect(ms).toBeGreaterThanOrEqual(100);
+            expect(ms).toBeLessThanOrEqual(400);
+        }
+        expect(LENS_HIDE_DELAY_MS).toBeGreaterThan(LENS_SHOW_DELAY_MS);
+    });
+
+    it("L11/L12: a slow finger that then stops shows it once the show delay has passed, with no further move", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 32); // two moves: the decision is made
+        const decided = f.t;
+        expect(f.on).toBe(false);
+        expect(lensActive(f.state)).toBe(true); // a change is waiting: the painter keeps the clock running
+        f.rest(LENS_SHOW_DELAY_MS - 1);
+        expect(f.on).toBe(false);
+        f.rest(1);
+        expect(f.t - decided).toBe(LENS_SHOW_DELAY_MS);
+        expect(f.on).toBe(true);
+        f.rest(5000); // and it stays
+        expect(f.on).toBe(true);
+    });
+
+    it("L12: settling is idempotent and never moves backwards in time", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 32);
+        const early = settleLens(f.state, f.t - 500);
+        expect(early).toBe(f.state);
+        f.rest(LENS_SHOW_DELAY_MS);
+        expect(settleLens(f.state, f.t)).toBe(f.state);
+        expect(settleLens(f.state, f.t - 500)).toBe(f.state);
+    });
+
+    it("L11: a slow stretch shorter than the show delay never shows it", () => {
+        const f = new Finger();
+        f.drag(...FAST, 160);
+        f.drag(...SLOW, LENS_SHOW_DELAY_MS - 60); // slows at the end of a flick
+        f.drag(...FAST, 160);
+        f.rest(2000);
+        expect(f.shown.some(Boolean)).toBe(false);
+        expect(lensActive(f.state)).toBe(false);
+    });
+
+    it("L11: no show if the speed goes over during the delay, and the wait starts again from nothing", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 32);
+        f.rest(LENS_SHOW_DELAY_MS - 40);
+        f.drag(...FAST, 64); // over the show speed inside the delay
+        expect(f.state.want).toBe(false);
+        f.rest(2000);
+        expect(f.on).toBe(false);
+        // slow again: its own full delay from the moment it is slow
+        const slowAt = until(f, SLOW, true);
+        f.rest(LENS_SHOW_DELAY_MS - 1);
+        expect(f.on).toBe(false);
+        f.rest(1);
+        expect(f.on).toBe(true);
+        expect(f.t - slowAt).toBe(LENS_SHOW_DELAY_MS);
+    });
+
+    it("L13: it goes only after the hide condition has held for the hide delay", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        expect(f.on).toBe(true);
+        const fastAt = until(f, FAST, false);
+        expect(f.on).toBe(true); // not yet
+        f.rest(LENS_HIDE_DELAY_MS - (f.t - fastAt) - 1);
+        expect(f.on).toBe(true);
+        f.rest(1);
+        expect(f.on).toBe(false);
+        expect(lensActive(f.state)).toBe(false);
+    });
+
+    it("L13: a finger that goes fast and stops still has it hide after the delay", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        until(f, FAST, false);
+        f.rest(LENS_HIDE_DELAY_MS * 2);
+        expect(f.on).toBe(false);
+    });
+
+    it("L13: a slow move during the hide delay cancels it: on throughout, no off-on flicker", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        until(f, FAST, false);
+        f.shown.length = 0;
+        f.rest(LENS_HIDE_DELAY_MS / 2);
+        f.drag(...SLOW, 200); // slow again, well inside the delay of the hide
+        expect(f.state.want).toBe(true);
+        f.rest(5000);
+        expect(f.on).toBe(true);
+        expect(f.shown.every(Boolean)).toBe(true);
+    });
+
+    it("L13: a speed hiccup that is back inside the delay never makes it blink, a wobble in the show/hide band included", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        f.shown.length = 0;
+        for (let i = 0; i < 20; i++) {
+            f.drag(...FAST, 64); // fast for 4 moves, under the hide delay
+            f.drag(...SLOW, 320);
+        }
+        f.rest(5000);
+        expect(f.shown.every(Boolean)).toBe(true);
+    });
+
+    it("L9/L14: a lift hides it after the hide delay, not at once", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        expect(f.on).toBe(true);
+        f.state = noteLensFingers(f.state, false, f.t);
+        expect(f.on).toBe(true);
+        expect(f.state.want).toBe(false);
+        f.rest(LENS_HIDE_DELAY_MS - 1);
+        expect(f.on).toBe(true);
+        f.rest(1);
+        expect(f.on).toBe(false);
+    });
+
+    it("L9/L14: a second finger (a pinch) is a hide that waits too, and a lift before the show delay cancels a show", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        f.state = noteLensFingers(f.state, false, f.t); // second finger down
+        f.rest(LENS_HIDE_DELAY_MS / 2);
+        f.state = noteLensFingers(f.state, true, f.t); // and gone again
+        f.rest(5000);
+        expect(f.on).toBe(true);
+        const early = new Finger();
+        early.drag(...SLOW, 32);
+        early.rest(LENS_SHOW_DELAY_MS / 2);
+        early.state = noteLensFingers(early.state, false, early.t);
+        early.rest(5000);
+        expect(early.on).toBe(false);
+        expect(lensActive(early.state)).toBe(false);
+    });
+
+    it("L14: a new touch inside the hide delay cancels it and the lens stays up under the new finger", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        f.state = noteLensFingers(f.state, false, f.t);
+        f.rest(LENS_HIDE_DELAY_MS - 50);
+        expect(f.on).toBe(true);
+        f.state = beginLensTouch(f.state, f.t);
+        expect(f.on).toBe(true);
+        f.rest(5000); // it rests, or taps
+        expect(f.on).toBe(true);
+        // and the new finger decides from its own speed
+        f.drag(...FAST, 400);
+        expect(f.on).toBe(false);
+    });
+
+    it("L14: a new touch after the hide delay, or with no lens up, starts from nothing", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        f.state = noteLensFingers(f.state, false, f.t);
+        f.rest(LENS_HIDE_DELAY_MS);
+        expect(f.on).toBe(false);
+        f.state = beginLensTouch(f.state, f.t);
+        f.rest(5000);
+        expect(f.on).toBe(false);
+        expect(f.state.moves).toBe(0);
+        f.drag(...SLOW, 16); // one move is still not enough
+        f.rest(5000);
+        expect(f.on).toBe(false);
+    });
+
+    it("L15: a new touch drops a show that was waiting", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 32);
+        f.rest(LENS_SHOW_DELAY_MS / 2);
+        f.state = beginLensTouch(f.state, f.t);
+        expect(f.state.want).toBe(false);
+        expect(lensActive(f.state)).toBe(false);
+        f.rest(5000);
+        expect(f.on).toBe(false);
+    });
+
+    it("L16: a hard limit takes it away at once and drops the wait: slow for the show delay again to get it back", () => {
+        const f = new Finger();
+        f.drag(...SLOW, 400);
+        expect(f.on).toBe(true);
+        f.state = quenchLens(f.state);
+        expect(f.on).toBe(false);
+        expect(lensActive(f.state)).toBe(false);
+        expect(quenchLens(f.state)).toBe(f.state);
+        f.rest(5000);
+        expect(f.on).toBe(false);
+        f.drag(...SLOW, 16);
+        expect(f.on).toBe(false);
+        f.drag(...SLOW, LENS_SHOW_DELAY_MS + 32);
+        expect(f.on).toBe(true);
     });
 });
 
@@ -254,21 +471,19 @@ describe("visibility in context", () => {
         relative: false,
         hidOpen: true,
         modalOpen: false,
-        oneFinger: true,
         at: { x: 100, y: 100 },
         scale: 1,
         box: { left: 0, top: 0, w: 800, h: 450 },
         nat: { w: 1600, h: 900 },
     };
 
-    it("L9: shows only where every condition holds, and only while ONE finger is down", () => {
+    it("L9/L16: shows only where every hard limit holds (the finger's own say is LensSizeState, and waits)", () => {
         expect(lensVisible(base)).toBe(true);
         const cases: [string, Partial<LensVisibilityInput>][] = [
             ["not a trackpad (the desktop mouse has no lens)", { trackpadActive: false }],
             ["relative mouse: cursor is a guess", { relative: true }],
             ["socket down", { hidOpen: false }],
             ["dialog open", { modalOpen: true }],
-            ["finger lifted, or a pinch", { oneFinger: false }],
             ["no cursor position", { at: null }],
             ["no picture", { box: null }],
             ["no real frame yet", { nat: { w: 16, h: 9 } }],

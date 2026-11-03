@@ -4,9 +4,13 @@
 // zoom, so the lens magnifies by max(1, LENS_ZOOM / pictureScale)), a short fade in and out and
 // nothing else inside it but the magnified picture and the cursor point.
 //
-// It is on while ONE finger is down on the trackpad and moving slowly, and off when the finger
-// speeds up or lifts. Speed decides only that: one threshold to show (LENS_SHOW_SPEED) and a higher
-// one to hide (LENS_HIDE_SPEED), so a finger hovering on the threshold does not flicker.
+// It is on while ONE finger is down on the trackpad and moving slowly, and off when the finger speeds up or
+// lifts. Speed decides only that: one threshold to show (LENS_SHOW_SPEED) and a higher one to hide
+// (LENS_HIDE_SPEED), so a finger hovering on the threshold does not flicker. A change then waits: the finger
+// must have been slow for LENS_SHOW_DELAY_MS before the lens comes up, and the hide condition must have held for
+// LENS_HIDE_DELAY_MS before it goes, so a passing slow stretch or speed hiccup does not make it blink. The
+// delays sit before the CSS fade. The wait needs a clock, not only moves (a finger that goes slow and stops
+// sends none): settleLens(state, now) lands a change that is due and the painter calls it until none is left.
 //
 // It sits at a fixed offset above the cursor, clear of the finger, and goes below it only when
 // there is no room above (lensPlace).
@@ -21,6 +25,10 @@ import type { Box, NaturalSize, Point } from "./geometry";
 export const LENS_SHOW_SPEED = 300;
 /** Finger speed (px/s) over which it hides again. Above LENS_SHOW_SPEED: the gap is the hysteresis. */
 export const LENS_HIDE_SPEED = 420;
+/** Time the finger must have stayed slow before the lens comes up: a flick that slows at its end, or a slow pass inside a quick gesture, is not a look. */
+export const LENS_SHOW_DELAY_MS = 180;
+/** Time the hide condition (too fast, lifted, a second finger) must have held before the lens goes: rides out a speed hiccup or the finger re-landing, yet does not hang about after a lift. */
+export const LENS_HIDE_DELAY_MS = 250;
 /** The lens's size on screen, CSS px. */
 export const LENS_SIZE = 96;
 /** Total magnification, the picture's own zoom included. */
@@ -58,30 +66,81 @@ export interface LensSizeState {
     readonly speedAt: number | null;
     /** Moves seen in this gesture. */
     readonly moves: number;
-    /** The finger is moving slowly enough for the lens. */
+    /** Exactly one finger is down. A lift or a second finger is a hide like any other: it waits out LENS_HIDE_DELAY_MS. */
+    readonly fingers: boolean;
+    /** What the finger asks for now: slow enough (with the hysteresis, from what is on screen) and alone. It lands in `shown` after its delay. */
+    readonly want: boolean;
+    /** When `want` last changed (same clock as `speedAt`): the start of the wait while `want` differs from `shown`. */
+    readonly since: number | null;
+    /** The lens is up (past its delay). */
     readonly shown: boolean;
 }
 
+/** A fresh touch with no lens up: nothing until the finger has moved. */
 export function createLensSize(): LensSizeState {
-    return { speed: 0, dist: 0, time: 0, speedAt: null, moves: 0, shown: false };
+    return { speed: 0, dist: 0, time: 0, speedAt: null, moves: 0, fingers: true, want: false, since: null, shown: false };
+}
+
+/** A new touch. A lens still up (even one on its way out) stays and the hide is cancelled; the new finger decides from its own speed. Otherwise as createLensSize. */
+export function beginLensTouch(prev: LensSizeState, now: number): LensSizeState {
+    const { shown } = settleLens(prev, now);
+    return { ...createLensSize(), want: shown, shown };
+}
+
+/** What the finger asks for: with the lens on, anything short of LENS_HIDE_SPEED; with it off, under LENS_SHOW_SPEED. Before the speed means anything, what is on screen stays. */
+function wanted(s: LensSizeState): boolean {
+    if (!s.fingers) return false;
+    if (s.moves < LENS_MIN_MOVES) return s.shown;
+    return s.speed < (s.shown ? LENS_HIDE_SPEED : LENS_SHOW_SPEED);
+}
+
+/** `want` re-read after something it depends on changed at `now`: a change of mind restarts the wait. */
+function retarget(s: LensSizeState, now: number): LensSizeState {
+    const want = wanted(s);
+    return settleLens(want === s.want ? s : { ...s, want, since: now }, now);
+}
+
+/**
+ * Lands a change that is due: when `want` has differed from `shown` for its delay (LENS_SHOW_DELAY_MS to come up,
+ * LENS_HIDE_DELAY_MS to go) at `now` (the same clock as the moves). Pure and idempotent; needs no move, so a
+ * finger that goes slow and stops still gets its lens.
+ */
+export function settleLens(s: LensSizeState, now: number): LensSizeState {
+    if (s.want === s.shown || s.since === null) return s;
+    if (now - s.since < (s.want ? LENS_SHOW_DELAY_MS : LENS_HIDE_DELAY_MS)) return s;
+    return { ...s, shown: s.want, since: null };
+}
+
+/** The lens is up or a change to it is waiting: the painter must keep calling settleLens. */
+export function lensActive(s: LensSizeState): boolean {
+    return s.shown || s.want;
+}
+
+/** Whether exactly one finger is down, as the painter sees it at `now` (the machine's own count, polled: a lift sends no move). */
+export function noteLensFingers(s: LensSizeState, one: boolean, now: number): LensSizeState {
+    const settled = settleLens(s, now);
+    return one === settled.fingers ? settled : retarget({ ...settled, fingers: one }, now);
+}
+
+/** A hard limit (see lensVisible) holds: the lens is gone at once and nothing is waiting; slow for the show delay again brings it back. */
+export function quenchLens(s: LensSizeState): LensSizeState {
+    return s.shown || s.want || s.since !== null ? { ...s, shown: false, want: false, since: null } : s;
 }
 
 /**
  * One finger move of `distance` px at time `now` (ms, any clock as long as it is the same one every call).
- * Folds it into the smoothed speed and decides on/off. A finger that stops sends no moves and the decision
- * stands: a swipe that ends with the finger resting never has the lens creep in, and a nudge that ends
- * resting keeps it.
+ * Folds it into the smoothed speed and decides what the lens should be doing; the lens follows after its delay
+ * (settleLens). A finger that stops sends no moves and the decision stands: a swipe that ends with the finger
+ * resting never has the lens creep in, and a nudge that ends resting keeps it.
  */
-export function noteLensSpeed(s: LensSizeState, distance: number, now: number): LensSizeState {
+export function noteLensSpeed(s0: LensSizeState, distance: number, now: number): LensSizeState {
+    const s = settleLens(s0, now);
     // The first sample is the speed itself (nothing before it to average against); after that old data decays by real elapsed time.
     const elapsed = s.speedAt === null ? LENS_MAX_DT_MS : Math.max(1, now - s.speedAt);
     const keep = s.speedAt === null ? 0 : Math.exp(-elapsed / LENS_SPEED_TAU_MS);
     const dist = s.dist * keep + distance;
     const time = s.time * keep + Math.min(elapsed, LENS_MAX_DT_MS);
-    const speed = (dist / time) * 1000;
-    const moves = s.moves + 1;
-    const shown = moves >= LENS_MIN_MOVES && speed < (s.shown ? LENS_HIDE_SPEED : LENS_SHOW_SPEED);
-    return { speed, dist, time, speedAt: now, moves, shown };
+    return retarget({ ...s, speed: (dist / time) * 1000, dist, time, speedAt: now, moves: s.moves + 1 }, now);
 }
 
 /** What the lens magnifies by at a picture zoom: it makes up what the picture lacks. */
@@ -127,8 +186,6 @@ export interface LensVisibilityInput {
     readonly relative: boolean;
     readonly hidOpen: boolean;
     readonly modalOpen: boolean;
-    /** Exactly one finger is down (not none, not a pinch). */
-    readonly oneFinger: boolean;
     /** Cursor in client pixels, or null with no picture. */
     readonly at: Point | null;
     readonly scale: number;
@@ -136,9 +193,12 @@ export interface LensVisibilityInput {
     readonly nat: NaturalSize;
 }
 
-/** Whether the lens may be on screen this frame (the finger's speed has its own say in LensSizeState.shown). */
+/**
+ * The hard limits: where any fails the lens is gone this frame, with no delay. The finger's own say (its speed, a
+ * lift, a second finger) is LensSizeState, and waits out its delay.
+ */
 export function lensVisible(i: LensVisibilityInput): boolean {
-    if (!(i.trackpadActive && !i.relative && i.hidOpen && !i.modalOpen && i.oneFinger) || !i.at) return false;
+    if (!(i.trackpadActive && !i.relative && i.hidOpen && !i.modalOpen) || !i.at) return false;
     if (!lensReachable(i.scale)) return false;
     // A stream that has not delivered a real frame yet has nothing to magnify.
     return !!i.box && i.nat.w >= 32 && i.nat.h >= 32;

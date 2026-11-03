@@ -198,7 +198,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
         0 8px 24px -6px rgb(0 0 0 / 60%);
     opacity: 0;
     visibility: hidden;
-    /* Fades out quickly when the finger lifts or speeds up, so it never trails it. */
+    /* A short fade out. The painter has already waited out the hide delay (LENS_HIDE_DELAY_MS), so this is only the fade. */
     transition:
         opacity 0.09s,
         visibility 0s linear 0.09s;

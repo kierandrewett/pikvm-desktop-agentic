@@ -6,15 +6,18 @@
 
 import {
     LENS_SIZE,
+    beginLensTouch,
     createLensSize,
+    lensActive,
     lensMag,
     lensPlace,
-    lensReachable,
     lensSource,
     lensVisible,
+    noteLensFingers,
     noteLensSpeed,
     paintMouseCursor,
     paintTrackpadCursor,
+    quenchLens,
     type Clock,
     type LensSizeState,
     type PointerMachine,
@@ -46,8 +49,8 @@ export interface Painter {
     /** Another client moved the pointer and it is theirs (`show`), or this client moved it since (not `show`). */
     remote(show: boolean): void;
     /**
-     * A finger moved `distance` px at the event's own time `at` (its speed decides whether the lens shows); no
-     * distance = a new touch began. Without `at` the moment of the call stands in.
+     * A finger moved `distance` px at the event's own time `at` (its speed decides whether the lens shows, after its
+     * delay); no distance = a new touch began. Without `at` the moment of the call stands in.
      */
     lens(distance?: number, at?: number): void;
     /** The socket opened or closed: the blob must not claim a remote cursor that has stopped. */
@@ -60,6 +63,11 @@ export function createPainter(deps: PainterDeps): Painter {
     let lensState: LensSizeState = createLensSize();
     let lensBelow = false;
     let lensFrame = 0;
+    // The moves' own timestamps (the page's event clock) and `clock` count from different origins. The lens's waits
+    // run on the moves' axis; this is how far `clock` is ahead of it: the smallest lag seen in this gesture, so a batch
+    // of moves handled together does not look later than it is.
+    let lag = Infinity;
+    const lensNow = (): number => (lag === Infinity ? clock.now() : clock.now() - lag);
     // One size, set once: the canvas's pixels follow the screen's density.
     lens.style.width = `${LENS_SIZE}px`;
     lens.style.height = `${LENS_SIZE}px`;
@@ -88,28 +96,37 @@ export function createPainter(deps: PainterDeps): Painter {
 
     const relative = (): boolean => machine.environment.mouseMode === "relative";
 
-    /** Redrawn every frame while the lens shows, so the target's own changes appear in it and a lift hides it at once. */
+    /**
+     * Runs every frame while the lens is up or a change to it is waiting: the delays need a clock, and a finger that
+     * has stopped (or lifted) sends no move to run them. Redraws the lens while it is up, so the target's own changes
+     * appear in it and a lifted finger's lens stays where the cursor is until it goes.
+     */
     const draw = (): void => {
         lensFrame = 0;
+        lensState = noteLensFingers(lensState, machine.pointersDown === 1, lensNow());
         const at = machine.virtualCursorClient;
         const env = machine.environment;
         const scale = machine.currentView.scale;
         const box = machine.pictureBox;
-        const allowed =
-            lensState.shown &&
-            lensVisible({
-                trackpadActive: machine.trackpadActive,
-                relative: relative(),
-                hidOpen: deps.hidOpen(),
-                modalOpen: deps.modalOpen(),
-                oneFinger: machine.pointersDown === 1,
-                at,
-                scale,
-                box,
-                nat: env.nat,
-            });
+        const allowed = lensVisible({
+            trackpadActive: machine.trackpadActive,
+            relative: relative(),
+            hidOpen: deps.hidOpen(),
+            modalOpen: deps.modalOpen(),
+            at,
+            scale,
+            box,
+            nat: env.nat,
+        });
         if (!allowed || !at || !box) {
+            // A hard limit: gone now, with no delay, and nothing left waiting.
+            lensState = quenchLens(lensState);
             hideLens();
+            return;
+        }
+        if (!lensState.shown) {
+            hideLens();
+            if (lensActive(lensState)) lensFrame = deps.frame(draw);
             return;
         }
         const dpr = window.devicePixelRatio || 1;
@@ -145,6 +162,12 @@ export function createPainter(deps: PainterDeps): Painter {
         place(lens, spot.x, spot.y);
         lens.classList.add("on");
         lensFrame = deps.frame(draw);
+    };
+
+    /** Drawn now, not on the next frame: the cursor has just moved and the lens must not trail it. */
+    const drawNow = (): void => {
+        if (lensFrame) deps.cancelFrame(lensFrame);
+        draw();
     };
 
     const painter: Painter = {
@@ -206,18 +229,20 @@ export function createPainter(deps: PainterDeps): Painter {
         },
         lens(distance, at) {
             if (distance === undefined) {
-                // A new touch starts from nothing: no lens until the finger has moved.
-                lensState = createLensSize();
-                lensBelow = false;
-                hideLens();
+                // A new touch: a lens still up stays and its hide is cancelled; with none up it starts from nothing,
+                // and a change that was waiting is dropped.
+                lensState = beginLensTouch(lensState, lensNow());
+                lag = Infinity;
+                if (!lensState.shown) {
+                    lensBelow = false;
+                    hideLens();
+                }
+                drawNow();
                 return;
             }
-            lensState = noteLensSpeed(lensState, distance, at ?? clock.now());
-            // Drawn now, not on the next frame: the cursor has just moved and the lens must not trail it.
-            if (lensState.shown && lensReachable(machine.currentView.scale)) {
-                if (lensFrame) deps.cancelFrame(lensFrame);
-                draw();
-            }
+            if (at !== undefined) lag = Math.min(lag, clock.now() - at);
+            lensState = noteLensSpeed(lensState, distance, at ?? lensNow());
+            drawNow();
         },
         inputChanged() {
             if (deps.hidOpen()) {
