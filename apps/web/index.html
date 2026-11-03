@@ -9,7 +9,11 @@
         <meta name="theme-color" content="#000000" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <!-- "black", not "black-translucent": the translucent style lets iOS 26 draw its own gradient scrim over the
+             top of the page (it cannot be turned off from the page) and, on the iPhones it was seen on, sized the
+             page 62px short of the screen so the system background showed under the bar. "black" is a solid black
+             bar with the page below it. iOS reads this once, when the app is added to the Home Screen. -->
+        <meta name="apple-mobile-web-app-status-bar-style" content="black" />
         <meta name="apple-mobile-web-app-title" content="PiKVM" />
         <link rel="manifest" href="/app/manifest.webmanifest" />
         <link rel="apple-touch-icon" href="/app/apple-touch-icon.png" />

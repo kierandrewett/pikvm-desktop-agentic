@@ -22,6 +22,8 @@ describe("about", () => {
         renderApp("/settings/about");
         expect(await screen.findByText("9.9.9")).toBeInTheDocument();
         expect(screen.getByText("App version")).toBeInTheDocument();
+        expect(screen.getByText("App build")).toBeInTheDocument();
+        expect(screen.getByText(__BUILD_ID__)).toBeInTheDocument();
         expect(screen.queryByText("Desktop app")).toBeNull();
     });
 

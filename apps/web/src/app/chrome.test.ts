@@ -13,6 +13,10 @@
  *  6. The offline page the service worker serves comes up with a different status bar than the app.
  *  7. The shell stops short of the screen edge (the visual viewport reported short, as can happen as the
  *     app returns from the background) and the strip left under the bar is the page's colour, not the bar's.
+ *  8. The status-bar style goes back to black-translucent. On the iPhone this was reported from (iOS 26) that
+ *     style gets the system's own gradient over the top of the page, which no CSS can remove, and a page 62px
+ *     short of the screen with the system background under the bar. Real-device evidence, not reproducible
+ *     headless: the meta is what has to stay "black" (a solid bar, the page below it).
  *
  * What a browser draws from this is asserted in e2e/phone-chrome.e2e.mjs; this file is the static
  * contract the pixels depend on.
@@ -111,11 +115,11 @@ describe("home indicator strip", () => {
 });
 
 describe("the installed app's meta", () => {
-    it("draws edge to edge, so the insets exist", () => {
+    it("is edge to edge at the bottom, with a solid black bar and the page below it", () => {
         expect(meta("viewport")).toMatch(/viewport-fit=cover/);
         expect(meta("apple-mobile-web-app-capable")).toBe("yes");
         expect(meta("mobile-web-app-capable")).toBe("yes");
-        expect(meta("apple-mobile-web-app-status-bar-style")).toBe("black-translucent");
+        expect(meta("apple-mobile-web-app-status-bar-style")).toBe("black");
     });
 
     it("is standalone", () => {

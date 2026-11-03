@@ -28,6 +28,8 @@ const TABS = ["kvm", "chat", "settings"];
 /** What an iPhone 13 reports in each orientation. */
 const PORTRAIT = { top: 47, bottom: 34, left: 0, right: 0 };
 const LANDSCAPE = { top: 0, bottom: 21, left: 47, right: 47 };
+/** The page starts BELOW the system's black status bar (style "black"): no top inset, the home indicator still at the bottom. */
+const BELOW_BAR = { top: 0, bottom: 34, left: 0, right: 0 };
 
 async function check(profile, name, fn) {
     try {
@@ -114,6 +116,7 @@ const chrome = (page) =>
             navBg: style.backgroundColor,
             navPad: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
             shellPadBottom: shell.paddingBottom,
+            shellPadTop: shell.paddingTop,
             shellBg: shell.backgroundColor,
             bodyBg: getComputedStyle(document.body).backgroundColor,
             underBottomEdge: at ? (at.closest(".nav-bar, .nav-rail") ? "nav" : at.className || at.tagName) : "none",
@@ -136,7 +139,7 @@ async function phone(browser, scratch, label, device, insets, theme) {
             const h = c.height;
 
             await check(profile, `${tab}: status-bar strip is ${insets.top}px of #000000`, async () => {
-                if (insets.top === 0) return [c.strip === "0px", `strip height ${c.strip} (no status bar in landscape)`];
+                if (insets.top === 0) return [c.strip === "0px" && c.shellPadTop === "0px", `strip height ${c.strip}, shell padding-top ${c.shellPadTop} (nothing of ours at the top: the bar is the system's, the page is below it)`];
                 const xs = [1, Math.round(w / 2), w - 2];
                 const ys = [1, Math.round(insets.top / 2), insets.top - 1];
                 const got = await pixels(scratch, png, dsf, ys.flatMap((y) => xs.map((x) => [x, y])));
@@ -144,6 +147,26 @@ async function phone(browser, scratch, label, device, insets, theme) {
                 return [
                     c.strip === `${insets.top}px` && c.stripBg === "rgb(0, 0, 0)" && got.every((p) => p === "#000000"),
                     `strip ${c.strip}, ${got.length} pixels over the inset all ${[...new Set(got)].join("/")}; first pixel below it ${below[0]} (page bg ${rgbToHex(c.shellBg)})`,
+                ];
+            });
+
+            // The system's own scrim (iOS 26 over black-translucent) cannot be seen headless; what can be: the page
+            // fills the viewport exactly, and nothing of ours paints a gradient or blur over the top of it.
+            await check(profile, `${tab}: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top`, async () => {
+                const seen = await page.evaluate(() => {
+                    const shell = document.querySelector(".app-shell").getBoundingClientRect();
+                    const painted = [...document.querySelectorAll("body *")]
+                        .filter((el) => {
+                            const r = el.getBoundingClientRect();
+                            const s = getComputedStyle(el);
+                            return r.width > innerWidth * 0.5 && r.height > 0 && r.top < 140 && r.bottom > 0 && s.visibility !== "hidden" && el.closest("[data-active=false]") === null && (/gradient/.test(s.backgroundImage) || s.backdropFilter !== "none");
+                        })
+                        .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)}`);
+                    return { rect: [shell.left, shell.top, shell.right, shell.bottom].map(Math.round), w: innerWidth, h: innerHeight, painted };
+                });
+                return [
+                    seen.rect[0] === 0 && seen.rect[2] === seen.w && seen.rect[3] === seen.h + 0 && seen.rect[1] === 0 && seen.painted.length === 0,
+                    `shell ${seen.rect.join(",")} of ${seen.w}x${seen.h}; full-width gradient or blur in the top 140px: ${seen.painted.length ? seen.painted.join(", ") : "none"}`,
                 ];
             });
 
@@ -269,7 +292,7 @@ async function staticContract() {
         return [
             got["theme-color"] === "#000000" &&
                 got["apple-mobile-web-app-capable"] === "yes" &&
-                got["apple-mobile-web-app-status-bar-style"] === "black-translucent" &&
+                got["apple-mobile-web-app-status-bar-style"] === "black" &&
                 got["mobile-web-app-capable"] === "yes" &&
                 /viewport-fit=cover/.test(viewport),
             `${JSON.stringify(got)}; viewport "${viewport}"`,
@@ -283,6 +306,73 @@ async function staticContract() {
         /<meta name="theme-color" content="#000000">/.test(worker) && /html::before[^}]*env\(safe-area-inset-top/.test(worker),
         "theme-color #000000 and the inset strip are in /app/sw.js",
     ]);
+    // The update path: nothing the installed app starts from may come out of a cache. The page, the worker and the
+    // build id are revalidated on every load, the worker never serves a page itself, and only hashed assets are immutable.
+    await check(profile, "the page, sw.js and version.json are revalidated, hashed assets are immutable, the worker never caches a page", async () => {
+        const heads = {};
+        for (const path of ["/app/", "/app/sw.js", "/app/version.json", "/app/manifest.webmanifest"]) heads[path] = (await fetch(`${WEB}${path}`)).headers.get("cache-control");
+        const asset = /src="(\/app\/assets\/[^"]+\.js)"/.exec(html)?.[1] ?? "";
+        const assetHead = (await fetch(`${WEB}${asset}`)).headers.get("cache-control");
+        const navigationsAreNetwork = /req\.mode === "navigate"[\s\S]{0,200}fetch\(req\)\.catch\(offlinePage\)/.test(worker) && /self\.skipWaiting\(\)/.test(worker) && /self\.clients\.claim\(\)/.test(worker);
+        return [
+            Object.values(heads).every((v) => v === "no-cache") && /immutable/.test(assetHead ?? "") && navigationsAreNetwork,
+            `${JSON.stringify(heads)}; ${asset} ${assetHead}; worker navigations go to the network, skipWaiting and clients.claim present: ${navigationsAreNetwork}`,
+        ];
+    });
+}
+
+/** What the page gives an About reader, and what /app/version.json says: the same build; and what coming back after a deploy does. */
+async function buildIdAndUpdate(browser) {
+    const profile = "update";
+    await fakeReset();
+    const served = await (await fetch(`${WEB}/app/version.json`)).json();
+    const { page } = await open(browser, "iPhone 13", "light", undefined);
+    const comeBack = () =>
+        page.evaluate(() => {
+            Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+            document.dispatchEvent(new Event("visibilitychange"));
+        });
+    try {
+        await check(profile, "Settings > About shows the build the host serves in /app/version.json", async () => {
+            await page.goto(`${WEB}/app/settings/about`, { waitUntil: "load" });
+            await page.waitForFunction(() => document.body.innerText.includes("App build"));
+            const shown = await page.evaluate(() => document.body.innerText);
+            return [served.build !== undefined && shown.includes("App build") && shown.includes(served.build), `About lists "App build" and "${served.build}": ${shown.includes(served.build)}`];
+        });
+
+        await check(profile, "coming back to the same build does not reload", async () => {
+            await page.evaluate(() => (window.__alive = 1));
+            await comeBack();
+            await sleep(800);
+            const alive = await page.evaluate(() => window.__alive);
+            return [alive === 1, `page kept its state: ${alive === 1}`];
+        });
+
+        await check(profile, "coming back after a deploy reloads once, and never twice for the same build", async () => {
+            // The worker answers /app/ requests itself, and puppeteer only sees the page's: bypass it so the host's answer can be replaced.
+            await page.setBypassServiceWorker(true);
+            // Returns closer together than 5 s are one check (src/host/update.ts); the previous case just made one.
+            await sleep(5300);
+            await page.setRequestInterception(true);
+            page.on("request", (req) => {
+                if (req.url().endsWith("/app/version.json")) {
+                    req.respond({ status: 200, contentType: "application/json", headers: { "cache-control": "no-store" }, body: JSON.stringify({ build: "next.20991231-235959" }) });
+                } else req.continue();
+            });
+            await page.evaluate(() => (window.__alive = 1));
+            await comeBack();
+            await page.waitForFunction(() => window.__alive === undefined, { timeout: 8000 });
+            await page.waitForSelector('[role="tab"]');
+            await page.evaluate(() => (window.__alive = 2));
+            await comeBack();
+            await sleep(1500);
+            const alive = await page.evaluate(() => window.__alive);
+            const marked = await page.evaluate(() => sessionStorage.getItem("pikvm-reloaded-for-build"));
+            return [alive === 2 && marked === "next.20991231-235959", `reloaded for "${marked}", and the second return kept the page (state ${alive})`];
+        });
+    } finally {
+        await page.close();
+    }
 }
 
 const browser = await launch();
@@ -290,9 +380,16 @@ const scratch = await browser.newPage();
 await scratch.goto("about:blank");
 try {
     await staticContract();
+    await buildIdAndUpdate(browser);
     for (const theme of ["light", "dark"]) {
         await phone(browser, scratch, "iPhone 13 portrait", "iPhone 13", PORTRAIT, theme);
         await phone(browser, scratch, "iPhone 13 landscape", "iPhone 13 landscape", LANDSCAPE, theme);
+    }
+    // The installed app as iOS draws it with the black status-bar style: the page starts BELOW the bar, so the
+    // viewport is the screen minus the bar (844 - 47) and the top inset is 0, while the bottom still has the
+    // home indicator. The layout has to be right with no top inset at all.
+    for (const theme of ["light", "dark"]) {
+        await phone(browser, scratch, "iPhone 13 standalone, black bar", { width: 390, height: 797, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, BELOW_BAR, theme);
     }
     await uninsetted(browser, scratch, "Android (Pixel 5, no insets)", "Pixel 5", "android");
     await uninsetted(browser, scratch, "Desktop 1400x900, no insets", { width: 1400, height: 900 }, "desktop");
@@ -308,7 +405,9 @@ const section = [
     START,
     "## Status bar and home-indicator strip (PhoneChrome)",
     "",
-    `Run ${today}. Host under test: \`node dist/web-server.js\` (${WEB}) in front of \`tools/fake-kvmd\` (${FAKE}). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP \`Emulation.setSafeAreaInsetsOverride\` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. Script: \`apps/web/e2e/phone-chrome.e2e.mjs\`; how to run it: \`docs/e2e/README.md\`.`,
+    `Run ${today}. Host under test: \`node dist/web-server.js\` (${WEB}) in front of \`tools/fake-kvmd\` (${FAKE}). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP \`Emulation.setSafeAreaInsetsOverride\` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. The \`black bar\` profile is the installed app as iOS draws it with the \`black\` status-bar style: the page starts below the bar, so the viewport is 390x797 with no top inset and 34 at the bottom. The \`update\` cases drive coming back to the app after a deploy (the host's \`/app/version.json\` answered with another build) and check Settings > About against it. Script: \`apps/web/e2e/phone-chrome.e2e.mjs\`; how to run it: \`docs/e2e/README.md\`.`,
+    "",
+    "**What the first version missed.** On a real iPhone (iOS 26, installed app, screenshot 14:57) the top was a grey-to-black gradient over ~120 px and a light-grey strip sat under the white bar. Both come from `apple-mobile-web-app-status-bar-style=black-translucent`: from iOS 26.1 the system draws its own scrim over the top of the page (no CSS removes it; our black strip is under it), and the page was laid out 62 px short of the screen (the bar ended at 812 of 874 pt, the system background below it, outside the web view where nothing of ours can paint). The headless emulation sets a safe-area inset on a viewport that already fills the screen, so it could not show either. The meta is now `black` (a solid bar, the page below it, no top inset), and the `black bar` profile below is that geometry. The scrim and the short web view themselves are system behaviour and cannot be reproduced headless: the check on the device is Settings > About > App build, then the status bar and the strip under the bar.",
     "",
     "| Profile | Case | Observed | Result |",
     "| --- | --- | --- | --- |",

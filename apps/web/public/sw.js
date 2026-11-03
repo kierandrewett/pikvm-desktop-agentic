@@ -71,8 +71,10 @@ function offlinePage() {
     });
 }
 
-// Live or per-session paths: never touched, not even as a fallback.
-const LIVE = /^\/app\/(api|terminal|legacy)(\/|$)/;
+// Live or per-session paths: never touched, not even as a fallback. version.json is one too: it says which
+// build is deployed NOW (src/host/update.ts), and an old copy served while offline would read as "a newer
+// build" to an app that updated since, and reload it into the offline page.
+const LIVE = /^\/app\/(api|terminal|legacy|version\.json)(\/|$)/;
 
 self.addEventListener("fetch", (e) => {
     const req = e.request;

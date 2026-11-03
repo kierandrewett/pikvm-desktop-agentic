@@ -19,6 +19,9 @@ export function AboutPage() {
             <Row label="App version">
                 <Value>{__APP_VERSION__}</Value>
             </Row>
+            <Row label="App build">
+                <Value>{__BUILD_ID__}</Value>
+            </Row>
             <Row label="Host version">
                 <Value>{state.data?.version ?? (state.isError ? "Unavailable" : "Loading")}</Value>
             </Row>

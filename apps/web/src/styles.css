@@ -146,14 +146,18 @@
 /* ---- shell ---------------------------------------------------------------- */
 
 /*
- * The installed iPhone app runs with apple-mobile-web-app-status-bar-style=black-translucent and
- * viewport-fit=cover, so the page is drawn under the status bar and the home indicator and
- * env(safe-area-inset-*) says how much of each edge belongs to the system. Two rules follow:
+ * The installed iPhone app declares apple-mobile-web-app-status-bar-style=black (a solid black bar with
+ * the page BELOW it: env(safe-area-inset-top) is 0 and the layout viewport starts under the bar) and
+ * viewport-fit=cover (the page runs to the bottom edge, env(safe-area-inset-bottom) is the home indicator).
+ * The layout is valid at a top inset of 0, which is what the bar needs. An app added to the Home Screen
+ * while the style was black-translucent keeps that style, and there the page is drawn under the bar and
+ * the inset is real, so the rules below also hold for it:
  *
  *  - The top inset is a solid black strip, in both themes, over whatever else would paint there
  *    (full-page sheets pad for it with their own background). It follows --app-top, which
  *    the shell sets on <html>, so it stays on the status bar when iOS pans the visual viewport
- *    for the keyboard. Nothing is under it: the shell pads by the same inset.
+ *    for the keyboard. Nothing is under it: the shell pads by the same inset. (iOS 26 draws its own
+ *    gradient over that strip in the translucent style; only a re-added app is free of it.)
  *  - The bottom inset belongs to the navigation bar (nav-bar pads itself by it, on its own
  *    background), and nothing else is allowed to paint it: the shell has no bottom padding in the
  *    phone layout, and the bar is the last row.

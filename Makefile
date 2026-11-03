@@ -19,5 +19,7 @@ IMAGE_TOOL ?= podman
 IMAGE ?= pikvm-kvm:local
 # podman's default OCI format drops the Dockerfile's HEALTHCHECK; docker's format keeps it.
 IMAGE_FLAGS ?= $(if $(filter podman,$(IMAGE_TOOL)),--format docker)
+# The commit the web app reports as its build (Settings > About); the image has no .git to ask.
+BUILD_ID ?= $(shell git rev-parse --short=8 HEAD 2>/dev/null)
 image:
-	$(IMAGE_TOOL) build $(IMAGE_FLAGS) -f deploy/Dockerfile -t $(IMAGE) .
+	$(IMAGE_TOOL) build $(IMAGE_FLAGS) --build-arg PIKVM_BUILD_ID=$(BUILD_ID) -f deploy/Dockerfile -t $(IMAGE) .

@@ -32,6 +32,9 @@ WORKDIR /repo
 RUN corepack enable
 COPY . .
 RUN yarn install --immutable
+# The commit the app is built from: the image has no .git, so `make image` passes it in; Settings > About shows it.
+ARG PIKVM_BUILD_ID=
+ENV PIKVM_BUILD_ID=$PIKVM_BUILD_ID
 RUN yarn build && yarn workspace @pikvm/web build
 # Readable by the unprivileged user whatever umask the build ran under (a 077 build once shipped files
 # only root could open), and no source maps. Done here, because a chmod in the runtime stage would copy
