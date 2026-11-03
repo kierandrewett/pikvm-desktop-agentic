@@ -36,13 +36,20 @@ dark): it starts its own stack per profile with `apps/web/e2e/chat-stack.mjs` (t
 `builds/omp/...`, see `scripts/fetch-omp.mjs`) and `SHARP_MODULES`, a `node_modules` directory that has `sharp` (the web
 image installs it; the repo does not): `SHARP_MODULES=... node apps/web/e2e/chat.e2e.mjs [phone|desktop]`.
 
-`apps/web/e2e/chat-desktop.e2e.mjs` drives the real Electron app (not a browser) under a headless sway: the packaged
-layout, its embedded harness, the fake kvmd and the fake model. Start the app with
-`env -u ENABLE_VULKAN_RENDERDOC_CAPTURE ... --remote-debugging-port=9334`, with its output going to a FILE (a pipe that
-closes, as `| head` does, makes the app's next log line an uncaught EPIPE and Electron's error dialog freezes the
-whole main process), and with `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `PIKVM_AGENT_CONFIG` pointing at a scratch
-config whose PiKVM is a decoy: the agent must act on the app's own target, and the run asserts it never opened a
-socket outside loopback. It writes `docs/e2e/<date>-chat-desktop.md`.
+The browser suites can also be pointed at the IMAGE instead of a host they start themselves. `deploy/e2e/up-inspectable.sh up` runs the
+image (read-only, tmpfs `/tmp`, no capability, its own uid 10001 mapped to yours so the suite can read the agent's process and
+files) beside `tools/fake-kvmd` and `tools/fake-model` and prints the variables; export them and run the suite:
+
+```sh
+KVM_IMAGE=pikvm-kvm:local deploy/e2e/up-inspectable.sh up | tee env.txt   # E2E_WEB, E2E_KVMD, E2E_MODEL, E2E_MODEL_URL, E2E_HOST_PID, E2E_DATA
+set -a; . ./env.txt; set +a
+PUPPETEER_CORE=... node apps/web/e2e/chat.e2e.mjs phone         # one profile per fresh container (it keeps state between profiles)
+KVM_WEB=$E2E_WEB KVM_FAKE=$E2E_KVMD PUPPETEER_CORE=... node apps/web/e2e/kvm.e2e.mjs
+KVM_WEB=$E2E_WEB KVM_FAKE=$E2E_KVMD PUPPETEER_CORE=... node apps/web/e2e/keep-alive.e2e.mjs
+deploy/e2e/up-inspectable.sh down
+```
+
+With `E2E_WEB` set, `chat-stack.mjs` starts nothing and `chat.e2e.mjs` uses those origins. It is podman only (`--userns=keep-id`).
 
 Other runs share the same two servers and the same environment: `apps/web/e2e/icons.e2e.mjs` (Phosphor icons on the nav, Settings, the KVM dock and toolbar and the macro picker, light and dark, `docs/e2e/<date>-icons.md`), `apps/web/e2e/settings-macros.e2e.mjs`
 (Settings -> Macros, `docs/e2e/<date>-settings-macros.md`), `apps/web/e2e/keep-alive.e2e.mjs` (the tabs stay mounted: no new socket or stream, keys on Settings never reach the fake, `docs/e2e/<date>-keep-alive.md`), and the parity runs listed in

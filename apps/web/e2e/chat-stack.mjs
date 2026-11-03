@@ -5,6 +5,13 @@
 //
 // Scratch lives under ~/.cache (the machine's /tmp cleaner deletes files mid-run). sharp is not a
 // dependency of the repo (the web image installs it); SHARP_MODULES names a node_modules that has it.
+//
+// With E2E_WEB set the stack is EXTERNAL: the web host is the deployed image (deploy/e2e/compose.yml) and nothing is
+// started here. E2E_WEB, E2E_KVMD and E2E_MODEL are the published origins; E2E_MODEL_URL is the model's base URL as
+// the HOST sees it (http://fake-model:9000/v1), which is what Settings is given; E2E_HOST_PID is the container's
+// init as the machine sees it (podman inspect -f '{{.State.Pid}}'); E2E_DATA is the host directory bind-mounted at
+// /data. The checks that read the agent's process and files need both to be readable by this user, which the
+// container's `userns_mode: keep-id` override (deploy/e2e/compose.inspect.yml) provides.
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -46,7 +53,26 @@ async function until(probe, what, ms = 20000) {
     }
 }
 
+function externalStack() {
+    const need = (name) => process.env[name] ?? (() => { throw new Error(`${name} is required with E2E_WEB`); })();
+    const web = need("E2E_WEB");
+    const modelOrigin = need("E2E_MODEL");
+    return {
+        web,
+        fake: need("E2E_KVMD"),
+        model: need("E2E_MODEL_URL"),
+        modelControl: modelOrigin,
+        data: need("E2E_DATA"),
+        host: { child: { pid: Number(need("E2E_HOST_PID")) }, lines: [] },
+        procs: [],
+        logs: () => "",
+        agentPids: () => [],
+        async stop() {},
+    };
+}
+
 export async function startStack({ web = 18099, kvmd = 14510, model = 14517, dataDir } = {}) {
+    if (process.env.E2E_WEB) return externalStack();
     const data = dataDir ?? mkdtempSync(join(scratch, "data-"));
     const strip = ["--experimental-strip-types", "--disable-warning=ExperimentalWarning"];
     const omp = process.env.OMP_BIN ?? join(root, "builds/omp/18.14.2/linux-x64/omp");

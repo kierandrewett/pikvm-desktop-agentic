@@ -62,3 +62,47 @@ S4's `--mode rpc-ui` fix (`867d7d65`) lists the model correctly. Clear it betwee
 - The arm64 image: the Dockerfile selects `linux-arm64` by `TARGETARCH`, but only amd64 was built here.
 - Flatpak, rpm, deb and Arch packages: unchanged apart from the resources they now carry; not built in this run.
 - The sandboxed profile: there is none (computer profile only, decided in the plan).
+
+## The full browser suites against the image (commit `34ab54c5`)
+
+From a clean detached worktree of `34ab54c5` (`yarn install --immutable` passed, so the committed lock is good), `make image` (podman, 55 s, 600 MB, image id
+`6d1e94321ab3`), then the image with the bsociety posture beside `tools/fake-kvmd` and `tools/fake-model`: `deploy/e2e/up-inspectable.sh up`
+(read-only root, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, `--userns=keep-id:uid=10001` so the suite can read the agent's process and
+`/data`, which is a host directory). Chrome 154 through puppeteer-core. Each suite ran against a freshly started container.
+
+| Suite | Result |
+| --- | --- |
+| `deploy/e2e/chat.e2e.mjs` (curl-level: provider, Origin, reply, click, approve, deny) | 6 of 6 |
+| `apps/web/e2e/chat.e2e.mjs phone` (iPhone 13, light and dark) | 14 of 14 |
+| `apps/web/e2e/chat.e2e.mjs desktop` (1400x900, light and dark) | 13 of 13 (27 with the phone run) |
+| `apps/web/e2e/kvm.e2e.mjs` (both profiles) | 40 of 40 |
+| `apps/web/e2e/keep-alive.e2e.mjs` (both profiles) | 26 of 26 |
+
+The secrets case ran against the container: the provider key and the PiKVM password are in no response, page, storage, cookie, cache, socket frame, in the
+agent's `environ` and `cmdline` (read from the host through the container's pid) or in the agent's files under `/data`; the fake model received the stored key
+upstream from the server and never the gateway's stand-in.
+
+What it took, in order:
+
+- **The suite had to learn the image.** `chat-stack.mjs` only started its own host. With `E2E_WEB` set it now starts nothing and uses the published origins,
+  the model URL as the host sees it (`http://fake-model:9000/v1`, typed into Settings), the container's init pid for the process checks and the host directory
+  mounted at `/data` for the file checks. Rootless podman's default mapping hides both from the user, which is why `up-inspectable.sh` runs the image
+  with `keep-id`. A first attempt through `compose` with `userns_mode` did not apply the option (the container stayed on the private mapping and could
+  not write `/data`), and the bind mount needs `label=disable` on Fedora.
+- **Run each chat profile on a fresh container.** The first run did both profiles against one container: the phone profile passed 14 of 14, and the
+  desktop profile's "add a custom endpoint" case then timed out because the same server already held a provider from the phone profile (and a leftover
+  `fake` provider from `deploy/e2e/chat.e2e.mjs` had broken the first attempt the same way). In-process, the suite starts a new stack per profile; the
+  external mode cannot, so the profiles are run one per container. This is a property of the suite's setup, not of the image.
+- **keep-alive counted Chat's own socket.** "KVM -> Chat -> Settings -> KVM opens no socket" failed with `ws 3->4` on the image: the extra socket is
+  `/app/chat/ws`, which Chat opens the first time it is shown. The case predates Chat and counted every non-Janus socket. It now counts the KVM's
+  sockets separately and asserts that the chat socket opens at most once after the baseline (it did, once); the KVM sockets, stream requests and fake
+  clients are unchanged (`2->2`, `2->2`, `2->2`).
+
+### A finding for the host
+
+When `/data` is not writable by the container's user, the host logs `[chat] did not start: EACCES: permission denied, mkdir '/data/chat/run'` and
+carries on serving the KVM, and then, about 30 seconds later, a timer reads a setting from the chat database that never opened and the process dies with
+`TypeError: Cannot read properties of undefined (reading 'select')` (`getRow`, `resolveSetting`, `setting`), so the container restarts in a loop. This is
+the failure bsociety would hit if the volume's owner is not the container's uid (`/config/apps/kvm` belongs to uid 1000 and the image runs as 10001 unless
+`user: "1000:1000"` is set; see the cutover in `docs/deploy-web.md`). Exercised with the image as uid 1000 over a volume holding an old `settings.json` and
+`macros.json`: `[chat] up`, `chat/` created 0700, the old files unchanged, `/app/api/v1/state` reports `chat: true`.

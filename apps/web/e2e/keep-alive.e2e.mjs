@@ -55,6 +55,7 @@ async function open(browser, tag) {
     const logs = [];
     const sockets = [];
     const streams = [];
+    const chatSockets = [];
     page.on("console", (m) => {
         if (!/janus\/ws|Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`);
     });
@@ -68,12 +69,15 @@ async function open(browser, tag) {
     const cdp = await page.createCDPSession();
     await cdp.send("Network.enable");
     cdp.on("Network.webSocketCreated", (e) => {
-        if (!/janus/.test(e.url)) sockets.push(e.url);
+        /* The chat socket (/app/chat/ws) belongs to Chat, which opens it the first time the tab is shown, once. It is not the
+         * KVM's: the counts below are the KVM's event socket, which no tab change may touch. Chat's own is asserted apart. */
+        if (/\/app\/chat\/ws/.test(e.url)) chatSockets.push(e.url);
+        else if (!/janus/.test(e.url)) sockets.push(e.url);
     });
     await page.evaluateOnNewDocument(WAKE_LOCK_SPY);
     if (tag === "phone") await page.emulate(puppeteer.KnownDevices["iPhone 13"]);
     else await page.setViewport({ width: 1400, height: 900 });
-    return { page, logs, sockets, streams };
+    return { page, logs, sockets, streams, chatSockets };
 }
 
 const live = (page, timeout = 15000) =>
@@ -97,7 +101,7 @@ const farm = async () => {
 
 async function run(browser, profile, tag) {
     await fakeReset();
-    const { page, logs, sockets, streams } = await open(browser, tag);
+    const { page, logs, sockets, streams, chatSockets } = await open(browser, tag);
     await page.goto(`${WEB}/app/kvm`, { waitUntil: "load" });
     await live(page);
     await sleep(600);
@@ -168,7 +172,7 @@ async function run(browser, profile, tag) {
         window.__picture = img;
         window.__src = img.getAttribute("src");
     });
-    const second = { sockets: sockets.length, streams: streams.length, fake: await farm() };
+    const second = { sockets: sockets.length, chat: chatSockets.length, streams: streams.length, fake: await farm() };
     await goTo(page, tag, "kvm");
 
     await check(profile, "KVM -> Chat -> Settings -> KVM opens no socket and no stream", async () => {
@@ -178,8 +182,9 @@ async function run(browser, profile, tag) {
         await sleep(400);
         await goTo(page, tag, "kvm");
         const now = { sockets: sockets.length, streams: streams.length, fake: await farm() };
-        const same = now.sockets === second.sockets && now.streams === second.streams && now.fake.clients === second.fake.clients && now.fake.streams === second.fake.streams;
-        return [same, `ws ${second.sockets}->${now.sockets}, stream requests ${second.streams}->${now.streams}, fake clients ${second.fake.clients}->${now.fake.clients}, fake streams ${second.fake.streams}->${now.fake.streams}`];
+        const chatOpened = chatSockets.length - second.chat;
+        const same = chatOpened <= 1 && now.sockets === second.sockets && now.streams === second.streams && now.fake.clients === second.fake.clients && now.fake.streams === second.fake.streams;
+        return [same, `ws ${second.sockets}->${now.sockets}, stream requests ${second.streams}->${now.streams}, fake clients ${second.fake.clients}->${now.fake.clients}, fake streams ${second.fake.streams}->${now.fake.streams}; the chat socket opened ${chatOpened} time(s) (once, when Chat is first shown, is allowed)`];
     });
 
     await check(profile, "the picture is the same element, with the same source, and is live at once", async () => {

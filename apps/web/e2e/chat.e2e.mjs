@@ -640,7 +640,7 @@ async function run(browser, label, tag, index) {
                 if (/(^|\/)(home|workspace|workspaces)\//.test(rel) || /config\.ya?ml$/.test(rel)) note(`agent file ${rel}`, "a secret");
             }
             // What the fake model got upstream: the real key, from the server, never the gateway's stand-in.
-            const upstream = await json(new URL("/__fake/requests", stack.model));
+            const upstream = await json(new URL("/__fake/requests", stack.modelControl ?? stack.model));
             const upstreamKeys = [...new Set(upstream.auth.map((a) => a.authorization))];
             const usedKey = upstream.auth.some((a) => a.authorization === `Bearer ${CANARY.providerKey}`);
             if (!usedKey) findings.push("the model never received the stored key");
