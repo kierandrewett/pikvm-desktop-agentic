@@ -36,6 +36,20 @@ async function get(url, tries = 3) {
 const stored = async () => (await (await get(`${WEB}/app/api/v1/macros`)).json()).macros;
 const store = (macros) =>
     fetch(`${WEB}/app/api/v1/macros`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ macros }) });
+const named = (list, label) => list.find((m) => m.label === label);
+
+/**
+ * The server's list once `ok` holds for it. A save is a request still on its way when the page looks finished, so a case
+ * waits for the list it expects, not for a time; if it never arrives the last list read comes back and the case fails on it.
+ */
+async function storedWhen(ok, ms = 5000) {
+    const end = Date.now() + ms;
+    for (;;) {
+        const list = await stored();
+        if (ok(list) || Date.now() > end) return list;
+        await sleep(50);
+    }
+}
 
 async function check(profile, name, fn) {
     try {
@@ -60,6 +74,18 @@ async function launchPage(browser, tag) {
         if (r.status() >= 400 && !/\/oauth2\/userinfo$/.test(r.url())) logs.push(`error: ${r.status()} ${r.url()}`);
     });
     page.on("pageerror", (e) => logs.push(`pageerror: ${e.message}`));
+    // The phone's page slide is a view transition (and the desktop has none): keep each one's `finished`, so a case can wait it out.
+    await page.evaluateOnNewDocument(() => {
+        window.__slides = [];
+        const start = document.startViewTransition?.bind(document);
+        if (start) {
+            document.startViewTransition = (...args) => {
+                const transition = start(...args);
+                window.__slides.push(transition.finished);
+                return transition;
+            };
+        }
+    });
     if (tag === "phone") await page.emulate(puppeteer.KnownDevices["iPhone 13"]);
     else await page.setViewport({ width: 1400, height: 900 });
     return { page, logs };
@@ -81,9 +107,39 @@ async function control(page, name, role = "button") {
     return el;
 }
 
+/**
+ * Waits until a click at the control's centre would reach it. The phone's page slide is a view transition: while it runs the
+ * new page is already in the DOM (its heading reads right) but the click goes to <html>, so a press the moment the page
+ * "appears" does nothing. A control that is still moving is not pressed either.
+ */
+async function reachable(el, ms = 5000) {
+    const ok = await el.evaluate(
+        (e, limit) =>
+            new Promise((resolve) => {
+                const end = performance.now() + limit;
+                let last = "";
+                let still = 0;
+                const frame = () => {
+                    const r = e.getBoundingClientRect();
+                    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                    const here = `${r.x},${r.y},${r.width},${r.height}`;
+                    still = hit && e.contains(hit) && here === last ? still + 1 : 0;
+                    last = here;
+                    if (still >= 2) resolve(true);
+                    else if (performance.now() > end) resolve(false);
+                    else requestAnimationFrame(frame);
+                };
+                frame();
+            }),
+        ms,
+    );
+    if (!ok) throw new Error("the control never held still where a click reaches it");
+}
+
 async function press(page, name, role = "button") {
     const el = await control(page, name, role);
     await el.evaluate((e) => e.scrollIntoView({ block: "center" }));
+    await reachable(el);
     await el.click();
 }
 
@@ -104,6 +160,8 @@ async function openMacros(page, tag) {
     }
     await page.waitForSelector("[data-settings-page]");
     await page.waitForFunction(() => document.querySelector("[data-settings-page] h1")?.textContent === "Macros" && !document.querySelector("[data-settings-page]")?.textContent?.includes("Loading"));
+    // The phone's page slides in as a view transition; a screenshot before it ends shows the page half way.
+    await page.evaluate(() => Promise.allSettled(window.__slides));
 }
 
 /** One macro's editor, opened from the list by its name. */
@@ -127,7 +185,8 @@ async function createMacro(page, { name, mods, key, text, pause }) {
     await setText(page, 'input[aria-label="Text for step 2"]', text);
     await press(page, "Add pause");
     await setText(page, 'input[aria-label="Pause for step 3, milliseconds"]', String(pause));
-    await sleep(500);
+    // The last edit is the last save: it has landed when the server's macro ends in this pause.
+    await storedWhen((list) => named(list, name)?.steps.at(-1)?.ms === pause);
 }
 
 async function tilesOrStrip(page, tag) {
@@ -172,20 +231,17 @@ async function run(browser, profile, tag) {
     await check(profile, "edit: an icon, a step moved up, pin switched off and on", async () => {
         await press(page, "terminal", "radio");
         await press(page, "Move step 2 up");
-        await sleep(400);
-        const m = (await stored()).find((x) => x.label === "Run box");
+        const m = named(await storedWhen((list) => named(list, "Run box")?.icon === "terminal" && named(list, "Run box")?.steps[0]?.type === "text"), "Run box");
         const order = m.steps.map((s) => s.type);
         await press(page, "Pin to the toolbar and menu", "switch");
-        await sleep(400);
-        const unpinned = (await stored()).find((x) => x.label === "Run box")?.pinned === false;
+        const unpinned = named(await storedWhen((list) => named(list, "Run box")?.pinned === false), "Run box")?.pinned === false;
         await press(page, "Pin to the toolbar and menu", "switch");
-        await sleep(400);
-        const repinned = (await stored()).find((x) => x.label === "Run box")?.pinned !== false;
+        const repinned = named(await storedWhen((list) => named(list, "Run box")?.pinned !== false), "Run box")?.pinned !== false;
         return [m.icon === "terminal" && equal(order, ["text", "chord", "delay"]) && unpinned && repinned, `icon ${m.icon}; steps ${order.join(",")}; unpinned ${unpinned}; repinned ${repinned}`];
     });
     // Put the step back, so the run below sends Super+R first.
     await press(page, "Move step 2 up");
-    await sleep(400);
+    await storedWhen((list) => named(list, "Run box")?.steps[0]?.type === "chord");
 
     await check(profile, "run from Settings: keys over the socket, text through kvmd, the page stays", async () => {
         const m = (await stored()).find((x) => x.label === "Run box");
@@ -207,8 +263,7 @@ async function run(browser, profile, tag) {
         await createMacro(page, { name: "Task manager", mods: ["Ctrl", "Shift"], key: "Escape", text: "x", pause: 100 });
         const before = (await stored()).map((m) => m.label);
         await press(page, "Move up the list");
-        await sleep(500);
-        const after = (await stored()).map((m) => m.label);
+        const after = (await storedWhen((list) => list[0]?.label === "Task manager")).map((m) => m.label);
         await shot(page, `${tag}-reordered`);
         return [equal(before, ["Run box", "Task manager"]) && equal(after, ["Task manager", "Run box"]), `${before.join(" > ")}  ->  ${after.join(" > ")}`];
     });
@@ -223,7 +278,8 @@ async function run(browser, profile, tag) {
         await openMacros(page, tag);
         await openEditor(page, "Task manager");
         await press(page, "Pin to the toolbar and menu", "switch");
-        await sleep(500);
+        // The next step leaves this page, and a save still on its way would go with it.
+        await storedWhen((list) => named(list, "Task manager")?.pinned === false);
         const names = await tilesOrStrip(page, tag);
         return [equal(names, ["Run box"]), names.join(", ")];
     });
@@ -240,8 +296,7 @@ async function run(browser, profile, tag) {
         await press(page, "Delete macro");
         await page.waitForSelector('[role="dialog"]');
         await page.evaluate(() => [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "Delete macro").click());
-        await sleep(600);
-        const left = (await stored()).map((m) => m.label);
+        const left = (await storedWhen((list) => list.length === 1)).map((m) => m.label);
         const onList = await page.evaluate(() => document.querySelector("[data-settings-page] h1")?.textContent === "Macros");
         return [kept && left.length === 1 && onList, `after Cancel ${kept ? "both kept" : "LOST"}; after Delete: ${left.join(", ")}; back on the list ${onList}`];
     });
@@ -250,7 +305,9 @@ async function run(browser, profile, tag) {
     await page.close();
 }
 
-const browser = await launch();
+// The cases load pages one after another in one tab; a page Chrome parks in its back/forward cache would keep the app's
+// connections open and starve the next page's saves (see `launch` in harness.mjs).
+const browser = await launch({ backForwardCache: false });
 try {
     if (only !== "desktop") await run(browser, "iPhone 13", "phone");
     if (only !== "phone") await run(browser, "Desktop 1400x900", "desktop");

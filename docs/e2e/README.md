@@ -78,6 +78,14 @@ window. Touch is sent as raw CDP touch events so two-finger gestures are real. T
 Janus, so the picture is MJPEG; WebRTC and the audio buttons that depend on it are covered by
 component tests.
 
+A run that loads pages one after another in the same tab (`page.goto`) starts its browser with
+`launch({ backForwardCache: false })` (`harness.mjs`). With Chrome's back/forward cache on, every page the tab
+leaves stays parked with its connections open (the picture stream and two event streams, three per page), the host
+speaks HTTP/1.1 and a tab gets six connections, so the third page's requests, a save among them, wait in the socket
+pool until Chrome evicts the parked pages. `settings-macros.e2e.mjs` is such a run. It also presses a control only once
+a click at its centre reaches it (the phone's page slide is a view transition, during which a click goes to `<html>`),
+and waits for the server's stored list, not for a time, after every edit.
+
 Two cases depend on the host's Caps Lock state. Headless Chrome does not track it, so the
 engine's 1.4 s host/target reconcile would flip the target's LED back after a hardware CapsLock
 press; that case waits it out and resets the fake before the next one.

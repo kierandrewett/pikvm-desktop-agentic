@@ -21,8 +21,17 @@ const chrome =
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function launch() {
-    return puppeteer.launch({ executablePath: chrome, headless: true, args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"] });
+/**
+ * `backForwardCache: false` for a run that loads pages one after another in the same tab (`page.goto`). With the cache
+ * on, Chrome parks every page it leaves, still holding its long-lived connections (the app's picture stream and two
+ * event streams are three), and a host that speaks HTTP/1.1 lets a tab have six connections at a time: the third
+ * page's requests wait in the socket pool until Chrome evicts the parked pages, so a save the run just made reaches
+ * the server late or not at all. Off, a page's connections end when the tab leaves it, as they do on a reload.
+ */
+export async function launch({ backForwardCache = true } = {}) {
+    const args = ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"];
+    if (!backForwardCache) args.push("--disable-features=BackForwardCache");
+    return puppeteer.launch({ executablePath: chrome, headless: true, args });
 }
 
 /* ---- the fake kvmd ---- */
