@@ -11,7 +11,7 @@
 import { RESERVED_MCP_SERVER_IDS, type McpConnection, type McpServer } from "@pikvm/chat-protocol";
 import { and, eq } from "drizzle-orm";
 import { db, now, schema } from "../db/index.ts";
-import { resolveSetting } from "../settings/store.ts";
+import { externalMcp } from "./external.ts";
 import { open, seal } from "./crypto.ts";
 import type { GuardOptions } from "./net.ts";
 import {
@@ -44,21 +44,16 @@ export class ServerUnavailable extends Error {
     }
 }
 
-/** Every configured server is the operator's own. Kept as a function so callers read as they do in ~/dev/chat. */
-export function personalServerAllowed(_userId: string, _entry: McpServer): boolean {
-    return true;
-}
-
 /** The user's effective entry for `id`, or a ServerUnavailable with the HTTP status to answer. */
 export function resolveServer(userId: string, id: string): ResolvedServer {
     if (RESERVED_SERVER_IDS.has(id)) throw new ServerUnavailable("Reserved server name", 404);
-    const r = resolveSetting("agent.mcp", userId);
+    const r = externalMcp();
     const entry = (r.value as Record<string, McpServer>)[id];
     if (!entry) throw new ServerUnavailable(`No MCP server ${id}`, 404);
     if (entry.enabled === false) throw new ServerUnavailable(`MCP server ${id} is turned off`, 403);
     if (entry.type !== "http" || !entry.url)
         throw new ServerUnavailable(`MCP server ${id} is not a remote server`, 400);
-    return { id, entry, owner: "user" };
+    return { id, entry, owner: r.owners[id] ?? "global" };
 }
 
 /** SSRF options for one server: an administrator's server may use its own (possibly private) origin. */

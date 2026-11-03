@@ -60,7 +60,12 @@ export function onError(err: Error, c: Context): Response {
     if (err instanceof NotFoundError) return send(404, "not_found", err.message);
     if (err instanceof SettingsKeyError) return send(400, err.code, err.message);
     if (err instanceof SettingsWriteError) {
-        return send(err.code === "managed_by_file" ? 409 : 400, err.code, err.message, err.issues);
+        return send(
+            err.code === "managed_by_file" ? 409 : err.code === "external_mcp_disabled" ? 403 : 400,
+            err.code,
+            err.message,
+            err.issues,
+        );
     }
     if (err instanceof ZodError) return send(400, "invalid_request", "Invalid request", err.issues);
     console.error("[http] unhandled", err);

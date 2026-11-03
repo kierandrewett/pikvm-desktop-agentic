@@ -304,4 +304,23 @@ describe("the REST and socket surface of the host", () => {
         expect(pikvm?.connected).toBe(true);
         expect(pikvm?.tools.map((t) => t.tool).sort()).toEqual(["click", "key", "screenshot"]);
     });
+
+    it("refuses to create, change or probe an external MCP server, with the reason", async () => {
+        const server = { value: { server: { type: "http", url: "https://mcp.example.com/mcp" } } };
+        for (const [method, path, json] of [
+            ["PUT", "/settings/agent.mcp", { value: { x: { type: "http", url: "https://mcp.example.com/mcp" } } }],
+            ["DELETE", "/settings/agent.mcp", undefined],
+            ["PUT", "/admin/settings/agent.mcp", server],
+            ["PUT", "/admin/settings/users.operator.agent.mcp", server],
+            ["POST", "/mcp/discover", { url: "https://mcp.example.com/mcp" }],
+            ["POST", "/mcp/test", { id: "x", value: { type: "http", url: "https://mcp.example.com/mcp" }, scope: "user" }],
+        ] as const) {
+            const res = await f.api(path, { method, ...(json ? { json } : {}) });
+            expect(res.status, `${method} ${path}`).toBe(403);
+            const err = (await res.json()) as { error: { message: string } };
+            expect(err.error.message, path).toMatch(/Executor gateway/);
+        }
+        const rows = (await (await f.api("/mcp")).json()) as { servers: { name: string }[] };
+        expect(rows.servers.map((s) => s.name)).toEqual(["pikvm"]);
+    });
 });

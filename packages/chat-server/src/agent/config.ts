@@ -17,10 +17,11 @@
 import type { McpServer, Provider } from "@pikvm/chat-protocol";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { connectionEpoch, personalServerAllowed, RESERVED_SERVER_IDS } from "../mcp/credentials.ts";
+import { connectionEpoch, RESERVED_SERVER_IDS } from "../mcp/credentials.ts";
 import { listBuiltinMcp } from "../mcp/builtin.ts";
 import { toolsSeen } from "../mcp/tool-cache.ts";
 import { paths } from "../paths.ts";
+import { externalMcp } from "../mcp/external.ts";
 import { resolveSetting, setting } from "../settings/store.ts";
 import { mcpToolName } from "./mcp-names.ts";
 import { BUILTIN_PROVIDERS, gatewayToken, resolveEndpoint } from "./providers.ts";
@@ -104,7 +105,7 @@ function stripUndefined<T extends Record<string, unknown>>(o: T): T {
 
 export function renderAgentConfig(userId: string, gatewayBase: string): RenderedConfig {
     const providersR = resolveSetting("agent.providers", userId);
-    const mcpR = resolveSetting("agent.mcp", userId);
+    const mcpR = externalMcp();
     const skipped: RenderedConfig["skipped"] = [];
 
     // Every provider is served through the gateway. The real key stays in settings; the agent holds a gateway token.
@@ -140,7 +141,6 @@ export function renderAgentConfig(userId: string, gatewayBase: string): Rendered
     const mcpApprovals = setting("agent.mcpApprovals", userId);
     for (const [name, m] of Object.entries(mcpR.value as Record<string, McpServer>)) {
         if (!m.enabled) continue;
-        if (mcpR.owners?.[name] === "user" && !personalServerAllowed(userId, m)) continue;
         // Only the gateway may carry a server's credentials. A server the runtime would start itself (stdio) would run
         // as the operator, with no sandbox to hold it.
         if (m.type !== "http" || !m.url || RESERVED_SERVER_IDS.has(name)) continue;

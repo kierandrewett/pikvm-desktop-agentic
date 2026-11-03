@@ -7,7 +7,6 @@ import {
     mapSecrets,
     parseKey,
     renamedKey,
-    RESERVED_MCP_SERVER_IDS,
     USERS_PREFIX,
     resolve,
     unmask,
@@ -22,6 +21,7 @@ import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { db, now, schema } from "../db/index.ts";
 import { open, seal } from "../mcp/crypto.ts";
+import { EXTERNAL_MCP_REFUSAL, isExternalMcpKey } from "../mcp/external.ts";
 
 type Defs = (typeof settingDefs)[number];
 export type SettingKey = Defs["key"];
@@ -38,7 +38,7 @@ export interface Row {
 export class SettingsWriteError extends Error {
     constructor(
         message: string,
-        readonly code: "managed_by_file" | "invalid_value",
+        readonly code: "managed_by_file" | "invalid_value" | "external_mcp_disabled",
         readonly issues?: unknown,
     ) {
         super(message);
@@ -115,26 +115,12 @@ function upsert(key: string, value: unknown, source: "db" | "file", by: string):
     db.insert(settings).values(row).onConflictDoUpdate({ target: settings.key, set: row }).run();
 }
 
-/** `conversations` and `pikvm` name the built-in MCP endpoints: a configured server may not take them. */
-function rejectReservedServers(servers: unknown): void {
-    const taken = Object.keys((servers ?? {}) as Record<string, unknown>).filter((id) =>
-        RESERVED_MCP_SERVER_IDS.has(id),
-    );
-    if (!taken.length) return;
-    const names = taken.map((id) => `"${id}"`).join(", ");
-    throw new SettingsWriteError(
-        `MCP server id ${names} is reserved for Chat's built-in servers. Choose another id.`,
-        "invalid_value",
-    );
-}
-
 /** Validate a value for a parsed key. Free-form user keys accept any JSON. */
 function validate(parsed: ParsedKey, value: unknown, stored: unknown): unknown {
     if (parsed.kind === "userFree") return value;
     const withSecrets = unmask(parsed.def, value, stored);
     try {
         const clean = validateValue(parsed.def, withSecrets);
-        if (parsed.def.key === "agent.mcp") rejectReservedServers(clean);
         return clean;
     } catch (err) {
         if (err instanceof SettingsWriteError) throw err;
@@ -144,6 +130,7 @@ function validate(parsed: ParsedKey, value: unknown, stored: unknown): unknown {
 }
 
 export function setValue(fullKey: string, value: unknown, actor: string): Row {
+    if (isExternalMcpKey(fullKey)) throw new SettingsWriteError(EXTERNAL_MCP_REFUSAL, "external_mcp_disabled");
     const parsed = parseKey(fullKey);
     const existing = getRow(fullKey);
     if (existing?.source === "file") {
@@ -156,6 +143,7 @@ export function setValue(fullKey: string, value: unknown, actor: string): Row {
 }
 
 export function deleteValue(fullKey: string): boolean {
+    if (isExternalMcpKey(fullKey)) throw new SettingsWriteError(EXTERNAL_MCP_REFUSAL, "external_mcp_disabled");
     // A renamed key cannot be written, but a row an older build kept can still be removed.
     const segs = fullKey.split(".");
     if (!renamedKey(segs[0] === USERS_PREFIX ? segs.slice(2).join(".") : fullKey)) parseKey(fullKey);

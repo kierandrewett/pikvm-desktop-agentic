@@ -95,8 +95,15 @@ export type Db = ReturnType<typeof construct>;
 let sqliteHandle: DatabaseSync | undefined;
 
 /** The migrations the build copies beside the bundle, or the package's own folder in development. */
+let migrationsDir: string | undefined;
+
+/** Where a bundled host keeps the migrations it copied beside itself. */
+export function setMigrationsDir(dir: string | undefined): void {
+    migrationsDir = dir;
+}
+
 export function migrationsFolder(): string {
-    return process.env.CHAT_MIGRATIONS_DIR ?? new URL("../../migrations", import.meta.url).pathname;
+    return migrationsDir ?? process.env.CHAT_MIGRATIONS_DIR ?? new URL("../../migrations", import.meta.url).pathname;
 }
 
 /** Open `chat.db` under the current data directory, run the migrations and seed the operator row. */

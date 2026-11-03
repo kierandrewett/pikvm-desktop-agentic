@@ -9,7 +9,7 @@
 import type { McpServer, McpServerStatus, McpToolStatus } from "@pikvm/chat-protocol";
 import { createHash } from "node:crypto";
 import { agentBaseUrl } from "../env.ts";
-import { resolveSetting } from "../settings/store.ts";
+import { externalMcp } from "../mcp/external.ts";
 import { writeAgentConfig } from "./config.ts";
 import { mcpToolName } from "./mcp-names.ts";
 
@@ -104,7 +104,7 @@ export async function listMcp(userId: string, fresh = false): Promise<McpServerI
     if (running) return running;
 
     const p = (async () => {
-        const r = resolveSetting("agent.mcp", userId);
+        const r = externalMcp();
         const configured = r.value as Record<string, McpServer>;
         const rendered = cfg.mcp.mcpServers as Record<string, RenderedServer>;
         const listings = await Promise.all(

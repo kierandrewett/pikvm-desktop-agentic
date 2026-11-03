@@ -22,10 +22,12 @@ import type { McpToolSummary } from "@pikvm/chat-protocol";
 import { eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { keyFromRequest, verifyGatewayToken } from "../agent/providers.ts";
+import { mcpToolName } from "../agent/mcp-names.ts";
 import { agentCwd } from "../agent/sessions.ts";
 import { getConversation } from "../conversations/service.ts";
 import { db, schema } from "../db/index.ts";
 import { setting } from "../settings/store.ts";
+import { unsupportedToolMessage } from "./builtin.ts";
 import { chatServerEnabled, ownedConversation } from "./chat-servers.ts";
 import {
     guardFor,
@@ -161,6 +163,9 @@ async function relay(gs: GwSession, msg: Msg, ctx: Ctx, reopened = false): Promi
     if (tool) {
         if (!chatServerEnabled(ctx.conversationId, gs.serverId))
             return toolError(msg.id, `${gs.serverId} is turned off in this chat.`);
+        // A name the runtime would hash has no policy to key; the call is refused, never run unpoliced.
+        if (mcpToolName(gs.serverId, tool) === undefined)
+            return toolError(msg.id, unsupportedToolMessage(gs.serverId, tool));
         const hints = gs.tools.get(tool);
         const rules = setting("agent.mcpApprovals", gs.userId);
         // Conflicting read-only hints cannot remove a destructive approval, including with full access.

@@ -30,7 +30,8 @@ import {
     saveCompleted,
     ServerUnavailable,
 } from "../mcp/credentials.ts";
-import { beginConnect, discover, inventory, readResource } from "../mcp/inspect.ts";
+import { beginConnect, inventory, readResource } from "../mcp/inspect.ts";
+import { externalMcpRefusal } from "../mcp/external.ts";
 import { BlockedUrlError } from "../mcp/net.ts";
 import { clientMetadataDocument, completeAuthorization, OAuthError } from "../mcp/oauth.ts";
 import { hostPaths, publicUrl } from "../env.ts";
@@ -78,11 +79,8 @@ export const mcpRoutes = new Hono<Env>()
         requireUser(c);
         return c.json(catalogueFor());
     })
-    .post("/mcp/discover", async (c) => {
-        const { url } = await body(c, z.object({ url: z.url() }));
-        const user = requireUser(c);
-        const r = await discover(user.id, url, "user");
-        return c.json({ ...r, error: scrub(r.error, []) });
+    .post("/mcp/discover", () => {
+        throw externalMcpRefusal();
     })
     .get("/mcp/connections", (c) => c.json({ connections: listConnections(requireUser(c).id) }))
     .post("/mcp/servers/:id/connect", async (c) => {

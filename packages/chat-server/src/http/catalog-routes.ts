@@ -15,7 +15,6 @@ import {
     SECRET_MASK,
     customProviderPreset,
     getDef,
-    McpServer,
     Provider,
     providerPresets,
     unmask,
@@ -25,8 +24,8 @@ import {
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { probeRemote } from "../agent/mcp-probe.ts";
 import { authHeaderFor, resolveEndpoint } from "../agent/providers.ts";
+import { externalMcpRefusal } from "../mcp/external.ts";
 import { catalog } from "../models/catalog.ts";
 import { Matcher } from "../models/match.ts";
 import { providerModels, refreshModels } from "../models/service.ts";
@@ -143,14 +142,8 @@ export const catalogRoutes = new Hono<Env>()
         const r = await testProvider(id, p);
         return c.json({ ...r, error: scrub(r.error, secretsOf(p)) });
     })
-    .post("/mcp/test", async (c) => {
-        const { id, value, scope } = await body(c, TestBody);
-        const parsed = McpServer.safeParse(
-            withSecrets<unknown>("agent.mcp", id, value, stored(c, "agent.mcp", scope, id)),
-        );
-        if (!parsed.success) throw new HTTPException(400, { message: "Invalid server settings" });
-        const r = await probeRemote(parsed.data);
-        return c.json({ ...r, error: scrub(r.error, secretsOf(parsed.data)) });
+    .post("/mcp/test", () => {
+        throw externalMcpRefusal();
     })
     .get("/providers/:id/models", async (c) => {
         const scope = ScopeQuery.parse(c.req.query("scope"));

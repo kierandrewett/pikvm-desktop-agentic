@@ -16,7 +16,7 @@ import { listenAgentSurface, type AgentSurface } from "./agent-surface.ts";
 import { setEventSink, stopAll } from "./agent/sessions.ts";
 import { runtimeStatus, setResourcesDir } from "./agent/launch.ts";
 import { seedOperator } from "./auth/operator.ts";
-import { closeDb, openDb } from "./db/index.ts";
+import { closeDb, openDb, setMigrationsDir } from "./db/index.ts";
 import { backfillShortIds } from "./conversations/slug.ts";
 import { setAgentBaseUrl, setHostInstructions, setHostPaths, setPublicUrl, setRunHooks, type RunHooks } from "./env.ts";
 import { agentRoutes } from "./http/agent-routes.ts";
@@ -51,6 +51,8 @@ export interface ChatServerOptions {
     settingsPath?: string;
     /** The address the browser uses, for OAuth redirects (`https://kvm.example.org`). Optional. */
     publicUrl?: string;
+    /** The migrations folder a bundled host copied beside itself. Default: the package's own, or `CHAT_MIGRATIONS_DIR`. */
+    migrationsDir?: string;
     /** A packaged host's resources directory; the agent binary is looked up at `<resources>/omp/omp`. */
     resourcesDir?: string;
     /** What the host tells the agent about its tools, appended to the system prompt. */
@@ -128,6 +130,7 @@ function buildApp(): Hono<Env> {
 export async function createChatServer(options: ChatServerOptions): Promise<ChatServer> {
     const apiPath = (options.apiPath ?? "/api").replace(/\/+$/, "");
     configurePaths(options.dataDir);
+    setMigrationsDir(options.migrationsDir);
     mkdirSync(paths.runDir, { recursive: true, mode: 0o700 });
     openDb();
     seedOperator();
