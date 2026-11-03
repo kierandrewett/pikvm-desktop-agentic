@@ -106,3 +106,22 @@ carries on serving the KVM, and then, about 30 seconds later, a timer reads a se
 the failure bsociety would hit if the volume's owner is not the container's uid (`/config/apps/kvm` belongs to uid 1000 and the image runs as 10001 unless
 `user: "1000:1000"` is set; see the cutover in `docs/deploy-web.md`). Exercised with the image as uid 1000 over a volume holding an old `settings.json` and
 `macros.json`: `[chat] up`, `chat/` created 0700, the old files unchanged, `/app/api/v1/state` reports `chat: true`.
+
+## The image to ship: `17317f5b`
+
+Built with docker from a clean detached worktree of `17317f5b` (`yarn install --immutable` passed): `make image IMAGE_TOOL=docker IMAGE=pikvm-kvm:17317f5b`,
+then `docker save pikvm-kvm:17317f5b | gzip > ~/.cache/pikvm-wip/pikvm-web-17317f5b.tar.gz` (272,395,213 bytes, sha256
+`060eeb4be711a824a0701875efd00cbc5d86636c2cd7543d12b280da4eff9955`). The tested image is that tarball itself: it was loaded into podman
+(`gunzip -c … | podman load`, config digest `c47202ce2926…`, the `Config` of the archive's `manifest.json`) and the container's image was checked to be it. Loading
+the tarball into docker again gave the id `sha256:035740b003487bc3413501e29782dc3162d81f99ef5a20dcf357be0919911f72` (888 MB), the one `docker image inspect` printed
+after the build, so the transfer is faithful. Docker 29 prints the image-index digest as `.Id`; podman prints the config digest.
+
+Each suite on a freshly started container (`deploy/e2e/up-inspectable.sh`, read-only, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, fake kvmd and fake model):
+
+| Suite | Result |
+| --- | --- |
+| `deploy/e2e/chat.e2e.mjs` | 6 of 6 |
+| `apps/web/e2e/chat.e2e.mjs phone` | 14 of 14 |
+| `apps/web/e2e/chat.e2e.mjs desktop` | 13 of 13 |
+| `apps/web/e2e/kvm.e2e.mjs` | 40 of 40 |
+| `apps/web/e2e/keep-alive.e2e.mjs` | 26 of 26 |
