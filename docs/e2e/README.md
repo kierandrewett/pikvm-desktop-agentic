@@ -40,7 +40,7 @@ whole main process), and with `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `PIKVM_AGEN
 config whose PiKVM is a decoy: the agent must act on the app's own target, and the run asserts it never opened a
 socket outside loopback. It writes `docs/e2e/<date>-chat-desktop.md`.
 
-Other runs share the same two servers and the same environment: `apps/web/e2e/settings-macros.e2e.mjs`
+Other runs share the same two servers and the same environment: `apps/web/e2e/icons.e2e.mjs` (Phosphor icons on the nav, Settings, the KVM dock and toolbar and the macro picker, light and dark, `docs/e2e/<date>-icons.md`), `apps/web/e2e/settings-macros.e2e.mjs`
 (Settings -> Macros, `docs/e2e/<date>-settings-macros.md`), `apps/web/e2e/keep-alive.e2e.mjs` (the tabs stay mounted: no new socket or stream, keys on Settings never reach the fake, `docs/e2e/<date>-keep-alive.md`), and the parity runs listed in
 `docs/rebuild/parity-matrix.md`.
 
