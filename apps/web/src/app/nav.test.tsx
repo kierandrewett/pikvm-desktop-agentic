@@ -103,6 +103,14 @@ describe("active tab", () => {
         await waitFor(() => expect(router.state.location.pathname).toBe("/chat"));
         expect(selectedTab()).toHaveTextContent("Chat");
     });
+
+    it("goes back to the Settings list when Settings is tapped again on one of its pages", async () => {
+        const user = userEvent.setup();
+        const { router } = renderApp("/settings/keyboard", { compact: true });
+        await waitFor(() => expect(selectedTab()).toHaveAccessibleName("Settings"));
+        await user.click(screen.getByRole("tab", { name: "Settings" }));
+        await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
+    });
 });
 
 describe("keyboard navigation", () => {

@@ -96,9 +96,10 @@ export function NavTabs({ active, orientation, settingsPage }: NavTabsProps) {
         >
             {TABS.map((tab) => {
                 const selected = tab.id === active;
-                // Settings opens where it was left, not at its list.
+                // From another tab, Settings opens where it was left. Tapped again while it is showing, it goes back to
+                // its list, as a tab bar does on iOS.
                 const target =
-                    tab.id === "settings" && settingsPage !== undefined
+                    tab.id === "settings" && settingsPage !== undefined && !selected
                         ? ({ to: "/settings/$page", params: { page: settingsPage } } as const)
                         : ({ to: tab.to } as const);
                 return (
