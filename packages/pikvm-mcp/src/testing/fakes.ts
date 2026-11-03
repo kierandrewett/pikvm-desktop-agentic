@@ -133,6 +133,9 @@ export function createFakeDesk(): FakeDesk {
             record("wait", ms, untilStable);
             return { waitedMs: ms, ...(untilStable ? { stable: true } : {}) };
         },
+        approving(_s, tool, waiting) {
+            record("approving", tool, waiting);
+        },
         async power(_s, action) {
             record("power", action);
             await desk.onAction?.("power");

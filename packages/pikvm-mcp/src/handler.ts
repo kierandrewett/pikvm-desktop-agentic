@@ -3,6 +3,7 @@ import { tools, type Tool, type ToolBlock } from "./tools";
 import {
     DeskError,
     defaultPolicy,
+    type ApprovalDecision,
     type Approver,
     type Desk,
     type DeskSession,
@@ -98,15 +99,21 @@ export function createPikvmMcp(options: PikvmMcpOptions): PikvmMcp {
         const risk = assess(tool.name, args, { lookAgeMs: session.lookAgeMs });
         if (!needsApproval(risk, policy().approval)) return;
         const { title, summary } = describeCall(tool.name, args);
-        const decision = await options.approver.ask({
-            conversationId: session.conversationId,
-            tool: tool.name,
-            title,
-            summary,
-            reasons: risk.reasons,
-            arguments: args,
-            signal: session.signal,
-        });
+        options.desk.approving?.(session, tool.name, true);
+        let decision: ApprovalDecision;
+        try {
+            decision = await options.approver.ask({
+                conversationId: session.conversationId,
+                tool: tool.name,
+                title,
+                summary,
+                reasons: risk.reasons,
+                arguments: args,
+                signal: session.signal,
+            });
+        } finally {
+            options.desk.approving?.(session, tool.name, false);
+        }
         // Control may have ended while the person was deciding; that outranks their answer.
         const released = abortError(session.signal);
         if (released) throw released;

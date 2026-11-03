@@ -24,7 +24,8 @@ function setup(overrides: Partial<PikvmMcpOptions> = {}, caller: Partial<McpCall
 }
 
 /** Desk methods that act on the target, as opposed to `open` and `info`. */
-const actions = (calls: { method: string }[]) => calls.filter((c) => c.method !== "open").map((c) => c.method);
+const actions = (calls: { method: string }[]) =>
+    calls.filter((c) => c.method !== "open" && c.method !== "approving").map((c) => c.method);
 
 describe("the protocol", () => {
     it("initialize answers with a tools-only server, the model's instructions, and the version it can speak", async () => {
@@ -297,6 +298,21 @@ describe("answers", () => {
         const result = await client.call("key", { keys: ["alt+F4"] });
         expect(result.text).toBe("control_released: The person took over the mouse.");
         expect(actions(desk.calls)).toEqual([]);
+    });
+
+    it("tells the desk when it starts and stops waiting, also when the wait ends in an error", async () => {
+        const { client, approver, desk } = setup();
+        await client.call("key", { keys: ["alt+F4"] });
+        approver.decide = () => {
+            throw new Error("the chat socket closed");
+        };
+        await client.request("tools/call", { name: "key", arguments: { keys: ["alt+F4"] } });
+        expect(desk.calls.filter((c) => c.method === "approving").map((c) => c.args)).toEqual([
+            ["key", true],
+            ["key", false],
+            ["key", true],
+            ["key", false],
+        ]);
     });
 
     it("hands the approver the call's own signal, so a release can abandon the question", async () => {

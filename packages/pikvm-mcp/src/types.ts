@@ -122,6 +122,11 @@ export interface Desk {
     wait(session: DeskSession, ms: number, untilStable: boolean): Promise<WaitResult>;
     /** Returns a sentence saying what happened. */
     power(session: DeskSession, action: "on" | "off" | "reset"): Promise<string>;
+    /**
+     * The handler is about to wait on the person (`waiting`), or is done waiting. The desk shows it
+     * as "needs your approval" wherever it shows what the agent is doing.
+     */
+    approving?(session: DeskSession, tool: string, waiting: boolean): void;
 }
 
 export interface ApprovalRequest {
