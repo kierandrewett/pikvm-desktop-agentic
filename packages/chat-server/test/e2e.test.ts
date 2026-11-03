@@ -48,9 +48,9 @@ afterAll(async () => {
 });
 
 describe("without Bun", () => {
-    it("has no bun on the PATH the agent gets, and no bun in the one the host has", () => {
+    it("runs with no bun on the host's PATH, and the agent's own PATH holds none either", () => {
         expect(which("bun")).toBeUndefined();
-        expect(which("omp")).toBeTruthy();
+        expect(which("bun", "/usr/local/bin:/usr/bin:/bin")).toBeUndefined();
         expect(f.chat.status().runtime.found).toBe(true);
     });
 });
