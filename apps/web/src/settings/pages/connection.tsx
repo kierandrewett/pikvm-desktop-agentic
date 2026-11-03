@@ -1,8 +1,9 @@
+import { SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
 import type { PikvmTarget } from "@pikvm/contracts/api";
 import { useAppState, useTarget } from "../../api/queries";
-import { Group, Row, Value } from "../../ui/controls";
 import { LoadError } from "./load-error";
 import { TargetForm } from "./target-form";
+import { StatusDot, Value } from "./value";
 
 const LINK: Record<PikvmTarget["link"], { text: string; tone: "ok" | "warn" | "danger" | "idle" }> = {
     connected: { text: "Connected", tone: "ok" },
@@ -16,32 +17,41 @@ export function ConnectionPage() {
     const state = useAppState();
     const editable = useTarget().data;
 
-    if (state.isError) return <LoadError message={state.error.message} onRetry={() => void state.refetch()} />;
+    if (state.isError) {
+        return (
+            <SettingsPage title="Connection">
+                <LoadError message={state.error.message} onRetry={() => void state.refetch()} />
+            </SettingsPage>
+        );
+    }
 
     const target = state.data?.pikvm;
     const link = target ? LINK[target.link] : undefined;
 
     return (
-        <>
-            <Group
+        <SettingsPage title="Connection" description="The PiKVM this app is connected to.">
+            <SettingsSection
                 title="PiKVM"
-                footer={
+                description={
                     editable?.editable
                         ? undefined
                         : "The PiKVM is set when the host starts. Change it in the host's configuration, not here."
                 }
             >
-                <Row label="Address">
-                    <Value>{target?.origin ?? "Loading"}</Value>
-                </Row>
-                <Row label="Link">
-                    <Value>
-                        {link ? <span className="status-dot" data-tone={link.tone} aria-hidden="true" /> : null}
-                        {link?.text ?? "Loading"}
-                    </Value>
-                </Row>
-            </Group>
+                <SettingsCard>
+                    <SettingRow label="Address" control={<Value>{target?.origin ?? "Loading"}</Value>} />
+                    <SettingRow
+                        label="Link"
+                        control={
+                            <Value>
+                                {link ? <StatusDot tone={link.tone} /> : null}
+                                {link?.text ?? "Loading"}
+                            </Value>
+                        }
+                    />
+                </SettingsCard>
+            </SettingsSection>
             {editable?.editable ? <TargetForm target={editable} /> : null}
-        </>
+        </SettingsPage>
     );
 }

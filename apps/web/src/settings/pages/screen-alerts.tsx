@@ -3,7 +3,7 @@ import { useMediaQuery } from "../../app/viewport";
 import { alertPermission, askForAlertPermission } from "../../kvm/attention";
 import { DOCK_QUERY, isDesktopApp } from "../../kvm/platform";
 import { readScreenAlerts, SCREEN_ALERTS_KEY } from "../../kvm/screen-alerts";
-import { Group, Row, Switch } from "../../ui/controls";
+import { SettingRow, SettingsCard, SettingsSection, Switch } from "@pikvm/chat-web/settings";
 import { useStoredValue } from "../local-prefs";
 
 /**
@@ -12,7 +12,7 @@ import { useStoredValue } from "../local-prefs";
  * the app badge and, if allowed, shows a notification; a phone cannot, because the page is
  * suspended the moment you leave it.
  */
-export function ScreenAlertsGroup() {
+export function ScreenAlertsSection() {
     const desktop = isDesktopApp();
     const phone = useMediaQuery(DOCK_QUERY) && !desktop;
     const [alerts, setAlerts] = useStoredValue(SCREEN_ALERTS_KEY, readScreenAlerts);
@@ -20,42 +20,51 @@ export function ScreenAlertsGroup() {
 
     if (phone) {
         return (
-            <Group title="Screen changes">
-                <Row
-                    label="Alert me when the screen changes"
-                    hint="Not available on a phone: this page is suspended as soon as you leave it, so nothing can watch the screen. Settings, Notifications has the server watch it instead and sends a notification."
-                />
-            </Group>
+            <SettingsSection title="Screen changes">
+                <SettingsCard>
+                    <SettingRow
+                        id="screen-alerts"
+                        label="Alert me when the screen changes"
+                        description="Not available on a phone: this page is suspended as soon as you leave it, so nothing can watch the screen. Settings, Notifications has the server watch it instead and sends a notification."
+                    />
+                </SettingsCard>
+            </SettingsSection>
         );
     }
 
     const on = alerts === "on";
     return (
-        <Group
+        <SettingsSection
             title="Screen changes"
-            footer={
+            description={
                 desktop
                     ? "While this window is behind others, its taskbar entry pulses when the target's screen changes: a dialog opens, a reboot starts, an install finishes."
                     : "While this window is behind others, the tab's title and icon badge change when the target's screen changes, and a notification is shown if you allow them. The picture keeps streaming to watch for it."
             }
         >
-            <Row label="Alert me when the screen changes">
-                <Switch
+            <SettingsCard>
+                <SettingRow
+                    id="screen-alerts"
                     label="Alert me when the screen changes"
-                    checked={on}
-                    onChange={(next) => {
-                        setAlerts(next ? "on" : "off");
-                        // The click is the gesture a browser wants before it shows its notification prompt.
-                        if (next && !desktop) void askForAlertPermission().then(setPermission);
-                    }}
+                    control={
+                        <Switch
+                            label="Alert me when the screen changes"
+                            checked={on}
+                            onChange={(next) => {
+                                setAlerts(next ? "on" : "off");
+                                // The click is the gesture a browser wants before it shows its notification prompt.
+                                if (next && !desktop) void askForAlertPermission().then(setPermission);
+                            }}
+                        />
+                    }
                 />
-            </Row>
-            {on && !desktop && permission === "denied" ? (
-                <Row
-                    label="Notifications are blocked"
-                    hint="Only the title and badge change. Allow notifications for this site in the browser's settings to be told in the system's own way."
-                />
-            ) : null}
-        </Group>
+                {on && !desktop && permission === "denied" ? (
+                    <SettingRow
+                        label="Notifications are blocked"
+                        description="Only the title and badge change. Allow notifications for this site in the browser's settings to be told in the system's own way."
+                    />
+                ) : null}
+            </SettingsCard>
+        </SettingsSection>
     );
 }

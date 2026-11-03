@@ -519,9 +519,11 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     height: 16px;
 }
 
-.window-controls .window-close:hover {
-    background: var(--danger);
-    color: #fff;
+@media (hover: hover) and (pointer: fine) {
+    .window-controls .window-close:hover {
+        background: var(--danger);
+        color: #fff;
+    }
 }
 
 /* The traffic lights float over the top-left corner, which the rail would otherwise fill. */
@@ -560,9 +562,11 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     pointer-events: none;
 }
 
-.nav-tab:hover {
-    color: var(--foreground);
-    background: color-mix(in srgb, currentColor 10%, transparent);
+@media (hover: hover) and (pointer: fine) {
+    .nav-tab:hover {
+        color: var(--foreground);
+        background: color-mix(in srgb, currentColor 10%, transparent);
+    }
 }
 
 .nav-tab[aria-selected="true"] {
@@ -638,15 +642,18 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
         visibility 0s 0.12s;
 }
 
-.nav-tab:hover .nav-tip,
 .nav-tab:focus-visible .nav-tip {
     visibility: visible;
     opacity: 1;
-    transition-delay: 0.35s, 0.35s;
+    transition-delay: 0s;
 }
 
-.nav-tab:focus-visible .nav-tip {
-    transition-delay: 0s;
+@media (hover: hover) and (pointer: fine) {
+    .nav-tab:hover .nav-tip {
+        visibility: visible;
+        opacity: 1;
+        transition-delay: 0.35s, 0.35s;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -682,9 +689,11 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     pointer-events: none;
 }
 
-.tb-btn:hover {
-    background: color-mix(in srgb, currentColor 16%, transparent);
-    color: var(--foreground);
+@media (hover: hover) and (pointer: fine) {
+    .tb-btn:hover {
+        background: color-mix(in srgb, currentColor 16%, transparent);
+        color: var(--foreground);
+    }
 }
 
 .tb-btn:active {
@@ -695,225 +704,6 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     .tb-btn {
         width: 44px;
         height: 44px;
-    }
-}
-
-/* ---- settings -------------------------------------------------------------- */
-
-.page-title {
-    font-size: 24px;
-    font-weight: 600;
-    line-height: 1.25;
-    letter-spacing: -0.02em;
-}
-
-.group-label {
-    padding: 0 16px 6px;
-    color: var(--muted-foreground);
-    font-size: 12px;
-    font-weight: 550;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.group-card {
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-surface);
-    background: var(--card);
-}
-
-.group-card > * + * {
-    border-top: 1px solid var(--border);
-}
-
-.row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 48px;
-    padding: 8px 16px;
-    color: var(--foreground);
-    text-decoration: none;
-    text-align: left;
-    background: transparent;
-    border: 0;
-    width: 100%;
-}
-
-a.row,
-button.row {
-    transition: background 0.15s;
-}
-
-a.row:hover,
-button.row:hover {
-    background: color-mix(in srgb, var(--foreground) 5%, transparent);
-}
-
-a.row:active,
-button.row:active {
-    background: color-mix(in srgb, var(--foreground) 9%, transparent);
-}
-
-a.row[aria-current="page"][data-selected="true"] {
-    background: color-mix(in srgb, var(--primary) 14%, transparent);
-}
-
-.row-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--radius-control);
-    background: var(--secondary);
-    color: var(--foreground);
-}
-
-.row-icon svg {
-    width: 17px;
-    height: 17px;
-}
-
-.row-text {
-    flex: 1;
-    min-width: 0;
-}
-
-.row-label {
-    font-weight: 500;
-}
-
-.row-hint {
-    color: var(--muted-foreground);
-    font-size: 12px;
-    line-height: 1.4;
-}
-
-.row-value {
-    flex: none;
-    max-width: 60%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--muted-foreground);
-}
-
-.segmented {
-    display: inline-flex;
-    flex: none;
-    padding: 2px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-field);
-    background: var(--secondary);
-}
-
-.segmented label {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 32px;
-    min-width: 56px;
-    padding: 0 12px;
-    border-radius: var(--radius-control);
-    color: var(--muted-foreground);
-    font-size: var(--type-subhead);
-    font-weight: 550;
-    cursor: pointer;
-    transition:
-        background 0.15s,
-        color 0.15s;
-}
-
-@media (pointer: coarse) {
-    .segmented label {
-        min-height: 40px;
-    }
-}
-
-.segmented input {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    opacity: 0;
-    cursor: pointer;
-}
-
-.segmented label:has(input:checked) {
-    background: var(--primary);
-    color: var(--primary-foreground);
-}
-
-.segmented label:has(input:focus-visible) {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
-}
-
-.segmented label:has(input:disabled) {
-    opacity: 0.55;
-    cursor: default;
-}
-
-.switch {
-    appearance: none;
-    position: relative;
-    flex: none;
-    width: 46px;
-    height: 28px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--secondary);
-    transition: background 0.15s;
-}
-
-/* The 44px touch target is the row; the switch itself stays its iOS size. */
-.switch::after {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--muted-foreground);
-    transition:
-        transform 0.15s,
-        background 0.15s;
-}
-
-.switch[aria-checked="true"] {
-    background: var(--primary);
-    border-color: var(--primary);
-}
-
-.switch[aria-checked="true"]::after {
-    transform: translateX(18px);
-    background: var(--primary-foreground);
-}
-
-.switch:disabled {
-    opacity: 0.55;
-    cursor: default;
-}
-
-.field-select {
-    flex: none;
-    max-width: 55%;
-    min-height: 36px;
-    padding: 0 28px 0 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-field);
-    background: var(--secondary);
-    color: var(--foreground);
-}
-
-@media (pointer: coarse) {
-    .field-select {
-        min-height: 44px;
-        font-size: 16px;
     }
 }
 
@@ -933,8 +723,10 @@ a.row[aria-current="page"][data-selected="true"] {
     justify-content: center;
 }
 
-.btn:hover {
-    background: var(--accent);
+@media (hover: hover) and (pointer: fine) {
+    .btn:hover {
+        background: var(--accent);
+    }
 }
 
 .btn-primary {
@@ -943,47 +735,16 @@ a.row[aria-current="page"][data-selected="true"] {
     color: var(--primary-foreground);
 }
 
-.btn-primary:hover {
-    background: color-mix(in srgb, var(--primary) 88%, #000);
+@media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover {
+        background: color-mix(in srgb, var(--primary) 88%, #000);
+    }
 }
 
 @media (pointer: coarse) {
     .btn {
         min-height: 44px;
     }
-}
-
-.status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    margin-right: 8px;
-    border-radius: 50%;
-    background: var(--muted-foreground);
-}
-
-.status-dot[data-tone="ok"] {
-    background: var(--ok);
-}
-
-.status-dot[data-tone="warn"] {
-    background: var(--warn);
-}
-
-.status-dot[data-tone="danger"] {
-    background: var(--danger);
-}
-
-.inline-error {
-    margin: 0;
-    color: var(--danger);
-    font-size: 13px;
-    line-height: 1.4;
-}
-
-/* Inside a card it is a row of its own, so it lines up with the other rows' text. */
-.group-card > .inline-error {
-    padding: 10px 16px;
 }
 
 * {
@@ -1024,7 +785,7 @@ a.row[aria-current="page"][data-selected="true"] {
     background: color-mix(in srgb, var(--warn) 16%, var(--card));
     border-bottom: 1px solid var(--border);
     color: var(--foreground);
-    font-size: 13px;
+    font-size: var(--type-subhead);
     user-select: text;
 }
 
@@ -1075,67 +836,6 @@ a.row[aria-current="page"][data-selected="true"] {
     }
 }
 
-/* The switch draws at its iOS size; this widens only the area that answers a tap. */
-.switch::before {
-    content: "";
-    position: absolute;
-    inset: -8px -4px;
-}
-
-/* ---- text fields (the PiKVM connection form) --------------------------------- */
-
-.field-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 12px 16px;
-    font-size: 13px;
-}
-
-.field-stack > label {
-    margin-top: 6px;
-    color: var(--muted-foreground);
-    font-size: 12px;
-}
-
-.field-input {
-    min-height: 36px;
-    padding: 0 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-field);
-    background: var(--secondary);
-    color: var(--foreground);
-}
-
-.field-input[aria-invalid="true"] {
-    border-color: var(--danger);
-}
-
-.field-input:disabled {
-    opacity: 0.5;
-}
-
-.field-check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-    color: var(--foreground);
-}
-
-.field-actions {
-    display: flex;
-    justify-content: flex-end;
-    padding: 0 16px 12px;
-}
-
-@media (pointer: coarse) {
-    .field-input {
-        min-height: 44px;
-        font-size: 16px;
-    }
-}
-
 /* ---- panes: the destinations stay mounted and only the one in front shows ---------- */
 
 .app-pane {
@@ -1166,16 +866,4 @@ a.row[aria-current="page"][data-selected="true"] {
     border-radius: 50%;
     background: var(--warn);
     box-shadow: 0 0 0 2px var(--card);
-}
-
-.settings-note {
-    margin: 8px 0;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-surface);
-    background: var(--card);
-    color: var(--muted-foreground);
-    font-size: 13px;
-    -webkit-user-select: text;
-    user-select: text;
 }

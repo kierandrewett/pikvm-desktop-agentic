@@ -12,7 +12,7 @@
 
 import type { CheckEntry, WatchView } from "@pikvm/contracts/watch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { describeDevice, readDeviceEnv, type DeviceState } from "../../notify/device";
 import { currentSubscription, subscribeThisDevice, unsubscribeThisDevice } from "../../notify/push-client";
 import {
@@ -24,7 +24,17 @@ import {
     unsubscribeDevice,
     WatchApiError,
 } from "../../notify/watch-api";
-import { Group, InlineError, Row, Switch } from "../../ui/controls";
+import {
+    Button,
+    Notice,
+    SettingRow,
+    SettingsCard,
+    SettingsPage,
+    SettingsSection,
+    Switch,
+    TextArea,
+    TextField,
+} from "@pikvm/chat-web/settings";
 import { LoadError } from "./load-error";
 
 const watchKey = ["watch"] as const;
@@ -108,10 +118,14 @@ export function NotificationsPage() {
 
     const [rule, setRule] = useState<string | undefined>(undefined);
     const [model, setModel] = useState<string | undefined>(undefined);
-    const ruleId = useId();
-    const modelId = useId();
 
-    if (view.isError) return <LoadError message={view.error.message} onRetry={() => void view.refetch()} />;
+    if (view.isError) {
+        return (
+            <SettingsPage title="Notifications">
+                <LoadError message={view.error.message} onRetry={() => void view.refetch()} />
+            </SettingsPage>
+        );
+    }
     const data = view.data;
 
     const shownRule = rule ?? data?.rule ?? "";
@@ -191,118 +205,149 @@ export function NotificationsPage() {
         }
     };
 
+    const limits = data?.limits;
     return (
-        <>
-            <Group
+        <SettingsPage
+            title="Notifications"
+            description="Hear about changes on the target's screen, even while the app is closed."
+        >
+            <SettingsSection
                 title="Screen watch"
-                footer={
-                    data
-                        ? `The server looks at the screen every ${data.limits.intervalSec} seconds, with no app open. When it changes and stays still for ${data.limits.settleSec} seconds, an image model reads it and a decision model judges it against your rule; only a clear yes sends a notification. At most one check every ${data.limits.minCheckGapSec === 60 ? "minute" : `${data.limits.minCheckGapSec} seconds`} and ${data.limits.dailyCap} a day (${data.limits.askedToday} so far in the last 24 hours). It uses your OpenRouter key, a fraction of a cent a check.`
+                description={
+                    limits && data
+                        ? `The server looks at the screen every ${limits.intervalSec} seconds, with no app open. When it changes and stays still for ${limits.settleSec} seconds, an image model reads it and a decision model judges it against your rule; only a clear yes sends a notification. At most one check every ${limits.minCheckGapSec === 60 ? "minute" : `${limits.minCheckGapSec} seconds`} and ${limits.dailyCap} a day (${limits.askedToday} so far in the last 24 hours). It uses your OpenRouter key, a fraction of a cent a check.`
                         : "Loading."
                 }
             >
-                <Row label="Notify me when the screen changes" hint="Also while the app is closed.">
-                    <Switch
+                <SettingsCard>
+                    <SettingRow
+                        id="screen-watch"
                         label="Notify me when the screen changes"
-                        checked={on}
-                        disabled={!data || busy || save.isPending || (!on && (cannotEnable !== "" || deviceBlocked !== ""))}
-                        onChange={(next) => void toggle(next)}
+                        description="Also while the app is closed."
+                        status={busy || save.isPending ? { state: "saving" } : { state: "idle" }}
+                        error={problem || (save.error ? `Could not save: ${save.error.message}` : null)}
+                        control={
+                            <Switch
+                                label="Notify me when the screen changes"
+                                checked={on}
+                                disabled={!data || busy || save.isPending || (!on && (cannotEnable !== "" || deviceBlocked !== ""))}
+                                onChange={(next) => void toggle(next)}
+                            />
+                        }
                     />
-                </Row>
-                {!on && cannotEnable ? <Row label="Not available yet" hint={cannotEnable} /> : null}
-                {!on && !cannotEnable && deviceBlocked ? <Row label="Not available on this device" hint={deviceBlocked} /> : null}
-                {on && data ? (
-                    <Row
-                        label={data.running ? (data.signal === "no-signal" ? "Watching, no video signal" : "Watching the screen") : "Not watching"}
-                        hint={data.running ? "The server is looking at the screen now." : "The server is not running the watch. Switch it off and on again."}
-                    />
-                ) : null}
-                {busy && !on ? <Row label="Setting up this device" hint="Asking this device's push service for a subscription. This can take a few seconds." /> : null}
-                {problem ? <InlineError>{problem}</InlineError> : null}
-                {save.error ? <InlineError>Could not save: {save.error.message}</InlineError> : null}
-            </Group>
+                    {!on && cannotEnable ? <SettingRow label="Not available yet" description={cannotEnable} /> : null}
+                    {!on && !cannotEnable && deviceBlocked ? (
+                        <SettingRow label="Not available on this device" description={deviceBlocked} />
+                    ) : null}
+                    {on && data ? (
+                        <SettingRow
+                            label={data.running ? (data.signal === "no-signal" ? "Watching, no video signal" : "Watching the screen") : "Not watching"}
+                            description={data.running ? "The server is looking at the screen now." : "The server is not running the watch. Switch it off and on again."}
+                        />
+                    ) : null}
+                    {busy && !on ? (
+                        <SettingRow
+                            label="Setting up this device"
+                            description="Asking this device's push service for a subscription. This can take a few seconds."
+                        />
+                    ) : null}
+                </SettingsCard>
+            </SettingsSection>
 
-            <form onSubmit={submit}>
-                <Group
+            <form onSubmit={submit} className="contents">
+                <SettingsSection
                     title="What to tell me about"
-                    footer="In your own words, for example: tell me when the install finishes or an error shows. Leave it empty to hear about anything important: a dialog or an error, a task finishing or failing, the machine restarting."
+                    description="In your own words, for example: tell me when the install finishes or an error shows. Leave it empty to hear about anything important: a dialog or an error, a task finishing or failing, the machine restarting."
                 >
-                    <div className="field-stack">
-                        <label htmlFor={ruleId}>Rule</label>
-                        <textarea
-                            id={ruleId}
-                            className="field-input"
-                            rows={3}
-                            maxLength={500}
-                            value={shownRule}
-                            disabled={!data}
-                            onChange={(e) => setRule(e.target.value)}
+                    <SettingsCard>
+                        <SettingRow id="watch-rule" label="Rule" stack control={
+                            <TextArea
+                                label="Rule"
+                                rows={3}
+                                maxLength={500}
+                                value={shownRule}
+                                disabled={!data}
+                                onChange={setRule}
+                            />
+                        } />
+                        <SettingRow
+                            id="watch-model"
+                            label="Image model"
+                            description={`The image model describes each settled screen in a sentence or two. Any OpenRouter model that accepts images works; empty uses ${data?.defaultVisionModel ?? "the default"}.`}
+                            stack
+                            control={
+                                <TextField
+                                    label="Image model"
+                                    value={shownModel}
+                                    placeholder={data?.defaultVisionModel ?? ""}
+                                    disabled={!data}
+                                    onChange={setModel}
+                                />
+                            }
                         />
-                        <label htmlFor={modelId}>Image model</label>
-                        <input
-                            id={modelId}
-                            className="field-input"
-                            type="text"
-                            autoComplete="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                            value={shownModel}
-                            placeholder={data?.defaultVisionModel ?? ""}
-                            disabled={!data}
-                            onChange={(e) => setModel(e.target.value)}
-                        />
-                    </div>
-                    <p className="row-hint px-4 pb-3">
-                        The image model describes each settled screen in a sentence or two. Any OpenRouter model that accepts images works; empty uses {data?.defaultVisionModel ?? "the default"}.
-                    </p>
-                    <div className="px-4 pb-3">
-                        <button type="submit" className="btn" disabled={!dirty || save.isPending}>
+                    </SettingsCard>
+                    <div className="flex justify-end">
+                        <Button type="submit" variant="primary" disabled={!dirty || save.isPending}>
                             Save
-                        </button>
+                        </Button>
                     </div>
-                </Group>
+                </SettingsSection>
             </form>
 
-            <Group
+            <SettingsSection
                 title="This device"
-                footer={
-                    device.kind === "ready"
-                        ? "A test notification goes to every device that switched this on."
-                        : undefined
-                }
+                description={device.kind === "ready" ? "A test notification goes to every device that switched this on." : undefined}
             >
-                {device.kind === "ready" ? (
-                    <Row
-                        label={subscribed ? "This device is set up" : "This device is not set up"}
-                        hint={subscribed ? "It will receive notifications." : "Switch the watch on to set it up."}
+                <SettingsCard>
+                    {device.kind === "ready" ? (
+                        <SettingRow
+                            label={subscribed ? "This device is set up" : "This device is not set up"}
+                            description={subscribed ? "It will receive notifications." : "Switch the watch on to set it up."}
+                        />
+                    ) : (
+                        <SettingRow label="Not available on this device" description={device.message} />
+                    )}
+                    <SettingRow
+                        label="Send test notification"
+                        description={data && data.push.subscriptions === 0 ? "No device has been set up yet." : undefined}
+                        control={
+                            <Button disabled={busy || !data || data.push.subscriptions === 0} onClick={() => void test()}>
+                                Send test notification
+                            </Button>
+                        }
                     />
-                ) : (
-                    <Row label="Not available on this device" hint={device.message} />
-                )}
-                <Row label="Send test notification" hint={data && data.push.subscriptions === 0 ? "No device has been set up yet." : undefined}>
-                    <button type="button" className="btn" disabled={busy || !data || data.push.subscriptions === 0} onClick={() => void test()}>
-                        Send test notification
-                    </button>
-                </Row>
-                {subscribed ? (
-                    <Row label="Stop notifying this device">
-                        <button type="button" className="btn" disabled={busy} onClick={() => void forgetDevice()}>
-                            Remove this device
-                        </button>
-                    </Row>
-                ) : null}
-                {note ? <p className="row-hint px-4 pb-3" role="status">{note}</p> : null}
-            </Group>
+                    {subscribed ? (
+                        <SettingRow
+                            label="Stop notifying this device"
+                            control={
+                                <Button disabled={busy} onClick={() => void forgetDevice()}>
+                                    Remove this device
+                                </Button>
+                            }
+                        />
+                    ) : null}
+                </SettingsCard>
+                {note ? <Notice tone="success">{note}</Notice> : null}
+            </SettingsSection>
 
-            <Group title="Recent checks" footer="Newest first. Each one is also kept in the server's log, with the descriptions and the decision.">
-                {checks.data && checks.data.checks.length > 0 ? (
-                    checks.data.checks.map((entry) => (
-                        <Row key={entry.t} label={`${OUTCOME[entry.outcome]}, ${formatTime(entry.t)}`} hint={checkSummary(entry)} />
-                    ))
-                ) : (
-                    <Row label="Nothing yet" hint="A check is made when the screen changes and settles." />
-                )}
-            </Group>
-        </>
+            <SettingsSection
+                title="Recent checks"
+                description="Newest first. Each one is also kept in the server's log, with the descriptions and the decision."
+            >
+                <SettingsCard>
+                    {checks.data && checks.data.checks.length > 0 ? (
+                        checks.data.checks.map((entry) => (
+                            <SettingRow
+                                key={entry.t}
+                                label={`${OUTCOME[entry.outcome]}, ${formatTime(entry.t)}`}
+                                description={checkSummary(entry)}
+                            />
+                        ))
+                    ) : (
+                        <SettingRow label="Nothing yet" description="A check is made when the screen changes and settles." />
+                    )}
+                </SettingsCard>
+            </SettingsSection>
+        </SettingsPage>
     );
 }

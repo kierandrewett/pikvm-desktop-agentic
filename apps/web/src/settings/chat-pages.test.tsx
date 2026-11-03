@@ -5,7 +5,7 @@
  *     to configure external servers, so the page would be a form that cannot save.
  *  2. The agent's pages are not in Settings at all, or are listed twice.
  *  3. A host without a chat server opens a page that fails; it should say there is nothing to set yet.
- *  4. A page is drawn outside ChatScope, so its tokens and utilities do not apply.
+ *  4. A page is drawn outside the Settings scope, so its tokens and utilities do not apply.
  *  5. The pane is told it is in front while Settings is hidden behind another tab.
  */
 
@@ -33,23 +33,32 @@ afterEach(() => {
 describe("the agent's settings", () => {
     it("lists Providers, Models and Agent once each, and no MCP page", () => {
         const agent = SETTINGS_GROUPS.find((group) => group.title === "Agent");
-        expect(agent?.pages.map((page) => page.title)).toEqual(["Providers", "Models", "Agent"]);
+        expect(agent?.pages.map((page) => page.title)).toEqual(["Model providers", "Models", "Agent"]);
         const all = SETTINGS_GROUPS.flatMap((group) => group.pages.map((page) => page.id));
         expect(new Set(all).size).toBe(all.length);
         expect(all.some((id) => /mcp/i.test(id))).toBe(false);
     });
 
     it.each([
-        ["providers", "Providers"],
+        ["providers", "Model providers"],
         ["models", "Models"],
         ["agent", "Agent"],
-    ])("opens %s inside ChatScope", async (id, title) => {
+    ])("opens %s inside the Settings scope", async (id, title) => {
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
         await user.click(await screen.findByRole("link", { name: title }));
         const page = await screen.findByTestId(`chat-page-${id}`);
         expect(page.closest(".chat-scope")).not.toBeNull();
-        expect(within(document.body).getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    });
+
+    it.each([
+        ["providers", "Model providers"],
+        ["models", "Models"],
+        ["agent", "Agent"],
+    ])("marks %s as the open page in the list beside it", async (id, title) => {
+        renderApp(`/settings/${id}`, { compact: false });
+        await screen.findByTestId(`chat-page-${id}`);
+        expect(within(document.body).getByRole("link", { name: title })).toHaveAttribute("aria-current", "page");
     });
 
     it("says there is nothing to set yet when the host has no chat server", async () => {
@@ -57,7 +66,7 @@ describe("the agent's settings", () => {
         server.agent = { found: false, reason: "Chat is starting" };
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
-        await user.click(await screen.findByRole("link", { name: "Providers" }));
+        await user.click(await screen.findByRole("link", { name: "Model providers" }));
         expect(await screen.findByText(/Chat is not available on this host/)).toBeInTheDocument();
         expect(screen.queryByTestId("chat-page-providers")).toBeNull();
     });

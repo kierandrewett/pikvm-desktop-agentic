@@ -1,7 +1,8 @@
 /** The Settings pages: one component each, listed once with their group and icon. */
 
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType } from "react";
 import {
+    type Icon,
     Bell,
     Brain,
     Cursor,
@@ -47,12 +48,10 @@ export type PageId =
 export interface SettingsPageDef {
     readonly id: PageId;
     readonly title: string;
-    readonly icon: ReactNode;
+    readonly icon: Icon;
     readonly component: ComponentType;
     /** Omit the page when this says it cannot work here. */
     readonly available?: () => boolean;
-    /** A page with a list beside an editor, which wants more than a column of rows. */
-    readonly wide?: boolean;
 }
 
 export interface SettingsGroupDef {
@@ -64,41 +63,41 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
     {
         title: "Target",
         pages: [
-            { id: "connection", title: "Connection", icon: <Link />, component: ConnectionPage },
-            { id: "keep-awake", title: "Keep awake", icon: <Eye />, component: KeepAwakePage },
-            { id: "notifications", title: "Notifications", icon: <Bell />, component: NotificationsPage },
+            { id: "connection", title: "Connection", icon: Link, component: ConnectionPage },
+            { id: "keep-awake", title: "Keep awake", icon: Eye, component: KeepAwakePage },
+            { id: "notifications", title: "Notifications", icon: Bell, component: NotificationsPage },
         ],
     },
     {
         title: "Input",
         pages: [
-            { id: "keyboard", title: "Keyboard", icon: <Keyboard />, component: KeyboardPage },
-            { id: "input", title: "Touch and mouse", icon: <Cursor />, component: InputPage },
-            { id: "macros", title: "Macros", icon: <Lightning />, component: MacrosPage, wide: true },
+            { id: "keyboard", title: "Keyboard", icon: Keyboard, component: KeyboardPage },
+            { id: "input", title: "Touch and mouse", icon: Cursor, component: InputPage },
+            { id: "macros", title: "Macros", icon: Lightning, component: MacrosPage },
         ],
     },
     {
         title: "Agent",
         pages: [
-            { id: "providers", title: "Providers", icon: <Key />, component: ProvidersPage },
-            { id: "models", title: "Models", icon: <Brain />, component: ModelsPage },
-            { id: "agent", title: "Agent", icon: <Robot />, component: AgentPage },
+            { id: "providers", title: "Model providers", icon: Key, component: ProvidersPage },
+            { id: "models", title: "Models", icon: Brain, component: ModelsPage },
+            { id: "agent", title: "Agent", icon: Robot, component: AgentPage },
         ],
     },
     {
         title: "App",
         pages: [
-            { id: "display", title: "Display", icon: <CircleHalf />, component: DisplayPage },
+            { id: "display", title: "Display", icon: CircleHalf, component: DisplayPage },
             {
                 id: "audio",
                 title: "Audio",
-                icon: <SpeakerHigh />,
+                icon: SpeakerHigh,
                 component: AudioPage,
                 available: audioDevicesSupported,
             },
             // The Account page is added by the list itself once the host proves it sits behind
             // the proxy; see SettingsList.
-            { id: "about", title: "About", icon: <Info />, component: AboutPage },
+            { id: "about", title: "About", icon: Info, component: AboutPage },
         ],
     },
 ];
@@ -107,7 +106,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
 export const ACCOUNT_PAGE: SettingsPageDef = {
     id: "account",
     title: "Account",
-    icon: <User />,
+    icon: User,
     component: AccountPage,
 };
 

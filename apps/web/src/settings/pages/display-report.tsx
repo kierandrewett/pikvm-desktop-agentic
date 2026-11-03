@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { viewportReport } from "../../app/viewport-report";
-import { Group } from "../../ui/controls";
+import { Button, SettingRow, SettingsCard, SettingsSection } from "@pikvm/chat-web/settings";
 
 /** Clipboard API where there is one; a throwaway textarea and execCommand where there is not (an insecure origin). */
 async function copy(text: string): Promise<boolean> {
@@ -38,27 +38,35 @@ export function DisplayReport() {
     useEffect(measure, []);
 
     return (
-        <Group title="Display" footer="What this device reports about its screen and how the page sits in it. Copy it to send.">
-            <div className="flex gap-2 px-4 pt-3">
-                <button type="button" className="btn" onClick={measure}>
-                    Measure again
-                </button>
-                <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={text === ""}
-                    onClick={() => void copy(text).then((ok) => setCopied(ok ? "done" : "failed"))}
+        <SettingsSection
+            title="Display"
+            description="What this device reports about its screen and how the page sits in it. Copy it to send."
+        >
+            <SettingsCard>
+                <SettingRow
+                    label="Display report"
+                    stack
+                    control={
+                        <div className="flex flex-wrap justify-end gap-2">
+                            <Button onClick={measure}>Measure again</Button>
+                            <Button
+                                variant="primary"
+                                disabled={text === ""}
+                                onClick={() => void copy(text).then((ok) => setCopied(ok ? "done" : "failed"))}
+                            >
+                                {copied === "done" ? "Copied" : copied === "failed" ? "Copy failed" : "Copy"}
+                            </Button>
+                        </div>
+                    }
                 >
-                    {copied === "done" ? "Copied" : copied === "failed" ? "Copy failed" : "Copy"}
-                </button>
-            </div>
-            <pre
-                className="m-0 overflow-x-auto px-4 py-3 text-[11px] leading-snug whitespace-pre-wrap break-words"
-                style={{ userSelect: "text", WebkitUserSelect: "text", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-                data-testid="display-report"
-            >
-                {text}
-            </pre>
-        </Group>
+                    <pre
+                        className="mt-3 -mx-4 w-[calc(100%+2rem)] overflow-x-auto border-t border-default bg-[color-mix(in_srgb,var(--control-track)_50%,var(--panel))] px-4 py-3 font-mono text-xs leading-snug break-words whitespace-pre-wrap text-secondary select-text"
+                        data-testid="display-report"
+                    >
+                        {text}
+                    </pre>
+                </SettingRow>
+            </SettingsCard>
+        </SettingsSection>
     );
 }

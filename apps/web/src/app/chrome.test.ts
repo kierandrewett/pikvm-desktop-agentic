@@ -171,6 +171,19 @@ describe("home indicator strip", () => {
         expect(html).toMatch(/standalone && ios/);
     });
 
+    it("is standalone only where the manifest's display mode applies: navigator.standalone alone (Firefox's home-screen app) is the browser layout", () => {
+        const script = /var standalone = ([^;]*);/.exec(html)?.[1] ?? "";
+        expect(script).toMatch(/display-mode: standalone/);
+        expect(script).toMatch(/display-mode: fullscreen/);
+        expect(script).not.toMatch(/navigator\.standalone/);
+        const source = read("src/app/standalone.ts");
+        const decision = /const display = ([^;]*);/.exec(source)?.[1] ?? "";
+        expect(decision).toMatch(/display-mode: standalone/);
+        expect(source).toMatch(/if \(display\) root\.setAttribute\(STANDALONE/);
+        expect(source).toMatch(/if \(display && ios\) root\.setAttribute\(IOS_STANDALONE/);
+        expect(source).not.toMatch(/legacy \|\| display/);
+    });
+
     it("takes the status colour on html and body in the installed app, so the page the system samples is the bar's colour on every tab", () => {
         expect(rule(css, "html[data-standalone],\nhtml[data-standalone] body")).toMatch(/background-color:\s*var\(--status-colour\)/);
         expect(css).toMatch(/:root\s*\{\s*--status-colour:\s*#000;\s*\}/);
@@ -233,8 +246,9 @@ describe("desktop navigation rail", () => {
     it("shows a tooltip only on hover and on keyboard focus", () => {
         expect(rule(css, ".nav-tip")).toMatch(/visibility:\s*hidden/);
         expect(rule(css, ".nav-tip")).toMatch(/pointer-events:\s*none/);
-        const shown = rule(css, ".nav-tab:hover .nav-tip,\n.nav-tab:focus-visible .nav-tip");
-        expect(shown).toMatch(/visibility:\s*visible/);
+        expect(rule(css, ".nav-tab:focus-visible .nav-tip")).toMatch(/visibility:\s*visible/);
+        // Hover only where there is a hover (a mouse): on a touch screen a :hover that shows something swallows the first tap.
+        expect(rule(css, ".nav-tab:hover .nav-tip")).toMatch(/visibility:\s*visible/);
     });
 
     it("marks the open item with more than colour", () => {

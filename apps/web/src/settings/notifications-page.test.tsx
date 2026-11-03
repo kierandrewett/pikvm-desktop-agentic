@@ -274,7 +274,7 @@ describe("the rule and the model", () => {
         device({ permission: "granted" });
         renderApp("/settings/notifications");
         const save = await screen.findByRole("button", { name: "Save" });
-        const rule = await screen.findByLabelText("Rule");
+        const rule = await screen.findByLabelText("Rule", { selector: "textarea" });
         await waitFor(() => expect(rule).toHaveValue("old rule"));
         expect(save).toBeDisabled();
         await userEvent.clear(rule);
@@ -290,7 +290,7 @@ describe("the rule and the model", () => {
         install(watchServer());
         device();
         renderApp("/settings/notifications");
-        await waitFor(() => expect(screen.getByLabelText("Image model")).toHaveValue("google/gemma-3-12b-it"));
+        await waitFor(() => expect(screen.getByLabelText("Image model", { selector: "input" })).toHaveValue("google/gemma-3-12b-it"));
         expect(screen.getByText(/empty uses google\/gemma-3-12b-it/)).toBeInTheDocument();
     });
 });

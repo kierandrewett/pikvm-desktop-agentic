@@ -40,12 +40,11 @@ fallback for `/app/kvm`, `/app/chat` and `/app/settings/*`, and `/app/assets/*` 
 src/main.tsx            entry: theme, query client, router
 src/app/                shell, route table, navigation (bar on phones, rail when wide), viewport hooks
 src/api/                typed client over @pikvm/contracts, and the Query bindings
-src/settings/           the Settings list and one page per section
+src/settings/           Settings: the navigation and one page per section, drawn on @pikvm/chat-web's settings kit
 src/chat/               the Chat route: host states around @pikvm/chat-web's ChatPane
 src/kvm/                the KVM screen: picture, dock and toolbar, key rows, sheet, dialog seam (see FAILURE_MODES.md)
 src/host/paths.ts       every server path the app depends on
 src/theme.ts            the stored theme, shared with the console's key
-src/ui/                 icons and the grouped-list controls
 src/styles.css          tokens (the desktop app's palette) and component classes
 ```
 

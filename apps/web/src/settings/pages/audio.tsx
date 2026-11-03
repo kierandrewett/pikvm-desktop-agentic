@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Group, InlineError, Row } from "../../ui/controls";
+import { Button, Select, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
 import {
     type DeviceChoice,
     MIC_DEVICE_KEY,
@@ -24,31 +24,26 @@ function DeviceSelect({ label, storageKey, devices }: DeviceSelectProps) {
     const [choice, setChoice] = useState<DeviceChoice>(() => readDeviceChoice(storageKey));
     const known = devices.some((device) => device.id === choice.id);
 
+    const options = [
+        { value: "", label: "Follow the system default" },
+        // Pinned to a device that is not here: say so rather than quietly showing another.
+        ...(choice.id && !known ? [{ value: choice.id, label: `${choice.label || "Chosen device"} (not connected)` }] : []),
+        ...devices.map((device, index) => ({ value: device.id, label: device.label || `${label} ${index + 1}` })),
+    ];
+
     return (
-        <select
-            className="field-select"
-            aria-label={label}
+        <Select
+            label={label}
             value={choice.id}
-            onChange={(event) => {
-                const id = event.target.value;
+            options={options}
+            onChange={(id) => {
                 const picked = devices.find((device) => device.id === id);
                 const next = { id, label: picked?.label || choice.label };
                 const stored = id ? next : { id: "", label: "" };
                 writeDeviceChoice(storageKey, stored);
                 setChoice(stored);
             }}
-        >
-            <option value="">Follow the system default</option>
-            {choice.id && !known ? (
-                // Pinned to a device that is not here: say so rather than quietly showing another.
-                <option value={choice.id}>{choice.label || "Chosen device"} (not connected)</option>
-            ) : null}
-            {devices.map((device, index) => (
-                <option key={device.id} value={device.id}>
-                    {device.label || `${label} ${index + 1}`}
-                </option>
-            ))}
-        </select>
+        />
     );
 }
 
@@ -57,31 +52,39 @@ export function AudioPage() {
     const hidden = labelsHidden(inputs) || labelsHidden(outputs);
 
     return (
-        <Group
-            title="Devices"
-            footer="Used for the target's sound and your microphone in the KVM screen. A chosen device that is unplugged is reported, not swapped for another."
-        >
-            {loaded ? (
-                <Row label="Microphone">
-                    <DeviceSelect label="Microphone" storageKey={MIC_DEVICE_KEY} devices={inputs} />
-                </Row>
-            ) : null}
-            {loaded && speakerSelectionSupported() ? (
-                <Row label="Speaker">
-                    <DeviceSelect label="Speaker" storageKey={OUT_DEVICE_KEY} devices={outputs} />
-                </Row>
-            ) : null}
-            {loaded && !speakerSelectionSupported() ? (
-                <Row label="Speaker" hint="This browser always plays through the system output." />
-            ) : null}
-            {hidden ? (
-                <Row label="Device names are hidden" hint="The browser shows names after microphone access is allowed once.">
-                    <button type="button" className="btn" onClick={() => void allowAccess()}>
-                        Allow access
-                    </button>
-                </Row>
-            ) : null}
-            {error ? <InlineError>{error}</InlineError> : null}
-        </Group>
+        <SettingsPage title="Audio" description="Devices for the target's sound and your microphone.">
+            <SettingsSection
+                title="Devices"
+                description="Used for the target's sound and your microphone in the KVM screen. A chosen device that is unplugged is reported, not swapped for another."
+            >
+                <SettingsCard>
+                    {loaded ? (
+                        <SettingRow
+                            id="microphone"
+                            label="Microphone"
+                            control={<DeviceSelect label="Microphone" storageKey={MIC_DEVICE_KEY} devices={inputs} />}
+                        />
+                    ) : null}
+                    {loaded && speakerSelectionSupported() ? (
+                        <SettingRow
+                            id="speaker"
+                            label="Speaker"
+                            control={<DeviceSelect label="Speaker" storageKey={OUT_DEVICE_KEY} devices={outputs} />}
+                        />
+                    ) : null}
+                    {loaded && !speakerSelectionSupported() ? (
+                        <SettingRow label="Speaker" description="This browser always plays through the system output." />
+                    ) : null}
+                    {hidden ? (
+                        <SettingRow
+                            label="Device names are hidden"
+                            description="The browser shows names after microphone access is allowed once."
+                            control={<Button onClick={() => void allowAccess()}>Allow access</Button>}
+                        />
+                    ) : null}
+                    {error ? <SettingRow label="Audio devices" error={error} /> : null}
+                </SettingsCard>
+            </SettingsSection>
+        </SettingsPage>
     );
 }

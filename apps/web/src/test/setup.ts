@@ -15,6 +15,14 @@ afterEach(() => {
 
 // jsdom does not implement scrolling; the router asks for it on every navigation.
 window.scrollTo = () => {};
+// ... nor does it scroll elements: the settings column returns to the top for each page.
+Element.prototype.scrollTo = () => {};
+// ... nor measures: Radix (menus, dialogs, switches) watches the size of what it positions.
+globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+};
 
 /* The conversation pane has its own component tests in packages/chat-web, against a fake chat server. In the
    app's tests it is a stub that shows what the app gave it: whether its tab is in front, and which page it is. */
@@ -28,7 +36,7 @@ vi.mock("@pikvm/chat-web", async () => {
         ProvidersPage: page("providers"),
         ModelsPage: page("models"),
         AgentPage: page("agent"),
-    };
-});
         // The run-end signal the app listens to (the icon badge): a stub that never fires.
         onRunFinished: () => () => {},
+    };
+});

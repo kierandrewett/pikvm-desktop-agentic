@@ -275,6 +275,9 @@ describe("connection", () => {
  *  6. A save does not reload the app, so the video and the input socket stay on the old address.
  *  7. The password is sent as anything but the password field's own value.
  */
+/** A row is a labelled group, so a label's text names the group and the field; the field is what is wanted. */
+const INPUT = { selector: "input" };
+
 describe("connection: changing the PiKVM", () => {
     const editable = () => {
         server.target = { origin: "https://pikvm.example/", username: "admin", passwordSet: true, editable: true };
@@ -287,9 +290,9 @@ describe("connection: changing the PiKVM", () => {
     it("shows the current address and user, and a password field that is empty", async () => {
         editable();
         renderApp("/settings/connection");
-        expect(await screen.findByLabelText("Address")).toHaveValue("https://pikvm.example/");
-        expect(screen.getByLabelText("User name")).toHaveValue("admin");
-        const password = screen.getByLabelText("Password");
+        expect(await screen.findByLabelText("Address", INPUT)).toHaveValue("https://pikvm.example/");
+        expect(screen.getByLabelText("User name", INPUT)).toHaveValue("admin");
+        const password = screen.getByLabelText("Password", INPUT);
         expect(password).toHaveValue("");
         expect(password).toHaveAttribute("type", "password");
         expect(password).toHaveAttribute("placeholder", expect.stringMatching(/stored/));
@@ -299,7 +302,7 @@ describe("connection: changing the PiKVM", () => {
         editable();
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const address = await screen.findByLabelText("Address");
+        const address = await screen.findByLabelText("Address", INPUT);
         await user.clear(address);
         await user.type(address, "https://other.lan/");
         await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
@@ -313,7 +316,7 @@ describe("connection: changing the PiKVM", () => {
         editable();
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const password = await screen.findByLabelText("Password");
+        const password = await screen.findByLabelText("Password", INPUT);
         await user.type(password, "hunter2-typed");
         await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
         await waitFor(() => expect(reload).toHaveBeenCalled());
@@ -327,8 +330,8 @@ describe("connection: changing the PiKVM", () => {
         editable();
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        await user.click(await screen.findByLabelText("Remove the stored password"));
-        expect(screen.getByLabelText("Password")).toBeDisabled();
+        await user.click(await screen.findByRole("switch", { name: "Remove the stored password" }));
+        expect(screen.getByLabelText("Password", INPUT)).toBeDisabled();
         await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
         await waitFor(() => expect(reload).toHaveBeenCalled());
         expect(requests.find((r) => r.method === "PUT")?.body).toMatchObject({ password: "" });
@@ -339,7 +342,7 @@ describe("connection: changing the PiKVM", () => {
         editable();
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const address = await screen.findByLabelText("Address");
+        const address = await screen.findByLabelText("Address", INPUT);
         await user.clear(address);
         await user.type(address, "pikvm");
         await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
@@ -356,7 +359,7 @@ describe("connection: changing the PiKVM", () => {
         server.targetPutError = "The address must start with http:// or https://";
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const password = await screen.findByLabelText("Password");
+        const password = await screen.findByLabelText("Password", INPUT);
         await user.type(password, "keep-me");
         await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
         expect(await screen.findByRole("alert")).toHaveTextContent(/must start with http/);
@@ -367,7 +370,7 @@ describe("connection: changing the PiKVM", () => {
     it("a pinned host sends no PUT and draws no form", async () => {
         renderApp("/settings/connection");
         await screen.findByText("https://pikvm.example");
-        expect(screen.queryByLabelText("Password")).toBeNull();
+        expect(screen.queryByLabelText("Password", INPUT)).toBeNull();
         expect(requests.some((r) => r.method === "PUT")).toBe(false);
     });
 });
@@ -446,6 +449,10 @@ describe("audio", () => {
         await screen.findByRole("radio", { name: "System" });
     });
 
+    /** The Select's trigger names the row and the value ("Microphone: USB microphone"); its menu lists the options. */
+    const trigger = (name: string) => screen.findByRole("button", { name: new RegExp(`^${name}:`) });
+    const choices = () => [...document.querySelectorAll("[role^=menuitem]")].map((item) => item.textContent);
+
     it("lists real devices, drops the OS aliases and stores the choice with its label", async () => {
         const user = userEvent.setup();
         fakeMedia([
@@ -455,30 +462,35 @@ describe("audio", () => {
             device("audiooutput", "spk-1", "Desk speakers"),
         ]);
         renderApp("/settings/audio");
-        const mic = await screen.findByRole("combobox", { name: "Microphone" });
-        await waitFor(() => expect(within(mic).getByRole("option", { name: "USB microphone" })).toBeInTheDocument());
-        expect(within(mic).queryByRole("option", { name: /Communications|Default - /i })).toBeNull();
-        expect(within(mic).getByRole("option", { name: "Follow the system default" })).toBeInTheDocument();
+        const mic = await trigger("Microphone");
+        expect(mic).toHaveAccessibleName("Microphone: Follow the system default");
+        await user.click(mic);
+        await screen.findByRole("menuitem", { name: "USB microphone" });
+        expect(choices()).toEqual(["Follow the system default", "USB microphone"]);
 
-        await user.selectOptions(mic, "mic-1");
+        await user.click(screen.getByRole("menuitem", { name: "USB microphone" }));
         expect(JSON.parse(localStorage.getItem("pikvm-console-mic-device") ?? "null")).toEqual({
             id: "mic-1",
             label: "USB microphone",
         });
+        expect(await trigger("Microphone")).toHaveAccessibleName("Microphone: USB microphone");
 
-        await user.selectOptions(mic, "");
+        await user.click(await trigger("Microphone"));
+        await user.click(await screen.findByRole("menuitem", { name: "Follow the system default" }));
         expect(localStorage.getItem("pikvm-console-mic-device")).toBeNull();
         expect(apiRequests().filter((request) => request.method !== "GET")).toHaveLength(0);
     });
 
     it("names a chosen device that is no longer connected instead of showing another", async () => {
+        const user = userEvent.setup();
         localStorage.setItem("pikvm-console-mic-device", JSON.stringify({ id: "gone", label: "Headset" }));
         fakeMedia([device("audioinput", "mic-1", "USB microphone")]);
         renderApp("/settings/audio");
-        const mic = await screen.findByRole("combobox", { name: "Microphone" });
-        await waitFor(() => expect(within(mic).getByRole("option", { name: "USB microphone" })).toBeInTheDocument());
-        expect(mic).toHaveValue("gone");
-        expect(within(mic).getByRole("option", { name: "Headset (not connected)" })).toBeInTheDocument();
+        const mic = await trigger("Microphone");
+        expect(mic).toHaveAccessibleName("Microphone: Headset (not connected)");
+        await user.click(mic);
+        await screen.findByRole("menuitem", { name: "USB microphone" });
+        expect(choices()).toContain("Headset (not connected)");
     });
 
     it("asks for access when the browser hides device names", async () => {
@@ -496,9 +508,9 @@ describe("settings navigation", () => {
         expect(await screen.findByRole("heading", { level: 1, name: "Keyboard" })).toBeInTheDocument();
         expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeNull();
 
-        await user.click(screen.getByRole("link", { name: "Back to settings" }));
+        await user.click(screen.getByRole("button", { name: "Back to settings" }));
         expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-        expect(screen.queryByRole("link", { name: "Back to settings" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Back to settings" })).toBeNull();
     });
 
     it("opens the first page beside the list on a wide screen", async () => {
@@ -506,7 +518,7 @@ describe("settings navigation", () => {
         await waitFor(() => expect(router.state.location.pathname).toBe("/settings/connection"));
         expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
         expect(await screen.findByRole("heading", { level: 1, name: "Connection" })).toBeInTheDocument();
-        expect(screen.queryByRole("link", { name: "Back to settings" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Back to settings" })).toBeNull();
     });
 
     it("says so for an unknown settings page", async () => {

@@ -1,7 +1,7 @@
+import { Segmented, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
 import { useState } from "react";
-import { Group, Row, Segmented } from "../../ui/controls";
 import { readThemeChoice, setThemeChoice, type ThemeChoice } from "../../theme";
-import { ScreenAlertsGroup } from "./screen-alerts";
+import { ScreenAlertsSection } from "./screen-alerts";
 
 const CHOICES = [
     { value: "light", label: "Light" },
@@ -13,21 +13,28 @@ export function DisplayPage() {
     const [choice, setChoice] = useState<ThemeChoice>(readThemeChoice);
 
     return (
-        <>
-            <Group title="Appearance" footer="System follows your device and changes with it.">
-                <Row label="Theme">
-                    <Segmented
+        <SettingsPage title="Display" description="How the app looks, and what it tells you about the screen.">
+            <SettingsSection title="Appearance">
+                <SettingsCard>
+                    <SettingRow
+                        id="theme"
                         label="Theme"
-                        options={CHOICES}
-                        value={choice}
-                        onChange={(next) => {
-                            setChoice(next);
-                            setThemeChoice(next);
-                        }}
+                        description="System follows your device and changes with it."
+                        control={
+                            <Segmented
+                                label="Theme"
+                                options={[...CHOICES]}
+                                value={choice}
+                                onChange={(next) => {
+                                    setChoice(next);
+                                    setThemeChoice(next);
+                                }}
+                            />
+                        }
                     />
-                </Row>
-            </Group>
-            <ScreenAlertsGroup />
-        </>
+                </SettingsCard>
+            </SettingsSection>
+            <ScreenAlertsSection />
+        </SettingsPage>
     );
 }

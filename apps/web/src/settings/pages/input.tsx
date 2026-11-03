@@ -1,4 +1,4 @@
-import { Group, Row, Segmented } from "../../ui/controls";
+import { Segmented, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
 import {
     readTouchHid,
     readTouchMode,
@@ -25,23 +25,27 @@ export function InputPage() {
     const [hid, setHid] = useStoredValue(TOUCH_HID_KEY, readTouchHid);
 
     return (
-        <>
-            <Group
-                title="Touch"
-                footer="Trackpad moves a cursor with your finger, like a laptop. Touch points straight at the screen: tap to click, hold to right-click."
-            >
-                <Row label="Touch input">
-                    <Segmented label="Touch input" options={MODES} value={mode} onChange={setMode} />
-                </Row>
-            </Group>
-            <Group
-                title="Trackpad mouse"
-                footer="Absolute lands the cursor exactly and lets the view follow it. Relative is for targets that ignore an absolute mouse, such as some BIOS screens and games."
-            >
-                <Row label="Mouse mode">
-                    <Segmented label="Trackpad mouse" options={HID} value={hid} onChange={setHid} />
-                </Row>
-            </Group>
-        </>
+        <SettingsPage title="Touch and mouse" description="How your finger or trackpad drives the target's mouse.">
+            <SettingsSection title="Touch">
+                <SettingsCard>
+                    <SettingRow
+                        id="touch-input"
+                        label="Touch input"
+                        description="Trackpad moves a cursor with your finger, like a laptop. Touch points straight at the screen: tap to click, hold to right-click."
+                        control={<Segmented label="Touch input" options={[...MODES]} value={mode} onChange={setMode} />}
+                    />
+                </SettingsCard>
+            </SettingsSection>
+            <SettingsSection title="Trackpad mouse">
+                <SettingsCard>
+                    <SettingRow
+                        id="mouse-mode"
+                        label="Mouse mode"
+                        description="Absolute lands the cursor exactly and lets the view follow it. Relative is for targets that ignore an absolute mouse, such as some BIOS screens and games."
+                        control={<Segmented label="Trackpad mouse" options={[...HID]} value={hid} onChange={setHid} />}
+                    />
+                </SettingsCard>
+            </SettingsSection>
+        </SettingsPage>
     );
 }

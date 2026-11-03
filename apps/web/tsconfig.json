@@ -14,8 +14,11 @@
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["vite/client"],
-    // The app sees the pane through its declaration, not its source (see that file).
-    "paths": { "@pikvm/chat-web": ["../../packages/chat-web/host.d.ts"] }
+    // The app sees the pane and the settings kit through their declarations, not their source (see those files).
+    "paths": {
+      "@pikvm/chat-web": ["../../packages/chat-web/host.d.ts"],
+      "@pikvm/chat-web/settings": ["../../packages/chat-web/settings.d.ts"]
+    }
   },
   "include": ["src", "vite.config.ts"]
 }

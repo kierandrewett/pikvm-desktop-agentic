@@ -1,0 +1,76 @@
+/*
+ * The phone's page stack slides: a page pushes in from the right, and goes back out the same way. The router starts a
+ * view transition for the page change (settings-layout.tsx) and names the direction on <html> for as long as it lasts,
+ * so only the settings stack carries a transition name, and only then (a name makes its own stacking context).
+ *
+ * The page below moves a third as far as the page above, as in iOS. The rest of the screen (the tab bar, the status
+ * edge) is the root snapshot and stays put: its own crossfade is off. Where View Transitions do not exist, or the
+ * person asked for less motion, none of this runs and the page simply changes (settings-layout.tsx decides).
+ */
+
+html[data-settings-nav] .settings-stack {
+    view-transition-name: settings-stack;
+}
+
+html[data-settings-nav]::view-transition-old(root),
+html[data-settings-nav]::view-transition-new(root) {
+    animation: none;
+}
+
+/* The group is the pane's box: what slides is clipped to it, not drawn over the tab bar. */
+html[data-settings-nav]::view-transition-group(settings-stack) {
+    overflow: clip;
+    animation-duration: 0s;
+}
+
+html[data-settings-nav]::view-transition-old(settings-stack),
+html[data-settings-nav]::view-transition-new(settings-stack) {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.19, 1, 0.22, 1);
+    animation-fill-mode: both;
+    mix-blend-mode: normal;
+}
+
+html[data-settings-nav="forward"]::view-transition-old(settings-stack) {
+    animation-name: settings-under-out;
+}
+html[data-settings-nav="forward"]::view-transition-new(settings-stack) {
+    animation-name: settings-over-in;
+    z-index: 1;
+}
+html[data-settings-nav="back"]::view-transition-old(settings-stack) {
+    animation-name: settings-over-out;
+    z-index: 1;
+}
+html[data-settings-nav="back"]::view-transition-new(settings-stack) {
+    animation-name: settings-under-in;
+}
+
+@keyframes settings-over-in {
+    from {
+        transform: translateX(100%);
+    }
+}
+@keyframes settings-over-out {
+    to {
+        transform: translateX(100%);
+    }
+}
+@keyframes settings-under-out {
+    to {
+        transform: translateX(-33%);
+    }
+}
+@keyframes settings-under-in {
+    from {
+        transform: translateX(-33%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html[data-settings-nav]::view-transition-group(*),
+    html[data-settings-nav]::view-transition-old(*),
+    html[data-settings-nav]::view-transition-new(*) {
+        animation: none;
+    }
+}

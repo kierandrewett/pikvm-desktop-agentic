@@ -160,8 +160,8 @@ describe("Chat and Settings keep their place", () => {
         const user = userEvent.setup();
         const { router } = await open("/settings/keyboard", { compact: false });
         await within(pane("settings")).findByRole("heading", { level: 1, name: "Keyboard" });
-        const detail = pane("settings").querySelector<HTMLElement>("[data-settings-detail]");
-        if (!detail) throw new Error("no detail pane");
+        const detail = pane("settings").querySelector<HTMLElement>("[data-settings-scroll]");
+        if (!detail) throw new Error("no settings column");
         detail.scrollTop = 120;
 
         await tab(user, "KVM");
@@ -171,7 +171,7 @@ describe("Chat and Settings keep their place", () => {
 
         await tab(user, "Settings");
         await waitFor(() => expect(router.state.location.pathname).toBe("/settings/keyboard"));
-        expect(pane("settings").querySelector("[data-settings-detail]")).toBe(detail);
+        expect(pane("settings").querySelector("[data-settings-scroll]")).toBe(detail);
         expect(detail.scrollTop).toBe(120);
         expect(within(pane("settings")).getByRole("heading", { level: 1, name: "Keyboard" })).toBeInTheDocument();
     });

@@ -1,17 +1,35 @@
 /**
- * Settings as a grouped list with detail pages.
+ * Settings as Chat's Settings is laid out: a navigation column of grouped sections and a page column beside it
+ * (wide), or the navigation as a full-screen list that pushes the page, with a back button, as iOS and Android do
+ * (phone). The rows, sections and navigation are the settings kit of @pikvm/chat-web; this file is the host's
+ * routing around them.
  *
- * Phone: the list is the page; opening a row pushes its page with a back button, as iOS and
- * Android settings do. Wide: list and page sit side by side and the first page is open.
+ * On a phone the page slides in from the right and back out again (View Transitions, where the browser has them and
+ * the person has not asked for less motion: settings-motion.css), and an edge swipe from the left goes back with the
+ * page following the finger (edge-swipe.ts). Wide windows just change the page. The swipe is attached to this stack
+ * only: it never listens on the KVM or Chat tabs, whose touches belong to the picture and the composer.
  */
 
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import {
+    Button,
+    SettingRow,
+    SettingsCard,
+    SettingsChrome,
+    SettingsNavFrame,
+    SettingsNavItem,
+    SettingsNavList,
+    SettingsNavSection,
+    SettingsPage,
+    SettingsScope,
+    SettingsSection,
+} from "@pikvm/chat-web/settings";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useProxySession } from "../api/queries";
-import { useMediaQuery, COMPACT_QUERY } from "../app/viewport";
-import { CaretLeft, CaretRight } from "@pikvm/icons";
-import { SettingsActiveContext } from "./chat-pages";
+import { COMPACT_QUERY, useMediaQuery } from "../app/viewport";
+import { useEdgeSwipeBack } from "./edge-swipe";
 import { ACCOUNT_PAGE, findPage, SETTINGS_GROUPS, type SettingsGroupDef } from "./pages";
+import "./settings-motion.css";
 
 /** The groups as they should read here: unavailable pages out, Account in when it applies. */
 function visibleGroups(hasAccount: boolean): ReadonlyArray<SettingsGroupDef> {
@@ -24,35 +42,68 @@ function visibleGroups(hasAccount: boolean): ReadonlyArray<SettingsGroupDef> {
     });
 }
 
-function SettingsList({ selected }: { selected: string | undefined }) {
+type Direction = "forward" | "back";
+
+/** How long the attribute that selects a slide direction stays on <html>: past the longest transition. */
+const DIRECTION_MS = 600;
+
+const reducedMotion = (): boolean => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/**
+ * A phone's page change slides: a view transition, where the browser has them and motion is welcome (wide windows get
+ * none). `enabled` is what to hand the router; `mark` names the direction on <html> for settings-motion.css for as long
+ * as the transition lasts, and is called when the change is made, not when it is drawn.
+ */
+function useSlide(compact: boolean) {
+    const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => () => clearTimeout(timer.current), []);
+    const mark = useCallback(
+        (direction: Direction): boolean => {
+            const animate = compact && "startViewTransition" in document && !reducedMotion();
+            if (animate) {
+                const root = document.documentElement;
+                root.setAttribute("data-settings-nav", direction);
+                clearTimeout(timer.current);
+                timer.current = setTimeout(() => root.removeAttribute("data-settings-nav"), DIRECTION_MS);
+            }
+            return animate;
+        },
+        [compact],
+    );
+    return { enabled: compact && typeof document !== "undefined" && "startViewTransition" in document, mark };
+}
+
+function SettingsList({ selected, compact }: { selected: string | undefined; compact: boolean }) {
     const session = useProxySession();
     const groups = visibleGroups(session.data === true);
+    const slide = useSlide(compact);
 
     return (
-        <nav aria-label="Settings" className="px-4 pb-6 pt-2">
+        <SettingsNavFrame label="Settings" title="Settings">
             {groups.map((group) => (
-                <section key={group.title} className="mb-6">
-                    <h2 className="group-label">{group.title}</h2>
-                    <div className="group-card">
+                <SettingsNavSection key={group.title} id={`settings-${group.title.toLowerCase()}`} title={group.title}>
+                    <SettingsNavList>
                         {group.pages.map((page) => (
-                            <Link
+                            <SettingsNavItem
                                 key={page.id}
-                                to="/settings/$page"
-                                params={{ page: page.id }}
-                                className="row"
-                                data-selected={page.id === selected}
-                            >
-                                <span className="row-icon">{page.icon}</span>
-                                <span className="row-text row-label">{page.title}</span>
-                                <span className="row-hint" aria-hidden="true">
-                                    <CaretRight width={16} height={16} />
-                                </span>
-                            </Link>
+                                icon={page.icon}
+                                label={page.title}
+                                active={page.id === selected}
+                                render={(row) => (
+                                    <Link
+                                        to="/settings/$page"
+                                        params={{ page: page.id }}
+                                        viewTransition={slide.enabled && !reducedMotion()}
+                                        {...row}
+                                        onClick={() => slide.mark("forward")}
+                                    />
+                                )}
+                            />
                         ))}
-                    </div>
-                </section>
+                    </SettingsNavList>
+                </SettingsNavSection>
             ))}
-        </nav>
+        </SettingsNavFrame>
     );
 }
 
@@ -81,56 +132,115 @@ export function SettingsPane({ page, active }: SettingsPaneProps) {
         }
     }, [active, page, compact, navigate]);
 
-    const showList = !compact || selected === undefined;
-    const showDetail = !compact || selected !== undefined;
+    return (
+        <SettingsScope active={active}>
+            {compact ? (
+                <PhoneStack selected={selected} active={active} />
+            ) : (
+                <div className="flex h-full min-h-0 bg-surface text-text" data-testid="settings">
+                    <div className="h-full w-[var(--sidebar-width)] shrink-0 border-e border-default bg-sidebar">
+                        <SettingsList selected={selected} compact={false} />
+                    </div>
+                    <Content page={selected} chrome={NO_CHROME} />
+                </div>
+            )}
+        </SettingsScope>
+    );
+}
+
+const NO_CHROME = {};
+
+/** The phone: the list is the page; opening a row pushes its page over it, and back reveals the list again. */
+function PhoneStack({ selected, active }: { selected: string | undefined; active: boolean }) {
+    const navigate = useNavigate();
+    const slide = useSlide(true);
+    const under = useRef<HTMLDivElement>(null);
+    const [swiping, setSwiping] = useState(false);
+
+    const back = useCallback(
+        (animate: boolean) => {
+            void navigate({ to: "/settings", viewTransition: animate && slide.mark("back") });
+        },
+        [navigate, slide],
+    );
+    const chrome = useMemo(() => ({ onBack: () => back(true) }), [back]);
+
+    // The page follows the finger; the list underneath is mounted for the swipe and moves a third as far.
+    const top = useRef<HTMLDivElement>(null);
+    useEdgeSwipeBack({
+        target: top,
+        under,
+        enabled: active && selected !== undefined,
+        onStart: () => setSwiping(true),
+        onEnd: (committed) => {
+            setSwiping(false);
+            if (committed) back(false);
+        },
+    });
 
     return (
-        <div className="flex h-full min-h-0" data-testid="settings">
-            {showList ? (
-                <div className={compact ? "h-full w-full overflow-y-auto" : "h-full w-80 shrink-0 overflow-y-auto border-r border-border"}>
-                    <h1 className="page-title px-4 pb-2 pt-4">Settings</h1>
-                    <SettingsList selected={selected} />
+        <div className="settings-stack relative h-full min-h-0 overflow-hidden bg-sidebar text-text" data-testid="settings">
+            {selected === undefined || swiping ? (
+                <div ref={under} className="absolute inset-0 bg-sidebar">
+                    <SettingsList selected={selected} compact />
                 </div>
             ) : null}
-            {showDetail && selected !== undefined ? (
-                <div className="h-full min-w-0 flex-1 overflow-y-auto" data-settings-detail="">
-                    <SettingsActiveContext.Provider value={active}>
-                        <SettingsDetail page={selected} />
-                    </SettingsActiveContext.Provider>
+            {selected !== undefined ? (
+                <div ref={top} className="absolute inset-0 bg-surface">
+                    <Content page={selected} chrome={chrome} />
                 </div>
             ) : null}
         </div>
     );
 }
 
-/** One page of settings under its title, with the way back on a phone. */
+/** The page column: its own scroll container, back at the top for each page. */
+function Content({ page, chrome }: { page: string | undefined; chrome: { onBack?: () => void } }) {
+    const scroller = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        scroller.current?.scrollTo({ top: 0 });
+    }, [page]);
+    return (
+        <SettingsChrome.Provider value={chrome}>
+            <div
+                ref={scroller}
+                data-settings-scroll=""
+                // Vertical only: an auto overflow-x makes Chrome treat a horizontal touch as a scroll attempt on this
+                // element and cancel the pointer, so the edge swipe never engages on a phone.
+                className="h-full min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]"
+            >
+                {page === undefined ? null : <SettingsDetail page={page} />}
+            </div>
+        </SettingsChrome.Provider>
+    );
+}
+
+/** One page of settings, drawn on the kit under its own title. */
 export function SettingsDetail({ page }: { page: string }) {
-    const compact = useMediaQuery(COMPACT_QUERY);
     const def = findPage(page);
 
-    if (!def) {
-        return (
-            <div className="empty-state">
-                <h1>No such setting</h1>
-                <Link to="/settings" className="btn">
-                    Back to settings
-                </Link>
-            </div>
-        );
-    }
+    if (!def) return <Missing page={page} />;
 
     const Page = def.component;
+    return <Page />;
+}
+
+function Missing({ page }: { page: string }): ReactNode {
     return (
-        <div className={`${def.wide ? "max-w-4xl" : "max-w-2xl"} px-4 pb-8`}>
-            <header className="flex items-center gap-1 py-3">
-                {compact ? (
-                    <Link to="/settings" className="tb-btn -ml-2" aria-label="Back to settings">
-                        <CaretLeft />
-                    </Link>
-                ) : null}
-                <h1 className="page-title">{def.title}</h1>
-            </header>
-            <Page />
-        </div>
+        <SettingsPage title="No such setting">
+            <SettingsSection>
+                <SettingsCard>
+                    <SettingRow
+                        label="Settings page not found"
+                        description={`There is no settings page called "${page}".`}
+                        control={
+                            <Button asChild>
+                                <Link to="/settings">Back to settings</Link>
+                            </Button>
+                        }
+                    />
+                </SettingsCard>
+            </SettingsSection>
+        </SettingsPage>
     );
 }

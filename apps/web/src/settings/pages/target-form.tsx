@@ -8,10 +8,10 @@
  */
 
 import type { TargetConfig, TargetPatch } from "@pikvm/contracts/api";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useSaveTarget } from "../../api/queries";
 import { reloadApp } from "../../host/reload";
-import { Group, InlineError } from "../../ui/controls";
+import { Button, SettingRow, SettingsCard, SettingsSection, Switch, TextField } from "@pikvm/chat-web/settings";
 
 /** The same rule the server applies, so a typo is caught before a request. */
 export function addressProblem(value: string): string {
@@ -28,7 +28,6 @@ export function addressProblem(value: string): string {
 }
 
 export function TargetForm({ target }: { target: TargetConfig }) {
-    const id = useId();
     const save = useSaveTarget();
     const [origin, setOrigin] = useState(target.origin);
     const [username, setUsername] = useState(target.username);
@@ -61,69 +60,71 @@ export function TargetForm({ target }: { target: TargetConfig }) {
 
     return (
         <form onSubmit={submit} noValidate>
-            <Group
+            <SettingsSection
                 title="Change the PiKVM"
-                footer="Saving applies at once and reloads the app. The password is stored in its own file, readable only by you, and is never shown again."
+                description="Saving applies at once and reloads the app. The password is stored in its own file, readable only by you, and is never shown again."
             >
-                <div className="field-stack">
-                    <label htmlFor={`${id}-origin`}>Address</label>
-                    <input
-                        id={`${id}-origin`}
-                        className="field-input"
-                        type="text"
-                        inputMode="url"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={origin}
-                        aria-invalid={problem !== ""}
-                        aria-describedby={problem ? `${id}-problem` : undefined}
-                        onChange={(e) => {
-                            setOrigin(e.target.value);
-                            setProblem("");
-                        }}
-                    />
-                    {problem ? (
-                        <p id={`${id}-problem`} role="alert" className="inline-error">
-                            {problem}
-                        </p>
-                    ) : null}
-                    <label htmlFor={`${id}-user`}>User name</label>
-                    <input
-                        id={`${id}-user`}
-                        className="field-input"
-                        type="text"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                    />
-                    <label htmlFor={`${id}-password`}>Password</label>
-                    <input
-                        id={`${id}-password`}
-                        className="field-input"
-                        type="password"
-                        autoComplete="new-password"
-                        value={password}
-                        disabled={remove}
-                        placeholder={
-                            target.passwordSet ? "A password is stored. Type to replace it." : "No password stored"
+                <SettingsCard>
+                    <SettingRow
+                        id="target-address"
+                        label="Address"
+                        stack
+                        error={problem || null}
+                        control={
+                            <TextField
+                                label="Address"
+                                value={origin}
+                                inputMode="url"
+                                invalid={problem !== ""}
+                                onChange={(value) => {
+                                    setOrigin(value);
+                                    setProblem("");
+                                }}
+                            />
                         }
-                        onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <SettingRow
+                        id="target-user"
+                        label="User name"
+                        stack
+                        control={<TextField label="User name" value={username} onChange={setUsername} />}
+                    />
+                    <SettingRow
+                        id="target-password"
+                        label="Password"
+                        stack
+                        control={
+                            <TextField
+                                label="Password"
+                                type="password"
+                                value={password}
+                                disabled={remove}
+                                placeholder={
+                                    target.passwordSet ? "A password is stored. Type to replace it." : "No password stored"
+                                }
+                                onChange={setPassword}
+                            />
+                        }
                     />
                     {target.passwordSet ? (
-                        <label className="field-check">
-                            <input type="checkbox" checked={remove} onChange={(e) => setRemove(e.target.checked)} />
-                            Remove the stored password
-                        </label>
+                        <SettingRow
+                            id="target-remove-password"
+                            label="Remove the stored password"
+                            control={<Switch label="Remove the stored password" checked={remove} onChange={setRemove} />}
+                        />
                     ) : null}
-                </div>
-                {save.error ? <InlineError>Could not save: {save.error.message}</InlineError> : null}
-                <div className="field-actions">
-                    <button type="submit" className="btn" disabled={save.isPending}>
+                </SettingsCard>
+                <div className="flex flex-col items-end gap-2">
+                    {save.error ? (
+                        <p role="alert" className="self-stretch text-sm text-danger">
+                            Could not save: {save.error.message}
+                        </p>
+                    ) : null}
+                    <Button type="submit" variant="primary" disabled={save.isPending}>
                         {save.isPending ? "Saving" : "Save and reconnect"}
-                    </button>
+                    </Button>
                 </div>
-            </Group>
+            </SettingsSection>
         </form>
     );
 }
