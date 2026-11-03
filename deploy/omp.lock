@@ -1,0 +1,40 @@
+{
+    "$comment": "The agent runtime: omp's standalone binary, pinned. Upstream release assets and their sha256, as the release lists them. Fetched by scripts/fetch-omp.mjs; never committed.",
+    "repository": "can1357/oh-my-pi",
+    "version": "18.14.2",
+    "tag": "v18.14.2",
+    "targets": {
+        "linux-x64": {
+            "asset": "omp-linux-x64",
+            "sha256": "cde0bc4ac8ec333c4880039a5242ff33dbfc6544747d67aeb99bb077874aeec1"
+        },
+        "linux-arm64": {
+            "asset": "omp-linux-arm64",
+            "sha256": "afbdf04be3ddbe34a07e91c913ddb6d335a3a0210f520ac5a197a245888ad63e"
+        },
+        "linux-musl-x64": {
+            "asset": "omp-linux-musl-x64",
+            "sha256": "e66e537d86189bc47b059f94d512915c2ed5dfc8541729c5c5e000557c65391b"
+        },
+        "linux-musl-arm64": {
+            "asset": "omp-linux-musl-arm64",
+            "sha256": "a743f0b3e10dda03c3eb317ea377e76263772887c83e54aff45cc508aa62df24"
+        },
+        "darwin-x64": {
+            "asset": "omp-darwin-x64",
+            "sha256": "62835e51acc0f07d19493da736b7215d3224fd5099754b7e42c3b0fdc2eb7f45"
+        },
+        "darwin-arm64": {
+            "asset": "omp-darwin-arm64",
+            "sha256": "9b7bda0bd8ec8d1fd8f8deda076180deef2d4921ee60e7d2f39044ee7d9437ee"
+        },
+        "win32-x64": {
+            "asset": "omp-windows-x64.exe",
+            "sha256": "aa04e4ff3b2d97d604839edf1bcf5a0085818389d9fc8c1a18875ee7b5e3b0f8"
+        },
+        "win32-arm64": {
+            "asset": "omp-windows-arm64.exe",
+            "sha256": "e6ecd0915122d0077e019b8aa4829948c63cd31420781e30f3fe883cf8aa60b3"
+        }
+    }
+}
