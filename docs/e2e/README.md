@@ -83,3 +83,9 @@ engine's 1.4 s host/target reconcile would flip the target's LED back after a ha
 press; that case waits it out and resets the fake before the next one.
 
 `apps/web/e2e/watch.e2e.mjs` runs the screen watch (Settings, Notifications, and the server behind it) in headless Chrome as an installed iPhone app: it starts its own stack with `apps/web/e2e/watch-stack.mjs` (the web host with the chat server, `tools/fake-kvmd` whose picture it changes with `POST /__fake/picture?name=custom`, `tools/fake-openrouter` as OpenRouter, `tools/fake-push` as a push service that decrypts what it is sent), subscribes for real through Chrome's own push service, changes the screen and asserts the checks, the pushes, the log, the bounds and the files. It needs `dist/` built, `PUPPETEER_CORE`, `CHROME` and `SHARP_MODULES`, takes about four minutes (the watch runs at its floor, every 2 s, with a 20 s gap between checks), and writes `docs/e2e/<date>-screen-watch.md` and `docs/e2e/screen-watch/*.png`: `node apps/web/e2e/watch.e2e.mjs`. `apps/web/e2e/watch-real.e2e.mjs` is the one real smoke: the same host and fake kvmd, but the real image model and the real Jev through the key in the environment (`set -a; . ~/.env; set +a`, `GNOBLIN_OPENROUTER_API_KEY`; never printed), three checks, a fraction of a cent; it adds its section to the same record.
+
+`apps/web/e2e/desktop-layout.e2e.mjs` drives the desktop layout against the same stack as the chat run (`chat-stack.mjs`):
+the composer is the conversation's column (same width and centre, within 1px) on the new-chat screen and in a conversation
+at 1280x800, 1920x1080, 2560x1440 and 760x700, and stays bounded with a long text; the navigation rail has no visible text
+but an accessible name and a tooltip per item; the phone bar keeps its labels. It appends to
+`docs/e2e/2026-11-03-desktop-feedback.md`: `node apps/web/e2e/desktop-layout.e2e.mjs [--out docs/e2e/desktop-feedback] [--doc ...]`.

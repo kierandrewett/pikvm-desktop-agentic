@@ -4,7 +4,7 @@
  */
 import { ListIcon, NotePencilIcon } from "@pikvm/icons";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { type CSSProperties, useEffect } from "react";
 import { ConversationList } from "../components/list/conversation-list";
 import { Composer } from "../components/composer/composer";
 import { PaneShell } from "../components/shell/pane-shell";
@@ -45,6 +45,7 @@ function Body({ conversationId }: { conversationId: string | undefined }) {
     const t = useT();
     const navigate = useNavigate();
     const active = usePaneActive();
+    const { mobile } = useShell();
     if (conversationId) {
         return (
             <ConversationPane
@@ -55,14 +56,24 @@ function Body({ conversationId }: { conversationId: string | undefined }) {
             />
         );
     }
+    // The new-chat screen sits in the conversation's own column (.thread-col: one width token, one centring), so the
+    // composer is the same box before and after the first message. Phones keep their 12px gutter.
     return (
-        <div className="flex min-h-0 flex-1 flex-col justify-end px-3 pb-[max(12px,var(--safe-bottom))]">
-            <h2 className="mb-6 text-center text-[22px] font-normal text-balance">{t("thread-home-heading")}</h2>
-            <Composer
-                variant="home"
-                embedded
-                onCreated={(id) => void navigate({ to: "/c/$conversationId", params: chatParams(id) })}
-            />
+        // A scroller with the thread's gutter (thread.css .thread-scroll), so a classic scrollbar costs the column the same width here.
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]">
+            <div className="thread-content mt-auto pb-[max(12px,var(--safe-bottom))]">
+                <div
+                    className="thread-col flex flex-col"
+                    style={mobile ? ({ "--thread-pad": "12px" } as CSSProperties) : undefined}
+                >
+                    <h2 className="mb-6 text-center text-[22px] font-normal text-balance">{t("thread-home-heading")}</h2>
+                    <Composer
+                        variant="home"
+                        embedded
+                        onCreated={(id) => void navigate({ to: "/c/$conversationId", params: chatParams(id) })}
+                    />
+                </div>
+            </div>
         </div>
     );
 }

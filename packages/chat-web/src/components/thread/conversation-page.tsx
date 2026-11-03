@@ -329,7 +329,7 @@ function ConversationView({
 
                             <footer
                                 ref={footerRef}
-                                className="thread-content pointer-events-none absolute inset-x-0 bottom-0 z-20 pb-[max(12px,var(--safe-bottom))]"
+                                className="thread-content pointer-events-none absolute inset-x-0 bottom-0 z-20 px-[calc(var(--thread-scrollbar-w,0px)/2)] pb-[max(12px,var(--safe-bottom))]"
                             >
                                 {/* Solid, or with ui.blur a progressive blur the thread fades into (app.css). */}
                                 <div aria-hidden className="composer-scrim z-0">
