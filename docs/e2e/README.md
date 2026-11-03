@@ -36,6 +36,10 @@ dark): it starts its own stack per profile with `apps/web/e2e/chat-stack.mjs` (t
 `builds/omp/...`, see `scripts/fetch-omp.mjs`) and `SHARP_MODULES`, a `node_modules` directory that has `sharp` (the web
 image installs it; the repo does not): `SHARP_MODULES=... node apps/web/e2e/chat.e2e.mjs [phone|desktop]`.
 
+It also drives the PiKVM cards in the thread: the screenshot the agent took as a thumbnail (compared with the fake kvmd's
+test pattern), the click point drawn on it, a tap opening it full size (a sheet on the phone, a dialog on the desktop), the
+same cards after a reload, and another conversation's frame id refused.
+
 The browser suites can also be pointed at the IMAGE instead of a host they start themselves. `deploy/e2e/up-inspectable.sh up` runs the
 image (read-only, tmpfs `/tmp`, no capability, its own uid 10001 mapped to yours so the suite can read the agent's process and
 files) beside `tools/fake-kvmd` and `tools/fake-model` and prints the variables; export them and run the suite:

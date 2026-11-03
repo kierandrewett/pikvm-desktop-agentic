@@ -106,3 +106,41 @@ Browser: headless Chrome through puppeteer-core. Profiles: iPhone 13 (390x844, t
 - [phone-light-12b-chat-after-stop](chat-integrated/phone-light-12b-chat-after-stop.png)
 - [phone-light-13-keyboard-up](chat-integrated/phone-light-13-keyboard-up.png)
 - [phone-light-14-stream-survived](chat-integrated/phone-light-14-stream-survived.png)
+
+## Added: the screenshot on the PiKVM card
+
+The parity gap with the old harness chat, whose computer sheet showed the agent's frames: a screenshot's image block never reached the thread, so the card had no thumbnail and no click point.
+
+- The chat server now keeps each screenshot per conversation (bounded, deleted with it) and the tool result names it; the card shows it.
+- The suite was re-run in full with three new cases per profile: phone 17 of 17 and desktop 16 of 16 passed. The 27 rows above are unchanged cases that still pass. Same stack and profiles.
+- The thumbnail is compared with the fake kvmd's colour bars ("FAKE KVMD TEST PATTERN 320x180"). Both are drawn at 80x45; the mean difference is 0.0 of 255 per colour channel, with a spread of 255, so the frame is not blank.
+
+| Profile | Case | Observed | Result |
+| --- | --- | --- | --- |
+| iPhone 13 | Chat: the PiKVM cards show the screenshot the agent took (the fake's test pattern) and the click point, and a tap opens it full size | screenshot card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, no marker; click card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, marker 129.0,72.6 from the picture's corner (the centre is 129.0,72.6); the thumbnail fits the screen and is 145px tall; a tap opened it as a bottom sheet 390x261px titled "Click at (160, 90)" on a 390x844 screen, the picture 355x200px (the thumbnail was 258px) with the marker on the same pixel; Escape closed it | pass |
+| iPhone 13 | a reload keeps the pictures: the same cards, the same frames, and the screen is not looked at again | screenshot card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, no marker; click card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, marker 129.0,72.6 from the picture's corner (the centre is 129.0,72.6); after the reload and opening the conversation from the list the cards show the same frames, and the fake kvmd served 0 new snapshots | pass |
+| iPhone 13 | a conversation's screenshot is served inside that conversation only: another conversation's frame id is refused | 3 conversations took screenshots; each one's frame: 3 of 3 served as image/jpeg in its own conversation, 6 of 6 refused (404) in another; a path-like frame id: 404 | pass |
+| Desktop 1400x900 | Chat: the PiKVM cards show the screenshot the agent took (the fake's test pattern) and the click point, and a tap opens it full size | screenshot card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, no marker; click card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, marker 129.0,72.6 from the picture's corner (the centre is 129.0,72.6); the thumbnail fits the screen and is 145px tall; a tap opened it as a dialog 960x591px titled "Click at (160, 90)" on a 1400x900 screen, the picture 923x519px (the thumbnail was 258px) with the marker on the same pixel; Escape closed it | pass |
+| Desktop 1400x900 | a reload keeps the pictures: the same cards, the same frames, and the screen is not looked at again | screenshot card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, no marker; click card: thumbnail 258x145px of a 320x180 picture, loaded, differs from the fake's test pattern by 0.0 (of 255) and spreads 255, marker 129.0,72.6 from the picture's corner (the centre is 129.0,72.6); after the reload and opening the conversation from the list the cards show the same frames, and the fake kvmd served 0 new snapshots | pass |
+| Desktop 1400x900 | a conversation's screenshot is served inside that conversation only: another conversation's frame id is refused | 3 conversations took screenshots; each one's frame: 3 of 3 served as image/jpeg in its own conversation, 6 of 6 refused (404) in another; a path-like frame id: 404 | pass |
+
+Also pinned without a browser, with the real omp binary:
+
+- `packages/chat-server/test/e2e.test.ts` ("the pictures a tool took"): the frame on the live item and in history, the route serves the JPEG, another conversation's frame id and a malformed id are 404, delete removes the directory, a fork keeps its frames, and they survive a restart.
+- `packages/chat-server/src/storage/frames.test.ts`: the count and byte bounds, oldest first, never the frame just written.
+- `tests/routes.test.ts`: the frame URL is behind the host's gate.
+
+Screenshots (each in light and dark): the cards, the full-size viewer, and the cards after a reload.
+
+- [phone-light-05b-pikvm-cards](chat-integrated/phone-light-05b-pikvm-cards.png)
+- [phone-dark-05b-pikvm-cards](chat-integrated/phone-dark-05b-pikvm-cards.png)
+- [phone-light-05c-frame-viewer](chat-integrated/phone-light-05c-frame-viewer.png)
+- [phone-dark-05c-frame-viewer](chat-integrated/phone-dark-05c-frame-viewer.png)
+- [phone-light-05d-after-reload](chat-integrated/phone-light-05d-after-reload.png)
+- [phone-dark-05d-after-reload](chat-integrated/phone-dark-05d-after-reload.png)
+- [desktop-light-05b-pikvm-cards](chat-integrated/desktop-light-05b-pikvm-cards.png)
+- [desktop-dark-05b-pikvm-cards](chat-integrated/desktop-dark-05b-pikvm-cards.png)
+- [desktop-light-05c-frame-viewer](chat-integrated/desktop-light-05c-frame-viewer.png)
+- [desktop-dark-05c-frame-viewer](chat-integrated/desktop-dark-05c-frame-viewer.png)
+- [desktop-light-05d-after-reload](chat-integrated/desktop-light-05d-after-reload.png)
+- [desktop-dark-05d-after-reload](chat-integrated/desktop-dark-05d-after-reload.png)

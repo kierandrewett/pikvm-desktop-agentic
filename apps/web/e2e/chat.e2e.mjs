@@ -4,6 +4,9 @@
 //
 //   - Settings -> Providers: add a custom endpoint pointing at the fake model; its models show up in Chat;
 //   - Chat: a conversation in which the agent looks at the screen and clicks (the fake kvmd records it);
+//   - the PiKVM cards in that thread show the screenshot the agent took (the fake's test pattern) as a thumbnail, with the
+//     click point drawn on it; a tap opens it full size (a sheet on the phone, a dialog on the desktop); a reload keeps it;
+//     another conversation's frame id is refused;
 //   - a risky action waits for approval: Deny delivers nothing, Allow delivers it;
 //   - a person's tap on the KVM takes control back; Hand back gives it again; Stop ends the run;
 //   - Chat, KVM and Settings stay mounted (same elements, no new socket or stream);
@@ -164,6 +167,79 @@ async function press(page, tag, name, scope = "") {
 const waitText = (page, text, scope = "body", timeout = 30000) =>
     page.waitForFunction((t, s) => (document.querySelector(s)?.innerText ?? "").includes(t), { timeout }, text, scope);
 
+/** Open the thread's group of steps so its PiKVM cards are in view (a reload closes it). */
+async function openSteps(page, tag) {
+    if (!(await page.$("#panel-chat [data-pikvm-step]"))) await press(page, tag, "Used", "#panel-chat");
+    await page.waitForSelector("#panel-chat [data-pikvm-step]", { visible: true, timeout: 10000 });
+    await sleep(600);
+}
+
+/**
+ * The PiKVM cards in the thread, in order: the thumbnail's size and place, whether it loaded, how far it is from the
+ * picture the fake kvmd serves (mean difference per channel, after both are drawn at 80x45), how much it varies, and where
+ * the marker is. `pattern` is the fake's JPEG as base64.
+ */
+const readCards = (page, pattern) =>
+    page.evaluate(async (b64) => {
+        const draw = (source) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 80;
+            canvas.height = 45;
+            const g = canvas.getContext("2d");
+            g.drawImage(source, 0, 0, 80, 45);
+            return g.getImageData(0, 0, 80, 45).data;
+        };
+        const reference = new Image();
+        reference.src = `data:image/jpeg;base64,${b64}`;
+        await reference.decode();
+        const want = draw(reference);
+        return [...document.querySelectorAll("#panel-chat [data-pikvm-step]")].map((card) => {
+            const img = card.querySelector("[data-pikvm-thumb] img");
+            const mark = card.querySelector("[data-pikvm-marker]");
+            const rect = img?.getBoundingClientRect();
+            const m = mark?.getBoundingClientRect();
+            const loaded = !!img && img.complete && img.naturalWidth > 0;
+            let diff = null;
+            let spread = null;
+            if (loaded) {
+                const got = draw(img);
+                let sum = 0;
+                let n = 0;
+                let lo = 255;
+                let hi = 0;
+                for (let i = 0; i < got.length; i += 4) {
+                    for (let c = 0; c < 3; c++) {
+                        sum += Math.abs(got[i + c] - want[i + c]);
+                        n++;
+                    }
+                    lo = Math.min(lo, got[i], got[i + 1], got[i + 2]);
+                    hi = Math.max(hi, got[i], got[i + 1], got[i + 2]);
+                }
+                diff = sum / n;
+                spread = hi - lo;
+            }
+            return {
+                text: card.textContent,
+                src: img?.getAttribute("src") ?? null,
+                loaded,
+                natural: img ? [img.naturalWidth, img.naturalHeight] : null,
+                rect: rect ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height } : null,
+                mark: m ? { cx: m.x + m.width / 2, cy: m.y + m.height / 2 } : null,
+                diff,
+                spread,
+            };
+        });
+    }, pattern);
+
+/** Open card `index`'s thumbnail full size, the way a person does (a tap on a phone). */
+async function openFrame(page, tag, index) {
+    const thumb = (await page.$$("#panel-chat [data-pikvm-step] [data-pikvm-thumb]"))[index];
+    if (!thumb) throw new Error(`no thumbnail on card ${index}`);
+    await thumb.evaluate((e) => e.scrollIntoView({ block: "center" }));
+    if (tag === "phone") await thumb.tap();
+    else await thumb.click();
+}
+
 const banner = (page) => page.evaluate(() => document.querySelector(".kvm-agent strong")?.textContent ?? null);
 const waitBanner = (page, title, timeout = 20000) =>
     page.waitForFunction((t) => document.querySelector(".kvm-agent strong")?.textContent === t, { timeout }, title);
@@ -318,6 +394,86 @@ async function run(browser, label, tag, index) {
             return [buttons.length >= 2 && taken > snapshots, `the fake kvmd received ${kinds(events.filter((e) => e.event_type !== "mouse_move")).join(", ")}; screenshots taken ${taken - snapshots}`];
         });
 
+        // ---- the pictures on the PiKVM cards -----------------------------------------------------------------------------
+
+        // The fake's own test pattern, as the browser decodes it, to compare the card's thumbnail with.
+        const pattern = Buffer.from(await (await fetch(`${stack.fake}/api/streamer/snapshot`)).arrayBuffer()).toString("base64");
+        const snapshotCount = async () => (await json(`${stack.fake}/__fake/requests`)).requests.filter((r) => /snapshot/.test(r.path ?? r.url ?? "")).length;
+        const kept = { sources: [] };
+
+        const cardsOk = (cards) =>
+            cards.length === 2 &&
+            cards.every((c) => c.loaded && c.natural?.join("x") === "320x180" && c.diff < 12 && c.spread > 40) &&
+            cards[0].mark === null &&
+            cards[1].mark !== null &&
+            Math.abs(cards[1].mark.cx - (cards[1].rect.x + cards[1].rect.w / 2)) < 1.5 &&
+            Math.abs(cards[1].mark.cy - (cards[1].rect.y + cards[1].rect.h / 2)) < 1.5;
+        const describeCards = (cards) =>
+            cards.map((c, i) => `${i === 0 ? "screenshot" : "click"} card: thumbnail ${c.rect ? `${Math.round(c.rect.w)}x${Math.round(c.rect.h)}px` : "none"} of a ${c.natural?.join("x")} picture, ${c.loaded ? "loaded" : "NOT loaded"}, differs from the fake's test pattern by ${c.diff?.toFixed(1)} (of 255) and spreads ${c.spread?.toFixed(0)}, ${c.mark ? `marker ${(c.mark.cx - c.rect.x).toFixed(1)},${(c.mark.cy - c.rect.y).toFixed(1)} from the picture's corner (the centre is ${(c.rect.w / 2).toFixed(1)},${(c.rect.h / 2).toFixed(1)})` : "no marker"}`).join("; ");
+
+        await check("Chat: the PiKVM cards show the screenshot the agent took (the fake's test pattern) and the click point, and a tap opens it full size", async () => {
+            await openSteps(page, tag);
+            const cards = await readCards(page, pattern);
+            kept.sources = cards.map((c) => c.src);
+            await shot(page, tag, "05b-pikvm-cards");
+            const thumb = cards[1].rect;
+            const fits = thumb && thumb.h >= 44 && thumb.x >= 0 && thumb.x + thumb.w <= (await page.evaluate(() => innerWidth));
+
+            // Open the click card's picture full size.
+            await openFrame(page, tag, 1);
+            await page.waitForSelector("[role=dialog] [data-pikvm-frame] img", { visible: true, timeout: 10000 });
+            await sleep(400);
+            const viewer = await page.evaluate((thumbWidth) => {
+                const dialog = document.querySelector("[role=dialog]");
+                const img = dialog.querySelector("[data-pikvm-frame] img");
+                const mark = dialog.querySelector("[data-pikvm-marker]");
+                const d = dialog.getBoundingClientRect();
+                const i = img.getBoundingClientRect();
+                const m = mark?.getBoundingClientRect();
+                return {
+                    sheet: !!dialog.querySelector("[data-sheet-scroll]"),
+                    loaded: img.complete && img.naturalWidth > 0,
+                    dialog: { x: d.x, y: d.y, w: d.width, h: d.height, bottom: d.bottom },
+                    img: { x: i.x, y: i.y, w: i.width, h: i.height },
+                    mark: m ? { cx: m.x + m.width / 2, cy: m.y + m.height / 2 } : null,
+                    title: dialog.getAttribute("aria-labelledby") ? document.getElementById(dialog.getAttribute("aria-labelledby"))?.textContent : null,
+                    larger: i.width > thumbWidth,
+                    screen: { w: innerWidth, h: innerHeight },
+                };
+            }, thumb.w);
+            await shot(page, tag, "05c-frame-viewer");
+            await page.keyboard.press("Escape");
+            await page.waitForFunction(() => !document.querySelector("[role=dialog]"), { timeout: 5000 });
+
+            const markedRight = viewer.mark && Math.abs(viewer.mark.cx - (viewer.img.x + viewer.img.w / 2)) < 1.5 && Math.abs(viewer.mark.cy - (viewer.img.y + viewer.img.h / 2)) < 1.5;
+            // A sheet on a phone (anchored to the bottom edge and as wide as the screen), a dialog on a desktop (centred, not touching the edges).
+            const placed = tag === "phone"
+                ? viewer.sheet && Math.abs(viewer.dialog.bottom - viewer.screen.h) < 2 && viewer.dialog.w >= viewer.screen.w - 2
+                : !viewer.sheet && Math.abs(viewer.dialog.x + viewer.dialog.w / 2 - viewer.screen.w / 2) < 4 && viewer.dialog.bottom < viewer.screen.h - 8;
+            return [
+                cardsOk(cards) && fits && viewer.loaded && viewer.larger && markedRight && placed,
+                `${describeCards(cards)}; the thumbnail fits the screen and is ${Math.round(thumb.h)}px tall; a tap opened it as a ${viewer.sheet ? "bottom sheet" : "dialog"} ${Math.round(viewer.dialog.w)}x${Math.round(viewer.dialog.h)}px titled "${viewer.title}" on a ${viewer.screen.w}x${viewer.screen.h} screen, the picture ${Math.round(viewer.img.w)}x${Math.round(viewer.img.h)}px (the thumbnail was ${Math.round(thumb.w)}px) with the marker ${markedRight ? "on the same pixel" : "MOVED"}; Escape closed it`,
+            ];
+        });
+
+        await check("a reload keeps the pictures: the same cards, the same frames, and the screen is not looked at again", async () => {
+            const before = await snapshotCount();
+            await page.reload({ waitUntil: "load" });
+            await page.waitForSelector("#panel-chat textarea[aria-label='Message']", { visible: true });
+            // The pane keeps no address of its own, so a reload lands on a new chat: the conversation is opened from the list.
+            if (tag === "phone") await press(page, tag, "Open sidebar", "#panel-chat");
+            const row = await page.waitForSelector("[aria-label='Sidebar'] a[href*='/c/']", { visible: true, timeout: 20000 });
+            if (tag === "phone") await row.tap();
+            else await row.click();
+            await waitText(page, "I clicked the centre of the screen.", "#panel-chat", 60000);
+            await openSteps(page, tag);
+            const cards = await readCards(page, pattern);
+            await shot(page, tag, "05d-after-reload");
+            const sameFrames = cards.map((c) => c.src).join() === kept.sources.join();
+            const after = await snapshotCount();
+            return [cardsOk(cards) && sameFrames && after === before, `${describeCards(cards)}; after the reload and opening the conversation from the list the cards show ${sameFrames ? "the same frames" : "OTHER frames"}, and the fake kvmd served ${after - before} new snapshots`];
+        });
+
         // ---- approvals ---------------------------------------------------------------------------------------------------
 
         await check("a risky action waits for approval; Deny delivers nothing", async () => {
@@ -354,6 +510,39 @@ async function run(browser, label, tag, index) {
             const delivered = (await hid(stack, since)).filter((e) => e.event_type === "key");
             await shot(page, tag, "08-allowed");
             return [held.length === 0 && delivered.some((e) => e.event.key === "F4"), `keys while waiting ${held.length}; after Allow ${kinds(delivered).join(", ")}`];
+        });
+
+        await check("a conversation's screenshot is served inside that conversation only: another conversation's frame id is refused", async () => {
+            const mark = seen.failed.length;
+            const r = await page.evaluate(async () => {
+                const api = "/app/chat/api";
+                const list = (await (await fetch(`${api}/conversations`)).json()).conversations;
+                const owned = [];
+                for (const c of list) {
+                    const items = (await (await fetch(`${api}/conversations/${c.id}/items`)).json()).items;
+                    const frame = items.find((i) => i.type === "function_call_output" && i.frame)?.frame;
+                    if (frame) owned.push({ conversation: c.id, frame: frame.id });
+                }
+                const tries = [];
+                for (const a of owned) {
+                    for (const b of owned) {
+                        const res = await fetch(`${api}/conversations/${b.conversation}/frames/${a.frame}`);
+                        tries.push({ own: a === b, status: res.status, type: res.headers.get("content-type") });
+                    }
+                }
+                const stray = await fetch(`${api}/conversations/${owned[0]?.conversation}/frames/..%2f..%2fchat.db`);
+                return { owned: owned.length, tries, stray: stray.status };
+            });
+            // The refusals above are what this case asserts; any other failed request still fails the run's last case.
+            for (let i = seen.failed.length - 1; i >= mark; i--) {
+                if (/^404 GET \S*\/app\/chat\/api\/conversations\/[^/]+\/frames\//.test(seen.failed[i])) seen.failed.splice(i, 1);
+            }
+            const own = r.tries.filter((t) => t.own);
+            const foreign = r.tries.filter((t) => !t.own);
+            return [
+                r.owned >= 3 && own.every((t) => t.status === 200 && t.type === "image/jpeg") && foreign.length > 0 && foreign.every((t) => t.status === 404) && r.stray === 404,
+                `${r.owned} conversations took screenshots; each one's frame: ${own.length} of ${own.length} served as image/jpeg in its own conversation, ${foreign.filter((t) => t.status === 404).length} of ${foreign.length} refused (404) in another; a path-like frame id: ${r.stray}`,
+            ];
         });
 
         // ---- control: a person's tap, Hand back, Stop ------------------------------------------------------------------------

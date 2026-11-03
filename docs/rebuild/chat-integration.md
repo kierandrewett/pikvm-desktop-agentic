@@ -21,6 +21,16 @@ Decisions made while executing S4 that this plan did not have:
 - Chat's stylesheet is scoped to `.chat-scope` (its Tailwind theme block is moved there by `apps/web/scope-chat-theme.ts`),
   and the e2e compares the app's computed styles and root variables before and after Chat loads.
 - Chat's Settings pages (Providers, Models, Agent) leave their own title to the host's Settings layout.
+- The PiKVM card's thumbnail (section 4, "PiKVM card") needed the picture to reach the thread, and `function_call_output.output`
+  is a string. So the chat server keeps screenshots itself:
+  - Storage: per conversation, `packages/chat-server/src/storage/frames.ts`; at most 60 files and 48 MB, oldest out;
+    deleted with the conversation and copied to a fork.
+  - Naming: a tool names a kept frame in its result's `_meta["chat/frame"]`; the item carries
+    `frame: { id, width, height, url }`, live and from history. The model still gets the image in the result.
+  - Serving: `GET /app/chat/api/conversations/:id/frames/:frameId`, only inside the conversation that took the frame.
+  - Drawing: pointer tools name the conversation's latest whole-screen frame, so the card draws the click, move, scroll
+    or drag on what the agent was looking at.
+  - Evidence: `docs/e2e/2026-11-03-chat-integrated.md`.
 
 Not covered by the S4 acceptance run: the `bwrap --unshare-net` loopback test (the image has no sandbox, by decision),
 the desktop (Electron) path, which S5 smoke-tests, and a real PiKVM.
