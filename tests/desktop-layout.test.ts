@@ -262,60 +262,6 @@ test("a chosen theme outranks the OS instead of being overwritten by it", () => 
     assert.doesNotMatch(js, /overrides any stale saved value/);
 });
 
-test("the daemon and the harness resolve one pikvm-agent installation", () => {
-    // They are the same install, and the preference order used to be written out
-    // twice — one resolver gaining a candidate the other did not is how the two
-    // end up launching different builds. The ORDER itself is tested properly in
-    // agent-runtime.test.ts against the real function; what matters here is that
-    // main.ts still has exactly one place that builds the candidate list.
-    const lists = main.match(/agentExecutablePaths\(resolve\(__dirname/g) ?? [];
-    assert.equal(lists.length, 1, "the candidate list is duplicated again");
-    assert.match(main, /function agentRuntime\(\.\.\.preferred/);
-    assert.match(main, /resolveDaemonRuntime\(configured\?: string\)/);
-    assert.match(main, /resolveHarnessRuntime\(configured\?: string\)/);
-    const throughIt = main.match(/return agentRuntime\(configured/g) ?? [];
-    assert.equal(throughIt.length, 2, "both resolvers must go through agentRuntime()");
-});
-
-test("a missing agent runtime is reported, never spawned as a bare name", () => {
-    /* The old resolvers ended `return { command: "pikvm-agent" }` and handed that
-     * to spawn(). On a machine with no runtime that produced an ENOENT buried in
-     * a log and a panel that never appeared — which is what the packaged RPM did
-     * on every machine but the one it was built on. */
-    assert.doesNotMatch(main, /return \{ command: "pikvm-agent"/);
-    assert.doesNotMatch(main, /return "pikvm-agent";/);
-    // Both services check before starting, and both report through one function.
-    assert.match(main, /if \(!harnessRuntime\.found\)/);
-    assert.match(main, /if \(!daemonRuntime\.found\)/);
-    const reports = main.match(/reportMissingAgentRuntime\(/g) ?? [];
-    assert.equal(reports.length, 3, "one definition plus one call per service");
-    // Losing the agent must not take the rest of the app with it.
-    assert.match(main, /daemon: null/);
-    assert.match(main, /backend\?\.daemon\?\.stop\(\)/);
-    assert.match(main, /backend\?\.harness\?\.stop\(\)/);
-});
-
-test("the operator credential never reaches a renderer", () => {
-    /* It used to be a sentinel in the page swapped for the real token by a
-     * session header rewrite, which meant the credential existed in the
-     * renderer's network stack even if never in its JavaScript.
-     *
-     * The conversation loads from OUR origin and reaches the harness through
-     * the /app/harness proxy, which drops whatever Authorization a renderer
-     * sent and attaches the desktop's own — so the token is only ever in the
-     * main process. The rewrite is gone because it could no longer fire, and a
-     * rule that cannot fire is not defence in depth, it is a claim about auth
-     * that stopped being true. */
-    assert.doesNotMatch(main, /onBeforeSendHeaders/);
-    assert.doesNotMatch(main, /withHarnessAuthorization/);
-    assert.doesNotMatch(main, /seedHarnessAuth/);
-    assert.doesNotMatch(main, /agentView/);
-    // No second window loads the conversation, so nothing else needs the credential.
-    assert.doesNotMatch(main, /agentWin|preload-agent/);
-    // And the proxy that carries the capability is still wired with both halves.
-    assert.match(main, /harnessOrigin,\n\s+harnessToken: harness\.accessToken,/);
-});
-
 test("ctrl+scroll belongs to the target on desktop, not to our zoom", () => {
     // Zooming the local picture is a phone affordance: there is no other way to
     // look closer there, and no target application expecting the gesture. On a
@@ -2690,51 +2636,4 @@ test("only what is wrong goes in the audio dialog's live region", () => {
     assert.match(js, /setText\(adNote, notes\.join\(" "\)\);/);
     // The warn styling follows the live one, since that is what carries a fault.
     assert.match(js, /adStatus\.classList\.toggle\("is-warn", wrong\.length > 0\);/);
-});
-
-/**
- * The two LOCAL services live on unix sockets, in a directory the app makes
- * 0700. The control server does NOT: it binds 0.0.0.0 on purpose so a phone on
- * the LAN can load the console from it, and there is no address a browser can
- * put in its address bar that reaches a socket.
- *
- * Measured on a real start (`npx electron dist --user-data-dir=/tmp/pkvm-udd`):
- *
- *     PiKVM backend listening on http://127.0.0.1:25692 (… daemon
- *         unix:/tmp/pkvm-udd/run/daemon.sock)
- *     [daemon]  starting: …/pikvm-agent daemon --uds /tmp/pkvm-udd/run/daemon.sock
- *     [harness] starting: …/pikvm-agent harness serve --config … --uds
- *                         /tmp/pkvm-udd/run/harness.sock
- *
- *     ss -lx   u_str LISTEN 2048 /tmp/pkvm-udd/run/daemon.sock
- *              u_str LISTEN 2048 /tmp/pkvm-udd/run/harness.sock
- *     stat     drwx------ 700 /tmp/pkvm-udd/run
- *              srw-rw-rw- 666 /tmp/pkvm-udd/run/{daemon,harness}.sock
- *
- *     GET :25692/app/harness/api/runs?limit=1  ->  200
- *     GET :25692/app/daemon/healthz            ->  200
- *
- * The sockets themselves are world read/write and that is not an oversight:
- * uvicorn chmods a uds to 0666 AFTER binding it, so the directory is the only
- * boundary available and the bearer tokens remain the real check.
- */
-test("the two local services get sockets in a 0700 directory, the control server keeps its port", () => {
-    assert.match(main, /const LOCAL_SOCKETS_SUPPORTED = process\.platform !== "win32";/);
-    assert.match(main, /mkdirSync\(directory, \{ recursive: true, mode: 0o700 \}\);/);
-    assert.match(main, /if \(process\.platform !== "win32"\) chmodSync\(directory, 0o700\);/);
-    assert.match(main, /const daemonSocket = socketDirectory && socketEndpoint\(socketDirectory, "daemon\.sock"\);/);
-    assert.match(main, /const harnessSocket = socketDirectory && socketEndpoint\(socketDirectory, "harness\.sock"\);/);
-    // sun_path holds 108 bytes. The first real run of this used a settings
-    // directory 118 bytes deep, silently went back to ports, and looked exactly
-    // like the socket work not having landed — hence the log line.
-    assert.match(main, /if \(Buffer\.byteLength\(path\) > 100\) \{/);
-    assert.match(main, /too long for a unix socket — using a port instead/);
-    // The control server is untouched: still a port, still the bind host.
-    assert.match(main, /CONTROL_PORT,\s*\n\s*bindHost,/);
-    // Comments first, or this file's own prose about sockets trips it.
-    const source = main.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-    assert.equal(/socketEndpoint\([^)]*control/i.test(source), false);
-    // The scheme is never hand-spliced; one place builds it, so one place
-    // decides what an endpoint string looks like.
-    assert.equal(source.includes('"unix:'), false);
 });

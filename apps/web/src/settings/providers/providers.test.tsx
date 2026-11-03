@@ -36,7 +36,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { installFakeServer, renderApp, defaultServer } from "../../test/harness";
 import type { Attempt, CliStatus, KeyEntry } from "./harness-api";
 import { ProvidersPage } from "./providers-page";
 
@@ -743,17 +742,3 @@ describe("CLI sign-in", () => {
     });
 });
 
-describe("in Settings", () => {
-    it("lists Providers and opens the page", async () => {
-        // The app's own fake server answers everything but the harness, which `installHarness` fronts.
-        installFakeServer(defaultServer());
-        installHarness(globalThis.fetch);
-        const user = userEvent.setup();
-        renderApp("/settings", { compact: true });
-
-        await user.click(await screen.findByRole("link", { name: "Providers" }));
-
-        expect(await screen.findByRole("heading", { name: "Providers" })).toBeInTheDocument();
-        expect(await keyRow("openai-main")).toBeInTheDocument();
-    });
-});

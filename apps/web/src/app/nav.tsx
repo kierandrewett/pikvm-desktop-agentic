@@ -11,6 +11,7 @@
 import { Link } from "@tanstack/react-router";
 import { type KeyboardEvent, useRef } from "react";
 import { ChatCircle, Gear, type Icon, Monitor } from "@pikvm/icons";
+import { useAgentActivity } from "../agent/activity";
 import { preloadChat } from "./chat-pane";
 
 export type TabId = "kvm" | "chat" | "settings";
@@ -47,6 +48,8 @@ interface NavTabsProps {
 
 export function NavTabs({ active, orientation, settingsPage }: NavTabsProps) {
     const list = useRef<HTMLDivElement>(null);
+    // The agent is waiting for an answer in Chat: a dot on its tab, wherever the person is.
+    const asking = useAgentActivity()?.state === "waiting_approval";
 
     const move = (event: KeyboardEvent<HTMLDivElement>) => {
         const tabs = Array.from(list.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []);
@@ -110,6 +113,7 @@ export function NavTabs({ active, orientation, settingsPage }: NavTabsProps) {
                         // Roving tabindex: one stop in the tab order, arrows do the rest.
                         tabIndex={selected || (active === undefined && tab.id === "kvm") ? 0 : -1}
                         draggable={false}
+                        data-attention={tab.id === "chat" && asking && !selected ? "true" : undefined}
                         onPointerEnter={tab.preload}
                         onFocus={tab.preload}
                     >

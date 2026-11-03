@@ -15,10 +15,11 @@ export function preloadChat(): void {
 
 const ChatRoute = lazy(() => load().then((module) => ({ default: module.ChatRoute })));
 
-export function ChatPane() {
+/** `active`: Chat is the tab in front. */
+export function ChatPane({ active }: { active: boolean }) {
     return (
         <Suspense fallback={<div className="empty-state" role="status" aria-label="Loading" />}>
-            <ChatRoute />
+            <ChatRoute active={active} />
         </Suspense>
     );
 }

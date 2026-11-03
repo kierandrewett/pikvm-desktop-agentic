@@ -985,3 +985,109 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
         transition: none;
     }
 }
+
+/* ---- the agent on the picture ---------------------------------------------- */
+
+.kvm-agent {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 6;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100% - 20px);
+    padding: 6px 8px 6px 12px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--overlay-glass) 92%, transparent);
+    color: var(--overlay-ink);
+    border: 1px solid color-mix(in srgb, var(--overlay-ink) 16%, transparent);
+    box-shadow: 0 4px 18px rgb(0 0 0 / 0.4);
+    font-size: 13px;
+    animation: kvm-fade 0.15s ease-out;
+}
+.kvm-agent-text {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    min-width: 0;
+}
+.kvm-agent-text span {
+    color: color-mix(in srgb, var(--overlay-ink) 70%, transparent);
+}
+.kvm-agent-text .kvm-agent-error {
+    color: var(--overlay-danger);
+}
+.kvm-agent-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--overlay-accent);
+    animation: kvm-agent-pulse 1.4s ease-in-out infinite;
+}
+.kvm-agent[data-state="waiting_approval"] .kvm-agent-dot {
+    background: var(--overlay-warn);
+}
+.kvm-agent[data-state="released"] .kvm-agent-dot {
+    background: var(--overlay-ink);
+    animation: none;
+}
+.kvm-agent .kvm-btn {
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    color: var(--overlay-ink);
+    background: color-mix(in srgb, var(--overlay-ink) 12%, transparent);
+    border-color: transparent;
+}
+.kvm-agent .kvm-btn.primary {
+    background: var(--overlay-accent);
+    color: #fff;
+}
+@keyframes kvm-agent-pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+/* The picture's own box, centred like its object-fit: contain, so a fraction of it is a pixel of the screen. */
+.kvm-agent-frame {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    max-width: 100%;
+    max-height: 100%;
+    pointer-events: none;
+    z-index: 4;
+}
+.kvm-agent-pointer {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border-radius: 50%;
+    border: 2px solid var(--overlay-accent);
+    background: color-mix(in srgb, var(--overlay-accent) 30%, transparent);
+    box-shadow: 0 0 0 2px rgb(0 0 0 / 0.45);
+    transition: left 0.18s ease-out, top 0.18s ease-out;
+}
+.kvm-stage[data-agent="working"] {
+    box-shadow: inset 0 0 0 2px var(--overlay-accent);
+}
+.kvm-stage[data-agent="waiting_approval"] {
+    box-shadow: inset 0 0 0 2px var(--overlay-warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .kvm-agent,
+    .kvm-agent-dot,
+    .kvm-agent-pointer {
+        animation: none;
+        transition: none;
+    }
+}

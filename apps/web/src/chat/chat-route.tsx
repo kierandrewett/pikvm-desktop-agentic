@@ -1,28 +1,22 @@
 /**
- * The Chat destination: the agent workspace from @pikvm/chat-ui, rendered in the app (no
- * iframe), talking to the harness through the host's proxy.
+ * The Chat destination: the conversation pane from @pikvm/chat-web, rendered in the app (no iframe), talking to the
+ * chat server inside the host at /app/chat/*.
  *
- * Three states come before the conversation, in this order:
- *   - the host cannot be reached at all        -> say so, offer a retry;
- *   - the host says chat is not available      -> "Chat is not available"
- *     (features.chat is false when the host has no agent configured, or the agent does not
- *     answer its health route: the sidecar or the desktop app is not running);
- *   - chat is available but the agent behind the proxy answers 502/503 -> the workspace's
- *     own unavailable state, which keeps retrying by itself.
+ * Two states come before the conversation:
+ *   - the host cannot be reached at all   -> say so, offer a retry;
+ *   - the host's chat server is not up    -> "Chat is not available" with the reason it gave.
+ * When the chat server is up but the agent program was not found, the pane still opens (the providers and settings
+ * work) with a note on top saying what is missing, since a message could not be answered.
  *
- * Layout follows the shell's: phone when the pointer is coarse or the window narrow. The
- * shell already sizes the panel to the visual viewport and pads the safe areas, so the
- * workspace is told not to clear them a second time.
+ * ChatScope carries the pane's tokens and utilities, so nothing it defines applies outside the pane. `active` says
+ * whether the Chat tab is in front: a hidden pane stays mounted, with its page-wide listeners off.
  */
 
-import { ChatWorkspace } from "@pikvm/chat-ui";
+import { ChatPane, ChatScope } from "@pikvm/chat-web";
 import { useAppState } from "../api/queries";
-import { COMPACT_QUERY, useMediaQuery } from "../app/viewport";
-import { HARNESS_API_BASE, HARNESS_MANAGED_TOKEN } from "../host/paths";
 
-export function ChatRoute() {
+export function ChatRoute({ active }: { active: boolean }) {
     const state = useAppState();
-    const compact = useMediaQuery(COMPACT_QUERY);
 
     if (state.isPending) return <div className="empty-state" role="status" aria-label="Loading" />;
 
@@ -38,13 +32,14 @@ export function ChatRoute() {
         );
     }
 
-    if (!state.data.features.chat) {
+    const { chat, agent } = state.data.features;
+    if (!chat) {
         return (
             <div className="empty-state">
                 <h1>Chat is not available</h1>
                 <p>
-                    The agent runs as its own service next to this host (or inside the PiKVM desktop app), and it is not
-                    answering. If it was just started, give it a moment and check again.
+                    The chat server inside this host is not running{agent?.reason ? `: ${agent.reason}` : ""}. If it was just
+                    started, give it a moment and check again.
                 </p>
                 <button type="button" className="btn btn-primary" onClick={() => void state.refetch()}>
                     Check again
@@ -55,12 +50,15 @@ export function ChatRoute() {
 
     return (
         <div className="chat-surface">
-            <ChatWorkspace
-                apiBase={HARNESS_API_BASE}
-                managedToken={HARNESS_MANAGED_TOKEN}
-                compact={compact}
-                insets="host"
-            />
+            {agent && !agent.found ? (
+                <p className="chat-note" role="alert">
+                    The agent program was not found, so messages cannot be answered yet.
+                    {agent.reason ? ` ${agent.reason}` : ""}
+                </p>
+            ) : null}
+            <ChatScope active={active}>
+                <ChatPane />
+            </ChatScope>
         </div>
     );
 }

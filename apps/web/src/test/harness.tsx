@@ -4,7 +4,6 @@
  * what a user would see and what the server would receive.
  */
 
-import { baseRun, createFakeHarness } from "@pikvm/chat-ui/testing";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
@@ -42,8 +41,8 @@ export interface ServerState {
     patchGate: Promise<void> | undefined;
     /** What HEAD /oauth2/userinfo answers: a status and content type, or a network failure. */
     userinfo: { status: number; contentType: string } | "network-error";
-    /** The agent behind /app/harness/*; set its `status` to 502/503 for a proxy whose agent is down. */
-    harness: ReturnType<typeof createFakeHarness>;
+    /** Whether the chat server found its agent program, and why not. */
+    agent: { found: boolean; reason?: string };
 }
 
 export const defaultServer = (): ServerState => ({
@@ -61,7 +60,7 @@ export const defaultServer = (): ServerState => ({
     targetPutError: "",
     patchGate: undefined,
     userinfo: { status: 404, contentType: "text/plain" },
-    harness: createFakeHarness({ runs: [baseRun()] }),
+    agent: { found: true },
 });
 
 const json = (status: number, body: unknown): Response =>
@@ -78,8 +77,6 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
     vi.stubGlobal(
         "fetch",
         vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-            const proxied = server.harness.handle(input, init);
-            if (proxied) return proxied;
             const request = input instanceof Request ? input : undefined;
             const url = new URL(request?.url ?? String(input), "http://localhost");
             const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
@@ -97,7 +94,7 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                 if (server.stateStatus !== 200) return json(server.stateStatus, { error: "state is down" });
                 return json(200, {
                     settings: { keyboardLayout: server.keyboardLayout, jiggler: server.jiggler },
-                    features: { chat: server.chat },
+                    features: { chat: server.chat, agent: server.agent },
                     jigglerStatus: { enabled: server.jiggler, mode: "local", nativeSwitchOns: 0, lastNudgeAt: 0, nudges: 0, failures: 0 },
                     pikvm: { origin: "https://pikvm.example", link: server.link },
                     version: "9.9.9",
@@ -213,4 +210,30 @@ export function renderApp(path: string, env: Env = {}) {
         </QueryClientProvider>,
     );
     return { ...view, router, history, queryClient };
+}
+
+/** A page's EventSource a test can push messages into. Opened streams are kept in `sources`. */
+export class FakeEventSource {
+    static sources: FakeEventSource[] = [];
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
+    onerror: (() => void) | null = null;
+    closed = false;
+    constructor(readonly url: string) {
+        FakeEventSource.sources.push(this);
+    }
+    close(): void {
+        this.closed = true;
+    }
+    emit(data: unknown): void {
+        this.onmessage?.(new MessageEvent("message", { data: typeof data === "string" ? data : JSON.stringify(data) }));
+    }
+    fail(): void {
+        this.onerror?.();
+    }
+}
+
+export function installEventSource(): typeof FakeEventSource {
+    FakeEventSource.sources = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    return FakeEventSource;
 }

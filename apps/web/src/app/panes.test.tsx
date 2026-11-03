@@ -10,8 +10,7 @@
  *      settings page are gone.
  *  P4. Returning to Settings opens its list, not the page that was open (the tab link points
  *      at the root).
- *  P5. Chat is mounted at start, so its weight and its harness traffic are paid by a user who
- *      never opens it.
+ *  P5. Chat is mounted at start, so its weight and its traffic are paid by a user who never opens it.
  *
  * Hidden means gone to the user
  *  P6. A hidden pane stays focusable or clickable (no `inert`), so Tab walks into it, or a
@@ -133,28 +132,28 @@ describe("Chat and Settings keep their place", () => {
         const user = userEvent.setup();
         await open("/kvm");
         await screen.findByRole("tab", { name: "Chat" });
-        expect(within(pane("chat")).queryByRole("region", { name: "Agent conversation" })).toBeNull();
+        expect(within(pane("chat")).queryByRole("region", { name: "Conversation" })).toBeNull();
         expect(pane("chat").childElementCount).toBe(0);
 
         await tab(user, "Chat");
-        await within(pane("chat")).findByRole("region", { name: "Agent conversation" });
+        await within(pane("chat")).findByRole("region", { name: "Conversation" });
     });
 
-    it("P3: a draft in Chat survives going to the KVM and back", async () => {
+    it("P3: the conversation pane is the same one after going to the KVM and back, and is told when it is hidden", async () => {
         const user = userEvent.setup();
         await open("/chat");
-        const region = await within(pane("chat")).findByRole("region", { name: "Agent conversation" });
-        const composer = within(region).getByRole("textbox");
-        await user.type(composer, "draft message");
+        const conversation = await within(pane("chat")).findByRole("region", { name: "Conversation" });
+        const scope = () => pane("chat").querySelector(".chat-scope");
+        expect(scope()).toHaveAttribute("data-active", "true");
 
         await tab(user, "KVM");
         await waitFor(() => expect(shown("chat")).toBe(false));
+        expect(scope()).toHaveAttribute("data-active", "false");
         await tab(user, "Chat");
         await waitFor(() => expect(shown("chat")).toBe(true));
 
-        const again = within(pane("chat")).getByRole("textbox");
-        expect(again).toBe(composer);
-        expect(again).toHaveValue("draft message");
+        expect(within(pane("chat")).getByRole("region", { name: "Conversation" })).toBe(conversation);
+        expect(scope()).toHaveAttribute("data-active", "true");
     });
 
     it("P3/P4: Settings returns to the page that was open, with its scroll", async () => {

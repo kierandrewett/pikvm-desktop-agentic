@@ -10,6 +10,7 @@ import { useEffect } from "react";
 import { useProxySession } from "../api/queries";
 import { useMediaQuery, COMPACT_QUERY } from "../app/viewport";
 import { CaretLeft, CaretRight } from "@pikvm/icons";
+import { SettingsActiveContext } from "./chat-pages";
 import { ACCOUNT_PAGE, findPage, SETTINGS_GROUPS, type SettingsGroupDef } from "./pages";
 
 /** The groups as they should read here: unavailable pages out, Account in when it applies. */
@@ -93,7 +94,9 @@ export function SettingsPane({ page, active }: SettingsPaneProps) {
             ) : null}
             {showDetail && selected !== undefined ? (
                 <div className="h-full min-w-0 flex-1 overflow-y-auto" data-settings-detail="">
-                    <SettingsDetail page={selected} />
+                    <SettingsActiveContext.Provider value={active}>
+                        <SettingsDetail page={selected} />
+                    </SettingsActiveContext.Provider>
                 </div>
             ) : null}
         </div>

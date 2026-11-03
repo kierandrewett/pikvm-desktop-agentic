@@ -32,7 +32,6 @@ import {
     type ViewTransform,
 } from "@pikvm/kvm-engine";
 import { attentionSink } from "./attention";
-import { createCursorReporter } from "./cursor-report";
 import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
 import { buzz } from "./haptics";
@@ -84,8 +83,7 @@ export interface PictureState {
 export interface PicturePrefs {
     /**
      * The KVM is the tab in front. The picture keeps streaming while it is not (so it is live the
-     * moment it returns), but nothing the person does elsewhere may move the pointer, and nothing
-     * is reported to the agent as the person's cursor.
+     * moment it returns), but nothing the person does elsewhere may move the pointer.
      */
     readonly active: boolean;
     readonly touchMode: TouchMode;
@@ -121,9 +119,6 @@ export interface PictureOptions {
     readonly elements: PictureElements;
     readonly focus: FieldFocus;
     readonly desktop: boolean;
-    /** Is there an agent behind this host that wants to know where the person moves the pointer?
-     *  Asked at each report, not at construction: the agent comes and goes while the page stays. */
-    readonly agent?: () => boolean;
     readonly prefs: PicturePrefs;
 }
 
@@ -219,14 +214,6 @@ export function createPictureController(options: PictureOptions): PictureControl
         inputChanged: () => painter?.inputChanged(),
         dispose: () => painter?.dispose(),
     };
-    // The desktop app has the daemon behind /app/daemon; a hosted page has the agent sidecar, which
-    // the host relays the report to. A host with neither answers the report with an error we ignore,
-    // so it is not sent.
-    const reporter = createCursorReporter(clock);
-    const reportCursor = (x: number, y: number): void => {
-        // Not while another tab is in front: a report says where the PERSON is pointing.
-        if (prefs.active && (desktop || options.agent?.())) reporter.report(x, y);
-    };
     const execute = createPointerExecutor({
         link,
         keyboard,
@@ -234,7 +221,6 @@ export function createPictureController(options: PictureOptions): PictureControl
         notify: session.notices.notify,
         painter: painterProxy,
         applyView,
-        reportCursor,
         cue: () => buzz("light"),
     });
     const sink = createDomCommandSink({
@@ -646,7 +632,6 @@ export function createPictureController(options: PictureOptions): PictureControl
             if (meterRaf) cancelAnimationFrame(meterRaf);
             clearTimeout(meterTimer ?? undefined);
             painter?.dispose();
-            reporter.dispose();
             pointer.dispose();
             driver.dispose();
         },

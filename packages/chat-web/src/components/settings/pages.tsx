@@ -1,9 +1,9 @@
 /**
- * The Chat settings pages the host's Settings embeds: Providers, Models, MCP servers and Agent. Render them inside
- * <ChatScope>; each is a whole page built from the settings kit.
+ * The Chat settings pages the host's Settings embeds: Providers, Models and Agent. Render them inside <ChatScope>;
+ * each is a whole page built from the settings kit. There is no MCP servers page: the server refuses to configure
+ * external servers, so the page would only show a form that cannot save.
  */
 import { useT } from "../../l10n/provider";
-import { McpSection } from "./integrations/mcp";
 import { ProvidersSection } from "./integrations/providers";
 import { DecisionsModelRow, RoleModelRow } from "./role-models";
 import { ModelSelect } from "./models";
@@ -11,7 +11,6 @@ import { erase, useUserSetting } from "./bindings";
 import { AdminKeyRow, BoundRow, KeyRow, row, SettingsCard, SettingsPage, SettingsSection } from "./kit";
 
 export const ProvidersPage = () => <ProvidersSection scope="user" />;
-export const McpPage = () => <McpSection scope="user" />;
 
 function DefaultModelRow() {
     const t = useT();

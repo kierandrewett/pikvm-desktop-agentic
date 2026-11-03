@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
-import { installDomStubs } from "@pikvm/chat-ui/testing";
+import type { ReactNode } from "react";
 import { cleanup, configure } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 
 // The first test in a file pays for the router, the schemas and the lazy routes, and with the
 // whole suite running in parallel that took 2.5 s against the library's 1 s default. A wait that
@@ -16,5 +16,17 @@ afterEach(() => {
 // jsdom does not implement scrolling; the router asks for it on every navigation.
 window.scrollTo = () => {};
 
-// The chat route renders the real conversation, which needs the observers jsdom lacks.
-installDomStubs();
+/* The conversation pane has its own component tests in packages/chat-web, against a fake chat server. In the
+   app's tests it is a stub that shows what the app gave it: whether its tab is in front, and which page it is. */
+vi.mock("@pikvm/chat-web", async () => {
+    const { createElement } = await import("react");
+    const page = (name: string) => () => createElement("div", { "data-testid": `chat-page-${name}` });
+    return {
+        ChatScope: ({ active, children }: { active?: boolean; children: ReactNode }) =>
+            createElement("div", { className: "chat-scope", "data-active": String(active ?? true) }, children),
+        ChatPane: () => createElement("section", { "aria-label": "Conversation" }),
+        ProvidersPage: page("providers"),
+        ModelsPage: page("models"),
+        AgentPage: page("agent"),
+    };
+});

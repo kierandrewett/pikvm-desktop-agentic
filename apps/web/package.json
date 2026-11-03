@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@effect/platform": "^0.97.3",
-    "@pikvm/chat-ui": "workspace:*",
+    "@pikvm/chat-web": "workspace:*",
     "@pikvm/contracts": "workspace:*",
     "@pikvm/icons": "workspace:*",
     "@pikvm/kvm-engine": "workspace:*",

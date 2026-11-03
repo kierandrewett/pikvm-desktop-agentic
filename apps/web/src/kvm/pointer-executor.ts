@@ -15,8 +15,6 @@ export interface ExecutorDeps {
     readonly painter: Painter;
     /** The view changed: transform the picture elements and tell whoever draws the zoom button. */
     readonly applyView: (view: ViewTransform) => void;
-    /** The user moved the target's cursor (kvmd units): the agent daemon follows. Desktop app only. */
-    readonly reportCursor?: (x: number, y: number) => void;
     /** The hold cue came on: moving now drags, lifting now right-clicks. */
     readonly cue?: () => void;
 }
@@ -45,7 +43,6 @@ export function createPointerExecutor(deps: ExecutorDeps): (command: OutputComma
                 return;
             case "move":
                 link.move(c.x, c.y);
-                deps.reportCursor?.(c.x, c.y);
                 return;
             case "relative":
                 link.relative(c.dx, c.dy);

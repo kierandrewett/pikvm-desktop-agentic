@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -58,4 +59,20 @@ test("every build produces a distinct package", () => {
     assert.match(pack, /rev-list", "--count", "HEAD"/);
     assert.match(pack, /\$\{count\}\.\$\{stamp\}/);
     assert.match(pack, /"--build-arg", `RELEASE=\$\{buildRelease\(\)\}`/);
+});
+
+test("electron-builder is started with an argument array, so a tree path with a space survives", () => {
+    assert.match(pack, /run\(process\.execPath, \[builderCli\(\), \.\.\.args\]\)/);
+    assert.doesNotMatch(pack, /^\s+yarn\(args\);/m);
+    // The real CLI parses its arguments before it touches the filesystem, so a split path shows up as
+    // "Unknown argument: Desktop-win32-x64" and a whole one as a complaint about the missing directory.
+    const { builderCli } = require(resolve(root, "scripts/builder-cli.mjs")) as { builderCli(): string };
+    const result = spawnSync(
+        process.execPath,
+        [builderCli(), "--win", "zip", "--x64", "--prepackaged", "builds/no such dir/PiKVM Desktop-win32-x64", "--publish", "never"],
+        { cwd: root, encoding: "utf8", timeout: 60_000 },
+    );
+    const output = `${result.stdout}${result.stderr}`;
+    assert.doesNotMatch(output, /Unknown argument/);
+    assert.notEqual(result.status, 0);
 });

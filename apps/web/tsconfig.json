@@ -13,7 +13,9 @@
     "noUncheckedSideEffectImports": false,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    // The app sees the pane through its declaration, not its source (see that file).
+    "paths": { "@pikvm/chat-web": ["../../packages/chat-web/host.d.ts"] }
   },
   "include": ["src", "vite.config.ts"]
 }

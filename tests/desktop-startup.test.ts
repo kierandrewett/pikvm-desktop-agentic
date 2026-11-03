@@ -80,52 +80,11 @@ test("the local console stops retrying and says so", () => {
     assert.match(branch, /if \(r\.response === 0\) connect\(\);\s*\n\s*else app\.quit\(\);/);
 });
 
-test("the daemon walks past a taken port and the child is told where it went", () => {
-    assert.match(main, /const daemonEndpoint = parseEndpoint\(daemonOrigin\);/);
-    assert.match(
-        main,
-        /\? \["--uds", daemonEndpoint\.socketPath\]\s*\n\s*: \["--host", daemonEndpoint\.hostname, "--port", daemonEndpoint\.port\]/,
-    );
-    // ...and those are the args actually spawned, not the bare ones.
-    const svc = main.slice(main.indexOf('name: "daemon",'));
-    assert.match(svc.slice(0, svc.indexOf("adoptExisting")), /args: daemonArgs,/);
-    // Only our own default walks. An explicitly configured URL is an
-    // instruction about where the service lives, not a starting point.
-    assert.match(main, /const configuredDaemon = process\.env\.PIKVM_AGENT_DAEMON \|\| settings\.get\(\)\.daemonUrl;/);
-    assert.match(
-        main,
-        /: daemonSocket \|\| \(await originOnFreePort\("daemon", "http:\/\/127\.0\.0\.1:47615"\)\);/,
-    );
-});
-
 
 test("a port handed out once is not handed out again", () => {
     assert.match(main, /const claimedPorts = new Set<number>\(\);/);
     assert.match(main, /if \(claimedPorts\.has\(port\)\) continue; \/\/ ours already, just not bound yet/);
     assert.match(main, /if \(free\) \{\s*\n\s*claimedPorts\.add\(port\);\s*\n\s*return port;\s*\n\s*\}/);
-});
-
-test("the harness walks past an orphaned port and its child is told where", () => {
-    // Only our own default walks; an explicit origin is an instruction.
-    assert.match(
-        main,
-        /const harnessOrigin = process\.env\.PIKVM_HARNESS_ORIGIN\s*\n\s*\? resolvedHarnessOrigin\(\)\s*\n\s*: harnessSocket \|\|\s*\n\s*\(await originOnFreePort\("harness", resolvedHarnessOrigin\(\)\)\);/,
-    );
-    const hm = readFileSync(resolve(root, "src/harness-manager.ts"), "utf8");
-    // ...and the child is told, or the walk is a lie — the daemon's lesson.
-    assert.match(
-        hm,
-        /\.\.\.bindArguments\(parseEndpoint\(deps\.origin\)\),/,
-    );
-    assert.match(hm, /: \["--listen", listenAddress\(endpoint\.value\)\];/);
-    // IPv6 loopback keeps the bare form ensureConfig() writes.
-    assert.match(hm, /const host = url\.hostname === "\[::1\]" \? "::1" : url\.hostname;/);
-    assert.match(hm, /return `\$\{host\}:\$\{url\.port\}`;/);
-    // The flag has to exist on the Python side for any of this to work.
-    const cli = readFileSync(resolve(root, "agent/pikvm_agent/cli.py"), "utf8");
-    assert.match(cli, /"--listen",\s*\n\s*help="Bind this host:port for this run instead of the config's\.",/);
-    // Checked before binding, so the override cannot dodge the loopback rule.
-    assert.match(cli, /settings = settings\.model_copy\(update=\{"listen": listen\}\)\s*\n\s*try:\s*\n\s*ensure_safe_bind\(settings\)/);
 });
 
 
@@ -147,4 +106,18 @@ test("the control port settles before any URL is built from it", () => {
     // And the walk exists in exactly one place.
     const walks = main.match(/await firstFreePort\(wantedPort/g) ?? [];
     assert.equal(walks.length, 1, "the port walk is duplicated");
+});
+
+test("the control server starts whatever else is installed: nothing of the old agent stands in front of it", () => {
+    assert.doesNotMatch(main, /agent-runtime|harness-manager|service-manager|HarnessManager|ManagedService/);
+    const start = main.slice(main.indexOf("async function startServer("), main.indexOf('const configPath = resolve(app.getPath("userData")'));
+    // Called straight away, with no early return before it, and given the image ops and the packaged binary's place.
+    assert.ok(start.indexOf("startControlServer(") > 0 && !/return\b[^;]*;[\s\S]*startControlServer\(/.test(start.slice(0, start.indexOf("startControlServer("))));
+    assert.match(start, /images: electronImageOps,/);
+    assert.match(start, /app\.isPackaged \? \{ resourcesDir: process\.resourcesPath \}/);
+    assert.match(start, /migrationsDir: resolve\(__dirname, "chat-migrations"\)/);
+});
+
+test("quitting stops the chat server and its agent processes before the process goes", () => {
+    assert.match(main, /app\.on\("will-quit", \(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?localServer\.shutdown\(\)/);
 });

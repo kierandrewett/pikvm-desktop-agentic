@@ -1,7 +1,7 @@
 /**
  * The route table. The URL is the source of truth for which destination is in front:
  *   /kvm              the KVM screen
- *   /chat             the agent workspace (@pikvm/chat-ui)
+ *   /chat             the conversation pane (@pikvm/chat-web)
  *   /settings[/page]  Settings
  * and `/` goes to the KVM, the thing the app is for.
  *

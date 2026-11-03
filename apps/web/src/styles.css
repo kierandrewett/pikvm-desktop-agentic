@@ -1,11 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "tw-shimmer";
-/* The agent conversation (packages/chat-ui). tokens.css derives the shadcn names its
-   components use from the nine base tokens below, so it is this palette, not a second one. */
-@import "../../../packages/chat-ui/src/styles/tokens.css";
-@import "../../../packages/chat-ui/src/styles/chat.css";
-@source "../../../packages/chat-ui/src";
 
 /*
  * The desktop app's palette and component language (src/views/console.css, DESIGN.md),
@@ -661,19 +656,36 @@ a.row[aria-current="page"][data-selected="true"] {
 
 /* The conversation is content, not chrome: it is read and copied from. Unlayered, because
    the app's `* { user-select: none }` applies to every element directly and so a rule on
-   the workspace root alone would not reach its children. Buttons stay unselectable. */
+   the pane root alone would not reach its children. Buttons stay unselectable. */
 .chat-surface {
     position: absolute;
     inset: 0;
+    display: flex;
+    flex-direction: column;
 }
 
-.chat-surface .workspace-shell,
-.chat-surface .workspace-shell * {
+.chat-surface > .chat-scope {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.chat-note {
+    margin: 0;
+    padding: 8px 14px;
+    background: color-mix(in srgb, var(--warn) 16%, var(--card));
+    border-bottom: 1px solid var(--border);
+    color: var(--foreground);
+    font-size: 13px;
+    user-select: text;
+}
+
+.chat-surface .chat-scope,
+.chat-surface .chat-scope * {
     -webkit-user-select: text;
     user-select: text;
 }
 
-.chat-surface .workspace-shell :is(button, [role="button"], [role="menuitem"], [role="tab"]) {
+.chat-surface .chat-scope :is(button, [role="button"], [role="menuitem"], [role="tab"]) {
     -webkit-user-select: none;
     user-select: none;
 }
@@ -789,4 +801,32 @@ a.row[aria-current="page"][data-selected="true"] {
 .app-pane[data-active="false"] {
     visibility: hidden;
     pointer-events: none;
+}
+
+/* A dot on the Chat tab while the agent waits for an approval there. */
+.nav-tab {
+    position: relative;
+}
+.nav-tab[data-attention="true"]::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: calc(50% + 6px);
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--warn);
+    box-shadow: 0 0 0 2px var(--card);
+}
+
+.settings-note {
+    margin: 8px 0;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-surface);
+    background: var(--card);
+    color: var(--muted-foreground);
+    font-size: 13px;
+    -webkit-user-select: text;
+    user-select: text;
 }

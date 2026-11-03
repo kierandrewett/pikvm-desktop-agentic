@@ -8,9 +8,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAgentActivity } from "../agent/activity";
 import { useMediaQuery } from "../app/viewport";
 import { TOUCH_HID_KEY, TOUCH_MODE_KEY, readTouchHid, readTouchMode, useStoredValue } from "../settings/local-prefs";
 import { useActions } from "./actions";
+import { AgentBanner, AgentPointer } from "./agent-banner";
 import { askForAlertPermission } from "./attention";
 import { SCREEN_ALERTS_KEY, readScreenAlerts, watchingForChange } from "./screen-alerts";
 import { onAudioDevicesChanged } from "./audio-devices-event";
@@ -34,6 +36,7 @@ import "./kvm.css";
 export function KvmScreen() {
     const active = useKvmActive();
     const session = useKvmSession();
+    const agent = useAgentActivity();
     const desktop = isDesktopApp();
     const touchLayout = useMediaQuery(DOCK_QUERY);
     const dock = touchLayout && !desktop;
@@ -138,8 +141,10 @@ export function KvmScreen() {
                     <Toolbar controller={controller} actions={actions} openDialog={openDialog} keysOpen={keysOpen} onKeys={setKeysOpen} />
                 )}
                 {!dock && keysOpen ? <KeyStrip keyboard={session.keyboard} focus={focus} dragLock={dragLock} onDragLock={setDragLock} /> : null}
-                <div className="kvm-stage">
+                <div className="kvm-stage" data-agent={agent?.state}>
                     <Picture session={session} focus={focus} desktop={desktop} prefs={prefs} onController={setController} />
+                    <AgentPointer width={picture.width} height={picture.height} scale={picture.scale} />
+                    <AgentBanner />
                     {fullUiOn ? <FullUiFrame onBack={() => toggleFullUi?.()} /> : null}
                 </div>
                 {dock ? (

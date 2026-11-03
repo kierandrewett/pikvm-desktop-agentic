@@ -74,6 +74,7 @@ export function startChat(options: ChatHostOptions): ChatHost {
     const { desk } = options;
     let chat: ChatServer | null = null;
     let failure: string | null = null;
+    let stopping: Promise<void> | undefined;
 
     const policy = (): PikvmPolicy =>
         chat
@@ -141,10 +142,15 @@ export function startChat(options: ChatHostOptions): ChatHost {
         },
         maxEdge: () => chat?.setting("agent.pikvm.maxEdge") ?? DEFAULT_MAX_EDGE,
         ready,
-        async stop() {
-            await ready;
-            await chat?.stop();
-            chat = null;
+        stop() {
+            // Once: the server's close event and a quitting app may both ask.
+            stopping ??= (async () => {
+                await ready;
+                const server = chat;
+                chat = null;
+                await server?.stop();
+            })();
+            return stopping;
         },
     };
 }

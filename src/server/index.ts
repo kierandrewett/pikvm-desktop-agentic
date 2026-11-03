@@ -89,6 +89,9 @@ function readVersion(): string {
     }
 }
 
+/** The control server, and the way to stop it with everything it started: the chat server, its agent processes and the Desk. */
+export type ControlServer = Server & { shutdown(): Promise<void> };
+
 export function startControlServer(
     deps: ServerDeps,
     port: number,
@@ -102,7 +105,7 @@ export function startControlServer(
      * tells the user nothing they can act on. The caller owns the UI, so it
      * gets to say what a failure to bind means. */
     onListenError?: (err: NodeJS.ErrnoException) => void,
-): Server {
+): ControlServer {
     const { control, settings } = deps;
 
     // User macros live beside the other settings so they can be hand-edited and
@@ -217,5 +220,13 @@ export function startControlServer(
         else console.error(`[control] server error: ${err.message}`);
     });
     server.listen(port, host);
-    return server;
+    return Object.assign(server, {
+        async shutdown() {
+            jiggler.stop();
+            server.closeAllConnections();
+            await new Promise<void>((done) => (server.listening ? server.close(() => done()) : done()));
+            await chat?.stop();
+            await desk.dispose();
+        },
+    });
 }

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { scopeChatTheme } from "./scope-chat-theme";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 
@@ -14,7 +15,7 @@ const forward = (ws: boolean) => ({ target, changeOrigin: false, ws });
 
 export default defineConfig({
     base: "/app/",
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), scopeChatTheme()],
     define: {
         __APP_VERSION__: JSON.stringify(pkg.version),
     },

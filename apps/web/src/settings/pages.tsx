@@ -2,12 +2,14 @@
 
 import type { ComponentType, ReactNode } from "react";
 import {
+    Brain,
     Cursor,
     Eye,
     Info,
     Key,
     Keyboard,
     Lightning,
+    Robot,
     Link,
     CircleHalf,
     SpeakerHigh,
@@ -23,7 +25,7 @@ import { KeepAwakePage } from "./pages/keep-awake";
 import { KeyboardPage } from "./pages/keyboard";
 import { MacrosPage } from "./pages/macros";
 import { audioDevicesSupported } from "./pages/audio-devices";
-import { ProvidersPage } from "./providers/providers-page";
+import { AgentPage, ModelsPage, ProvidersPage } from "./chat-pages";
 
 export type PageId =
     | "connection"
@@ -32,6 +34,8 @@ export type PageId =
     | "input"
     | "macros"
     | "providers"
+    | "models"
+    | "agent"
     | "display"
     | "audio"
     | "account"
@@ -71,7 +75,11 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
     },
     {
         title: "Agent",
-        pages: [{ id: "providers", title: "Providers", icon: <Key />, component: ProvidersPage }],
+        pages: [
+            { id: "providers", title: "Providers", icon: <Key />, component: ProvidersPage },
+            { id: "models", title: "Models", icon: <Brain />, component: ModelsPage },
+            { id: "agent", title: "Agent", icon: <Robot />, component: AgentPage },
+        ],
     },
     {
         title: "App",

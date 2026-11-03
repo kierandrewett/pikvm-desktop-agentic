@@ -16,6 +16,8 @@
 
 import { useRouterState } from "@tanstack/react-router";
 import { type CSSProperties, useState } from "react";
+import { AgentActivityProvider } from "../agent/activity";
+import { useAppState } from "../api/queries";
 import { KvmPane } from "../kvm/kvm-screen";
 import { SettingsPane, settingsPageOf } from "../settings/settings-layout";
 import { desktopBridge } from "../host/desktop";
@@ -30,6 +32,8 @@ export function Shell() {
     const frame = useViewportFrame();
     const pathname = useRouterState({ select: (state) => state.location.pathname });
     const active = activeTab(pathname);
+    // What the agent is doing is streamed while the host has a chat server; the KVM and the tab bar both show it.
+    const agentStream = useAppState().data?.features.chat === true;
 
     // Mounted from the first time it is in front, and never unmounted. The KVM is in from the start.
     const [visited, setVisited] = useState<ReadonlySet<TabId>>(() => new Set<TabId>(["kvm"]));
@@ -52,31 +56,33 @@ export function Shell() {
     } as CSSProperties;
 
     return (
-        <div
-            className="app-shell"
-            data-layout={compact ? "compact" : "wide"}
-            data-keyboard={frame.keyboardOpen}
-            data-tab={active}
-            data-desktop={bridge ? (bridge.nativeControls ? "native" : "frameless") : undefined}
-            style={style}
-        >
-            {compact ? null : <NavTabs active={active} orientation="vertical" settingsPage={settingsPage} />}
-            <div className="app-main">
-                {titlebar ? <div className="window-titlebar">PiKVM Desktop</div> : null}
-                <main className="app-panel">
-                    <Pane id="kvm" active={active === "kvm"}>
-                        <KvmPane active={active === "kvm"} />
-                    </Pane>
-                    <Pane id="chat" active={active === "chat"}>
-                        {visited.has("chat") ? <ChatPane /> : null}
-                    </Pane>
-                    <Pane id="settings" active={onSettings}>
-                        {visited.has("settings") ? <SettingsPane page={settingsPage} active={onSettings} /> : null}
-                    </Pane>
-                </main>
+        <AgentActivityProvider enabled={agentStream}>
+            <div
+                className="app-shell"
+                data-layout={compact ? "compact" : "wide"}
+                data-keyboard={frame.keyboardOpen}
+                data-tab={active}
+                data-desktop={bridge ? (bridge.nativeControls ? "native" : "frameless") : undefined}
+                style={style}
+            >
+                {compact ? null : <NavTabs active={active} orientation="vertical" settingsPage={settingsPage} />}
+                <div className="app-main">
+                    {titlebar ? <div className="window-titlebar">PiKVM Desktop</div> : null}
+                    <main className="app-panel">
+                        <Pane id="kvm" active={active === "kvm"}>
+                            <KvmPane active={active === "kvm"} />
+                        </Pane>
+                        <Pane id="chat" active={active === "chat"}>
+                            {visited.has("chat") ? <ChatPane active={active === "chat"} /> : null}
+                        </Pane>
+                        <Pane id="settings" active={onSettings}>
+                            {visited.has("settings") ? <SettingsPane page={settingsPage} active={onSettings} /> : null}
+                        </Pane>
+                    </main>
+                </div>
+                {bridge && !bridge.nativeControls ? <WindowControls bridge={bridge} /> : null}
+                {compact && !hideBar ? <NavTabs active={active} orientation="horizontal" settingsPage={settingsPage} /> : null}
             </div>
-            {bridge && !bridge.nativeControls ? <WindowControls bridge={bridge} /> : null}
-            {compact && !hideBar ? <NavTabs active={active} orientation="horizontal" settingsPage={settingsPage} /> : null}
-        </div>
+        </AgentActivityProvider>
     );
 }

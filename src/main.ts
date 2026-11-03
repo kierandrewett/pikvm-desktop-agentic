@@ -1,30 +1,13 @@
 import { app, shell, dialog, session } from "electron";
-import {
-    chmodSync,
-    readFileSync,
-    existsSync,
-    mkdirSync,
-    writeFileSync,
-} from "fs";
+import { readFileSync, existsSync, writeFileSync } from "fs";
 import { createServer as createProbeServer } from "net";
 import { get as httpGet } from "node:http";
-import { resolve, isAbsolute } from "path";
-import {
-    agentExecutablePaths,
-    describeAgentRuntime,
-    resolveAgentRuntime,
-    type AgentRuntimeResolution,
-} from "./agent-runtime";
-import { agentTargetEnvironment, sameAgentTarget } from "./agent-target";
-import { parseEndpoint, unixEndpointValue } from "./endpoint";
+import { resolve } from "path";
 import { PiKvmControl } from "./pikvm-control";
 import { electronImageOps } from "./image-ops-electron";
-import { startControlServer } from "./server";
+import { startControlServer, type ControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TargetStore } from "./target-store";
-import { ManagedService } from "./service-manager";
-import { HarnessManager, uiOriginsFor } from "./harness-manager";
-import { activeManagedClientRuntimePath } from "./harness-runtime";
 import { WORKSPACE_PREFIX } from "./server/workspace";
 import { createAppWindow, focusAppWindow } from "./desktop/window";
 
@@ -93,134 +76,6 @@ async function firstFreePort(from: number, host: string, tries = 20): Promise<nu
     throw new Error(`no free port between ${from} and ${from + tries - 1}`);
 }
 
-/** Where the pikvm-agent runtime might be, best candidate first.
- *
- *  Both paths are computed from __dirname the same way, so development and the
- *  packaged app are ONE code path: in the repo __dirname is dist/ and these land
- *  on agent/ at the root; in the package __dirname is resources/app and they
- *  land on resources/agent/. That is the same trick copy-runtime-deps.mjs uses
- *  to place harness_ui, and it is why nothing here needs to know which it is.
- *
- *  The daemon and the harness are the SAME installation, so there is one list
- *  and both go through it. Two copies of a preference order is how the two end
- *  up launching different builds the day one gains a candidate the other lacks.
- *
- *  Two places, and an override for anywhere else. The retired ~/dev/pikvm-agent
- *  checkout used to sit on the end of this list; it is gone, so `agent/` in this
- *  tree is the only thing that can run. */
-function agentRuntime(...preferred: (string | undefined)[]): AgentRuntimeResolution {
-    const [configured, ...env] = preferred;
-    return resolveAgentRuntime(
-        {
-            configured,
-            env,
-            ...agentExecutablePaths(resolve(__dirname, "..", "agent")),
-        },
-        { exists: existsSync },
-    );
-}
-
-/** Tell the operator the agent is unavailable, and exactly what to do.
- *
- *  Every path that cannot find a runtime comes through here, so the message is
- *  written once. It names what was looked for, because "not found" without the
- *  list is the same dead end the old silent fallback produced. */
-function reportMissingAgentRuntime(r: AgentRuntimeResolution): void {
-    if (r.found) return;
-    console.error(describeAgentRuntime(r));
-    dialog.showErrorBox(
-        "PiKVM Desktop could not start its agent",
-        `${r.hint}\n\nLooked in:\n${r.tried.map((t) => `  ${t}`).join("\n")}\n\n` +
-            "The KVM view and the console work without it. Only the agent (the Chat tab) is unavailable.",
-    );
-}
-
-/** Resolve the runtime that launches the pikvm-agent daemon. */
-function resolveDaemonRuntime(configured?: string): AgentRuntimeResolution {
-    return agentRuntime(configured, process.env.PIKVM_AGENT_DAEMON_CMD);
-}
-
-/** Resolve the same pikvm-agent installation for the first-party harness. */
-function resolveHarnessRuntime(configured?: string): AgentRuntimeResolution {
-    return agentRuntime(configured, process.env.PIKVM_HARNESS_CMD, process.env.PIKVM_AGENT_DAEMON_CMD);
-}
-
-function resolvedHarnessOrigin(): string {
-    return (process.env.PIKVM_HARNESS_ORIGIN || "http://127.0.0.1:47616").replace(
-        /\/$/,
-        "",
-    );
-}
-
-/* Where the two LOCAL services listen by default: a socket in a directory we
- * own, not a fixed loopback port.
- *
- * The daemon and the harness are ours — we spawn them, and both refuse
- * credential-blind adoption — so a fixed port bought them nothing and cost the
- * usual thing: an orphan of a previous run holding 47615 or 47616, this app
- * correctly refusing to talk to it, and the port walk above having to route
- * around it. A socket cannot be squatted by anything that does not have this
- * directory, and the directory is ours.
- *
- * NOT the control server, which stays on TCP and binds 0.0.0.0 on purpose: a
- * phone on the LAN loads the console from it, and there is no URL a browser can
- * put in its address bar that reaches a unix socket.
- *
- * uvicorn's --uds needs AF_UNIX, which CPython does not have on Windows, so the
- * port walk remains the answer there. */
-const LOCAL_SOCKETS_SUPPORTED = process.platform !== "win32";
-
-/** The private directory holding this app's service sockets.
- *
- *  0700 because it is the only boundary there is: uvicorn chmods a socket to
- *  0666 AFTER binding it, so the socket's own mode is not ours to set. The
- *  bearer tokens are still the real check; this stops the socket from even
- *  being openable by another user on the box. We may set the mode because we
- *  chose the path — the daemon may not, since it can be handed /tmp. */
-function serviceSocketDirectory(settings: SettingsStore): string {
-    const directory = resolve(settings.dir(), "run");
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    if (process.platform !== "win32") chmodSync(directory, 0o700);
-    return directory;
-}
-
-/** `unix:<directory>/<name>`, or null if that path is too long to bind.
- *
- *  sun_path holds 108 bytes on Linux and 104 on macOS, NUL included. Past that
- *  the bind fails inside uvicorn with an errno nobody would trace back to a
- *  long settings directory, so the caller falls back to a port instead. */
-function socketEndpoint(directory: string, name: string): string | null {
-    const path = resolve(directory, name);
-    if (Buffer.byteLength(path) > 100) {
-        /* Said out loud, because the fallback is otherwise invisible: the first
-         * real run of this used a settings directory 118 bytes deep and quietly
-         * went back to ports, which looks exactly like the socket work not
-         * having landed. */
-        console.log(
-            `[sockets] ${path} is ${Buffer.byteLength(path)} bytes, too long for a unix socket — using a port instead`,
-        );
-        return null;
-    }
-    return unixEndpointValue(path);
-}
-
-/** The same loopback origin, moved to the first free port at or after its own.
- *
- *  A no-op in the ordinary case, where the default port is free and this
- *  returns exactly what it was given. */
-async function originOnFreePort(name: string, origin: string): Promise<string> {
-    const url = new URL(origin);
-    const wanted = Number(url.port);
-    if (!wanted) return origin.replace(/\/$/, "");
-    const free = await firstFreePort(wanted, url.hostname);
-    if (free === wanted) return origin.replace(/\/$/, "");
-    url.port = String(free);
-    const moved = url.toString().replace(/\/$/, "");
-    console.log(`[${name}] ${url.hostname}:${wanted} is in use, using ${moved} instead`);
-    return moved;
-}
-
-/** Start the PiKVM backend, first-party harness, and local console proxy. */
 /** Is something already answering as a PiKVM Desktop on this port?
  *
  *  Distinguishes "another copy of this app is running" from "an orphaned
@@ -297,11 +152,8 @@ async function settleControlPort(bindHost: string): Promise<number> {
     return CONTROL_PORT;
 }
 
-async function startProxyAndHarness(
-    targetStore: TargetStore,
-    settings: SettingsStore,
-    harnessRuntime: AgentRuntimeResolution,
-) {
+/** Start the PiKVM control core and the control server: the console, the proxy, the chat server and the PiKVM MCP. */
+async function startServer(targetStore: TargetStore, settings: SettingsStore) {
     const control = new PiKvmControl(
         {
             ...targetStore.resolve(),
@@ -331,112 +183,18 @@ async function startProxyAndHarness(
 
     await settleControlPort(bindHost);
 
-    // The desktop owns both local services and creates two non-interchangeable
-    // daemon capabilities. Guarded-direct clients receive only the action
-    // capability; the harness-only approval capability stays in child env.
-    /* Our own default is a socket now; see LOCAL_SOCKETS_SUPPORTED.
-     *
-     * Everything below still applies to the fallbacks — a Windows build, or a
-     * settings directory too long for sun_path — and to an explicitly
-     * configured TCP origin, which is why none of it has gone. */
-    const socketDirectory = LOCAL_SOCKETS_SUPPORTED
-        ? serviceSocketDirectory(settings)
-        : null;
-    /* Walk past a port some stranger already holds — but only our OWN default.
-     *
-     * These two are ours: we spawn them, and the daemon is configured
-     * adoptExisting:false precisely so we never talk to one whose credential we
-     * cannot prove. That refusal was correct and the outcome was not: a harness
-     * left behind by a previous run still owned 47616, the fresh token this run
-     * generated was not the one it was started with, and every workspace call
-     * came back 401 while the app could not spawn its own on a taken port.
-     * Observed with an app started at 14:30 and a harness surviving from 20:33
-     * the night before.
-     *
-     * Moving to the next free port routes around the orphan instead of losing
-     * to it. Only when the value is our built-in default: a URL that came from
-     * PIKVM_AGENT_DAEMON, PIKVM_HARNESS_ORIGIN or Settings is a deliberate
-     * instruction about where the service lives, and wandering off it would be
-     * ignoring the user rather than helping them. */
-    const configuredDaemon = process.env.PIKVM_AGENT_DAEMON || settings.get().daemonUrl;
-    const daemonSocket = socketDirectory && socketEndpoint(socketDirectory, "daemon.sock");
-    const daemonOrigin = configuredDaemon
-        ? configuredDaemon.replace(/\/$/, "")
-        : daemonSocket || (await originOnFreePort("daemon", "http://127.0.0.1:47615"));
-    /* The harness walks too, now that its child can be told where to go.
-     *
-     * This used to be pinned, because the harness takes its bind address from
-     * the YAML that ensureConfig() writes only when the file does not already
-     * exist — so on any install that had run once, choosing a different origin
-     * here left the app waiting on one port while the child charged at the old
-     * one, the same "[Errno 98] address already in use" crash loop the daemon
-     * had before it was told its port. `harness serve --listen HOST:PORT` closes
-     * that gap: one run's bind, no rewrite of a config file that carries the
-     * operator's provider settings.
-     *
-     * This is the failure that took the agent panel down — a harness left over
-     * from a previous run owning the port, an app that correctly refuses
-     * credential-blind adoption, and no way to put its own harness anywhere
-     * else. Same rule as the daemon: only our own default walks, because a URL
-     * from PIKVM_HARNESS_ORIGIN is an instruction about where the service lives. */
-    const harnessSocket = socketDirectory && socketEndpoint(socketDirectory, "harness.sock");
-    const harnessOrigin = process.env.PIKVM_HARNESS_ORIGIN
-        ? resolvedHarnessOrigin()
-        : harnessSocket ||
-          (await originOnFreePort("harness", resolvedHarnessOrigin()));
-    const configuredHarnessPath =
-        process.env.PIKVM_HARNESS_CONFIG || settings.get().harnessConfig;
-    const harnessConfig = configuredHarnessPath
-        ? isAbsolute(configuredHarnessPath)
-            ? configuredHarnessPath
-            : resolve(settings.dir(), configuredHarnessPath)
-        : resolve(settings.dir(), "harness.yaml");
-    if (!harnessRuntime.found) {
-        /* No runtime, so no agent services — and the app says so instead of
-         * spawning a name that does not exist and looking broken. Everything
-         * that does not need Python carries on. */
-        reportMissingAgentRuntime(harnessRuntime);
-        return {
-            control,
-            settings,
-            daemon: null,
-            harness: null,
-            harnessReady: Promise.resolve(),
-        };
-    }
-    const harnessCommand = harnessRuntime.command;
-    const harness = new HarnessManager({
-        origin: harnessOrigin,
-        daemonOrigin,
-        command: harnessCommand,
-        configPath: harnessConfig,
-        uiOrigins: uiOriginsFor(bindHost, CONTROL_PORT),
-        runtimePath:
-            process.env.PIKVM_HARNESS_RUNTIME ||
-            resolve(settings.dir(), "harness-runtime.json"),
-        managedClientRuntimePath: activeManagedClientRuntimePath(),
-        cwd: settings.dir(),
-        log: (line) => console.log(line),
-    });
-
-    /* The agent drives the PiKVM the app is set to. The daemon reads its target when it starts, so a
-     * change made in Settings is handed to it by restarting it (set below, once the daemon exists). */
-    let agentTarget = targetStore.resolve();
-    let followTarget: (next: ReturnType<TargetStore["resolve"]>) => void = () => {};
-
-    startControlServer(
+    const server = startControlServer(
         {
             control,
             settings,
             /* Settings can change the PiKVM from the desktop app. The password goes to its own file and
              * is never returned; the control core follows the new target without a restart, and the
-             * agent's daemon is restarted onto it. */
+             * Desk (the agent's own link to the Pi) reads it from the control core on its next run. */
             target: {
                 view: () => targetStore.view(),
                 save: (change) => {
                     const saved = targetStore.save(change);
                     control.setTarget(saved);
-                    followTarget(saved);
                     return targetStore.view();
                 },
             },
@@ -444,13 +202,7 @@ async function startProxyAndHarness(
             // A packaged app carries the agent binary in its resources; a dev run finds it by OMP_BIN or PATH.
             ...(app.isPackaged ? { resourcesDir: process.resourcesPath } : {}),
             migrationsDir: resolve(__dirname, "chat-migrations"),
-            daemonOrigin,
-            daemonToken: harness.daemonActionToken,
-            /* So the conversation can be served from this origin and still reach
-             * its own API. The operator capability is handed to the PROXY, never
-             * to a renderer — same contract as the daemon token beside it. */
-            harnessOrigin,
-            harnessToken: harness.accessToken,
+            daemonToken: "",
         },
         CONTROL_PORT,
         bindHost,
@@ -468,83 +220,8 @@ async function startProxyAndHarness(
             );
         },
     );
-    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /app/*; daemon ${daemonOrigin})`);
-
-    const daemonRuntime = resolveDaemonRuntime(settings.get().daemonCmd);
-    console.log(describeAgentRuntime(daemonRuntime));
-    if (!daemonRuntime.found) {
-        /* Reachable when PIKVM_AGENT_DAEMON_CMD or the daemonCmd setting names
-         * something that is not there, since the harness resolved above without
-         * consulting them. The harness is left running; only the daemon is out. */
-        reportMissingAgentRuntime(daemonRuntime);
-        return { control, settings, daemon: null, harness, harnessReady: Promise.resolve() };
-    }
-    const { command } = daemonRuntime;
-    const args = ["daemon"];
-    /* Tell the child WHERE, or the walk above is a lie.
-     *
-     * `pikvm-agent daemon` takes its host and port from its own config file, so
-     * spawning it with a bare "daemon" while this side had moved to another port
-     * left the two disagreeing: the app waited on 47617 while the child tried
-     * 47615 over and over, hit the same orphan the walk existed to avoid, and
-     * died five times before giving up. The origin is decided here, so it has to
-     * be passed here. */
-    const daemonEndpoint = parseEndpoint(daemonOrigin);
-    const daemonArgs = [
-        ...args,
-        ...(daemonEndpoint.kind === "unix"
-            ? ["--uds", daemonEndpoint.socketPath]
-            : ["--host", daemonEndpoint.hostname, "--port", daemonEndpoint.port]),
-    ];
-    const daemon = new ManagedService({
-        name: "daemon",
-        origin: daemonOrigin,
-        healthPath: "/healthz",
-        command,
-        args: daemonArgs,
-        env: {
-            PIKVM_AGENT_DAEMON_TOKEN: harness.daemonActionToken,
-            PIKVM_AGENT_HARNESS_TOKEN: harness.daemonHarnessToken,
-            // The app's own target, never the agent's config file's (see agent-target.ts).
-            ...agentTargetEnvironment(agentTarget),
-        },
-        adoptExisting: false,
-        log: (line) => console.log(line),
-    });
-    followTarget = (next) => {
-        if (sameAgentTarget(agentTarget, next)) return;
-        agentTarget = next;
-        void daemon
-            .restart(agentTargetEnvironment(next))
-            .then((restarted) => {
-                if (restarted) console.log("[daemon] restarted onto the new PiKVM target");
-            })
-            .catch((error: unknown) => console.error(`[daemon] could not restart onto the new target: ${String(error)}`));
-    };
-    const harnessReady = daemon.start().then(async (outcome) => {
-        if (outcome === "conflict") {
-            throw new Error(
-                `another credential-bound daemon already owns ${daemonOrigin}`,
-            );
-        }
-        if (!(await daemon.waitUntilHealthy())) {
-            daemon.stop();
-            throw new Error(
-                `machine-control daemon did not become healthy at ${daemonOrigin}`,
-            );
-        }
-        await harness.start();
-    });
-    void harnessReady.catch((error) =>
-            console.error(`[harness] startup failed: ${String(error)}`),
-        );
-    return {
-        control,
-        settings,
-        daemon,
-        harness,
-        harnessReady,
-    };
+    console.log(`PiKVM backend listening on http://${bindHost}:${CONTROL_PORT} (UI proxy + /app/*)`);
+    return server;
 }
 
 const configPath = resolve(app.getPath("userData"), "pikvm.json");
@@ -560,6 +237,9 @@ function saveConfig(cfg: any) {
     writeFileSync(configPath, JSON.stringify(cfg, null, 2));
 }
 
+/** The control server, once started, so quitting can stop the chat server and its agent processes. */
+let localServer: ControlServer | null = null;
+
 /** Set when startup found another copy of this app already on our usual port. */
 let secondInstanceNotice: { wanted: number; using: number } | null = null;
 
@@ -570,13 +250,7 @@ async function createWindow() {
     // Not config.origin: that may still carry user:pass from an older install. The store reads both.
     const targetStore = new TargetStore(app.getPath("userData"));
 
-    // The first-party chat harness is the desktop's sole workspace. Its isolated
-    // session lets main inject the operator credential without ever exposing that
-    // credential to page JavaScript.
     const settings = new SettingsStore(resolve(app.getPath("userData"), "agent-settings.json"));
-    /* Resolved here rather than inside the proxy so a missing runtime is one
-     * decision, not two: startProxyAndHarness() already reports it. */
-    const harnessRuntime = resolveHarnessRuntime(settings.get().harnessCmd);
 
     /* Settle the port FIRST. Everything below is built from it, and until this
      * moved here the window built its origin from the port we hoped for rather
@@ -659,28 +333,9 @@ async function createWindow() {
     });
     setTimeout(revealWindow, 4000); // fallback in case load never finishes
 
-    win.on("closed", () => {
-        backend?.harness?.stop();
-        backend?.daemon?.stop();
-    });
-
-    // Start the local backend (PiKVM control core for the proxy, the agent harness and
-    // the control server) — UNLESS we're a thin client pointing at a remote console,
-    // where the remote host owns the proxy and the agent.
-    const backend = remoteConsole
-        ? null
-        : await startProxyAndHarness(targetStore, settings, harnessRuntime);
-    if (backend) {
-        /* Nothing to load here any more: the conversation is rendered in the
-         * console page, which waits for the harness itself and retries there.
-         * Still worth reporting, because the console can only say "not yet"
-         * while this knows the harness never started at all. */
-        void backend.harnessReady.catch((error: unknown) => {
-            const detail =
-                error instanceof Error ? error.message : String(error ?? "unknown error");
-            console.error(`[harness] never became ready: ${detail}`);
-        });
-    }
+    // Start the local backend (the PiKVM control core, the control server with the chat server inside it) —
+    // UNLESS we're a thin client pointing at a remote console, where the remote host owns all of it.
+    if (!remoteConsole) localServer = await startServer(targetStore, settings);
 
     const connect = () => {
         console.log("Loading the app at:", CONSOLE_URL);
@@ -823,6 +478,17 @@ if (!gotSingleInstanceLock) {
     app.quit();
 } else {
     app.on("second-instance", focusAppWindow);
+
+    // The agent programs are children of this process: stop them before it goes, not after.
+    let stopping = false;
+    app.on("will-quit", (event) => {
+        if (!localServer || stopping) return;
+        stopping = true;
+        event.preventDefault();
+        const done = () => app.exit(0);
+        void localServer.shutdown().then(done, done);
+        setTimeout(done, 4000).unref();
+    });
 
     app.whenReady().then(() => {
         console.log("Electron ready");
