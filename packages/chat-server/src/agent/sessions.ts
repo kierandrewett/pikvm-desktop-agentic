@@ -598,6 +598,13 @@ export function cancel(userId: string, conversationId: string, responseId?: stri
     return true;
 }
 
+/** Stop every running or starting response of a user, as their Stop does. Returns how many were stopped. */
+export function cancelAll(userId: string): number {
+    let stopped = 0;
+    for (const id of new Set([...live.keys(), ...starting.keys()])) if (cancel(userId, id)) stopped++;
+    return stopped;
+}
+
 /**
  * `system.agent.maxResponseMinutes`: stop the run when it is still going after `minutes`, the same way as a user
  * stop, with its own end note. The runtime's `--max-time` cannot do this: it is one deadline for the whole process,

@@ -440,6 +440,10 @@ async function startProxyAndHarness(
                     return targetStore.view();
                 },
             },
+            images: electronImageOps,
+            // A packaged app carries the agent binary in its resources; a dev run finds it by OMP_BIN or PATH.
+            ...(app.isPackaged ? { resourcesDir: process.resourcesPath } : {}),
+            migrationsDir: resolve(__dirname, "chat-migrations"),
             daemonOrigin,
             daemonToken: harness.daemonActionToken,
             /* So the conversation can be served from this origin and still reach

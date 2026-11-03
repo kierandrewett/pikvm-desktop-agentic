@@ -38,11 +38,20 @@ export const JigglerStatus = Schema.Struct({
 });
 export type JigglerStatus = typeof JigglerStatus.Type;
 
+/** Whether the agent's program is installed where the host looks, and if not, why. */
+export const AgentRuntime = Schema.Struct({
+    found: Schema.Boolean,
+    reason: Schema.optional(Schema.String),
+});
+export type AgentRuntime = typeof AgentRuntime.Type;
+
 /** What this host actually serves, so the app does not draw a panel whose
  *  socket would only ever close. */
 export const Features = Schema.Struct({
-    /** The agent workspace, reached through the harness proxy. */
+    /** The chat server inside this host is up: conversations, providers and settings work. */
     chat: Schema.Boolean,
+    /** The agent program the chat server starts; without it a conversation cannot be answered. */
+    agent: Schema.optional(AgentRuntime),
 });
 export type Features = typeof Features.Type;
 
@@ -192,6 +201,38 @@ export class Forbidden extends Schema.Class<Forbidden>("Forbidden")(
 /* ------------------------------------------------------------------ */
 
 export const API_PREFIX = "/app/api/v1";
+
+/* ------------------------------------------------------------------ */
+/* The agent on the KVM tab                                            */
+/* ------------------------------------------------------------------ */
+
+/** What the agent is doing with the PiKVM. Mirrors `AgentActivity` in @pikvm/mcp. */
+export const AgentState = Schema.Literal("idle", "working", "waiting_approval", "released");
+export type AgentState = typeof AgentState.Type;
+
+export const AgentActivity = Schema.Struct({
+    state: AgentState,
+    conversationId: Schema.optional(Schema.String),
+    /** The tool in flight, or the last one, without the server prefix. */
+    tool: Schema.optional(Schema.String),
+    /** Where the agent's pointer is, as fractions of the picture. */
+    pointer: Schema.optional(Schema.Struct({ fx: Schema.Number, fy: Schema.Number })),
+    /** Why control ended, with `released`: a person took over, Stop, or a lease that ran out. */
+    reason: Schema.optional(Schema.Literal("operator", "stopped", "lease_timeout")),
+    /** Epoch milliseconds. */
+    at: Schema.Number,
+});
+export type AgentActivity = typeof AgentActivity.Type;
+
+/** Server-sent events: one `AgentActivity` as JSON per event, the current one first. */
+export const AGENT_ACTIVITY_PATH = `${API_PREFIX}/agent/activity`;
+/** POST: the person pressed Stop. Releases control, cancels the running responses. */
+export const AGENT_STOP_PATH = `${API_PREFIX}/agent/stop`;
+/** POST: the person gives control back to the run they took it from. */
+export const AGENT_HANDBACK_PATH = `${API_PREFIX}/agent/handback`;
+
+export const AgentStopResult = Schema.Struct({ stopped: Schema.Boolean });
+export const AgentHandBackResult = Schema.Struct({ handedBack: Schema.Number });
 
 export const StateGroup = HttpApiGroup.make("state").add(HttpApiEndpoint.get("get", "/state").addSuccess(State));
 

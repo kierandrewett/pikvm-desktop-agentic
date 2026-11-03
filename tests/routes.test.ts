@@ -36,9 +36,28 @@ function marker(name: string) {
     };
 }
 
-function targets(over: { token?: string; harness?: boolean; appDir?: string } = {}): RouteTargets {
+function targets(over: { token?: string; harness?: boolean; appDir?: string; refuseLoopback?: boolean } = {}): RouteTargets {
     const kvmdSockets = new WebSocketServer({ noServer: true });
+    const chatSockets = new WebSocketServer({ noServer: true });
     return {
+        ...(over.refuseLoopback ? { refuseLoopback: true } : {}),
+        chat: {
+            async handleRest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+                res.writeHead(200, { "content-type": "text/plain", "x-target": "chat" });
+                res.end(`chat ${req.method} ${req.url}`);
+            },
+            handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
+                chatSockets.handleUpgrade(req, socket, head, (ws) => ws.send(`chat ${req.url}`));
+                return true;
+            },
+        },
+        agent: {
+            handles: (path: string) => path.startsWith("/app/api/v1/agent/"),
+            handle(req: IncomingMessage, res: ServerResponse, path: string): void {
+                res.writeHead(200, { "content-type": "text/plain", "x-target": "agent" });
+                res.end(`agent ${req.method} ${path}`);
+            },
+        },
         accessToken: () => over.token ?? "",
         kvmd: {
             ...marker("kvmd"),
@@ -545,5 +564,77 @@ test("the old prefix is behind the gate, except for the worker that retires it",
         assert.equal(page.headers.get("location"), "/app/login");
     } finally {
         await s.close();
+    }
+});
+
+test("chat: its REST routes are ours, behind the gate; its socket needs the gate and the same origin", async () => {
+    const s = await run(targets({ token: TOKEN }), true);
+    try {
+        assert.equal((await call(s.origin, "/app/chat/api/bootstrap", { headers: { accept: "application/json" } })).status, 401);
+        const signedIn = { cookie: `${SESSION_COOKIE}=${sessionValue(TOKEN)}` };
+        const rest = await call(s.origin, "/app/chat/api/conversations", { headers: signedIn });
+        assert.equal(rest.target, "chat");
+        assert.equal(rest.body, "chat GET /app/chat/api/conversations");
+        // A lookalike is not the chat API: it is under /app, so ours to refuse.
+        assert.equal((await call(s.origin, "/app/chat/apix", { headers: signedIn })).status, 404);
+
+        const host = new URL(s.origin).host;
+        assert.equal(await socket(s.origin, "/app/chat/ws", { ...signedIn, origin: s.origin }), "chat /app/chat/ws");
+        assert.equal(await socket(s.origin, "/app/chat/ws", { ...signedIn }), "chat /app/chat/ws", "a script sends no Origin");
+        assert.equal(await socket(s.origin, "/app/chat/ws", { ...signedIn, origin: "https://evil.example" }), "refused 403");
+        assert.equal(await socket(s.origin, "/app/chat/ws", { ...signedIn, origin: "null" }), "refused 403");
+        assert.equal(
+            await socket(s.origin, "/app/chat/ws", { ...signedIn, origin: "https://kvm.example", "x-forwarded-host": "kvm.example" }),
+            "chat /app/chat/ws",
+            "behind a proxy the host the browser used is the forwarded one",
+        );
+        assert.match(await socket(s.origin, "/app/chat/ws", { origin: `http://${host}` }), /^error|refused/, "no session");
+    } finally {
+        await s.close();
+    }
+});
+
+test("chat: a socket upgrade is refused with 503 while the chat server is not up", async () => {
+    const t = targets();
+    t.chat.handleUpgrade = () => false;
+    const s = await run(t);
+    try {
+        assert.equal(await socket(s.origin, "/app/chat/ws"), "refused 503");
+    } finally {
+        await s.close();
+    }
+});
+
+test("the agent routes are ours and ahead of the API, and a POST must be JSON", async () => {
+    const s = await run(targets());
+    try {
+        assert.equal((await call(s.origin, "/app/api/v1/agent/activity")).target, "agent");
+        const plain = await call(s.origin, "/app/api/v1/agent/stop", { method: "POST", headers: { "content-type": "text/plain" }, body: "x" });
+        assert.equal(plain.status, 415);
+        const stop = await call(s.origin, "/app/api/v1/agent/stop", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        assert.equal(stop.target, "agent");
+        assert.equal((await call(s.origin, "/app/api/v1/state")).target, "api");
+    } finally {
+        await s.close();
+    }
+});
+
+test("behind an authenticating proxy, a loopback peer is refused, except for the public files", async () => {
+    const s = await run(targets({ refuseLoopback: true }));
+    try {
+        assert.equal((await call(s.origin, "/app/api/v1/state")).status, 403);
+        assert.equal((await call(s.origin, "/app/chat/api/conversations")).status, 403);
+        assert.equal((await call(s.origin, "/anything-kvmd-owns")).status, 403);
+        assert.equal((await call(s.origin, "/app/manifest.webmanifest")).status !== 403, true);
+        assert.equal(await socket(s.origin, "/app/chat/ws"), "error socket hang up");
+    } finally {
+        await s.close();
+    }
+    // The proxy itself arrives from another address.
+    const remote = await run(targets({ refuseLoopback: true }), true);
+    try {
+        assert.equal((await call(remote.origin, "/app/api/v1/state")).target, "api");
+    } finally {
+        await remote.close();
     }
 });

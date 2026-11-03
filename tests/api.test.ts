@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { startControlServer } from "../src/server";
+import { noImages, stubChat } from "./support/chat-stub";
 import type { PiKvmControl } from "../src/pikvm-control";
 import { SettingsStore } from "../src/settings";
 import { TargetStore } from "../src/target-store";
@@ -49,6 +50,8 @@ async function start(options: { editable?: boolean } = {}): Promise<Running> {
         {
             control,
             settings,
+            images: noImages,
+            createChat: stubChat(),
             daemonToken: "unused",
             ...(options.editable
                 ? {
@@ -95,7 +98,7 @@ test("GET /state is what the contract says, and carries no secret", async () => 
         assert.doesNotMatch(text, /a-secret-that-must-never-be-readable/);
         const state = Schema.decodeUnknownSync(State)(JSON.parse(text));
         assert.deepEqual(state.settings, { keyboardLayout: "us", jiggler: false });
-        assert.deepEqual(state.features, { chat: false });
+        assert.deepEqual(state.features, { chat: true, agent: { found: true } });
         assert.equal(state.pikvm.origin, "https://kvm.example.test:8443");
         assert.equal(state.pikvm.link, "unknown");
         assert.equal(state.jigglerStatus.enabled, false);

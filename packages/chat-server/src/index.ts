@@ -9,11 +9,11 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { mkdirSync } from "node:fs";
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer } from "ws";
 import { listenAgentSurface, type AgentSurface } from "./agent-surface.ts";
-import { setEventSink, stopAll } from "./agent/sessions.ts";
+import { cancelAll, setEventSink, stopAll } from "./agent/sessions.ts";
 import { runtimeStatus, setResourcesDir } from "./agent/launch.ts";
 import { seedOperator } from "./auth/operator.ts";
 import { closeDb, openDb, setMigrationsDir } from "./db/index.ts";
@@ -31,6 +31,7 @@ import { modelsRoutes } from "./http/models-routes.ts";
 import { adminSettingsRoutes, settingsRoutes } from "./http/settings-routes.ts";
 import { syncMutations, watchSettings } from "./http/sync.ts";
 import { uploadRoutes } from "./http/upload-routes.ts";
+import { sendResponse, toRequest } from "./http/node-adapter.ts";
 import { acceptSocket } from "./http/ws.ts";
 import { registerBuiltinMcp, type BuiltinMcp } from "./mcp/builtin.ts";
 import { askApproval, type ApprovalDecision } from "./mcp/interactions.ts";
@@ -80,6 +81,8 @@ export interface ChatServerStatus {
 export interface ChatServer {
     /** Answer a REST request. The path must start with `apiPath`. */
     handleRest(req: Request): Promise<Response>;
+    /** `handleRest` for a `node:http` request: reads it, answers it, streams the reply. */
+    handleNode(req: IncomingMessage, res: ServerResponse): Promise<void>;
     /**
      * Take over an upgrade request the host has already authorised (its gate and an Origin check). The host must not
      * call this for a request it did not authorise.
@@ -101,8 +104,12 @@ export interface ChatServer {
             signal?: AbortSignal;
         },
     ): Promise<ApprovalDecision>;
+    /** Stop every running response, as the person pressing Stop in the thread would. Returns how many. */
+    stopResponses(): number;
     /** An effective setting, for the host's own switches (`agent.pikvm.*`). */
-    setting<K extends SettingKey>(key: K): SettingValue<K>;
+    setting(key: "agent.pikvm.approval"): SettingValue<"agent.pikvm.approval">;
+    setting(key: "agent.pikvm.allowPower"): SettingValue<"agent.pikvm.allowPower">;
+    setting(key: "agent.pikvm.maxEdge"): SettingValue<"agent.pikvm.maxEdge">;
     status(): ChatServerStatus;
     /** Stop every agent process, close the sockets and the agent surface, and close the database. */
     stop(): Promise<void>;
@@ -152,7 +159,7 @@ export async function createChatServer(options: ChatServerOptions): Promise<Chat
     const app = buildApp();
     const sockets = new WebSocketServer({ noServer: true });
 
-    return {
+    const server: ChatServer = {
         handleRest(req) {
             const url = new URL(req.url);
             if (url.pathname !== apiPath && !url.pathname.startsWith(`${apiPath}/`)) {
@@ -160,6 +167,10 @@ export async function createChatServer(options: ChatServerOptions): Promise<Chat
             }
             url.pathname = `/api${url.pathname.slice(apiPath.length)}`;
             return Promise.resolve(app.fetch(new Request(url, req)));
+        },
+        async handleNode(req, res) {
+            const response = await server.handleRest(toRequest(req, `http://${req.headers.host ?? "localhost"}`));
+            await sendResponse(res, response);
         },
         handleUpgrade(req, socket, head) {
             sockets.handleUpgrade(req, socket, head, (ws) => acceptSocket(ws));
@@ -173,7 +184,8 @@ export async function createChatServer(options: ChatServerOptions): Promise<Chat
                 arguments: ask.arguments,
                 signal: ask.signal,
             }),
-        setting: (key) => setting(key),
+        stopResponses: () => cancelAll(OPERATOR_ID),
+        setting: ((key: SettingKey) => setting(key)) as ChatServer["setting"],
         status: () => ({
             ready: true,
             runtime: runtimeStatus(),
@@ -190,4 +202,5 @@ export async function createChatServer(options: ChatServerOptions): Promise<Chat
             closeDb();
         },
     };
+    return server;
 }

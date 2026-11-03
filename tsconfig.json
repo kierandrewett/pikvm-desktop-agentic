@@ -5,7 +5,11 @@
         "rootDir": ".",
         "outDir": "./dist",
         "baseUrl": ".",
-        "paths": { "@/*": ["./src/sidebar/*"] },
+        "paths": {
+            "@/*": ["./src/sidebar/*"],
+            // The host sees the declaration, not the lifted server (see that file).
+            "@pikvm/chat-server": ["./packages/chat-server/host.d.ts"]
+        },
 
         // Environment Settings
         // See also https://aka.ms/tsconfig/module

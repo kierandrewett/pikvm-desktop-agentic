@@ -26,6 +26,8 @@
  *   PIKVM_DATA_DIR         where settings.json and macros.json live (default ./data)
  *   PIKVM_JIGGLER          "1" makes the idle jiggler start on; only the first
  *                          value, after that the saved setting wins (default off)
+ *   OMP_BIN                the agent program (omp) the Chat tab runs; the image sets it. Chat's data lives in
+ *                          PIKVM_DATA_DIR/chat. Without omp conversations cannot be answered and Chat says so.
  *   PIKVM_HARNESS_URL      the agent harness sidecar's origin, e.g.
  *                          http://kvm-agent:47616 (deploy/agent). Set with
  *                          PIKVM_HARNESS_TOKEN, its operator capability (32+
@@ -40,7 +42,8 @@
  *                          127.0.0.1:8080 otherwise)
  */
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createSharpImageOps } from "./image-ops-sharp";
 import { resolveHarnessUpstream, type HarnessUpstream } from "./server/proxy/harness";
 import { resolve } from "node:path";
 import { PiKvmControl } from "./pikvm-control";
@@ -76,12 +79,18 @@ class EnvSettingsStore extends SettingsStore {
     }
 }
 
-/** The web host never crops or resizes agent screenshots (there is no agent
- *  here), so the image hooks report "not done" and callers keep the original. */
-const noImageOps: ImageOps = {
-    resize: async () => null,
-    crop: async () => null,
-};
+/** The agent's screenshots are cropped and scaled by sharp, which the image installs beside dist/. A host
+ *  that cannot load it stops here, saying so, rather than giving the agent frames its coordinates do not match. */
+let images: ImageOps;
+try {
+    images = createSharpImageOps();
+} catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+}
+
+/** The chat migrations the build copied beside this file, when it is the bundle that runs. */
+const bundledMigrations = resolve(__dirname, "chat-migrations");
+const migrationsDir = existsSync(bundledMigrations) ? bundledMigrations : undefined;
 
 const origin = env("PIKVM_URL");
 if (!origin) fail("PIKVM_URL is required (for example https://pikvm.example.ts.net)");
@@ -145,7 +154,7 @@ const control = new PiKvmControl(
         username: env("PIKVM_USER") || "admin",
         password,
     },
-    noImageOps,
+    images,
 );
 control.setLayout(settings.get().keyboardLayout, { source: "auto" });
 
@@ -164,6 +173,9 @@ const server = startControlServer(
     {
         control,
         settings,
+        images,
+        ...(migrationsDir ? { migrationsDir } : {}),
+        ...(proxyAuth ? { refuseLoopback: true } : {}),
         daemonToken: "",
         ...(agent ? { harnessOrigin: agent.origin, harnessToken: agent.token, harnessPrefix: agent.prefix } : {}),
     },

@@ -12,6 +12,9 @@
  *   /app/{manifest,sw.js,icons} PWA files (public, see auth.ts)
  *   /app/daemon/*              agent daemon proxy       (needs the workspace header)
  *   /app/harness/*             harness proxy            (needs the workspace header)
+ *   /app/chat/api/*            the chat server's REST routes (its own request header on mutations)
+ *   /app/chat/ws (upgrade)     its socket: the gate, then a same-origin check
+ *   /app/api/v1/agent/*        what the agent is doing (SSE), Stop, Hand back
  *   /app/workspace/*           agent workspace bundle
  *   /app/api/v1/*              our HttpApi
  *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
@@ -25,7 +28,18 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import { gate, hasWorkspaceHeader, loginPage, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
+import {
+    gate,
+    hasWorkspaceHeader,
+    isLoopback,
+    loginPage,
+    PUBLIC_PATHS,
+    sameOrigin,
+    sessionValue,
+    SESSION_COOKIE,
+    tokenMatches,
+} from "./auth";
+import type { AgentRoutes } from "./agent/routes";
 import { json, readBody } from "./http";
 import { RETIRE_WORKER } from "./legacy-prefix";
 
@@ -43,6 +57,17 @@ export interface RouteTargets {
         handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void | Promise<void>;
     };
     daemon: HttpForwarder;
+    /** The chat server in this process, or what answers while it is not up. */
+    chat: {
+        handleRest(req: IncomingMessage, res: ServerResponse): void | Promise<void>;
+        /** False when the chat server is not up (the upgrade is then refused). */
+        handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
+    };
+    /** What the agent is doing with the PiKVM, Stop and Hand back. */
+    agent: AgentRoutes;
+    /** Refuse a peer on loopback (except the public paths): the host sits behind an authenticating proxy that
+     *  connects over the network, so a loopback peer is another process in the same container, such as the agent. */
+    refuseLoopback?: boolean;
     /** Null when the harness is not configured: no route to it exists. */
     harness: HttpForwarder | null;
     api: { handle(req: IncomingMessage, res: ServerResponse): Promise<void> };
@@ -73,6 +98,8 @@ interface Route {
 }
 
 const CONSOLE_PAGE = "console.html";
+const CHAT_API = "/app/chat/api";
+export const CHAT_SOCKET = "/app/chat/ws";
 
 /** `/app/x` matches prefix `/app/x` and `/app/x/...`, never `/app/xy`. */
 function under(path: string, prefix: string): boolean {
@@ -173,6 +200,24 @@ export function createRoutes(t: RouteTargets): Route[] {
         },
 
         {
+            name: "chat REST",
+            match: ({ path }) => under(path, CHAT_API),
+            // Chat's own routes require its request header on every mutation, which no other site can send.
+            run: ({ req, res }) => void t.chat.handleRest(req, res),
+        },
+        {
+            name: "agent activity, stop and hand back",
+            match: ({ path }) => t.agent.handles(path),
+            run: ({ req, res, path, method }) => {
+                const mutating = method !== "GET" && method !== "HEAD";
+                if (mutating && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
+                    return json(res, 415, { error: "Expected application/json" });
+                }
+                t.agent.handle(req, res, path);
+            },
+        },
+
+        {
             name: "agent workspace bundle",
             match: ({ method, path }) => method === "GET" && t.workspace.handles(path),
             run: ({ path, res }) => {
@@ -263,12 +308,15 @@ export interface Router {
 
 export function createRouter(targets: RouteTargets): Router {
     const routes = createRoutes(targets);
+    const refused = (req: IncomingMessage, path: string): boolean =>
+        targets.refuseLoopback === true && isLoopback(req) && !Object.hasOwn(PUBLIC_PATHS, path);
 
     return {
         onRequest(req, res) {
             const url = new URL(req.url ?? "/", "http://localhost");
             const path = url.pathname;
 
+            if (refused(req, path)) return json(res, 403, { error: "Not reachable from this address" });
             const verdict = gate(req, path, targets.accessToken());
             if (verdict === "login") return redirect(res, "/app/login");
             if (verdict === "deny") return json(res, 401, { error: "Unauthorized" });
@@ -289,8 +337,19 @@ export function createRouter(targets: RouteTargets): Router {
          * the Pi has never heard of. */
         onUpgrade(req, socket, head) {
             const path = new URL(req.url ?? "/", "http://localhost").pathname;
-            if (gate(req, path, targets.accessToken()) !== "allow") {
+            if (refused(req, path) || gate(req, path, targets.accessToken()) !== "allow") {
                 socket.destroy();
+                return;
+            }
+            if (path === CHAT_SOCKET) {
+                // Not from another site, whatever the gate let through.
+                if (!sameOrigin(req)) {
+                    socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
+                    return;
+                }
+                if (!targets.chat.handleUpgrade(req, socket, head)) {
+                    socket.end("HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\n");
+                }
                 return;
             }
             if (under(path, "/app")) {

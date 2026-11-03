@@ -18,6 +18,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { PiKvmControl } from "../src/pikvm-control";
 import { startControlServer } from "../src/server";
+import { noImages, stubChat } from "./support/chat-stub";
 import { createHarnessProxy, resolveHarnessUpstream } from "../src/server/proxy/harness";
 import { SettingsStore } from "../src/settings";
 
@@ -314,6 +315,8 @@ async function serverWith(harnessOrigin: string | null) {
         {
             control,
             settings: new SettingsStore(join(dir, "settings.json")),
+            images: noImages,
+            createChat: stubChat(),
             daemonToken: "unused",
             ...(harnessOrigin ? { harnessOrigin, harnessToken: OPERATOR } : {}),
         },
@@ -332,35 +335,6 @@ async function serverWith(harnessOrigin: string | null) {
             }),
     };
 }
-
-const chatFeature = async (origin: string): Promise<boolean> =>
-    ((await (await fetch(`${origin}/app/api/v1/state`)).json()) as { features: { chat: boolean } }).features.chat;
-
-test("features.chat follows the agent: false with no upstream, true while it answers, false when it stops", async () => {
-    const none = await serverWith(null);
-    try {
-        assert.equal(await chatFeature(none.origin), false);
-    } finally {
-        await none.close();
-    }
-
-    let healthy = true;
-    const agent = await upstream((_req, res) => {
-        res.writeHead(healthy ? 200 : 503);
-        res.end("{}");
-    });
-    const host = await serverWith(agent.origin);
-    try {
-        assert.equal(await chatFeature(host.origin), true);
-        healthy = false;
-        // The first answer is reused for a moment; wait it out rather than guess.
-        await new Promise((done) => setTimeout(done, 2_100));
-        assert.equal(await chatFeature(host.origin), false);
-    } finally {
-        await host.close();
-        await agent.close();
-    }
-});
 
 test("through the server, /app/harness needs the workspace header and carries the operator token", async () => {
     const agent = await upstream(ok);

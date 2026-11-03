@@ -112,6 +112,28 @@ export function gate(req: IncomingMessage, path: string, token: string): GateVer
     return String(req.headers.accept ?? "").includes("text/html") ? "login" : "deny";
 }
 
+/** Is this request, a WebSocket upgrade, from a page of this very host?
+ *
+ *  A browser always sends `Origin` on a WebSocket handshake and a page cannot change it, so a page on another site
+ *  is recognised by its host differing from the one it connected to. A request with no `Origin` is not a page (a
+ *  script, a test), and the gate has already decided whether it may be here. Without this check the loopback
+ *  exemption would let any web page open `ws://127.0.0.1:<port>` and drive the chat. Behind a proxy the host the
+ *  browser used is the one the proxy forwards. */
+export function sameOrigin(req: IncomingMessage): boolean {
+    const origin = req.headers.origin;
+    if (origin === undefined) return true;
+    let host: string;
+    try {
+        host = new URL(origin).host;
+    } catch {
+        return false;
+    }
+    const seen = [req.headers.host, req.headers["x-forwarded-host"]].flatMap((h) =>
+        typeof h === "string" ? h.split(",").map((part) => part.trim()) : [],
+    );
+    return seen.includes(host);
+}
+
 /** Does the request carry the header that proves it came from our own pages? */
 export function hasWorkspaceHeader(req: IncomingMessage): boolean {
     return req.headers[WORKSPACE_HEADER] === "1";
