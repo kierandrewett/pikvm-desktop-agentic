@@ -95,8 +95,17 @@ async function open(browser, device, theme, insets, opts = {}) {
     }
     await page.evaluateOnNewDocument((key, value) => localStorage.setItem(key, value), THEME_KEY, theme);
     await page.evaluateOnNewDocument(
-        (ios, lie) => {
-            if (ios) Object.defineProperty(navigator, "standalone", { configurable: true, get: () => true });
+        (ios, lie, fx) => {
+            if (ios || fx) Object.defineProperty(navigator, "standalone", { configurable: true, get: () => true });
+            if (ios) {
+                // The Safari-made app: the manifest's display mode applies. (The Firefox-made one has navigator.standalone and display-mode browser.)
+                const real = window.matchMedia.bind(window);
+                window.matchMedia = (query) => {
+                    const list = real(query);
+                    if (!/display-mode:\s*standalone/.test(query)) return list;
+                    return new Proxy(list, { get: (target, key) => (key === "matches" ? true : typeof target[key] === "function" ? target[key].bind(target) : target[key]) });
+                };
+            }
             if (!lie) return;
             let keys = 0;
             const inner = Object.getOwnPropertyDescriptor(window, "innerHeight")?.get;
@@ -111,6 +120,7 @@ async function open(browser, device, theme, insets, opts = {}) {
         },
         opts.ios === true,
         opts.lie ?? 0,
+        opts.firefox === true,
     );
     await page.goto(`${WEB}/app/`, { waitUntil: "load" });
     await page.waitForSelector('[role="tab"]');
@@ -456,6 +466,29 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
             });
         }
 
+        if (opts.firefox) {
+            // navigator.standalone true, display-mode browser: not the full-screen layout (100vh would be 62px taller than this web view).
+            await check(profile, "navigator.standalone alone is not standalone: the plain browser layout, and the bar fully inside the 812", async () => {
+                await goTo(page, "kvm", true);
+                const m = await page.evaluate(() => ({
+                    nav: navigator.standalone,
+                    display: matchMedia("(display-mode: browser)").matches,
+                    flags: ["data-standalone", "data-ios-standalone", "data-ios"].map((a) => `${a}=${document.documentElement.getAttribute(a)}`).join(" "),
+                    standalone: document.documentElement.hasAttribute("data-standalone") || document.documentElement.hasAttribute("data-ios-standalone"),
+                    htmlPos: getComputedStyle(document.documentElement).position,
+                    shellPos: getComputedStyle(document.querySelector(".app-shell")).position,
+                    heightVar: getComputedStyle(document.documentElement).getPropertyValue("--app-height").trim(),
+                    edge: getComputedStyle(document.getElementById("status-edge")).height,
+                    shell: Math.round(document.querySelector(".app-shell").getBoundingClientRect().bottom),
+                    nav_: (({ top, bottom }) => [Math.round(top), Math.round(bottom)])(document.querySelector(".nav-bar").getBoundingClientRect()),
+                }));
+                return [
+                    m.nav === true && m.display && !m.standalone && m.htmlPos === "fixed" && m.shellPos === "fixed" && m.heightVar !== "100vh" && m.edge === "0px" && m.shell === real && m.nav_[1] === real,
+                    `navigator.standalone ${m.nav}, display-mode browser ${m.display}, ${m.flags}; html ${m.htmlPos}, shell ${m.shellPos}, --app-height ${m.heightVar}, top edge ${m.edge}; shell bottom ${m.shell} of ${real}, bar ${m.nav_.join("..")}`,
+                ];
+            });
+        }
+
         await check(profile, "no console errors", async () => [logs.length === 0, logs.length ? logs.slice(0, 3).join(" | ") : "none"]);
     } finally {
         await page.close();
@@ -605,6 +638,9 @@ try {
         await phone(browser, scratch, "iPhone 13 standalone, black bar", BELOW, BELOW_BAR, theme, { ios: true });
         // And as it launches: innerHeight, the visual viewport (and 100dvh) report 62px less than the screen, 100vh does not.
         await phone(browser, scratch, "iPhone 13 standalone, viewport reports 62px short", BELOW, BELOW_BAR, theme, { ios: true, lie: 62 });
+        // A home-screen app made by Firefox on iOS: navigator.standalone true, display-mode browser, a default status bar above the
+        // page and a web view 812 tall where 100vh would say 874: it must take the plain browser layout and fit the 812.
+        await phone(browser, scratch, "iPhone 15 Pro, Firefox home-screen app (navigator.standalone only)", { width: 402, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, BELOW_BAR, theme, { firefox: true });
     }
     await uninsetted(browser, scratch, "Android (Pixel 5, no insets)", "Pixel 5", "android");
     await uninsetted(browser, scratch, "Desktop 1400x900, no insets", { width: 1400, height: 900 }, "desktop");

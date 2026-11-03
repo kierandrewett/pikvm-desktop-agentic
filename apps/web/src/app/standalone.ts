@@ -15,11 +15,12 @@ const IOS_STANDALONE = "data-ios-standalone";
 export function markStandalone(root: HTMLElement = document.documentElement): void {
     if (root.hasAttribute(STANDALONE)) return;
     try {
-        const legacy = "standalone" in navigator && navigator.standalone === true;
+        // Only the manifest's display mode makes the full-screen layout: navigator.standalone alone (Firefox's home-screen app) does not.
         const display = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches;
+        const legacy = "standalone" in navigator && navigator.standalone === true;
         const ios = legacy || /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-        if (legacy || display) root.setAttribute(STANDALONE, "true");
-        if ((legacy || display) && ios) root.setAttribute(IOS_STANDALONE, "true");
+        if (display) root.setAttribute(STANDALONE, "true");
+        if (display && ios) root.setAttribute(IOS_STANDALONE, "true");
     } catch {
         // No matchMedia: a browser tab.
     }

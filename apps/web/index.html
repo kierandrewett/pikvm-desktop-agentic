@@ -38,16 +38,15 @@
         </script>
         <script>
             // Decided once, before first paint, so the first frame already has the right height and top edge.
-            // Standalone (the installed app: no URL bar) has the full screen as its large viewport, which is
-            // what 100vh is; 100dvh and the visual viewport report the screen minus an inset when it starts.
+            // Standalone means the MANIFEST's display mode applies (display-mode standalone or fullscreen): the app iOS
+            // made from Safari, with no URL bar, where 100vh is the whole screen and 100dvh and the visual viewport
+            // report the screen minus an inset when it starts. navigator.standalone alone is not that: a home-screen
+            // app made by Firefox on iOS has it true with display-mode browser, no manifest read, a default status bar
+            // above the page and a web view 62px shorter than 100vh, so it takes the plain browser layout.
             // src/app/standalone.ts has the same rule for the case this script did not run.
             try {
-                var standalone =
-                    navigator.standalone === true ||
-                    matchMedia("(display-mode: standalone)").matches ||
-                    matchMedia("(display-mode: fullscreen)").matches;
-                // navigator.standalone is not always true in the installed app on iOS 26 (display-mode is), so an iPhone
-                // or iPad is told by what it says it is.
+                var standalone = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches;
+                // An iPhone or iPad is told by what it says it is (navigator.standalone included, for data-ios below).
                 var ios =
                     navigator.standalone === true ||
                     /iPhone|iPad|iPod/.test(navigator.userAgent) ||
