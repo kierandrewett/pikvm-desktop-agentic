@@ -95,6 +95,70 @@ Screenshots (`docs/e2e/phone-chrome/`):
 - [iPhone-13-portrait-light-sheet](phone-chrome/iPhone-13-portrait-light-sheet.png)
 <!-- phone-chrome:end -->
 
+<!-- resume:begin -->
+## Stream and socket resume after the app was backgrounded
+
+Host under test: `node dist/web-server.js` (http://127.0.0.1:8320) in front of `tools/fake-kvmd` (http://127.0.0.1:4620). Script: `apps/web/e2e/resume.e2e.mjs`; how to run it: `docs/e2e/README.md`.
+
+Headless Chrome, iPhone 13 and desktop 1400x900. "Away" is Chrome's own freeze (`Page.setWebLifecycleState` frozen/active: no timer or handler runs) with `document.hidden`, visibilitychange, pageshow, focus, resume and online delivered as a platform delivers them, and the fake kvmd cutting or silencing (`/__fake/drop?what=`, `/__fake/stall`) the stream and the event socket meanwhile. A pass is the new picture on screen within 3 s of return, exactly one new stream and one new socket (counted on the fake), nothing opened while hidden.
+
+| Profile | Case | Observed | Result |
+| --- | --- | --- | --- |
+| iPhone 13 | one stream and one event socket to begin with | streams 1, sockets 1, opened 1/1 | pass |
+| iPhone 13 | a touch drag holding a button when the page is hidden is let go on the target | held left; after hide nothing | pass |
+| iPhone 13 | app switched away 5 s: stream and socket cut meanwhile, screen back within 3 s | frames 116 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | the hidden event never came: only the return, stream silent, socket cut, screen back within 3 s | frames 209 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | back after only 1.5 s with the stream silent: screen back within 3 s | frames 109 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | restored from the back/forward cache (pageshow, persisted): screen back within 3 s | frames 209 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | only the window gaining focus after a freeze: screen back within 3 s | frames 208 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | the page's resume event after a freeze: screen back within 3 s | frames 210 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | network back (online) after a freeze: screen back within 3 s | frames 110 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | visible, pageshow, focus and online at once make ONE new stream and ONE new socket | frames 211 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | hidden and NOT frozen for 12 s with everything cut: nothing reconnects until it is shown again | frames 110 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| iPhone 13 | a short, healthy switch away and back (0.4 s) keeps the same stream | stream opens 10 -> 10, socket opens 10 -> 10, alive 1/1, live true | pass |
+| iPhone 13 | no page errors | 0 page errors; console: WebSocket connection to 'ws://127.0.0.1/api/ws' failed: Page entered Back-Forward Cache. \| WebSocket connection to 'ws://127.0.0.1/api/ws' failed: WebSocket is closed before the connection is established. | pass |
+| Desktop 1400x900 | one stream and one event socket to begin with | streams 1, sockets 1, opened 1/1 | pass |
+| Desktop 1400x900 | a key held when the page is hidden is let go on the target, and typing works after return | held ShiftLeft; after hide nothing; typed after return F7 down, F7 up | pass |
+| Desktop 1400x900 | a mouse button held when the page is hidden is let go on the target | held left; after hide nothing | pass |
+| Desktop 1400x900 | app switched away 5 s: stream and socket cut meanwhile, screen back within 3 s | frames 118 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | the hidden event never came: only the return, stream silent, socket cut, screen back within 3 s | frames 208 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | back after only 1.5 s with the stream silent: screen back within 3 s | frames 108 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | restored from the back/forward cache (pageshow, persisted): screen back within 3 s | frames 109 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | only the window gaining focus after a freeze: screen back within 3 s | frames 209 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | the page's resume event after a freeze: screen back within 3 s | frames 114 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | network back (online) after a freeze: screen back within 3 s | frames 188 ms after return; new streams 1, new sockets 2; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | visible, pageshow, focus and online at once make ONE new stream and ONE new socket | frames 300 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | hidden and NOT frozen for 12 s with everything cut: nothing reconnects until it is shown again | frames 213 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/0 | pass |
+| Desktop 1400x900 | a short, healthy switch away and back (0.4 s) keeps the same stream | stream opens 10 -> 10, socket opens 11 -> 11, alive 1/1, live true | pass |
+| Desktop 1400x900 | a key held while the socket is down, page hidden meanwhile: released on the new socket after return | held ShiftLeft; while the socket was down ShiftLeft; after return nothing | pass |
+| Desktop 1400x900 | no page errors | 0 page errors; console: WebSocket connection to 'ws://127.0.0.1/api/ws' failed: Page entered Back-Forward Cache. \| WebSocket connection to 'ws://127.0.0.1/api/ws' failed: WebSocket is closed before the connection is established. | pass |
+
+28 of 28 passed.
+
+**Before the fix, phone** (`before-phone.txt`, the same script against the build from 69ca5dd1): 6 of 13 passed; the failing rows:
+
+- [iPhone 13] a touch drag holding a button when the page is hidden is let go on the target: held left; after hide left
+- [iPhone 13] the hidden event never came: only the return, stream silent, socket cut, screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [iPhone 13] back after only 1.5 s with the stream silent: screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [iPhone 13] restored from the back/forward cache (pageshow, persisted): screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [iPhone 13] only the window gaining focus after a freeze: screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [iPhone 13] the page's resume event after a freeze: screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [iPhone 13] hidden and NOT frozen for 12 s with everything cut: nothing reconnects until it is shown again: frames 107 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/1
+
+**Before the fix, desktop** (`before-desktop.txt`, the same script against the build from 69ca5dd1): 6 of 15 passed; the failing rows:
+
+- [Desktop 1400x900] a key held when the page is hidden is let go on the target, and typing works after return: held ShiftLeft; after hide ShiftLeft; typed after return F7 down, F7 up
+- [Desktop 1400x900] a mouse button held when the page is hidden is let go on the target: held left; after hide left
+- [Desktop 1400x900] the hidden event never came: only the return, stream silent, socket cut, screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [Desktop 1400x900] back after only 1.5 s with the stream silent: screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [Desktop 1400x900] restored from the back/forward cache (pageshow, persisted): screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [Desktop 1400x900] only the window gaining focus after a freeze: screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [Desktop 1400x900] the page's resume event after a freeze: screen back within 3 s: frames never after return; new streams 0, new sockets 1; alive streams 1, sockets 1; opened while away 0/0
+- [Desktop 1400x900] hidden and NOT frozen for 12 s with everything cut: nothing reconnects until it is shown again: frames 210 ms after return; new streams 1, new sockets 1; alive streams 1, sockets 1; opened while away 0/1
+- [Desktop 1400x900] a key held while the socket is down, page hidden meanwhile: released on the new socket after return: held ShiftLeft; while the socket was down ShiftLeft; after return ShiftLeft
+
+<!-- resume:end -->
+
 <!-- lens:begin -->
 ## Zoom-in cursor lens: trigger and speed-tied zoom
 

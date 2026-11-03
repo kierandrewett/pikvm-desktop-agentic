@@ -65,6 +65,14 @@ manifest, and that Android and the desktop (no insets) are untouched. Headless C
 `Emulation.setSafeAreaInsetsOverride` and reads colours back from the screenshots. It writes its own section of
 `docs/e2e/2026-11-03-phone-feedback.md` (between its markers, leaving the other sections alone) and screenshots under `docs/e2e/phone-chrome/`.
 
+`apps/web/e2e/resume.e2e.mjs` (same two servers, same environment) drives the app being backgrounded and coming back: Chrome's own freeze
+(`Page.setWebLifecycleState` frozen/active), `document.hidden` and visibilitychange, pageshow (persisted), focus, resume and online delivered as a
+platform delivers them (including a page that is never told it was hidden), and the fake kvmd cutting (`/__fake/drop?what=streams|ws|all`) or
+silencing (`/__fake/stall`) the stream and the event socket while the page cannot look. Each case asserts the new picture is on screen within 3 s
+of return with exactly one new stream and one new socket counted on the fake, that nothing opened while hidden, and that nothing is left held on
+the target. `--before` writes the rows to `docs/e2e/resume/before-<profile>.txt` instead of the report (run it against an older build); a normal run
+writes its own section of `docs/e2e/2026-11-03-phone-feedback.md` between its markers.
+
 The profiles are the iPhone 13 device (touch, coarse pointer, 390x844) and a 1400x900 desktop
 window. Touch is sent as raw CDP touch events so two-finger gestures are real. The fake has no
 Janus, so the picture is MJPEG; WebRTC and the audio buttons that depend on it are covered by
