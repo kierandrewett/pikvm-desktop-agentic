@@ -22,6 +22,13 @@
  * 14. The black status-bar strip stays at the top of the layout viewport while iOS pans the visual viewport
  *     for the keyboard, so the status bar shows page content instead of black. (The static contract, the
  *     meta tags, manifest and CSS, is in chrome.test.ts; the pixels are in e2e/phone-chrome.e2e.mjs.)
+ *
+ * Icons only on the desktop rail
+ * 15. The rail draws a label again (visible text under the icon), or the bar loses its labels.
+ * 16. A rail item has no accessible name (an icon-only link announces as nothing), or its name is the tooltip's copy twice.
+ * 17. The tooltip is the item's name but is exposed to assistive tech as well, so a screen reader hears it twice.
+ * 18. The rail's CSS shows the tooltip only on hover and keyboard focus and is as narrow as an icon (static contract here; the
+ *     pixels are in e2e/desktop-layout.e2e.mjs).
  */
 
 import { act, screen, waitFor } from "@testing-library/react";
@@ -60,7 +67,7 @@ describe("active tab", () => {
 
     it("keeps Settings selected on a nested settings page", async () => {
         renderApp("/settings/keyboard", { compact: false });
-        await waitFor(() => expect(selectedTab()).toHaveTextContent("Settings"));
+        await waitFor(() => expect(selectedTab()).toHaveAccessibleName("Settings"));
     });
 
     it("sends / to the KVM", async () => {
@@ -249,5 +256,28 @@ describe("layout", () => {
         await waitFor(() => expect(root.style.getPropertyValue("--app-top")).toBe("120px"));
         unmount();
         expect(root.style.getPropertyValue("--app-top")).toBe("");
+    });
+});
+
+describe("icons only on the desktop rail", () => {
+    it("names every rail item without drawing a label, and the bar still draws them", async () => {
+        const rail = renderApp("/kvm", { compact: false });
+        const tabs = await screen.findAllByRole("tab");
+        expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual(["KVM", "Chat", "Settings"]);
+        // The tooltip is the only text in a rail item, and it is hidden from assistive tech.
+        for (const tab of tabs) {
+            const tip = tab.querySelector(".nav-tip");
+            expect(tip).not.toBeNull();
+            expect(tip).toHaveAttribute("aria-hidden", "true");
+            expect(tab.textContent).toBe(tip?.textContent);
+        }
+        expect(rail.container.querySelectorAll(".nav-tab > span:not(.nav-tip)")).toHaveLength(0);
+        rail.unmount();
+
+        renderApp("/kvm", { compact: true });
+        const bar = await screen.findAllByRole("tab");
+        expect(bar.map((tab) => tab.textContent)).toEqual(["KVM", "Chat", "Settings"]);
+        expect(bar.map((tab) => tab.getAttribute("aria-label"))).toEqual(["KVM", "Chat", "Settings"]);
+        expect(document.querySelector(".nav-tip")).toBeNull();
     });
 });

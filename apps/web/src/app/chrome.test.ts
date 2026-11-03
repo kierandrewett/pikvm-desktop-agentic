@@ -126,3 +126,21 @@ describe("the installed app's meta", () => {
         expect(manifest.display).toBe("standalone");
     });
 });
+
+describe("desktop navigation rail", () => {
+    it("is as narrow as an icon: 45px with its edge, not the 64px of icon-and-label tabs", () => {
+        expect(rule(css, ".nav-rail")).toMatch(/width:\s*calc\(45px \+ env\(safe-area-inset-left\)\)/);
+        expect(rule(css, ".nav-rail .nav-tab")).toMatch(/min-height:\s*36px/);
+    });
+
+    it("shows a tooltip only on hover and on keyboard focus", () => {
+        expect(rule(css, ".nav-tip")).toMatch(/visibility:\s*hidden/);
+        expect(rule(css, ".nav-tip")).toMatch(/pointer-events:\s*none/);
+        const shown = rule(css, ".nav-tab:hover .nav-tip,\n.nav-tab:focus-visible .nav-tip");
+        expect(shown).toMatch(/visibility:\s*visible/);
+    });
+
+    it("marks the open item with more than colour", () => {
+        expect(rule(css, '.nav-rail .nav-tab[aria-selected="true"]')).toMatch(/background:/);
+    });
+});

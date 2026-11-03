@@ -264,7 +264,7 @@ async function uninsetted(browser, scratch, label, device, tag) {
             await check(profile, `${tab}: no strips without an inset`, async () => {
                 const pads = tag === "desktop" ? c.navPad : [c.navPad[2]];
                 return [
-                    c.strip === "0px" && (tag === "desktop" ? c.navRect[0] === 0 && c.navPad[2] === "8px" && c.navPad[3] === "8px" : c.navPad[2] === "4px" && c.navRect[3] === c.height && c.navPad[1] === "8px"),
+                    c.strip === "0px" && (tag === "desktop" ? c.navRect[0] === 0 && c.navPad[2] === "4px" && c.navPad[3] === "4px" : c.navPad[2] === "4px" && c.navRect[3] === c.height && c.navPad[1] === "8px"),
                     `${c.kind}; strip ${c.strip}; nav padding ${pads.join(" ")}; nav bottom ${c.navRect[3]} of ${c.height}`,
                 ];
             });

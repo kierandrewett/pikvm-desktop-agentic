@@ -1,5 +1,5 @@
 /**
- * The app's three destinations as an ARIA tablist: a bottom bar on phones, a slim rail on
+ * The app's three destinations as an ARIA tablist: a bottom bar on phones, an icons-only rail on
  * wide screens. One component, two orientations, so the behaviour cannot drift apart.
  *
  * Tabs are links (they are real routes, so long-press and middle-click work and the URL is
@@ -108,6 +108,7 @@ export function NavTabs({ active, orientation, settingsPage }: NavTabsProps) {
                         id={tabDomId(tab.id)}
                         role="tab"
                         className="nav-tab"
+                        aria-label={tab.label}
                         aria-selected={selected}
                         aria-controls={panelDomId(tab.id)}
                         // Roving tabindex: one stop in the tab order, arrows do the rest.
@@ -118,7 +119,14 @@ export function NavTabs({ active, orientation, settingsPage }: NavTabsProps) {
                         onFocus={tab.preload}
                     >
                         <tab.icon weight={selected ? "fill" : "regular"} aria-hidden="true" />
-                        <span>{tab.label}</span>
+                        {/* The bar names its tabs under the icon; the rail is icons only (the name is aria-label, and a tip on hover or focus). */}
+                        {orientation === "horizontal" ? (
+                            <span>{tab.label}</span>
+                        ) : (
+                            <span className="nav-tip" aria-hidden="true">
+                                {tab.label}
+                            </span>
+                        )}
                     </Link>
                 );
             })}

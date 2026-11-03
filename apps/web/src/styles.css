@@ -294,8 +294,8 @@ body:has(.app-shell[data-layout="compact"])::after {
     padding-top: 40px;
 }
 
-/* Rail (wide) and bar (phone) share one tab language: icon over a small label, the
-   active destination in the primary colour. */
+/* Rail (wide) and bar (phone) share one tab language, the active destination in the primary colour;
+   the bar puts a small label under the icon, the rail has none. */
 .nav-tab {
     -webkit-app-region: no-drag;
     appearance: none;
@@ -356,14 +356,68 @@ body:has(.app-shell[data-layout="compact"])::after {
     flex-direction: column;
     align-items: stretch;
     gap: 4px;
-    width: calc(64px + env(safe-area-inset-left));
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+    /* Icons only: 36px tabs between 4px of padding and the 1px edge. The rail is for a pointer on a wide
+       window (compact covers touch), so the tabs need not be finger-sized. */
+    width: calc(45px + env(safe-area-inset-left));
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom)) calc(4px + env(safe-area-inset-left));
     background: var(--card);
     border-right: 1px solid var(--border);
 }
 
 .nav-rail .nav-tab {
-    min-height: 52px;
+    min-width: 0;
+    min-height: 36px;
+}
+
+.nav-rail .nav-tab svg {
+    width: 20px;
+    height: 20px;
+}
+
+.nav-rail .nav-tab[aria-selected="true"] {
+    background: color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+/* The name appears beside the icon on hover and on keyboard focus, over the page (the rail does not clip). */
+.nav-tip {
+    position: absolute;
+    inset-inline-start: calc(100% + 10px);
+    top: 50%;
+    z-index: 50;
+    transform: translateY(-50%);
+    padding: 4px 8px;
+    border-radius: var(--radius-control, 6px);
+    background: var(--accent);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
+    font-size: 12px;
+    font-weight: 550;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+    visibility: hidden;
+    opacity: 0;
+    transition:
+        opacity 0.12s,
+        visibility 0s 0.12s;
+}
+
+.nav-tab:hover .nav-tip,
+.nav-tab:focus-visible .nav-tip {
+    visibility: visible;
+    opacity: 1;
+    transition-delay: 0.35s, 0.35s;
+}
+
+.nav-tab:focus-visible .nav-tip {
+    transition-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-tip {
+        transition: none;
+    }
 }
 
 /* ---- the titlebar's round icon button ------------------------------------- */
