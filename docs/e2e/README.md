@@ -59,6 +59,12 @@ Other runs share the same two servers and the same environment: `apps/web/e2e/ic
 (Settings -> Macros, `docs/e2e/<date>-settings-macros.md`), `apps/web/e2e/keep-alive.e2e.mjs` (the tabs stay mounted: no new socket or stream, keys on Settings never reach the fake, `docs/e2e/<date>-keep-alive.md`), and the parity runs listed in
 `docs/rebuild/parity-matrix.md`.
 
+`apps/web/e2e/phone-chrome.e2e.mjs` (same two servers, same environment) checks the installed iPhone app's system chrome: the black status-bar
+strip and the navigation bar's own home-indicator strip on every tab, light and dark, portrait and landscape, plus the meta tags and the
+manifest, and that Android and the desktop (no insets) are untouched. Headless Chrome has no notch, so it emulates the insets with CDP
+`Emulation.setSafeAreaInsetsOverride` and reads colours back from the screenshots. It writes its own section of
+`docs/e2e/2026-11-03-phone-feedback.md` (between its markers, leaving the other sections alone) and screenshots under `docs/e2e/phone-chrome/`.
+
 The profiles are the iPhone 13 device (touch, coarse pointer, 390x844) and a 1400x900 desktop
 window. Touch is sent as raw CDP touch events so two-finger gestures are real. The fake has no
 Janus, so the picture is MJPEG; WebRTC and the audio buttons that depend on it are covered by

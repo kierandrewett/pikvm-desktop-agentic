@@ -12,8 +12,6 @@ export const THEME_KEY = "pikvm-console-theme";
 export type Theme = "light" | "dark";
 export type ThemeChoice = Theme | "system";
 
-const THEME_COLOR: Record<Theme, string> = { light: "#eef0f4", dark: "#0a0a0c" };
-
 type Listener = (theme: Theme) => void;
 const listeners = new Set<Listener>();
 
@@ -43,13 +41,17 @@ export function currentTheme(): Theme {
     return resolveTheme(readThemeChoice());
 }
 
+/**
+ * Paint a theme. The theme-color meta (index.html), the manifest's theme_color and the status-bar strip
+ * (styles.css) are black in BOTH themes, because the installed app's status bar is black whichever
+ * theme is showing, so none of them is touched here.
+ */
 function paint(theme: Theme): void {
     const root = document.documentElement;
     root.setAttribute("data-theme", theme);
     // The embedded workspace's component library keys its palette off a `dark` class, so
     // both are kept in step exactly as the console does.
     root.classList.toggle("dark", theme === "dark");
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[theme]);
     for (const listener of listeners) listener(theme);
 }
 

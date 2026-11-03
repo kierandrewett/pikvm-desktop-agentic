@@ -145,6 +145,50 @@
 
 /* ---- shell ---------------------------------------------------------------- */
 
+/*
+ * The installed iPhone app runs with apple-mobile-web-app-status-bar-style=black-translucent and
+ * viewport-fit=cover, so the page is drawn under the status bar and the home indicator and
+ * env(safe-area-inset-*) says how much of each edge belongs to the system. Two rules follow:
+ *
+ *  - The top inset is a solid black strip, in both themes, over whatever else would paint there
+ *    (full-page sheets pad for it with their own background). It follows --app-top, which
+ *    the shell sets on <html>, so it stays on the status bar when iOS pans the visual viewport
+ *    for the keyboard. Nothing is under it: the shell pads by the same inset.
+ *  - The bottom inset belongs to the navigation bar (nav-bar pads itself by it, on its own
+ *    background), and nothing else is allowed to paint it: the shell has no bottom padding in the
+ *    phone layout, and the bar is the last row.
+ *
+ * Both are 0 where there is no inset (desktop, Android, a browser tab), so they cost nothing there.
+ */
+html::before {
+    content: "";
+    position: fixed;
+    top: var(--app-top, 0px);
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top, 0px);
+    z-index: 2147483647;
+    background: #000;
+    pointer-events: none;
+}
+
+/* Backstop for the bottom: the shell is sized from the visual viewport, so if that is ever reported
+   short of the screen edge (right after the app comes back from the background, say) the strip left
+   under it is the navigation bar's colour, not the page's. It is the body's pseudo-element at
+   z-index -1: above the body's own background, behind the shell, so the bar itself covers it whenever
+   it reaches the edge. Only in the phone layout, which is the one with the bar. */
+body:has(.app-shell[data-layout="compact"])::after {
+    content: "";
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-bottom, 0px);
+    z-index: -1;
+    background: var(--card);
+    pointer-events: none;
+}
+
 .app-shell {
     position: fixed;
     left: 0;
@@ -155,14 +199,23 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
     padding-top: env(safe-area-inset-top);
+    background: var(--background);
+}
+
+/* The side insets (a notch in landscape) are the content's margin; the navigation bar runs under
+   them to the screen edge, so it is not cut short by a strip of page background. */
+.app-shell[data-layout="compact"] .app-main {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
-    background: var(--background);
 }
 
 .app-shell[data-layout="wide"] {
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
+}
+
+.app-shell[data-layout="wide"] .app-main {
+    padding-right: env(safe-area-inset-right);
     padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -282,7 +335,10 @@
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
     gap: 4px;
-    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+    /* The home-indicator strip is part of the bar: same background, padded by the inset. The sides
+       are padded by theirs for the same reason in landscape. */
+    padding: 4px calc(8px + env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom))
+        calc(8px + env(safe-area-inset-left));
     background: var(--card);
     border-top: 1px solid var(--border);
 }
@@ -296,8 +352,8 @@
     flex-direction: column;
     align-items: stretch;
     gap: 4px;
-    width: 64px;
-    padding: 8px;
+    width: calc(64px + env(safe-area-inset-left));
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
     background: var(--card);
     border-right: 1px solid var(--border);
 }

@@ -1,10 +1,11 @@
 /**
  * The frame every destination lives in: navigation plus the one place content is drawn.
  *
- * Phone (coarse pointer or narrow window): a tab bar under the content, above the home
- * indicator, and gone while the soft keyboard is up so it never rides on top of the keys.
- * Wide: a slim rail on the left. The shell sizes itself to the visual viewport and pads for
- * the notch and home indicator, so it reads as an app rather than a page.
+ * Phone (coarse pointer or narrow window): a tab bar under the content that runs to the bottom
+ * edge, its own padding covering the home indicator, and gone while the soft keyboard is up so it
+ * never rides on top of the keys. Wide: a slim rail on the left. The shell sizes itself to the
+ * visual viewport and pads for the status bar (painted black, styles.css) so it reads as an app
+ * rather than a page.
  *
  * The destinations are panes that stay mounted (see panes.tsx); the URL says which one is in
  * front. Settings also remembers the page that was open, so its tab returns there.
@@ -15,7 +16,7 @@
  */
 
 import { useRouterState } from "@tanstack/react-router";
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useLayoutEffect, useState } from "react";
 import { AgentActivityProvider } from "../agent/activity";
 import { useAppState } from "../api/queries";
 import { KvmPane } from "../kvm/kvm-screen";
@@ -48,12 +49,18 @@ export function Shell() {
     const bridge = desktopBridge();
     const titlebar = bridge !== undefined && active !== "kvm";
     const hideBar = compact && frame.keyboardOpen;
-    const style = {
-        "--app-height": `${frame.height}px`,
-        "--app-top": `${frame.top}px`,
-        // With the bar hidden the content runs to the screen edge, and the keyboard covers
-        // the home indicator, so there is no inset to respect.
-    } as CSSProperties;
+    // The status-bar strip is on <html> (styles.css) so it sits over full-page sheets too; it needs the
+    // same offset as the shell when iOS pans the visual viewport for the keyboard, so both read it
+    // from the root. (With the bar hidden the content runs to the screen edge, and the keyboard
+    // covers the home indicator, so there is no bottom inset to respect.)
+    useLayoutEffect(() => {
+        const root = document.documentElement;
+        root.style.setProperty("--app-top", `${frame.top}px`);
+        return () => {
+            root.style.removeProperty("--app-top");
+        };
+    }, [frame.top]);
+    const style = { "--app-height": `${frame.height}px` } as CSSProperties;
 
     return (
         <AgentActivityProvider enabled={agentStream}>

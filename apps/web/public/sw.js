@@ -34,10 +34,11 @@ self.addEventListener("activate", (e) => {
 const OFFLINE_HTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0a0c">
+<meta name="theme-color" content="#000000">
 <title>PiKVM</title>
 <style>
   :root { color-scheme: dark; }
+  html::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: #000; }
   html, body { margin: 0; height: 100%; background: #0a0a0c; color: #ededf1;
     font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
   main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;

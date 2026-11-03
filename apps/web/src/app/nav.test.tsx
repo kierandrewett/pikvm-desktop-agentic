@@ -19,6 +19,9 @@
  * 11. The wide layout hides its rail when the viewport shrinks (it has no keyboard bar).
  * 12. A rotation leaves a stale "tallest" and hides the bar for good.
  * 13. `/` does not land on the KVM.
+ * 14. The black status-bar strip stays at the top of the layout viewport while iOS pans the visual viewport
+ *     for the keyboard, so the status bar shows page content instead of black. (The static contract, the
+ *     meta tags, manifest and CSS, is in chrome.test.ts; the pixels are in e2e/phone-chrome.e2e.mjs.)
  */
 
 import { act, screen, waitFor } from "@testing-library/react";
@@ -233,5 +236,18 @@ describe("layout", () => {
         await screen.findByRole("tablist");
         const shell = container.querySelector<HTMLElement>(".app-shell");
         expect(shell?.style.getPropertyValue("--app-height")).toBe("612px");
+    });
+
+    it("puts the visual viewport's offset on <html>, where the status-bar strip reads it", async () => {
+        const viewport = installViewport(612);
+        const { unmount } = renderApp("/kvm", { compact: true });
+        await screen.findByRole("tablist");
+        const root = document.documentElement;
+        expect(root.style.getPropertyValue("--app-top")).toBe("0px");
+        viewport.offsetTop = 120;
+        act(() => void viewport.dispatchEvent(new Event("scroll")));
+        await waitFor(() => expect(root.style.getPropertyValue("--app-top")).toBe("120px"));
+        unmount();
+        expect(root.style.getPropertyValue("--app-top")).toBe("");
     });
 });
