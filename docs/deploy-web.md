@@ -110,7 +110,7 @@ flowchart LR
    hash (the same two descriptions and rule cost nothing the second time; the log says `fromCache`); 429 and 5xx are retried
    with backoff.
 4. **The push.** A yes sends a Web Push (VAPID, encrypted) to every device of that user. The notification text is built by the
-   host from the image model's description (its first sentence, at most 160 characters), never by Jev; a tap opens `/app/`.
+   host from the image model's description (its first sentence, and the second while both fit in 160 characters; the model is told to lead with the dialog, error or status line and its text), never by Jev; a tap opens `/app/`.
    A push service that answers 404 or 410 says the device is gone and its subscription is removed.
 
 Signal: while kvmd reports no video source (its snapshot answers 503), nothing is compared: a black screen is not a change. Two

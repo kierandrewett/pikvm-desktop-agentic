@@ -228,7 +228,7 @@ describe("the whole chain", () => {
         assert.equal(r.models.decided.length, 1);
         assert.equal(r.models.decided[0]!.rule, "tell me when the install finishes");
         assert.equal(r.push.sent.length, 1);
-        assert.equal(r.push.sent[0]!.payload.body, "Screen dialog.");
+        assert.equal(r.push.sent[0]!.payload.body, "Screen dialog. Something else.");
 
         await r.stay(20);
         assert.equal(r.push.sent.length, 1, "still the one notification");

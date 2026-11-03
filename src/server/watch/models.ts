@@ -67,10 +67,11 @@ export interface ModelClientOptions {
 
 export const DESCRIBE_PROMPT =
     "You describe a computer screenshot for someone who cannot see it. Reply in plain text, at most three sentences, " +
-    "with no markdown and no preamble. Say which application or window is in front (and the operating system if it is " +
-    "obvious), any dialog, popup, error message or progress bar with its exact text, and the one or two most important " +
-    "other lines of text. If the screen is blank, black or shows no signal, say exactly that. Do not describe colours " +
-    "or layout, and do not guess at what you cannot read.";
+    "with no markdown and no preamble. Lead with the most important thing on the screen: a dialog, popup, error message, " +
+    "prompt or progress or status line, with its exact text. Then say which application or window is in front (and the " +
+    "operating system if it is obvious), then the one or two most important other lines of text. If the screen is " +
+    "blank, black or shows no signal, say exactly that. Do not describe colours or layout, and do not guess at what you " +
+    "cannot read.";
 
 const QUESTION_NO_RULE =
     "previous and current describe what a remote computer's screen showed a moment ago and now. Is the change from " +

@@ -179,6 +179,11 @@ describe("the image model", () => {
         assert.deepEqual(described, { text: "A terminal showing Install complete.", costUsd: 0.0001, cached: false });
     });
 
+    it("the prompt asks for the dialog, error or status text first: the notification is made from the start of the answer", () => {
+        assert.match(DESCRIBE_PROMPT, /Lead with the most important thing on the screen: a dialog, popup, error message/);
+        assert.match(DESCRIBE_PROMPT, /at most three sentences/);
+    });
+
     it("reads a reply given as parts, and refuses an empty one", async () => {
         const parts = scripted([completion([{ type: "text", text: "A desktop." }, { type: "text", text: " Clean." }])]);
         assert.equal((await createModelClient({ fetch: parts.fetch, sleep: parts.sleep }).describe(PROVIDER, "m", Buffer.from("a"))).text, "A desktop. Clean.");

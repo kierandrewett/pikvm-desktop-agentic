@@ -67,10 +67,17 @@ interface Change {
     before: Frame | null;
 }
 
-/** The first sentence of a description, short enough for a notification's body. */
+/**
+ * A description as a notification's body: its first sentence, and the second as well while the two fit in 160 characters
+ * (the prompt leads with what matters, and a lone short sentence such as "Installation failed." says little).
+ */
 export function notificationBody(description: string): string {
-    const first = description.split(/(?<=[.!?])\s+/)[0] ?? description;
-    return first.length <= 160 ? first : `${first.slice(0, 157).trimEnd()}...`;
+    const sentences = description.split(/(?<=[.!?])\s+/).filter((sentence) => sentence !== "");
+    let body = sentences[0] ?? description;
+    if (body.length > 160) return `${body.slice(0, 157).trimEnd()}...`;
+    const second = sentences[1];
+    if (second && body.length + 1 + second.length <= 160) body = `${body} ${second}`;
+    return body;
 }
 
 export function createPipeline(deps: PipelineDeps): Pipeline {

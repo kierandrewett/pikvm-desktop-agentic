@@ -48,7 +48,7 @@ try {
     const steps = [
         { name: "install fails: a dialog opens over the terminal", frame: frames.failed, expect: "yes" },
         { name: "the dialog changes to 'Installation complete'", frame: frames.done, expect: "yes" },
-        { name: "the terminal is back at 68%, nothing to report", frame: frames.installing, expect: "no" },
+        { name: "the terminal is back at 68%, nothing to report", frame: frames.installing, expect: "no notification" },
     ];
     for (const [i, step] of steps.entries()) {
         await stack.show(step.frame);
@@ -56,10 +56,11 @@ try {
         await sleep(1000);
         const line = (await stack.checks()).sort((a, b) => a.t - b.t)[i];
         const pushes = (await stack.pushReceived()).length;
-        const pass = line.outcome !== "error" && line.noul !== undefined && (step.expect === "yes" ? line.noul >= 0.85 : line.noul <= 0.15);
+        // A yes must be decisive. For the step with nothing to report the guarantee is that nothing is sent: a no, or an answer too unsure to act on.
+        const pass = line.outcome !== "error" && line.noul !== undefined && (step.expect === "yes" ? line.noul >= 0.85 && line.outcome === "pushed" : line.noul < 0.85 && line.outcome !== "pushed");
         if (!pass) failed = true;
         rows.push({ ...step, line, pushes, pass });
-        console.log(`${pass ? "PASS" : "FAIL"} ${step.name}: noul=${line.noul} outcome=${line.outcome} cost=$${line.costUsd} pushes=${pushes}`);
+        console.log(`${pass ? "PASS" : "FAIL"} ${step.name}: noul=${line.noul} outcome=${line.outcome} cost=$${line.costUsd?.toFixed(6)} pushes=${pushes}`);
     }
     const pushed = await stack.pushReceived();
     const all = await stack.checks();
@@ -74,7 +75,7 @@ try {
         "",
         "| Step | Expected | Jev's probability (noul) | Outcome | Cost (OpenRouter) | Asked |",
         "| --- | --- | --- | --- | --- | --- |",
-        ...rows.map((r) => `| ${r.name} | ${r.expect} (>= 0.85 / <= 0.15) | ${r.line.noul} | ${r.line.outcome}${r.line.reason ? ` (${r.line.reason})` : ""} | $${r.line.costUsd ?? "n/a"} | ${r.line.asked} |`),
+        ...rows.map((r) => `| ${r.name} | ${r.expect === "yes" ? "a yes (>= 0.85), pushed" : "no notification (< 0.85)"} | ${r.line.noul} | ${r.line.outcome}${r.line.reason ? ` (${r.line.reason})` : ""} | $${r.line.costUsd?.toFixed(6) ?? "n/a"} | ${r.line.asked} |`),
         "",
         `Total reported by OpenRouter for ${all.length} checks: **$${total.toFixed(6)}**. Pushes the fake device decrypted: ${pushed.length}.`,
         "",

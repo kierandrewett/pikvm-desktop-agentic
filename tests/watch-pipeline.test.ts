@@ -181,7 +181,7 @@ describe("what Jev decides", () => {
         await r.show(dialog(flat(60)), "Install complete");
         assert.equal(r.push.sent.length, 1);
         assert.equal(r.push.sent[0]!.userId, USER);
-        assert.deepEqual(r.push.sent[0]!.payload, { title: "PiKVM", body: "Screen Install complete.", tag: "pikvm-screen", url: "/app/" });
+        assert.deepEqual(r.push.sent[0]!.payload, { title: "PiKVM", body: "Screen Install complete. Something else.", tag: "pikvm-screen", url: "/app/" });
         const [entry] = r.store.log(USER, 1);
         assert.equal(entry!.outcome, "pushed");
         assert.equal(entry!.noul, 0.9);
@@ -218,10 +218,14 @@ describe("what Jev decides", () => {
         assert.deepEqual(entry!.push, { sent: 0, removed: 1, failed: 0 });
     });
 
-    it("the notification body is the description's first sentence, cut to fit", () => {
-        assert.equal(notificationBody("A dialog says Install complete. The terminal is behind it."), "A dialog says Install complete.");
+    it("the notification body is the first sentence, plus the second while both fit in 160 characters", () => {
+        assert.equal(notificationBody("A dialog says Install complete. The terminal is behind it. A third sentence."), "A dialog says Install complete. The terminal is behind it.");
+        assert.equal(notificationBody("A dialog says Install complete."), "A dialog says Install complete.");
+        const long = `${"x".repeat(100)}. ${"y".repeat(100)}.`;
+        assert.equal(notificationBody(long), `${"x".repeat(100)}.`, "the second does not fit");
         assert.equal(notificationBody("x".repeat(400)).length, 160);
         assert.ok(notificationBody("x".repeat(400)).endsWith("..."));
+        assert.equal(notificationBody("Is it done? Yes! Really."), "Is it done? Yes!");
     });
 });
 
