@@ -201,3 +201,30 @@ Each suite on a freshly started container:
 OpenRouter is `https://openrouter.ai/api/v1` in the code (`openrouter` preset in `packages/chat-server/src/agent/providers.ts`); the fake runs pointed the provider at the fake instead, so that name was not exercised here. The watch and push code add no other destination: push sends go to the endpoint the browser subscribed with (the vendor's push service, always https outside tests), and nothing in the watch contacts anything but the PiKVM, the model provider and those endpoints.
 
 New with this commit for the helpers: `fake-push` and `fake-openrouter` services in `deploy/e2e/compose.yml`, and an image mode for the watch suite (`E2E_WEB` in `apps/web/e2e/watch-stack.mjs`, see its header).
+
+## The image to ship: `27a64263`
+
+Built with docker from a clean detached worktree of `27a64263` (`yarn install --immutable` passed; root `node scripts/test.mjs` 422 of 422):
+`make image IMAGE_TOOL=docker IMAGE=pikvm-kvm:27a64263` (the Makefile passes `PIKVM_BUILD_ID` from the commit),
+`docker save pikvm-kvm:27a64263 | gzip > ~/.cache/pikvm-wip/pikvm-kvm-27a64263.tar.gz` (272,536,438 bytes, sha256
+`07369e80f4e8c4083f393d396dc1805ef7c84674a18b674daf0b181585eec86c`). Config digest (the archive's `manifest.json` `Config`):
+`sha256:4a787a98cf55dea756c8052d514cff0632578f47e1b17bf86c8d7317ae6dfde4`. `docker load` gives
+`sha256:0d36e77f4da83457f2e34dcbd991ee9f169995646863d2557bb63185bf61fa0d` (889 MB); the suites ran on the same tarball loaded into podman.
+
+Posture as for `10a037e9`: `deploy/e2e/up-inspectable.sh`, uid 1000, read-only root, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, `PIKVM_AUTH=proxy`, a fresh container per suite.
+
+| Suite | Result |
+| --- | --- |
+| `apps/web/e2e/phone-chrome.e2e.mjs` (all profiles, including the About and update-on-resume cases) | 87 of 87 |
+| `apps/web/e2e/kvm.e2e.mjs` | 40 of 40 |
+| `apps/web/e2e/resume.e2e.mjs phone` | 13 of 13 |
+| `apps/web/e2e/chat.e2e.mjs phone` | 17 of 17 |
+| `apps/web/e2e/keep-alive.e2e.mjs` | 26 of 26 |
+| `apps/web/e2e/watch.e2e.mjs` | 22 of 22 |
+
+From the running container (outside the suites):
+
+- `GET /app/version.json` answers `{"build":"27a64263.20261103-151351"}`: the commit id, then the time the web app was built.
+- `/app/` is 200 and its `index.html` carries `apple-mobile-web-app-status-bar-style` = `black`.
+- `Cache-Control: no-cache` on `/app/`, `/app/sw.js`, `/app/version.json` and `/app/manifest.webmanifest`; the hashed asset `/app/assets/index-DGY6tMTP.js` is `public, max-age=31536000, immutable`.
+- Settings > About shows the build the host serves in `/app/version.json`: the phone-chrome case "Settings > About shows the build the host serves in /app/version.json" passed against the container.
