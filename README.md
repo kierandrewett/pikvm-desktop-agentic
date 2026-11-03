@@ -171,3 +171,23 @@ the Pi's absolute mouse by default; relative is in ⋯ for targets that need it.
 Installed as an app (PWA), it keeps the screen on while open, reconnects after
 being in the background, and shows a "Can't reach the KVM" screen that
 retries by itself when the host is out of reach.
+
+## Adding Executor as the one external MCP server
+
+The agent has two kinds of tools: `ask`, `todo` and the PiKVM tools (`mcp__pikvm_*`), which the host serves itself, and
+nothing else. There is no way to add an MCP server in Settings (the `agent.mcp` setting refuses writes with a 403
+that names the Executor gateway, and the discover and test routes refuse too). External integrations are meant to
+reach the agent through one gateway, Executor (`https://exe.drewett.dev/mcp`), and turning it on is one entry in
+`packages/chat-server/src/mcp/external.ts`:
+
+```ts
+export const EXTERNAL_MCP: Readonly<Record<string, McpServer>> = {
+    executor: { enabled: true, type: "http", url: "https://exe.drewett.dev/mcp" },
+};
+```
+
+Rebuild (`yarn build`) and restart the host. The server renders the entry into the agent's `mcp.json` through its
+credential-holding gateway (`/mcp/s/executor`), so the agent process never holds Executor's token; the sign-in
+and per-tool policies of an HTTP MCP server work as they do in `~/dev/chat`. The host's own tests
+(`packages/chat-server`, `yarn vitest run`) pin that the table is empty today, so the change also edits the test that
+says so.

@@ -29,6 +29,13 @@ The run exits non-zero if any case fails.
 `podman compose -f deploy/e2e/compose.yml up -d` (set `KVM_IMAGE` if the image has another name). It listens on
 127.0.0.1:18080 with the fake kvmd on 127.0.0.1:14510 and needs no browser: `node deploy/e2e/chat.e2e.mjs`.
 
+`apps/web/e2e/chat.e2e.mjs` drives Chat inside the PiKVM app in headless Chrome (iPhone 13 and 1400x900, light and
+dark): it starts its own stack per profile with `apps/web/e2e/chat-stack.mjs` (the web host with the chat server in it,
+`tools/fake-kvmd`, `tools/fake-model` and the real omp binary), adds the provider in Settings, and records
+`docs/e2e/<date>-chat-integrated.md`. It needs `dist/` built (`yarn build`, and `vite build` in `apps/web`), `OMP_BIN` (or
+`builds/omp/...`, see `scripts/fetch-omp.mjs`) and `SHARP_MODULES`, a `node_modules` directory that has `sharp` (the web
+image installs it; the repo does not): `SHARP_MODULES=... node apps/web/e2e/chat.e2e.mjs [phone|desktop]`.
+
 `apps/web/e2e/chat-desktop.e2e.mjs` drives the real Electron app (not a browser) under a headless sway: the packaged
 layout, its embedded harness, the fake kvmd and the fake model. Start the app with
 `env -u ENABLE_VULKAN_RENDERDOC_CAPTURE ... --remote-debugging-port=9334`, with its output going to a FILE (a pipe that

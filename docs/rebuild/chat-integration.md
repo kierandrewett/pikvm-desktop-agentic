@@ -1,6 +1,29 @@
 # Chat integration plan: ~/dev/chat becomes the Chat tab
 
-Status: plan, not yet executed. Branch `feat/app-rebuild`. Written 2026-11-02.
+Status: executed through S4, on branch `feat/app-rebuild`. Written 2026-11-02, status updated 2026-11-03.
+
+| Slice | State |
+| --- | --- |
+| S0 Phosphor icons | done (`docs/e2e/2026-11-03-icons.md`) |
+| S1 chat-protocol, chat-server on Node | done (`docs/e2e/2026-11-03-chat-server-node.md`) |
+| S2 PiKVM MCP | done (`docs/e2e/2026-11-03-pikvm-mcp.md`) |
+| S3 chat-web lift | done; the dead code of the lift (admin scope, server dictation, side-panel branches, projects, agentic-change, orphan `.ftl`) was pruned in S4 |
+| S4 integration | done: the chat server in the host, the agent routes and banner, the Origin check, loopback refusal, Settings pages. Browser evidence: `docs/e2e/2026-11-03-chat-integrated.md` (`apps/web/e2e/chat.e2e.mjs`) |
+| S5 packaging | owned by the packaging agent (`docs/e2e/2026-11-03-image-and-appimage.md`) |
+| S6 cutover and docs | not started: the Python agent, `deploy/agent`, `packages/chat-ui` and the old harness and daemon routes are still in the tree |
+
+Decisions made while executing S4 that this plan did not have:
+
+- External MCP servers are not configurable. Integrations reach the agent through the Executor gateway, which is one
+  entry in `packages/chat-server/src/mcp/external.ts` (empty today; how to add it is in the README). The MCP settings
+  page is deleted and the server refuses writes to `agent.mcp`.
+- The agent runs the computer profile only: `ask`, `todo` and `mcp__pikvm_*`.
+- Chat's stylesheet is scoped to `.chat-scope` (its Tailwind theme block is moved there by `apps/web/scope-chat-theme.ts`),
+  and the e2e compares the app's computed styles and root variables before and after Chat loads.
+- Chat's Settings pages (Providers, Models, Agent) leave their own title to the host's Settings layout.
+
+Not covered by the S4 acceptance run: the `bwrap --unshare-net` loopback test (the image has no sandbox, by decision),
+the desktop (Electron) path, which S5 smoke-tests, and a real PiKVM.
 
 This replaces two earlier positions: the "patterns only, do not copy" rule in `docs/PLAN.md` section 3, and the
 "reuse `agent/frontend`" advice in `docs/rebuild/agent-chat-map.md` section 6. Kieran's decisions:

@@ -8,6 +8,8 @@
  *   "pikvm:click"      screenshot, then one click at the centre of the frame, then a closing line
  *   "pikvm:approve"    screenshot, then `alt+F4`, which the PiKVM server asks about, then a closing line
  *   "please click ..." / "please approve ..."   the same two scenarios, for a person typing
+ *   "pikvm:hold"       screenshot, then streams text slowly for about half a minute, so the run keeps the PiKVM
+ *                      while a test takes control back, presses Stop or Hand back
  *   "call:<tool> <json>" calls any tool by name with the given JSON arguments, then says "Done."
  *   "ask:<preset>"     calls the `ask` tool with a preset from ASK_PRESETS (single, multi)
  *   "think:<text>"     streams reasoning, then <text>
@@ -196,6 +198,10 @@ export async function startFakeModel(options: FakeModelOptions = {}): Promise<Fa
 
     async function answer(req: IncomingMessage, signal: AbortSignal): Promise<Response> {
         const path = new URL(req.url ?? "/", "http://fake").pathname;
+        // For a run in another process: what the agent's requests carried (the same records `auth` and `requests` hold).
+        if (req.method === "GET" && path === "/__fake/requests") {
+            return Response.json({ auth, tools: requests.map((r) => (r.tools ?? []).map((t) => t.function.name)) });
+        }
         if (req.method === "GET" && path.endsWith("/models")) {
             return Response.json({
                 object: "list",
@@ -231,7 +237,17 @@ export async function startFakeModel(options: FakeModelOptions = {}): Promise<Fa
             | "approve"
             | undefined;
         const lastRole = messages.at(-1)?.role;
-        if (status) {
+        if (/^pikvm:hold\b/i.test(text)) {
+            if (step === 0) {
+                out.push(...toolCall(`${PIKVM}screenshot`, {}, "call_look"), usage());
+                return sse(out, 5, signal);
+            } else {
+                const reply = "Keeping the screen in view. ".repeat(40);
+                for (let i = 0; i < reply.length; i += 4) out.push(chunk({ content: reply.slice(i, i + 4) }));
+                out.push(chunk({}, "stop"), usage());
+                return sse(out, options.slowDelayMs ?? 80, signal);
+            }
+        } else if (status) {
             return new Response(JSON.stringify({ error: { message: "scripted model error" } }), {
                 status: Number(status),
                 headers: { "content-type": "application/json" },

@@ -167,6 +167,8 @@
     .chat-scope :focus-visible {
         outline: 2px solid var(--ring);
         outline-offset: -2px;
+        /* The app's own :focus-visible ring is a box-shadow in the same layer; the pane draws its outline only. */
+        box-shadow: none;
     }
     .chat-scope * {
         scrollbar-width: thin;

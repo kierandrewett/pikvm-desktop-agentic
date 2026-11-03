@@ -991,13 +991,15 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 .kvm-agent {
     position: absolute;
     top: 10px;
-    left: 50%;
+    /* Centred by margins, not left: 50%: that would leave the chip only half the picture's width to wrap in. */
+    left: 10px;
+    right: 10px;
     z-index: 6;
-    transform: translateX(-50%);
+    margin-inline: auto;
+    width: fit-content;
     display: flex;
     align-items: center;
     gap: 10px;
-    max-width: calc(100% - 20px);
     padding: 6px 8px 6px 12px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--overlay-glass) 92%, transparent);
