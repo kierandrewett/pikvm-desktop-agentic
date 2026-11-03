@@ -57,6 +57,13 @@ function targets(over: { token?: string; appDir?: string; refuseLoopback?: boole
                 res.end(`agent ${req.method} ${path}`);
             },
         },
+        watch: {
+            handles: (path: string) => path.startsWith("/app/api/v1/watch"),
+            handle(req: IncomingMessage, res: ServerResponse, path: string): void {
+                res.writeHead(200, { "content-type": "text/plain", "x-target": "watch" });
+                res.end(`watch ${req.method} ${path}`);
+            },
+        },
         accessToken: () => over.token ?? "",
         kvmd: {
             ...marker("kvmd"),
@@ -536,6 +543,23 @@ test("chat: its REST routes are ours, behind the gate; its socket needs the gate
             "behind a proxy the host the browser used is the forwarded one",
         );
         assert.match(await socket(s.origin, "/app/chat/ws", { origin: `http://${host}` }), /^error|refused/, "no session");
+    } finally {
+        await s.close();
+    }
+});
+
+test("the watch routes are ours, ahead of the API, and a write must be JSON (also PATCH)", async () => {
+    const s = await run(targets());
+    try {
+        assert.equal((await call(s.origin, "/app/api/v1/watch")).target, "watch");
+        assert.equal((await call(s.origin, "/app/api/v1/watch/checks")).target, "watch");
+        for (const method of ["PATCH", "POST"]) {
+            const plain = await call(s.origin, "/app/api/v1/watch/test", { method, headers: { "content-type": "text/plain" }, body: "x" });
+            assert.equal(plain.status, 415, method);
+        }
+        const patch = await call(s.origin, "/app/api/v1/watch", { method: "PATCH", headers: { "content-type": "application/json" }, body: "{}" });
+        assert.equal(patch.target, "watch");
+        assert.equal((await call(s.origin, "/app/api/v1/state")).target, "api");
     } finally {
         await s.close();
     }

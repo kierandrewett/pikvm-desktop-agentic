@@ -1,0 +1,5 @@
+{
+  "name": "fake-push",
+  "private": true,
+  "type": "module"
+}

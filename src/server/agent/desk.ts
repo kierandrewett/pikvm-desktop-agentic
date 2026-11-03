@@ -141,13 +141,13 @@ const DEFAULTS = {
     sweepMs: 15_000,
 };
 
-interface KvmdResponse {
+export interface KvmdResponse {
     readonly status: number;
     readonly headers: IncomingHttpHeaders;
     readonly body: Buffer;
 }
 
-function kvmdRequest(
+export function kvmdRequest(
     target: DeskTarget,
     path: string,
     init: { method?: "GET" | "POST"; timeoutMs: number; signal?: AbortSignal; body?: string; contentType?: string },
@@ -185,7 +185,7 @@ function kvmdRequest(
 }
 
 /** Width and height from a JPEG's start-of-frame marker, for a snapshot that carries no size headers. */
-function jpegSize(data: Buffer): FrameSize | null {
+export function jpegSize(data: Buffer): FrameSize | null {
     let i = 2;
     while (i + 9 < data.length) {
         if (data[i] !== 0xff) {

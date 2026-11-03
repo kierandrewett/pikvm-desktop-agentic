@@ -23,7 +23,7 @@ export function ScreenAlertsGroup() {
             <Group title="Screen changes">
                 <Row
                     label="Alert me when the screen changes"
-                    hint="Not available on a phone: this page is suspended as soon as you leave it, so nothing can watch the screen."
+                    hint="Not available on a phone: this page is suspended as soon as you leave it, so nothing can watch the screen. Settings, Notifications has the server watch it instead and sends a notification."
                 />
             </Group>
         );

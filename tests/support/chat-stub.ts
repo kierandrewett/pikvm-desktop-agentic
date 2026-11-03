@@ -9,6 +9,8 @@ export function stubChat(over: Partial<ChatServer> = {}): () => Promise<ChatServ
         handleUpgrade: (_req, socket) => void socket.end(),
         askApproval: async () => "unavailable",
         stopResponses: () => 0,
+        openRouter: () => undefined,
+        userDir: (userId) => `/stub/chat/users/${userId}`,
         setting: ((key: string) => (key === "agent.pikvm.maxEdge" ? 1280 : key === "agent.pikvm.approval" ? "risky" : false)) as ChatServer["setting"],
         status: () => ({ ready: true, runtime: { found: true, binary: "/stub/omp" }, profile: "computer", agentSurface: "http://127.0.0.1:0" }),
         stop: async () => undefined,

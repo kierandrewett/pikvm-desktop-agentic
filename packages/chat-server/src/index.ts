@@ -38,10 +38,13 @@ import { askApproval, type ApprovalDecision } from "./mcp/interactions.ts";
 import { ensureCatalog } from "./models/catalog.ts";
 import { configurePaths, OPERATOR_ID, paths } from "./paths.ts";
 import { setting, type SettingKey, type SettingValue } from "./settings/store.ts";
+import { openRouterProvider, type HostProvider } from "./agent/host-provider.ts";
 
 export type { BuiltinMcp, BuiltinMcpContext } from "./mcp/builtin.ts";
 export type { ApprovalDecision } from "./mcp/interactions.ts";
 export type { RunHooks } from "./env.ts";
+export type { HostProvider } from "./agent/host-provider.ts";
+export { OPERATOR_ID } from "./paths.ts";
 
 export interface ChatServerOptions {
     /** The host's data directory. Everything the chat server keeps goes under `<dataDir>/chat`. */
@@ -110,6 +113,10 @@ export interface ChatServer {
     setting(key: "agent.pikvm.approval"): SettingValue<"agent.pikvm.approval">;
     setting(key: "agent.pikvm.allowPower"): SettingValue<"agent.pikvm.allowPower">;
     setting(key: "agent.pikvm.maxEdge"): SettingValue<"agent.pikvm.maxEdge">;
+    /** The OpenRouter provider (address and key) the user stored in Settings, for the host's own calls. Undefined when none. */
+    openRouter(userId: string): HostProvider | undefined;
+    /** `<data>/chat/users/<id>`: where this user's files live. Not created. */
+    userDir(userId: string): string;
     status(): ChatServerStatus;
     /** Stop every agent process, close the sockets and the agent surface, and close the database. */
     stop(): Promise<void>;
@@ -185,6 +192,8 @@ export async function createChatServer(options: ChatServerOptions): Promise<Chat
                 signal: ask.signal,
             }),
         stopResponses: () => cancelAll(OPERATOR_ID),
+        openRouter: (userId) => openRouterProvider(userId),
+        userDir: (userId) => paths.user(userId).root,
         setting: ((key: SettingKey) => setting(key)) as ChatServer["setting"],
         status: () => ({
             ready: true,

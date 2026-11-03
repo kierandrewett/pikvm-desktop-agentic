@@ -2,6 +2,7 @@
 
 import type { ComponentType, ReactNode } from "react";
 import {
+    Bell,
     Brain,
     Cursor,
     Eye,
@@ -23,6 +24,7 @@ import { DisplayPage } from "./pages/display";
 import { InputPage } from "./pages/input";
 import { KeepAwakePage } from "./pages/keep-awake";
 import { KeyboardPage } from "./pages/keyboard";
+import { NotificationsPage } from "./pages/notifications";
 import { MacrosPage } from "./pages/macros";
 import { audioDevicesSupported } from "./pages/audio-devices";
 import { AgentPage, ModelsPage, ProvidersPage } from "./chat-pages";
@@ -30,6 +32,7 @@ import { AgentPage, ModelsPage, ProvidersPage } from "./chat-pages";
 export type PageId =
     | "connection"
     | "keep-awake"
+    | "notifications"
     | "keyboard"
     | "input"
     | "macros"
@@ -63,6 +66,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
         pages: [
             { id: "connection", title: "Connection", icon: <Link />, component: ConnectionPage },
             { id: "keep-awake", title: "Keep awake", icon: <Eye />, component: KeepAwakePage },
+            { id: "notifications", title: "Notifications", icon: <Bell />, component: NotificationsPage },
         ],
     },
     {

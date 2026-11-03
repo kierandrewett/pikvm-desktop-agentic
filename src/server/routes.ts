@@ -13,6 +13,7 @@
  *   /app/chat/api/*            the chat server's REST routes (its own request header on mutations)
  *   /app/chat/ws (upgrade)     its socket: the gate, then a same-origin check
  *   /app/api/v1/agent/*        what the agent is doing (SSE), Stop, Hand back
+ *   /app/api/v1/watch/*        the screen watch: its settings, push subscriptions, test and check log
  *   /app/api/v1/*              our HttpApi
  *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
  *                              /app/ until the app is built); /app/legacy/ the console
@@ -60,6 +61,11 @@ export interface RouteTargets {
     };
     /** What the agent is doing with the PiKVM, Stop and Hand back. */
     agent: AgentRoutes;
+    /** The screen watch's settings and notification routes. */
+    watch: {
+        handles(path: string): boolean;
+        handle(req: IncomingMessage, res: ServerResponse, path: string): void | Promise<void>;
+    };
     /** Refuse a peer on loopback (except the public paths): the host sits behind an authenticating proxy that
      *  connects over the network, so a loopback peer is another process in the same container, such as the agent. */
     refuseLoopback?: boolean;
@@ -173,6 +179,19 @@ export function createRoutes(t: RouteTargets): Route[] {
                     return json(res, 415, { error: "Expected application/json" });
                 }
                 t.agent.handle(req, res, path);
+            },
+        },
+
+        {
+            name: "screen watch",
+            match: ({ path }) => t.watch.handles(path),
+            // Same rule as the rest of our API: a JSON body on every write forces a preflight this server never answers.
+            run: ({ req, res, path, method }) => {
+                const mutating = method !== "GET" && method !== "HEAD";
+                if (mutating && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
+                    return json(res, 415, { error: "Expected application/json" });
+                }
+                return t.watch.handle(req, res, path);
             },
         },
 

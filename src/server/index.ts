@@ -17,6 +17,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { resolve } from "node:path";
+import { OPERATOR_ID } from "@pikvm/chat-server";
 import { DEFAULT_MAX_EDGE } from "@pikvm/kvm-engine/agent";
 import type { ImageOps } from "../image-ops";
 import { MacroStore } from "../macros";
@@ -31,6 +32,9 @@ import { createApi } from "./api";
 import type { TargetEditor } from "./api";
 import { startChat, type ChatHost, type ChatHostOptions } from "./chat";
 import { createRouter } from "./routes";
+import { limitsFromEnv } from "./watch/limits";
+import { createWatchRoutes } from "./watch/routes";
+import { createWatchService } from "./watch/service";
 import { createPiKvmProxy } from "./proxy/kvmd";
 import { appAssets, webAssets } from "./static";
 
@@ -131,6 +135,27 @@ export function startControlServer(
     });
     const agent = createAgentRoutes(activity, chat.controls);
 
+    // The screen watch: one poller on the PiKVM for everyone who switched theirs on. It needs the chat server's stored
+    // key, so it starts once chat is up (or has failed to start, when it simply finds nothing to resume).
+    const watch = createWatchService({
+        chat,
+        target: () => control.proxyTarget(),
+        images: deps.images,
+        dataDir: settings.dir(),
+        limits: limitsFromEnv(),
+        allowLocalPush: process.env["PIKVM_PUSH_ALLOW_LOCAL"] === "1",
+        subject: process.env["PIKVM_PUSH_SUBJECT"] || undefined,
+        log: (line) => console.log(line),
+    });
+    const watchRoutes = createWatchRoutes(watch, OPERATOR_ID);
+    void chat.ready.then(() => {
+        try {
+            watch.start();
+        } catch (error) {
+            console.error("[watch] could not resume:", error);
+        }
+    });
+
     const api = createApi({
         control,
         settings,
@@ -148,6 +173,7 @@ export function startControlServer(
         kvmd,
         chat,
         agent,
+        watch: watchRoutes,
         ...(deps.refuseLoopback ? { refuseLoopback: true } : {}),
         api,
         assets: webAssets,
@@ -157,6 +183,7 @@ export function startControlServer(
     const server = createServer((req, res) => router.onRequest(req, res));
     server.on("upgrade", (req, socket, head) => router.onUpgrade(req, socket, head));
     server.on("close", () => {
+        watch.stop();
         jiggler.stop();
         void api.dispose();
         void chat?.stop().then(() => desk.dispose());
@@ -168,6 +195,7 @@ export function startControlServer(
     server.listen(port, host);
     return Object.assign(server, {
         async shutdown() {
+            watch.stop();
             jiggler.stop();
             server.closeAllConnections();
             await new Promise<void>((done) => (server.listening ? server.close(() => done()) : done()));

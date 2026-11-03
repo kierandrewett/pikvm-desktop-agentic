@@ -29,6 +29,16 @@ export interface BuiltinMcp {
     handle(req: Request, ctx: BuiltinMcpContext): Promise<Response>;
 }
 
+/** A model provider (address and key) the host itself calls, never the agent. */
+export interface HostProvider {
+    id: string;
+    baseUrl: string;
+    apiKey: string;
+}
+
+/** The one user's id. */
+export const OPERATOR_ID: string;
+
 export interface RunHooks {
     beginRun(conversationId: string): void;
     endRun(conversationId: string): void;
@@ -76,6 +86,10 @@ export interface ChatServer {
     setting(key: "agent.pikvm.approval"): "risky" | "always" | "never";
     setting(key: "agent.pikvm.allowPower"): boolean;
     setting(key: "agent.pikvm.maxEdge"): number;
+    /** The OpenRouter provider the user stored in Settings, for the host's own calls. Undefined when none. */
+    openRouter(userId: string): HostProvider | undefined;
+    /** `<data>/chat/users/<id>`. Not created. */
+    userDir(userId: string): string;
     status(): ChatServerStatus;
     stop(): Promise<void>;
 }

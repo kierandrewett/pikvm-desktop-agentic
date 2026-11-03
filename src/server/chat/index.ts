@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import { createChatServer, type BuiltinMcp, type ChatServer } from "@pikvm/chat-server";
+import { createChatServer, type BuiltinMcp, type ChatServer, type HostProvider } from "@pikvm/chat-server";
 import type { Features } from "@pikvm/contracts/api";
 import { createPikvmMcp, defaultPolicy, tools, type JsonRpcRequest, type PikvmMcp, type PikvmPolicy } from "@pikvm/mcp";
 import { DEFAULT_MAX_EDGE } from "@pikvm/kvm-engine/agent";
@@ -46,6 +46,10 @@ export interface ChatHost {
     readonly controls: AgentControls;
     /** The long edge of the screenshots the agent sees, from Settings. */
     maxEdge(): number;
+    /** The OpenRouter provider (address and key) a user stored in Settings. Undefined when none, or while chat is not up. */
+    openRouter(userId: string): HostProvider | undefined;
+    /** `<data>/chat/users/<id>`, where that user's files live. Throws while chat is not up. */
+    userDir(userId: string): string;
     /** Resolves when the first start attempt has finished, whichever way. */
     readonly ready: Promise<void>;
     stop(): Promise<void>;
@@ -145,6 +149,11 @@ export function startChat(options: ChatHostOptions): ChatHost {
             handBack: () => desk.handBack(),
         },
         maxEdge: () => chat?.setting("agent.pikvm.maxEdge") ?? DEFAULT_MAX_EDGE,
+        openRouter: (userId) => chat?.openRouter(userId),
+        userDir(userId) {
+            if (!chat) throw new Error("Chat is not up");
+            return chat.userDir(userId);
+        },
         ready,
         stop() {
             // Once: the server's close event and a quitting app may both ask.

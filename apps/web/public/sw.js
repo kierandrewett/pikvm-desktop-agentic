@@ -100,3 +100,48 @@ self.addEventListener("fetch", (e) => {
             .catch(() => caches.match(req).then((hit) => hit || Response.error())),
     );
 });
+
+// ---- Web Push ------------------------------------------------------------------------------------
+//
+// The server's screen watch (src/server/watch) sends a push when the screen changes in a way the
+// person asked to hear about; the payload is JSON { title, body, tag, url }, built by the server
+// from the image model's description. A push the worker cannot read still shows something: iOS
+// and Chrome both revoke a subscription whose pushes show nothing (userVisibleOnly).
+//
+// The notification is for this app only: a tap opens (or focuses) a window inside /app/.
+
+self.addEventListener("push", (e) => {
+    let data = {};
+    try {
+        data = e.data ? e.data.json() : {};
+    } catch (_) {
+        data = {};
+    }
+    const title = typeof data.title === "string" && data.title !== "" ? data.title : "PiKVM";
+    const body = typeof data.body === "string" && data.body !== "" ? data.body : "The screen changed.";
+    const tag = typeof data.tag === "string" && data.tag !== "" ? data.tag : "pikvm-screen";
+    const url = typeof data.url === "string" && data.url.startsWith("/app/") ? data.url : "/app/";
+    e.waitUntil(
+        self.registration.showNotification(title, {
+            body,
+            tag,
+            renotify: true,
+            icon: "/app/icon-192.png",
+            badge: "/app/icon-192.png",
+            data: { url },
+        }),
+    );
+});
+
+self.addEventListener("notificationclick", (e) => {
+    e.notification.close();
+    const data = e.notification.data;
+    const path = data && typeof data.url === "string" && data.url.startsWith("/app/") ? data.url : "/app/";
+    const target = new URL(path, self.location.origin).href;
+    e.waitUntil(
+        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+            const open = windows.find((w) => w.url.startsWith(self.location.origin + "/app/"));
+            return open && typeof open.focus === "function" ? open.focus() : self.clients.openWindow(target);
+        }),
+    );
+});
