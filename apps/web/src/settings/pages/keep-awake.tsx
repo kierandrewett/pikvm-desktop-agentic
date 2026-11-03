@@ -14,13 +14,13 @@ export function KeepAwakePage() {
     }
 
     return (
-        <SettingsPage title="Keep awake" description="Stop the target locking or sleeping while it is idle.">
+        <SettingsPage title="Keep awake" description="Keep the target from locking or sleeping.">
             <SettingsSection title="Mouse jiggler">
                 <SettingsCard>
                     <SettingRow
                         id="keep-awake"
                         label="Keep the target awake"
-                        description="While the target is idle, nudge its mouse now and then so it does not lock or sleep."
+                        description="Moves the target's mouse now and then while it is idle."
                         status={saving ? { state: "saving" } : { state: "idle" }}
                         error={saveError ? `Could not save: ${saveError}` : null}
                         control={

@@ -10,7 +10,7 @@ export function AboutPage() {
     const state = useAppState();
     const desktop = desktopBridge();
     return (
-        <SettingsPage title="About" description="This app, and the host it talks to.">
+        <SettingsPage title="About" description="The app and the host it connects to.">
             <SettingsSection title="PiKVM">
                 <SettingsCard>
                     {desktop ? (

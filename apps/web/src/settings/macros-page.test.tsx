@@ -28,7 +28,7 @@ let rig: Rig;
 
 const chord = (code: string, mods: string[] = []) => ({ type: "chord", mods, code });
 const reboot = { id: "reboot", label: "Reboot", icon: "power", steps: [chord("KeyR", ["ControlLeft"])] };
-const login = { id: "login", label: "Login", pinned: false, steps: [{ type: "text", text: "kieran" }, chord("Tab")] };
+const login = { id: "login", label: "Login", pinned: false, steps: [{ type: "text", text: "admin" }, chord("Tab")] };
 
 beforeEach(async () => {
     server = defaultServer();
@@ -48,7 +48,7 @@ const lastPut = () => (puts().at(-1)?.body as { macros: Array<{ id: string; labe
 async function open(env: { compact?: boolean } = {}) {
     const view = renderApp("/settings/macros", { ...env, session: rig.session });
     await screen.findByRole("heading", { level: 1, name: "Macros" });
-    await waitFor(() => expect(screen.queryByText("Loading\u2026")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Loading")).toBeNull());
     return view;
 }
 
@@ -231,7 +231,7 @@ describe("manager", () => {
             rig.clock.advance(1000);
             await rig.clock.settle();
         });
-        expect(rig.http.requests[0]).toMatchObject({ path: "/api/hid/print?limit=0&delay=0.02", body: "kieran" });
+        expect(rig.http.requests[0]).toMatchObject({ path: "/api/hid/print?limit=0&delay=0.02", body: "admin" });
         await act(async () => {
             rig.clock.advance(1000);
             await rig.clock.settle();

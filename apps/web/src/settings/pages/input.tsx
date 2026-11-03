@@ -25,13 +25,13 @@ export function InputPage() {
     const [hid, setHid] = useStoredValue(TOUCH_HID_KEY, readTouchHid);
 
     return (
-        <SettingsPage title="Touch and mouse" description="How your finger or trackpad drives the target's mouse.">
+        <SettingsPage title="Touch and mouse" description="How touch drives the target's mouse.">
             <SettingsSection title="Touch">
                 <SettingsCard>
                     <SettingRow
                         id="touch-input"
                         label="Touch input"
-                        description="Trackpad moves a cursor with your finger, like a laptop. Touch points straight at the screen: tap to click, hold to right-click."
+                        description="Trackpad moves a cursor, like a laptop. Touch points at the screen: tap to click, hold to right-click."
                         control={<Segmented label="Touch input" options={[...MODES]} value={mode} onChange={setMode} />}
                     />
                 </SettingsCard>
@@ -41,7 +41,7 @@ export function InputPage() {
                     <SettingRow
                         id="mouse-mode"
                         label="Mouse mode"
-                        description="Absolute lands the cursor exactly and lets the view follow it. Relative is for targets that ignore an absolute mouse, such as some BIOS screens and games."
+                        description="Absolute places the cursor exactly and the view follows it. Relative suits targets that ignore an absolute mouse, such as some BIOS screens and games."
                         control={<Segmented label="Trackpad mouse" options={[...HID]} value={hid} onChange={setHid} />}
                     />
                 </SettingsCard>

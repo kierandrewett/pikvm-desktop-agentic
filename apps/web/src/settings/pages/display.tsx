@@ -13,13 +13,13 @@ export function DisplayPage() {
     const [choice, setChoice] = useState<ThemeChoice>(readThemeChoice);
 
     return (
-        <SettingsPage title="Display" description="How the app looks, and what it tells you about the screen.">
+        <SettingsPage title="Display" description="Theme and screen alerts.">
             <SettingsSection title="Appearance">
                 <SettingsCard>
                     <SettingRow
                         id="theme"
                         label="Theme"
-                        description="System follows your device and changes with it."
+                        description="System follows the device setting."
                         control={
                             <Segmented
                                 label="Theme"

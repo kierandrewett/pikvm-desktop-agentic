@@ -12,7 +12,7 @@ export function AccountPage() {
                     <SettingsCard>
                         <SettingRow
                             label="Not signed in through a proxy"
-                            description="This host is not behind a sign-in proxy, so there is nothing to sign out of."
+                            description="This host has no sign-in proxy. There is nothing to sign out of."
                         />
                     </SettingsCard>
                 </SettingsSection>
@@ -21,12 +21,12 @@ export function AccountPage() {
     }
 
     return (
-        <SettingsPage title="Account" description="How you signed in to this host.">
+        <SettingsPage title="Account" description="The sign-in for this host.">
             <SettingsSection>
                 <SettingsCard>
                     <SettingRow
                         label="Sign out"
-                        description="You will be asked to sign in again to use this app."
+                        description="You must sign in again to use the app."
                         control={
                             <Button variant="danger" asChild>
                                 <a href={OAUTH_SIGN_OUT_PATH}>Sign out</a>

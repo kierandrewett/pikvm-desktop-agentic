@@ -52,10 +52,10 @@ export function AudioPage() {
     const hidden = labelsHidden(inputs) || labelsHidden(outputs);
 
     return (
-        <SettingsPage title="Audio" description="Devices for the target's sound and your microphone.">
+        <SettingsPage title="Audio" description="Microphone and speaker for the KVM screen.">
             <SettingsSection
                 title="Devices"
-                description="Used for the target's sound and your microphone in the KVM screen. A chosen device that is unplugged is reported, not swapped for another."
+                description="Used for the target's sound and your microphone on the KVM screen. A chosen device that is unplugged is marked, not replaced."
             >
                 <SettingsCard>
                     {loaded ? (
@@ -78,7 +78,7 @@ export function AudioPage() {
                     {hidden ? (
                         <SettingRow
                             label="Device names are hidden"
-                            description="The browser shows names after microphone access is allowed once."
+                            description="The browser shows device names once you allow microphone access."
                             control={<Button onClick={() => void allowAccess()}>Allow access</Button>}
                         />
                     ) : null}

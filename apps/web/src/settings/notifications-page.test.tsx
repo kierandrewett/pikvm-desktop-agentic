@@ -226,7 +226,7 @@ describe("switching on", () => {
         const toggle = await screen.findByRole("switch", { name: NOTIFY });
         await waitFor(() => expect(toggle).toBeEnabled());
         await userEvent.click(toggle);
-        expect(await screen.findByRole("alert")).toHaveTextContent(/were not allowed/);
+        expect(await screen.findByRole("alert")).toHaveTextContent(/are blocked on this device/);
         expect(spies.subscribe).not.toHaveBeenCalled();
         expect(server.requests.some((r) => r.method === "PATCH" || r.path === "/subscribe")).toBe(false);
         expect(toggle).toHaveAttribute("aria-checked", "false");
@@ -291,7 +291,7 @@ describe("the rule and the model", () => {
         device();
         renderApp("/settings/notifications");
         await waitFor(() => expect(screen.getByLabelText("Image model", { selector: "input" })).toHaveValue("google/gemma-3-12b-it"));
-        expect(screen.getByText(/empty uses google\/gemma-3-12b-it/)).toBeInTheDocument();
+        expect(screen.getByText(/Leave it empty to use google\/gemma-3-12b-it/)).toBeInTheDocument();
     });
 });
 
@@ -386,6 +386,6 @@ describe("the log", () => {
         install(watchServer());
         device();
         renderApp("/settings/notifications");
-        expect(await screen.findByText(/every 3 seconds.*6 seconds.*At most one check every minute and 200 a day \(4 so far/)).toBeInTheDocument();
+        expect(await screen.findByText(/every 3 seconds.*6 seconds.*one check a minute and 200 a day \(4 used/)).toBeInTheDocument();
     });
 });

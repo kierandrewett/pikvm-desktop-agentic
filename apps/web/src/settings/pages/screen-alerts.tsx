@@ -25,7 +25,7 @@ export function ScreenAlertsSection() {
                     <SettingRow
                         id="screen-alerts"
                         label="Alert me when the screen changes"
-                        description="Not available on a phone: this page is suspended as soon as you leave it, so nothing can watch the screen. Settings, Notifications has the server watch it instead and sends a notification."
+                        description="Not available on a phone. The page is suspended when you leave it, so it cannot watch the screen. Use Notifications instead: the server watches the screen and sends a notification."
                     />
                 </SettingsCard>
             </SettingsSection>
@@ -38,8 +38,8 @@ export function ScreenAlertsSection() {
             title="Screen changes"
             description={
                 desktop
-                    ? "While this window is behind others, its taskbar entry pulses when the target's screen changes: a dialog opens, a reboot starts, an install finishes."
-                    : "While this window is behind others, the tab's title and icon badge change when the target's screen changes, and a notification is shown if you allow them. The picture keeps streaming to watch for it."
+                    ? "While this window is behind others, its taskbar entry pulses when the target's screen changes. Examples: a dialog opens, a reboot starts, an install finishes."
+                    : "While this window is behind others, the tab title and icon badge change when the target's screen changes. A notification also appears if you allow it. The picture keeps streaming so the app can watch it."
             }
         >
             <SettingsCard>
@@ -61,7 +61,7 @@ export function ScreenAlertsSection() {
                 {on && !desktop && permission === "denied" ? (
                     <SettingRow
                         label="Notifications are blocked"
-                        description="Only the title and badge change. Allow notifications for this site in the browser's settings to be told in the system's own way."
+                        description="Only the title and badge change. To get system notifications, allow them for this site in the browser settings."
                     />
                 ) : null}
             </SettingsCard>

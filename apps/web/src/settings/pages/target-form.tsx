@@ -62,7 +62,7 @@ export function TargetForm({ target }: { target: TargetConfig }) {
         <form onSubmit={submit} noValidate>
             <SettingsSection
                 title="Change the PiKVM"
-                description="Saving applies at once and reloads the app. The password is stored in its own file, readable only by you, and is never shown again."
+                description="Saving applies the change and reloads the app. The password is stored in a file that only you can read. It is never shown again."
             >
                 <SettingsCard>
                     <SettingRow

@@ -29,13 +29,13 @@ export function ConnectionPage() {
     const link = target ? LINK[target.link] : undefined;
 
     return (
-        <SettingsPage title="Connection" description="The PiKVM this app is connected to.">
+        <SettingsPage title="Connection" description="The PiKVM this app controls.">
             <SettingsSection
                 title="PiKVM"
                 description={
                     editable?.editable
                         ? undefined
-                        : "The PiKVM is set when the host starts. Change it in the host's configuration, not here."
+                        : "The host sets the PiKVM at startup. To change it, edit the host configuration."
                 }
             >
                 <SettingsCard>

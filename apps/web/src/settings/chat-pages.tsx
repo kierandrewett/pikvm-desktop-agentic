@@ -33,7 +33,7 @@ function ChatSettingsPage({ page }: { page: ChatPage }) {
                     <SettingsCard>
                         <SettingRow
                             label="Not available on this host"
-                            description={`Chat is not available on this host, so there is nothing to set here yet.${
+                            description={`Chat is not available on this host.${
                                 state.isSuccess && state.data.features.agent?.reason ? ` ${state.data.features.agent.reason}` : ""
                             }`}
                         />

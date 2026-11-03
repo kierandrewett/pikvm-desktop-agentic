@@ -262,7 +262,7 @@ describe("connection", () => {
         renderApp("/settings/connection");
         await screen.findByText("https://pikvm.example");
         expect(screen.queryByRole("textbox")).toBeNull();
-        expect(screen.getByText(/set when the host starts/)).toBeInTheDocument();
+        expect(screen.getByText(/sets the PiKVM at startup/)).toBeInTheDocument();
     });
 });
 
@@ -523,6 +523,6 @@ describe("settings navigation", () => {
 
     it("says so for an unknown settings page", async () => {
         renderApp("/settings/nope", { compact: true });
-        expect(await screen.findByText("No such setting")).toBeInTheDocument();
+        expect(await screen.findByText("Page not found")).toBeInTheDocument();
     });
 });

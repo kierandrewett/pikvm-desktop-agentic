@@ -227,11 +227,11 @@ export function SettingsDetail({ page }: { page: string }) {
 
 function Missing({ page }: { page: string }): ReactNode {
     return (
-        <SettingsPage title="No such setting">
+        <SettingsPage title="Page not found">
             <SettingsSection>
                 <SettingsCard>
                     <SettingRow
-                        label="Settings page not found"
+                        label="This page does not exist"
                         description={`There is no settings page called "${page}".`}
                         control={
                             <Button asChild>

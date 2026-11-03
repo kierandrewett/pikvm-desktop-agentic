@@ -29,7 +29,7 @@ export function KeyboardPage() {
                     <SettingRow
                         id="keyboard-layout"
                         label="Keyboard layout"
-                        description="The layout of the keyboard on the target, used when text is typed for you. It does not change what your own keyboard sends."
+                        description="The keyboard layout of the target. Used when the app types text for you. It does not change what your own keyboard sends."
                         status={saving ? { state: "saving" } : { state: "idle" }}
                         error={saveError ? `Could not save the layout: ${saveError}` : null}
                         control={

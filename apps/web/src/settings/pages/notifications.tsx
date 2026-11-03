@@ -150,7 +150,7 @@ export function NotificationsPage() {
             if (device.kind !== "ready") throw new Error(device.message);
             if (permission === "denied") {
                 await refreshDevice();
-                throw new Error("Notifications were not allowed, so there is nothing to send them to. Allow them and switch this on again.");
+                throw new Error("Notifications are blocked on this device. Allow them, then switch this on again.");
             }
             if (!data.push.available || !data.push.publicKey) throw new Error(data.push.reason ?? "The server cannot send notifications.");
             const sub = await subscribeThisDevice(data.push.publicKey);
@@ -215,8 +215,8 @@ export function NotificationsPage() {
                 title="Screen watch"
                 description={
                     limits && data
-                        ? `The server looks at the screen every ${limits.intervalSec} seconds, with no app open. When it changes and stays still for ${limits.settleSec} seconds, an image model reads it and a decision model judges it against your rule; only a clear yes sends a notification. At most one check every ${limits.minCheckGapSec === 60 ? "minute" : `${limits.minCheckGapSec} seconds`} and ${limits.dailyCap} a day (${limits.askedToday} so far in the last 24 hours). It uses your OpenRouter key, a fraction of a cent a check.`
-                        : "Loading."
+                        ? `The server checks the screen every ${limits.intervalSec} seconds, even when no app is open. When the screen changes and stays still for ${limits.settleSec} seconds, an image model describes it. A decision model then judges the description against your rule. Only a clear yes sends a notification. Limits: one check ${limits.minCheckGapSec === 60 ? "a minute" : `every ${limits.minCheckGapSec} seconds`} and ${limits.dailyCap} a day (${limits.askedToday} used in the last 24 hours). Checks use your OpenRouter key and cost a fraction of a cent each.`
+                        : "Loading"
                 }
             >
                 <SettingsCard>
@@ -248,7 +248,7 @@ export function NotificationsPage() {
                     {busy && !on ? (
                         <SettingRow
                             label="Setting up this device"
-                            description="Asking this device's push service for a subscription. This can take a few seconds."
+                            description="Requesting a push subscription from this device. This can take a few seconds."
                         />
                     ) : null}
                 </SettingsCard>
@@ -257,7 +257,7 @@ export function NotificationsPage() {
             <form onSubmit={submit} className="contents">
                 <SettingsSection
                     title="What to tell me about"
-                    description="In your own words, for example: tell me when the install finishes or an error shows. Leave it empty to hear about anything important: a dialog or an error, a task finishing or failing, the machine restarting."
+                    description="Describe what matters in your own words. For example: tell me when the install finishes or an error shows. Leave it empty to hear about anything important, such as a dialog, an error, a finished or failed task, or a restart."
                 >
                     <SettingsCard>
                         <SettingRow id="watch-rule" label="Rule" stack control={
@@ -273,7 +273,7 @@ export function NotificationsPage() {
                         <SettingRow
                             id="watch-model"
                             label="Image model"
-                            description={`The image model describes each settled screen in a sentence or two. Any OpenRouter model that accepts images works; empty uses ${data?.defaultVisionModel ?? "the default"}.`}
+                            description={`Describes each settled screen in a sentence or two. Any OpenRouter model that accepts images works. Leave it empty to use ${data?.defaultVisionModel ?? "the default"}.`}
                             stack
                             control={
                                 <TextField
@@ -332,7 +332,7 @@ export function NotificationsPage() {
 
             <SettingsSection
                 title="Recent checks"
-                description="Newest first. Each one is also kept in the server's log, with the descriptions and the decision."
+                description="Newest first. The server log also keeps each description and decision."
             >
                 <SettingsCard>
                     {checks.data && checks.data.checks.length > 0 ? (

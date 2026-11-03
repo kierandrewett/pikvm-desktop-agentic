@@ -115,7 +115,7 @@ export function MacrosPage() {
             onOpenChange={(open) => {
                 if (!open) asking?.answer(false);
             }}
-            title={asking ? `Delete the macro \u201c${asking.target.label}\u201d?` : ""}
+            title={asking ? `Delete the macro "${asking.target.label}"?` : ""}
             description="This removes it from the list and the toolbar."
             confirmLabel="Delete macro"
             danger
@@ -131,7 +131,7 @@ export function MacrosPage() {
                         {loadError !== null ? (
                             <EmptyState>{`Could not load macros: ${loadError}`}</EmptyState>
                         ) : (
-                            <EmptyState loading>{"Loading\u2026"}</EmptyState>
+                            <EmptyState loading>Loading</EmptyState>
                         )}
                     </SettingsCard>
                 </SettingsSection>
@@ -319,7 +319,7 @@ export function MacrosPage() {
                         <SettingRow
                             id="macro-run"
                             label="Run on the target"
-                            description="Sends the steps now, over the link to the target."
+                            description="Sends the steps to the target now."
                             control={
                                 <Button variant="primary" disabled={!editor.canRun} onClick={() => run(macro)}>
                                     Run
