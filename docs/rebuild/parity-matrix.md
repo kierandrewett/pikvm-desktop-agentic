@@ -76,7 +76,7 @@ bridge's unit tests, and says so.
 | Cursor dot, hold cue, magnifier lens | n/p R7 | n/p R7 | available | E2E kvm-screen (screenshot) |
 | Absolute or relative trackpad mouse; touch mode | available (Settings -> Touch and mouse; in effect only on a touch screen) | available (same) | available (Settings and the More sheet) | T `kvm-screen.test.tsx` (K10); E2E kvm-screen |
 | Haptics on the hold cue | n/p R6 | n/p R6 | available | T `haptics.test.ts` |
-| Cursor position reported to the agent daemon | available | available | available | T `cursor-report.test.ts`, `picture-controller.test.ts`, `tests/harness-proxy.test.ts`, `agent/tests/test_harness_cursor.py`. On the hosted deployment the host relays `POST /app/daemon/cursor` (and only that daemon route) to the sidecar's `POST /api/cursor`, which sends it to its daemon; the page reports whenever `features.chat` is true |
+| Cursor position reported to an agent service | removed | removed | removed | The agent has its own link to the Pi and the server sees a person's input on the proxied HID socket (takeover is decided server-side), so the page reports nothing. `cursor-report.ts`, `POST /app/daemon/cursor` and the daemon proxy are deleted |
 
 ## 3. The KVM screen: keys and typing
 
@@ -121,7 +121,7 @@ bridge's unit tests, and says so.
 | Keyboard layout (US or UK for typed text) | available | available | available | T `settings.test.tsx` |
 | Touch and mouse (touch mode, trackpad absolute or relative) | available | available | available | T `settings.test.tsx` |
 | Macros | available | available | available | section 5 |
-| Providers: API keys (write-only) and CLI sign-in | available | available through the host's agent (sidecar or desktop) | available through the host's agent | T `providers.test.tsx`; Chat E2E `docs/e2e/chat-sidecar`. CLIs marked `desktop_only` (Gemini): n/p R14 on every platform that is not the machine running the agent |
+| Providers, Models and Agent (API keys write-only, gateways, model list, the agent's settings) | available | available | available | chat-web's pages on the chat server in the host: T `chat-pages.test.tsx`; E2E `docs/e2e/2026-11-03-chat-integrated.md`. Signing in with a CLI account is gone with the Python agent (open question 1 in `docs/rebuild/chat-integration.md`) |
 | Display: theme | available | available | available | T `settings.test.tsx` |
 | Display: screen-change alerts | available (taskbar) | available (title, badge, notification; blocked-permission note) | n/p R3 (the page says why) | T `screen-alerts-page.test.tsx` (S1-S4); E2E parity |
 | Audio: microphone and speaker devices | available | available (hidden without a secure context, R10; speaker n/p R11 on Safari, Firefox, said on the page) | available (same) | T `settings.test.tsx` |
@@ -130,15 +130,15 @@ bridge's unit tests, and says so.
 
 ## 7. Chat and the agent
 
-Chat on the web and phone is the WebChat agent's work (`docs/deploy-web.md`, `docs/e2e/chat-sidecar`); this
+Chat runs on the chat server inside the host (`packages/chat-server`, omp as the agent program; `docs/deploy-web.md`); this
 matrix records its rows and defers to those documents for evidence.
 
 | Feature | Desktop | Web | Mobile | Evidence and notes |
 |---|---|---|---|---|
-| Conversation, composer, run activity, approvals, model picker, diagnostics, computer sheet | available (harness runs beside the app) | available when the host has an agent (sidecar, or the desktop app) | available (same; phone layout) | `@pikvm/chat-ui` is the one implementation for all three; T `chat-route.test.tsx`, `packages/chat-ui`; E2E `docs/e2e/chat-sidecar`; desktop: E2E `docs/e2e/2026-11-02-chat-desktop.md` (the real Electron app under sway, embedded harness: run, events, held action; the agent acts on the app's PiKVM and follows a Settings change) |
-| "Chat is not available" page and automatic reconnect when the agent is down | available | available | available | T `chat-route.test.tsx` |
-| Provider connections inside Chat | available | available | available | same component as Settings -> Providers |
-| Shared terminal (the old xterm panel over `/app/terminal`) | removed: chat replaces the terminal | removed: chat replaces the terminal | removed: chat replaces the terminal | Kieran's decision. The PTY sessions, `/app/terminal`, the xterm bundle, `features.terminal` and the GUI-MCP ticket for shell agents are deleted. The Chat tab (`@pikvm/chat-ui`) is the one agent surface, against the desktop's embedded harness |
+| Conversation, composer, run activity, approvals, model picker | available | available | available (phone layout) | `packages/chat-web` is the one implementation for all three; T `chat-route.test.tsx`, `packages/chat-web`; E2E `docs/e2e/2026-11-03-chat-integrated.md` (phone and desktop, light and dark: the agent clicks, a risky action waits for approval, a person's input takes control back); the image and the Linux AppImage: `docs/e2e/2026-11-03-image-and-appimage.md` |
+| "Chat is not available" page when the host's chat server is not up, and a note when the agent program is missing | available | available | available | T `chat-route.test.tsx` |
+| Provider connections inside Chat | available | available | available | the same pages as Settings -> Providers |
+| Shared terminal (the old xterm panel over `/app/terminal`) | removed: chat replaces the terminal | removed: chat replaces the terminal | removed: chat replaces the terminal | Kieran's decision. The PTY sessions, `/app/terminal`, the xterm bundle, `features.terminal` and the GUI-MCP ticket for shell agents are deleted. The Chat tab (`packages/chat-web`) is the one agent surface |
 
 ## 8. The desktop bridge (`packages/contracts/src/desktop.ts`)
 
@@ -189,5 +189,5 @@ The four sweeps the audit was asked to make, and what each found.
 | KVM dialogs | `docs/e2e/2026-11-02-kvm-dialogs.md` |
 | Real PiKVM, video and audio only (input guarded) | `docs/e2e/2026-11-02-kvm-real-pikvm-video.md` |
 | Desktop: change the PiKVM address | `docs/e2e/2026-11-02-desktop-change-address.md` |
-| Chat on the hosted web | `docs/e2e/chat-sidecar/` |
-| Chat in the desktop app (Electron under headless sway, embedded harness) | `docs/e2e/2026-11-02-chat-desktop.md`, `apps/web/e2e/chat-desktop.e2e.mjs` |
+| Chat in the app (phone and desktop, light and dark) | `docs/e2e/2026-11-03-chat-integrated.md` |
+| The image and the Linux AppImage, Chat on the bundled omp | `docs/e2e/2026-11-03-image-and-appimage.md` |

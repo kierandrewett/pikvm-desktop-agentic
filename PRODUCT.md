@@ -17,13 +17,11 @@ recovery paths rather than a competing primary interface. There is no terminal.
 
 ## Product Purpose
 
-PiKVM Desktop is a first-party computer-use harness, not a decorative wrapper
+PiKVM Desktop is a first-party computer-use agent, not a decorative wrapper
 around a coding CLI and not a hidden autonomous operator. It provides one stable
-control plane across PiKVM, disposable VNC-backed test machines, OAuth-backed
-model CLIs, and API-based providers.
+control plane across PiKVM and API-based model providers.
 
-External clients such as Claude Code, Codex, and OpenCode may submit tasks,
-inspect status, or use a guarded compatibility boundary. The harness owns task
+External integrations reach the agent through one gateway. The server owns task
 progression, per-role provider routing, raw input execution, target-bound
 approval, verification, interruption and quiescence, evidence capture, and the
 operator-visible timeline.
@@ -52,7 +50,7 @@ computer actions unusually visible.
 
 ## Anti-references
 
-- A verbose developer console presented as a user-facing harness.
+- A verbose developer console presented as a user-facing tool.
 - A NOC dashboard full of panels, telemetry cards, and unexplained coordinates.
 - A terminal-themed interface that assumes logs are equivalent to visibility.
 - A generic chatbot that hides tool execution or shows only spinner/status text.
@@ -70,7 +68,7 @@ computer actions unusually visible.
 2. **Show effects, not coordinates.** Prefer screen crops, before/after evidence,
    exact input previews, and named targets over low-level arguments unless the
    user asks for them.
-3. **The harness owns consequential execution.** Models can reason and propose;
+3. **The server owns consequential execution.** Models can reason and propose;
    the first-party control plane sequences, commits, verifies, interrupts, and
    records.
 4. **Provider flexibility without behavioural drift.** OAuth and API providers

@@ -155,7 +155,7 @@
       "Do honour prefers-reduced-motion and keep the product usable at 200% scale."
     ],
     "donts": [
-      "Don't present a verbose developer console as the user-facing harness.",
+      "Don't present a verbose developer console as the user-facing tool.",
       "Don't build a NOC dashboard full of panels, telemetry cards, and unexplained coordinates.",
       "Don't use a terminal-themed interface that treats logs as visibility.",
       "Don't ship a generic chatbot that hides tool execution or shows only a spinner.",

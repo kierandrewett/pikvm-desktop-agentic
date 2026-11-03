@@ -1,5 +1,9 @@
 # Agent chat map (pikvm-desktop-agentic <-> ~/dev/chat)
 
+> **Superseded (2026-11-03).** This map described the Python harness, its `agent/frontend` UI and `packages/chat-ui`, and advised
+> reusing them. All three are deleted: Chat is `packages/chat-web` on `packages/chat-server` inside our server, with the
+> PiKVM tools in `packages/pikvm-mcp`. See `docs/rebuild/chat-integration.md`. Kept as history only.
+
 Read-only investigation. `[INFERENCE]` marks anything not directly read.
 Paths: `PK` = ~/dev/pikvm-desktop-agentic, `CH` = ~/dev/chat.
 

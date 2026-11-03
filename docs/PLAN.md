@@ -6,7 +6,8 @@ Kieran's uncommitted work untouched; this branch merges when the rebuild is done
 Inputs, kept beside this plan while it is in flight:
 - `docs/rebuild/console-inventory.md`: every console feature, endpoint, route, IPC
   channel, test pin and dead path, with file:line.
-- `docs/rebuild/agent-chat-map.md`: agent workspace, harness API, ~/dev/chat.
+- `docs/rebuild/agent-chat-map.md`: the old agent workspace and ~/dev/chat (superseded; see below).
+- `docs/rebuild/chat-integration.md`: how Chat, the agent and the PiKVM MCP were integrated, with the deletions (done).
 
 ## 1. What the product is
 
@@ -16,8 +17,8 @@ the same:
 
 | Host | Shell | Has |
 |---|---|---|
-| Desktop (Electron, fsociety) | native window | harness (embedded), native menus, window focus |
-| Web host (container, bsociety) | browser, Pocket ID in front | KVM; Chat via the desktop |
+| Desktop (Electron, fsociety) | native window | the chat server and agent (omp, bundled), native menus, window focus |
+| Web host (container, bsociety) | browser, Pocket ID in front | KVM; Chat and its agent in the same container |
 | Phone | installed PWA | touch, soft keyboard, dictation, background suspends |
 
 Today it is a set of parts bolted together: an 11k-line closure (`console.js`)
@@ -44,9 +45,11 @@ another domain's state.
    picture and HID units. Pure maths plus one transform.
 5. **Device control**: ATX, mass storage, GPIO, stream settings, OCR, logs,
    health. Request/response over kvmd HTTP plus state from the target link.
-6. **Agent**: harness runs, conversation, approvals, providers and routing.
+6. **Agent**: the chat server (`packages/chat-server`, from ~/dev/chat) inside our Node process, omp as the agent
+   program, the PiKVM computer-use MCP (`packages/pikvm-mcp`, on `@pikvm/kvm-engine`), conversation, approvals,
+   providers and models. Chat's pane and settings pages are `packages/chat-web`.
 7. **Host**: settings, auth, PWA lifecycle (wake lock, visibility, offline),
-   desktop capabilities (window, menus, the embedded harness). A `Host` interface with a web
+   desktop capabilities (window, menus). A `Host` interface with a web
    and a desktop implementation replaces `if (window.desktopConsole)` scattered
    through the code.
 
@@ -61,13 +64,13 @@ another domain's state.
   render code. React components read state through small hooks.
 - **TanStack Router** for the three areas and settings sub-pages; **TanStack
   Query** for request/response data (settings, macros, device state snapshots,
-  harness lists). Socket-driven state goes through a store, not Query.
+  the Chat server's lists). Socket-driven state goes through a store, not Query.
 - **One contract package** (`packages/contracts`): Effect Schemas for our API and
   the kvmd messages we read and send. Server and client import the same types.
 - **One route table** on the server, in one file, reviewed as a whole.
-- **Same look as the desktop app**: its tokens, titlebar language, density.
-  `~/dev/chat` contributes patterns re-implemented here, not copied files (it has
-  no licence and is a clean-room copy of a third-party UI).
+- **Same look as the desktop app**: its tokens, titlebar language, density. The
+  conversation interface and its server come out of `~/dev/chat`, Kieran's own repo, as
+  workspace packages (`chat-protocol`, `chat-server`, `chat-web`); Phosphor is the icon set.
 
 ## 4. Target layout
 
@@ -80,17 +83,23 @@ apps/web/                 the app (Vite, React 19, Tailwind 4, TanStack, Effect)
   src/input/              keyboard, soft-keyboard mirror, pointer/touch machines, macros
   src/view/               coordinate maths, zoom/pan/clamp, cursor, lens
   src/kvm/                KVM screen: picture, dock, key rows, sheets, dialogs
-  src/chat/               the Chat route (host states around @pikvm/chat-ui)
+  src/chat/               the Chat route (host states around @pikvm/chat-web's ChatPane)
   src/settings/           settings pages
 packages/contracts/       Effect Schemas: our API + kvmd messages
-packages/chat-ui/         the agent workspace, shared by apps/web and agent/frontend (the harness's UI)
+packages/chat-protocol/   the chat wire protocol (from ~/dev/chat)
+packages/chat-server/     the chat server, run inside our process; spawns omp per conversation
+packages/chat-web/        the conversation pane and the Providers, Models and Agent settings pages
+packages/pikvm-mcp/       the PiKVM computer-use MCP server
+packages/kvm-engine/      the KVM engine, shared by the app and the agent's Desk
+packages/icons/           Phosphor icons
 src/server/               one Node server for desktop and web host
   routes.ts               the route table
   api/                    Effect HttpApi handlers for /app/api/v1/*
-  proxy/                  kvmd passthrough (HTTP + WS), harness proxy
+  proxy/                  kvmd passthrough (HTTP + WS)
+  chat/                   the chat server and the PiKVM MCP on its agent listener
+  agent/                  the Desk, presence and activity
   auth.ts                 the one gate
 src/desktop/              Electron main + one preload
-agent/                    harness (Python); its standalone UI keeps working
 tools/fake-kvmd/          a kvmd simulator for end-to-end tests
 ```
 
@@ -103,8 +112,8 @@ kvmd owns `/`, `/kvm/`, `/login/`, `/api/`, `/streamer/`, `/janus/`, `/share/`,
 |---|---|
 | `/app/` and client routes `/app/kvm`, `/app/chat`, `/app/settings/*` | the SPA (PWA scope) |
 | `/app/assets/*` | built assets, immutable, hashed |
-| `/app/api/v1/*` | our API (state, settings, macros, providers, session) |
-| `/app/harness/*` | harness proxy, operator capability server-side only |
+| `/app/api/v1/*` | our API (state, settings, macros, session, agent activity) |
+| `/app/chat/api/*`, `/app/chat/ws` | the chat server's REST routes and socket |
 | `/app/sw.js`, `/app/manifest.webmanifest`, icons | PWA files, public |
 | `/` | redirect to `/app/` |
 | anything else | kvmd passthrough |
@@ -145,11 +154,11 @@ Each ends committed, deployed and working.
 2. **App shell and Settings.** `apps/web` with nav and the Settings pages
    (connection, keyboard layout, jiggler, touch, trackpad mouse, theme, audio
    devices, macros, account). The KVM tab hosts the existing console until 4.
-3. **Chat.** Agent workspace inside the app, phone layout, same harness API.
+3. **Chat.** The conversation inside the app, phone layout, on the chat server in our process (done).
 4. **KVM.** Engine modules (target, video, input, view) with tests, then views,
    feature by feature against the parity checklist. The old console is deleted.
-5. **Providers.** Harness endpoints for a write-only key store and CLI-owned
-   sign-in (start, status, sign out); Settings UI for both.
+5. **Providers.** Chat's Providers, Models and Agent settings pages on the chat server's write-only key store
+   (done). Signing in with an account instead of a key is an open question in `docs/rebuild/chat-integration.md`.
 6. **Desktop.** Electron loads `/app/`, one slim preload, the settings window
    goes. Packaging moves to **pkgsmith** (`~/dev/pkgsmith`, github
    kierandrewett/pkgsmith): one `pkgsmith.star` producing the major formats for
@@ -159,6 +168,6 @@ Each ends committed, deployed and working.
 ## 9. Decisions
 
 - Same behaviour, new code: console.js is ported, not wrapped.
-- Provider "log in" means each CLI's own sign-in, which the harness already uses;
-  no home-grown OAuth against model vendors.
+- Providers are API keys and gateways held by the chat server; no home-grown OAuth against model vendors. The
+  Python agent and its provider CLIs are gone (see `docs/rebuild/chat-integration.md`).
 - BYOK keys are write-only from the browser: set, replace, remove, never read back.

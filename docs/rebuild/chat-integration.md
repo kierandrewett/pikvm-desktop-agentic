@@ -1,6 +1,6 @@
 # Chat integration plan: ~/dev/chat becomes the Chat tab
 
-Status: executed through S4, on branch `feat/app-rebuild`. Written 2026-11-02, status updated 2026-11-03.
+Status: executed through S6, on branch `feat/app-rebuild`. Written 2026-11-02, status updated 2026-11-03.
 
 | Slice | State |
 | --- | --- |
@@ -10,7 +10,7 @@ Status: executed through S4, on branch `feat/app-rebuild`. Written 2026-11-02, s
 | S3 chat-web lift | done; the dead code of the lift (admin scope, server dictation, side-panel branches, projects, agentic-change, orphan `.ftl`) was pruned in S4 |
 | S4 integration | done: the chat server in the host, the agent routes and banner, the Origin check, loopback refusal, Settings pages. Browser evidence: `docs/e2e/2026-11-03-chat-integrated.md` (`apps/web/e2e/chat.e2e.mjs`) |
 | S5 packaging | owned by the packaging agent (`docs/e2e/2026-11-03-image-and-appimage.md`) |
-| S6 cutover and docs | not started: the Python agent, `deploy/agent`, `packages/chat-ui` and the old harness and daemon routes are still in the tree |
+| S6 cutover and docs | done: `agent/`, `deploy/agent`, `packages/chat-ui`, the Python-backed Providers page, the harness and daemon proxies and `/app/workspace`, `PIKVM_HARNESS_*` and `PIKVM_DESKTOP_*`, the agent runtime and handoff code in `src/`, `human-typing`, `windmouse`, `scripts/build-agent-runtime.mjs`, the `agent-bundle` target and the `LEGACY_PACKAGES` exemption are deleted; `src/pikvm-control.ts` shrank to the proxy target, the kvmd event socket and the jiggler's nudge; `lucide-react` is in no file or lock entry. `docs/PIKVM_API.md` keeps the kvmd notes the Python agent held. The legacy console lost its agent-status pill, its cursor report and its link to the workspace bundle (its dialogs draw plain buttons) |
 
 Decisions made while executing S4 that this plan did not have:
 

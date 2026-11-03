@@ -8,7 +8,7 @@ is in git history (`docs/web-client-migration.md`, removed with the /app cutover
 - [ ] **Microphone pinning, end to end.** The device now reaches the capture via
       `webrtc.js`'s `setMicDevice(id)` → janus.js → `constraints.audio` →
       `getUserMedia`. Each link was verified separately; the whole chain has
-      never run, because there is no Janus server here and the harness swaps
+      never run, because there is no Janus server here and the e2e swaps
       `webrtc.js` for a stub. If a pinned mic still drifts, this is where to
       look.
 - [ ] Gesture feel on a real touch device (the trackpad now scales with zoom,
@@ -38,39 +38,11 @@ is in git history (`docs/web-client-migration.md`, removed with the /app cutover
       sweep.
 - [ ] **The mass-storage status line during an upload** still reads "Ready to
       mount …" rather than describing the upload. That text is driven by `msd`
-      events from the Pi, and the harness sends none while it holds the request
+      events from the Pi, and the fake kvmd sends none while it holds the request
       open, so "the UI does not report it" and "nothing reported it" cannot be
       told apart from here. Worth one look against a real Pi.
 
-## Housekeeping still queued
-
-- [x] ~~The tree is the source of truth but the venv is not.~~ **Done.**
-      `~/dev/pikvm-agent` is retired and gone from every lookup. There are two
-      places a runtime can be and one override, all in `src/agent-runtime.ts`:
-
-          agent/runtime/bin/pikvm-agent   built by `make agent-runtime`, ships
-          agent/.venv/bin/pikvm-agent     built by `uv sync`, development
-
-      Both exist here now and both point at `agent/` in this tree. Nothing falls
-      through to a bare name on `PATH` any more — a missing runtime is reported
-      with the paths tried and the app carries on without an agent.
-
-      This also answered the two items that used to sit here, about syncing
-      `agent/frontend` outward and how much of the Python project to vendor.
-      Neither is a question once the standalone checkout is not a thing that
-      runs.
-
 ## Worth deciding, not urgent
-
-- [ ] **The bundled runtime is 428MB, and 140MB of that is scipy.** It comes in
-      through `imagehash`, which needs scipy and PyWavelets for its perceptual
-      hashes. numpy is another 57MB and is genuinely load-bearing. If the RPM
-      size becomes a problem, `imagehash` is the thread to pull — but check what
-      actually calls it first, because a perceptual hash is the kind of thing
-      the change-detection path leans on.
-- [ ] **`make agent-runtime` needs network on the build machine** — `uv` fetches
-      the CPython tarball and the wheels. Fine for a dev box, worth knowing
-      before this ever runs in CI without a warm `~/.cache/uv`.
 
 - [ ] Decide on `pikvm.har` (1.5 MB leftover capture) and `package-lock.json`
       (npm residue in a Yarn project). Both gitignored, so harmless, but neither

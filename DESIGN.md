@@ -238,7 +238,7 @@ hashes, model receipts, and exact MCP arguments remain available on demand.
 
 ### Don't:
 
-- **Don't** present a verbose developer console as the user-facing harness.
+- **Don't** present a verbose developer console as the user-facing tool.
 - **Don't** build a NOC dashboard full of panels, telemetry cards, and
   unexplained coordinates.
 - **Don't** use a terminal-themed interface that treats logs as visibility.
