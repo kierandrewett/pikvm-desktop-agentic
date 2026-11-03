@@ -2,16 +2,17 @@
 
 import type { ComponentType, ReactNode } from "react";
 import {
-    BoltIcon,
-    EyeIcon,
-    InfoIcon,
-    KeyboardIcon,
-    LinkIcon,
-    PointerIcon,
-    SpeakerIcon,
-    SunMoonIcon,
-    UserIcon,
-} from "../ui/icons";
+    Cursor,
+    Eye,
+    Info,
+    Key,
+    Keyboard,
+    Lightning,
+    Link,
+    CircleHalf,
+    SpeakerHigh,
+    User,
+} from "@pikvm/icons";
 import { AboutPage } from "./pages/about";
 import { AccountPage } from "./pages/account";
 import { AudioPage } from "./pages/audio";
@@ -22,7 +23,6 @@ import { KeepAwakePage } from "./pages/keep-awake";
 import { KeyboardPage } from "./pages/keyboard";
 import { MacrosPage } from "./pages/macros";
 import { audioDevicesSupported } from "./pages/audio-devices";
-import { KeyIcon } from "./providers/icon";
 import { ProvidersPage } from "./providers/providers-page";
 
 export type PageId =
@@ -57,36 +57,36 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
     {
         title: "Target",
         pages: [
-            { id: "connection", title: "Connection", icon: <LinkIcon />, component: ConnectionPage },
-            { id: "keep-awake", title: "Keep awake", icon: <EyeIcon />, component: KeepAwakePage },
+            { id: "connection", title: "Connection", icon: <Link />, component: ConnectionPage },
+            { id: "keep-awake", title: "Keep awake", icon: <Eye />, component: KeepAwakePage },
         ],
     },
     {
         title: "Input",
         pages: [
-            { id: "keyboard", title: "Keyboard", icon: <KeyboardIcon />, component: KeyboardPage },
-            { id: "input", title: "Touch and mouse", icon: <PointerIcon />, component: InputPage },
-            { id: "macros", title: "Macros", icon: <BoltIcon />, component: MacrosPage, wide: true },
+            { id: "keyboard", title: "Keyboard", icon: <Keyboard />, component: KeyboardPage },
+            { id: "input", title: "Touch and mouse", icon: <Cursor />, component: InputPage },
+            { id: "macros", title: "Macros", icon: <Lightning />, component: MacrosPage, wide: true },
         ],
     },
     {
         title: "Agent",
-        pages: [{ id: "providers", title: "Providers", icon: <KeyIcon />, component: ProvidersPage }],
+        pages: [{ id: "providers", title: "Providers", icon: <Key />, component: ProvidersPage }],
     },
     {
         title: "App",
         pages: [
-            { id: "display", title: "Display", icon: <SunMoonIcon />, component: DisplayPage },
+            { id: "display", title: "Display", icon: <CircleHalf />, component: DisplayPage },
             {
                 id: "audio",
                 title: "Audio",
-                icon: <SpeakerIcon />,
+                icon: <SpeakerHigh />,
                 component: AudioPage,
                 available: audioDevicesSupported,
             },
             // The Account page is added by the list itself once the host proves it sits behind
             // the proxy; see SettingsList.
-            { id: "about", title: "About", icon: <InfoIcon />, component: AboutPage },
+            { id: "about", title: "About", icon: <Info />, component: AboutPage },
         ],
     },
 ];
@@ -95,7 +95,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
 export const ACCOUNT_PAGE: SettingsPageDef = {
     id: "account",
     title: "Account",
-    icon: <UserIcon />,
+    icon: <User />,
     component: AccountPage,
 };
 

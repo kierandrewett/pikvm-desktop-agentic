@@ -9,7 +9,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useProxySession } from "../api/queries";
 import { useMediaQuery, COMPACT_QUERY } from "../app/viewport";
-import { ChevronLeftIcon, ChevronRightIcon } from "../ui/icons";
+import { CaretLeft, CaretRight } from "@pikvm/icons";
 import { ACCOUNT_PAGE, findPage, SETTINGS_GROUPS, type SettingsGroupDef } from "./pages";
 
 /** The groups as they should read here: unavailable pages out, Account in when it applies. */
@@ -44,7 +44,7 @@ function SettingsList({ selected }: { selected: string | undefined }) {
                                 <span className="row-icon">{page.icon}</span>
                                 <span className="row-text row-label">{page.title}</span>
                                 <span className="row-hint" aria-hidden="true">
-                                    <ChevronRightIcon width={16} height={16} />
+                                    <CaretRight width={16} height={16} />
                                 </span>
                             </Link>
                         ))}
@@ -122,7 +122,7 @@ export function SettingsDetail({ page }: { page: string }) {
             <header className="flex items-center gap-1 py-3">
                 {compact ? (
                     <Link to="/settings" className="tb-btn -ml-2" aria-label="Back to settings">
-                        <ChevronLeftIcon />
+                        <CaretLeft />
                     </Link>
                 ) : null}
                 <h1 className="page-title">{def.title}</h1>

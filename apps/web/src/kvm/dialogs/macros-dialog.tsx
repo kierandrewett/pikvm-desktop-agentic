@@ -18,7 +18,7 @@ import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, us
 import { listMacros, replaceMacros, runApi } from "../../api/client";
 import { macrosKey } from "../../api/queries";
 import type { DialogProps } from "../dialog-seam";
-import { MACRO_ICON_NAMES, MacroIcon } from "../icons";
+import { MACRO_ICON_NAMES, MacroIcon } from "../macro-icon";
 import { failureText } from "./model/guards";
 import {
     DEFAULT_DELAY_MS,

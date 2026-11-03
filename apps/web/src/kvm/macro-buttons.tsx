@@ -9,7 +9,7 @@
 import type { Macro } from "@pikvm/contracts/api";
 import { macroNeedsInput, type MacroLike } from "@pikvm/kvm-engine";
 import { useMacros } from "../api/queries";
-import { MacroIcon } from "./icons";
+import { MacroIcon } from "./macro-icon";
 import { useKvmSession, useTarget } from "./session";
 import { useStore } from "./use-store";
 

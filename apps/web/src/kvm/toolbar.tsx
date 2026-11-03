@@ -10,7 +10,16 @@ import { useEffect, useRef } from "react";
 import { useMacros } from "../api/queries";
 import { SHORTCUTS, type ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
-import { ChevronDownIcon, KeyboardIcon, MicIcon, MoreIcon, PowerIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
+import {
+    CaretDown,
+    DotsThree,
+    Keyboard,
+    MagnifyingGlassMinus,
+    Microphone,
+    Power,
+    SpeakerHigh,
+    SpeakerSimpleNone,
+} from "@pikvm/icons";
 import { audioDevicesSupported, speakerSelectionSupported, useAudioDevices } from "../settings/pages/audio-devices";
 import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice } from "../settings/local-prefs";
 import { emitAudioDevicesChanged } from "./audio-devices-event";
@@ -57,7 +66,7 @@ function DeviceMenu({ kind }: { readonly kind: "audio" | "mic" }) {
     if (current.id && !list.some((d) => d.id === current.id)) {
         entries.push({ id: current.id, label: `${current.label || "Chosen device"} (not connected)`, checked: true, run: () => {} });
     }
-    return <MenuButton label={`Choose ${noun}`} icon={<ChevronDownIcon />} entries={entries} className="kvm-tb-btn kvm-tb-dev" />;
+    return <MenuButton label={`Choose ${noun}`} icon={<CaretDown />} entries={entries} className="kvm-tb-btn kvm-tb-dev" />;
 }
 
 export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: ToolbarProps) {
@@ -131,11 +140,11 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
             <div className="kvm-tb-right">
                 <HealthButton className="kvm-tb-btn" openDialog={openDialog} />
                 <MacroStrip />
-                <MenuButton label="Send keys" icon={<KeyboardIcon />} entries={sendKeys} testId="send-keys" />
+                <MenuButton label="Send keys" icon={<Keyboard />} entries={sendKeys} testId="send-keys" />
                 {actions.power.length > 0 ? (
                     <MenuButton
                         label={powerLabel}
-                        icon={<PowerIcon />}
+                        icon={<Power />}
                         entries={toEntries(actions.power)}
                         className={`kvm-tb-btn${atxBusy ? " atx-busy" : atxOn ? " atx-on" : ""}`}
                         testId="power"
@@ -154,7 +163,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                             title="Audio output"
                             onClick={() => controller?.toggleAudio()}
                         >
-                            <SpeakerIcon />
+                            {audio.audioOn ? <SpeakerHigh weight="fill" /> : <SpeakerSimpleNone />}
                         </button>
                         {audioDevicesSupported() && speakerSelectionSupported() ? <DeviceMenu kind="audio" /> : null}
                         <button
@@ -167,7 +176,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                             title={audio.micWarn ? audio.micLabel : "Microphone"}
                             onClick={() => controller?.toggleMic()}
                         >
-                            <MicIcon />
+                            <Microphone weight={audio.micOn ? "fill" : "regular"} />
                         </button>
                         {audioDevicesSupported() ? <DeviceMenu kind="mic" /> : null}
                     </>
@@ -181,11 +190,11 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                         aria-label="Zoom out to the whole screen"
                         onClick={() => controller?.resetZoom()}
                     >
-                        <ZoomOutIcon />
+                        <MagnifyingGlassMinus />
                     </button>
                 ) : null}
                 <span className="kvm-tb-sep" />
-                <MenuButton label="More" icon={<MoreIcon />} entries={more} testId="more" />
+                <MenuButton label="More" icon={<DotsThree weight="bold" />} entries={more} testId="more" />
             </div>
         </div>
     );

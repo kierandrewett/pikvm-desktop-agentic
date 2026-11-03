@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMatchMedia } from "../../test/harness";
-import { MACRO_ICON_NAMES } from "../icons";
+import { MACRO_ICON_NAMES } from "../macro-icon";
 import { MacrosDialog, resetMacroSaveChainForTests } from "./macros-dialog";
 import { jsonResponse, mountDialog, openRig, stubFetch, type Mounted } from "./test-rig";
 

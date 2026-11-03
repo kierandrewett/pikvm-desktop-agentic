@@ -420,22 +420,16 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     color: var(--warn);
 }
 
-/* Speaker and mic: waves only while on, a light wash when armed, amber on a problem, and the
+/* Speaker and mic: a light wash when armed, amber on a problem, and the
    live level rising in green behind the icon, clipped to the circle. */
 .kvm-av {
     position: relative;
     isolation: isolate;
     overflow: hidden;
 }
-.kvm-av .wave {
-    opacity: 0;
-}
 .kvm-av.on {
     color: var(--foreground);
     background: color-mix(in srgb, var(--primary) 14%, transparent);
-}
-.kvm-av.on .wave {
-    opacity: 1;
 }
 .kvm-av.warn {
     color: var(--warn);

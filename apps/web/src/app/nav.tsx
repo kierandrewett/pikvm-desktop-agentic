@@ -9,8 +9,8 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import { type KeyboardEvent, type ReactNode, useRef } from "react";
-import { ChatIcon, MonitorIcon, SettingsIcon } from "../ui/icons";
+import { type KeyboardEvent, useRef } from "react";
+import { ChatCircle, Gear, type Icon, Monitor } from "@pikvm/icons";
 import { preloadChat } from "./chat-pane";
 
 export type TabId = "kvm" | "chat" | "settings";
@@ -19,15 +19,15 @@ interface TabDef {
     readonly id: TabId;
     readonly to: "/kvm" | "/chat" | "/settings";
     readonly label: string;
-    readonly icon: ReactNode;
+    readonly icon: Icon;
     /** Warm what the tab will need, when the pointer or focus arrives. */
     readonly preload?: () => void;
 }
 
 export const TABS: ReadonlyArray<TabDef> = [
-    { id: "kvm", to: "/kvm", label: "KVM", icon: <MonitorIcon /> },
-    { id: "chat", to: "/chat", label: "Chat", icon: <ChatIcon />, preload: preloadChat },
-    { id: "settings", to: "/settings", label: "Settings", icon: <SettingsIcon /> },
+    { id: "kvm", to: "/kvm", label: "KVM", icon: Monitor },
+    { id: "chat", to: "/chat", label: "Chat", icon: ChatCircle, preload: preloadChat },
+    { id: "settings", to: "/settings", label: "Settings", icon: Gear },
 ];
 
 export const tabDomId = (id: TabId): string => `tab-${id}`;
@@ -113,7 +113,7 @@ export function NavTabs({ active, orientation, settingsPage }: NavTabsProps) {
                         onPointerEnter={tab.preload}
                         onFocus={tab.preload}
                     >
-                        {tab.icon}
+                        <tab.icon weight={selected ? "fill" : "regular"} aria-hidden="true" />
                         <span>{tab.label}</span>
                     </Link>
                 );

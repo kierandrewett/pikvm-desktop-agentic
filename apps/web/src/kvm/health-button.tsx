@@ -7,7 +7,7 @@
 import { useMemo } from "react";
 import type { DialogName } from "./dialog-seam";
 import { healthProblems } from "./dialogs/model/health";
-import { HealthIcon } from "./icons";
+import { Heartbeat } from "@pikvm/icons";
 import { useTarget } from "./session";
 
 export function HealthButton({ className, openDialog }: { readonly className: string; readonly openDialog: (name: DialogName) => void }) {
@@ -27,7 +27,7 @@ export function HealthButton({ className, openDialog }: { readonly className: st
             aria-label={`Health: ${problems.map((p) => p.text).join("; ")}`}
             onClick={() => openDialog("health")}
         >
-            <HealthIcon />
+            <Heartbeat />
         </button>
     );
 }

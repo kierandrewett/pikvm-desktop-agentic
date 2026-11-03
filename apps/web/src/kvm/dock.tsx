@@ -14,7 +14,15 @@ import { useEffect, useRef, useState } from "react";
 import type { ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
 import type { FieldFocus } from "./field-focus";
-import { KeyboardIcon, MicIcon, MoreIcon, PasteIcon, SpeakerIcon, ZoomOutIcon } from "./icons";
+import {
+    ClipboardText,
+    DotsThree,
+    Keyboard,
+    MagnifyingGlassMinus,
+    Microphone,
+    SpeakerHigh,
+    SpeakerSimpleNone,
+} from "@pikvm/icons";
 import { HealthButton } from "./health-button";
 import { KeyRows } from "./key-rows";
 import type { PictureController } from "./picture-controller";
@@ -143,7 +151,7 @@ export function Dock(props: DockProps) {
                             aria-label="Audio output"
                             onClick={() => controller?.toggleAudio()}
                         >
-                            <SpeakerIcon />
+                            {audio.audioOn ? <SpeakerHigh weight="fill" /> : <SpeakerSimpleNone />}
                         </button>
                         <button
                             ref={micButton}
@@ -155,7 +163,7 @@ export function Dock(props: DockProps) {
                             title={audio.micWarn ? audio.micLabel : undefined}
                             onClick={() => controller?.toggleMic()}
                         >
-                            <MicIcon />
+                            <Microphone weight={audio.micOn ? "fill" : "regular"} />
                         </button>
                     </>
                 ) : null}
@@ -171,7 +179,7 @@ export function Dock(props: DockProps) {
                             focus.refocus();
                         }}
                     >
-                        <ZoomOutIcon />
+                        <MagnifyingGlassMinus />
                     </button>
                 ) : null}
                 <button
@@ -181,7 +189,7 @@ export function Dock(props: DockProps) {
                     aria-label="Paste text to the target"
                     onClick={() => props.openDialog("paste")}
                 >
-                    <PasteIcon />
+                    <ClipboardText />
                 </button>
                 <button
                     type="button"
@@ -192,7 +200,7 @@ export function Dock(props: DockProps) {
                     aria-pressed={focused}
                     onClick={() => focus.toggle()}
                 >
-                    <KeyboardIcon />
+                    <Keyboard />
                 </button>
                 <button
                     ref={moreButton}
@@ -204,7 +212,7 @@ export function Dock(props: DockProps) {
                     aria-controls="kvm-sheet"
                     onClick={() => setSheetOpen(!sheet)}
                 >
-                    <MoreIcon />
+                    <DotsThree weight="bold" />
                 </button>
             </div>
 
