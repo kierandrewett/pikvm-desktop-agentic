@@ -504,6 +504,17 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
             });
         }
 
+        // A child of a hidden pane that sets visibility: visible (the settings nav's open groups did) shows through, drawn over the KVM.
+        await check(profile, "after Settings, the KVM shows nothing of the hidden Settings pane", async () => {
+            await page.goto(`${WEB}/app/settings`, { waitUntil: "load" });
+            await page.waitForSelector('#panel-settings nav[aria-label="Settings"]');
+            await goTo(page, "kvm", true);
+            const shown = await page.evaluate(() =>
+                [...document.querySelectorAll("#panel-settings *")].filter((el) => getComputedStyle(el).visibility === "visible" && el.getBoundingClientRect().height > 0).length,
+            );
+            return [shown === 0, `${shown} elements of the hidden Settings pane are visible`];
+        });
+
         await check(profile, "no console errors", async () => [logs.length === 0, logs.length ? logs.slice(0, 3).join(" | ") : "none"]);
     } finally {
         await page.close();

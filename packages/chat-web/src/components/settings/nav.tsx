@@ -123,7 +123,8 @@ export function SettingsNavSection({ id, title, children }: { id: string; title:
                 className={cn(
                     "grid pt-1 transition-[grid-template-rows,visibility]",
                     DISCLOSURE,
-                    collapsed ? "invisible grid-rows-[0fr]" : "visible grid-rows-[1fr]",
+                    // Expanded inherits visibility: an explicit "visible" would show through a hidden pane (the host hides inactive tabs with visibility).
+                    collapsed ? "invisible grid-rows-[0fr]" : "grid-rows-[1fr]",
                 )}
             >
                 <div className="min-h-0 overflow-hidden">
