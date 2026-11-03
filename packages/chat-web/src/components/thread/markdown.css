@@ -73,7 +73,6 @@
     opacity: 0;
     transition: opacity var(--duration-basic) var(--ease-basic);
 }
-.md-heading:hover .md-anchor,
 .md-anchor:focus-visible {
     opacity: 1;
 }
@@ -748,15 +747,14 @@ a.md-img {
     opacity: 0;
     transition: opacity var(--duration-basic) var(--ease-basic);
 }
-.md-table:hover .md-table-tools,
 .md-table-tools:focus-within,
 .md-table-tools:has([data-state="open"]) {
+    opacity: 1;
+}
 @media (hover: hover) and (pointer: fine) {
     .md-table:hover .md-table-tools {
         opacity: 1;
     }
-}
-    opacity: 1;
 }
 @media (hover: none) {
     .md-table-tools {
@@ -934,16 +932,15 @@ a.md-img {
     border-radius: 999px;
     transition: background-color var(--duration-basic) ease-in-out;
 }
-.md-cite:hover,
 .md-cite[data-open] {
+    color: var(--text);
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+}
 @media (hover: hover) and (pointer: fine) {
     .md-cite:hover {
         color: var(--text);
         background: color-mix(in srgb, var(--text) 22%, transparent);
     }
-}
-    color: var(--text);
-    background: color-mix(in srgb, var(--text) 22%, transparent);
 }
 .md-cite:focus-visible {
     outline: 2px solid var(--ring);
@@ -959,14 +956,13 @@ a.md-img {
     flex-shrink: 0;
     color: var(--text-tertiary);
 }
+.md-cite[data-open] .md-cite-more {
+    color: var(--text-secondary);
+}
 @media (hover: hover) and (pointer: fine) {
     .md-cite:hover .md-cite-more {
         color: var(--text-secondary);
     }
-}
-.md-cite[data-open] .md-cite-more,
-.md-cite:hover .md-cite-more {
-    color: var(--text-secondary);
 }
 /*
  * Citation card: the popover is the one surface (menu surface tokens from ui/menu.tsx: radius-2xl, 6px
@@ -1032,14 +1028,14 @@ a.md-img {
     margin-inline-start: auto;
     flex-shrink: 0;
     color: var(--text-tertiary);
+}
+.md-cite-source:focus-visible .md-cite-out {
+    color: var(--text);
+}
 @media (hover: hover) and (pointer: fine) {
     .md-cite-source:hover .md-cite-out {
         color: var(--text);
     }
-}
-}
-.md-cite-source:is(:hover, :focus-visible) .md-cite-out {
-    color: var(--text);
 }
 .md-cite-title {
     font-size: var(--type-body, 14px);
@@ -1165,15 +1161,14 @@ a.md-img {
     text-decoration: none;
     outline: none;
     transition: background-color var(--duration-basic) var(--ease-basic);
+}
+.source-card[data-focused] {
+    background: var(--hover);
+}
 @media (hover: hover) and (pointer: fine) {
     .source-card:hover {
         background: var(--hover);
     }
-}
-}
-.source-card:hover,
-.source-card[data-focused] {
-    background: var(--hover);
 }
 .source-card:focus-visible {
     box-shadow: inset 0 0 0 2px var(--ring);

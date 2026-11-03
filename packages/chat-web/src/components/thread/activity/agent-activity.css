@@ -63,14 +63,13 @@
     color: var(--text);
     text-decoration: none;
 }
-.aa-result:hover,
 .aa-result:focus-visible {
     background: var(--hover);
+}
 @media (hover: hover) and (pointer: fine) {
     .aa-result:hover {
         background: var(--hover);
     }
-}
 }
 .aa-result:focus-visible {
     outline: 2px solid var(--ring);

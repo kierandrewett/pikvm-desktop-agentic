@@ -208,11 +208,33 @@ html[data-ios-standalone] {
         -webkit-tap-highlight-color: transparent;
     }
 
-    /* This is application chrome, not a document: nothing is selectable except where you
-       type. Dragging across a toolbar must not paint a text selection over half the UI. */
-    * {
+    /* The chrome: the bars, the keys, the toolbars and the controls in them. Pressing and dragging across these must
+       not paint a selection, and a long press must not raise the system's link/image callout. Text you read (a
+       conversation, a note, an error, a field's value) stays selectable: this is a list of what is NOT, not a
+       blanket over the page. The KVM screen is all of it: its touches are the remote's mouse. */
+    :is(
+            button,
+            [role="button"],
+            [role="tab"],
+            [role="tablist"],
+            [role="toolbar"],
+            [role="menu"],
+            [role="menuitem"],
+            [role="menuitemradio"],
+            [role="menuitemcheckbox"],
+            [role="switch"],
+            [role="option"],
+            [role="radio"],
+            summary,
+            nav,
+            .nav-bar,
+            .nav-rail,
+            .window-titlebar,
+            .kvm-screen
+        ) {
         -webkit-user-select: none;
         user-select: none;
+        -webkit-touch-callout: none;
     }
 
     input,
@@ -234,7 +256,6 @@ html[data-ios-standalone] {
     html,
     body {
         margin: 0;
-        -webkit-touch-callout: none;
         height: 100%;
         overflow: hidden;
         position: fixed;
@@ -265,27 +286,6 @@ html[data-ios-standalone] {
         cursor: pointer;
     }
 
-    :focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
-    }
-}
-
-/* ---- shell ---------------------------------------------------------------- */
-
-/*
- * The installed iPhone app declares apple-mobile-web-app-status-bar-style=black (a solid black bar with
- * the page BELOW it: env(safe-area-inset-top) is 0) and viewport-fit=cover (the page runs to the bottom
- * edge; env(safe-area-inset-bottom) is the home indicator). An app added while the style was
- * black-translucent keeps that style: the page is drawn under the bar and the inset is real.
- *
- *  - TOP. #status-edge (index.html) is a real, opaque, full-width element at the very top in --status-colour (black
- *    over the KVM, the page's own colour on Chat and Settings), as deep as --top-reserved (the inset, and in the
- *    installed iOS app at least 12px), above everything including full-page sheets, which pad for the inset with
- *    their own background. The shell pads by the same amount, so nothing sits under it and no scroller touches the
- *    top edge. The system tints its bar from the page at the top edge, so what is found there is one solid colour,
- *    the same as html, body and the theme-color meta: no blur, no gradient, no shadow.
- *    It follows --app-top, which the shell sets on <html>, when iOS pans the visual viewport for the keyboard.
     /* A tap is a tap: no double-tap zoom or 300ms wait on anything that can be pressed. (The KVM picture keeps its
        own touch-action, kvm.css: it takes the finger.) */
     :is(
@@ -309,12 +309,12 @@ html[data-ios-standalone] {
         touch-action: manipulation;
     }
 
- *  - BOTTOM. The inset belongs to the navigation bar (nav-bar pads itself by it, on its own background),
- *    and nothing else paints it: the shell has no bottom padding in the phone layout, and the bar is the last
- *    row. That the shell then REACHES the bottom is the height rule above (100vh in the installed app).
- *
- * All of this is 0 where there is no inset (desktop, Android, a browser tab), so it costs nothing there.
- */
+    :focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+    }
+}
+
 /*
  * Pressed. Anything that can be pressed answers the finger at once: dimmed on touch-down, no transition on the way in
  * (the way out keeps the control's own, usually none). iOS only draws :active when the page listens for touches (see
@@ -355,6 +355,27 @@ html[data-ios-standalone] {
     }
 }
 
+/* ---- shell ---------------------------------------------------------------- */
+
+/*
+ * The installed iPhone app declares apple-mobile-web-app-status-bar-style=black (a solid black bar with
+ * the page BELOW it: env(safe-area-inset-top) is 0) and viewport-fit=cover (the page runs to the bottom
+ * edge; env(safe-area-inset-bottom) is the home indicator). An app added while the style was
+ * black-translucent keeps that style: the page is drawn under the bar and the inset is real.
+ *
+ *  - TOP. #status-edge (index.html) is a real, opaque, full-width element at the very top in --status-colour (black
+ *    over the KVM, the page's own colour on Chat and Settings), as deep as --top-reserved (the inset, and in the
+ *    installed iOS app at least 12px), above everything including full-page sheets, which pad for the inset with
+ *    their own background. The shell pads by the same amount, so nothing sits under it and no scroller touches the
+ *    top edge. The system tints its bar from the page at the top edge, so what is found there is one solid colour,
+ *    the same as html, body and the theme-color meta: no blur, no gradient, no shadow.
+ *    It follows --app-top, which the shell sets on <html>, when iOS pans the visual viewport for the keyboard.
+ *  - BOTTOM. The inset belongs to the navigation bar (nav-bar pads itself by it, on its own background),
+ *    and nothing else paints it: the shell has no bottom padding in the phone layout, and the bar is the last
+ *    row. That the shell then REACHES the bottom is the height rule above (100vh in the installed app).
+ *
+ * All of this is 0 where there is no inset (desktop, Android, a browser tab), so it costs nothing there.
+ */
 #status-edge {
     position: fixed;
     top: var(--app-top, 0px);

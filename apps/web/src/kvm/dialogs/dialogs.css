@@ -210,7 +210,7 @@
         border-color 0.12s;
 }
 
-.dlg-btn:hover:not(:disabled) {
+.dlg-btn:active:not(:disabled) {
     background: var(--accent);
     border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
 }
@@ -241,7 +241,7 @@
     color: var(--primary-foreground);
 }
 
-.dlg-btn.primary:hover:not(:disabled) {
+.dlg-btn.primary:active:not(:disabled) {
     background: color-mix(in srgb, var(--primary) 88%, #000);
 }
 
@@ -257,7 +257,7 @@
     color: #fff;
 }
 
-.dlg-btn.danger:hover:not(:disabled) {
+.dlg-btn.danger:active:not(:disabled) {
     background: color-mix(in srgb, var(--danger) 88%, #000);
 }
 
@@ -511,7 +511,7 @@
     white-space: nowrap;
 }
 
-.macro-list button:hover {
+.macro-list button:active {
     background: var(--secondary);
 }
 

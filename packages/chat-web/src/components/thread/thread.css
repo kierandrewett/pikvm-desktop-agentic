@@ -47,14 +47,13 @@
 .hover-actions {
     opacity: 0;
 }
-.msg-group:hover .hover-actions,
 .msg-group:focus-within .hover-actions {
     opacity: 1;
+}
 @media (hover: hover) and (pointer: fine) {
     .msg-group:hover .hover-actions {
         opacity: 1;
     }
-}
 }
 @media (hover: none) {
     .hover-actions {
@@ -66,14 +65,13 @@
 .msg-time {
     opacity: 0;
 }
-[data-turn-key]:hover .msg-time,
 [data-turn-key]:focus-within .msg-time {
+    opacity: 1;
+}
 @media (hover: hover) and (pointer: fine) {
     [data-turn-key]:hover .msg-time {
         opacity: 1;
     }
-}
-    opacity: 1;
 }
 
 /*
@@ -295,16 +293,15 @@
     color: color-mix(in oklab, var(--text) 60%, transparent);
     user-select: none;
 }
-.act-summary:hover,
 .act-summary:focus-visible {
+    background: var(--hover);
+    color: var(--text);
+}
 @media (hover: hover) and (pointer: fine) {
     .act-summary:hover {
         background: var(--hover);
         color: var(--text);
     }
-}
-    background: var(--hover);
-    color: var(--text);
 }
 .act-summary:focus-visible,
 .act-row-head:focus-visible {
@@ -344,17 +341,15 @@
 .act-caret:dir(rtl) {
     scale: -1 1;
 }
-.act-summary:hover .act-caret,
+.act-summary:focus-visible .act-caret,
+.act-row-head:focus-visible .act-caret {
+    color: var(--text);
+}
 @media (hover: hover) and (pointer: fine) {
     .act-summary:hover .act-caret,
     .act-row-head:hover .act-caret {
         color: var(--text);
     }
-}
-.act-summary:focus-visible .act-caret,
-.act-row-head:hover .act-caret,
-.act-row-head:focus-visible .act-caret {
-    color: var(--text);
 }
 
 /* Steps: a thin rule on the start side ties them to the header. */
@@ -468,17 +463,16 @@
     gap: 6px;
     vertical-align: top;
     color: var(--text);
+}
+.act-link:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
 @media (hover: hover) and (pointer: fine) {
     .act-link:hover {
         text-decoration: underline;
         text-underline-offset: 3px;
     }
-}
-}
-.act-link:hover,
-.act-link:focus-visible {
-    text-decoration: underline;
-    text-underline-offset: 3px;
 }
 .act-text {
     padding-block: 2px calc(6px * var(--density));
@@ -586,24 +580,23 @@
     color: var(--text-tertiary);
     opacity: 0;
 }
-.act-block:hover .act-copy,
 .act-copy:focus-visible {
     opacity: 1;
 }
 @media (hover: hover) and (pointer: fine) {
     .act-block:hover .act-copy {
-@media (hover: hover) and (pointer: fine) {
-    .act-copy:hover {
-        background: var(--hover);
-        color: var(--text);
-    }
-}
         opacity: 1;
     }
 }
 .act-copy:focus-visible {
     background: var(--hover);
     color: var(--text);
+}
+@media (hover: hover) and (pointer: fine) {
+    .act-copy:hover {
+        background: var(--hover);
+        color: var(--text);
+    }
 }
 @media (pointer: coarse) {
     .act-copy {
@@ -613,18 +606,17 @@
     }
 }
 .act-more {
-@media (hover: hover) and (pointer: fine) {
-    .act-more:hover {
-        color: var(--text);
-    }
-}
     font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-tertiary);
 }
-.act-more:hover,
 .act-more:focus-visible {
     color: var(--text);
+}
+@media (hover: hover) and (pointer: fine) {
+    .act-more:hover {
+        color: var(--text);
+    }
 }
 .act-more:focus-visible,
 .act-copy:focus-visible,

@@ -510,14 +510,13 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     width: 100%;
     transition: background 0.12s;
 }
-.kvm-item:hover,
 .kvm-item:active {
     background: var(--accent);
+}
 @media (hover: hover) and (pointer: fine) {
     .kvm-item:hover {
         background: var(--accent);
     }
-}
 }
 .kvm-item:disabled {
     opacity: 0.45;
