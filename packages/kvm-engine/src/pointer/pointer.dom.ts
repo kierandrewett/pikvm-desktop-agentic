@@ -57,7 +57,7 @@ export function attachPointerInput(opts: PointerDomOptions): () => void {
     on(
         "pointermove",
         (e) => {
-            const r = driver.send({ type: "move", id: e.pointerId, kind: kindOf(e), x: e.clientX, y: e.clientY, buttons: e.buttons });
+            const r = driver.send({ type: "move", id: e.pointerId, kind: kindOf(e), x: e.clientX, y: e.clientY, buttons: e.buttons, at: e.timeStamp });
             if (r.preventDefault) e.preventDefault();
         },
         { capture: true },

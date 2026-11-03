@@ -22,6 +22,7 @@ as observable commands (never source text). IDs are referenced from test names.
 - P14. A third finger is not a gesture: it must not start a new tap that clicks when lifted.
 - P15. After a multi-touch gesture, lifting one finger never clicks; the first finger left behind keeps driving the cursor, the second does nothing until lifted.
 - P16. A zoomed absolute trackpad follows its cursor; the view stays inside the picture.
+- P17. The lens hears every single-finger trackpad move once the finger is more than 4 px from where it touched (before the cursor starts moving at the 16 px slop), with that move's own travel; jitter under 4 px, a direct touch, a two-finger gesture and the mouse send it nothing.
 
 ## Relative HID (trackpad pinned to relative)
 

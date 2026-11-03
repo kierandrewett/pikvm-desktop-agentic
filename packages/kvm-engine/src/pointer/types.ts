@@ -129,6 +129,12 @@ export interface PointerMoveInput extends Stamped {
     readonly y: number;
     /** MouseEvent.buttons bitmask; 0 on a mouse move is proof the release happened. */
     readonly buttons: number;
+    /**
+     * The event's own time (DOMHighResTimeStamp). Browsers deliver a frame's worth of moves together, so the
+     * moment they are handled says nothing about how far apart the finger's samples were; the lens reads the
+     * finger's speed off these. Only differences between them are used, never the value against the engine clock.
+     */
+    readonly at?: number;
 }
 
 export interface PointerUpInput extends Stamped {
@@ -292,8 +298,11 @@ export interface TrackpadCursorCommand {
     readonly type: "trackpadCursor";
 }
 
-/** Show the lens; `distance` is this move's finger travel in px, for the speed average. */
-export type LensCommand = { readonly type: "lens" } | { readonly type: "lens"; readonly distance: number };
+/**
+ * Show the lens. With no `distance` a new touch began; with one it is this move's finger travel in px, for
+ * the speed average, and `at` the move's own time when the input carried one (see PointerMoveInput.at).
+ */
+export type LensCommand = { readonly type: "lens" } | { readonly type: "lens"; readonly distance: number; readonly at?: number };
 
 export interface CaptureCommand {
     readonly type: "capture";

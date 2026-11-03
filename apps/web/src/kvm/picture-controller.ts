@@ -210,7 +210,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         mouse: (x, y, d) => painter?.mouse(x, y, d),
         hideMouse: () => painter?.hideMouse(),
         trackpad: () => painter?.trackpad(),
-        lens: (d) => painter?.lens(d),
+        lens: (d, at) => painter?.lens(d, at),
         inputChanged: () => painter?.inputChanged(),
         dispose: () => painter?.dispose(),
     };

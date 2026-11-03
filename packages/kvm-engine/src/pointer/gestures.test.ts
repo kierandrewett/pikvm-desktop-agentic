@@ -1,4 +1,4 @@
-// Failure modes P1-P16, R1-R6, D1-D9, M1-M13: see FAILURE_MODES.md.
+// Failure modes P1-P17, R1-R6, D1-D9, M1-M13: see FAILURE_MODES.md.
 //
 // Whole gestures run through the driver on a manual clock: the same path the app
 // takes, with no real timers. Expected values are commands, never source text.
@@ -59,6 +59,64 @@ describe("trackpad on an absolute Pi", () => {
         r.frame();
         r.up(1);
         expect(r.take().filter((s) => s.startsWith("click"))).toEqual([]);
+    });
+
+    it("P17: the lens hears each move once the finger is past 4 px, even inside the tap slop, and the cursor stays frozen", () => {
+        const r = createRig();
+        r.down(1, 400, 225);
+        expect(r.ofType("lens")).toEqual([{ type: "lens" }]); // the touch itself: a fresh gesture
+        r.move(1, 402, 226); // 2.2 px from the start: jitter
+        r.move(1, 403, 224); // 3.2 px: still jitter
+        expect(r.ofType("lens")).toHaveLength(1);
+        r.move(1, 405, 225); // 5 px from the start, 2 px of travel
+        r.move(1, 408, 229); // 5 px of travel
+        expect(r.ofType("lens").slice(1)).toEqual([
+            { type: "lens", distance: 2.23606797749979 },
+            { type: "lens", distance: 5 },
+        ]);
+        r.frame();
+        expect(r.take()).toEqual([]); // under the 16 px slop: nothing sent, the cursor has not moved
+        expect(r.driver.machine.phase).toBe("pending");
+        r.move(1, 430, 229); // past the slop: it drags, and still reports its travel once
+        // (take() above cleared the log: only this move's command is left)
+        expect(r.ofType("lens")).toEqual([{ type: "lens", distance: 22 }]);
+    });
+
+    it("P17: the lens is given the move's own timestamp when the input carries one, and none when it does not", () => {
+        const r = createRig();
+        r.down(1, 400, 225);
+        r.driver.send({ type: "move", id: 1, kind: "touch", x: 410, y: 225, buttons: 0, at: 5123.5 });
+        r.driver.send({ type: "move", id: 1, kind: "touch", x: 420, y: 225, buttons: 0 });
+        expect(r.ofType("lens").slice(1)).toEqual([
+            { type: "lens", distance: 10, at: 5123.5 },
+            { type: "lens", distance: 10 },
+        ]);
+    });
+
+    it("P17: a tap with finger jitter sends the lens no speed, and neither does a direct touch, two fingers or a mouse", () => {
+        const tap = createRig();
+        tap.down(1, 400, 225);
+        tap.move(1, 402, 227);
+        tap.move(1, 399, 224);
+        tap.up(1);
+        expect(tap.ofType("lens").filter((c) => "distance" in c)).toEqual([]);
+        const direct = createRig({ env: { touchMode: "direct" } });
+        direct.down(1, 400, 225);
+        direct.move(1, 420, 225);
+        direct.move(1, 440, 225);
+        expect(direct.ofType("lens")).toEqual([]);
+        const two = createRig();
+        two.down(1, 300, 225);
+        two.down(2, 500, 225);
+        const before = two.ofType("lens").length;
+        two.move(1, 280, 225);
+        two.move(2, 520, 225);
+        expect(two.ofType("lens")).toHaveLength(before);
+        const mouse = createRig();
+        mouse.move(7, 300, 200, "mouse");
+        mouse.down(7, 300, 200, "mouse");
+        mouse.move(7, 340, 200, "mouse");
+        expect(mouse.ofType("lens")).toEqual([]);
     });
 
     it("P3: two quick swipes never press a button, however soon the second follows", () => {

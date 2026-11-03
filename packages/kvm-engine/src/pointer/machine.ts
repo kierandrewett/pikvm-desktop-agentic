@@ -19,6 +19,7 @@
 
 import type { Box, Point } from "../view/geometry";
 import { clampNorm, fracInBox, fracToNorm, normToClient } from "../view/geometry";
+import { LENS_ENGAGE_PX } from "../view/lens";
 import { IDENTITY_VIEW, clampPan, followCursor, panBy, viewEquals, viewPictureBox, zoomAround } from "../view/transform";
 import type { ViewTransform } from "../view/transform";
 import {
@@ -405,7 +406,6 @@ export class PointerMachine {
         this.queueMove();
         this.followCursorNow();
         this.emit({ type: "trackpadCursor" });
-        this.emit({ type: "lens", distance: Math.hypot(dx, dy) });
     }
 
     /* ---- clicks and the absolute wait ---- */
@@ -684,6 +684,12 @@ export class PointerMachine {
             this.moved = true;
             this.cancelHold();
             if (this.holdArmed) this.startHoldDrag();
+        }
+        // The lens takes its zoom from the finger's speed, so it hears every move once the finger has left
+        // the spot it touched by LENS_ENGAGE_PX: before the cursor itself starts moving at TOUCH_SLOP.
+        if (!this.gestureDirect && movedDist > LENS_ENGAGE_PX) {
+            const distance = Math.hypot(i.x - prev.x, i.y - prev.y);
+            this.emit(i.at === undefined ? { type: "lens", distance } : { type: "lens", distance, at: i.at });
         }
         if (!this.moved) return false;
         if (!this.gestureDirect) this.relMove(i.x - prev.x, i.y - prev.y);

@@ -6,10 +6,8 @@
 
 import {
     LENS_LINGER_MS,
-    LENS_MIN_MAG,
-    beginLensGesture,
     createLensSize,
-    lensMag,
+    lensReachable,
     lensSource,
     lensVisible,
     noteLensSpeed,
@@ -42,8 +40,11 @@ export interface Painter {
     hideMouse(): void;
     /** The trackpad's virtual cursor moved or appeared. */
     trackpad(): void;
-    /** A finger moved `distance` px (feeds the lens's fine-adjustment detection); no distance = a new touch began. */
-    lens(distance?: number): void;
+    /**
+     * A finger moved `distance` px at the event's own time `at` (feeds the lens's speed, so its zoom); no
+     * distance = a new touch began. Without `at` the moment of the call stands in.
+     */
+    lens(distance?: number, at?: number): void;
     /** The socket opened or closed: the blob must not claim a remote cursor that has stopped. */
     inputChanged(): void;
     dispose(): void;
@@ -71,6 +72,7 @@ export function createPainter(deps: PainterDeps): Painter {
 
     const hideLens = (): void => {
         lens.classList.remove("on");
+        delete lens.dataset.mag;
     };
 
     const relative = (): boolean => machine.environment.mouseMode === "relative";
@@ -84,8 +86,8 @@ export function createPainter(deps: PainterDeps): Painter {
         const env = machine.environment;
         const scale = machine.currentView.scale;
         const box = machine.pictureBox;
-        // The finger earns the lens by sustained fine movement; the clock runs even while it is hidden.
-        const stepped = updateLensSize(lensSize, now);
+        // The finger's speed sets the zoom; the clock runs even while the lens is hidden.
+        const stepped = updateLensSize(lensSize, now, scale);
         lensSize = stepped.state;
         const allowed = lensVisible({
             trackpadActive: machine.trackpadActive,
@@ -104,7 +106,7 @@ export function createPainter(deps: PainterDeps): Painter {
             return;
         }
         if (!stepped.visible) {
-            // Not earned yet (travelling, or still within the first second): stay out of the way, keep watching.
+            // Not earned yet (resting, or travelling too fast to want a lens): stay out of the way, keep watching.
             hideLens();
             lensFrame = deps.frame(draw);
             return;
@@ -120,7 +122,7 @@ export function createPainter(deps: PainterDeps): Painter {
         }
         const ctx = lens.getContext("2d");
         if (!ctx) return;
-        const src = lensSource(size, px, lensMag(scale), box, env.nat, at);
+        const src = lensSource(size, px, stepped.mag, box, env.nat, at);
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, px, px);
         if (src.visible) {
@@ -141,6 +143,7 @@ export function createPainter(deps: PainterDeps): Painter {
         ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
         ctx.stroke();
         place(lens, at.x, at.y);
+        lens.dataset.mag = stepped.mag.toFixed(2);
         lens.classList.add("on");
         // Redrawn every frame while it shows, so the target's own changes appear in it.
         lensFrame = deps.frame(draw);
@@ -174,14 +177,14 @@ export function createPainter(deps: PainterDeps): Painter {
             if (paint.show) showCursor(paint.x, paint.y);
             else hideCursor();
         },
-        lens(distance) {
+        lens(distance, at) {
             if (distance === undefined) {
-                // A new touch starts from nothing: no lens, and the second starts when it moves.
-                lensSize = beginLensGesture(lensSize);
+                // A new touch starts from nothing: no lens until the finger has moved.
+                lensSize = createLensSize();
                 hideLens();
-            } else lensSize = noteLensSpeed(lensSize, distance, clock.now());
+            } else lensSize = noteLensSpeed(lensSize, distance, at ?? clock.now());
             // The lens magnifies less the further the picture is pinched in, and goes away once it adds nothing.
-            if (lensMag(machine.currentView.scale) < LENS_MIN_MAG) return;
+            if (!lensReachable(machine.currentView.scale)) return;
             lensUntil = clock.now() + LENS_LINGER_MS;
             if (!lensFrame) lensFrame = deps.frame(draw);
         },
