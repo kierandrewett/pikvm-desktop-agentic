@@ -28,10 +28,29 @@
     --radius-field: 8px;
     --radius-surface: 12px;
 
-    /* Set from visualViewport by the shell so the layout tracks the soft keyboard on iOS,
-       which does not resize the layout viewport the way Chrome's resizes-content does. */
+    /* The shell's height and its offset. A browser tab: 100dvh, and the shell writes the visual viewport's
+       height here (on <html>) so the layout tracks the soft keyboard on iOS, which does not resize the layout
+       viewport the way Chrome's resizes-content does. The installed app: see html[data-standalone]. */
     --app-height: 100dvh;
     --app-top: 0px;
+
+    /* What the top of the page keeps clear for the system: the status-bar inset, or at least --status-edge. */
+    --status-edge: 0px;
+    --top-reserved: max(env(safe-area-inset-top, 0px), var(--status-edge));
+}
+
+/* The installed app has no URL bar, so its large viewport (100vh) is the whole screen. 100dvh, 100svh,
+   innerHeight and the visual viewport all report the screen minus an inset when it starts (the gap under
+   the navigation bar), so none of them may size the shell. The shell writes --app-height itself only while
+   the soft keyboard is up (shell.tsx). index.html sets the attribute before first paint. */
+html[data-standalone] {
+    --app-height: 100vh;
+}
+
+/* iOS: the top edge of the page is a real, opaque, full-width black element (#status-edge) at least this
+   deep, whatever the inset, so the system always finds one solid black thing at the top edge. */
+html[data-ios-standalone] {
+    --status-edge: 12px;
 }
 
 [data-theme="light"] {
@@ -147,49 +166,31 @@
 
 /*
  * The installed iPhone app declares apple-mobile-web-app-status-bar-style=black (a solid black bar with
- * the page BELOW it: env(safe-area-inset-top) is 0 and the layout viewport starts under the bar) and
- * viewport-fit=cover (the page runs to the bottom edge, env(safe-area-inset-bottom) is the home indicator).
- * The layout is valid at a top inset of 0, which is what the bar needs. An app added to the Home Screen
- * while the style was black-translucent keeps that style, and there the page is drawn under the bar and
- * the inset is real, so the rules below also hold for it:
+ * the page BELOW it: env(safe-area-inset-top) is 0) and viewport-fit=cover (the page runs to the bottom
+ * edge; env(safe-area-inset-bottom) is the home indicator). An app added while the style was
+ * black-translucent keeps that style: the page is drawn under the bar and the inset is real.
  *
- *  - The top inset is a solid black strip, in both themes, over whatever else would paint there
- *    (full-page sheets pad for it with their own background). It follows --app-top, which
- *    the shell sets on <html>, so it stays on the status bar when iOS pans the visual viewport
- *    for the keyboard. Nothing is under it: the shell pads by the same inset. (iOS 26 draws its own
- *    gradient over that strip in the translucent style; only a re-added app is free of it.)
- *  - The bottom inset belongs to the navigation bar (nav-bar pads itself by it, on its own
- *    background), and nothing else is allowed to paint it: the shell has no bottom padding in the
- *    phone layout, and the bar is the last row.
+ *  - TOP. #status-edge (index.html) is a real, opaque, black, full-width element at the very top, as deep as
+ *    --top-reserved (the inset, and in the installed iOS app at least 12px), above everything including
+ *    full-page sheets, which pad for the inset with their own background. The shell pads by the same amount, so
+ *    nothing sits under it and no scroller touches the top edge. iOS looks at what is at the top edge to
+ *    decide how the bar meets the page, and in the installed app a soft blur showed there once a pane with a
+ *    scroller or a light page had been visited; a solid black edge is the one thing to find there on every tab.
+ *    It follows --app-top, which the shell sets on <html>, when iOS pans the visual viewport for the keyboard.
+ *  - BOTTOM. The inset belongs to the navigation bar (nav-bar pads itself by it, on its own background),
+ *    and nothing else paints it: the shell has no bottom padding in the phone layout, and the bar is the last
+ *    row. That the shell then REACHES the bottom is the height rule above (100vh in the installed app).
  *
- * Both are 0 where there is no inset (desktop, Android, a browser tab), so they cost nothing there.
+ * All of this is 0 where there is no inset (desktop, Android, a browser tab), so it costs nothing there.
  */
-html::before {
-    content: "";
+#status-edge {
     position: fixed;
     top: var(--app-top, 0px);
     left: 0;
     right: 0;
-    height: env(safe-area-inset-top, 0px);
+    height: var(--top-reserved);
     z-index: 2147483647;
     background: #000;
-    pointer-events: none;
-}
-
-/* Backstop for the bottom: the shell is sized from the visual viewport, so if that is ever reported
-   short of the screen edge (right after the app comes back from the background, say) the strip left
-   under it is the navigation bar's colour, not the page's. It is the body's pseudo-element at
-   z-index -1: above the body's own background, behind the shell, so the bar itself covers it whenever
-   it reaches the edge. Only in the phone layout, which is the one with the bar. */
-body:has(.app-shell[data-layout="compact"])::after {
-    content: "";
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: env(safe-area-inset-bottom, 0px);
-    z-index: -1;
-    background: var(--card);
     pointer-events: none;
 }
 
@@ -202,7 +203,7 @@ body:has(.app-shell[data-layout="compact"])::after {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
-    padding-top: env(safe-area-inset-top);
+    padding-top: var(--top-reserved);
     background: var(--background);
 }
 

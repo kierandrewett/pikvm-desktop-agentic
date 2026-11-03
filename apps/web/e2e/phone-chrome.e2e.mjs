@@ -69,7 +69,13 @@ async function pixels(scratch, png, scale, points) {
     );
 }
 
-async function open(browser, device, theme, insets) {
+/**
+ * `opts.ios`: the page runs as the installed iPhone app (navigator.standalone is true, before any script).
+ * `opts.lie`: it reports `lie` px less than the screen from innerHeight and visualViewport.height, as the app
+ * does when it starts; 100vh stays the screen. `window.__keyboard(px)` then takes `px` more away and tells
+ * the visual viewport, as the soft keyboard does.
+ */
+async function open(browser, device, theme, insets, opts = {}) {
     const page = await browser.newPage();
     const logs = [];
     page.on("console", (m) => {
@@ -83,6 +89,24 @@ async function open(browser, device, theme, insets) {
         await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets });
     }
     await page.evaluateOnNewDocument((key, value) => localStorage.setItem(key, value), THEME_KEY, theme);
+    await page.evaluateOnNewDocument(
+        (ios, lie) => {
+            if (ios) Object.defineProperty(navigator, "standalone", { configurable: true, get: () => true });
+            if (!lie) return;
+            let keys = 0;
+            const inner = Object.getOwnPropertyDescriptor(window, "innerHeight")?.get;
+            const visual = Object.getOwnPropertyDescriptor(VisualViewport.prototype, "height")?.get;
+            if (!inner || !visual) throw new Error("cannot lie about the viewport here");
+            Object.defineProperty(window, "innerHeight", { configurable: true, get: () => inner.call(window) - lie - keys });
+            Object.defineProperty(window.visualViewport, "height", { configurable: true, get: () => visual.call(window.visualViewport) - lie - keys });
+            window.__keyboard = (px) => {
+                keys = px;
+                window.visualViewport.dispatchEvent(new Event("resize"));
+            };
+        },
+        opts.ios === true,
+        opts.lie ?? 0,
+    );
     await page.goto(`${WEB}/app/`, { waitUntil: "load" });
     await page.waitForSelector('[role="tab"]');
     await page.waitForFunction(() => (document.querySelector(".kvm-dot")?.getAttribute("aria-label") ?? "") === "Live", { timeout: 15000 });
@@ -96,22 +120,30 @@ async function goTo(page, tab, touch) {
     await sleep(250);
 }
 
-/** What the page says about its chrome right now. */
-const chrome = (page) =>
-    page.evaluate(() => {
+/** What the page says about its chrome right now. `realHeight` is the screen the page is in, whatever it reports. */
+const chrome = (page, realHeight) =>
+    page.evaluate((realHeight) => {
         const bar = document.querySelector(".nav-bar");
         const rail = document.querySelector(".nav-rail");
         const nav = bar ?? rail;
         const rect = nav.getBoundingClientRect();
         const style = getComputedStyle(nav);
         const shell = getComputedStyle(document.querySelector(".app-shell"));
-        const at = document.elementFromPoint(Math.min(innerWidth - 3, rect.left + 3), innerHeight - 2);
+        const shellRect = document.querySelector(".app-shell").getBoundingClientRect();
+        const edge = document.getElementById("status-edge");
+        const edgeStyle = edge ? getComputedStyle(edge) : null;
+        const at = document.elementFromPoint(Math.min(innerWidth - 3, rect.left + 3), realHeight - 2);
         return {
             kind: bar ? "bar" : "rail",
             width: innerWidth,
-            height: innerHeight,
-            strip: getComputedStyle(document.documentElement, "::before").height,
-            stripBg: getComputedStyle(document.documentElement, "::before").backgroundColor,
+            height: realHeight,
+            reported: innerHeight,
+            // #status-edge: the black strip at the very top (called `strip` here and in the report).
+            strip: edgeStyle?.height ?? "no #status-edge",
+            stripBg: edgeStyle?.backgroundColor ?? "",
+            stripPosition: edgeStyle?.position ?? "",
+            stripWidth: edge ? Math.round(edge.getBoundingClientRect().width) : 0,
+            shellRect: [shellRect.left, shellRect.top, shellRect.right, shellRect.bottom].map(Math.round),
             navRect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.right), Math.round(rect.bottom)],
             navBg: style.backgroundColor,
             navPad: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
@@ -119,55 +151,75 @@ const chrome = (page) =>
             shellPadTop: shell.paddingTop,
             shellBg: shell.backgroundColor,
             bodyBg: getComputedStyle(document.body).backgroundColor,
+            appHeightVar: document.documentElement.style.getPropertyValue("--app-height"),
             underBottomEdge: at ? (at.closest(".nav-bar, .nav-rail") ? "nav" : at.className || at.tagName) : "none",
         };
+    }, realHeight);
+
+/**
+ * Everything within the top 60px that is blurred, masked, a gradient or translucent and wide enough to be a veil,
+ * or a scroller that touches the edge. Hidden panes count for blur and masks (they are still in the page), not for
+ * what is only painted.
+ */
+const topScan = (page) =>
+    page.evaluate(() => {
+        const edge = document.getElementById("status-edge")?.getBoundingClientRect().height ?? 0;
+        const found = [];
+        for (const el of document.querySelectorAll("html *")) {
+            if (el.id === "status-edge") continue;
+            const r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0 || r.bottom <= 0 || r.top >= 60) continue;
+            const s = getComputedStyle(el);
+            const hiddenPane = el.closest('.app-pane[data-active="false"]') !== null || s.visibility === "hidden";
+            const wide = r.width >= innerWidth * 0.25;
+            const why = [];
+            if (s.backdropFilter && s.backdropFilter !== "none") why.push("backdrop-filter");
+            if (s.maskImage && s.maskImage !== "none") why.push("mask");
+            if (s.filter && s.filter !== "none" && wide) why.push("filter");
+            if (!hiddenPane && wide && /gradient/.test(s.backgroundImage)) why.push("gradient");
+            const alpha = s.backgroundColor.match(/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*([\d.]+)\)/)?.[1];
+            if (!hiddenPane && wide && alpha !== undefined && Number(alpha) > 0 && Number(alpha) < 1) why.push(`translucent ${s.backgroundColor}`);
+            if (/auto|scroll/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 1 && r.top < edge - 0.5) why.push("scroller under the edge");
+            if (why.length) found.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 36)}@${Math.round(r.top)}: ${why.join(", ")}`);
+        }
+        return found;
     });
 
 /** One phone orientation, one theme, every tab. */
-async function phone(browser, scratch, label, device, insets, theme) {
+async function phone(browser, scratch, label, device, insets, theme, opts = {}) {
     const profile = `${label}, ${theme}`;
+    const file = label.replace(/\W+/g, "-");
     await fakeReset();
-    const { page, logs } = await open(browser, device, theme, insets);
+    const { page, logs } = await open(browser, device, theme, insets, opts);
     const dsf = await page.evaluate(() => devicePixelRatio);
+    // The screen the page is in, whatever the page reports (it may lie, see open()).
+    const real = page.viewport().height;
+    // The black strip at the top: the status-bar inset, and in the installed iOS app at least 12px.
+    const edge = Math.max(insets.top, opts.ios ? 12 : 0);
     try {
         for (const tab of TABS) {
             await goTo(page, tab, true);
-            const c = await chrome(page);
-            const png = await page.screenshot({ path: `${outDir}/${label.replace(/\W+/g, "-")}-${theme}-${tab}.png` });
+            const c = await chrome(page, real);
+            const png = await page.screenshot({ path: `${outDir}/${file}-${theme}-${tab}.png` });
             const navHex = rgbToHex(c.navBg);
             const w = c.width;
-            const h = c.height;
+            const h = real;
 
-            await check(profile, `${tab}: status-bar strip is ${insets.top}px of #000000`, async () => {
-                if (insets.top === 0) return [c.strip === "0px" && c.shellPadTop === "0px", `strip height ${c.strip}, shell padding-top ${c.shellPadTop} (nothing of ours at the top: the bar is the system's, the page is below it)`];
+            await check(profile, `${tab}: the top edge is ${edge}px of solid black and the shell is padded by it`, async () => {
+                if (edge === 0) return [c.strip === "0px" && c.shellPadTop === "0px", `strip height ${c.strip}, shell padding-top ${c.shellPadTop} (nothing of ours at the top: the bar is the system's, the page is below it)`];
                 const xs = [1, Math.round(w / 2), w - 2];
-                const ys = [1, Math.round(insets.top / 2), insets.top - 1];
+                const ys = [1, Math.round(edge / 2), edge - 1];
                 const got = await pixels(scratch, png, dsf, ys.flatMap((y) => xs.map((x) => [x, y])));
-                const below = await pixels(scratch, png, dsf, [[Math.round(w / 2), insets.top + 3]]);
+                const below = await pixels(scratch, png, dsf, [[Math.round(w / 2), edge + 3]]);
                 return [
-                    c.strip === `${insets.top}px` && c.stripBg === "rgb(0, 0, 0)" && got.every((p) => p === "#000000"),
-                    `strip ${c.strip}, ${got.length} pixels over the inset all ${[...new Set(got)].join("/")}; first pixel below it ${below[0]} (page bg ${rgbToHex(c.shellBg)})`,
+                    c.strip === `${edge}px` && c.stripBg === "rgb(0, 0, 0)" && c.stripPosition === "fixed" && c.stripWidth === w && c.shellPadTop === `${edge}px` && got.every((p) => p === "#000000"),
+                    `status-edge ${c.strip} x ${c.stripWidth} (${c.stripPosition}), shell padding-top ${c.shellPadTop}; ${got.length} pixels over it all ${[...new Set(got)].join("/")}; first pixel below it ${below[0]} (page bg ${rgbToHex(c.shellBg)})`,
                 ];
             });
 
-            // The system's own scrim (iOS 26 over black-translucent) cannot be seen headless; what can be: the page
-            // fills the viewport exactly, and nothing of ours paints a gradient or blur over the top of it.
-            await check(profile, `${tab}: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top`, async () => {
-                const seen = await page.evaluate(() => {
-                    const shell = document.querySelector(".app-shell").getBoundingClientRect();
-                    const painted = [...document.querySelectorAll("body *")]
-                        .filter((el) => {
-                            const r = el.getBoundingClientRect();
-                            const s = getComputedStyle(el);
-                            return r.width > innerWidth * 0.5 && r.height > 0 && r.top < 140 && r.bottom > 0 && s.visibility !== "hidden" && el.closest("[data-active=false]") === null && (/gradient/.test(s.backgroundImage) || s.backdropFilter !== "none");
-                        })
-                        .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)}`);
-                    return { rect: [shell.left, shell.top, shell.right, shell.bottom].map(Math.round), w: innerWidth, h: innerHeight, painted };
-                });
-                return [
-                    seen.rect[0] === 0 && seen.rect[2] === seen.w && seen.rect[3] === seen.h + 0 && seen.rect[1] === 0 && seen.painted.length === 0,
-                    `shell ${seen.rect.join(",")} of ${seen.w}x${seen.h}; full-width gradient or blur in the top 140px: ${seen.painted.length ? seen.painted.join(", ") : "none"}`,
-                ];
+            await check(profile, `${tab}: the shell fills the screen exactly (bottom ${real})`, async () => {
+                const ok = c.shellRect[0] === 0 && c.shellRect[2] === w && c.shellRect[3] === real && c.shellRect[1] === 0;
+                return [ok, `shell ${c.shellRect.join(",")} of ${w}x${real}; the page reports innerHeight ${c.reported}; --app-height written by the shell: "${c.appHeightVar}"`];
             });
 
             await check(profile, `${tab}: home-indicator strip is the navigation bar's ${navHex}`, async () => {
@@ -175,8 +227,7 @@ async function phone(browser, scratch, label, device, insets, theme) {
                 const xs = [insets.left + 2, Math.round(w / 2), w - 2 - insets.right];
                 const ys = [h - 2, h - Math.round(inset / 2), h - inset];
                 const strip = await pixels(scratch, png, dsf, ys.flatMap((y) => xs.map((x) => [x, y])));
-                // The bar's own padding row, just above the inset, and the bar outside the notch's side insets.
-                const above = await pixels(scratch, png, dsf, [[w / 2, h - inset - 3]]);
+                // The bar outside the notch's side insets, at its bottom corners.
                 const sides = await pixels(scratch, png, dsf, [[1, h - inset - 6], [w - 2, h - inset - 6], [1, h - 2], [w - 2, h - 2]]);
                 const ok =
                     strip.every((p) => p === navHex) &&
@@ -195,28 +246,43 @@ async function phone(browser, scratch, label, device, insets, theme) {
             });
         }
 
-        // The shell is sized from the visual viewport. If that is ever reported short of the screen, whatever is
-        // left under the bar must be the bar's colour, not the page's (black on the KVM, the page colour elsewhere).
-        await check(profile, "a shell that stops short of the screen edge leaves the bar's colour under it", async () => {
+        // The soft blur that appeared at the top once Chat or Settings had been visited: whatever the order, nothing
+        // blurred, masked, gradient, translucent or scrolling sits in the top 60px of any tab, and the edge stays black.
+        await check(profile, "KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black", async () => {
             const seen = [];
             let ok = true;
-            for (const tab of TABS) {
+            for (const [n, tab] of ["kvm", "chat", "settings", "kvm"].entries()) {
                 await goTo(page, tab, true);
-                const previous = await page.$eval(".app-shell", (el) => el.style.getPropertyValue("--app-height"));
-                await page.$eval(".app-shell", (el, gap) => el.style.setProperty("--app-height", `${innerHeight - gap}px`), insets.bottom);
-                await sleep(200);
-                const c = await chrome(page);
-                const png = await page.screenshot({ path: `${outDir}/${label.replace(/\W+/g, "-")}-${theme}-${tab}-short-shell.png` });
-                const h = c.height;
-                const edge = await pixels(scratch, png, dsf, [[insets.left + 2, h - 2], [c.width / 2, h - 2], [c.width / 2, h - insets.bottom + 1]]);
-                const navHex = rgbToHex(c.navBg);
-                const stopped = c.navRect[3] === h - insets.bottom;
-                ok &&= stopped && edge.every((p) => p === navHex);
-                seen.push(`${tab}: bar ends ${c.navRect[3]} of ${h}, strip ${[...new Set(edge)].join("/")} (bar ${navHex})`);
-                await page.$eval(".app-shell", (el, value) => el.style.setProperty("--app-height", value), previous);
+                const found = await topScan(page);
+                const c = await chrome(page, real);
+                const png = await page.screenshot({ path: `${outDir}/${file}-${theme}-order-${n + 1}-${tab}.png` });
+                const px = edge > 0 ? await pixels(scratch, png, dsf, [[2, 2], [c.width / 2, Math.max(1, edge - 2)], [c.width - 3, 2]]) : ["#000000"];
+                const black = edge === 0 || px.every((p) => p === "#000000");
+                ok &&= found.length === 0 && black && c.strip === `${edge}px`;
+                seen.push(`${n + 1}. ${tab}: ${found.length ? found.join("; ") : "nothing"}, edge ${c.strip} ${edge > 0 ? [...new Set(px)].join("/") : ""}`.trim());
             }
-            return [ok, seen.join("; ")];
+            return [ok, seen.join(" | ")];
         });
+
+        if (opts.lie) {
+            // The soft keyboard in the installed app: the visual viewport shrinks (from its short launch value), the shell
+            // follows it and the bar goes; when it closes the shell is the whole screen again, not the short value.
+            await check(profile, "the keyboard in the installed app resizes the shell and closing it restores the whole screen", async () => {
+                await goTo(page, "kvm", true);
+                await page.evaluate(() => window.__keyboard(350));
+                await page.waitForFunction(() => !document.querySelector(".nav-bar"), { timeout: 3000 });
+                const heightOpen = await page.evaluate(() => Math.round(document.querySelector(".app-shell").getBoundingClientRect().height));
+                await page.evaluate(() => window.__keyboard(0));
+                await page.waitForSelector(".nav-bar", { timeout: 3000 });
+                await sleep(300);
+                const closed = await chrome(page, real);
+                const expectedOpen = real - opts.lie - 350;
+                return [
+                    Math.abs(heightOpen - expectedOpen) <= 1 && closed.shellRect[3] === real && closed.navRect[3] === real && closed.appHeightVar === "",
+                    `keyboard up: shell ${heightOpen}px (visual viewport ${expectedOpen}), no bar; closed: shell bottom ${closed.shellRect[3]} of ${real}, bar bottom ${closed.navRect[3]}, --app-height written "${closed.appHeightVar}"`,
+                ];
+            });
+        }
 
         await check(profile, "theme-color meta and the strip are black whatever the theme", async () => {
             const meta = await page.$eval('meta[name="theme-color"]', (m) => m.content);
@@ -224,9 +290,9 @@ async function phone(browser, scratch, label, device, insets, theme) {
             return [meta === "#000000" && themeAttr === theme, `meta ${meta}, data-theme ${themeAttr}`];
         });
 
-        if (insets.top > 0) {
-            // A full-page sheet pads for the inset with its own background; the black strip has to sit over it.
-            await check(profile, "a full-page sheet does not paint the status-bar strip", async () => {
+        if (edge > 0) {
+            // A full-page sheet pads for the top with its own background; the black edge has to sit over it.
+            await check(profile, "a full-page sheet does not paint over the top edge", async () => {
                 await goTo(page, "kvm", true);
                 await page.tap('[aria-label="More"]');
                 await sleep(300);
@@ -237,10 +303,10 @@ async function phone(browser, scratch, label, device, insets, theme) {
                 });
                 await page.waitForSelector('[data-testid="log-dialog"]', { timeout: 5000 });
                 await sleep(400);
-                const dialog = await page.$eval('[data-testid="log-dialog"]', (el) => ({ bg: getComputedStyle(el).backgroundColor, top: Math.round(el.getBoundingClientRect().top), size: el.dataset.size ?? el.closest("[data-size]")?.dataset.size ?? "" }));
-                const png = await page.screenshot({ path: `${outDir}/${label.replace(/\W+/g, "-")}-${theme}-sheet.png` });
-                const got = await pixels(scratch, png, dsf, [[2, 2], [Math.round(page.viewport().width / 2), insets.top - 2], [Math.round(page.viewport().width / 2), insets.top + 12]]);
-                return [opened && got[0] === "#000000" && got[1] === "#000000", `opened ${opened}; sheet ${dialog.bg} from y=${dialog.top}; pixels in the strip ${got.slice(0, 2).join("/")}, just below ${got[2]}`];
+                const dialog = await page.$eval('[data-testid="log-dialog"]', (el) => ({ bg: getComputedStyle(el).backgroundColor, top: Math.round(el.getBoundingClientRect().top) }));
+                const png = await page.screenshot({ path: `${outDir}/${file}-${theme}-sheet.png` });
+                const got = await pixels(scratch, png, dsf, [[2, 2], [Math.round(page.viewport().width / 2), edge - 2], [Math.round(page.viewport().width / 2), edge + 12]]);
+                return [opened && got[0] === "#000000" && got[1] === "#000000", `opened ${opened}; sheet ${dialog.bg} from y=${dialog.top}; pixels in the edge ${got.slice(0, 2).join("/")}, just below ${got[2]}`];
             });
         }
 
@@ -259,7 +325,7 @@ async function uninsetted(browser, scratch, label, device, tag) {
     try {
         for (const tab of TABS) {
             await goTo(page, tab, touch);
-            const c = await chrome(page);
+            const c = await chrome(page, page.viewport().height);
             await page.screenshot({ path: `${outDir}/${tag}-light-${tab}.png` });
             await check(profile, `${tab}: no strips without an inset`, async () => {
                 const pads = tag === "desktop" ? c.navPad : [c.navPad[2]];
@@ -388,8 +454,11 @@ try {
     // The installed app as iOS draws it with the black status-bar style: the page starts BELOW the bar, so the
     // viewport is the screen minus the bar (844 - 47) and the top inset is 0, while the bottom still has the
     // home indicator. The layout has to be right with no top inset at all.
+    const BELOW = { width: 390, height: 797, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
     for (const theme of ["light", "dark"]) {
-        await phone(browser, scratch, "iPhone 13 standalone, black bar", { width: 390, height: 797, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, BELOW_BAR, theme);
+        await phone(browser, scratch, "iPhone 13 standalone, black bar", BELOW, BELOW_BAR, theme, { ios: true });
+        // And as it launches: innerHeight, the visual viewport (and 100dvh) report 62px less than the screen, 100vh does not.
+        await phone(browser, scratch, "iPhone 13 standalone, viewport reports 62px short", BELOW, BELOW_BAR, theme, { ios: true, lie: 62 });
     }
     await uninsetted(browser, scratch, "Android (Pixel 5, no insets)", "Pixel 5", "android");
     await uninsetted(browser, scratch, "Desktop 1400x900, no insets", { width: 1400, height: 900 }, "desktop");
@@ -405,9 +474,9 @@ const section = [
     START,
     "## Status bar and home-indicator strip (PhoneChrome)",
     "",
-    `Run ${today}. Host under test: \`node dist/web-server.js\` (${WEB}) in front of \`tools/fake-kvmd\` (${FAKE}). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP \`Emulation.setSafeAreaInsetsOverride\` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. The \`black bar\` profile is the installed app as iOS draws it with the \`black\` status-bar style: the page starts below the bar, so the viewport is 390x797 with no top inset and 34 at the bottom. The \`update\` cases drive coming back to the app after a deploy (the host's \`/app/version.json\` answered with another build) and check Settings > About against it. Script: \`apps/web/e2e/phone-chrome.e2e.mjs\`; how to run it: \`docs/e2e/README.md\`.`,
+    `Run ${today}. Host under test: \`node dist/web-server.js\` (${WEB}) in front of \`tools/fake-kvmd\` (${FAKE}). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP \`Emulation.setSafeAreaInsetsOverride\` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. The two \`standalone\` profiles are the installed app as iOS draws it with the \`black\` status-bar style: the page starts below the bar, so the viewport is 390x797 with no top inset and 34 at the bottom, and \`navigator.standalone\` is true before any script runs. In the second one the page also reports 62px less than the screen from \`innerHeight\` and the visual viewport (injected before any script; \`100vh\` stays the screen), and \`window.__keyboard(px)\` takes more away as the soft keyboard does. The \`update\` cases drive coming back to the app after a deploy (the host's \`/app/version.json\` answered with another build) and check Settings > About against it. Script: \`apps/web/e2e/phone-chrome.e2e.mjs\`; how to run it: \`docs/e2e/README.md\`.`,
     "",
-    "**What the first version missed.** On a real iPhone (iOS 26, installed app, screenshot 14:57) the top was a grey-to-black gradient over ~120 px and a light-grey strip sat under the white bar. Both come from `apple-mobile-web-app-status-bar-style=black-translucent`: from iOS 26.1 the system draws its own scrim over the top of the page (no CSS removes it; our black strip is under it), and the page was laid out 62 px short of the screen (the bar ended at 812 of 874 pt, the system background below it, outside the web view where nothing of ours can paint). The headless emulation sets a safe-area inset on a viewport that already fills the screen, so it could not show either. The meta is now `black` (a solid bar, the page below it, no top inset), and the `black bar` profile below is that geometry. The scrim and the short web view themselves are system behaviour and cannot be reproduced headless: the check on the device is Settings > About > App build, then the status bar and the strip under the bar.",
+    "**What the earlier versions got wrong.** (1) The status bar: on a real iPhone (iOS 26) the top showed a grey-to-black gradient. That is the system's own scrim over a `black-translucent` page, which no CSS removes, so the style is now `black` (a solid bar, the page below it, no top inset; iOS keeps the style from when the app was added, so the app had to be added again). (2) The gap under the navigation bar was first put down to the web view being short and the system background showing outside it. That was wrong: nothing is outside the web view. In the installed app (no URL bar) `100vh` is the whole screen, while `100dvh`, `100svh`, `innerHeight` and the visual viewport report the screen minus an inset when the app starts, and the shell was sized from those, so it stopped short and what showed under the bar was the page behind the shell. The shell is now `100vh` in the installed app, and the visual viewport's height is used only while the soft keyboard is up (its baseline is a `100vh` probe, so a short launch value is not read as a keyboard). The emulation missed it because it set an inset on a viewport that already filled the screen; the `viewport reports 62px short` profile reproduces the report (before the change: shell 0,0,390,735 of 390x797, the bar ending 62px above the bottom). (3) The blur that appeared at the top after visiting Chat or Settings: nothing on the page is a gradient or mask there, but the resolution pill (`.kvm-res-toast`, top 10px, a `backdrop-filter`) is, and it was still showing; it is no longer a backdrop blur, and the top edge is one opaque black `#status-edge` element (12px deep in the installed iOS app) that the shell is padded by, so no scroller touches it. The `KVM > Chat > Settings > KVM` case scans the top 60px after each step. What the system draws over the page on a real device cannot be reproduced headless: the check on the device is Settings > About > Viewport (what the phone reports) and the status bar after visiting each tab.",
     "",
     "| Profile | Case | Observed | Result |",
     "| --- | --- | --- | --- |",

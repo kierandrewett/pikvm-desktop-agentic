@@ -11,12 +11,17 @@
  *  5. The meta that makes the inset exist at all is dropped (viewport-fit=cover, the standalone flags),
  *     so env(safe-area-inset-*) is 0 and the strips collapse.
  *  6. The offline page the service worker serves comes up with a different status bar than the app.
- *  7. The shell stops short of the screen edge (the visual viewport reported short, as can happen as the
- *     app returns from the background) and the strip left under the bar is the page's colour, not the bar's.
+ *  7. The shell is sized from 100dvh, innerHeight or the visual viewport in the installed app. On the iPhone those
+ *     report the screen minus an inset when the app starts (100vh does not), so the shell stops short and the
+ *     system background shows under the navigation bar. The height is 100vh there, and only the keyboard may
+ *     replace it.
  *  8. The status-bar style goes back to black-translucent. On the iPhone this was reported from (iOS 26) that
  *     style gets the system's own gradient over the top of the page, which no CSS can remove, and a page 62px
  *     short of the screen with the system background under the bar. Real-device evidence, not reproducible
  *     headless: the meta is what has to stay "black" (a solid bar, the page below it).
+ *  9. A soft blur or gradient at the top that appears once a pane has been visited: a backdrop-filter, mask or
+ *     gradient near the top edge, or no solid black element there for the system to find. The top edge is one
+ *     opaque black #status-edge on every tab, deep enough to count, and the shell is padded by the same amount.
  *
  * What a browser draws from this is asserted in e2e/phone-chrome.e2e.mjs; this file is the static
  * contract the pixels depend on.
@@ -71,14 +76,31 @@ describe("status bar", () => {
         expect(meta("theme-color")).toBe("#000000");
     });
 
-    it("is a solid black strip on <html>, above every surface, as tall as the inset", () => {
-        const strip = rule(css, "html::before");
-        expect(strip).toMatch(/height:\s*env\(safe-area-inset-top/);
+    it("is one opaque black element at the top edge, above every surface, as deep as the reserved top", () => {
+        expect(html).toMatch(/<div id="status-edge" aria-hidden="true"><\/div>/);
+        const strip = rule(css, "#status-edge");
+        expect(strip).toMatch(/height:\s*var\(--top-reserved\)/);
         expect(strip).toMatch(/background:\s*#000\s*;/);
         expect(strip).toMatch(/position:\s*fixed/);
+        expect(strip).toMatch(/left:\s*0/);
+        expect(strip).toMatch(/right:\s*0/);
         expect(strip).toMatch(/top:\s*var\(--app-top/);
         expect(strip).toMatch(/z-index:\s*2147483647/);
         expect(strip).toMatch(/pointer-events:\s*none/);
+    });
+
+    it("is deeper than the 10px the system needs to read its colour, in the installed iOS app", () => {
+        expect(rule(css, "html[data-ios-standalone]")).toMatch(/--status-edge:\s*(1[1-9]|[2-9]\d)px/);
+        expect(rule(css, ":root")).toMatch(/--top-reserved:\s*max\(env\(safe-area-inset-top, 0px\), var\(--status-edge\)\)/);
+    });
+
+    it("is reserved by the shell, so nothing, scrollers included, touches the top edge", () => {
+        expect(rule(css, ".app-shell")).toMatch(/padding-top:\s*var\(--top-reserved\)/);
+    });
+
+    it("has nothing translucent at the top of the KVM: the resolution pill is not a backdrop blur", () => {
+        const kvmCss = read("src/kvm/kvm.css");
+        expect(rule(kvmCss, ".kvm-res-toast,\n.kvm-toast")).not.toMatch(/backdrop-filter/);
     });
 
     it("is also black on the offline page", () => {
@@ -104,13 +126,18 @@ describe("home indicator strip", () => {
         expect(rule(css, ".nav-bar")).toMatch(/safe-area-inset-right/);
     });
 
-    it("has a backstop in the bar's colour behind the shell, phone layout only, for a short shell", () => {
-        const backstop = rule(css, 'body:has(.app-shell[data-layout="compact"])::after');
-        expect(backstop).toMatch(/bottom:\s*0/);
-        expect(backstop).toMatch(/height:\s*env\(safe-area-inset-bottom/);
-        expect(backstop).toMatch(/background:\s*var\(--card\)/);
-        expect(backstop).toMatch(/z-index:\s*-1/);
-        expect(backstop).toMatch(/pointer-events:\s*none/);
+    it("reaches the bottom: 100vh in the installed app (the dvh/visual viewport report short at launch), and no backstop", () => {
+        expect(rule(css, "html[data-standalone]")).toMatch(/--app-height:\s*100vh/);
+        expect(rule(css, ":root")).toMatch(/--app-height:\s*100dvh/);
+        expect(rule(css, ".app-shell")).toMatch(/height:\s*var\(--app-height\)/);
+        expect(css).not.toMatch(/body:has\([^)]*\)::after/);
+    });
+
+    it("is decided before first paint, from the same rule as the app's own", () => {
+        expect(html).toMatch(/navigator\.standalone === true/);
+        expect(html).toMatch(/data-standalone/);
+        expect(html).toMatch(/data-ios-standalone/);
+        expect(html.indexOf("data-standalone")).toBeLessThan(html.indexOf('src="/src/main.tsx"'));
     });
 });
 

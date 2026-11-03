@@ -31,8 +31,23 @@
                 document.documentElement.classList.toggle("dark", t === "dark");
             } catch (e) {}
         </script>
+        <script>
+            // Decided once, before first paint, so the first frame already has the right height and top edge.
+            // Standalone (the installed app: no URL bar) has the full screen as its large viewport, which is
+            // what 100vh is; 100dvh and the visual viewport report the screen minus an inset when it starts.
+            // src/app/standalone.ts has the same rule for the case this script did not run.
+            try {
+                var standalone =
+                    navigator.standalone === true ||
+                    matchMedia("(display-mode: standalone)").matches ||
+                    matchMedia("(display-mode: fullscreen)").matches;
+                if (standalone) document.documentElement.setAttribute("data-standalone", "true");
+                if (navigator.standalone === true) document.documentElement.setAttribute("data-ios-standalone", "true");
+            } catch (e) {}
+        </script>
     </head>
     <body>
+        <div id="status-edge" aria-hidden="true"></div>
         <div id="root"></div>
         <script type="module" src="/src/main.tsx"></script>
     </body>

@@ -43,6 +43,7 @@ import {
 } from "react";
 import { useT } from "../../l10n/provider";
 import { msg } from "../../l10n/runtime";
+import { appHeight } from "../../lib/app-height";
 import { cn } from "../../lib/cn";
 import { useIsMobile } from "../../lib/media";
 import "./toast.css";
@@ -200,7 +201,7 @@ function useMobileBottom(active: boolean, mobile: boolean): string {
         const update = () => {
             const form = document.querySelector<HTMLElement>("form[data-layout]");
             const r = form?.getBoundingClientRect();
-            const vh = visualViewport?.height ?? innerHeight;
+            const vh = appHeight();
             if (r && r.height > 0 && r.top < vh && r.top > vh / 2) setBottom(`${Math.round(vh - r.top + 8)}px`);
             else setBottom("calc(12px + var(--safe-bottom))");
         };

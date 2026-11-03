@@ -5,93 +5,123 @@ One section per change.
 <!-- phone-chrome:start -->
 ## Status bar and home-indicator strip (PhoneChrome)
 
-Run 2026-11-03. Host under test: `node dist/web-server.js` (http://127.0.0.1:8161) in front of `tools/fake-kvmd` (http://127.0.0.1:4561). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP `Emulation.setSafeAreaInsetsOverride` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. The `black bar` profile is the installed app as iOS draws it with the `black` status-bar style: the page starts below the bar, so the viewport is 390x797 with no top inset and 34 at the bottom. The `update` cases drive coming back to the app after a deploy (the host's `/app/version.json` answered with another build) and check Settings > About against it. Script: `apps/web/e2e/phone-chrome.e2e.mjs`; how to run it: `docs/e2e/README.md`.
+Run 2026-11-03. Host under test: `node dist/web-server.js` (http://127.0.0.1:8161) in front of `tools/fake-kvmd` (http://127.0.0.1:4561). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP `Emulation.setSafeAreaInsetsOverride` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. The two `standalone` profiles are the installed app as iOS draws it with the `black` status-bar style: the page starts below the bar, so the viewport is 390x797 with no top inset and 34 at the bottom, and `navigator.standalone` is true before any script runs. In the second one the page also reports 62px less than the screen from `innerHeight` and the visual viewport (injected before any script; `100vh` stays the screen), and `window.__keyboard(px)` takes more away as the soft keyboard does. The `update` cases drive coming back to the app after a deploy (the host's `/app/version.json` answered with another build) and check Settings > About against it. Script: `apps/web/e2e/phone-chrome.e2e.mjs`; how to run it: `docs/e2e/README.md`.
 
-**What the first version missed.** On a real iPhone (iOS 26, installed app, screenshot 14:57) the top was a grey-to-black gradient over ~120 px and a light-grey strip sat under the white bar. Both come from `apple-mobile-web-app-status-bar-style=black-translucent`: from iOS 26.1 the system draws its own scrim over the top of the page (no CSS removes it; our black strip is under it), and the page was laid out 62 px short of the screen (the bar ended at 812 of 874 pt, the system background below it, outside the web view where nothing of ours can paint). The headless emulation sets a safe-area inset on a viewport that already fills the screen, so it could not show either. The meta is now `black` (a solid bar, the page below it, no top inset), and the `black bar` profile below is that geometry. The scrim and the short web view themselves are system behaviour and cannot be reproduced headless: the check on the device is Settings > About > App build, then the status bar and the strip under the bar.
+**What the earlier versions got wrong.** (1) The status bar: on a real iPhone (iOS 26) the top showed a grey-to-black gradient. That is the system's own scrim over a `black-translucent` page, which no CSS removes, so the style is now `black` (a solid bar, the page below it, no top inset; iOS keeps the style from when the app was added, so the app had to be added again). (2) The gap under the navigation bar was first put down to the web view being short and the system background showing outside it. That was wrong: nothing is outside the web view. In the installed app (no URL bar) `100vh` is the whole screen, while `100dvh`, `100svh`, `innerHeight` and the visual viewport report the screen minus an inset when the app starts, and the shell was sized from those, so it stopped short and what showed under the bar was the page behind the shell. The shell is now `100vh` in the installed app, and the visual viewport's height is used only while the soft keyboard is up (its baseline is a `100vh` probe, so a short launch value is not read as a keyboard). The emulation missed it because it set an inset on a viewport that already filled the screen; the `viewport reports 62px short` profile reproduces the report (before the change: shell 0,0,390,735 of 390x797, the bar ending 62px above the bottom). (3) The blur that appeared at the top after visiting Chat or Settings: nothing on the page is a gradient or mask there, but the resolution pill (`.kvm-res-toast`, top 10px, a `backdrop-filter`) is, and it was still showing; it is no longer a backdrop blur, and the top edge is one opaque black `#status-edge` element (12px deep in the installed iOS app) that the shell is padded by, so no scroller touches it. The `KVM > Chat > Settings > KVM` case scans the top 60px after each step. What the system draws over the page on a real device cannot be reproduced headless: the check on the device is Settings > About > Viewport (what the phone reports) and the status bar after visiting each tab.
 
 | Profile | Case | Observed | Result |
 | --- | --- | --- | --- |
 | static | meta served at /app/ | {"theme-color":"#000000","apple-mobile-web-app-capable":"yes","apple-mobile-web-app-status-bar-style":"black","mobile-web-app-capable":"yes"}; viewport "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" | pass |
 | static | manifest | /app/manifest.webmanifest: theme_color #000000, background_color #0a0a0c, display standalone | pass |
 | static | offline page | theme-color #000000 and the inset strip are in /app/sw.js | pass |
-| static | the page, sw.js and version.json are revalidated, hashed assets are immutable, the worker never caches a page | {"/app/":"no-cache","/app/sw.js":"no-cache","/app/version.json":"no-cache","/app/manifest.webmanifest":"no-cache"}; /app/assets/index-CKajwK7r.js public, max-age=31536000, immutable; worker navigations go to the network, skipWaiting and clients.claim present: true | pass |
-| update | Settings > About shows the build the host serves in /app/version.json | About lists "App build" and "10a037e9.20261103-150811": true | pass |
+| static | the page, sw.js and version.json are revalidated, hashed assets are immutable, the worker never caches a page | {"/app/":"no-cache","/app/sw.js":"no-cache","/app/version.json":"no-cache","/app/manifest.webmanifest":"no-cache"}; /app/assets/index-Bs9UXGnS.js public, max-age=31536000, immutable; worker navigations go to the network, skipWaiting and clients.claim present: true | pass |
+| update | Settings > About shows the build the host serves in /app/version.json | About lists "App build" and "3600ad16.20261103-152802": true | pass |
 | update | coming back to the same build does not reload | page kept its state: true | pass |
 | update | coming back after a deploy reloads once, and never twice for the same build | reloaded for "next.20991231-235959", and the second return kept the page (state 2) | pass |
-| iPhone 13 portrait, light | kvm: status-bar strip is 47px of #000000 | strip 47px, 9 pixels over the inset all #000000; first pixel below it #000000 (page bg #000000) | pass |
-| iPhone 13 portrait, light | kvm: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,844 of 390x844; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 portrait, light | kvm: the top edge is 47px of solid black and the shell is padded by it | status-edge 47px x 390 (fixed), shell padding-top 47px; 9 pixels over it all #000000; first pixel below it #000000 (page bg #000000) | pass |
+| iPhone 13 portrait, light | kvm: the shell fills the screen exactly (bottom 844) | shell 0,0,390,844 of 390x844; the page reports innerHeight 844; --app-height written by the shell: "844px" | pass |
 | iPhone 13 portrait, light | kvm: home-indicator strip is the navigation bar's #ffffff | nav 0,753,390,844 of 390x844, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 portrait, light | chat: status-bar strip is 47px of #000000 | strip 47px, 9 pixels over the inset all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
-| iPhone 13 portrait, light | chat: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,844 of 390x844; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 portrait, light | chat: the top edge is 47px of solid black and the shell is padded by it | status-edge 47px x 390 (fixed), shell padding-top 47px; 9 pixels over it all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
+| iPhone 13 portrait, light | chat: the shell fills the screen exactly (bottom 844) | shell 0,0,390,844 of 390x844; the page reports innerHeight 844; --app-height written by the shell: "844px" | pass |
 | iPhone 13 portrait, light | chat: home-indicator strip is the navigation bar's #ffffff | nav 0,753,390,844 of 390x844, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 portrait, light | settings: status-bar strip is 47px of #000000 | strip 47px, 9 pixels over the inset all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
-| iPhone 13 portrait, light | settings: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,844 of 390x844; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 portrait, light | settings: the top edge is 47px of solid black and the shell is padded by it | status-edge 47px x 390 (fixed), shell padding-top 47px; 9 pixels over it all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
+| iPhone 13 portrait, light | settings: the shell fills the screen exactly (bottom 844) | shell 0,0,390,844 of 390x844; the page reports innerHeight 844; --app-height written by the shell: "844px" | pass |
 | iPhone 13 portrait, light | settings: home-indicator strip is the navigation bar's #ffffff | nav 0,753,390,844 of 390x844, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 portrait, light | a shell that stops short of the screen edge leaves the bar's colour under it | kvm: bar ends 810 of 844, strip #ffffff (bar #ffffff); chat: bar ends 810 of 844, strip #ffffff (bar #ffffff); settings: bar ends 810 of 844, strip #ffffff (bar #ffffff) | pass |
+| iPhone 13 portrait, light | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 47px #000000 \| 2. chat: nothing, edge 47px #000000 \| 3. settings: nothing, edge 47px #000000 \| 4. kvm: nothing, edge 47px #000000 | pass |
 | iPhone 13 portrait, light | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme light | pass |
-| iPhone 13 portrait, light | a full-page sheet does not paint the status-bar strip | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the strip #000000/#000000, just below #ffffff | pass |
+| iPhone 13 portrait, light | a full-page sheet does not paint over the top edge | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the edge #000000/#000000, just below #ffffff | pass |
 | iPhone 13 portrait, light | no console errors | none | pass |
-| iPhone 13 landscape, light | kvm: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 landscape, light | kvm: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,844,390 of 844x390; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 landscape, light | kvm: the top edge is 0px of solid black and the shell is padded by it | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
+| iPhone 13 landscape, light | kvm: the shell fills the screen exactly (bottom 390) | shell 0,0,844,390 of 844x390; the page reports innerHeight 390; --app-height written by the shell: "390px" | pass |
 | iPhone 13 landscape, light | kvm: home-indicator strip is the navigation bar's #ffffff | nav 0,312,844,390 of 844x390, padding-bottom 25px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 landscape, light | chat: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 landscape, light | chat: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,844,390 of 844x390; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 landscape, light | chat: the top edge is 0px of solid black and the shell is padded by it | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
+| iPhone 13 landscape, light | chat: the shell fills the screen exactly (bottom 390) | shell 0,0,844,390 of 844x390; the page reports innerHeight 390; --app-height written by the shell: "390px" | pass |
 | iPhone 13 landscape, light | chat: home-indicator strip is the navigation bar's #ffffff | nav 0,312,844,390 of 844x390, padding-bottom 25px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 landscape, light | settings: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 landscape, light | settings: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,844,390 of 844x390; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 landscape, light | settings: the top edge is 0px of solid black and the shell is padded by it | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
+| iPhone 13 landscape, light | settings: the shell fills the screen exactly (bottom 390) | shell 0,0,844,390 of 844x390; the page reports innerHeight 390; --app-height written by the shell: "390px" | pass |
 | iPhone 13 landscape, light | settings: home-indicator strip is the navigation bar's #ffffff | nav 0,312,844,390 of 844x390, padding-bottom 25px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 landscape, light | a shell that stops short of the screen edge leaves the bar's colour under it | kvm: bar ends 369 of 390, strip #ffffff (bar #ffffff); chat: bar ends 369 of 390, strip #ffffff (bar #ffffff); settings: bar ends 369 of 390, strip #ffffff (bar #ffffff) | pass |
+| iPhone 13 landscape, light | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 0px \| 2. chat: nothing, edge 0px \| 3. settings: nothing, edge 0px \| 4. kvm: nothing, edge 0px | pass |
 | iPhone 13 landscape, light | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme light | pass |
 | iPhone 13 landscape, light | no console errors | none | pass |
-| iPhone 13 portrait, dark | kvm: status-bar strip is 47px of #000000 | strip 47px, 9 pixels over the inset all #000000; first pixel below it #000000 (page bg #000000) | pass |
-| iPhone 13 portrait, dark | kvm: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,844 of 390x844; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 portrait, dark | kvm: the top edge is 47px of solid black and the shell is padded by it | status-edge 47px x 390 (fixed), shell padding-top 47px; 9 pixels over it all #000000; first pixel below it #000000 (page bg #000000) | pass |
+| iPhone 13 portrait, dark | kvm: the shell fills the screen exactly (bottom 844) | shell 0,0,390,844 of 390x844; the page reports innerHeight 844; --app-height written by the shell: "844px" | pass |
 | iPhone 13 portrait, dark | kvm: home-indicator strip is the navigation bar's #121216 | nav 0,753,390,844 of 390x844, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 portrait, dark | chat: status-bar strip is 47px of #000000 | strip 47px, 9 pixels over the inset all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
-| iPhone 13 portrait, dark | chat: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,844 of 390x844; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 portrait, dark | chat: the top edge is 47px of solid black and the shell is padded by it | status-edge 47px x 390 (fixed), shell padding-top 47px; 9 pixels over it all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
+| iPhone 13 portrait, dark | chat: the shell fills the screen exactly (bottom 844) | shell 0,0,390,844 of 390x844; the page reports innerHeight 844; --app-height written by the shell: "844px" | pass |
 | iPhone 13 portrait, dark | chat: home-indicator strip is the navigation bar's #121216 | nav 0,753,390,844 of 390x844, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 portrait, dark | settings: status-bar strip is 47px of #000000 | strip 47px, 9 pixels over the inset all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
-| iPhone 13 portrait, dark | settings: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,844 of 390x844; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 portrait, dark | settings: the top edge is 47px of solid black and the shell is padded by it | status-edge 47px x 390 (fixed), shell padding-top 47px; 9 pixels over it all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
+| iPhone 13 portrait, dark | settings: the shell fills the screen exactly (bottom 844) | shell 0,0,390,844 of 390x844; the page reports innerHeight 844; --app-height written by the shell: "844px" | pass |
 | iPhone 13 portrait, dark | settings: home-indicator strip is the navigation bar's #121216 | nav 0,753,390,844 of 390x844, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 portrait, dark | a shell that stops short of the screen edge leaves the bar's colour under it | kvm: bar ends 810 of 844, strip #121216 (bar #121216); chat: bar ends 810 of 844, strip #121216 (bar #121216); settings: bar ends 810 of 844, strip #121216 (bar #121216) | pass |
+| iPhone 13 portrait, dark | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 47px #000000 \| 2. chat: nothing, edge 47px #000000 \| 3. settings: nothing, edge 47px #000000 \| 4. kvm: nothing, edge 47px #000000 | pass |
 | iPhone 13 portrait, dark | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme dark | pass |
-| iPhone 13 portrait, dark | a full-page sheet does not paint the status-bar strip | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the strip #000000/#000000, just below #121216 | pass |
+| iPhone 13 portrait, dark | a full-page sheet does not paint over the top edge | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the edge #000000/#000000, just below #121216 | pass |
 | iPhone 13 portrait, dark | no console errors | none | pass |
-| iPhone 13 landscape, dark | kvm: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 landscape, dark | kvm: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,844,390 of 844x390; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 landscape, dark | kvm: the top edge is 0px of solid black and the shell is padded by it | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
+| iPhone 13 landscape, dark | kvm: the shell fills the screen exactly (bottom 390) | shell 0,0,844,390 of 844x390; the page reports innerHeight 390; --app-height written by the shell: "390px" | pass |
 | iPhone 13 landscape, dark | kvm: home-indicator strip is the navigation bar's #121216 | nav 0,312,844,390 of 844x390, padding-bottom 25px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 landscape, dark | chat: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 landscape, dark | chat: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,844,390 of 844x390; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 landscape, dark | chat: the top edge is 0px of solid black and the shell is padded by it | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
+| iPhone 13 landscape, dark | chat: the shell fills the screen exactly (bottom 390) | shell 0,0,844,390 of 844x390; the page reports innerHeight 390; --app-height written by the shell: "390px" | pass |
 | iPhone 13 landscape, dark | chat: home-indicator strip is the navigation bar's #121216 | nav 0,312,844,390 of 844x390, padding-bottom 25px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 landscape, dark | settings: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 landscape, dark | settings: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,844,390 of 844x390; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 landscape, dark | settings: the top edge is 0px of solid black and the shell is padded by it | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
+| iPhone 13 landscape, dark | settings: the shell fills the screen exactly (bottom 390) | shell 0,0,844,390 of 844x390; the page reports innerHeight 390; --app-height written by the shell: "390px" | pass |
 | iPhone 13 landscape, dark | settings: home-indicator strip is the navigation bar's #121216 | nav 0,312,844,390 of 844x390, padding-bottom 25px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 landscape, dark | a shell that stops short of the screen edge leaves the bar's colour under it | kvm: bar ends 369 of 390, strip #121216 (bar #121216); chat: bar ends 369 of 390, strip #121216 (bar #121216); settings: bar ends 369 of 390, strip #121216 (bar #121216) | pass |
+| iPhone 13 landscape, dark | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 0px \| 2. chat: nothing, edge 0px \| 3. settings: nothing, edge 0px \| 4. kvm: nothing, edge 0px | pass |
 | iPhone 13 landscape, dark | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme dark | pass |
 | iPhone 13 landscape, dark | no console errors | none | pass |
-| iPhone 13 standalone, black bar, light | kvm: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 standalone, black bar, light | kvm: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,797 of 390x797; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 standalone, black bar, light | kvm: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #000000 (page bg #000000) | pass |
+| iPhone 13 standalone, black bar, light | kvm: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 797; --app-height written by the shell: "" | pass |
 | iPhone 13 standalone, black bar, light | kvm: home-indicator strip is the navigation bar's #ffffff | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 standalone, black bar, light | chat: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 standalone, black bar, light | chat: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,797 of 390x797; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 standalone, black bar, light | chat: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
+| iPhone 13 standalone, black bar, light | chat: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 797; --app-height written by the shell: "" | pass |
 | iPhone 13 standalone, black bar, light | chat: home-indicator strip is the navigation bar's #ffffff | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 standalone, black bar, light | settings: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 standalone, black bar, light | settings: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,797 of 390x797; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 standalone, black bar, light | settings: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
+| iPhone 13 standalone, black bar, light | settings: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 797; --app-height written by the shell: "" | pass |
 | iPhone 13 standalone, black bar, light | settings: home-indicator strip is the navigation bar's #ffffff | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
-| iPhone 13 standalone, black bar, light | a shell that stops short of the screen edge leaves the bar's colour under it | kvm: bar ends 763 of 797, strip #ffffff (bar #ffffff); chat: bar ends 763 of 797, strip #ffffff (bar #ffffff); settings: bar ends 763 of 797, strip #ffffff (bar #ffffff) | pass |
+| iPhone 13 standalone, black bar, light | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 12px #000000 \| 2. chat: nothing, edge 12px #000000 \| 3. settings: nothing, edge 12px #000000 \| 4. kvm: nothing, edge 12px #000000 | pass |
 | iPhone 13 standalone, black bar, light | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme light | pass |
+| iPhone 13 standalone, black bar, light | a full-page sheet does not paint over the top edge | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the edge #000000/#000000, just below #ffffff | pass |
 | iPhone 13 standalone, black bar, light | no console errors | none | pass |
-| iPhone 13 standalone, black bar, dark | kvm: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 standalone, black bar, dark | kvm: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,797 of 390x797; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | kvm: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #000000 (page bg #000000) | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | kvm: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 735; --app-height written by the shell: "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | kvm: home-indicator strip is the navigation bar's #ffffff | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | chat: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | chat: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 735; --app-height written by the shell: "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | chat: home-indicator strip is the navigation bar's #ffffff | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | settings: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #eef0f4 (page bg #eef0f4) | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | settings: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 735; --app-height written by the shell: "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | settings: home-indicator strip is the navigation bar's #ffffff | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #ffffff, bar edge pixels #ffffff, element at the bottom edge: nav | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 12px #000000 \| 2. chat: nothing, edge 12px #000000 \| 3. settings: nothing, edge 12px #000000 \| 4. kvm: nothing, edge 12px #000000 | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | the keyboard in the installed app resizes the shell and closing it restores the whole screen | keyboard up: shell 385px (visual viewport 385), no bar; closed: shell bottom 797 of 797, bar bottom 797, --app-height written "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme light | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | a full-page sheet does not paint over the top edge | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the edge #000000/#000000, just below #ffffff | pass |
+| iPhone 13 standalone, viewport reports 62px short, light | no console errors | none | pass |
+| iPhone 13 standalone, black bar, dark | kvm: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #000000 (page bg #000000) | pass |
+| iPhone 13 standalone, black bar, dark | kvm: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 797; --app-height written by the shell: "" | pass |
 | iPhone 13 standalone, black bar, dark | kvm: home-indicator strip is the navigation bar's #121216 | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 standalone, black bar, dark | chat: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 standalone, black bar, dark | chat: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,797 of 390x797; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 standalone, black bar, dark | chat: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
+| iPhone 13 standalone, black bar, dark | chat: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 797; --app-height written by the shell: "" | pass |
 | iPhone 13 standalone, black bar, dark | chat: home-indicator strip is the navigation bar's #121216 | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 standalone, black bar, dark | settings: status-bar strip is 0px of #000000 | strip height 0px, shell padding-top 0px (nothing of ours at the top: the bar is the system's, the page is below it) | pass |
-| iPhone 13 standalone, black bar, dark | settings: the shell fills the viewport and nothing of ours is a full-width gradient or blur at the top | shell 0,0,390,797 of 390x797; full-width gradient or blur in the top 140px: none | pass |
+| iPhone 13 standalone, black bar, dark | settings: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
+| iPhone 13 standalone, black bar, dark | settings: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 797; --app-height written by the shell: "" | pass |
 | iPhone 13 standalone, black bar, dark | settings: home-indicator strip is the navigation bar's #121216 | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
-| iPhone 13 standalone, black bar, dark | a shell that stops short of the screen edge leaves the bar's colour under it | kvm: bar ends 763 of 797, strip #121216 (bar #121216); chat: bar ends 763 of 797, strip #121216 (bar #121216); settings: bar ends 763 of 797, strip #121216 (bar #121216) | pass |
+| iPhone 13 standalone, black bar, dark | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 12px #000000 \| 2. chat: nothing, edge 12px #000000 \| 3. settings: nothing, edge 12px #000000 \| 4. kvm: nothing, edge 12px #000000 | pass |
 | iPhone 13 standalone, black bar, dark | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme dark | pass |
+| iPhone 13 standalone, black bar, dark | a full-page sheet does not paint over the top edge | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the edge #000000/#000000, just below #121216 | pass |
 | iPhone 13 standalone, black bar, dark | no console errors | none | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | kvm: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #000000 (page bg #000000) | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | kvm: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 735; --app-height written by the shell: "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | kvm: home-indicator strip is the navigation bar's #121216 | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | chat: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | chat: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 735; --app-height written by the shell: "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | chat: home-indicator strip is the navigation bar's #121216 | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | settings: the top edge is 12px of solid black and the shell is padded by it | status-edge 12px x 390 (fixed), shell padding-top 12px; 9 pixels over it all #000000; first pixel below it #0a0a0c (page bg #0a0a0c) | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | settings: the shell fills the screen exactly (bottom 797) | shell 0,0,390,797 of 390x797; the page reports innerHeight 735; --app-height written by the shell: "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | settings: home-indicator strip is the navigation bar's #121216 | nav 0,706,390,797 of 390x797, padding-bottom 38px, shell padding-bottom 0px; inset pixels #121216, bar edge pixels #121216, element at the bottom edge: nav | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | KVM > Chat > Settings > KVM: nothing blurred, masked, gradient or translucent in the top 60px, the edge stays black | 1. kvm: nothing, edge 12px #000000 \| 2. chat: nothing, edge 12px #000000 \| 3. settings: nothing, edge 12px #000000 \| 4. kvm: nothing, edge 12px #000000 | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | the keyboard in the installed app resizes the shell and closing it restores the whole screen | keyboard up: shell 385px (visual viewport 385), no bar; closed: shell bottom 797 of 797, bar bottom 797, --app-height written "" | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | theme-color meta and the strip are black whatever the theme | meta #000000, data-theme dark | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | a full-page sheet does not paint over the top edge | opened true; sheet rgba(0, 0, 0, 0.62) from y=0; pixels in the edge #000000/#000000, just below #121216 | pass |
+| iPhone 13 standalone, viewport reports 62px short, dark | no console errors | none | pass |
 | Android (Pixel 5, no insets) | kvm: no strips without an inset | bar; strip 0px; nav padding 4px; nav bottom 851 of 851 | pass |
 | Android (Pixel 5, no insets) | chat: no strips without an inset | bar; strip 0px; nav padding 4px; nav bottom 851 of 851 | pass |
 | Android (Pixel 5, no insets) | settings: no strips without an inset | bar; strip 0px; nav padding 4px; nav bottom 851 of 851 | pass |
@@ -99,7 +129,7 @@ Run 2026-11-03. Host under test: `node dist/web-server.js` (http://127.0.0.1:816
 | Desktop 1400x900, no insets | chat: no strips without an inset | rail; strip 0px; nav padding 4px 4px 4px 4px; nav bottom 900 of 900 | pass |
 | Desktop 1400x900, no insets | settings: no strips without an inset | rail; strip 0px; nav padding 4px 4px 4px 4px; nav bottom 900 of 900 | pass |
 
-87 of 87 passed.
+117 of 117 passed.
 
 Screenshots (`docs/e2e/phone-chrome/`):
 
@@ -109,44 +139,68 @@ Screenshots (`docs/e2e/phone-chrome/`):
 - [desktop-light-chat](phone-chrome/desktop-light-chat.png)
 - [desktop-light-kvm](phone-chrome/desktop-light-kvm.png)
 - [desktop-light-settings](phone-chrome/desktop-light-settings.png)
-- [iPhone-13-landscape-dark-chat-short-shell](phone-chrome/iPhone-13-landscape-dark-chat-short-shell.png)
 - [iPhone-13-landscape-dark-chat](phone-chrome/iPhone-13-landscape-dark-chat.png)
-- [iPhone-13-landscape-dark-kvm-short-shell](phone-chrome/iPhone-13-landscape-dark-kvm-short-shell.png)
 - [iPhone-13-landscape-dark-kvm](phone-chrome/iPhone-13-landscape-dark-kvm.png)
-- [iPhone-13-landscape-dark-settings-short-shell](phone-chrome/iPhone-13-landscape-dark-settings-short-shell.png)
+- [iPhone-13-landscape-dark-order-1-kvm](phone-chrome/iPhone-13-landscape-dark-order-1-kvm.png)
+- [iPhone-13-landscape-dark-order-2-chat](phone-chrome/iPhone-13-landscape-dark-order-2-chat.png)
+- [iPhone-13-landscape-dark-order-3-settings](phone-chrome/iPhone-13-landscape-dark-order-3-settings.png)
+- [iPhone-13-landscape-dark-order-4-kvm](phone-chrome/iPhone-13-landscape-dark-order-4-kvm.png)
 - [iPhone-13-landscape-dark-settings](phone-chrome/iPhone-13-landscape-dark-settings.png)
-- [iPhone-13-landscape-light-chat-short-shell](phone-chrome/iPhone-13-landscape-light-chat-short-shell.png)
 - [iPhone-13-landscape-light-chat](phone-chrome/iPhone-13-landscape-light-chat.png)
-- [iPhone-13-landscape-light-kvm-short-shell](phone-chrome/iPhone-13-landscape-light-kvm-short-shell.png)
 - [iPhone-13-landscape-light-kvm](phone-chrome/iPhone-13-landscape-light-kvm.png)
-- [iPhone-13-landscape-light-settings-short-shell](phone-chrome/iPhone-13-landscape-light-settings-short-shell.png)
+- [iPhone-13-landscape-light-order-1-kvm](phone-chrome/iPhone-13-landscape-light-order-1-kvm.png)
+- [iPhone-13-landscape-light-order-2-chat](phone-chrome/iPhone-13-landscape-light-order-2-chat.png)
+- [iPhone-13-landscape-light-order-3-settings](phone-chrome/iPhone-13-landscape-light-order-3-settings.png)
+- [iPhone-13-landscape-light-order-4-kvm](phone-chrome/iPhone-13-landscape-light-order-4-kvm.png)
 - [iPhone-13-landscape-light-settings](phone-chrome/iPhone-13-landscape-light-settings.png)
-- [iPhone-13-portrait-dark-chat-short-shell](phone-chrome/iPhone-13-portrait-dark-chat-short-shell.png)
 - [iPhone-13-portrait-dark-chat](phone-chrome/iPhone-13-portrait-dark-chat.png)
-- [iPhone-13-portrait-dark-kvm-short-shell](phone-chrome/iPhone-13-portrait-dark-kvm-short-shell.png)
 - [iPhone-13-portrait-dark-kvm](phone-chrome/iPhone-13-portrait-dark-kvm.png)
-- [iPhone-13-portrait-dark-settings-short-shell](phone-chrome/iPhone-13-portrait-dark-settings-short-shell.png)
+- [iPhone-13-portrait-dark-order-1-kvm](phone-chrome/iPhone-13-portrait-dark-order-1-kvm.png)
+- [iPhone-13-portrait-dark-order-2-chat](phone-chrome/iPhone-13-portrait-dark-order-2-chat.png)
+- [iPhone-13-portrait-dark-order-3-settings](phone-chrome/iPhone-13-portrait-dark-order-3-settings.png)
+- [iPhone-13-portrait-dark-order-4-kvm](phone-chrome/iPhone-13-portrait-dark-order-4-kvm.png)
 - [iPhone-13-portrait-dark-settings](phone-chrome/iPhone-13-portrait-dark-settings.png)
 - [iPhone-13-portrait-dark-sheet](phone-chrome/iPhone-13-portrait-dark-sheet.png)
-- [iPhone-13-portrait-light-chat-short-shell](phone-chrome/iPhone-13-portrait-light-chat-short-shell.png)
 - [iPhone-13-portrait-light-chat](phone-chrome/iPhone-13-portrait-light-chat.png)
-- [iPhone-13-portrait-light-kvm-short-shell](phone-chrome/iPhone-13-portrait-light-kvm-short-shell.png)
 - [iPhone-13-portrait-light-kvm](phone-chrome/iPhone-13-portrait-light-kvm.png)
-- [iPhone-13-portrait-light-settings-short-shell](phone-chrome/iPhone-13-portrait-light-settings-short-shell.png)
+- [iPhone-13-portrait-light-order-1-kvm](phone-chrome/iPhone-13-portrait-light-order-1-kvm.png)
+- [iPhone-13-portrait-light-order-2-chat](phone-chrome/iPhone-13-portrait-light-order-2-chat.png)
+- [iPhone-13-portrait-light-order-3-settings](phone-chrome/iPhone-13-portrait-light-order-3-settings.png)
+- [iPhone-13-portrait-light-order-4-kvm](phone-chrome/iPhone-13-portrait-light-order-4-kvm.png)
 - [iPhone-13-portrait-light-settings](phone-chrome/iPhone-13-portrait-light-settings.png)
 - [iPhone-13-portrait-light-sheet](phone-chrome/iPhone-13-portrait-light-sheet.png)
-- [iPhone-13-standalone-black-bar-dark-chat-short-shell](phone-chrome/iPhone-13-standalone-black-bar-dark-chat-short-shell.png)
 - [iPhone-13-standalone-black-bar-dark-chat](phone-chrome/iPhone-13-standalone-black-bar-dark-chat.png)
-- [iPhone-13-standalone-black-bar-dark-kvm-short-shell](phone-chrome/iPhone-13-standalone-black-bar-dark-kvm-short-shell.png)
 - [iPhone-13-standalone-black-bar-dark-kvm](phone-chrome/iPhone-13-standalone-black-bar-dark-kvm.png)
-- [iPhone-13-standalone-black-bar-dark-settings-short-shell](phone-chrome/iPhone-13-standalone-black-bar-dark-settings-short-shell.png)
+- [iPhone-13-standalone-black-bar-dark-order-1-kvm](phone-chrome/iPhone-13-standalone-black-bar-dark-order-1-kvm.png)
+- [iPhone-13-standalone-black-bar-dark-order-2-chat](phone-chrome/iPhone-13-standalone-black-bar-dark-order-2-chat.png)
+- [iPhone-13-standalone-black-bar-dark-order-3-settings](phone-chrome/iPhone-13-standalone-black-bar-dark-order-3-settings.png)
+- [iPhone-13-standalone-black-bar-dark-order-4-kvm](phone-chrome/iPhone-13-standalone-black-bar-dark-order-4-kvm.png)
 - [iPhone-13-standalone-black-bar-dark-settings](phone-chrome/iPhone-13-standalone-black-bar-dark-settings.png)
-- [iPhone-13-standalone-black-bar-light-chat-short-shell](phone-chrome/iPhone-13-standalone-black-bar-light-chat-short-shell.png)
+- [iPhone-13-standalone-black-bar-dark-sheet](phone-chrome/iPhone-13-standalone-black-bar-dark-sheet.png)
 - [iPhone-13-standalone-black-bar-light-chat](phone-chrome/iPhone-13-standalone-black-bar-light-chat.png)
-- [iPhone-13-standalone-black-bar-light-kvm-short-shell](phone-chrome/iPhone-13-standalone-black-bar-light-kvm-short-shell.png)
 - [iPhone-13-standalone-black-bar-light-kvm](phone-chrome/iPhone-13-standalone-black-bar-light-kvm.png)
-- [iPhone-13-standalone-black-bar-light-settings-short-shell](phone-chrome/iPhone-13-standalone-black-bar-light-settings-short-shell.png)
+- [iPhone-13-standalone-black-bar-light-order-1-kvm](phone-chrome/iPhone-13-standalone-black-bar-light-order-1-kvm.png)
+- [iPhone-13-standalone-black-bar-light-order-2-chat](phone-chrome/iPhone-13-standalone-black-bar-light-order-2-chat.png)
+- [iPhone-13-standalone-black-bar-light-order-3-settings](phone-chrome/iPhone-13-standalone-black-bar-light-order-3-settings.png)
+- [iPhone-13-standalone-black-bar-light-order-4-kvm](phone-chrome/iPhone-13-standalone-black-bar-light-order-4-kvm.png)
 - [iPhone-13-standalone-black-bar-light-settings](phone-chrome/iPhone-13-standalone-black-bar-light-settings.png)
+- [iPhone-13-standalone-black-bar-light-sheet](phone-chrome/iPhone-13-standalone-black-bar-light-sheet.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-chat](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-chat.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-kvm](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-kvm.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-order-1-kvm](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-order-1-kvm.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-order-2-chat](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-order-2-chat.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-order-3-settings](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-order-3-settings.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-order-4-kvm](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-order-4-kvm.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-settings](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-settings.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-dark-sheet](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-dark-sheet.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-chat](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-chat.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-kvm](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-kvm.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-order-1-kvm](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-order-1-kvm.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-order-2-chat](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-order-2-chat.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-order-3-settings](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-order-3-settings.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-order-4-kvm](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-order-4-kvm.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-settings](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-settings.png)
+- [iPhone-13-standalone-viewport-reports-62px-short-light-sheet](phone-chrome/iPhone-13-standalone-viewport-reports-62px-short-light-sheet.png)
 <!-- phone-chrome:end -->
 
 <!-- resume:begin -->

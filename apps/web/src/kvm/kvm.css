@@ -230,9 +230,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     padding: 6px 12px;
     border-radius: 999px;
     border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--card) 82%, transparent);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--card) 94%, transparent);
     color: var(--foreground);
     font-size: 12px;
     font-weight: 650;
@@ -245,7 +243,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
         transform 0.25s ease;
 }
 .kvm-res-toast {
-    top: max(10px, env(safe-area-inset-top));
+    top: max(10px, var(--top-reserved, env(safe-area-inset-top)));
 }
 .kvm-res-toast.show {
     opacity: 1;
@@ -730,7 +728,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     display: flex;
     flex-direction: column;
     min-width: 224px;
-    max-height: calc(100dvh - 80px);
+    max-height: calc(var(--app-height, 100dvh) - 80px);
     overflow-y: auto;
     padding: 5px;
     background: var(--card);

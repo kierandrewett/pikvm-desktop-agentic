@@ -51,8 +51,7 @@ afterEach(() => {
 });
 
 const selectedTab = () => screen.getByRole("tab", { selected: true });
-const shellHeight = (container: HTMLElement) =>
-    container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--app-height");
+const shellHeight = () => document.documentElement.style.getPropertyValue("--app-height");
 
 describe("active tab", () => {
     it("selects KVM on /kvm", async () => {
@@ -199,19 +198,19 @@ describe("layout", () => {
 
     it("keeps the bar when only an address bar's worth of height is lost", async () => {
         const viewport = installViewport(800);
-        const { container } = renderApp("/kvm", { compact: true });
+        renderApp("/kvm", { compact: true });
         await screen.findByRole("tablist");
         act(() => viewport.resize(700));
-        await waitFor(() => expect(shellHeight(container)).toBe("700px"));
+        await waitFor(() => expect(shellHeight()).toBe("700px"));
         expect(screen.getByRole("tablist")).toBeInTheDocument();
     });
 
     it("keeps the rail on a wide screen however short the viewport gets", async () => {
         const viewport = installViewport(800);
-        const { container } = renderApp("/kvm", { compact: false });
+        renderApp("/kvm", { compact: false });
         await screen.findByRole("tablist");
         act(() => viewport.resize(300));
-        await waitFor(() => expect(shellHeight(container)).toBe("300px"));
+        await waitFor(() => expect(shellHeight()).toBe("300px"));
         expect(screen.getByRole("tablist")).toBeInTheDocument();
     });
 
@@ -239,10 +238,9 @@ describe("layout", () => {
 
     it("sizes the shell to the visual viewport", async () => {
         installViewport(612);
-        const { container } = renderApp("/kvm", { compact: true });
+        renderApp("/kvm", { compact: true });
         await screen.findByRole("tablist");
-        const shell = container.querySelector<HTMLElement>(".app-shell");
-        expect(shell?.style.getPropertyValue("--app-height")).toBe("612px");
+        expect(shellHeight()).toBe("612px");
     });
 
     it("puts the visual viewport's offset on <html>, where the status-bar strip reads it", async () => {
@@ -256,6 +254,41 @@ describe("layout", () => {
         await waitFor(() => expect(root.style.getPropertyValue("--app-top")).toBe("120px"));
         unmount();
         expect(root.style.getPropertyValue("--app-top")).toBe("");
+    });
+
+    describe("in the installed app", () => {
+        // The screen is 874 tall; the visual viewport reports 62 less at launch (the lie); 100vh is the screen.
+        const SCREEN = 874;
+        beforeEach(() => {
+            document.documentElement.setAttribute("data-standalone", "true");
+            const real = HTMLElement.prototype.getBoundingClientRect;
+            vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+                return this.style.height === "100vh" ? ({ height: SCREEN, width: 0, top: 0, left: 0, right: 0, bottom: SCREEN, x: 0, y: 0 } as DOMRect) : real.call(this);
+            });
+        });
+        afterEach(() => {
+            document.documentElement.removeAttribute("data-standalone");
+            vi.restoreAllMocks();
+        });
+
+        it("leaves the height to the CSS (100vh) when the visual viewport launches short, and does not read that as the keyboard", async () => {
+            installViewport(SCREEN - 62);
+            renderApp("/kvm", { compact: true });
+            expect(await screen.findByRole("tablist")).toBeInTheDocument();
+            expect(shellHeight()).toBe("");
+        });
+
+        it("uses the visual viewport's height while the keyboard is up and gives the screen back when it closes", async () => {
+            const viewport = installViewport(SCREEN - 62);
+            renderApp("/kvm", { compact: true });
+            await screen.findByRole("tablist");
+            act(() => viewport.resize(450));
+            await waitFor(() => expect(shellHeight()).toBe("450px"));
+            expect(screen.queryByRole("tablist")).toBeNull();
+            act(() => viewport.resize(SCREEN - 62));
+            await waitFor(() => expect(shellHeight()).toBe(""));
+            expect(screen.getByRole("tablist")).toBeInTheDocument();
+        });
     });
 });
 

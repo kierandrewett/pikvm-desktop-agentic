@@ -16,7 +16,7 @@
  */
 
 import { useRouterState } from "@tanstack/react-router";
-import { type CSSProperties, useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { AgentActivityProvider } from "../agent/activity";
 import { useAppState } from "../api/queries";
 import { KvmPane } from "../kvm/kvm-screen";
@@ -49,18 +49,22 @@ export function Shell() {
     const bridge = desktopBridge();
     const titlebar = bridge !== undefined && active !== "kvm";
     const hideBar = compact && frame.keyboardOpen;
-    // The status-bar strip is on <html> (styles.css) so it sits over full-page sheets too; it needs the
-    // same offset as the shell when iOS pans the visual viewport for the keyboard, so both read it
-    // from the root. (With the bar hidden the content runs to the screen edge, and the keyboard
-    // covers the home indicator, so there is no bottom inset to respect.)
+    // The height and the offset are on <html>, not the shell: the status-bar strip (index.html, styles.css) and
+    // everything portalled to <body> (dialogs, sheets, toasts) size against them too. --app-top follows the
+    // visual viewport when iOS pans it for the keyboard. --app-height is written only when the CSS cannot know
+    // it: in the installed app with the keyboard closed the CSS says 100vh (the whole screen, which the
+    // visual viewport misreports at launch) and nothing is written. (With the bar hidden the content runs to
+    // the screen edge, and the keyboard covers the home indicator, so there is no bottom inset to respect.)
     useLayoutEffect(() => {
         const root = document.documentElement;
         root.style.setProperty("--app-top", `${frame.top}px`);
+        if (frame.full) root.style.removeProperty("--app-height");
+        else root.style.setProperty("--app-height", `${frame.height}px`);
         return () => {
             root.style.removeProperty("--app-top");
+            root.style.removeProperty("--app-height");
         };
-    }, [frame.top]);
-    const style = { "--app-height": `${frame.height}px` } as CSSProperties;
+    }, [frame.top, frame.height, frame.full]);
 
     return (
         <AgentActivityProvider enabled={agentStream}>
@@ -70,7 +74,6 @@ export function Shell() {
                 data-keyboard={frame.keyboardOpen}
                 data-tab={active}
                 data-desktop={bridge ? (bridge.nativeControls ? "native" : "frameless") : undefined}
-                style={style}
             >
                 {compact ? null : <NavTabs active={active} orientation="vertical" settingsPage={settingsPage} />}
                 <div className="app-main">

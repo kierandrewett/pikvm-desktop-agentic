@@ -19,6 +19,7 @@
 import { X } from "@pikvm/icons";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { appHeight } from "../../lib/app-height";
 import { motionEase, motionMs } from "../../lib/motion";
 import { reducedMotion } from "../model-picker/motion";
 import { TailedSurface } from "../ui/tailed-surface";
@@ -54,7 +55,7 @@ export function findAnchor(scope: HTMLElement | null, kind: BalloonAnchor): HTML
     if (!el || !el.getClientRects().length) return null;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return null;
-    if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) return null;
+    if (r.bottom < 0 || r.top > appHeight() || r.right < 0 || r.left > innerWidth) return null;
     return el;
 }
 
@@ -69,7 +70,7 @@ function place(
 ): Place | null {
     const viewport = window.visualViewport;
     const minTop = (viewport?.offsetTop ?? 0) + EDGE;
-    const maxBottom = (viewport ? viewport.offsetTop + viewport.height : innerHeight) - EDGE;
+    const maxBottom = (viewport ? viewport.offsetTop : 0) + appHeight() - EDGE;
     // Whole device pixels, so the outline's hairline stays crisp.
     const snap = (v: number) => Math.round(v * devicePixelRatio) / devicePixelRatio;
     const cx = anchor.left + anchor.width / 2;

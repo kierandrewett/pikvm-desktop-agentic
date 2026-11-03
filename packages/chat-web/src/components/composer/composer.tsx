@@ -67,6 +67,7 @@ import {
 } from "react";
 import { useT } from "../../l10n/provider";
 import { translate } from "../../l10n/runtime";
+import { appHeight } from "../../lib/app-height";
 import { cn } from "../../lib/cn";
 import {
     beaconServerDraft,
@@ -470,7 +471,7 @@ export function Composer({
             measure();
             return;
         }
-        const vh = visualViewport?.height ?? innerHeight;
+        const vh = appHeight();
         const pad = mobile ? PHONE_PAD_Y : MULTI_PAD_Y;
         // The cap applies to the text area without its padding: measured on the reference, 12 pasted lines at a
         // 899px viewport give a 255.75px editor cell, which is 25dvh (224.75) + 31px padding.

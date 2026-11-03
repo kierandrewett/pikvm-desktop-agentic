@@ -65,6 +65,7 @@ import {
 } from "react";
 import { msg, translate } from "../../l10n/runtime";
 import { api } from "../../lib/api";
+import { appHeight } from "../../lib/app-height";
 import { cn } from "../../lib/cn";
 import { ChipGlyph, type ChipKind } from "./chips";
 
@@ -674,13 +675,14 @@ function useSheetPlacement(anchor: RefObject<HTMLElement | null> | undefined): C
         if (!el) return;
         const update = () => {
             const r = el.getBoundingClientRect();
-            const below = innerHeight - r.top + SHEET_COMPOSER_GAP;
+            const height = appHeight();
+            const below = height - r.top + SHEET_COMPOSER_GAP;
             setStyle({
                 left: -r.left,
                 right: -(innerWidth - r.right),
-                bottom: -(innerHeight - r.bottom),
+                bottom: -(height - r.bottom),
                 paddingBottom: below,
-                maxHeight: `min(${below + SHEET_LIST_MAX}px, calc(${innerHeight - SHEET_TOP_GAP}px - var(--safe-top)))`,
+                maxHeight: `min(${below + SHEET_LIST_MAX}px, calc(${height - SHEET_TOP_GAP}px - var(--safe-top)))`,
             });
         };
         update();

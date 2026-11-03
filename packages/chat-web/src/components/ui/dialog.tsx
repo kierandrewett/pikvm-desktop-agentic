@@ -46,7 +46,7 @@ export function Dialog({
                 open={open}
                 onOpenChange={onOpenChange}
                 title={title}
-                className={resizable ? "h-[100dvh] max-h-[100dvh] rounded-none pt-[var(--safe-top)]" : undefined}
+                className={resizable ? "h-[var(--app-height,100dvh)] max-h-[var(--app-height,100dvh)] rounded-none pt-[var(--safe-top)]" : undefined}
             >
                 <div className="px-3 pb-3">{body}</div>
             </Sheet>

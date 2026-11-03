@@ -3,6 +3,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createAppRouter } from "./app/router";
+import { markStandalone } from "./app/standalone";
 import { registerServiceWorkerForPage } from "./host/service-worker";
 import { watchPageForUpdates } from "./host/update";
 import { initTheme } from "./theme";
@@ -15,6 +16,7 @@ const queryClient = new QueryClient({
     },
 });
 
+markStandalone();
 initTheme();
 registerServiceWorkerForPage();
 watchPageForUpdates();
