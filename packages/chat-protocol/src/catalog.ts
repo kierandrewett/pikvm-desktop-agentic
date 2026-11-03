@@ -193,7 +193,7 @@ export const mcpPresets: McpPreset[] = [
         website: "https://github.com/github/github-mcp-server",
         logoDomain: "github.com",
         auth: "oauth",
-        starters: ["Summarise my open pull requests", "Which issues were opened in the last week?"],
+        starters: ["Summarize my open pull requests", "Which issues were opened in the last week?"],
         server: { type: "http", url: "https://api.githubcopilot.com/mcp/", oauth: {} },
         inputs: [],
         note: "Can read and change repositories your account can access.",

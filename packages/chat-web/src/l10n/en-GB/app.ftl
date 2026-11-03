@@ -1,6 +1,6 @@
 # App shell notices (lib/sw-register.ts).
 
-app-update-message = A new version of Chat is ready
+app-update-message = A new version is ready.
 app-update-action = Reload
 
 # Notifications (lib/notify.ts).
@@ -57,7 +57,7 @@ temporary-turn-on = Turn on temporary chat
 temporary-turn-off = Turn off temporary chat
 temporary-about = About temporary chats
 # $when is a phrase from temporary-when-*.
-temporary-summary = It won't appear in your history, use or update memory, and is deleted { $when }.
+temporary-summary = It will not appear in your history, use or update memory, and is deleted { $when }.
 temporary-history-title = Not in your history
 temporary-history-body = Kept out of the sidebar, search, Files and other chats.
 temporary-memory-title = No memory

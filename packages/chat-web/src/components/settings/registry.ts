@@ -146,14 +146,14 @@ const rawCategories: readonly SettingsCategoryDef[] = [
             },
             {
                 id: "agent.compaction.enabled",
-                label: "Summarise long chats",
-                description: "Summarise earlier messages when a chat fills up.",
+                label: "Summarize long chats",
+                description: "Summarize earlier messages when a chat fills up.",
                 section: "Agent runtime",
             },
             {
                 id: "agent.compaction.thresholdPercent",
-                label: "Summarise at",
-                description: "How full a chat gets before it is summarised.",
+                label: "Summarize at",
+                description: "How full a chat gets before it is summarized.",
                 section: "Agent runtime",
             },
         ],

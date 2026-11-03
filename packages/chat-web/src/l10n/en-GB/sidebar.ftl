@@ -14,7 +14,7 @@ sidebar-mode-system = System
 sidebar-mode-light = Light
 sidebar-mode-dark = Dark
 sidebar-theme = Theme
-sidebar-more-themes = More themes...
+sidebar-more-themes = More themes
 sidebar-appearance-settings = Appearance settings
 
 sidebar-memory = Memory
@@ -99,7 +99,7 @@ sidebar-group-unknown-model = Unknown model
 ## Chat menu
 
 sidebar-menu-rename = Rename
-sidebar-menu-change-icon = Change icon...
+sidebar-menu-change-icon = Change icon
 sidebar-menu-pin = Pin
 sidebar-menu-unpin = Unpin
 sidebar-menu-move-to-project = Move to project
@@ -172,7 +172,7 @@ sidebar-delete-project-title = Delete project?
 # <name></name> is the project name in bold.
 sidebar-delete-project-description = This will delete <name></name>. Its chats are kept and move to Chats.
 sidebar-project-name = Project name
-sidebar-project-name-placeholder = e.g. Birthday party planning
+sidebar-project-name-placeholder = For example: Birthday party planning
 
 ## Toasts and undo for chats and projects
 

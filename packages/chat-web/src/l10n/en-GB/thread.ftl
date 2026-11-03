@@ -10,7 +10,7 @@ thread-read-aloud-stop = Stop
 thread-assistant-said = Assistant said:
 thread-you-said = You said:
 thread-thinking = Thinking
-thread-stopping = Stopping…
+thread-stopping = Stopping
 thread-queued =
     { $position ->
         [one] Waiting for an available worker
@@ -67,7 +67,7 @@ thread-panel-attached = Attached
 thread-panel-chat-folder = Chat folder
 thread-panel-attachment = Attachment
 thread-panel-files-error = Could not list these files.
-thread-panel-loading = Loading...
+thread-panel-loading = Loading
 
 ## Activity: live header
 
@@ -360,11 +360,11 @@ thread-sub-step-count =
        *[other] { $count } steps
     }
 thread-sub-show-assignment = Show the full assignment
-thread-sub-loading-transcript = Loading the transcript…
+thread-sub-loading-transcript = Loading the transcript
 thread-sub-transcript-pending = The transcript is not available yet.
 thread-sub-transcript-error = Could not load the transcript
 thread-sub-none-recorded = No steps were recorded.
-thread-sub-loading = Loading subagents…
+thread-sub-loading = Loading subagents
 thread-sub-empty = No subagents in this chat
 thread-sub-empty-hint = When the agent splits work across subagents, each one shows here with its progress and transcript.
 
@@ -373,7 +373,7 @@ thread-sub-empty-hint = When the agent splits work across subagents, each one sh
 thread-web-results = Search results
 thread-web-search = Search
 thread-web-failed = This search failed.
-thread-web-searching = Searching…
+thread-web-searching = Searching
 thread-web-stopped = Stopped.
 thread-web-no-results = No results.
 thread-web-show-more =
@@ -499,7 +499,7 @@ thread-fork-untitled = New chat
 ## Conversation page
 
 thread-page-conversation = Conversation
-thread-page-reconnecting = Reconnecting...
+thread-page-reconnecting = Reconnecting
 thread-page-jump-latest = Jump to the latest response
 thread-page-scroll-bottom = Scroll to bottom
 thread-page-latest = Latest response
@@ -523,6 +523,6 @@ thread-home-title = New chat
 thread-home-temporary = Temporary chat
 thread-home-agent-missing = Agent not found
 thread-home-agent-failed = Could not load this agent
-thread-home-agent-loading = Loading agent...
+thread-home-agent-loading = Loading agent
 thread-home-project-missing = Project not found
 thread-home-project-failed = Could not open this project
