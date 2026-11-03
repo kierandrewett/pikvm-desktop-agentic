@@ -7,22 +7,26 @@
 export const DEFAULT_INTERVAL_MS = 3000;
 export const MIN_INTERVAL_MS = 2000;
 
-/** The grey grid every frame is reduced to before comparing: 64 x 36 keeps the 16:9 shape and is 2304 cells. */
-export const GRID_WIDTH = 64;
-export const GRID_HEIGHT = 36;
+/**
+ * The grey grid every frame is reduced to before comparing: 128 x 72 keeps the 16:9 shape; a cell is 10 px of a 1280 px frame,
+ * which is about half a character of terminal text, so a line of text that changed is dozens of cells.
+ */
+export const GRID_WIDTH = 128;
+export const GRID_HEIGHT = 72;
 
 /**
- * A cell counts as changed when its grey level moves by at least this much (of 255). JPEG noise, a dithered
- * gradient and the colour a codec shifts from one frame to the next stay well under it; text appearing on a plain
- * background or a window opening is far over it.
+ * A cell counts as changed when its grey level moves by at least this much (of 255). Measured on frames drawn for the run
+ * (docs/e2e/2026-11-03-screen-watch.md): a frame re-encoded as JPEG, or with codec-sized noise, moves no cell by this much;
+ * a line of text that changed moves dozens.
  */
-export const CELL_DELTA = 24;
+export const CELL_DELTA = 10;
 
 /**
- * A screen has changed when at least this fraction of the cells did: 1.5% is 35 cells, about the size of a small
- * dialog's text or a menu opening at this grid. A cursor, a blinking caret or a clock digit changes a handful.
+ * A screen has changed when at least this fraction of the cells did: 0.3% is 28 of the 9216 cells. Measured on the run's frames
+ * (docs/e2e/2026-11-03-screen-watch.md, "threshold"): a blinking caret is 0.11%, a progress bar ticking 0.05%, a clock digit
+ * changing nothing; a new line of terminal output is 0.4%, a dialog's text changing 0.5%, a dialog opening 14%.
  */
-export const CHANGE_FRACTION = 0.015;
+export const CHANGE_FRACTION = 0.003;
 
 /**
  * A change counts only once the screen has stayed put (no further change of CHANGE_FRACTION between two looks) for this

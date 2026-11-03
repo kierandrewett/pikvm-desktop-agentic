@@ -154,7 +154,15 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
             const decision = await deps.models.decide(provider, { previous, current, rule: settings.rule });
             costUsd += decision.costUsd ?? 0;
             description = current;
-            const common = { ...base, asked, previous, description: current, noul: decision.noul, ...(costUsd > 0 ? { costUsd } : {}) };
+            const common = {
+                ...base,
+                asked,
+                previous,
+                description: current,
+                noul: decision.noul,
+                ...(decision.cached ? { fromCache: true } : {}),
+                ...(costUsd > 0 ? { costUsd } : {}),
+            };
             if (decision.verdict === "no") return record({ ...common, outcome: "no" });
             if (decision.verdict === "undecided") return record({ ...common, outcome: "undecided", reason: "Jev's answer was not decisive, so nothing was sent" });
             const payload: PushPayload = { title: "PiKVM", body: notificationBody(current), tag: "pikvm-screen", url: "/app/" };

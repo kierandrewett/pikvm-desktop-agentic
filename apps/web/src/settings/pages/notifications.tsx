@@ -197,7 +197,7 @@ export function NotificationsPage() {
                 title="Screen watch"
                 footer={
                     data
-                        ? `The server looks at the screen every ${data.limits.intervalSec} seconds, with no app open. When it changes and stays still for ${data.limits.settleSec} seconds, an image model reads it and a decision model judges it against your rule; only a clear yes sends a notification. At most one check a ${data.limits.minCheckGapSec === 60 ? "minute" : `${data.limits.minCheckGapSec} seconds`} and ${data.limits.dailyCap} a day (${data.limits.askedToday} so far in the last 24 hours). It uses your OpenRouter key, a fraction of a cent a check.`
+                        ? `The server looks at the screen every ${data.limits.intervalSec} seconds, with no app open. When it changes and stays still for ${data.limits.settleSec} seconds, an image model reads it and a decision model judges it against your rule; only a clear yes sends a notification. At most one check every ${data.limits.minCheckGapSec === 60 ? "minute" : `${data.limits.minCheckGapSec} seconds`} and ${data.limits.dailyCap} a day (${data.limits.askedToday} so far in the last 24 hours). It uses your OpenRouter key, a fraction of a cent a check.`
                         : "Loading."
                 }
             >
@@ -217,6 +217,7 @@ export function NotificationsPage() {
                         hint={data.running ? "The server is looking at the screen now." : "The server is not running the watch. Switch it off and on again."}
                     />
                 ) : null}
+                {busy && !on ? <Row label="Setting up this device" hint="Asking this device's push service for a subscription. This can take a few seconds." /> : null}
                 {problem ? <InlineError>{problem}</InlineError> : null}
                 {save.error ? <InlineError>Could not save: {save.error.message}</InlineError> : null}
             </Group>

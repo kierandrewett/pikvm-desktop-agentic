@@ -134,6 +134,21 @@ describe("what costs a model call", () => {
         assert.match(r.models.decided[1]!.previous, /^Screen install finished\./);
     });
 
+    it("a decision answered from the cache is logged as such, still counts as a check, and still pushes on a yes", async () => {
+        r.models.cache = true;
+        r.models.answers = [0.95];
+        await begin(r);
+        for (const [grid, label] of [[dialog(flat(60)), "failed"], [flat(60), "home again"], [dialog(flat(60)), "failed"], [flat(60), "home again"]] as const) {
+            await r.show(grid, label);
+            r.clock.t += GAP;
+        }
+        const log = r.store.log(USER, 10).reverse();
+        assert.deepEqual(log.map((entry) => entry.fromCache ?? false), [false, false, false, true], "the fourth asks what the second asked");
+        assert.equal(r.models.decided.length, 4, "the client was asked, and answered from its cache");
+        assert.deepEqual(log.map((entry) => entry.outcome), ["pushed", "pushed", "pushed", "pushed"]);
+        assert.ok(log.every((entry) => entry.asked), "a cached answer is still a check for the daily cap");
+    });
+
     it("hands the person's rule and the model's id to the calls", async () => {
         r.settings = { enabled: true, rule: "tell me when the install finishes", visionModel: "vision/test" };
         await begin(r);

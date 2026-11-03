@@ -16,6 +16,7 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type { HostProvider } from "@pikvm/chat-server";
+import { GRID_CELLS } from "../src/server/watch/frame-diff";
 import { limitsFromEnv } from "../src/server/watch/limits";
 import { createPush } from "../src/server/watch/push";
 import { createWatchRoutes } from "../src/server/watch/routes";
@@ -44,7 +45,7 @@ before(async () => {
         target: async () => {
             throw new Error("unused");
         },
-        images: { resize: async () => null, crop: async () => null, gray: async () => new Uint8Array(2304) },
+        images: { resize: async () => null, crop: async () => null, gray: async () => new Uint8Array(GRID_CELLS) },
         dataDir: dir.path,
         limits: limitsFromEnv({}),
         models: fakeModels(),

@@ -29,7 +29,7 @@ bridge's unit tests, and says so.
 |---|---|
 | R1 | A web page cannot move, resize, minimise or close the browser window. Only the Electron shell owns a window. |
 | R2 | In a browser or on a phone the OS or the browser draws the window frame; the macOS traffic lights only exist in the desktop app. |
-| R3 | A phone suspends a page the moment it leaves the foreground (iOS and Android), so nothing can watch the picture, run a timer or hold a socket in the background. |
+| R3 | A phone suspends a page the moment it leaves the foreground (iOS and Android), so nothing can watch the picture, run a timer or hold a socket in the background. The way round it is on the server: the screen watch (Settings, Notifications) looks at the screen without any page and pushes to the installed app. |
 | R4 | iPhone Safari has no Fullscreen API for pages (an installed PWA already runs full screen); Keyboard Lock exists only in Chromium, and only in full screen. |
 | R5 | A computer has no soft keyboard, so no dictation, keyboard-aware viewport or on-screen key rows are needed. |
 | R6 | Haptics need a phone: `navigator.vibrate` on Android, the Taptic shim on iOS. |
@@ -42,6 +42,7 @@ bridge's unit tests, and says so.
 | R13 | The desktop app is already an installed app, served from loopback: there is nothing to install and the server is always on the same machine. |
 | R14 | CLI sign-in methods marked `desktop_only` (Gemini) need an interactive terminal on the machine that runs the agent; the page says so. |
 | R15 | Another application's windows, a taskbar and a dock are the shell's: a page has a tab title, a badge and notifications instead (see Screen-change alerts). |
+| R16 | The desktop app (Electron) has no service worker and no push service, so it cannot be a device the watch notifies; its taskbar pulse (screen-change alerts) is its notification. The watch's server part runs there too, but nothing can receive it. |
 
 ## 1. The app
 
@@ -69,6 +70,7 @@ bridge's unit tests, and says so.
 | Save screenshot (full-resolution JPEG) | available (and "saved/cancelled" from the shell's download event) | available (browser download; no outcome, R9) | available (browser download) | E2E parity: a real JPEG arrives on both profiles. T `platform.test.tsx` (the desktop wait) |
 | Read text from the screen (OCR) | available | available | available | T `ocr-picker.test.tsx`, `msd-log-ocr.test.tsx`; E2E kvm-dialogs (desktop and phone drag) |
 | Screen-change alerts while the window is behind others | available (taskbar pulse through the bridge) | available (tab title marker, app badge, notification) | n/p R3 | **Fixed**. T `attention.test.ts`, `screen-alerts.test.ts`, `kvm-screen.test.tsx`, `screen-alerts-page.test.tsx`; E2E parity (hidden tab: title, badge, notification; cleared when looked at; phone: switch absent and Settings says why). Starts off in a browser, on in the desktop app |
+| Screen watch: the server looks at the screen with no page open and sends a Web Push to the installed app when it changes in a way the person's rule asks for (local diff, image model, Jev) | n/p R16 | available (Chrome, Firefox, Edge; needs https, an OpenRouter key in Settings, Providers, and the worker) | available (iPhone: only the app added to the Home Screen, iOS 16.4 or later; Android: the installed app or Chrome) | **New**. T `watch-diff`, `watch-pipeline`, `watch-models`, `watch-models-http`, `watch-push`, `watch-watcher`, `watch-service`, `watch-routes`, `watch-host` (root suite), `host-provider.test.ts` (chat server), `notifications-page.test.tsx`, `notify/*.test.ts`, `push-worker.test.ts` (web); E2E `docs/e2e/2026-11-03-screen-watch.md` (real Chrome push subscription, fake kvmd changing, fake OpenRouter; and one real smoke on the real image model and Jev). Costs and bounds: `docs/deploy-web.md`, Screen watch |
 | Full screen with Keyboard Lock (Win, Alt+Tab reach the target) | available (bridge `setFullscreen` + lock) | available (Chromium: full screen and lock; Firefox, Safari: full screen without lock) | n/p R4 (an installed PWA is already full screen; Android Chrome offers full screen but has no keys to lock) | T `platform.test.tsx`; E2E kvm-screen (offered in More). Real lock not exercised (headless) |
 | Screen stays awake while viewing (wake lock) | available (Electron power save blocker via the bridge's `keepDisplayAwake`) | available | available | T `platform.test.tsx` |
 | Pointer: absolute hover, drag past the edge, wheel, right-click suppressed | available | available | n/p R7 | E2E kvm-screen (desktop) |
@@ -124,6 +126,7 @@ bridge's unit tests, and says so.
 | Providers, Models and Agent (API keys write-only, gateways, model list, the agent's settings) | available | available | available | chat-web's pages on the chat server in the host: T `chat-pages.test.tsx`; E2E `docs/e2e/2026-11-03-chat-integrated.md`. Signing in with a CLI account is gone with the Python agent (open question 1 in `docs/rebuild/chat-integration.md`) |
 | Display: theme | available | available | available | T `settings.test.tsx` |
 | Display: screen-change alerts | available (taskbar) | available (title, badge, notification; blocked-permission note) | n/p R3 (the page says why) | T `screen-alerts-page.test.tsx` (S1-S4); E2E parity |
+| Notifications: the watch's switch, the rule in plain words, the image model, this device, a test notification, the recent checks | n/p R16 | available (the page says why where the browser cannot) | available (the page says to add the app to the Home Screen first, and why when blocked) | T `notifications-page.test.tsx` (G1-G8), `device.test.ts`, `push-client.test.ts`; E2E screen-watch (switching on, the not-installed and no-key states) |
 | Audio: microphone and speaker devices | available | available (hidden without a secure context, R10; speaker n/p R11 on Safari, Firefox, said on the page) | available (same) | T `settings.test.tsx` |
 | Account: sign out | n/p R12 | available (behind oauth2-proxy) | available (behind oauth2-proxy) | T `settings.test.tsx` |
 | About | available | available | available | T `about-page.test.tsx` |

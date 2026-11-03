@@ -54,6 +54,12 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_DATA_DIR` | no | The data volume (image default `/data`). |
 | `PIKVM_KEYBOARD_LAYOUT`, `PIKVM_JIGGLER` | no | As before. |
 | `OMP_BIN` | no | The agent binary (image default `/opt/omp/omp`). |
+| `PIKVM_WATCH_INTERVAL_MS` | no | How often the screen watch looks at the screen (default `3000`; values under `2000` are raised to `2000`). |
+| `PIKVM_WATCH_SETTLE_MS` | no | How long the screen must stay still after it changed before the change counts (default `6000`). |
+| `PIKVM_WATCH_MIN_GAP_SEC` | no | At most one model check per watch in this many seconds (default `60`). |
+| `PIKVM_WATCH_DAILY_CAP` | no | At most this many model checks per watch in 24 hours (default `200`). |
+| `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
+| `PIKVM_PUSH_ALLOW_LOCAL` | no | `1` accepts push subscriptions on any address, loopback and plain http included. For tests and local runs only: left off, only the push services browsers use are accepted. |
 
 `PIKVM_HARNESS_URL`, `PIKVM_HARNESS_TOKEN`, `PIKVM_DESKTOP_URL` and `PIKVM_DESKTOP_TOKEN` are gone: there is no
 sidecar to point at.
@@ -64,9 +70,107 @@ The data volume holds, and is the only thing that needs backing up:
 | --- | --- |
 | `settings.json` | The host's settings. |
 | `chat/` | The chat database, per-conversation files, the agent's `HOME`, and provider keys entered in Settings (mode 0600, write-only from the browser). |
+| `push-vapid.json` | The server's Web Push key pair, made once on first use (mode 0600). **Back it up with the volume and never delete it**: a new pair orphans every device's subscription. |
+| `chat/users/<id>/watch/` | One user's screen watch (directory 0700, files 0600): `settings.json` (on or off, the rule, the image model), `checks.jsonl` (one line per check, rotated at 512 KB to `checks.jsonl.1`) and `push-subscriptions.json` (the devices). Today there is one user, `operator`. |
 
 Model providers are set in the app: Settings, then Providers, then add a base URL and key. Sign-in with a provider
 account (the old Claude and Codex CLI flows) is not part of this image.
+
+## Screen watch (notifications to the installed app)
+
+The server can watch the PiKVM's screen by itself, with no browser open, and send a notification to the installed home-screen
+app when the screen changes in a way you asked to hear about. It is per user and off until switched on in Settings,
+Notifications. The watch is one poller on the PiKVM, shared by everyone who has theirs on, and it runs only while at least one
+person does.
+
+```mermaid
+flowchart LR
+    pi[PiKVM snapshot] -->|every 3 s| diff[128x72 grey grid, diff and settle]
+    diff -->|only a settled change| img[Image model: describe the frame]
+    img --> jev[Jev: previous vs current vs your rule]
+    jev -->|decisive yes| push[Web Push to the app]
+```
+
+1. **The local diff (free).** Every `PIKVM_WATCH_INTERVAL_MS` (3 s) the host takes `/api/streamer/snapshot`, reduces it to a
+   128 x 72 grey grid (a cell is 10 px of a 1280 px frame, about half a character of terminal text) and compares it with the last
+   settled frame. A cell has changed when its grey level moved by at least 10 of 255; the screen has changed when at least
+   **0.3 %** of the cells did (28 of 9216). Measured on the frames of the E2E run: a blinking caret is 0.11 %, a progress bar
+   ticking 0.05 %, JPEG re-encoding or codec-sized noise 0 %; a new line of terminal output is 0.4 %, a dialog's text changing
+   0.5 %, a dialog opening 14 %. A change counts only once it has **settled**: no further change of that size between two looks
+   for `PIKVM_WATCH_SETTLE_MS` (6 s). A window sliding open, a spinner, a scrolling log or a video never settles and so never
+   fires until it stops; a flash that returns to what was there is dropped. Nothing else runs unless this fires. There are no
+   masked regions: a clock large enough to pass the threshold would need one, and the grid is shared by every user's watch, so it
+   is not offered.
+2. **The image model.** A settled change is one *check*. The new frame (scaled to 1280 px on its long edge) is described by an
+   OpenRouter image model in one to three factual sentences: which application, any dialog or error and its text. The first
+   check also describes the frame before it, once; afterwards the previous description is the last one.
+3. **Jev.** `typesafe/jev-1.14` (the decisions model at `/api/alpha/decisions`, not the router) is asked one yes/no question with
+   state `{previous, current, rule}`; `rule` is your sentence from Settings, or `(none)`. Only a probability of **0.85 or more**
+   is a yes and **0.15 or less** a no; anything between sends nothing and is logged as undecided. Answers are cached by request
+   hash (the same two descriptions and rule cost nothing the second time; the log says `fromCache`); 429 and 5xx are retried
+   with backoff.
+4. **The push.** A yes sends a Web Push (VAPID, encrypted) to every device of that user. The notification text is built by the
+   host from the image model's description (its first sentence, at most 160 characters), never by Jev; a tap opens `/app/`.
+   A push service that answers 404 or 410 says the device is gone and its subscription is removed.
+
+Signal: while kvmd reports no video source (its snapshot answers 503), nothing is compared: a black screen is not a change. Two
+looks in a row with no signal count as one *signal lost* check (the same Jev question, with the description "no video signal" and
+no image call); when the signal returns, the first settled picture is checked against that. The PiKVM being unreachable is not a
+lost signal.
+
+### What it costs, and the bounds
+
+It uses the key stored in Settings, Providers (the provider named `openrouter`, or any entry whose address is on
+openrouter.ai). **Without one the watch cannot be switched on** and the Settings page says why; a key removed later makes every
+change log "no OpenRouter key" and call nothing.
+
+- **Image model: `google/gemma-3-12b-it`**, $0.05 per million input tokens and $0.15 per million output tokens on OpenRouter
+  (read 2026-11-03 from `/api/v1/models`, input modalities text and image). OpenRouter reported **$0.00003 to $0.00004 per
+  described 1280 x 720 frame**. It is a setting (Settings, Notifications, Image model): any OpenRouter model that accepts
+  images. Tried on the same two frames and not chosen: `amazon/nova-lite-v1` ($0.00014 a frame, terse), `mistralai/mistral-small-3.2-24b-instruct`
+  ($0.00011), `z-ai/glm-5.3-flash` ($0.00035), `google/gemma-3-4b-it` ($0.00002, but it missed the error text) and
+  `qwen/qwen3.7-flash` (it spent its output on reasoning and returned no text).
+- **Jev:** $0.042 per million input tokens, output free: about $0.00002 per question.
+- **A check** is about $0.0001 the first time (two descriptions) and about $0.00006 after that.
+- **Bounds** (per watch, whatever the screen does): at most **one check per 60 s**; a change inside that gap waits, and only the
+  newest one is checked when it ends (the ones it replaced are logged as skipped); at most **200 checks in any 24 hours**,
+  counted from the log so a restart does not reset it (worst case about 1.2 cents a day); one check at a time.
+- The frames leave the host: a screenshot of the target goes to OpenRouter and the model provider behind it. Do not switch the
+  watch on for a target whose screen must not leave the building.
+
+### The log: why it fired or did not
+
+`chat/users/<id>/watch/checks.jsonl`, one JSON object per line, also shown (newest first) under Settings, Notifications, Recent
+checks and at `GET /app/api/v1/watch/checks`:
+
+```json
+{"t":1762171234567,"at":"2026-11-03T12:00:34.567Z","kind":"change","score":0.056,"outcome":"pushed","asked":true,
+ "model":"google/gemma-3-12b-it","rule":"tell me when the install finishes or an error shows",
+ "previous":"A terminal runs apt install ... 68%.","description":"A dialog titled Installation failed ...",
+ "noul":0.96,"costUsd":0.00009,"push":{"sent":1,"removed":0,"failed":0}}
+```
+
+`kind` is `change`, `signal-lost` or `test`; `outcome` is `pushed`, `no`, `undecided`, `skipped` (no model was asked; `reason` says
+why: no key, daily cap, replaced by a newer change) or `error` (`reason` says what failed, including a yes that reached no device).
+`asked` is what the daily cap counts.
+
+### Notifications on the iPhone
+
+Web Push works on iOS 16.4 and later **only for the app added to the Home Screen and opened from its icon**, never in a Safari
+tab. Add it (Safari, Share, Add to Home Screen), open it from the icon, go to Settings, Notifications and switch it on: the
+permission prompt comes from that tap. An app added before this feature existed does not need adding again; open it once so the
+new worker (`/app/sw.js`) installs. If the page says notifications are blocked, turn them on in the iPhone's Settings,
+Notifications, PiKVM. Behind oauth2-proxy nothing new is public: the worker was already the one skipped route, and the push
+reaches it from Apple, not through the proxy. The host must be able to reach the push services (`web.push.apple.com`,
+`fcm.googleapis.com`) over https.
+
+### Switching it off
+
+- Settings, Notifications, switch off: the poller stops at once if nobody else has it on, and the PiKVM is no longer asked for
+  snapshots. Remove this device (same page) forgets a device.
+- Without a browser: set `"enabled": false` in `chat/users/<id>/watch/settings.json` and restart the container, or delete
+  `push-subscriptions.json` to stop the notifications and keep the watch's log.
+- To stop all spending: remove the OpenRouter provider in Settings, Providers. Nothing is asked of a model without it.
 
 ## The bsociety cutover
 
@@ -246,3 +350,7 @@ processes and `/data` readable by the invoking user, which `apps/web/e2e/chat.e2
 - Sizes: see the e2e record. omp's binary is about 277 MB of the image.
 - The image is `linux/amd64` or `linux/arm64`; omp has no other Linux build pinned.
 - `docker compose` and `podman compose` both work.
+- Screen watch: delivery to a real iPhone is not verified (there is no iPhone here; headless Chrome in the iPhone 13 profile, with
+  its own push service, stood in for the installed app). The diff compares grey levels on a 128 x 72 grid: a change that moves less
+  than 10 of 255 on fewer than 0.3 % of the cells (a few characters of dim text) is not seen, and a screen that never stops
+  changing (a video, a scrolling log) never settles and so is never checked.

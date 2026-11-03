@@ -386,6 +386,6 @@ describe("the log", () => {
         install(watchServer());
         device();
         renderApp("/settings/notifications");
-        expect(await screen.findByText(/every 3 seconds.*6 seconds.*At most one check a minute and 200 a day \(4 so far/)).toBeInTheDocument();
+        expect(await screen.findByText(/every 3 seconds.*6 seconds.*At most one check every minute and 200 a day \(4 so far/)).toBeInTheDocument();
     });
 });

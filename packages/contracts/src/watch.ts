@@ -66,6 +66,8 @@ export interface CheckEntry {
     rule?: string;
     /** Jev's probability of yes. */
     noul?: number;
+    /** Jev's answer was the cached one for this exact request (the same two descriptions and rule), so it cost nothing. */
+    fromCache?: boolean;
     costUsd?: number;
     push?: { sent: number; removed: number; failed: number };
 }

@@ -50,6 +50,8 @@ export interface FakeModels extends ModelClient {
     describeError: ModelError | null;
     decideError: ModelError | null;
     costPerCall: number;
+    /** Decisions asked again with the same request are answered from the cache, as the real client does. */
+    cache: boolean;
 }
 
 export function fakeModels(): FakeModels {
@@ -60,6 +62,7 @@ export function fakeModels(): FakeModels {
         describeError: null,
         decideError: null,
         costPerCall: 0.0001,
+        cache: false,
         async describe(_provider, _model, jpeg): Promise<Described> {
             if (models.describeError) throw models.describeError;
             const label = jpeg.toString();
@@ -71,7 +74,8 @@ export function fakeModels(): FakeModels {
             models.decided.push(input);
             const noul = models.answers.length > 1 ? models.answers.shift()! : models.answers[0]!;
             const verdict: Verdict = verdictOf(noul);
-            return { noul, verdict, costUsd: models.costPerCall, cached: false };
+            const repeat = models.cache && models.decided.slice(0, -1).some((seen) => JSON.stringify(seen) === JSON.stringify(input));
+            return repeat ? { noul, verdict, cached: true } : { noul, verdict, costUsd: models.costPerCall, cached: false };
         },
     };
     return models;
