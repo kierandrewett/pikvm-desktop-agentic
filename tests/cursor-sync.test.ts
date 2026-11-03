@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events";
 import { createServer, get as httpGet, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, it } from "node:test";
+import { createManualClock } from "@pikvm/kvm-engine";
 import { WebSocket, WebSocketServer } from "ws";
 import { CURSOR_PATH, type CursorUpdate } from "@pikvm/contracts/api";
 import type { PiKvmControl } from "../src/pikvm-control";
@@ -383,6 +384,46 @@ describe("a stream that reads slowly", () => {
         req.emit("close");
         hub.absolute("a", 9, 9);
         assert.equal(res.written.length, 2, "nothing after the page left");
+    });
+
+    it("the last position of a burst reaches a reader whose socket fills and drains in the middle of it, through the frame throttle too", () => {
+        const clock = createManualClock(1_000);
+        const hub = createCursorHub({ mode: () => "absolute", resolution: () => undefined, clock, frameMs: 16 });
+        const routes = createCursorRoutes(hub, 60_000);
+        const { req, res } = stuck();
+        routes.handle(req as unknown as IncomingMessage, res as unknown as ServerResponse);
+        let seed = 7;
+        for (let i = 1; i <= 300; i += 1) {
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            res.writableNeedDrain = seed % 3 === 0;
+            hub.absolute("a", i, i);
+            clock.advance(seed % 23);
+            if (!res.writableNeedDrain && seed % 5 === 0) res.emit("drain");
+        }
+        // The last update is told within a frame; if the socket was full it waits for the drain.
+        clock.advance(16);
+        res.writableNeedDrain = false;
+        res.emit("drain");
+        const lastData = [...res.written].reverse().find((chunk) => chunk.startsWith("data: "));
+        assert.equal(JSON.parse((lastData ?? "").slice(6)).x, 300);
+    });
+
+    it("over real sockets, bursts with any gaps always end with the stream on the last position", async () => {
+        const h = await host();
+        const writer = await page(h, "w");
+        const reader = await listen(h);
+        let seed = 99;
+        for (let burst = 1; burst <= 25; burst += 1) {
+            const moves = 1 + (burst % 7) * 6;
+            for (let i = 1; i <= moves; i += 1) {
+                seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+                move(writer, burst * 100 + i, i);
+                // 0 to 22 ms apart: inside a frame and past it.
+                await pause(seed % 23);
+            }
+            const last = burst * 100 + moves;
+            await reader.until((s) => s.at(-1)?.x === last, `the last position of burst ${burst}`);
+        }
     });
 
     it("a keep-alive does not take the place of the position that is waiting", () => {

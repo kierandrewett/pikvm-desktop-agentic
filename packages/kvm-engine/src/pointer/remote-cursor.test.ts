@@ -267,3 +267,57 @@ describe("somebody else's pointer is drawn as theirs", () => {
         expect(shown(r)).toEqual([]);
     });
 });
+
+describe("a trackpad drag that reverses direction", () => {
+    /** The cursor's x in client pixels, which is what a person sees the blob do. */
+    const blobX = (r: Rig): number => r.driver.machine.virtualCursorClient?.x ?? Number.NaN;
+
+    it("moves only by the finger, whatever the host says meanwhile: late and out-of-order echoes of its own moves, and another client's moves, change nothing", () => {
+        const r = createRig();
+        r.remote(0, 0); // somebody else had put it in the middle
+        r.advance(REMOTE_HOLD_MS * 2);
+        r.down(1, 400, 225);
+        r.advance(30);
+        let x = 400;
+        let previous = blobX(r);
+        const steps: number[] = [];
+        let seq = 0;
+        for (const direction of [1, -1, 1, -1]) {
+            for (let i = 0; i < 30; i += 1) {
+                x += direction * 4;
+                r.move(1, x, 225);
+                r.frame();
+                // The host's answers, as they really come: this client's own moves a few frames late and out of order,
+                // and the other client moving all the while.
+                seq += 1;
+                r.remote(-30000 + seq * 50, 20000, false);
+                r.remote(r.driver.machine.virtualCursor.x - 900, r.driver.machine.virtualCursor.y, true);
+                r.remote(r.driver.machine.virtualCursor.x + 1800, r.driver.machine.virtualCursor.y, true);
+                const now = blobX(r);
+                steps.push(Math.abs(now - previous));
+                previous = now;
+            }
+        }
+        // A step of the finger is 4 px of finger travel: the blob moves by that times the trackpad's gain, never by a jump.
+        expect(Math.max(...steps)).toBeLessThan(5);
+        // This client's own move came back after the other's every time, so it was the last writer: nothing is taken after the lift.
+        const before = r.driver.machine.virtualCursor;
+        r.up(1);
+        r.advance(REMOTE_HOLD_MS * 2);
+        expect(r.driver.machine.virtualCursor).toEqual(before);
+    });
+
+    it("never takes another client's position at the turn: not at the reversal itself, nor when the hold timer of an earlier wait comes due mid-gesture", () => {
+        const r = createRig();
+        r.down(1, 400, 225);
+        r.move(1, 440, 225);
+        r.remote(9000, 9000);
+        // The wait's own timer comes due (and again, every hold) with the finger still down.
+        for (let i = 0; i < 12; i += 1) {
+            r.move(1, 440 - i * 3, 225);
+            r.advance(REMOTE_HOLD_MS / 2);
+            expect(r.driver.machine.virtualCursor.y).toBe(0);
+        }
+        expect(r.driver.machine.pointersDown).toBe(1);
+    });
+});

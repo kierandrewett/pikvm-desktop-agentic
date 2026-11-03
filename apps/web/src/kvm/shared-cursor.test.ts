@@ -317,3 +317,32 @@ describe("K36: the picture follows the shared cursor", () => {
         expect(cursor.style.display).toBe("block");
     });
 });
+
+describe("K38: a trackpad drag that reverses direction is the finger's alone", () => {
+    it("the blob moves by the finger's steps only, with the host's late echoes of this page's own moves and another client's moves arriving all the while", async () => {
+        const { rig, controller, cursor, send } = await mount();
+        send(0, 0, "desk", 1);
+        rig.clock.advance(2000);
+        controller.pointer.send({ type: "down", id: 1, kind: "touch", x: 400, y: 225, button: 0 });
+        let x = 400;
+        let seq = 1;
+        let previous = parseFloat(cursor.style.left);
+        let worst = 0;
+        for (const direction of [1, -1, 1, -1]) {
+            for (let i = 0; i < 30; i += 1) {
+                x += direction * 4;
+                controller.pointer.send({ type: "move", id: 1, kind: "touch", x, y: 225, buttons: 0 });
+                rig.clock.advance(16);
+                // This page's own move comes back two frames late, after the other client's newer one.
+                send(-20000 + i * 300, 15000, "desk", (seq += 1));
+                send(controller.pointer.machine.virtualCursor.x - 1500, 0, "me", (seq += 1));
+                const at = parseFloat(cursor.style.left);
+                worst = Math.max(worst, Math.abs(at - previous));
+                previous = at;
+            }
+        }
+        expect(worst).toBeLessThan(5);
+        expect(controller.pointer.machine.virtualCursor.y).toBe(0);
+        controller.pointer.send({ type: "up", id: 1, kind: "touch", button: 0 });
+    });
+});

@@ -7,16 +7,16 @@ Each page records every change to its drawn cursor (the trackpad blob, and the m
 | Profile | Case | Observed | Result |
 | --- | --- | --- | --- |
 | iPhone 13 | before anything has moved the pointer the host knows of, the phone draws no pointer of somebody else's | marker shown false (the phone's own blob is its own: shown true) | pass |
-| iPhone 13 | the desktop's mouse moves over the picture: the phone's blob is at the matching point (within 2 px) within 200 ms | kvmd got -14745,2458; phone blob at 107.3,333.7 131 ms after the last mouse event | pass |
-| iPhone 13 | it was the desktop that sent the moves: the phone sent none (nothing is echoed back to kvmd) | 6 moves, 0 from any other socket | pass |
+| iPhone 13 | the desktop's mouse moves over the picture: the phone's blob is at the matching point (within 2 px) within 200 ms | kvmd got -13107,6553; phone blob at 117.0,347.4 147 ms after the last mouse event | pass |
+| iPhone 13 | it was the desktop that sent the moves: the phone sent none (nothing is echoed back to kvmd) | 9 moves, 0 from any other socket | pass |
 | Desktop 1400x900 | the desktop does not draw a pointer of somebody else's for its own moves | marker shown false | pass |
-| iPhone 13 | a fast mouse (90 moves at 8 ms) ends with the phone on the last point, within the budget, and about one update per frame | last point 8 ms after the last event; the blob was redrawn 83 times for 90 moves over 900+ ms | pass |
-| Desktop 1400x900 | a trackpad drag on the phone: the desktop's marker for somebody else's pointer is at the matching point (within 2 px) within 200 ms | kvmd got 6956,-25254 from the phone; desktop marker at 866.3,175.3 16 ms after the last touch move | pass |
+| iPhone 13 | a fast mouse (90 moves at 8 ms) ends with the phone on the last point, within the budget, and about one update per frame | last point 25 ms after the last event; the blob was redrawn 84 times for 90 moves over 900+ ms | pass |
+| Desktop 1400x900 | a trackpad drag on the phone: the desktop's marker for somebody else's pointer is at the matching point (within 2 px) within 200 ms | kvmd got 6352,-25792 from the phone; desktop marker at 853.8,169.0 49 ms after the last touch move | pass |
 | Desktop 1400x900 | when the desktop's mouse moves again the marker goes, and the desktop is the one cursor | marker shown false | pass |
 | iPhone 13 | and the phone's blob has followed the desktop back | blob at 195.0,325.5 | pass |
 | Desktop 1400x900 + iPhone 13 | both moving at once: neither cursor jumps to the other's, and when both stop they agree | desktop marker shown in 0 of 24 changes while its mouse moved; the phone's blob moved at most 3.7 px between two redraws with 0 large reversals over 87 redraws; last write came from the phone; phone blob at 390.0,302.0 (truth 390.0,302.0); desktop marker shown true at 1400.0,387.3 (truth 1400.0,387.3) | pass |
 | Desktop 1400x900 + iPhone 13 | after a second more, the page that did not write last shows the cursor at the target's point and the other page is not moving | last writer: phone; phone blob 390.0,302.0 vs 390.0,302.0; desktop marker shown true at 1400.0,387.3 vs 1400.0,387.3 | pass |
-| iPhone 13 | a reloaded phone draws the host's current position within 2 s of its picture being live | blob at 273.0,292.6 (truth 273.0,292.6) 150 ms after the reload | pass |
+| iPhone 13 | a reloaded phone draws the host's current position within 2 s of its picture being live | blob at 273.0,292.6 (truth 273.0,292.6) 141 ms after the reload | pass |
 | Desktop 1400x900 | a reloaded desktop draws the host's current position (it was put there by another client) as the marker | marker at 1181.1,417.2 (truth 1181.1,417.2) | pass |
 | Desktop 1400x900 + iPhone 13 | no page error or console error in either page | clean | pass |
 

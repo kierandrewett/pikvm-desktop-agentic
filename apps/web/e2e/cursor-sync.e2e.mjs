@@ -100,11 +100,23 @@ const now = (page, sel) =>
 
 const near = (s, ex, ey) => s.shown && Math.abs(s.x - ex) <= TOLERANCE && Math.abs(s.y - ey) <= TOLERANCE;
 
-/** The last absolute move the fake received, and from which of its sockets. */
+/**
+ * The last absolute move the fake received, and from which of its sockets. The page sends its moves a frame
+ * (16 ms) after the mouse event, and the fake logs them a moment after that, so the last one is read only once
+ * nothing newer has arrived for 80 ms: reading at once names the one before it, and the phone is then (rightly)
+ * nowhere near the point the run expects.
+ */
 async function lastMove(from) {
-    const { events } = await fakeGet("/__fake/hid");
-    const moves = events.filter((e) => e.event_type === "mouse_move" && (from === undefined || from(e)));
-    return moves.at(-1);
+    let previous;
+    for (let i = 0; i < 40; i += 1) {
+        const { events } = await fakeGet("/__fake/hid");
+        const moves = events.filter((e) => e.event_type === "mouse_move" && (from === undefined || from(e)));
+        const newest = moves.at(-1);
+        if (newest && previous !== undefined && newest.seq === previous) return newest;
+        previous = newest?.seq;
+        await sleep(80);
+    }
+    throw new Error("the fake kept receiving moves");
 }
 const allMoves = async () => (await fakeGet("/__fake/hid")).events.filter((e) => e.event_type === "mouse_move");
 

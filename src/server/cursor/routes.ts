@@ -35,6 +35,8 @@ export function createCursorRoutes(hub: CursorHub, keepAliveMs = CURSOR_KEEPALIV
                 waiting = data;
                 return;
             }
+            // Whatever waited is older than this: it must not come out after it on the next drain.
+            waiting = null;
             res.write(data);
         };
         res.on("drain", () => {

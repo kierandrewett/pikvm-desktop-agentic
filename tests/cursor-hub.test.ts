@@ -282,4 +282,41 @@ describe("telling everyone", () => {
         clock.advance(100);
         assert.equal(told.length, 1);
     });
+
+    it("always delivers the last position of a burst, whatever the gaps: the trailing update is never dropped", () => {
+        let seed = 12345;
+        const random = (): number => {
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            return seed / 0x7fffffff;
+        };
+        for (let burst = 0; burst < 200; burst += 1) {
+            const { hub, told, clock } = rig();
+            const moves = 1 + Math.floor(random() * 40);
+            let last = 0;
+            for (let i = 0; i < moves; i += 1) {
+                // Gaps from 0 to 40 ms: inside a frame, on its edge, and past it.
+                last = burst * 100 + i + 1;
+                hub.absolute("a", last, -last);
+                clock.advance(Math.floor(random() * 41));
+            }
+            // Nothing newer is coming: within one frame everyone has been told the last one.
+            clock.advance(16);
+            assert.equal(told.at(-1)?.x, last, `burst ${burst} of ${moves}`);
+            assert.equal(told.at(-1)?.seq, hub.current()?.seq);
+            assert.equal(clock.pending(), 0, "and no timer is left running");
+        }
+    });
+
+    it("delivers the trailing position even when the move that made it came the very instant the frame ended", () => {
+        const { hub, told, clock } = rig();
+        hub.absolute("a", 1, 1);
+        clock.advance(15);
+        hub.absolute("a", 2, 2);
+        clock.advance(1);
+        assert.equal(told.at(-1)?.x, 2);
+        hub.absolute("a", 3, 3);
+        hub.absolute("a", 4, 4);
+        clock.advance(16);
+        assert.equal(told.at(-1)?.x, 4);
+    });
 });
