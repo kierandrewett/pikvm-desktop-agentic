@@ -32,6 +32,7 @@ import {
     isLoopback,
     loginPage,
     isPublicPath,
+    ROOT_ICON,
     sameOrigin,
     sessionValue,
     SESSION_COOKIE,
@@ -135,6 +136,16 @@ export function createRoutes(t: RouteTargets): Route[] {
             name: "/app -> /app/",
             match: ({ method, path }) => method === "GET" && path === "/app",
             run: ({ res }) => redirect(res, "/app/"),
+        },
+        {
+            // iOS's own fallback icon names at the site root (auth.ts ROOT_ICON): the app's icon, so a home-screen
+            // shortcut made without a page to read (Firefox for iOS) still gets it instead of a letter.
+            name: "root icon names",
+            match: ({ method, path }) => (method === "GET" || method === "HEAD") && ROOT_ICON.test(path),
+            run: ({ path, res }) => {
+                const file = path === "/favicon.ico" ? "icon-192.png" : "apple-touch-icon.png";
+                if (!t.app.serve(file, res)) json(res, 404, { error: "Not found" });
+            },
         },
 
         /* Sign-in. Public: auth.ts lets these three through the gate. */

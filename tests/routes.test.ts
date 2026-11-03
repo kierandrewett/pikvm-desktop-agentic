@@ -412,6 +412,7 @@ function fakeAppBuild(): string {
     writeFileSync(join(dir, "index.html"), "<!doctype html><title>app shell</title>");
     writeFileSync(join(dir, "assets", "index-abc123.js"), "console.log('app')");
     writeFileSync(join(dir, "icon-192.png"), "png");
+    writeFileSync(join(dir, "apple-touch-icon.png"), "touch");
     writeFileSync(join(dir, "splash", "apple-splash-portrait-3x-402x874.png"), "png");
     writeFileSync(join(dir, "splash", "secret.png"), "png");
     return dir;
@@ -478,6 +479,16 @@ test("the web app's pages are behind the gate; its icons are public", async () =
         assert.equal(splash.status, 200);
         assert.equal(splash.headers.get("content-type"), "image/png");
         assert.equal((await call(s.origin, "/app/splash/secret.png", { headers: { accept: "application/json" } })).status, 401);
+        // iOS's root fallback names, asked without a session when there is no page to read the icon link from.
+        for (const path of ["/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/apple-touch-icon-240x240-precomposed.png"]) {
+            const icon = await call(s.origin, path);
+            assert.equal(icon.status, 200, path);
+            assert.equal(icon.body, "touch", path);
+            assert.equal(icon.headers.get("content-type"), "image/png", path);
+        }
+        assert.equal((await call(s.origin, "/favicon.ico")).body, "png");
+        // The pattern is exact: other root names are still gated.
+        assert.equal((await call(s.origin, "/apple-touch-icon.png.bak", { headers: { accept: "application/json" } })).status, 401);
     } finally {
         await s.close();
         rmSync(dir, { recursive: true, force: true });

@@ -45,8 +45,14 @@ export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
  *  skips `^/app/splash/apple-splash-[a-z]+-[23]x-[0-9]+x[0-9]+\.png$`. */
 const SPLASH_IMAGE = /^\/app\/splash\/apple-splash-(?:portrait|landscape)-[23]x-\d+x\d+\.png$/;
 
+/** The icon names iOS asks for at the site root when it has no page to read `<link rel="apple-touch-icon">` from:
+ *  Firefox for iOS's Add to Home Screen hands iOS an empty web view, so iOS falls back to these (seen in the proxy log:
+ *  `/apple-touch-icon-240x240-precomposed.png`, `/apple-touch-icon.png`, `/favicon.ico`, some without the session).
+ *  A proxy in front skips `^/(apple-touch-icon(-[0-9]+x[0-9]+)?(-precomposed)?\.png|favicon\.ico)$`. */
+export const ROOT_ICON = /^\/(?:apple-touch-icon(?:-\d+x\d+)?(?:-precomposed)?\.png|favicon\.ico)$/;
+
 export function isPublicPath(path: string): boolean {
-    return Object.hasOwn(PUBLIC_PATHS, path) || SPLASH_IMAGE.test(path);
+    return Object.hasOwn(PUBLIC_PATHS, path) || SPLASH_IMAGE.test(path) || ROOT_ICON.test(path);
 }
 
 /** Stable cookie value for a token (so sessions persist across restarts). */
