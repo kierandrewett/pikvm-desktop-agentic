@@ -33,4 +33,10 @@ export interface ImageOps {
      * re-encode at `quality` (0..100). Returns `null` if the op fails.
      */
     crop(jpeg: Buffer, region: ImageRegion, quality: number): Promise<Buffer | null>;
+    /**
+     * The frame as `width` x `height` grey bytes, row by row, for telling whether the screen is
+     * still changing. Optional: without it the agent's "wait until stable" compares the JPEG bytes,
+     * which a noisy capture can make differ for a screen that has not moved.
+     */
+    gray?(jpeg: Buffer, width: number, height: number): Promise<Uint8Array | null>;
 }

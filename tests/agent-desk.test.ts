@@ -10,7 +10,8 @@ import { MouseJiggler } from "../src/mouse-jiggler";
 import type { PiKvmControl } from "../src/pikvm-control";
 import { createActivity } from "../src/server/agent/activity";
 import { unavailableApprover } from "../src/server/agent/approver";
-import { createDesk, type AgentDesk, type DeskImages } from "../src/server/agent/desk";
+import { createDesk, type AgentDesk } from "../src/server/agent/desk";
+import type { ImageOps } from "../src/image-ops";
 import { createPresence } from "../src/server/agent/presence";
 import { createPiKvmProxy } from "../src/server/proxy/kvmd";
 import { startFakeKvmd, until, type FakeKvmdHandle } from "./support/fake-kvmd";
@@ -35,7 +36,7 @@ const FAST = {
 };
 
 /** The fake serves a 320x180 JPEG whatever it reports, so image work is a marker the test can read back. */
-const images: DeskImages = {
+const images: ImageOps = {
     async resize(_jpeg, width, height) {
         return Buffer.from(`resize ${width}x${height}`);
     },

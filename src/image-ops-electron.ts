@@ -25,4 +25,17 @@ export const electronImageOps: ImageOps = {
             return null;
         }
     },
+    async gray(jpeg, width, height) {
+        try {
+            // toBitmap is 4 bytes a pixel (B, G, R, A); the grey is the mean of the three colours.
+            const bitmap = nativeImage.createFromBuffer(jpeg).resize({ width, height, quality: "good" }).toBitmap();
+            const out = new Uint8Array(width * height);
+            for (let i = 0; i < out.length; i++) {
+                out[i] = Math.round(((bitmap[i * 4] ?? 0) + (bitmap[i * 4 + 1] ?? 0) + (bitmap[i * 4 + 2] ?? 0)) / 3);
+            }
+            return out;
+        } catch {
+            return null;
+        }
+    },
 };

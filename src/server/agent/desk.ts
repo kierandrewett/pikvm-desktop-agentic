@@ -64,15 +64,10 @@ export interface DeskTarget {
     readonly rejectUnauthorized: boolean;
 }
 
-/** Image work the host provides: Electron's nativeImage, or sharp on the web host. `gray` is optional. */
-export interface DeskImages extends ImageOps {
-    /** The frame as `width` x `height` grey bytes, for telling whether the screen is still changing. */
-    gray?(jpeg: Buffer, width: number, height: number): Promise<Uint8Array | null>;
-}
-
 export interface DeskOptions {
     target: () => Promise<DeskTarget>;
-    images: DeskImages;
+    /** Electron's nativeImage, or sharp on the web host. */
+    images: ImageOps;
     presence: OperatorPresence;
     activity: ActivityStore;
     /** The long edge of the reference frame; read on every screenshot. */
