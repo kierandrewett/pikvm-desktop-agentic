@@ -739,8 +739,10 @@ export async function stopAll(): Promise<void> {
     await Promise.all([...live.values()].map((l) => stop(l)));
 }
 
-// Idle reaper.
+// Idle reaper. It is created with this module, before any database exists (and after a failed start there never is
+// one), so with no live process it must not read a setting.
 setInterval(() => {
+    if (live.size === 0) return;
     const limit = setting("system.agent.idleTimeoutSec") * 1000;
     const t = Date.now();
     for (const l of live.values()) {
