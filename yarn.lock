@@ -828,6 +828,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@phosphor-icons/core@npm:2.1.1":
+  version: 2.1.1
+  resolution: "@phosphor-icons/core@npm:2.1.1"
+  checksum: 10c0/0a92d8f1811c450b8ce12becbb520522784ffeb781a2cd33771d716901909fb4dfeb6d88243cbf3712c404f11479764c1dcd443a141d5dad416b41f7251e44d7
+  languageName: node
+  linkType: hard
+
 "@pikvm/chat-protocol@workspace:packages/chat-protocol":
   version: 0.0.0-use.local
   resolution: "@pikvm/chat-protocol@workspace:packages/chat-protocol"
@@ -884,6 +891,20 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@pikvm/icons@workspace:*, @pikvm/icons@workspace:packages/icons":
+  version: 0.0.0-use.local
+  resolution: "@pikvm/icons@workspace:packages/icons"
+  dependencies:
+    "@phosphor-icons/core": "npm:2.1.1"
+    "@types/node": "npm:^26.6.6"
+    "@types/react": "npm:^19.3.0"
+    react: "npm:^19"
+    typescript: "npm:^5.9.3"
+  peerDependencies:
+    react: ">=18"
+  languageName: unknown
+  linkType: soft
+
 "@pikvm/kvm-engine@workspace:*, @pikvm/kvm-engine@workspace:packages/kvm-engine":
   version: 0.0.0-use.local
   resolution: "@pikvm/kvm-engine@workspace:packages/kvm-engine"
@@ -903,6 +924,7 @@ __metadata:
     "@effect/platform": "npm:^0.97.3"
     "@pikvm/chat-ui": "workspace:*"
     "@pikvm/contracts": "workspace:*"
+    "@pikvm/icons": "workspace:*"
     "@pikvm/kvm-engine": "workspace:*"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@tanstack/react-query": "npm:^5.105.1"

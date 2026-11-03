@@ -1,0 +1,26 @@
+{
+  "name": "@pikvm/icons",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rounded fork of Phosphor Icons: continuous corners generated from @phosphor-icons/core",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node --experimental-transform-types --disable-warning=ExperimentalWarning scripts/build.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@phosphor-icons/core": "2.1.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "react": "^19",
+    "typescript": "^5.9.3"
+  }
+}
