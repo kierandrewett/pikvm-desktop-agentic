@@ -7,11 +7,11 @@
 agent-runtime:
 	node scripts/build-agent-runtime.mjs
 
-# Build and package for this machine's platform: the Electron tree, then every package format
-# pkgsmith.star writes for it (Linux: rpm, deb, Arch, AppImage, Flatpak; macOS: dmg, zip; Windows:
-# msi, nsis, zip) into builds/packages/<platform>-<arch>/. PKGSMITH names the pkgsmith binary
-# (default: pkgsmith on PATH). Other platforms: node scripts/package.mjs --platform win32 --tree-only
-# makes the tree; the packages come from running this on that platform (see .github/workflows).
+# Build and package for this machine's platform: the Electron tree, then Linux packages with pkgsmith
+# (rpm, deb, Arch, AppImage, Flatpak; PKGSMITH names the binary, default: pkgsmith on PATH) or the
+# macOS and Windows installers with electron-builder (dmg, zip; nsis, msi, zip), into
+# builds/packages/<platform>-<arch>/. Other platforms: node scripts/package.mjs --platform win32
+# --tree-only makes the tree; the packages come from running this on that platform (see .github/workflows).
 package: agent-runtime
 	node scripts/package.mjs
 

@@ -1,13 +1,15 @@
 name: package
 
-# Builds PiKVM Desktop on each operating system and writes its packages with pkgsmith
-# (https://github.com/kierandrewett/pkgsmith; pkgsmith.star at the repo root). The agent runtime is a
-# CPython built for the machine it runs on, so each job builds its own; that is why this is a matrix
-# of real runners and not one Linux job cross-building.
+# Builds PiKVM Desktop on each operating system. electron-packager writes the Electron tree on every
+# one; what packages it differs:
 #
-#   linux   rpm, deb, Arch, AppImage, Flatpak   (x64 and arm64)
-#   macos   dmg, zip                            (arm64 and x64)
-#   windows msi, nsis, zip                      (x64)
+#   linux   pkgsmith (https://github.com/kierandrewett/pkgsmith; pkgsmith.star at the repo root):
+#           rpm, deb, Arch, AppImage, Flatpak                     (x64 and arm64)
+#   macos   electron-builder (packaging/electron-builder.yml): dmg, zip   (arm64 and x64)
+#   windows electron-builder (packaging/electron-builder.yml): nsis, msi, zip (x64)
+#
+# The agent runtime is a CPython built for the machine it runs on, so each job builds its own; that is
+# why this is a matrix of real runners and not one Linux job cross-building.
 #
 # Packages are unsigned: no Apple notarisation, no Authenticode, no package signing key.
 
@@ -50,26 +52,21 @@ jobs:
       - run: yarn install --immutable
 
       - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
 
-      # pkgsmith has no release yet, so it is built from source. Its plugins sit next to the binary.
+      # Linux packages only: pkgsmith has no release yet, so it is built from source (its plugins sit
+      # next to the binary), and flatpak writes the Flatpak bundle. macOS and Windows installers need
+      # neither: electron-builder (a devDependency) brings its own dmg, NSIS and WiX tooling.
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.platform == 'linux'
       - name: Build pkgsmith
+        if: matrix.platform == 'linux'
         run: |
           git clone --depth 1 https://github.com/kierandrewett/pkgsmith "$RUNNER_TEMP/pkgsmith"
           cargo build --release --workspace --manifest-path "$RUNNER_TEMP/pkgsmith/Cargo.toml"
-          exe=pkgsmith; [ "${{ matrix.platform }}" = win32 ] && exe=pkgsmith.exe
-          echo "PKGSMITH=$RUNNER_TEMP/pkgsmith/target/release/$exe" >> "$GITHUB_ENV"
-
-      # Tools some formats run: flatpak writes the bundle, makensis writes the NSIS installer.
+          echo "PKGSMITH=$RUNNER_TEMP/pkgsmith/target/release/pkgsmith" >> "$GITHUB_ENV"
       - name: Install flatpak
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y flatpak
-      - name: Install NSIS
-        if: matrix.platform == 'win32'
-        shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
-          "C:\Program Files (x86)\NSIS" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       # A CPython built for the platform with the agent installed into it. Windows gets the standalone
       # Windows build with Windows wheels and a pikvm-agent.exe launcher (it is also what a Linux host

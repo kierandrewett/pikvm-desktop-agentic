@@ -1,0 +1,69 @@
+# The macOS and Windows installers of PiKVM Desktop, written by electron-builder.
+#
+# scripts/package.mjs has electron-packager write the Electron tree, fills its resources/ (web app,
+# harness UI, agent runtime) and runs
+#
+#     electron-builder --prepackaged <tree> --config packaging/electron-builder.yml ...
+#
+# so this file only describes how a finished tree becomes installers: no `files`, no
+# `extraResources` (the tree already holds everything), and no code signing (prepackaged trees are
+# not signed; the packages are unsigned, not notarised, not Authenticode-signed). The output
+# directory is set by the script, per platform and architecture.
+#
+# Linux is NOT built here: Linux packages come from pkgsmith (pkgsmith.star).
+
+appId: dev.drewett.pikvm-desktop
+productName: PiKVM Desktop
+copyright: Copyright (c) Kieran Drewett
+# electron-builder wants to see the dependency tree of an app it packs; there is none to install.
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+# No auto-update feed: the app has no updater, so no latest.yml.
+publish: null
+
+mac:
+  category: public.app-category.utilities
+  icon: packaging/icons/icon.icns
+  target: [dmg, zip]
+  artifactName: pikvm-desktop-${version}-macos-${arch}.${ext}
+
+dmg:
+  title: PiKVM Desktop ${version}
+  # electron-builder's default layout: the app on the left, a link to /Applications on the right.
+  contents:
+    - { x: 130, y: 220 }
+    - { x: 410, y: 220, type: link, path: /Applications }
+  window: { width: 540, height: 380 }
+  iconSize: 96
+
+win:
+  icon: packaging/icons/icon.ico
+  target: [nsis, msi, zip]
+  artifactName: pikvm-desktop-${version}-windows-${arch}.${ext}
+  legalTrademarks: PiKVM Desktop
+
+nsis:
+  # The wizard, so the install folder is the user's to choose; per-user by default (no UAC prompt),
+  # with the per-machine choice on its first page.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  allowElevation: true
+  createStartMenuShortcut: true
+  createDesktopShortcut: true
+  shortcutName: PiKVM Desktop
+  license: LICENSE
+  differentialPackage: false # no .blockmap beside the installer; nothing updates from it
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+
+msi:
+  oneClick: false
+  perMachine: true
+  createStartMenuShortcut: true
+  createDesktopShortcut: true
+  shortcutName: PiKVM Desktop
+  # electron-builder gives light.exe two minutes (a fixed timeout, wine or not), and the agent runtime
+  # is about 24,000 files: the fastest cabinet compression keeps it inside that.
+  additionalLightArgs: ["-dcl:mszip"]

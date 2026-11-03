@@ -72,37 +72,44 @@ The API is `GET`/`PUT /app/api/v1/target` (`@pikvm/contracts`); a host that pins
 
 The desktop app is an Electron app whose one window loads the embedded server's `/app/`; its only
 bridge to the OS is `window.pikvmDesktop` (`packages/contracts/src/desktop.ts`, implemented in
-`src/desktop/`). Packages are written by [pkgsmith](https://github.com/kierandrewett/pkgsmith) from
-`pkgsmith.star`:
+`src/desktop/`). The app is built the normal Electron way (`@electron/packager` writes the Electron tree).
+What turns that tree into installers depends on the system:
 
-| System | Formats | Notes |
-| --- | --- | --- |
-| Linux (x64, arm64) | rpm, deb, Arch (`.pkg.tar.zst`), AppImage, Flatpak | needs `flatpak` on PATH for the Flatpak |
-| macOS (arm64, x64) | dmg, zip | unsigned, not notarised |
-| Windows (x64) | msi, nsis, zip | needs `makensis` on PATH for nsis and pkgsmith 4a66ca8 or later for the msi (three-byte string references); unsigned |
+| System | Formats | Written by | Notes |
+| --- | --- | --- | --- |
+| Linux (x64, arm64) | rpm, deb, Arch (`.pkg.tar.zst`), AppImage, Flatpak | [pkgsmith](https://github.com/kierandrewett/pkgsmith), from `pkgsmith.star` | needs `flatpak` on PATH for the Flatpak |
+| macOS (arm64, x64) | dmg (with the Applications link), zip | [electron-builder](https://www.electron.build), from `packaging/electron-builder.yml` | the dmg only builds on macOS; unsigned, not notarised |
+| Windows (x64) | nsis (setup wizard), msi, zip | electron-builder, from `packaging/electron-builder.yml` | Start Menu and desktop shortcuts; unsigned. On Linux wine builds the nsis and zip; the msi (WiX) only builds on Windows |
+
+pkgsmith is for Linux only. electron-builder is run in `--prepackaged` mode over the same tree, so it
+does no compiling of its own: it only knows installers (dmg layout, NSIS, WiX) well, which is why it
+is used for macOS and Windows rather than a second implementation of them.
 
 ```bash
 make package          # build, then every format for THIS machine's platform
 # -> builds/packages/<platform>-<arch>/
-node scripts/package.mjs --formats rpm,deb     # some formats
+node scripts/package.mjs --formats rpm,deb     # some formats (Linux: pkgsmith's names; macOS: dmg,zip; Windows: nsis,msi,zip)
 node scripts/package.mjs --tree-only           # just the Electron tree in builds/
 ```
 
 `make package` builds the agent runtime first (`make agent-runtime`, a CPython for this platform, about
 800MB), then `scripts/package.mjs` runs the builds, has electron-packager write the Electron tree,
-fills its `resources/` (web app, harness UI, agent runtime) and runs
-`pkgsmith build` over that tree. Point `PKGSMITH` at the binary if it is not on PATH; pkgsmith has no
-release yet, so build it from its repository (`cargo build --release --workspace`; its plugins must
-sit beside the binary). The package release is `<commit count>.<timestamp>` (plus `.dirty`), so a
-rebuild is always a different package to `dnf` and `apt`.
+fills its `resources/` (web app, harness UI, agent runtime) and, on Linux, runs `pkgsmith build` over
+it; on macOS and Windows `electron-builder --prepackaged` does. Point `PKGSMITH` at the binary if it is
+not on PATH; pkgsmith has no release yet, so build it from its repository (`cargo build --release
+--workspace`; its plugins must sit beside the binary). The Linux package release is `<commit
+count>.<timestamp>` (plus `.dirty`), so a rebuild is always a different package to `dnf` and `apt`. The
+macOS and Windows installers are named `pikvm-desktop-<version>-<macos|windows>-<arch>.<ext>` and carry
+the plain version.
 
 A tree for another platform can be made anywhere (`--platform win32 --arch x64 --tree-only`). The agent
 runtime is a CPython built for one platform: Linux and macOS ones must be built on that platform, but
 the Windows one cross-builds from any host (`node scripts/build-agent-runtime.mjs --platform win32
 --arch x64` into `agent/runtime-win32-x64`: the standalone Windows CPython, the locked dependencies as
 Windows wheels, and a `pikvm-agent.exe` launcher that finds `python.exe` beside itself). So the macOS
-packages come from `.github/workflows/package.yml`, which runs the build on a runner of each system and
-uploads the packages as artefacts. The icon sizes in `packaging/icons` come from `make icons`.
+packages and the Windows msi come from `.github/workflows/package.yml`, which runs the build on a runner
+of each system and uploads the packages as artefacts. The icon sizes in `packaging/icons` come from
+`make icons`.
 
 ## Web host
 

@@ -1,24 +1,28 @@
-// Build PiKVM Desktop for one platform and write its packages with pkgsmith.
+// Build PiKVM Desktop for one platform and write its installers.
 //
 //     node scripts/package.mjs [--platform linux|darwin|win32] [--arch x64|arm64]
 //                              [--formats rpm,deb,...] [--skip-build] [--tree-only]
 //
-// Defaults to this machine's platform and architecture and every format pkgsmith.star writes for
-// it. The steps:
+// Defaults to this machine's platform and architecture and every format that platform has. The
+// steps:
 //
 //   1. yarn build, and the web app's build (skipped with --skip-build).
 //   2. electron-packager: the Electron tree for the target, into builds/.
 //   3. Fill the tree's resources/ with what the app finds there at run time: the web app, the
 //      agent harness UI and the agent runtime.
-//   4. pkgsmith build over that tree, into builds/packages/<platform>-<arch>/.
+//   4. Installers, into builds/packages/<platform>-<arch>/:
+//        linux          pkgsmith build over the tree (pkgsmith.star): rpm, deb, archlinux, appimage, flatpak
+//        darwin, win32  electron-builder --prepackaged over the tree (packaging/electron-builder.yml):
+//                       dmg and zip; nsis, msi and zip. pkgsmith is only for Linux.
 //
 // Electron trees for another platform are downloaded by electron-packager, so any machine can
 // make any tree. What it cannot do is carry the agent runtime across: that is a CPython built for
 // one platform, made by `make agent-runtime` on that platform (Windows: also from any host). A tree built without one says so
-// and is refused unless --allow-no-runtime is given.
+// and is refused unless --allow-no-runtime is given. electron-builder's installers need their own
+// platform's tools (dmg: macOS; msi: WiX, run under wine off Windows; nsis: its bundled makensis).
 import { packager } from "@electron/packager";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -43,15 +47,15 @@ if (!["x64", "arm64"].includes(arch)) throw new Error(`unsupported arch ${arch}`
 
 const pkgJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const target = `${platform}-${arch}`;
-/** pkgsmith spells the same things differently. */
-const PKG_OS = { linux: "linux", darwin: "macos", win32: "windows" }[platform];
+/** pkgsmith spells the same things differently; only Linux goes through it. */
 const PKG_ARCH = { x64: "amd64", arm64: "arm64" }[arch];
 
-/* The formats each platform's packages come in; keep in step with pkgsmith.star. */
+/* The formats each platform's packages come in. Linux: keep in step with pkgsmith.star. macOS and
+ * Windows: the electron-builder targets, keep in step with `target` in packaging/electron-builder.yml. */
 const FORMATS = {
     linux: ["rpm", "deb", "archlinux", "appimage", "flatpak"],
     darwin: ["dmg", "zip"],
-    win32: ["msi", "nsis", "zip"],
+    win32: ["nsis", "msi", "zip"],
 };
 
 function run(command, args, options = {}) {
@@ -177,40 +181,69 @@ if (opts["tree-only"]) {
     process.exit(0);
 }
 
-// ── 4. packages ──────────────────────────────────────────────────────────────────────────────
-/** The AppImage runtime (the small ELF the squashfs is appended to), cached beside the builds. */
-async function appImageRuntime() {
-    const names = { x64: "runtime-x86_64", arm64: "runtime-aarch64" };
-    const file = join(builds, ".cache", names[arch]);
-    if (!existsSync(file)) {
-        const url = `https://github.com/AppImage/type2-runtime/releases/download/continuous/${names[arch]}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`cannot download the AppImage runtime from ${url}: ${res.status}`);
-        mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, Buffer.from(await res.arrayBuffer()));
-        chmodSync(file, 0o755);
-    }
-    return file;
-}
-
+// ── 4. installers ────────────────────────────────────────────────────────────────────────────
 const formats = opts.formats ? opts.formats.split(",") : FORMATS[platform];
+for (const format of formats) {
+    if (!FORMATS[platform].includes(format)) throw new Error(`${platform} has no ${format} package (${FORMATS[platform].join(", ")})`);
+}
 const outDir = join(builds, "packages", target);
 rmSync(outDir, { recursive: true, force: true });
-const args = [
-    "build",
-    "--prefix", tree,
-    "-f", join(root, "pkgsmith.star"),
-    "-o", outDir,
-    "-F", formats.join(","),
-    "--build-arg", `PKG_OS=${PKG_OS}`,
-    "--build-arg", `PKG_ARCH=${PKG_ARCH}`,
-    "--build-arg", `RELEASE=${buildRelease()}`,
-    "--progress", "plain",
-];
-if (platform === "linux" && formats.includes("appimage")) args.push("--build-arg", `APPIMAGE_RUNTIME=${await appImageRuntime()}`);
 
-// PKGSMITH names the binary (a checkout's target/release/pkgsmith, or one on PATH).
-const pkgsmith = process.env.PKGSMITH || "pkgsmith";
-log(`${pkgsmith} ${args.join(" ")}`);
-run(pkgsmith, args);
+if (platform === "linux") {
+    /** The AppImage runtime (the small ELF the squashfs is appended to), cached beside the builds. */
+    async function appImageRuntime() {
+        const names = { x64: "runtime-x86_64", arm64: "runtime-aarch64" };
+        const file = join(builds, ".cache", names[arch]);
+        if (!existsSync(file)) {
+            const url = `https://github.com/AppImage/type2-runtime/releases/download/continuous/${names[arch]}`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`cannot download the AppImage runtime from ${url}: ${res.status}`);
+            mkdirSync(dirname(file), { recursive: true });
+            writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+            chmodSync(file, 0o755);
+        }
+        return file;
+    }
+
+    const args = [
+        "build",
+        "--prefix", tree,
+        "-f", join(root, "pkgsmith.star"),
+        "-o", outDir,
+        "-F", formats.join(","),
+        "--build-arg", `PKG_ARCH=${PKG_ARCH}`,
+        "--build-arg", `RELEASE=${buildRelease()}`,
+        "--progress", "plain",
+    ];
+    if (formats.includes("appimage")) args.push("--build-arg", `APPIMAGE_RUNTIME=${await appImageRuntime()}`);
+
+    // PKGSMITH names the binary (a checkout's target/release/pkgsmith, or one on PATH).
+    const pkgsmith = process.env.PKGSMITH || "pkgsmith";
+    log(`${pkgsmith} ${args.join(" ")}`);
+    run(pkgsmith, args);
+} else {
+    /* macOS and Windows installers are electron-builder's: it is the tool that knows dmg layout,
+     * NSIS and WiX, and the tree it is given is the ordinary Electron one. The macOS tree it takes is
+     * the .app itself; the Windows one is the folder. Its output directory defaults to dist/, which
+     * is this repo's app bundle, so it is always set. */
+    const prepackaged = platform === "darwin" ? join(tree, `${appName}.app`) : tree;
+    const args = [
+        "electron-builder",
+        platform === "darwin" ? "--mac" : "--win",
+        ...formats,
+        `--${arch}`,
+        "--prepackaged", prepackaged,
+        "--config", join(root, "packaging", "electron-builder.yml"),
+        `--config.directories.output=${outDir}`,
+        "--publish", "never",
+    ];
+    log(`yarn ${args.join(" ")}`);
+    yarn(args);
+    /* electron-builder also writes files that are not packages: its debug log whenever it thinks it is
+     * debugging (CI=true is enough), and a .blockmap beside every macOS zip, for an updater this
+     * app does not have. */
+    for (const name of readdirSync(outDir)) {
+        if (name === "builder-debug.yml" || name.endsWith(".blockmap")) rmSync(join(outDir, name), { force: true });
+    }
+}
 log(`packages in ${outDir}`);
