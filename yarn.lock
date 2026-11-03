@@ -919,6 +919,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@pikvm/mcp@workspace:packages/pikvm-mcp":
+  version: 0.0.0-use.local
+  resolution: "@pikvm/mcp@workspace:packages/pikvm-mcp"
+  dependencies:
+    "@pikvm/kvm-engine": "workspace:*"
+    typescript: "npm:^5.9.3"
+    vitest: "npm:^5.0.5"
+    zod: "npm:^4.6.5"
+  languageName: unknown
+  linkType: soft
+
 "@pikvm/web@workspace:apps/web":
   version: 0.0.0-use.local
   resolution: "@pikvm/web@workspace:apps/web"

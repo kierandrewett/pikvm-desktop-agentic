@@ -1,0 +1,24 @@
+{
+  "name": "@pikvm/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The PiKVM computer-use MCP server: tool definitions, risk rules, the Desk and Approver ports and the request handler",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pikvm/kvm-engine": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}
