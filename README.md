@@ -92,9 +92,10 @@ node scripts/package.mjs --formats rpm,deb     # some formats (Linux: pkgsmith's
 node scripts/package.mjs --tree-only           # just the Electron tree in builds/
 ```
 
-`make package` builds the agent runtime first (`make agent-runtime`, a CPython for this platform, about
-800MB), then `scripts/package.mjs` runs the builds, has electron-packager write the Electron tree,
-fills its `resources/` (web app, harness UI, agent runtime) and, on Linux, runs `pkgsmith build` over
+`make package` runs `scripts/package.mjs`, which runs the builds, has electron-packager write the Electron tree,
+fills its `resources/` (the web app, and omp's standalone binary for the target, fetched by
+`scripts/fetch-omp.mjs` and checked against `deploy/omp.lock`; a binary that does not match the pin refuses the
+package) and, on Linux, runs `pkgsmith build` over
 it; on macOS and Windows `electron-builder --prepackaged` does. Point `PKGSMITH` at the binary if it is
 not on PATH; pkgsmith has no release yet, so build it from its repository (`cargo build --release
 --workspace`; its plugins must sit beside the binary). The Linux package release is `<commit
@@ -102,28 +103,21 @@ count>.<timestamp>` (plus `.dirty`), so a rebuild is always a different package 
 macOS and Windows installers are named `pikvm-desktop-<version>-<macos|windows>-<arch>.<ext>` and carry
 the plain version.
 
-A tree for another platform can be made anywhere (`--platform win32 --arch x64 --tree-only`). The agent
-runtime is a CPython built for one platform: Linux and macOS ones must be built on that platform, but
-the Windows one cross-builds from any host (`node scripts/build-agent-runtime.mjs --platform win32
---arch x64` into `agent/runtime-win32-x64`: the standalone Windows CPython, the locked dependencies as
-Windows wheels, and a `pikvm-agent.exe` launcher that finds `python.exe` beside itself). So the macOS
-packages and the Windows msi come from `.github/workflows/package.yml`, which runs the build on a runner
-of each system and uploads the packages as artefacts. The icon sizes in `packaging/icons` come from
+A tree for another platform can be made anywhere (`--platform win32 --arch x64 --tree-only`), because omp's
+binary for any target is one download. The macOS and Windows installers still need their own tools, so
+they come from `.github/workflows/package.yml`, which runs the build on a runner of each system and uploads
+the packages as artefacts. The icon sizes in `packaging/icons` come from
 `make icons`.
 
 ## Web host
 
 `src/web-server.ts` runs the console and the PiKVM proxy without Electron, for
-phones and browsers. There is no terminal anywhere: the agent is the Chat tab. Chat works there too: the host
-forwards `/app/harness/*`, with an operator token the browser never sees, to an
-agent sidecar (`deploy/agent`: the daemon and the harness, with the `claude` and
-`codex` CLIs) or to the desktop app. [docs/deploy-web.md](docs/deploy-web.md) has
-the variables and the exact compose block for both.
+phones and browsers. There is no terminal anywhere: the agent is the Chat tab, and the host runs its server
+and the agent (omp's standalone binary) itself, so there is no sidecar. One image holds all of it
+([docs/deploy-web.md](docs/deploy-web.md) has the variables and the bsociety change).
 
 ```bash
-make web-bundle agent-bundle         # builds/web/ and builds/agent/: Docker contexts
-docker build -t pikvm-web builds/web
-docker build -t pikvm-agent builds/agent
+make image                           # podman (IMAGE_TOOL=docker for docker) build -f deploy/Dockerfile .
 ```
 
 The environment is the whole contract; the header of `src/web-server.ts` lists

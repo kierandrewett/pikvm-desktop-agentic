@@ -24,13 +24,10 @@ Puppeteer is not a dependency of the repo, so the run takes its locations from t
 
 The run exits non-zero if any case fails.
 
-`apps/web/e2e/chat-sidecar.e2e.mjs` is different: it drives the HOSTED deployment, the two images this
-repo builds (the web host and the agent sidecar) with a fake kvmd and a scripted model, brought up with
-`podman compose -f deploy/e2e/compose.yml up -d` after `make web-bundle agent-bundle` and a `podman build`
-of each (the header of that compose file has the commands). It listens on 127.0.0.1:18080 with the fake
-kvmd on 127.0.0.1:14510, so run it with `KVM_WEB=http://127.0.0.1:18080 KVM_FAKE=http://127.0.0.1:14510`.
-It writes `docs/e2e/<date>-chat-sidecar.md`. The two CLI sign-in cases start the real `codex` and `claude`
-sign-in inside the sidecar and need outbound internet; nothing is submitted and each is cancelled.
+`deploy/e2e/chat.e2e.mjs` drives the HOSTED deployment over HTTP and the chat socket: the one image this repo builds
+(`make image`) with a fake kvmd and a scripted model, brought up with
+`podman compose -f deploy/e2e/compose.yml up -d` (set `KVM_IMAGE` if the image has another name). It listens on
+127.0.0.1:18080 with the fake kvmd on 127.0.0.1:14510 and needs no browser: `node deploy/e2e/chat.e2e.mjs`.
 
 `apps/web/e2e/chat-desktop.e2e.mjs` drives the real Electron app (not a browser) under a headless sway: the packaged
 layout, its embedded harness, the fake kvmd and the fake model. Start the app with

@@ -7,7 +7,7 @@ yarn build                          # esbuild: dist/main.js, dist/preload.js, th
 yarn workspace @pikvm/web build     # apps/web/dist, served at /app/
 yarn test                           # root tests (node:test); apps/web: yarn workspace @pikvm/web test
 yarn start                          # electron dist
-make agent-runtime                  # agent/runtime: standalone CPython + the agent (per platform, ~800MB, gitignored)
+make image                          # the web host + agent image: podman build -f deploy/Dockerfile . (IMAGE_TOOL=docker)
 make package                        # build + installers for this platform -> builds/packages/<platform>-<arch>/
 ```
 

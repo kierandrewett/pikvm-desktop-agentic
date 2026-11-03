@@ -38,7 +38,7 @@ services:
         security_opt: ["label=disable"]
         ports:
             # The browser run reads back what the agent sent (the credentials, the tool list).
-            - "127.0.0.1:19000:9000"
+            - "127.0.0.1:19090:9000"
         networks: [kvm-internal]
 
     kvm:
