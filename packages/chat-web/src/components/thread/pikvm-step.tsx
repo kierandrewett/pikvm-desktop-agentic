@@ -85,7 +85,7 @@ export function PikvmStep({
     name: string;
     args: string;
     output: string | undefined;
-    state: "running" | "done" | "failed";
+    state: "running" | "done" | "failed" | "stopped";
 }) {
     const failed = state === "failed";
     const code = failed ? pikvmErrorCode(output) : undefined;
