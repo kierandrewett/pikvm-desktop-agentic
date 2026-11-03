@@ -24,7 +24,6 @@ import { TargetStore } from "../src/target-store";
 interface Running {
     origin: string;
     settings: SettingsStore;
-    layouts: string[];
     /** Every target the control core was told to use. */
     targets: { origin: string; username: string; password: string }[];
     dir: string;
@@ -35,14 +34,12 @@ async function start(options: { editable?: boolean } = {}): Promise<Running> {
     const dir = mkdtempSync(join(tmpdir(), "pikvm-api-test-"));
     const settings = new SettingsStore(join(dir, "settings.json"));
     settings.patch({ accessToken: "a-secret-that-must-never-be-readable", jiggler: false });
-    const layouts: string[] = [];
     const targets: Running["targets"] = [];
     const store = new TargetStore(dir);
     const control = {
         setTarget: (t: Running["targets"][number]) => targets.push(t),
         proxyTarget: async () => ({ origin: new URL("https://kvm.example.test:8443"), headers: {}, rejectUnauthorized: false }),
         getHidState: () => undefined,
-        setLayout: (layout: string) => layouts.push(layout),
         lastInputAt: () => 0,
         noteObservedMouse: () => {},
     } as unknown as PiKvmControl;
@@ -52,7 +49,6 @@ async function start(options: { editable?: boolean } = {}): Promise<Running> {
             settings,
             images: noImages,
             createChat: stubChat(),
-            daemonToken: "unused",
             ...(options.editable
                 ? {
                       target: {
@@ -72,7 +68,6 @@ async function start(options: { editable?: boolean } = {}): Promise<Running> {
     return {
         origin: `http://127.0.0.1:${port}`,
         settings,
-        layouts,
         targets,
         dir,
         close: () =>
@@ -123,7 +118,6 @@ test("settings: only the editable fields are readable and writable", async () =>
         assert.deepEqual(await patched.json(), { keyboardLayout: "uk", jiggler: true });
         // It reached the store, and the control core that actually types.
         assert.equal(s.settings.get().keyboardLayout, "uk");
-        assert.deepEqual(s.layouts, ["uk"]);
 
         // A partial patch leaves the rest alone.
         const jiggler = await fetch(`${s.origin}/app/api/v1/settings`, {

@@ -123,9 +123,6 @@ function apiLayer(deps: ApiDeps) {
                         ...(payload.keyboardLayout !== undefined ? { keyboardLayout: payload.keyboardLayout } : {}),
                         ...(payload.jiggler !== undefined ? { jiggler: payload.jiggler } : {}),
                     });
-                    // The control core types with the layout it was told; the
-                    // stored value alone would not take effect until a restart.
-                    if (payload.keyboardLayout) deps.control.setLayout(payload.keyboardLayout, { source: "user" });
                     return publicSettings(deps);
                 }),
             ),

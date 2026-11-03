@@ -24,7 +24,6 @@ import { createRouter, type RouteTargets } from "../src/server/routes";
 import { createWebAssets } from "../src/server/static";
 
 const TOKEN = "correct horse battery staple";
-const WORKSPACE = { "x-pikvm-workspace": "1" };
 
 /** A handler that answers `<name> <METHOD> <url>`. */
 function marker(name: string) {
@@ -36,7 +35,7 @@ function marker(name: string) {
     };
 }
 
-function targets(over: { token?: string; harness?: boolean; appDir?: string; refuseLoopback?: boolean } = {}): RouteTargets {
+function targets(over: { token?: string; appDir?: string; refuseLoopback?: boolean } = {}): RouteTargets {
     const kvmdSockets = new WebSocketServer({ noServer: true });
     const chatSockets = new WebSocketServer({ noServer: true });
     return {
@@ -65,20 +64,10 @@ function targets(over: { token?: string; harness?: boolean; appDir?: string; ref
                 kvmdSockets.handleUpgrade(req, socket, head, (ws) => ws.send(`kvmd ${req.url}`));
             },
         },
-        daemon: marker("daemon"),
-        harness: over.harness === false ? null : marker("harness"),
         api: {
             async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
                 res.writeHead(200, { "content-type": "text/plain", "x-target": "api" });
                 res.end(`api ${req.method} ${req.url}`);
-            },
-        },
-        workspace: {
-            handles: (path: string) => path === "/app/workspace" || path.startsWith("/app/workspace/"),
-            serve(path: string, res: ServerResponse): boolean {
-                res.writeHead(200, { "content-type": "text/plain", "x-target": "workspace" });
-                res.end(`workspace ${path}`);
-                return true;
             },
         },
         // The real console bundle, so a page and its scripts are really served.
@@ -275,58 +264,12 @@ test("/app/api is ours and only takes JSON writes", async () => {
     }
 });
 
-test("the daemon and harness routes demand the workspace header, loopback or not", async () => {
-    const s = await run(targets());
-    try {
-        for (const path of ["/app/daemon/sessions", "/app/daemon", "/app/harness/api/runs"]) {
-            const bare = await call(s.origin, path, { method: "POST" });
-            assert.equal(bare.status, 403, path);
-            assert.deepEqual(JSON.parse(bare.body), { error: "Missing workspace header" });
-        }
-        const wrong = await call(s.origin, "/app/daemon/sessions", { headers: { "x-pikvm-workspace": "0" } });
-        assert.equal(wrong.status, 403);
-
-        const daemon = await call(s.origin, "/app/daemon/sessions?limit=1", { headers: WORKSPACE });
-        assert.equal(daemon.target, "daemon");
-        const harness = await call(s.origin, "/app/harness/api/runs", { method: "POST", headers: WORKSPACE });
-        assert.equal(harness.target, "harness");
-        // A lookalike prefix is not the proxy.
-        assert.equal((await call(s.origin, "/app/daemonx")).status, 404);
-    } finally {
-        await s.close();
-    }
-});
-
-test("a harness that was not configured has no route, not an open one", async () => {
-    const s = await run(targets({ harness: false }));
-    try {
-        // Not even the header opens it: there is nothing behind it.
-        const hit = await call(s.origin, "/app/harness/api/runs", { headers: WORKSPACE });
-        assert.equal(hit.status, 503);
-        assert.match(hit.body, /harness proxy not configured/);
-    } finally {
-        await s.close();
-    }
-});
-
-test("the workspace bundle is mounted at /app/workspace", async () => {
-    const s = await run(targets());
-    try {
-        assert.equal((await call(s.origin, "/app/workspace/")).body, "workspace /app/workspace/");
-        assert.equal((await call(s.origin, "/app/workspace/app.js")).target, "workspace");
-        // GET only: the bundle is static.
-        assert.equal((await call(s.origin, "/app/workspace/", { method: "POST" })).status, 404);
-    } finally {
-        await s.close();
-    }
-});
-
 test("with a token set, a remote client is stopped everywhere but the public files", async () => {
     const s = await run(targets({ token: TOKEN }), true);
     try {
         // Scripts and the API get a refusal; a browser asking for a page gets the sign-in page.
-        for (const path of ["/api/info", "/app/console.js", "/app/api/v1/state", "/app/daemon/x", "/app/harness/x"]) {
-            const refused = await call(s.origin, path, { headers: { accept: "application/json", ...WORKSPACE } });
+        for (const path of ["/api/info", "/app/console.js", "/app/api/v1/state"]) {
+            const refused = await call(s.origin, path, { headers: { accept: "application/json" } });
             assert.equal(refused.status, 401, path);
             assert.deepEqual(JSON.parse(refused.body), { error: "Unauthorized" });
         }
@@ -391,11 +334,11 @@ test("signing in sets a session that passes the gate", async () => {
     }
 });
 
-test("loopback skips the gate, which is why the capability routes need their header", async () => {
+test("loopback skips the gate", async () => {
     const s = await run(targets({ token: TOKEN }), false);
     try {
         assert.equal((await call(s.origin, "/api/info")).target, "kvmd");
-        assert.equal((await call(s.origin, "/app/daemon/x")).status, 403);
+        assert.equal((await call(s.origin, "/app/api/v1/state")).target, "api");
     } finally {
         await s.close();
     }

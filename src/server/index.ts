@@ -10,8 +10,8 @@
  *   api/          the HttpApi implementation for /app/api/v1/*
  *   agent/        the Desk the agent drives the PiKVM through, who is at the target, what the agent is doing
  *   chat/         the chat server in this process and the PiKVM MCP server on it
- *   proxy/        kvmd, daemon and harness passthroughs
- *   static.ts     the console bundle; workspace.ts the agent workspace bundle
+ *   proxy/        the kvmd passthrough
+ *   static.ts     the app and legacy console bundles
  */
 
 import { readFileSync } from "node:fs";
@@ -31,11 +31,8 @@ import { createApi } from "./api";
 import type { TargetEditor } from "./api";
 import { startChat, type ChatHost, type ChatHostOptions } from "./chat";
 import { createRouter } from "./routes";
-import { createDaemonProxy } from "./proxy/daemon";
-import { createCursorRelay, createHarnessProxy, HARNESS_PREFIX } from "./proxy/harness";
 import { createPiKvmProxy } from "./proxy/kvmd";
 import { appAssets, webAssets } from "./static";
-import { workspaceAssets } from "./workspace";
 
 export interface ServerDeps {
     /** PiKVM control core — the proxy reads its target (origin + auth) from here, and
@@ -54,29 +51,6 @@ export interface ServerDeps {
     refuseLoopback?: boolean;
     /** Lets Settings change the PiKVM. Only the desktop app passes it. */
     target?: TargetEditor;
-    /** Base URL of the pikvm-agent daemon, reverse-proxied at /app/daemon/* so the
-     *  same-origin console can reach its HTTP API without CORS. */
-    daemonOrigin?: string;
-    /** Desktop-owned daemon action capability injected by the reverse proxy. */
-    daemonToken: string;
-    /** Base URL of the first-party harness, reverse-proxied at /app/harness/*.
-     *
-     *  This is what lets the conversation be served from OUR origin instead of
-     *  being loaded from the harness into a native view: its API comes back
-     *  same-origin, so /api/* on this server can stay the kvmd proxy the console
-     *  needs for HID and streaming. Omit it and no harness route is mounted. */
-    harnessOrigin?: string;
-    /** Desktop-owned OPERATOR capability. Stronger than the daemon token — it
-     *  authorises computer input and approvals — and, like it, injected by the
-     *  proxy so it never exists in renderer JavaScript. */
-    harnessToken?: string;
-    /** Prefix stripped before forwarding to harnessOrigin. Default "/app/harness",
-     *  for a harness reached directly (the desktop app's own, or the web host's
-     *  deploy/agent sidecar). The web host reaching the DESKTOP's console server
-     *  instead passes "": that server mounts the harness at the same path and
-     *  injects the operator capability itself, so the path stays whole and the
-     *  token is the desktop's access token, not the harness's. */
-    harnessPrefix?: string;
 }
 
 /** The app's version, from the package.json the build copies beside the bundle. */
@@ -148,31 +122,6 @@ export function startControlServer(
     });
 
 
-    /* The same reverse proxy pointed at the harness, so the conversation can be
-     * served from this origin and still reach its own API.
-     *
-     * Only mounted when both an origin and a token are supplied: half a
-     * configuration would put an UNAUTHENTICATED route to the operator API on
-     * this server, which is worse than no route at all. */
-    const harness =
-        deps.harnessOrigin && deps.harnessToken
-            ? createHarnessProxy({
-                  origin: deps.harnessOrigin,
-                  token: deps.harnessToken,
-                  prefix: deps.harnessPrefix ?? HARNESS_PREFIX,
-              })
-            : null;
-
-    /* The desktop has the daemon itself. A host with only an agent relays the one daemon route a
-     * page uses (the cursor report) to it; see createCursorRelay. */
-    const daemon =
-        !deps.daemonOrigin && harness
-            ? createCursorRelay(harness)
-            : createDaemonProxy({
-                  origin: deps.daemonOrigin ?? "http://127.0.0.1:47615",
-                  bearerToken: deps.daemonToken,
-              });
-
     chat = startChat({
         dataDir: settings.dir(),
         desk,
@@ -197,13 +146,10 @@ export function startControlServer(
     const router = createRouter({
         accessToken: () => settings.get().accessToken,
         kvmd,
-        daemon,
-        harness,
         chat,
         agent,
         ...(deps.refuseLoopback ? { refuseLoopback: true } : {}),
         api,
-        workspace: workspaceAssets,
         assets: webAssets,
         app: appAssets,
     });

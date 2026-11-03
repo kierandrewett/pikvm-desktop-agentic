@@ -3,8 +3,7 @@
  *
  * `pikvm.json` (in the app's user data folder) holds what is not secret: the origin and the user
  * name. The password lives in `pikvm-credentials.json` beside it, mode 0600, written through a
- * temporary file and a rename (the same pattern as the harness provider keys), in a folder that is
- * 0700 when this created it. Nothing here ever returns, logs or throws the password.
+ * temporary file and a rename, in a folder that is 0700 when this created it. Nothing here ever returns, logs or throws the password.
  *
  * Installs from before this existed keep the user name and password inside the origin
  * (`https://user:pass@pikvm/`). They are still read, so nothing breaks, and reading never rewrites

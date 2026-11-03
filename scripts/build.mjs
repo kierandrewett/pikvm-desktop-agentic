@@ -10,13 +10,12 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
 // 1. Node bundle: the Electron-loaded entry points. Their imports (control core,
-//    agent harness, servers, pi-ai, MCP SDK) are bundled in.
+//    servers, chat server, MCP SDK) are bundled in.
 await build({
     // Named, so each lands at dist/<name>.js whatever folder it lives in: package.json "main" is
     // main.js and the window loads preload.js from beside it.
     entryPoints: {
         main: resolve(root, "src/main.ts"),
-        "mcp-launcher": resolve(root, "src/mcp-launcher.ts"),
         // The headless web host (container deploys). Same server and proxy as
         // the desktop, no Electron import anywhere in its graph.
         "web-server": resolve(root, "src/web-server.ts"),

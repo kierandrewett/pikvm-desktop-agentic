@@ -15,22 +15,6 @@
         <link rel="apple-touch-icon" href="/app/apple-touch-icon.png" />
         <link rel="icon" href="/app/icon-192.png" />
         <link rel="stylesheet" href="/app/console.css" />
-        <!-- The conversation's own component library, so the two halves of this
-             window are one interface rather than two that share a frame.
-
-             Loaded AFTER console.css. Its RULES cannot disturb this file:
-             Tailwind v4 emits them inside @layer, and unlayered author CSS
-             outranks every layer. Its TOKENS are a different matter — the :root
-             palette block is emitted unlayered, so it meets console.css's :root
-             at equal specificity and wins on document order. That is why the
-             theme is applied as the `dark` class this stylesheet already keys
-             its palette off, and why console.css pins color-scheme through
-             html[data-theme] rather than :root. Do not "fix" the theme by
-             reordering these two links: .dark carries forty tokens and
-             console.css names nine, so console.css winning gives a half-dark
-             window. -->
-        <link rel="stylesheet" href="/app/workspace/styles.css" />
-        <script type="module" src="/app/workspace/shared.js"></script>
         <title>PiKVM Console</title>
     </head>
     <body>
@@ -54,12 +38,6 @@
                 <!-- Preview toggle, drawn by the conversation's icon button.
                      console.js owns the collapse; this is told the state. -->
                 <span class="tb-shared" id="tb-actions-panel"></span>
-                <!-- Agent daemon readiness (daemon + OmniParser + PiKVM + OCR).
-                     Polls the daemon's /status via the proxy; tooltip lists each. -->
-                <div class="backend-status" id="backend-status" data-state="unknown" role="status" aria-live="polite" title="Agent daemon">
-                    <span class="bs-dot" aria-hidden="true"></span>
-                    <span class="bs-text" id="bs-text">Agent…</span>
-                </div>
             </div>
             <div class="tb-title" id="tb-title">PiKVM</div>
             <div class="tb-right">

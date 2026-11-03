@@ -89,7 +89,7 @@ test("a port handed out once is not handed out again", () => {
 
 
 test("the control port settles before any URL is built from it", () => {
-    /* The walk lived inside startProxyAndHarness(), which createWindow() awaits
+    /* The walk lived inside the server start, which createWindow() awaits
      * only AFTER it has already built the local origin from CONTROL_PORT. So when
      * 25650 was taken and the walk moved to 25652, the window kept loading
      * http://127.0.0.1:25650/app/ and got ERR_CONNECTION_REFUSED
@@ -101,7 +101,7 @@ test("the control port settles before any URL is built from it", () => {
     assert.ok(originAt !== -1, "LOCAL_ORIGIN is gone; this test needs rewriting");
     assert.ok(settleAt < originAt, "LOCAL_ORIGIN is built before the port settles");
 
-    // Idempotent, because both createWindow and startProxyAndHarness ask.
+    // Idempotent, because both createWindow and startServer ask.
     assert.match(main, /if \(controlPortSettled\) return CONTROL_PORT;/);
     // And the walk exists in exactly one place.
     const walks = main.match(/await firstFreePort\(wantedPort/g) ?? [];
@@ -109,7 +109,7 @@ test("the control port settles before any URL is built from it", () => {
 });
 
 test("the control server starts whatever else is installed: nothing of the old agent stands in front of it", () => {
-    assert.doesNotMatch(main, /agent-runtime|harness-manager|service-manager|HarnessManager|ManagedService/);
+    assert.doesNotMatch(main, /agent-runtime|service-manager|ManagedService/);
     const start = main.slice(main.indexOf("async function startServer("), main.indexOf('const configPath = resolve(app.getPath("userData")'));
     // Called straight away, with no early return before it, and given the image ops and the packaged binary's place.
     assert.ok(start.indexOf("startControlServer(") > 0 && !/return\b[^;]*;[\s\S]*startControlServer\(/.test(start.slice(0, start.indexOf("startControlServer("))));

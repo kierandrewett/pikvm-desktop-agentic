@@ -102,7 +102,7 @@
  * highlighted afterwards.
  *
  * Scoped to this document deliberately. The conversation panel is a separate
- * document served by the harness, and its transcript MUST stay selectable —
+ * document served by the chat server, and its transcript MUST stay selectable —
  * being unable to copy a reply would be a worse bug than the one this fixes.
  *
  * The opt-back-in list is by capability rather than by class, so a new input
@@ -1113,59 +1113,6 @@ html.modal-open .screen {
     top: var(--keys-h);
     height: calc(100% - var(--keys-h));
 }
-
-/* Agent-backend readiness in the titlebar (desktop only — fed by the daemon
- * /status proxy). A readout, not a control, so it sits on the same muted colour
- * and the same cluster gap as the buttons but stays visibly lighter than one: no
- * fill (the bar is already --card, so filling it with --card only ever drew an
- * empty ring), no hover, and a shorter pill. Ready is the normal state, so it
- * collapses to a bare dot occupying exactly one button's width and the cluster
- * keeps its rhythm; anything worse expands into a labelled outline that
- * interrupts on purpose. Colour = overall: muted ready, amber starting, red down. */
-.backend-status {
-    display: none;
-}
-html.desktop-console .backend-status {
-    -webkit-app-region: no-drag;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 22px;
-    padding: 0 9px 0 7px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    font-size: 11px;
-    color: var(--muted-foreground);
-    cursor: default;
-}
-html.desktop-console .backend-status[data-state="ready"] {
-    width: 30px;
-    padding: 0;
-    gap: 0;
-    border-color: transparent;
-}
-.backend-status[data-state="ready"] .bs-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-}
-.backend-status .bs-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--muted-foreground);
-    flex: none;
-}
-.backend-status[data-state="ready"] .bs-dot { background: var(--muted-foreground); box-shadow: none; }
-.backend-status[data-state="starting"] .bs-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
-.backend-status[data-state="down"] .bs-dot { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
 
 /* ===========================================================================
  * NATIVE DESKTOP CONSOLE — EVERYTHING below is gated behind `html.desktop-console`
@@ -2371,7 +2318,7 @@ html.desktop-console.agent-right .app.computer-collapsed .screen {
    which survives only as a geometry placeholder — its rect is what gets reported
    to the main process to position that view. Its about:blank document paints
    WHITE, which flashes over the dark app on startup and is the whole panel if
-   the harness fails to load.
+   the chat server fails to load.
 
    It used to be hidden outright, because it held nothing: the conversation was
    a native view floated over it and this was only a box to measure. Now the

@@ -16,8 +16,8 @@
      * Pure helpers (unit-tested in scripts/smoke-proxy.ts)
      * ----------------------------------------------------------------- */
 
-    // US-QWERTY physical layout mirrored from src/human-typing.ts so a key typed
-    // here actuates the same physical key the agent's typing engine would.
+    // US-QWERTY physical layout, so a key typed here actuates the same physical key
+    // the app's keyboard engine (packages/kvm-engine) would.
     var ROWS = ["`1234567890-=", "qwertyuiop[]\\", "asdfghjkl;'", "zxcvbnm,./"];
     var SHIFT_ROWS = ["~!@#$%^&*()_+", "QWERTYUIOP{}|", 'ASDFGHJKL:"', "ZXCVBNM<>?"];
     var CODE_ROWS = [
@@ -36,7 +36,7 @@
         }
     }
     US_MAP[" "] = { code: "Space", shift: false };
-    // UK ISO overrides (mirrors UK_OVERRIDES in human-typing.ts).
+    // UK ISO overrides.
     var UK_MAP = {
         '"': { code: "Digit2", shift: true },
         "@": { code: "Quote", shift: true },
@@ -6817,7 +6817,7 @@
              * happens to be toggled. With the mic off there is nothing to
              * restart and the id simply waits for the next capture.
              *
-             * Guarded because the harness swaps webrtc.js for a stub, and a
+             * Guarded because a test fixture swaps webrtc.js for a stub, and a
              * fixture without this method must not take the console down. */
             if (stream && stream.setMicDevice) stream.setMicDevice(choice.id);
             toast(id ? "Microphone: " + name : "The microphone follows the system default");
@@ -7479,27 +7479,6 @@
     // the window is in the background. Updated by focus/blur listeners (desktop only);
     // stays true on web/mobile where there is no real window-focus concept.
     var windowFocused = true;
-    // Tell the agent daemon where the USER just moved the cursor (norm ±32767), so its
-    // tracked position follows manual live-view moves — kvmd doesn't broadcast position, so
-    // this is the only way it can observe them. Debounced + best-effort; desktop-only (where
-    // the daemon proxy exists) and never while the agent itself is driving.
-    var reportCursor = (function () {
-        var pending = null, timer = null;
-        return function (nx, ny) {
-            if (!window.desktopConsole) return;
-            pending = { x: Math.round(nx), y: Math.round(ny) };
-            if (timer) return;
-            timer = setTimeout(function () {
-                timer = null;
-                var p = pending; pending = null;
-                if (!p) return;
-                fetch("/app/daemon/cursor", {
-                    method: "POST", headers: { "content-type": "application/json", "x-pikvm-workspace": "1" },
-                    body: JSON.stringify(p), keepalive: true,
-                }).catch(function () {});
-            }, 180);
-        };
-    })();
     // Trackpad travel owed to a RELATIVE-mode Pi, in target pixels, carried as
     // fractions so slow drags still add up to whole steps.
     var relOweX = 0;
@@ -7540,7 +7519,6 @@
         relOweX = 0;
         relOweY = 0;
         hid.move(Math.round(vcur.x), Math.round(vcur.y));
-        reportCursor(vcur.x, vcur.y);
     }
     function queueMove() {
         moveDirty = true;
@@ -9695,7 +9673,7 @@
      *
      * applyTheme posts to the frame whenever the theme changes, which is enough
      * once the frame is up — but a frame that mounts afterwards has missed it,
-     * and both of ours do: the conversation loads when the harness answers, and
+     * and both of ours do: the conversation loads after the page, and
      * the terminal loads with the page. They ask on mount.
      *
      * The desktop block already answers subscribe with placement AND theme, but
@@ -9736,91 +9714,6 @@
          * conversation view beside us which theme to draw. */
         applyTheme(storedTheme() || (osThemeMq.matches ? "dark" : "light"), false);
     } catch (e) {}
-    if (window.desktopConsole) {
-        /* DESKTOP: there is no terminal. The agent is the Chat tab of the app
-         * (@pikvm/chat-ui), so this old console frames nothing beside the screen. */
-        // Agent-backend readiness pill: poll the daemon's /status (via the proxy) and
-        // colour the titlebar dot. Tooltip enumerates each dependency the daemon needs.
-        var bsEl = document.getElementById("backend-status");
-        var bsText = document.getElementById("bs-text");
-        if (bsEl) {
-            /* Only write when something actually changed.
-             *
-             * This pill is role="status" aria-live="polite" and it is VISIBLE on
-             * the desktop, so every write to its text is an announcement.
-             * pollBackend runs every five seconds and called this unconditionally
-             * with whatever it found, so reassigning the same string re-created
-             * the text node and announced it again. Counted with a
-             * MutationObserver over 22 seconds against a steady Pi:
-             *
-             *     backend-status  5 mutations   text "Agent ready" throughout
-             *     overlay         0
-             *     toast           0
-             *
-             * A screen reader therefore said "Agent ready" every five seconds
-             * for as long as the window was open, and the two live regions that
-             * behave were the ones that only write on a real change.
-             *
-             * dataset.state is still set every time: it drives the CSS and an
-             * attribute write does not announce, so there is no reason to let it
-             * drift out of step with the poll. */
-            var lastBackend = null;
-            var setBackend = function (state, label, tip) {
-                bsEl.dataset.state = state;
-                var key = state + "\n" + label + "\n" + tip;
-                if (key === lastBackend) return;
-                lastBackend = key;
-                if (bsText) bsText.textContent = label;
-                bsEl.title = tip;
-            };
-            var pollBackend = function () {
-                fetch("/app/daemon/status", { cache: "no-store", headers: { "x-pikvm-workspace": "1" } })
-                    .then(function (r) { if (!r.ok) throw r.status; return r.json(); })
-                    .then(function (s) {
-                        var d = s.dependencies || {};
-                        var parts = ["Daemon: ready"];
-                        parts.push("PiKVM: " + (d.pikvm && d.pikvm.reachable ? "reachable" : "unreachable"));
-                        /* "loading…" was the client's own guess. The daemon
-                         * reports reachable true or false and never says it is
-                         * on its way, so an unreachable vision service was
-                         * described as making progress it may not be making —
-                         * this one has read "loading…" for hours. Report the
-                         * fact, and say what it costs, since the daemon is
-                         * explicit that it only gates autonomous perception. */
-                        if (d.omniparser && d.omniparser.enabled)
-                            parts.push(
-                                "Vision: " +
-                                    (d.omniparser.reachable
-                                        ? "ready"
-                                        : "unavailable (autonomous mode only)"),
-                            );
-                        if (d.operator)
-                            parts.push("LLM: " + (d.operator.configured ? d.operator.provider : "no API key"));
-                        if (d.ocr)
-                            parts.push("OCR: " + d.ocr.provider + (d.ocr.available ? "" : " (missing)"));
-                        var ready = !!s.ok;
-                        /* The pill names its subject.
-                         *
-                         * It used to read a bare "Ready" / "Starting" /
-                         * "Unavailable", and it sits in the titlebar a few
-                         * hundred pixels from a stream overlay that says
-                         * "Screen unavailable" about something else entirely.
-                         * Two red states both saying "unavailable" about
-                         * different subsystems, with only a tooltip to tell
-                         * them apart, is a question the window should not be
-                         * asking anyone. */
-                        setBackend(ready ? "ready" : "starting",
-                                   ready ? "Agent ready" : "Agent starting",
-                                   "Agent daemon — " + parts.join("  ·  "));
-                    })
-                    .catch(function () {
-                        setBackend("down", "Agent unavailable", "Agent daemon unreachable (starting, or not running)");
-                    });
-            };
-            pollBackend();
-            setInterval(pollBackend, 5000);
-        }
-    }
     var webTerminal = !window.desktopConsole;
 
     /* ---- pick up the server's keyboard layout (so symbols map right) ----

@@ -10,12 +10,9 @@
  *                              and for the desktop shell)
  *   /app/login, /logout, /auth sign-in (public)
  *   /app/{manifest,sw.js,icons} PWA files (public, see auth.ts)
- *   /app/daemon/*              agent daemon proxy       (needs the workspace header)
- *   /app/harness/*             harness proxy            (needs the workspace header)
  *   /app/chat/api/*            the chat server's REST routes (its own request header on mutations)
  *   /app/chat/ws (upgrade)     its socket: the gate, then a same-origin check
  *   /app/api/v1/agent/*        what the agent is doing (SSE), Stop, Hand back
- *   /app/workspace/*           agent workspace bundle
  *   /app/api/v1/*              our HttpApi
  *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
  *                              /app/ until the app is built); /app/legacy/ the console
@@ -30,7 +27,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import {
     gate,
-    hasWorkspaceHeader,
     isLoopback,
     loginPage,
     PUBLIC_PATHS,
@@ -56,7 +52,6 @@ export interface RouteTargets {
     kvmd: HttpForwarder & {
         handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void | Promise<void>;
     };
-    daemon: HttpForwarder;
     /** The chat server in this process, or what answers while it is not up. */
     chat: {
         handleRest(req: IncomingMessage, res: ServerResponse): void | Promise<void>;
@@ -68,13 +63,7 @@ export interface RouteTargets {
     /** Refuse a peer on loopback (except the public paths): the host sits behind an authenticating proxy that
      *  connects over the network, so a loopback peer is another process in the same container, such as the agent. */
     refuseLoopback?: boolean;
-    /** Null when the harness is not configured: no route to it exists. */
-    harness: HttpForwarder | null;
     api: { handle(req: IncomingMessage, res: ServerResponse): Promise<void> };
-    workspace: {
-        handles(path: string): boolean;
-        serve(path: string, res: ServerResponse): boolean;
-    };
     assets: { serve(path: string, res: ServerResponse): boolean };
     /** The built web app (apps/web/dist); `has` is false until it is built. */
     app: { has(path: string): boolean; serve(path: string, res: ServerResponse): boolean };
@@ -169,36 +158,6 @@ export function createRoutes(t: RouteTargets): Route[] {
             },
         },
 
-        /* The two capability proxies. Each attaches a credential the page never
-         * holds, and the gate exempts loopback, so each also demands a header no
-         * cross-origin page can set without a preflight (and no preflight is ever
-         * answered). Without it a web page could POST to 127.0.0.1 and have the
-         * credential attached for it: a run started, an approval given, the
-         * daemon's panic-stop or session routes driven. */
-        {
-            name: "agent daemon proxy",
-            match: ({ path }) => under(path, "/app/daemon"),
-            run: ({ req, res }) => {
-                if (!hasWorkspaceHeader(req)) return json(res, 403, { error: "Missing workspace header" });
-                void t.daemon.handleHttp(req, res);
-            },
-        },
-        {
-            name: "harness proxy",
-            match: ({ path }) => under(path, "/app/harness"),
-            run: ({ req, res }) => {
-                // Mounted only with both an origin and a token: half a configuration
-                // would expose an UNAUTHENTICATED route to the operator API.
-                if (!t.harness) {
-                    res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
-                    res.end("harness proxy not configured");
-                    return;
-                }
-                if (!hasWorkspaceHeader(req)) return json(res, 403, { error: "Missing workspace header" });
-                void t.harness.handleHttp(req, res);
-            },
-        },
-
         {
             name: "chat REST",
             match: ({ path }) => under(path, CHAT_API),
@@ -214,16 +173,6 @@ export function createRoutes(t: RouteTargets): Route[] {
                     return json(res, 415, { error: "Expected application/json" });
                 }
                 t.agent.handle(req, res, path);
-            },
-        },
-
-        {
-            name: "agent workspace bundle",
-            match: ({ method, path }) => method === "GET" && t.workspace.handles(path),
-            run: ({ path, res }) => {
-                if (t.workspace.serve(path, res)) return;
-                res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-                res.end("workspace build not found");
             },
         },
 

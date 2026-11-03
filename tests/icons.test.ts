@@ -4,14 +4,11 @@ import { join, relative, resolve } from "node:path";
 import test from "node:test";
 
 /*
- * Phosphor is the only icon set. lucide-react must not come back, and no component may draw its own
- * inline <svg> (the icons come from @pikvm/icons). packages/chat-ui still imports lucide-react until
- * it is deleted with the old sidecar, so until then the scan covers the code that has been
- * migrated, not the whole tree. Once chat-ui is gone, set LEGACY_PACKAGES to [] and scan everything.
+ * Phosphor is the only icon set. lucide-react must not appear anywhere in the repo, and no component may draw its
+ * own inline <svg> (the icons come from @pikvm/icons).
  */
 
 const root = process.cwd();
-const LEGACY_PACKAGES: readonly string[] = ["packages/chat-ui", "agent"];
 const SCANNED_DIRS = ["apps", "src", "packages", "tools"] as const;
 /** Inline brand logos are the one allowed use of <svg>; list the files (relative to the repo root) here. */
 const SVG_ALLOW_LIST: readonly string[] = [
@@ -36,40 +33,34 @@ function* walk(dir: string): Generator<string> {
 }
 
 const rel = (path: string) => relative(root, path).split("\\").join("/");
-const isLegacy = (path: string) => LEGACY_PACKAGES.some((legacy) => rel(path).startsWith(`${legacy}/`));
 const isSource = (path: string) => /\.(ts|tsx)$/.test(path) && !rel(path).endsWith("tests/icons.test.ts");
 
-test("lucide-react is not imported by any migrated TypeScript source", () => {
+test("lucide-react is not imported by any TypeScript source", () => {
     const offenders: string[] = [];
     for (const top of SCANNED_DIRS) {
         for (const file of walk(resolve(root, top))) {
-            if (!isSource(file) || isLegacy(file)) continue;
+            if (!isSource(file)) continue;
             if (readFileSync(file, "utf8").includes("lucide-react")) offenders.push(rel(file));
         }
     }
     assert.deepEqual(offenders, []);
 });
 
-test("lucide-react is in no migrated package.json", () => {
+test("lucide-react is in no package.json", () => {
     const offenders: string[] = [];
     const manifests = [
         resolve(root, "package.json"),
         ...SCANNED_DIRS.flatMap((top) => [...walk(resolve(root, top))].filter((f) => f.endsWith("/package.json"))),
-    ].filter((file) => !isLegacy(file));
+    ];
     for (const file of manifests) {
         if (readFileSync(file, "utf8").includes("lucide-react")) offenders.push(rel(file));
     }
     assert.deepEqual(offenders, []);
 });
 
-test("yarn.lock records no lucide-react dependency for a migrated workspace", () => {
+test("yarn.lock records no lucide-react", () => {
     const lock = readFileSync(resolve(root, "yarn.lock"), "utf8");
-    const blocks = lock.split(/\n\n+/);
-    const offenders = blocks
-        .filter((block) => /^"?@?[^\n]*@workspace:/.test(block) && block.includes("lucide-react"))
-        .map((block) => block.split("\n", 1)[0] ?? "")
-        .filter((header) => !LEGACY_PACKAGES.some((legacy) => header.includes(`@workspace:${legacy}`)));
-    assert.deepEqual(offenders, []);
+    assert.ok(!lock.includes("lucide-react"));
 });
 
 test("no inline <svg> in the app source outside the brand-logo allow-list", () => {

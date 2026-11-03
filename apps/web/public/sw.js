@@ -71,7 +71,7 @@ function offlinePage() {
 }
 
 // Live or per-session paths: never touched, not even as a fallback.
-const LIVE = /^\/app\/(api|daemon|harness|terminal|workspace|legacy)(\/|$)/;
+const LIVE = /^\/app\/(api|terminal|legacy)(\/|$)/;
 
 self.addEventListener("fetch", (e) => {
     const req = e.request;

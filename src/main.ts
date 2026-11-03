@@ -8,7 +8,6 @@ import { electronImageOps } from "./image-ops-electron";
 import { startControlServer, type ControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TargetStore } from "./target-store";
-import { WORKSPACE_PREFIX } from "./server/workspace";
 import { createAppWindow, focusAppWindow } from "./desktop/window";
 
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -47,16 +46,8 @@ let CONTROL_PORT = Number(process.env.PIKVM_CONTROL_PORT) || 25650;
 /* Ports this process has already picked but may not have bound yet.
  *
  * A probe closes its socket before returning, so two probes run back to back
- * both see the same port as free. The control server, the daemon and the
- * harness all walk from their own defaults, and the first run of this handed
- * the daemon and the harness the SAME port:
- *
- *     [daemon]  127.0.0.1:47615 is in use, using http://127.0.0.1:47617
- *     [harness] 127.0.0.1:47616 is in use, using http://127.0.0.1:47617
- *
- * which is a worse failure than the orphaned port it was written to route
- * around. Remembering what has been handed out is what makes the walks
- * independent of each other as well as of whatever else is on the box. */
+ * both see the same port as free. Remembering what has been handed out keeps
+ * two walks from settling on the same port as well as from whatever else is on the box. */
 const claimedPorts = new Set<number>();
 
 async function firstFreePort(from: number, host: string, tries = 20): Promise<number> {
@@ -86,7 +77,7 @@ async function firstFreePort(from: number, host: string, tries = 20): Promise<nu
 async function anotherDesktopOn(port: number, host: string): Promise<boolean> {
     const target = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
     return new Promise((done) => {
-        const req = httpGet({ host: target, port, path: `${WORKSPACE_PREFIX}/`, timeout: 1500 }, (res) => {
+        const req = httpGet({ host: target, port, path: "/app/", timeout: 1500 }, (res) => {
             if ((res.statusCode ?? 500) >= 400) {
                 res.resume();
                 done(false);
@@ -114,7 +105,7 @@ let controlPortSettled = false;
  * Pick the port the control server will really use, once, before anything
  * builds a URL out of it.
  *
- * This used to live inside startProxyAndHarness(), which is called from
+ * This used to live inside the server start, which is called from
  * createWindow() AFTER createWindow has already built PROXY_ORIGIN from
  * CONTROL_PORT. So when 25650 was taken and the walk moved us to 25652, the
  * window went on loading http://127.0.0.1:25650/app/ and got
@@ -138,12 +129,12 @@ async function settleControlPort(bindHost: string): Promise<number> {
      * The single-instance lock cannot help against a copy that predates it —
      * it shipped in 1.12.4, so a 1.12.3 still running holds no lock, and a
      * new install starts happily alongside it. That happened: two windows,
-     * visually identical, one serving the agent panel and one returning 401
-     * from a harness orphaned hours earlier. The app knew (it had to walk
+     * visually identical, one serving the app and one returning 401
+     * from a server orphaned hours earlier. The app knew (it had to walk
      * the port to start at all) and said nothing, so the only way to tell
      * them apart was to go looking at process start times.
      *
-     * Only when the port answers as one of US. An orphaned daemon or an
+     * Only when the port answers as one of US. An orphaned server or an
      * unrelated program holding it is worth a log line and nothing more. */
     if (await anotherDesktopOn(wantedPort, bindHost)) {
         secondInstanceNotice = { wanted: wantedPort, using: CONTROL_PORT };
@@ -168,12 +159,7 @@ async function startServer(targetStore: TargetStore, settings: SettingsStore) {
                 }
             },
         },
-        electronImageOps,
     );
-
-    // Apply persisted preferences that the proxy/control core honours.
-    const s = settings.get();
-    control.setLayout(s.keyboardLayout, { source: "auto" }); // let the Pi's hid_keymaps refine this saved default
 
     // Bind to the LAN only when the user opts in (so a phone/browser can reach
     // the proxy); default to loopback.
@@ -202,7 +188,6 @@ async function startServer(targetStore: TargetStore, settings: SettingsStore) {
             // A packaged app carries the agent binary in its resources; a dev run finds it by OMP_BIN or PATH.
             ...(app.isPackaged ? { resourcesDir: process.resourcesPath } : {}),
             migrationsDir: resolve(__dirname, "chat-migrations"),
-            daemonToken: "",
         },
         CONTROL_PORT,
         bindHost,
@@ -452,8 +437,7 @@ async function createWindow() {
  *
  * A second launch is almost always someone trying to get to the window they
  * already have, so hand them that instead of a second copy: two copies would
- * mean two control servers, two managed daemons and two harnesses fighting
- * over the same ports and the same runtime files. */
+ * mean two control servers fighting over the same ports and the same runtime files. */
 /* Anything that still gets through arrives as a sentence, not a stack.
  *
  * Electron's default for an uncaught exception in the main process is a modal

@@ -5,9 +5,8 @@
  * What it serves is identical to the desktop's web surface (src/server/): the
  * console at `/app/` and the PiKVM UI proxied underneath it. There is no shell on
  * it, and no terminal anywhere: a shell on the server would turn "can see the KVM"
- * into "can run commands on the box that hosts it". The agent behind the Chat tab is a
- * separate process (the deploy/agent sidecar, or the desktop app), reached through
- * /app/harness with a capability this server holds and the browser never does.
+ * into "can run commands on the box that hosts it". The agent behind the Chat tab is the
+ * chat server inside this process, which runs the omp binary.
  *
  * It has no login of its own. Sign-in belongs to the identity provider in
  * front of it (an OIDC proxy such as oauth2-proxy), and the deployment must
@@ -28,23 +27,12 @@
  *                          value, after that the saved setting wins (default off)
  *   OMP_BIN                the agent program (omp) the Chat tab runs; the image sets it. Chat's data lives in
  *                          PIKVM_DATA_DIR/chat. Without omp conversations cannot be answered and Chat says so.
- *   PIKVM_HARNESS_URL      the agent harness sidecar's origin, e.g.
- *                          http://kvm-agent:47616 (deploy/agent). Set with
- *                          PIKVM_HARNESS_TOKEN, its operator capability (32+
- *                          characters), to serve Chat. Attached server-side;
- *                          browsers never see it. Chat shows as available when
- *                          the harness answers its health route.
- *   PIKVM_DESKTOP_URL      alternatively the desktop app's console server, e.g.
- *                          http://fsociety.example.ts.net:25650, with
- *                          PIKVM_DESKTOP_TOKEN (its access token). Set one of
- *                          the two pairs, never both.
  *   HOST / PORT            bind address (default 0.0.0.0:8080 behind a proxy,
  *                          127.0.0.1:8080 otherwise)
  */
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createSharpImageOps } from "./image-ops-sharp";
-import { resolveHarnessUpstream, type HarnessUpstream } from "./server/proxy/harness";
 import { resolve } from "node:path";
 import { PiKvmControl } from "./pikvm-control";
 import type { ImageOps } from "./image-ops";
@@ -154,20 +142,7 @@ const control = new PiKvmControl(
         username: env("PIKVM_USER") || "admin",
         password,
     },
-    images,
 );
-control.setLayout(settings.get().keyboardLayout, { source: "auto" });
-
-/* The Chat tab's agent: a harness of its own (PIKVM_HARNESS_URL, the deploy/agent
- * sidecar) or the desktop's console server (PIKVM_DESKTOP_URL). One function
- * chooses; the credential is attached server-side and no request can pick where
- * it goes. */
-let agent: HarnessUpstream | null = null;
-try {
-    agent = resolveHarnessUpstream(process.env);
-} catch (err) {
-    fail(err instanceof Error ? err.message : String(err));
-}
 
 const server = startControlServer(
     {
@@ -176,8 +151,6 @@ const server = startControlServer(
         images,
         ...(migrationsDir ? { migrationsDir } : {}),
         ...(proxyAuth ? { refuseLoopback: true } : {}),
-        daemonToken: "",
-        ...(agent ? { harnessOrigin: agent.origin, harnessToken: agent.token, harnessPrefix: agent.prefix } : {}),
     },
     port,
     host,

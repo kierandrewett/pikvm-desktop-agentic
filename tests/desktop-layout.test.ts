@@ -32,12 +32,6 @@ test("desktop keeps chat primary while the target preview is collapsible", () =>
     assert.match(js, /pikvm-chat-workspace-width-v2/);
 });
 
-test("desktop keeps healthy status quiet and accessible", () => {
-    assert.doesNotMatch(js, /Backend ready/);
-    assert.match(html, /role="status" aria-live="polite"/);
-    assert.match(css, /\.backend-status\[data-state="ready"\] \.bs-text/);
-});
-
 test("VNC lab targets use the snapshot screen transport", () => {
     const consolePure = require(resolve(root, "src/views/console.js"));
 
@@ -379,21 +373,6 @@ test("a dialog's actions stay put when its content has to scroll", () => {
     assert.match(css, /\.dlg-actions \{[\s\S]*?position: sticky;[\s\S]*?bottom: calc\(-1 \* var\(--dlg-pad\)\);[\s\S]*?background: var\(--card\);/);
 });
 
-test("the backend pill reports vision as a fact, not as progress", () => {
-    /* The daemon reports omniparser reachable true or false and never says it is
-     * on its way. The console rendered false as "loading…" — its own guess, and
-     * one that read the same after hours of the service simply not running.
-     *
-     * The pill itself still says "Ready" on s.ok, which is right: the daemon's
-     * own needed_for says vision gates autonomous perception only, so the
-     * backend genuinely is usable without it. Only the word describing the
-     * dependency was wrong, so only that changed. */
-    assert.match(js, /"unavailable \(autonomous mode only\)"/);
-    assert.doesNotMatch(js, /"Vision: " \+ \(d\.omniparser\.reachable \? "ready" : "loading…"\)/);
-    // The overall state still follows the daemon's own verdict.
-    assert.match(js, /var ready = !!s\.ok;/);
-});
-
 /**
  * Tabbing along the macro strip cannot leave you on a half-clipped button.
  *
@@ -636,48 +615,6 @@ test("nothing touches the desktop bridge before the web/mobile guard", () => {
 });
 
 /**
- * The agent pill announces changes, not the passage of time.
- *
- * It is role="status" aria-live="polite" and VISIBLE on the desktop, so every
- * write to its text is an announcement. pollBackend runs every five seconds
- * and called setBackend unconditionally with whatever it found, so reassigning
- * the same string re-created the text node and announced it again. Counted
- * with a MutationObserver over 22 seconds against a steady Pi:
- *
- *     backend-status  5 mutations   text "Agent ready" throughout
- *     overlay         0
- *     toast           0
- *
- * A screen reader said "Agent ready" every five seconds for as long as the
- * window stayed open. The two live regions that behave are the ones that only
- * write on a real change, which is what this now does.
- *
- * Re-measured across a real transition:
- *
- *     12s steady         0 announcements
- *     daemon goes down   1  ("Agent unavailable")
- *     11s still down     1  (does not repeat)
- *     daemon returns     2  ("Agent ready")
- *
- * dataset.state stays outside the guard: it drives the CSS, an attribute write
- * does not announce, and there is no reason to let the styling drift out of
- * step with the poll.
- */
-test("the agent status pill only speaks when it has something new to say", () => {
-    const at = js.indexOf("var lastBackend = null;");
-    assert.ok(at > 0, "setBackend has no change guard");
-    const body = js.slice(at, js.indexOf("var pollBackend", at)).replace(/\/\*[\s\S]*?\*\//g, "");
-    // The styling is unconditional; only the announcing writes are guarded.
-    assert.match(body, /bsEl\.dataset\.state = state;\s*\n\s*var key = state \+ "\\n" \+ label \+ "\\n" \+ tip;/);
-    assert.match(body, /if \(key === lastBackend\) return;\s*\n\s*lastBackend = key;/);
-    // And the text write is after the guard, or the guard protects nothing.
-    assert.ok(body.indexOf("if (key === lastBackend) return;") < body.indexOf("bsText.textContent = label"),
-        "the text must be written only after the change check");
-    // The element really is a live region, which is why this matters at all.
-    assert.match(html, /id="backend-status"[^>]*role="status"[^>]*aria-live="polite"/);
-});
-
-/**
  * The titlebar's status buttons re-render only when their state moved.
  *
  * paintHealth and the ATX painter both end in repaintTbState, and both run on
@@ -911,14 +848,14 @@ test("save screenshot cannot be fired three times by one double-click", () => {
     assert.ok(declared < assigned, "var streamActions = null must run before wireStreamDialog assigns it");
 });
 
-test("the conversation pane is never a white slab waiting for the daemon", () => {
+test("the conversation pane is never a white slab waiting for the agent", () => {
     /* A frame with no src is not an empty frame — it is about:blank, and that
        document paints its own opaque WHITE base over whatever the element's
        background says. #chat-frame is set to var(--background) for exactly this
-       reason and never had a chance: measured with the daemon stopped, the pane
+       reason and never had a chance: measured with the agent stopped, the pane
        was a 600px white slab down the right of a black window, and it stayed
-       that way until the daemon came back. The frame starts srcless and is
-       emptied again on every harness drop, so it showed on a cold start too. */
+       that way until the agent came back. The frame starts srcless and is
+       emptied again on every drop, so it showed on a cold start too. */
     assert.match(css, /html\.desktop-console #chat-frame \{\s*background: var\(--background\);/);
     /* The terminal that used to fill this pane is gone: the pane is never given
        a terminal page to load. */
@@ -1599,32 +1536,6 @@ test("the controls drawer shows that its keys continue past the edge", () => {
        end cleanly. */
 });
 
-test("the titlebar buttons that open a menu say so", () => {
-    const mount = readFileSync(resolve(root, "agent/frontend/src/shared/mount.tsx"), "utf8");
-    /* Three titlebar buttons open a menu rather than doing something: More
-       actions, the send-keys list, and ATX power. On the desktop all three open
-       a NATIVE menu through the main process, so there is no element to point
-       aria-controls at and no open state this side to report — but that is no
-       reason to say nothing. Read out of the accessibility tree, all three came
-       back as plain buttons with only "invalid" and "focusable" on them. */
-    assert.match(mount, /haspopup\?: boolean;/);
-    assert.match(mount, /\{\.\.\.\(b\.haspopup \? \{ "aria-haspopup": "menu" as const \} : \{\}\)\}/);
-    assert.match(js, /id: "more",\s*label: "More actions",[\s\S]{0,400}?haspopup: true,/);
-    assert.match(js, /id: "keys",\s*label: "Send a keyboard shortcut to the target",[\s\S]{0,80}?haspopup: true,/);
-    assert.match(js, /id: "power",[\s\S]{0,220}?haspopup: true,/);
-    assert.equal((js.match(/haspopup: true,/g) ?? []).length, 3, "the three that open a native menu, and nothing else");
-
-    /* aria-expanded is deliberately NOT claimed with it. The web console's own
-       ⋯ button carries expanded and aria-controls because its menu is a real
-       element it owns; these hand off to the OS and would be reporting a state
-       they cannot see. haspopup is the part that stays true either way.
-
-       Verified from the accessibility tree with ATX pushed so Power is on
-       screen: button "More actions" / "Send a keyboard shortcut to the target"
-       / "Power — target is on", each carrying hasPopup="menu". */
-    assert.doesNotMatch(js, /id: "more",\s*label: "More actions",[\s\S]{0,400}?expanded: true/);
-});
-
 test("the on-screen keys stop offering clicks that cannot reach the target", () => {
     /* Every button in the Controls drawer sends a HID event, and send() drops
        anything written while the socket is not OPEN. Measured with the socket
@@ -2135,81 +2046,17 @@ test("the modal focus trap ignores disabled controls", () => {
  * resolve.
  */
 /**
- * The agent panel vanished with no explanation when a stale harness owned the port.
- *
- * Hit for real: an app started at 14:30 against a harness left running from
- * 20:33 the previous night. The app generates a fresh access token, finds the
- * harness port already healthy, and — correctly — refuses credential-blind
- * adoption, then cannot spawn its own on a taken port. So every workspace call
- * is signed with a token the surviving harness has never seen:
- *
- *     GET /app/harness/api/runs?limit=1
- *     401 {"detail":"valid harness bearer token required"}
- *
- * The panel is gated on that call, so it simply never appeared. Everything else
- * was healthy — daemon /healthz 200, every workspace asset 200 with real bytes —
- * which is what made it a twenty-minute mystery rather than an obvious outage.
- *
- * main.ts knows all of it. Its own comment says the failure is "worth
- * reporting, because the console can only say 'not yet' while this knows the
- * harness never started at all", and then console.error()s it where nobody
- * looks.
- *
- * The status code already on the wire separates the two cases, so no new
- * channel is needed: a network error or 502 means not started YET (normal on a
- * cold boot, worth nothing to interrupt for), while 401/403 means running and
- * refusing us, which never fixes itself. Measured after: note shown filling the
- * panel box at 401, and silent on an unreachable harness.
+ * The panel beside the screen is the terminal's old slot and holds no agent service: nothing to poll and no
+ * refusal to report.
  */
-test("the desktop panel does not wait on the harness", () => {
-    /* It used to frame the first-party chat workspace, which needed the
-       harness. A harness left over from an earlier run held the socket and
-       refused this run's token, so the panel showed "The agent panel could not
-       start" (seen 2026-10-05, from an orphan of 2026-09-21). Since then the
-       panel is the terminal, served by this app's own process, so there is
-       nothing to poll and no refusal to report. */
-    assert.doesNotMatch(js, /harnessAnswering/);
+test("the desktop panel does not wait on an agent service", () => {
+    /* The panel once framed a separate agent service and polled it; a service left over from an earlier run
+       refused this run's token and the panel showed an error. The agent is the Chat tab of the app now. */
     assert.doesNotMatch(js, /ws-note/);
     assert.doesNotMatch(html, /ws-note/);
     assert.doesNotMatch(css, /\.ws-note/);
 });
 
-/**
- * A daemon orphaned on 47615 took the whole agent stack down with it.
- *
- * The daemon is configured adoptExisting:false on purpose - it must never talk
- * to one whose credential it cannot prove - so a leftover from a previous run
- * holding the port meant the app could neither adopt it nor spawn its own, and
- * the agent panel never appeared.
- *
- * It walks to the next free port now, and the WALK IS NOT ENOUGH ON ITS OWN.
- * `pikvm-agent daemon` reads its host and port from its own config file, so
- * spawning a bare "daemon" while this side had moved left the two disagreeing.
- * Measured, before the args were passed:
- *
- *     [daemon] 127.0.0.1:47615 is in use, using http://127.0.0.1:47617 instead
- *     [daemon] starting: …/pikvm-agent daemon
- *     [daemon] ERROR: [Errno 98] … bind on address ('127.0.0.1', 47615) …
- *     [daemon] exited unexpectedly (code=1 signal=null)      x5, then gave up
- *
- * The app waited on 47617 while the child kept charging at the very orphan the
- * walk existed to avoid. After passing --host/--port:
- *
- *     [daemon] starting: …/pikvm-agent daemon --host 127.0.0.1 --port 47617
- *     [daemon] Uvicorn running on http://127.0.0.1:47617
- *
- * with zero Errno 98 and no exits.
- */
-/**
- * Two probes run back to back both see the same port as free, because a probe
- * closes its socket before returning. The first version of the walk handed the
- * daemon and the harness the SAME port:
- *
- *     [daemon]  127.0.0.1:47615 is in use, using http://127.0.0.1:47617
- *     [harness] 127.0.0.1:47616 is in use, using http://127.0.0.1:47617
- *
- * which is a worse failure than the orphan it was written to route around.
- */
 /**
  * The panel divider re-announced itself for changes that were not about it.
  *
@@ -2330,7 +2177,7 @@ test("a chord step wraps its key list, not its step controls", () => {
  * mounting the PREVIOUS image on the target in the middle of an upload was
  * offered — a change kvmd will not perform.
  *
- * Measured with an upload in flight against the harness (which holds
+ * Measured with an upload in flight against a test server (which holds
  * /api/msd/write_remote open for 30s for exactly this):
  *
  *     before   Mount on the target            Delete image [disabled]
@@ -2406,7 +2253,7 @@ test("character counts are formatted like every other quantity", () => {
  * on a machine someone is usually part-way through something on, and the press
  * that caused it was aimed at the browser rather than at the target at all.
  *
- * MouseButton in pikvm-control.ts is "left" | "right" | "middle" and kvmd takes
+ * The HID's MouseButton is "left" | "right" | "middle" and kvmd takes
  * no more, so there is nothing to forward these to. null, and both callers do
  * nothing with it.
  */
@@ -2425,41 +2272,8 @@ test("only the three buttons the HID can carry are sent", () => {
         !/e\.button === 2 \? "right" : e\.button === 1 \? "middle" : "left"/.test(bare),
         "the left-unless-proven-otherwise mapping is back",
     );
-    // The protocol this is matching stays the source of truth.
-    const control = readFileSync(resolve(root, "src/pikvm-control.ts"), "utf8");
-    assert.match(control, /export type MouseButton = "left" \| "right" \| "middle";/);
 });
 
-/**
- * The harness can route around an orphaned port now that its child can be told.
- *
- * This is the failure that took the agent panel down: a harness left running
- * from a previous session still owned 47616, the app correctly refused
- * credential-blind adoption of it, and could not spawn its own on a taken port —
- * so every workspace call was signed with a token that harness had never seen
- * and came back 401, with the panel simply absent.
- *
- * The daemon's port walk could not be copied here at the time, because the
- * harness takes its bind address from a YAML that ensureConfig() writes only
- * when the file does not already exist. On any install that had run once, the
- * app would have picked a free origin while the child charged at the old one —
- * the same "[Errno 98] address already in use" crash loop the daemon had before
- * it was told its port.
- *
- * `harness serve --listen HOST:PORT` closes that: one run's bind, no rewrite of
- * a file that carries the operator's provider settings. Measured with both
- * orphans still holding their ports:
- *
- *     [daemon]  127.0.0.1:47615 is in use, using http://127.0.0.1:47617 instead
- *     [harness] 127.0.0.1:47616 is in use, using http://127.0.0.1:47618 instead
- *     [harness] starting: …/pikvm-agent harness serve --config … --listen 127.0.0.1:47618
- *
- *     GET /app/harness/api/runs?limit=1   ->  200   (was 401)
- *     GET 47618/api/health                   ->  200
- *
- * with zero Errno 98, zero adoption refusals and zero startup failures in the
- * log.
- */
 /**
  * The microphone was never pinned, so it drifted.
  *
@@ -2477,7 +2291,7 @@ test("only the three buttons the HID can carry are sent", () => {
  * constraints.audio before calling getUserMedia — so a device constraint IS
  * honoured end to end, but webrtc.js hardcodes the boolean and takes no device.
  * The one point both calls pass through is getUserMedia itself, so console.js
- * wraps it. Measured in the harness with three stubbed inputs, watching what
+ * wraps it. Measured in a test page with three stubbed inputs, watching what
  * reached the underlying getUserMedia:
  *
  *     before   mic on                   { audio: true }

@@ -17,12 +17,6 @@ import type { IncomingMessage } from "node:http";
 const SALT = "pikvm-agent.session.v1";
 export const SESSION_COOKIE = "__agent_session";
 
-/** Marks a request as coming from our own workspace bundle or console. Its
- *  only job is to be un-settable by a cross-origin request without a preflight,
- *  and this server answers preflights for nobody. Required by the routes that
- *  carry a server-held capability (the harness and the daemon proxies). */
-export const WORKSPACE_HEADER = "x-pikvm-workspace";
-
 /** Paths that never need a session, token or not.
  *
  *  The sign-in endpoints must be reachable to sign in. The PWA files are public
@@ -102,9 +96,7 @@ export type GateVerdict =
 /** The gate. `path` is the request's pathname, already parsed by the caller.
  *
  *  Loopback is exempt because the desktop app talks to itself over it. That is
- *  only safe against processes on the machine: the gate cannot tell a browser
- *  page POSTing to 127.0.0.1 from the app, which is why the routes that attach
- *  a capability also demand WORKSPACE_HEADER. It also means a reverse proxy on
+ *  only safe against processes on the machine. It also means a reverse proxy on
  *  the same host defeats the gate; the web host therefore refuses a non-loopback
  *  bind unless an authenticating proxy is declared (src/web-server.ts). */
 export function gate(req: IncomingMessage, path: string, token: string): GateVerdict {
@@ -132,11 +124,6 @@ export function sameOrigin(req: IncomingMessage): boolean {
         typeof h === "string" ? h.split(",").map((part) => part.trim()) : [],
     );
     return seen.includes(host);
-}
-
-/** Does the request carry the header that proves it came from our own pages? */
-export function hasWorkspaceHeader(req: IncomingMessage): boolean {
-    return req.headers[WORKSPACE_HEADER] === "1";
 }
 
 /**
