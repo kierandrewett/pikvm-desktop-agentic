@@ -132,7 +132,7 @@ function refresh(userId: string, includeCommands = false): Promise<RuntimeInfo> 
         const ws = paths.user(userId).workspace;
         mkdirSync(ws, { recursive: true });
         const rpc = new RpcClient(
-            buildSpawn(userId, ws, ["--mode", "rpc", "--no-session", "--no-title", ...COMPUTER_ARGS]),
+            buildSpawn(userId, ws, ["--mode", "rpc-ui", "--no-session", "--no-title", ...COMPUTER_ARGS]),
             `${userId}/models`,
         );
         try {
