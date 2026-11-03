@@ -78,6 +78,8 @@ interface RequestRecord {
     /** Text body, or null when it was empty or too large to keep (see bodyLength). */
     body: string | null;
     bodyLength: number;
+    /** The X-KVMD-User header, so a test can see that credentials reached the Pi. The password is never kept. */
+    authUser: string | null;
 }
 
 class HttpError extends Error {
@@ -103,8 +105,8 @@ function freshState() {
         // that a list of names broke the picker once); the console reads the keys.
         keymaps: { default: "en-us", available: { "en-us": {}, "en-gb": {}, de: {}, fr: {} } as Record<string, object> },
         source: { online: true, width: FRAME_WIDTH, height: FRAME_HEIGHT },
-        /** Which picture the streamer serves: the colour bars, or a window-sized change. */
-        picture: "bars" as "bars" | "changed",
+        /** Which picture the streamer serves: the colour bars, a window-sized change, or (snapshots only) the two alternating. */
+        picture: "bars" as "bars" | "changed" | "flicker",
         streamerApplied: {
             quality: 80,
             desired_fps: 30,
@@ -144,6 +146,8 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
     let requestLog: RequestRecord[] = [];
 
     let nextClientId = 1;
+    /** The X-KVMD-User each /api/ws upgrade carried, in order (null when absent). */
+    const wsAuthUsers: (string | null)[] = [];
     const clients = new Map<WebSocket, number>();
     const streams = new Set<ServerResponse>();
     /** While in the future, new /api/ws upgrades are refused (see POST /__fake/drop?refuse_ms=). */
@@ -354,6 +358,13 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
     // ---- video ---------------------------------------------------------------
 
     const currentFrame = (): Buffer => (state.picture === "changed" ? CHANGED_JPEG : FRAME_JPEG);
+    let flicker = false;
+    /** One snapshot's picture: under `flicker` it differs from the one before, so the screen never settles. */
+    const snapshotFrame = (): Buffer => {
+        if (state.picture !== "flicker") return currentFrame();
+        flicker = !flicker;
+        return flicker ? CHANGED_JPEG : FRAME_JPEG;
+    };
 
     const serveMjpeg = (req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(200, {
@@ -390,15 +401,16 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
             send(res, 200, state.ocr.text, "text/plain; charset=utf-8");
             return;
         }
+        const picture = snapshotFrame();
         res.writeHead(200, {
             "Content-Type": "image/jpeg",
-            "Content-Length": currentFrame().length,
+            "Content-Length": picture.length,
             "Cache-Control": "no-store",
             "X-UStreamer-Online": String(state.source.online),
             "X-UStreamer-Width": String(state.source.width),
             "X-UStreamer-Height": String(state.source.height),
         });
-        res.end(currentFrame());
+        res.end(picture);
     };
 
     // ---- kvmd routes ---------------------------------------------------------
@@ -687,6 +699,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                 requestLog = [];
                 seq = 0;
                 refuseUntil = 0;
+                wsAuthUsers.length = 0;
                 // Clients stay connected; give them the clean state so they do not keep a stale LED.
                 broadcast("hid", hidEvent());
                 broadcast("streamer", streamerEvent());
@@ -726,7 +739,9 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
             case "/__fake/picture": {
                 requireMethod(req, "POST");
                 const name = q.get("name");
-                if (name !== "bars" && name !== "changed") throw new HttpError(400, "ValidatorError", "name must be bars or changed");
+                if (name !== "bars" && name !== "changed" && name !== "flicker") {
+                    throw new HttpError(400, "ValidatorError", "name must be bars, changed or flicker");
+                }
                 state.picture = name;
                 json(res, 200, { ok: true, picture: name });
                 return;
@@ -775,6 +790,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
 
     const stateView = () => ({
         clients: clients.size,
+        wsAuthUsers: [...wsAuthUsers],
         streams: streams.size,
         caps: state.keyboard.leds.caps,
         leds: { ...state.keyboard.leds },
@@ -811,6 +827,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                 contentType: req.headers["content-type"] ?? null,
                 body: body.length && body.length <= BODY_LOG_LIMIT ? body.toString("utf8") : null,
                 bodyLength: body.length,
+                authUser: typeof req.headers["x-kvmd-user"] === "string" ? req.headers["x-kvmd-user"] : null,
             });
             await kvmdRoute(req, res, path, url.searchParams, body);
         } catch (e) {
@@ -831,6 +848,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
         };
         if (path === "/api/ws") {
             if (Date.now() < refuseUntil) return refuse("503 Service Unavailable");
+            wsAuthUsers.push(typeof req.headers["x-kvmd-user"] === "string" ? req.headers["x-kvmd-user"] : null);
             wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
             return;
         }

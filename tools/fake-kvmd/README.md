@@ -69,8 +69,8 @@ Plain JSON, not the kvmd envelope. `seq` numbers all records in one order;
 |---|---|
 | `GET /__fake/hid[?type=key][&since=N]` | `{events, prints, state}`. Each event is `{seq, ts, t, client, event_type, event}`: `ts` is epoch ms, `t` is ms since start (sub-ms, for measuring gaps between inputs). Each print is `{seq, ts, t, text, limit, delay, keymap}`. |
 | `GET /__fake/messages` | Every raw client WebSocket message, pings included. |
-| `GET /__fake/requests` | Every kvmd HTTP request: method, path, query, content type and text body (bodies over 64 KiB log only `bodyLength`). |
-| `GET /__fake/state` | Clients, LEDs, mouse mode, keys and buttons held, ATX, MSD, GPIO. |
+| `GET /__fake/requests` | Every kvmd HTTP request: method, path, query, content type, `X-KVMD-User` (`authUser`, never the password) and text body (bodies over 64 KiB log only `bodyLength`). |
+| `GET /__fake/state` | Clients, the `X-KVMD-User` of each `/api/ws` upgrade (`wsAuthUsers`), LEDs, mouse mode, keys and buttons held, ATX, MSD, GPIO. |
 | `POST /__fake/reset` | Clears all logs and state; connected clients get fresh `hid`, `streamer`, `atx`, `msd` and `gpio` events. |
 | `POST /__fake/event` | Body `{"event_type": "...", "event": {...}}` is pushed to every connected client as-is. It does not change the fake's own state. |
 | `POST /__fake/drop[?graceful=1][&refuse_ms=N]` | Closes every WebSocket (abruptly by default, so the client sees 1006). `refuse_ms` makes new `/api/ws` connections fail with 503 for that long, to exercise reconnect backoff. |
@@ -78,7 +78,7 @@ Plain JSON, not the kvmd envelope. `seq` numbers all records in one order;
 | `POST /__fake/resolution?width=W&height=H` | The resolution the streamer reports: the `streamer` event, `X-UStreamer-Width`/`Height` on snapshots and `/streamer/state`. The JPEG served keeps its own 320x180 size. Reset by `/__fake/reset`. |
 | `POST /__fake/ocr[?enabled=0\|1]` | Sets what an `ocr=1` snapshot answers (the request body, as text) and whether OCR is on; broadcasts an `ocr` event. With OCR off the snapshot is a 503. |
 | `POST /__fake/keymap?name=en-gb` | Sets kvmd's default keymap and broadcasts `hid_keymaps`. |
-| `POST /__fake/picture?name=bars\|changed` | Which picture the stream and snapshots serve: the colour bars, or a dialog-sized change (a light window over a dark desktop), so a test can make the target's screen change. Reset by `/__fake/reset`. |
+| `POST /__fake/picture?name=bars\|changed\|flicker` | Which picture the stream and snapshots serve: the colour bars, or a dialog-sized change (a light window over a dark desktop), so a test can make the target's screen change. `flicker` makes each snapshot differ from the one before, a screen that never settles. Reset by `/__fake/reset`. |
 
 Example:
 
