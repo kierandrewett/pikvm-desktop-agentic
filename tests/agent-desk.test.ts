@@ -5,6 +5,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { WebSocket } from "ws";
 import { normToPixel, pixelToNorm, referenceSize } from "@pikvm/kvm-engine/agent";
 import { createPikvmMcp, defaultPolicy, type AgentActivity, type Approver, type PikvmPolicy } from "@pikvm/mcp";
+import { CURSOR_AGENT_SOURCE } from "@pikvm/contracts/api";
 import { createFakeApprover, createTestClient, inProcessTransport, type CallResult } from "@pikvm/mcp/testing";
 import { MouseJiggler } from "../src/mouse-jiggler";
 import type { PiKvmControl } from "../src/pikvm-control";
@@ -13,6 +14,7 @@ import { unavailableApprover } from "../src/server/agent/approver";
 import { createDesk, type AgentDesk } from "../src/server/agent/desk";
 import type { ImageOps } from "../src/image-ops";
 import { createPresence } from "../src/server/agent/presence";
+import { createCursorHub, type MouseMode } from "../src/server/cursor/hub";
 import { createPiKvmProxy } from "../src/server/proxy/kvmd";
 import { startFakeKvmd, until, type FakeKvmdHandle } from "./support/fake-kvmd";
 
@@ -62,6 +64,8 @@ interface RigOptions {
     policy?: Partial<PikvmPolicy>;
     leaseMs?: number;
     now?: () => number;
+    /** Told where the agent left the pointer, as the server wires it to the shared cursor. */
+    onPointer?: (norm: { x: number; y: number }, absolute: boolean) => void;
 }
 
 const rigs: { desk: AgentDesk; stop(): Promise<void> }[] = [];
@@ -87,6 +91,7 @@ function rig(options: RigOptions = {}) {
         connectMs: 3000,
         ...(options.leaseMs ? { leaseMs: options.leaseMs } : {}),
         ...(options.now ? { now: options.now } : {}),
+        ...(options.onPointer ? { onPointer: options.onPointer } : {}),
     });
     const approver = createFakeApprover("approved");
     const policy: PikvmPolicy = { ...defaultPolicy, ...options.policy };
@@ -788,5 +793,68 @@ describe("credentials stay in the server", () => {
         const requests = await fake.requests();
         assert.ok(requests.length > 0 && requests.every((q) => q.authUser === USER), "every HTTP call to kvmd was authenticated");
         assert.ok((await fake.state()).wsAuthUsers.every((u) => u === USER), "and so was the HID socket");
+    });
+});
+
+describe("the agent's pointer is every client's cursor", () => {
+    /** A rig whose desk reports into a cursor hub the way the server does. */
+    function withCursor(mode: MouseMode) {
+        const hub = createCursorHub({ mode: () => mode, resolution: () => ({ width: 320, height: 180 }), frameMs: 0 });
+        const r = rig({ onPointer: (norm) => hub.place(CURSOR_AGENT_SOURCE, norm.x, norm.y) });
+        return { hub, r };
+    }
+
+    it("a mouse_move moves it, under the agent's name, to the point of the picture it named", async () => {
+        const { hub, r } = withCursor("absolute");
+        const told: unknown[] = [];
+        hub.subscribe((u) => told.push(u));
+        r.desk.beginRun("a");
+        const c = r.client("a");
+        await c.call("screenshot");
+        await c.call("mouse_move", { x: 160, y: 90 });
+        const at = pixelToNorm({ width: 320, height: 180 }, { x: 160, y: 90 });
+        assert.deepEqual(hub.current(), { ...at, source: CURSOR_AGENT_SOURCE, seq: 1 });
+        assert.equal(told.length, 1);
+    });
+
+    it("a click, a drag's end and a scroll leave it where they ended", async () => {
+        const { hub, r } = withCursor("absolute");
+        r.desk.beginRun("a");
+        const c = r.client("a");
+        await c.call("screenshot");
+        await c.call("click", { x: 10, y: 20 });
+        assert.equal(hub.current()?.x, pixelToNorm({ width: 320, height: 180 }, { x: 10, y: 20 }).x);
+        await c.call("drag", { from: { x: 10, y: 20 }, to: { x: 300, y: 170 } });
+        assert.equal(hub.current()?.x, pixelToNorm({ width: 320, height: 180 }, { x: 300, y: 170 }).x);
+        await c.call("scroll", { x: 100, y: 100, dy: 3 });
+        assert.equal(hub.current()?.y, pixelToNorm({ width: 320, height: 180 }, { x: 100, y: 100 }).y);
+    });
+
+    it("a move the desk refused moves nothing", async () => {
+        const { hub, r } = withCursor("absolute");
+        r.desk.beginRun("a");
+        const c = r.client("a");
+        await c.call("screenshot");
+        assert.match((await c.call("mouse_move", { x: 9999, y: 5 })).text, /^[a-z_]+:/);
+        assert.equal(hub.current(), null);
+    });
+
+    it("on a relative Pi it is reported too, as the agent's own account of where it is, and not as exact", async () => {
+        await fake.post("/api/hid/set_params?mouse_output=usb_rel");
+        const reported: boolean[] = [];
+        const hub = createCursorHub({ mode: () => "relative", resolution: () => ({ width: 320, height: 180 }), frameMs: 0 });
+        const r = rig({
+            onPointer: (norm, absolute) => {
+                reported.push(absolute);
+                hub.place(CURSOR_AGENT_SOURCE, norm.x, norm.y);
+            },
+        });
+        r.desk.beginRun("a");
+        const c = r.client("a");
+        await c.call("screenshot");
+        await until(async () => (await c.call("screen_info")).text.includes("Mouse mode: relative"), "the link to see relative mode");
+        await c.call("mouse_move", { x: 160, y: 90 });
+        assert.deepEqual(reported, [false]);
+        assert.equal(hub.current()?.source, CURSOR_AGENT_SOURCE);
     });
 });

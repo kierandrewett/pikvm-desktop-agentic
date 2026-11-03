@@ -16,6 +16,7 @@
  * injection only added buffering and a dead button to the Full-UI frame.
  */
 
+import { CURSOR_CLIENT_PARAM } from "@pikvm/contracts/api";
 import { request as httpRequest, type IncomingMessage, type ServerResponse, type OutgoingHttpHeaders } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { Duplex } from "node:stream";
@@ -32,12 +33,14 @@ export interface ProxyDeps {
      */
     onHidActivity?: () => void;
     /**
-     * Absolute cursor position (PiKVM normalized units) seen on that same socket. The
-     * jiggler's nudge nets back to zero displacement only if we know where the cursor
-     * ACTUALLY is; without this we only track moves we sent ourselves, so a nudge would
-     * teleport the user's pointer to a stale guess.
+     * Absolute cursor position (PiKVM normalized units) seen on that same socket, and which client sent it
+     * (see `clientOf`). The jiggler's nudge nets back to zero displacement only if we know where the cursor
+     * ACTUALLY is; without this we only track moves we sent ourselves, so a nudge would teleport the user's
+     * pointer to a stale guess. The shared cursor tells every other client.
      */
-    onHidMouseMove?: (x: number, y: number) => void;
+    onHidMouseMove?: (x: number, y: number, source: string) => void;
+    /** A relative move (target pixels) seen on that socket, and which client sent it. */
+    onHidMouseRelative?: (dx: number, dy: number, source: string) => void;
     /**
      * A key, button, move, wheel or paste a person sent to the target through this proxy. Unlike
      * onHidActivity it ignores heartbeats, so it can end the agent's control without a pinging
@@ -49,6 +52,7 @@ export interface ProxyDeps {
 export interface HidTapEvents {
     onActivity: () => void;
     onMouseMove?: (x: number, y: number) => void;
+    onMouseRelative?: (dx: number, dy: number) => void;
     onInput?: (kind: HidInputKind) => void;
 }
 
@@ -62,6 +66,24 @@ const BINARY_KINDS: Readonly<Record<number, HidInputKind>> = {
 };
 
 const TEXT_KINDS: Record<string, true> = { key: true, mouse_move: true, mouse_button: true, mouse_wheel: true, mouse_relative: true };
+
+/** The query parameter a page puts on its input socket's URL to say which client it is; the Pi never sees it. */
+const CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Which client an input socket's URL names, and the URL without that parameter (kvmd is sent what it always was).
+ * A missing or malformed name is not an error: the socket is a client of its own without a name.
+ */
+export function clientOf(url: string): { path: string; client: string | null } {
+    const cut = url.indexOf("?");
+    if (cut < 0) return { path: url, client: null };
+    const params = new URLSearchParams(url.slice(cut + 1));
+    const named = params.get(CURSOR_CLIENT_PARAM);
+    if (!params.has(CURSOR_CLIENT_PARAM)) return { path: url, client: null };
+    params.delete(CURSOR_CLIENT_PARAM);
+    const rest = params.toString();
+    return { path: rest ? `${url.slice(0, cut)}?${rest}` : url.slice(0, cut), client: named !== null && CLIENT_ID.test(named) ? named : null };
+}
 
 /**
  * Watch the (always-masked) client→server HID socket. Every data frame counts as user
@@ -101,9 +123,13 @@ export function makeHidTap(events: HidTapEvents): (chunk: Buffer) => void {
                 const payload = frame.subarray(off + (masked ? 4 : 0));
                 const mask = masked ? frame.subarray(off, off + 4) : undefined;
                 if (opcode === 0x2) {
-                    const kind = BINARY_KINDS[mask ? payload[0]! ^ mask[0]! : payload[0]!];
-                    if (kind) events.onInput?.(kind);
-                } else if (events.onMouseMove || events.onInput) {
+                    const type = mask ? payload[0]! ^ mask[0]! : payload[0]!;
+                    const kind = BINARY_KINDS[type];
+                    if (kind) {
+                        events.onInput?.(kind);
+                        if (events.onMouseMove || events.onMouseRelative) readBinaryMouse(type, mask ? unmask(payload, mask) : payload, events);
+                    }
+                } else if (events.onMouseMove || events.onMouseRelative || events.onInput) {
                     readTextEvent(payload, mask, events);
                 }
             }
@@ -114,19 +140,38 @@ export function makeHidTap(events: HidTapEvents): (chunk: Buffer) => void {
     };
 }
 
+/** A masked payload with the client's mask taken off. */
+function unmask(payload: Buffer, mask: Buffer): Buffer {
+    const out = Buffer.allocUnsafe(payload.length);
+    for (let i = 0; i < payload.length; i++) out[i] = payload[i]! ^ mask[i & 3]!;
+    return out;
+}
+
+/**
+ * The position in kvmd's binary mouse frames (what its own web page sends). Absolute: type 3, then x and y as
+ * signed 16-bit big-endian. Relative: type 4, a squash flag, then one or more (dx, dy) pairs of signed bytes.
+ * A frame of any other length is not read: a wrong position told to every client is worse than none.
+ */
+function readBinaryMouse(type: number, bytes: Buffer, events: HidTapEvents): void {
+    if (type === 3 && bytes.length === 5) {
+        events.onMouseMove?.(bytes.readInt16BE(1), bytes.readInt16BE(3));
+    } else if (type === 4 && bytes.length >= 4 && bytes.length % 2 === 0) {
+        let dx = 0;
+        let dy = 0;
+        for (let i = 2; i < bytes.length; i += 2) {
+            dx += bytes.readInt8(i);
+            dy += bytes.readInt8(i + 1);
+        }
+        events.onMouseRelative?.(dx, dy);
+    }
+}
+
 /** Unmask a WebSocket text payload and report what KVMD event it is. */
 function readTextEvent(payload: Buffer, mask: Buffer | undefined, events: HidTapEvents): void {
-    let text: string;
-    if (mask) {
-        const out = Buffer.allocUnsafe(payload.length);
-        for (let i = 0; i < payload.length; i++) out[i] = payload[i]! ^ mask[i & 3]!;
-        text = out.toString("utf8");
-    } else {
-        text = payload.toString("utf8");
-    }
+    const text = (mask ? unmask(payload, mask) : payload).toString("utf8");
     // A bare "ping" text frame is not JSON; every input event is.
     if (text.charCodeAt(0) !== 0x7b) return;
-    let msg: { event_type?: unknown; event?: { to?: { x?: unknown; y?: unknown } } };
+    let msg: { event_type?: unknown; event?: { to?: { x?: unknown; y?: unknown }; delta?: { x?: unknown; y?: unknown } } };
     try {
         msg = JSON.parse(text);
     } catch {
@@ -137,6 +182,8 @@ function readTextEvent(payload: Buffer, mask: Buffer | undefined, events: HidTap
     events.onInput?.(type as HidInputKind);
     const to = type === "mouse_move" ? msg.event?.to : undefined;
     if (typeof to?.x === "number" && typeof to?.y === "number") events.onMouseMove?.(to.x, to.y);
+    const delta = type === "mouse_relative" ? msg.event?.delta : undefined;
+    if (typeof delta?.x === "number" && typeof delta?.y === "number") events.onMouseRelative?.(delta.x, delta.y);
 }
 
 const HTTP_HID_KINDS: Record<string, HidInputKind> = {
@@ -180,6 +227,9 @@ function rewriteLocation(location: string, target: URL): string {
 }
 
 export function createPiKvmProxy(deps: ProxyDeps) {
+    /** Counts the input sockets that named no client, so each is a client of its own. */
+    let sockets = 0;
+
     async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const input = httpHidInput(req.method, req.url);
         if (input) deps.onHidInput?.(input);
@@ -238,6 +288,11 @@ export function createPiKvmProxy(deps: ProxyDeps) {
         const { origin, headers: auth, rejectUnauthorized } = await deps.control.proxyTarget();
         const isHttps = origin.protocol === "https:";
         const requestFn = isHttps ? httpsRequest : httpRequest;
+        // Which of our own pages this socket is, if it says: kvmd gets the URL it always got.
+        const url = req.url ?? "/";
+        const isInput = url.startsWith("/api/ws");
+        const { path, client } = isInput ? clientOf(url) : { path: url, client: null };
+        const source = client ?? `socket-${++sockets}`;
         const outHeaders: OutgoingHttpHeaders = { ...req.headers, ...auth, host: origin.host };
 
         const proxyReq = requestFn({
@@ -245,7 +300,7 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             hostname: origin.hostname,
             port: origin.port || (isHttps ? 443 : 80),
             method: req.method,
-            path: req.url,
+            path,
             headers: outHeaders,
             rejectUnauthorized,
         });
@@ -286,12 +341,15 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             clientSocket.on("close", cleanup);
             // Observe user HID input (mouse/keys) on the input WebSocket for the idle
             // jiggler — a passive 'data' listener; the pipe still forwards every byte.
-            if ((deps.onHidActivity || deps.onHidInput) && typeof req.url === "string" && req.url.startsWith("/api/ws")) {
+            if (isInput && (deps.onHidActivity || deps.onHidInput || deps.onHidMouseMove || deps.onHidMouseRelative)) {
+                const moved = deps.onHidMouseMove;
+                const nudged = deps.onHidMouseRelative;
                 clientSocket.on(
                     "data",
                     makeHidTap({
                         onActivity: deps.onHidActivity ?? (() => undefined),
-                        ...(deps.onHidMouseMove ? { onMouseMove: deps.onHidMouseMove } : {}),
+                        ...(moved ? { onMouseMove: (x: number, y: number) => moved(x, y, source) } : {}),
+                        ...(nudged ? { onMouseRelative: (dx: number, dy: number) => nudged(dx, dy, source) } : {}),
                         ...(deps.onHidInput ? { onInput: deps.onHidInput } : {}),
                     }),
                 );

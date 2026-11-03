@@ -96,6 +96,7 @@ and exercised through real touch events:
 | Wheel; Ctrl+wheel zooms the picture on the web only | done | E2E "wheel scrolls the target; Ctrl+wheel zooms the picture" (scale 1.21, no wheel sent). Desktop app: engine M10 |
 | Right-click menu suppressed on the picture | done | `attachPointerInput` |
 | Throttled cursor report to the agent daemon | done | `POST /app/daemon/cursor` with the workspace header, 180 ms, desktop app only (the contract has no daemon feature flag, so the desktop bridge gates it); `cursor-report.test.ts` |
+| One cursor for every client (desktop, phone, the agent) | done | The host tracks the pointer (`src/server/cursor/hub.ts`) from every client's input socket and the agent's tools and tells every page over `GET /app/api/v1/cursor` (SSE, one update per frame, the current one first). A page follows while idle and keeps its own while it moves (500 ms hold); the trackpad's blob moves, and elsewhere a distinct marker draws the other client's pointer. Engine S1-S5, web K30-K37; E2E `docs/e2e/2026-11-03-cursor-sync.md` |
 
 ## 1.8 Dialogs
 

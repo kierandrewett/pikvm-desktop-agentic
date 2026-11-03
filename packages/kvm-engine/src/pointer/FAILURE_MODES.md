@@ -60,3 +60,11 @@ as observable commands (never source text). IDs are referenced from test names.
 - M11. A dialog owns the pointer: presses and moves are ignored, and its swallowed release still lets go of whatever the target holds.
 - M12. A mouse entering the picture asks the Pi for absolute; the output requests follow the input in use.
 - M13. A pane resize while zoomed re-clamps the view.
+
+## The shared cursor (another client moved the pointer)
+
+- S1. An idle client takes the position as its cursor and says it is somebody else's; it sends nothing to the target for it, so no echo can start.
+- S2. A client that is moving the pointer (a finger down, a mouse or wheel moving, within the 500 ms hold after) keeps its cursor: the newest position that arrived waits, once, and is taken when it has been still.
+- S3. What waited is dropped if this client's own newer move has come back from the host first.
+- S4. Two clients moving at once: each follows only its own hand while it moves; the hand-over after is to whoever wrote last.
+- S5. Somebody else's pointer is redrawn where it now is when the view or the pane changes, and is gone the moment this client moves it itself.

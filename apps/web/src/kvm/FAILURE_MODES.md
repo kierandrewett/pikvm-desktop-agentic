@@ -54,3 +54,14 @@ The screen stays mounted for the whole visit (see `app/panes.tsx`), so "mounted"
 - K24. Changing tab lets go of what the target holds (modifiers) and puts the soft keyboard away, once, from the change itself; the handlers stay bound for the return.
 - K25. The pointer machine treats "another tab is in front" like "a dialog is open" (no gestures, no cursor), and a real dialog stays open across the change. No cursor report goes to the agent while hidden.
 - K26. The screen wake lock and the document-level handlers (Escape and outside press for menus, the OCR picker's Escape, the Safari pinch guard) follow the tab being in front, not the screen being mounted.
+
+## The shared cursor
+
+- K30. The stream names this page: updates carrying this page's own client id are its own moves coming back, and are never drawn as somebody else's.
+- K31. Each update is delivered once and in order (a repeat or a straggler is dropped); a message that is not an update is ignored and the next one still arrives.
+- K32. A host that restarted starts its sequence again: after a stream error the next update is taken whatever its number.
+- K33. A listener that comes late (the KVM tab mounting after the stream opened) is told the newest position at once; one that leaves while it is being told does not stop the others.
+- K34. A hidden page holds no stream and takes a fresh one, which begins with the current position, when it is shown.
+- K35. The page's input socket URL carries its client id, so the host can say whose moves are whose.
+- K36. The picture draws what it is told: the trackpad blob moves with the cursor, or (mouse, direct touch, a relative trackpad) a distinct marker for somebody else's pointer; the same point of the picture after a resize.
+- K37. A page that is moving the pointer is not moved by another client, and nothing it is told is ever sent to the target.

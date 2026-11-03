@@ -14,6 +14,7 @@
  *   /app/chat/ws (upgrade)     its socket: the gate, then a same-origin check
  *   /app/api/v1/agent/*        what the agent is doing (SSE), Stop, Hand back
  *   /app/api/v1/watch/*        the screen watch: its settings, push subscriptions, test and check log
+ *   /app/api/v1/cursor         where the target's pointer is, for every client (SSE)
  *   /app/api/v1/*              our HttpApi
  *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
  *                              /app/ until the app is built); /app/legacy/ the console
@@ -52,6 +53,11 @@ export interface RouteTargets {
     accessToken: () => string;
     kvmd: HttpForwarder & {
         handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void | Promise<void>;
+    };
+    /** Where the target's pointer is, as server-sent events: one cursor for every client. */
+    cursor: {
+        handles(path: string): boolean;
+        handle(req: IncomingMessage, res: ServerResponse): void;
     };
     /** The chat server in this process, or what answers while it is not up. */
     chat: {
@@ -195,6 +201,12 @@ export function createRoutes(t: RouteTargets): Route[] {
             },
         },
 
+        {
+            // Read-only server-sent events: nothing to forge, no body to check.
+            name: "shared cursor",
+            match: ({ path }) => t.cursor.handles(path),
+            run: ({ req, res }) => t.cursor.handle(req, res),
+        },
         {
             name: "our API",
             match: ({ path }) => under(path, "/app/api"),

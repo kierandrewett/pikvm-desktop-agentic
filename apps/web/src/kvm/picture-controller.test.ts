@@ -20,12 +20,13 @@ async function mount(extra: { desktop?: boolean } = {}) {
     const video = document.createElement("video");
     const freeze = document.createElement("canvas");
     const cursor = document.createElement("div");
+    const remote = document.createElement("div");
     const lens = document.createElement("canvas");
-    pane.append(img, video, freeze, cursor, lens);
+    pane.append(img, video, freeze, cursor, remote, lens);
     document.body.appendChild(pane);
     const controller = createPictureController({
         session: rig.session,
-        elements: { pane, img, video, freeze, cursor, lens },
+        elements: { pane, img, video, freeze, cursor, remote, lens },
         focus: createFieldFocus(rig.clock),
         desktop: extra.desktop ?? false,
         prefs: { active: true, touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true, watching: false },

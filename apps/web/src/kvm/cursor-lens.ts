@@ -22,6 +22,8 @@ import {
 export interface PainterDeps {
     readonly pane: HTMLElement;
     readonly cursor: HTMLElement;
+    /** Somebody else's pointer: drawn where the machine's cursor is while another client holds it and this one has no blob of its own to move. */
+    readonly remote: HTMLElement;
     readonly lens: HTMLCanvasElement;
     readonly clock: Clock;
     readonly machine: PointerMachine;
@@ -40,6 +42,8 @@ export interface Painter {
     hideMouse(): void;
     /** The trackpad's virtual cursor moved or appeared. */
     trackpad(): void;
+    /** Another client moved the pointer and it is theirs (`show`), or this client moved it since (not `show`). */
+    remote(show: boolean): void;
     /**
      * A finger moved `distance` px at the event's own time `at` (feeds the lens's speed, so its zoom); no
      * distance = a new touch began. Without `at` the moment of the call stands in.
@@ -51,7 +55,7 @@ export interface Painter {
 }
 
 export function createPainter(deps: PainterDeps): Painter {
-    const { pane, cursor, lens, clock, machine } = deps;
+    const { pane, cursor, remote, lens, clock, machine } = deps;
     let lensSize: LensSizeState = createLensSize();
     let lensUntil = 0;
     let lensFrame = 0;
@@ -68,6 +72,10 @@ export function createPainter(deps: PainterDeps): Painter {
     };
     const hideCursor = (): void => {
         cursor.style.display = "none";
+    };
+
+    const hideRemote = (): void => {
+        remote.style.display = "none";
     };
 
     const hideLens = (): void => {
@@ -149,7 +157,7 @@ export function createPainter(deps: PainterDeps): Painter {
         lensFrame = deps.frame(draw);
     };
 
-    return {
+    const painter: Painter = {
         mouse(x, y, dragging) {
             const paint = paintMouseCursor({
                 modalOpen: deps.modalOpen(),
@@ -177,6 +185,35 @@ export function createPainter(deps: PainterDeps): Painter {
             if (paint.show) showCursor(paint.x, paint.y);
             else hideCursor();
         },
+        remote(show) {
+            if (!show) {
+                hideRemote();
+                return;
+            }
+            const at = machine.virtualCursorClient;
+            // On the trackpad the blob is the cursor and has just moved with it; nothing else is drawn.
+            if (machine.trackpadActive) {
+                painter.trackpad();
+                const blob = paintTrackpadCursor({
+                    trackpadActive: true,
+                    relative: relative(),
+                    hidOpen: deps.hidOpen(),
+                    modalOpen: deps.modalOpen(),
+                    at,
+                });
+                if (blob?.show) {
+                    hideRemote();
+                    return;
+                }
+            }
+            // Anywhere else (the desktop's own pointer is the OS's and is not the target's now, direct touch has none)
+            // the other client's pointer is drawn as theirs.
+            if (!at || deps.modalOpen()) hideRemote();
+            else {
+                place(remote, at.x, at.y);
+                remote.style.display = "block";
+            }
+        },
         lens(distance, at) {
             if (distance === undefined) {
                 // A new touch starts from nothing: no lens until the finger has moved.
@@ -201,4 +238,5 @@ export function createPainter(deps: PainterDeps): Painter {
             lensFrame = 0;
         },
     };
+    return painter;
 }

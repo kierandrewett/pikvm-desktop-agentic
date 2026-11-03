@@ -50,6 +50,13 @@ export const FRAME_MS = 16;
 /** Wheel zoom factor per notch, on the web (Ctrl/Cmd + wheel). */
 export const WHEEL_ZOOM_STEP = 1.1;
 
+/**
+ * After this client last moved the pointer (a finger down or moving, a mouse moving, a wheel turning) it keeps the
+ * cursor for this long: what another client moves in the meantime waits, and is drawn once this one has been still.
+ * Long enough that a finger that lifts and lands again is one gesture; short enough that the hand-over is not felt.
+ */
+export const REMOTE_HOLD_MS = 500;
+
 export type PointerKind = "mouse" | "touch" | "pen";
 export type HidButton = "left" | "right" | "middle";
 export type MouseMode = "absolute" | "relative" | "unknown";
@@ -200,6 +207,17 @@ export interface PointerViewInput extends Stamped {
     readonly view: ViewTransform;
 }
 
+/**
+ * The shared cursor moved, in kvmd units. `own` is this client's own move coming back from the host: it moves
+ * nothing and only settles that nothing newer from anybody else is waiting.
+ */
+export interface PointerRemoteInput extends Stamped {
+    readonly type: "remote";
+    readonly x: number;
+    readonly y: number;
+    readonly own: boolean;
+}
+
 export type PointerInput =
     | PointerDownInput
     | PointerMoveInput
@@ -212,7 +230,8 @@ export type PointerInput =
     | PointerFrameInput
     | PointerMouseModeInput
     | PointerEnvInput
-    | PointerViewInput;
+    | PointerViewInput
+    | PointerRemoteInput;
 
 /** An input before the driver stamps it with the clock. */
 type Unstamped<T> = T extends unknown ? Omit<T, "t"> : never;
@@ -299,6 +318,16 @@ export interface TrackpadCursorCommand {
 }
 
 /**
+ * The target's pointer is where another client put it: the machine's `vcur` has moved there. `show` says the pointer
+ * is somebody else's, to be drawn as such where this client has no cursor of its own to move (the trackpad's blob is
+ * that cursor; the desktop's own pointer is not the target's now). False once this client has moved it itself.
+ */
+export interface RemoteCursorCommand {
+    readonly type: "remoteCursor";
+    readonly show: boolean;
+}
+
+/**
  * Show the lens. With no `distance` a new touch began; with one it is this move's finger travel in px, for
  * the speed average, and `at` the move's own time when the input carried one (see PointerMoveInput.at).
  */
@@ -351,6 +380,7 @@ export type OutputCommand =
     | MouseCursorCommand
     | MouseCursorHideCommand
     | TrackpadCursorCommand
+    | RemoteCursorCommand
     | LensCommand
     | CaptureCommand
     | FocusCommand

@@ -72,8 +72,12 @@ export interface DeskOptions {
     activity: ActivityStore;
     /** The long edge of the reference frame; read on every screenshot. */
     maxEdge?: () => number;
-    /** Told where the agent left the pointer, in kvmd units, so the idle jiggler returns to it and not to a stale spot. */
-    onPointer?: (norm: Point) => void;
+    /**
+     * Told where the agent left the pointer, in kvmd units, and whether the Pi's mouse is absolute (there it is exact; on a
+     * relative one the agent swept into the corner and stepped from there, so it is the agent's best account). The idle
+     * jiggler returns to it and not to a stale spot, and every client's cursor moves to it.
+     */
+    onPointer?: (norm: Point, absolute: boolean) => void;
     clock?: Clock;
     now?: () => number;
     timing?: Partial<AgentTiming>;
@@ -498,7 +502,7 @@ export function createDesk(options: DeskOptions): AgentDesk {
     const movePublished = (conversationId: string, at: { fx: number; fy: number }): void => {
         const run = runs.get(conversationId);
         if (run) publish(run, conversationId, { pointer: at });
-        if (options.onPointer && link?.isAbsolute()) options.onPointer({ x: fracToNorm(at.fx), y: fracToNorm(at.fy) });
+        options.onPointer?.({ x: fracToNorm(at.fx), y: fracToNorm(at.fy) }, link?.isAbsolute() === true);
     };
 
     // ---- the Desk port -----------------------------------------------------------------------

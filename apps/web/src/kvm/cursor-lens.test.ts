@@ -33,6 +33,7 @@ function setup() {
     const painter = createPainter({
         pane,
         cursor,
+        remote: document.createElement("div"),
         lens,
         clock,
         machine,

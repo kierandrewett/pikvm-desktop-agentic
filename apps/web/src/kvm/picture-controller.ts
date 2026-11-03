@@ -48,6 +48,8 @@ export interface PictureElements {
     readonly freeze: HTMLCanvasElement;
     readonly cursor: HTMLElement;
     readonly lens: HTMLCanvasElement;
+    /** Somebody else's pointer, where this page has no cursor of its own to move. */
+    readonly remote: HTMLElement;
 }
 
 export interface AudioState {
@@ -142,7 +144,7 @@ function randomKey(): string {
 
 export function createPictureController(options: PictureOptions): PictureController {
     const { session, elements, focus, desktop } = options;
-    const { pane, img, video, freeze, cursor, lens } = elements;
+    const { pane, img, video, freeze, cursor, remote, lens } = elements;
     const { link, clock, keyboard } = session;
 
     const store = createStore<PictureState>({
@@ -210,6 +212,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         mouse: (x, y, d) => painter?.mouse(x, y, d),
         hideMouse: () => painter?.hideMouse(),
         trackpad: () => painter?.trackpad(),
+        remote: (show) => painter?.remote(show),
         lens: (d, at) => painter?.lens(d, at),
         inputChanged: () => painter?.inputChanged(),
         dispose: () => painter?.dispose(),
@@ -242,6 +245,7 @@ export function createPictureController(options: PictureOptions): PictureControl
     painter = createPainter({
         pane,
         cursor,
+        remote,
         lens,
         clock,
         machine: pointer.machine,
@@ -318,6 +322,14 @@ export function createPictureController(options: PictureOptions): PictureControl
         if (state.device.mouse.absolute !== before.device.mouse.absolute) {
             pointer.send({ type: "mouseMode", mode: mouseModeOf(state.device.mouse.absolute) });
         }
+    });
+
+    /* ---- the shared cursor ---- */
+
+    // Where the target's pointer is, whoever moved it. The machine decides whether this page takes it now (idle) or
+    // later (it is moving the pointer itself), and never sends it on: this page only ever draws what it is told.
+    const offCursor = session.cursor.subscribe((event) => {
+        pointer.send({ type: "remote", x: event.x, y: event.y, own: event.own });
     });
 
     /* ---- audio ---- */
@@ -626,6 +638,7 @@ export function createPictureController(options: PictureOptions): PictureControl
             window.removeEventListener("resize", remeasure);
             window.visualViewport?.removeEventListener("resize", remeasure);
             offLink();
+            offCursor();
             cancelResHide?.();
             cancelResEmpty?.();
             cancelReenable?.();

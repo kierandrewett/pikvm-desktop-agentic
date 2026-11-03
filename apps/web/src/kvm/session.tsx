@@ -33,6 +33,7 @@ import {
 } from "@pikvm/kvm-engine";
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { useAppState } from "../api/queries";
+import { createCursorSync, type CursorSync } from "./cursor-sync";
 import { createDialogCenter, type DialogCenter } from "./dialog-seam";
 import { createNoticeCenter, type NoticeCenter } from "./notices";
 
@@ -42,6 +43,7 @@ export interface KvmSessionOptions {
     readonly http?: HttpPort;
     readonly url?: string | (() => string);
     readonly timing?: Partial<LinkTiming>;
+    readonly cursor?: CursorSync;
     /** Tests drive the lifecycle themselves; the page's own events are bound otherwise. */
     readonly bindLifecycle?: boolean;
 }
@@ -58,6 +60,8 @@ export interface KvmSession {
     readonly dialogs: DialogCenter;
     /** The keymap text is typed with (paste and text macros); null = whatever the Pi defaults to. */
     readonly keymap: Store<string | null>;
+    /** Where the target's pointer is, whoever moved it, and this page's name for its own moves. */
+    readonly cursor: CursorSync;
     /** Connect and keep connected. Idempotent. */
     start(): void;
     stop(): Promise<void>;
@@ -66,8 +70,9 @@ export interface KvmSession {
 export function createKvmSession(options: KvmSessionOptions = {}): KvmSession {
     const clock = options.clock ?? systemClock;
     const http = options.http ?? createFetchHttp();
+    const cursor = options.cursor ?? createCursorSync();
     const link = createTargetLink({
-        url: options.url ?? (() => eventSocketUrl()),
+        url: options.url ?? (() => eventSocketUrl(location, cursor.clientId)),
         socket: options.socket ?? browserSocket,
         http,
         clock,
@@ -105,10 +110,12 @@ export function createKvmSession(options: KvmSessionOptions = {}): KvmSession {
         notices,
         dialogs,
         keymap,
+        cursor,
         start() {
             if (started) return;
             started = true;
             link.start();
+            cursor.start();
             // Back from the background after more than a few seconds, or the network returning:
             // the socket that still reads open usually is not.
             if (options.bindLifecycle !== false) {
@@ -121,6 +128,7 @@ export function createKvmSession(options: KvmSessionOptions = {}): KvmSession {
             started = false;
             unbind?.();
             unbind = null;
+            cursor.stop();
             keyboard.releaseAll();
             await link.stop();
         },

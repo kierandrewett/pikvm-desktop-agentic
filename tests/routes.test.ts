@@ -64,6 +64,13 @@ function targets(over: { token?: string; appDir?: string; refuseLoopback?: boole
                 res.end(`watch ${req.method} ${path}`);
             },
         },
+        cursor: {
+            handles: (path: string) => path === "/app/api/v1/cursor",
+            handle(_req: IncomingMessage, res: ServerResponse): void {
+                res.writeHead(200, { "content-type": "text/plain", "x-target": "cursor" });
+                res.end("cursor");
+            },
+        },
         accessToken: () => over.token ?? "",
         kvmd: {
             ...marker("kvmd"),
@@ -587,6 +594,23 @@ test("the agent routes are ours and ahead of the API, and a POST must be JSON", 
         assert.equal((await call(s.origin, "/app/api/v1/state")).target, "api");
     } finally {
         await s.close();
+    }
+});
+
+test("the shared cursor stream is ours, ahead of the API, and behind the gate", async () => {
+    const open = await run(targets());
+    try {
+        assert.equal((await call(open.origin, "/app/api/v1/cursor")).target, "cursor");
+        assert.equal((await call(open.origin, "/app/api/v1/cursors")).target, "api");
+    } finally {
+        await open.close();
+    }
+    const gated = await run(targets({ token: TOKEN }), true);
+    try {
+        const refused = await call(gated.origin, "/app/api/v1/cursor", { headers: { accept: "text/event-stream" } });
+        assert.equal(refused.status, 401);
+    } finally {
+        await gated.close();
     }
 });
 

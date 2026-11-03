@@ -212,14 +212,15 @@ export function renderApp(path: string, env: Env = {}) {
     return { ...view, router, history, queryClient };
 }
 
-/** A page's EventSource a test can push messages into. Opened streams are kept in `sources`. */
+/** A page's EventSource a test can push messages into. Opened streams are kept in `sources`; the shared cursor's, which every KVM page opens, in `cursors`. */
 export class FakeEventSource {
     static sources: FakeEventSource[] = [];
+    static cursors: FakeEventSource[] = [];
     onmessage: ((event: MessageEvent<string>) => void) | null = null;
     onerror: (() => void) | null = null;
     closed = false;
     constructor(readonly url: string) {
-        FakeEventSource.sources.push(this);
+        (url.endsWith("/cursor") ? FakeEventSource.cursors : FakeEventSource.sources).push(this);
     }
     close(): void {
         this.closed = true;
@@ -234,6 +235,7 @@ export class FakeEventSource {
 
 export function installEventSource(): typeof FakeEventSource {
     FakeEventSource.sources = [];
+    FakeEventSource.cursors = [];
     vi.stubGlobal("EventSource", FakeEventSource);
     return FakeEventSource;
 }

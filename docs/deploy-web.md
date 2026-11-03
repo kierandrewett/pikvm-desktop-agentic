@@ -345,6 +345,18 @@ then Settings, Providers, base URL `http://fake-model:9000/v1`. `deploy/e2e/up-i
 processes and `/data` readable by the invoking user, which `apps/web/e2e/chat.e2e.mjs` needs to inspect the agent (see
 `docs/e2e/README.md`).
 
+## The shared cursor
+
+`GET /app/api/v1/cursor` is a server-sent-events stream behind the same gate as the rest of `/app/api` (so nothing new is public
+behind oauth2-proxy). Each event is `{x, y, source, seq}`: where the target's pointer is, in kvmd's own units (a fraction of the
+screen, so any resolution), who moved it (the page's client id, `agent` for the chat agent's tools, or `socket-N` for a client that
+named none) and a sequence number. The host learns positions from each page's `/api/ws` input socket (the page adds `?client=<id>`,
+which the host takes off before kvmd sees the URL) and from the agent's mouse tools; at most one event goes out per frame, and a new
+stream starts with the current position. A relative-mouse target is tracked from the last known position and clamped (its start is
+unknown until the first absolute move or agent move, and the pointer's own acceleration is not known, so it drifts until the next
+absolute move); a resolution change keeps an absolute position and keeps the pixel of a relative one. A proxy in front must not
+buffer it (the response sends `x-accel-buffering: no`).
+
 ## Known limits
 
 - Sizes: see the e2e record. omp's binary is about 277 MB of the image.

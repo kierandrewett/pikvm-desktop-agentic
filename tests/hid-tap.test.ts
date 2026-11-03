@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { makeHidTap, type HidInputKind } from "../src/server/proxy/kvmd";
+import { clientOf, makeHidTap, type HidInputKind } from "../src/server/proxy/kvmd";
 
 /** One client-to-server WebSocket frame, masked as a browser masks it. */
 function frame(payload: string | Buffer, opcode = 0x1): Buffer {
@@ -90,4 +90,67 @@ test("a tap with only the old callbacks still works", () => {
     feed(json("mouse_move", { to: { x: 1, y: 2 } }));
     feed(json("key", { key: "KeyA", state: true }));
     assert.equal(moves, 1);
+});
+
+test("a relative move is read as its delta, from text and from kvmd's binary frame", () => {
+    const seen: [number, number][] = [];
+    const feed = makeHidTap({ onActivity: () => undefined, onMouseRelative: (dx, dy) => void seen.push([dx, dy]) });
+    feed(json("mouse_relative", { delta: { x: 3, y: -4 }, squash: true }));
+    feed(frame(Buffer.from([4, 1, 5, 0xfb]), 0x2)); // squash, then (5, -5)
+    feed(frame(Buffer.from([4, 0, 1, 2, 3, 0xfe]), 0x2)); // two pairs add up: (4, 0)
+    assert.deepEqual(seen, [
+        [3, -4],
+        [5, -5],
+        [4, 0],
+    ]);
+});
+
+test("an absolute move is read from kvmd's binary frame too: signed 16-bit, big-endian", () => {
+    const { seen, feed } = tap();
+    feed(frame(Buffer.from([3, 0x7f, 0xff, 0x80, 0x00]), 0x2));
+    feed(frame(Buffer.from([3, 0x00, 0x0a, 0xff, 0xf6]), 0x2));
+    assert.deepEqual(seen.moves, [
+        [32767, -32768],
+        [10, -10],
+    ]);
+    assert.deepEqual(seen.input, ["mouse_move", "mouse_move"]);
+});
+
+test("a binary mouse frame of any other length is input but never a position", () => {
+    const moves: unknown[] = [];
+    const feed = makeHidTap({
+        onActivity: () => undefined,
+        onMouseMove: (x, y) => void moves.push([x, y]),
+        onMouseRelative: (dx, dy) => void moves.push([dx, dy]),
+    });
+    feed(frame(Buffer.from([3, 1, 2, 3]), 0x2));
+    feed(frame(Buffer.from([3, 1, 2, 3, 4, 5]), 0x2));
+    feed(frame(Buffer.from([4, 0, 1]), 0x2));
+    feed(frame(Buffer.from([4, 0, 1, 2, 3]), 0x2));
+    assert.deepEqual(moves, []);
+});
+
+test("a moves-only tap reads moves without being given an input callback", () => {
+    const moves: [number, number][] = [];
+    const feed = makeHidTap({ onActivity: () => undefined, onMouseMove: (x, y) => void moves.push([x, y]) });
+    feed(frame(Buffer.from([3, 0, 1, 0, 2]), 0x2));
+    feed(json("mouse_move", { to: { x: 7, y: 8 } }));
+    assert.deepEqual(moves, [
+        [1, 2],
+        [7, 8],
+    ]);
+});
+
+test("the client a socket names is read from its URL and taken out of what kvmd is sent", () => {
+    assert.deepEqual(clientOf("/api/ws?client=abc_123-X"), { path: "/api/ws", client: "abc_123-X" });
+    assert.deepEqual(clientOf("/api/ws?stream=0&client=abc&x=1"), { path: "/api/ws?stream=0&x=1", client: "abc" });
+    assert.deepEqual(clientOf("/api/ws"), { path: "/api/ws", client: null });
+    assert.deepEqual(clientOf("/api/ws?stream=0"), { path: "/api/ws?stream=0", client: null });
+});
+
+test("a client name that is not a plain id is no name, and is still not sent on", () => {
+    for (const bad of ["", "a b", "a/b", "x".repeat(65), "é", "<script>"]) {
+        const url = `/api/ws?client=${encodeURIComponent(bad)}`;
+        assert.deepEqual(clientOf(url), { path: "/api/ws", client: null }, bad);
+    }
 });

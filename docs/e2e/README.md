@@ -89,3 +89,5 @@ the composer is the conversation's column (same width and centre, within 1px) on
 at 1280x800, 1920x1080, 2560x1440 and 760x700, and stays bounded with a long text; the navigation rail has no visible text
 but an accessible name and a tooltip per item; the phone bar keeps its labels. It appends to
 `docs/e2e/2026-11-03-desktop-feedback.md`: `node apps/web/e2e/desktop-layout.e2e.mjs [--out docs/e2e/desktop-feedback] [--doc ...]`.
+
+`apps/web/e2e/cursor-sync.e2e.mjs` (same two servers, same environment; the Chrome binary is started twice so neither page is a background tab of the other) drives a desktop page and an iPhone 13 page on one host and checks that they share one cursor: the phone's blob follows the desktop's mouse (within 2 px, within 200 ms), the desktop's marker follows the phone's trackpad, both moving at once do not fight, and a reload re-syncs. It writes `docs/e2e/<date>-cursor-sync.md` and screenshots under `docs/e2e/cursor-sync/`.

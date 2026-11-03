@@ -80,6 +80,9 @@ export function createPointerExecutor(deps: ExecutorDeps): (command: OutputComma
             case "trackpadCursor":
                 painter.trackpad();
                 return;
+            case "remoteCursor":
+                painter.remote(c.show);
+                return;
             case "lens":
                 painter.lens("distance" in c ? c.distance : undefined, "at" in c ? c.at : undefined);
                 return;

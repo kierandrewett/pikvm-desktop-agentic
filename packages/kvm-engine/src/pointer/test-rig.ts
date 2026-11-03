@@ -45,6 +45,8 @@ export interface Rig {
     mode(mode: PointerEnv["mouseMode"]): void;
     blur(): void;
     view(v: ViewTransform): void;
+    /** The shared cursor moved to this point of the picture in kvmd units; `own` is this client's own move coming back. */
+    remote(x: number, y: number, own?: boolean): void;
     /** Advance time by one display frame. */
     frame(): void;
     advance(ms: number): void;
@@ -89,6 +91,9 @@ export function createRig(init: { env?: Partial<PointerEnv>; view?: ViewTransfor
         },
         view: (v) => {
             driver.send({ type: "view", view: v });
+        },
+        remote: (x, y, own = false) => {
+            driver.send({ type: "remote", x, y, own });
         },
         frame: () => clock.advance(16),
         advance: (ms) => clock.advance(ms),

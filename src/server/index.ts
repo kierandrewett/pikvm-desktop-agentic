@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { resolve } from "node:path";
 import { OPERATOR_ID } from "@pikvm/chat-server";
+import { CURSOR_AGENT_SOURCE } from "@pikvm/contracts/api";
 import { DEFAULT_MAX_EDGE } from "@pikvm/kvm-engine/agent";
 import type { ImageOps } from "../image-ops";
 import { MacroStore } from "../macros";
@@ -36,6 +37,8 @@ import { limitsFromEnv } from "./watch/limits";
 import { createWatchRoutes } from "./watch/routes";
 import { createWatchService } from "./watch/service";
 import { createPiKvmProxy } from "./proxy/kvmd";
+import { createCursorHub } from "./cursor/hub";
+import { createCursorRoutes } from "./cursor/routes";
 import { appAssets, webAssets } from "./static";
 
 export interface ServerDeps {
@@ -93,6 +96,17 @@ export function startControlServer(
     // Idle mouse-jiggler: keeps the target awake when nobody's driving. It tracks the
     // user's cursor off the proxied HID socket (onHidActivity) and restores the exact
     // position. With no agent there is nothing to hold off for, so it's never "busy".
+    /* One cursor for every page and the agent: the proxy reports each client's moves, the Desk the agent's. */
+    const cursor = createCursorHub({
+        mode: () => {
+            // The mouse mode and the screen come from the Pi's event socket, which is otherwise opened only when something is sent.
+            control.warm();
+            return control.getMouseMode();
+        },
+        resolution: () => control.getResolution(),
+    });
+    const cursorRoutes = createCursorRoutes(cursor);
+
     /* Who is at the target and what the agent is doing with it. The proxy below sees a person's input and only a
      * person's (the agent has its own link to the Pi), which is how a person moving the mouse takes control. */
     const presence = createPresence();
@@ -105,7 +119,10 @@ export function startControlServer(
         activity,
         maxEdge: () => chat?.maxEdge() ?? DEFAULT_MAX_EDGE,
         // The idle jiggler returns to where the agent left the pointer, not to a stale spot.
-        onPointer: (norm) => control.noteObservedMouse(norm.x, norm.y),
+        onPointer: (norm, absolute) => {
+            if (absolute) control.noteObservedMouse(norm.x, norm.y);
+            cursor.place(CURSOR_AGENT_SOURCE, norm.x, norm.y);
+        },
     });
 
     const jiggler = new MouseJiggler({
@@ -122,7 +139,11 @@ export function startControlServer(
         onHidInput: (kind) => presence.note(kind),
         // Track the user's real cursor so the nudge returns it exactly, instead of
         // jogging off a stale position we only ever updated from our own moves.
-        onHidMouseMove: (x, y) => control.noteObservedMouse(x, y),
+        onHidMouseMove: (x, y, source) => {
+            control.noteObservedMouse(x, y);
+            cursor.absolute(source, x, y);
+        },
+        onHidMouseRelative: (dx, dy, source) => cursor.relative(source, dx, dy),
     });
 
 
@@ -173,6 +194,7 @@ export function startControlServer(
         kvmd,
         chat,
         agent,
+        cursor: cursorRoutes,
         watch: watchRoutes,
         ...(deps.refuseLoopback ? { refuseLoopback: true } : {}),
         api,
@@ -185,6 +207,7 @@ export function startControlServer(
     server.on("close", () => {
         watch.stop();
         jiggler.stop();
+        cursor.dispose();
         void api.dispose();
         void chat?.stop().then(() => desk.dispose());
     });
@@ -197,6 +220,7 @@ export function startControlServer(
         async shutdown() {
             watch.stop();
             jiggler.stop();
+            cursor.dispose();
             server.closeAllConnections();
             await new Promise<void>((done) => (server.listening ? server.close(() => done()) : done()));
             await chat?.stop();

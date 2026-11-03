@@ -237,6 +237,26 @@ export class PiKvmControl {
         return this.lastInputTs;
     }
 
+    /** The target's screen as the Pi last said it; undefined until the event socket has told us. */
+    getResolution(): { width: number; height: number } | undefined {
+        const { width, height } = this.kvmdState.streamer?.source?.resolution ?? {};
+        return width && height ? { width, height } : undefined;
+    }
+
+    private lastWarmAt = 0;
+
+    /**
+     * Start the event socket if it is not up, so the mouse mode and the resolution are known when something asks. Tried at
+     * most every few seconds: it is called on every mouse event, and a Pi that is down must not be dialled that often.
+     */
+    warm(): void {
+        if (this.ws?.readyState === WebSocket.OPEN || this.wsReady) return;
+        const now = Date.now();
+        if (now - this.lastWarmAt < 5_000) return;
+        this.lastWarmAt = now;
+        this.connect().catch(() => undefined);
+    }
+
     /** The native frame width the nudge is measured against. */
     private frameWidth(): number {
         return this.kvmdState.streamer?.source?.resolution?.width || 1920;

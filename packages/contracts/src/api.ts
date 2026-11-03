@@ -234,6 +234,32 @@ export const AGENT_HANDBACK_PATH = `${API_PREFIX}/agent/handback`;
 export const AgentStopResult = Schema.Struct({ stopped: Schema.Boolean });
 export const AgentHandBackResult = Schema.Struct({ handedBack: Schema.Number });
 
+/* ------------------------------------------------------------------ */
+/* The shared cursor                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where the target's pointer is, as the host last saw it move, in kvmd's own units (-32768..32767 on both axes, so
+ * a fraction of the picture and the same at any resolution). `source` is the client that moved it: the client id
+ * the page put on its input socket, `agent` for the chat agent's tools, or a name the host made up for a client
+ * that sent none. `seq` grows with every change; a client that sees a lower one than it has seen has met a newer
+ * host and starts again.
+ */
+export const CursorUpdate = Schema.Struct({
+    x: Schema.Number,
+    y: Schema.Number,
+    source: Schema.String,
+    seq: Schema.Number,
+});
+export type CursorUpdate = typeof CursorUpdate.Type;
+
+/** Server-sent events: one `CursorUpdate` as JSON per event, at most one per frame, the current one first (none while unknown). */
+export const CURSOR_PATH = `${API_PREFIX}/cursor`;
+/** The query parameter a page puts on its `/api/ws` URL to say which client it is. The host removes it before the Pi sees the request. */
+export const CURSOR_CLIENT_PARAM = "client";
+/** The source name the chat agent's tools move the pointer under. */
+export const CURSOR_AGENT_SOURCE = "agent";
+
 export const StateGroup = HttpApiGroup.make("state").add(HttpApiEndpoint.get("get", "/state").addSuccess(State));
 
 export const MacrosGroup = HttpApiGroup.make("macros")

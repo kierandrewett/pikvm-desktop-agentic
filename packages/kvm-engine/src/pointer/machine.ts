@@ -35,6 +35,7 @@ import {
     REL_CHUNK,
     REL_OWE_MAX,
     REL_SENS,
+    REMOTE_HOLD_MS,
     TOUCH_SLOP,
     TRACKPAD_SENS,
     TWO_FINGER_DRAG_PX,
@@ -52,6 +53,7 @@ import type {
     PointerOutput,
     PointerPhase,
     PointerUpInput,
+    PointerRemoteInput,
     PointerWheelInput,
 } from "./types";
 
@@ -96,6 +98,7 @@ export interface PointerMachineOptions {
 const HOLD_TIMER = "hold";
 const SWEEP_PREFIX = "absSweep:";
 const STEP_PREFIX = "absStep:";
+const REMOTE_TIMER = "remote";
 
 export class PointerMachine {
     private env: PointerEnv;
@@ -131,6 +134,11 @@ export class PointerMachine {
     private relOweY = 0;
     private moveDirty = false;
     private frameQueued = false;
+    // Another client's position that arrived while this one was moving the pointer, and when this one last did.
+    private remoteWaiting: Point | null = null;
+    private remoteShown = false;
+    private remoteTimerOn = false;
+    private localAt = Number.NEGATIVE_INFINITY;
 
     private absPending: Step[] = [];
     private readonly scheduled = new Map<string, Step>();
@@ -216,6 +224,8 @@ export class PointerMachine {
         this.out = [];
         this.now = input.t;
         let prevent = false;
+        // Anything a pointer does on this client is a write to the target's pointer, whether or not the HID gets it.
+        if (input.type === "down" || input.type === "move" || input.type === "up" || input.type === "wheel") this.noteLocalWrite();
         switch (input.type) {
             case "down":
                 prevent = this.onDown(input);
@@ -259,6 +269,10 @@ export class PointerMachine {
                 break;
             case "view":
                 this.view = input.view;
+                this.redrawRemote();
+                break;
+            case "remote":
+                this.onRemote(input);
                 break;
         }
         const commands = this.out;
@@ -284,6 +298,7 @@ export class PointerMachine {
         if (viewEquals(next, this.view)) return;
         this.view = next;
         this.emit({ type: "view", view: next });
+        this.redrawRemote();
     }
 
     private isRelative(): boolean {
@@ -331,6 +346,7 @@ export class PointerMachine {
         // can strand the picture outside it, so re-clamp against the box that exists now.
         this.setView(clampPan(this.view, this.env.pane, this.env.nat));
         if (this.trackpadActive) this.emit({ type: "trackpadCursor" });
+        this.redrawRemote();
     }
 
     /* ---- moving the target's cursor ---- */
@@ -495,7 +511,79 @@ export class PointerMachine {
             const step = this.scheduled.get(id);
             this.scheduled.delete(id);
             if (step) this.runStep(step);
+        } else if (id === REMOTE_TIMER) {
+            this.onRemoteHold();
         }
+    }
+
+    /* ---- another client moved the pointer ---- */
+
+    /** This client is moving the pointer, or just was: what another client does meanwhile waits. */
+    private localActive(): boolean {
+        return (
+            this.pts.size > 0 ||
+            this.pressing ||
+            this.isMouseDown ||
+            this.heldButtons.size > 0 ||
+            this.now - this.localAt < REMOTE_HOLD_MS
+        );
+    }
+
+    /**
+     * The shared cursor moved. Last writer wins: a position from another client is taken at once while this one is
+     * idle, and held back while it is moving the pointer itself (with a short hold after, so a finger that lifts does
+     * not see the cursor leap away under it). Held back is not dropped: the newest waits, and is taken when this
+     * client has been still, unless this client's own newer move has come back from the host first.
+     */
+    private onRemote(i: PointerRemoteInput): void {
+        if (i.own) {
+            this.remoteWaiting = null;
+            return;
+        }
+        if (this.localActive()) {
+            this.remoteWaiting = { x: i.x, y: i.y };
+            // One wake-up, not one per update: a remote that keeps moving must not push the hand-over away.
+            if (!this.remoteTimerOn) {
+                this.remoteTimerOn = true;
+                this.emit({ type: "startTimer", id: REMOTE_TIMER, ms: REMOTE_HOLD_MS });
+            }
+            return;
+        }
+        this.takeRemote(i.x, i.y);
+    }
+
+    private onRemoteHold(): void {
+        this.remoteTimerOn = false;
+        const waiting = this.remoteWaiting;
+        if (!waiting) return;
+        if (this.localActive()) {
+            // Still at it (a finger is down, or it moved a moment ago): look again after another hold.
+            this.remoteTimerOn = true;
+            this.emit({ type: "startTimer", id: REMOTE_TIMER, ms: REMOTE_HOLD_MS });
+            return;
+        }
+        this.takeRemote(waiting.x, waiting.y);
+    }
+
+    private takeRemote(x: number, y: number): void {
+        this.remoteWaiting = null;
+        this.vcur.x = clampNorm(x);
+        this.vcur.y = clampNorm(y);
+        this.remoteShown = true;
+        this.emit({ type: "remoteCursor", show: true });
+    }
+
+    /** This client moved the pointer: it is no longer somebody else's. */
+    private noteLocalWrite(): void {
+        this.localAt = this.now;
+        if (!this.remoteShown) return;
+        this.remoteShown = false;
+        this.emit({ type: "remoteCursor", show: false });
+    }
+
+    /** The picture moved or changed size under a pointer that is drawn: draw it again where it now belongs. */
+    private redrawRemote(): void {
+        if (this.remoteShown) this.emit({ type: "remoteCursor", show: true });
     }
 
     /* ---- click modifiers (mouse) ---- */

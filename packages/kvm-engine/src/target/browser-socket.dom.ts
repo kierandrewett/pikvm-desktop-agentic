@@ -1,8 +1,12 @@
 import type { KvmSocket, SocketFactory } from "./ports";
 
-/** `ws(s)://<host>/api/ws`, on the page's own origin so the server's kvmd passthrough carries it. */
-export function eventSocketUrl(loc: Pick<Location, "protocol" | "host"> = location): string {
-    return `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}/api/ws`;
+/**
+ * `ws(s)://<host>/api/ws`, on the page's own origin so the server's kvmd passthrough carries it. `client` says which
+ * page this is: the host reads it (and takes it off before kvmd sees the URL) to tell the other pages whose moves are whose.
+ */
+export function eventSocketUrl(loc: Pick<Location, "protocol" | "host"> = location, client?: string): string {
+    const url = `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}/api/ws`;
+    return client ? `${url}?client=${encodeURIComponent(client)}` : url;
 }
 
 /** The real WebSocket behind the link's socket port. */

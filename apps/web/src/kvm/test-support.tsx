@@ -10,6 +10,7 @@ import { FakeHttp, FakeSocketHub } from "@pikvm/kvm-engine/testing";
 import type { ReactElement } from "react";
 import { render } from "@testing-library/react";
 import { createKvmSession, KvmSessionProvider, type KvmSession } from "./session";
+import type { CursorSync } from "./cursor-sync";
 
 export interface Rig {
     readonly session: KvmSession;
@@ -20,7 +21,7 @@ export interface Rig {
     sent(): string[];
 }
 
-export async function openRig(options: { bindLifecycle?: boolean } = {}): Promise<Rig> {
+export async function openRig(options: { bindLifecycle?: boolean; cursor?: CursorSync } = {}): Promise<Rig> {
     const clock = createManualClock(1_000_000);
     const hub = new FakeSocketHub();
     const http = new FakeHttp();
@@ -30,6 +31,7 @@ export async function openRig(options: { bindLifecycle?: boolean } = {}): Promis
         http,
         url: "ws://kvm/api/ws",
         bindLifecycle: options.bindLifecycle ?? false,
+        ...(options.cursor ? { cursor: options.cursor } : {}),
     });
     session.start();
     await clock.settle();

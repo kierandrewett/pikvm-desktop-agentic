@@ -6,6 +6,7 @@
  */
 
 import { createStore, STATUS, type ReadableStore } from "@pikvm/kvm-engine";
+import { CursorIcon } from "@pikvm/icons";
 import { useEffect, useRef, useState } from "react";
 import type { FieldFocus } from "./field-focus";
 import { createPictureController, type PictureController, type PicturePrefs, type PictureState } from "./picture-controller";
@@ -45,6 +46,7 @@ export function Picture({ session, focus, desktop, prefs, onController }: Pictur
     const video = useRef<HTMLVideoElement>(null);
     const freeze = useRef<HTMLCanvasElement>(null);
     const cursor = useRef<HTMLDivElement>(null);
+    const remote = useRef<HTMLDivElement>(null);
     const lens = useRef<HTMLCanvasElement>(null);
     // Made after the first paint (it needs the elements), so the overlay draws from the blank
     // state once and then follows the real one.
@@ -60,12 +62,21 @@ export function Picture({ session, focus, desktop, prefs, onController }: Pictur
             video: video.current,
             freeze: freeze.current,
             cursor: cursor.current,
+            remote: remote.current,
             lens: lens.current,
         };
-        if (!els.pane || !els.img || !els.video || !els.freeze || !els.cursor || !els.lens) return;
+        if (!els.pane || !els.img || !els.video || !els.freeze || !els.cursor || !els.remote || !els.lens) return;
         const created = createPictureController({
             session,
-            elements: { pane: els.pane, img: els.img, video: els.video, freeze: els.freeze, cursor: els.cursor, lens: els.lens },
+            elements: {
+                pane: els.pane,
+                img: els.img,
+                video: els.video,
+                freeze: els.freeze,
+                cursor: els.cursor,
+                remote: els.remote,
+                lens: els.lens,
+            },
             focus,
             desktop,
             prefs: latest.current,
@@ -92,6 +103,10 @@ export function Picture({ session, focus, desktop, prefs, onController }: Pictur
             {/* The last good frame, held while the stream is re-established, so a reconnect does not look like the target going away. */}
             <canvas ref={freeze} className="kvm-freeze" aria-hidden="true" />
             <div ref={cursor} className="kvm-cursor" aria-hidden="true" />
+            {/* Somebody else's pointer (another page, or the agent), where this page has no cursor of its own to move. */}
+            <div ref={remote} className="kvm-remote-cursor" data-testid="remote-cursor" aria-hidden="true">
+                <CursorIcon weight="fill" />
+            </div>
             <canvas ref={lens} className="kvm-lens" aria-hidden="true" />
 
             <div className="kvm-overlay" role="status" aria-live="polite" data-kvm-ui="">
