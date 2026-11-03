@@ -131,9 +131,6 @@ function PageActions({ actions }: { actions: PageAction[] }) {
     );
 }
 
-/** True where the host draws a page's title itself (the PiKVM app's Settings); a top-level page then leaves its own out. */
-export const HostDrawsTitle = createContext(false);
-
 /**
  * A settings page: a sticky header (title, page actions as icons), a one-line description of what the page
  * controls, then its sections 40px apart. The description defaults to the category's line in registry.ts.
@@ -158,8 +155,6 @@ export function SettingsPage({
 }) {
     const t = useT();
     const chrome = useContext(SettingsChrome);
-    // A sub-view (`back`) still names itself: the host's title names the page it belongs to.
-    const hostTitle = useContext(HostDrawsTitle) && !back;
     const params = useParams() as { section?: string };
     const onBack = back?.onClick ?? chrome.onBack;
     const mobile = !!chrome.onBack;
@@ -212,44 +207,27 @@ export function SettingsPage({
                         {back.label}
                     </button>
                 )}
-                {hostTitle ? (
-                    shownActions.length > 0 && (
-                        <div className="flex min-h-15 items-center justify-end py-3">
+                <div className={cn("flex min-h-15 items-center gap-2 py-3", mobile && "min-h-13 py-2")}>
+                    {mobile && onBack && (
+                        <UiButton
+                            uniform
+                            size="2xl"
+                            onClick={onBack}
+                            aria-label={back ? t("settings-back-to", { page: back.label }) : t("settings-back-to-settings")}
+                            className="-ms-2 text-text"
+                        >
+                            <CaretLeft />
+                        </UiButton>
+                    )}
+                    <h1 className={cn("min-w-0 flex-1 truncate font-medium tracking-[-0.01em]", mobile ? "text-lg" : "text-2xl")}>
+                        {title}
+                    </h1>
+                    {shownActions.length > 0 && (
+                        <div className="flex shrink-0 items-center">
                             <PageActions actions={shownActions} />
                         </div>
-                    )
-                ) : (
-                    <>
-                        <div className={cn("flex min-h-15 items-center gap-2 py-3", mobile && "min-h-13 py-2")}>
-                            {mobile && onBack && (
-                                <UiButton
-                                    uniform
-                                    size="2xl"
-                                    onClick={onBack}
-                                    aria-label={
-                                        back ? t("settings-back-to", { page: back.label }) : t("settings-back-to-settings")
-                                    }
-                                    className="-ms-2 text-text"
-                                >
-                                    <CaretLeft />
-                                </UiButton>
-                            )}
-                            <h1
-                                className={cn(
-                                    "min-w-0 flex-1 truncate font-medium tracking-[-0.01em]",
-                                    mobile ? "text-lg" : "text-2xl",
-                                )}
-                            >
-                                {title}
-                            </h1>
-                            {shownActions.length > 0 && (
-                                <div className="flex shrink-0 items-center">
-                                    <PageActions actions={shownActions} />
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
+                    )}
+                </div>
                 {sectionNav && <SectionNav label={t("settings-sections-nav")} />}
             </div>
             {lead && <p className={cn("-mt-1 max-w-[60ch] text-base", secondaryText)}>{lead}</p>}

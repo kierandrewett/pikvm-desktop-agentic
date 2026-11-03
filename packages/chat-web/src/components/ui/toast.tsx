@@ -209,11 +209,11 @@ function useMobileBottom(active: boolean, mobile: boolean): string {
         const form = document.querySelector<HTMLElement>("form[data-layout]");
         const ro = new ResizeObserver(update);
         if (form) ro.observe(form);
-        visualViewport?.addEventListener("resize", update);
+        window.visualViewport?.addEventListener("resize", update);
         addEventListener("resize", update);
         return () => {
             ro.disconnect();
-            visualViewport?.removeEventListener("resize", update);
+            window.visualViewport?.removeEventListener("resize", update);
             removeEventListener("resize", update);
         };
     }, [active, mobile]);

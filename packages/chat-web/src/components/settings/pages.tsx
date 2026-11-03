@@ -1,25 +1,21 @@
 /**
- * The Chat settings pages the host's Settings embeds: Providers, Models and Agent. Render them inside <ChatScope>;
- * each is a whole page built from the settings kit. There is no MCP servers page: the server refuses to configure
- * external servers, so the page would only show a form that cannot save.
+ * The Chat settings pages the host's Settings embeds: Providers, Models and Agent. Render them inside the host's
+ * <SettingsScope>; each is a whole page built from the settings kit and brings the chat server's data layer
+ * (ChatServices) with it. There is no MCP servers page: the server refuses to configure external servers, so the
+ * page would only show a form that cannot save.
  */
 import { useT } from "../../l10n/provider";
 import { ProvidersSection } from "./integrations/providers";
 import { DecisionsModelRow, RoleModelRow } from "./role-models";
 import { ModelSelect } from "./models";
 import { erase, useUserSetting } from "./bindings";
-import type { ReactNode } from "react";
-import { AdminKeyRow, BoundRow, HostDrawsTitle, KeyRow, row, SettingsCard, SettingsPage, SettingsSection } from "./kit";
-
-/** The host's Settings draws each page's title above these, so they leave their own out. */
-const Hosted = ({ children }: { children: ReactNode }) => (
-    <HostDrawsTitle.Provider value>{children}</HostDrawsTitle.Provider>
-);
+import { ChatServices } from "../../pane/chat-services";
+import { AdminKeyRow, BoundRow, KeyRow, SettingsCard, SettingsPage, SettingsSection } from "./kit";
 
 export const ProvidersPage = () => (
-    <Hosted>
+    <ChatServices>
         <ProvidersSection />
-    </Hosted>
+    </ChatServices>
 );
 
 function DefaultModelRow() {
@@ -45,8 +41,8 @@ function DefaultModelRow() {
 
 export function ModelsPage() {
     return (
-        <Hosted>
-            <SettingsPage title={row("agent.defaultModel").label}>
+        <ChatServices>
+            <SettingsPage title="Models" description="The model new chats start with, and the models for side work.">
                 <SettingsSection>
                     <SettingsCard>
                         <DefaultModelRow />
@@ -57,14 +53,14 @@ export function ModelsPage() {
                     </SettingsCard>
                 </SettingsSection>
             </SettingsPage>
-        </Hosted>
+        </ChatServices>
     );
 }
 
 export function AgentPage() {
     return (
-        <Hosted>
-            <SettingsPage title="Agent">
+        <ChatServices>
+            <SettingsPage title="Agent" description="What the agent may do on the PiKVM, and how it runs.">
                 <SettingsSection title="PiKVM">
                     <SettingsCard>
                         <AdminKeyRow k="agent.pikvm.approval" />
@@ -80,6 +76,6 @@ export function AgentPage() {
                     </SettingsCard>
                 </SettingsSection>
             </SettingsPage>
-        </Hosted>
+        </ChatServices>
     );
 }

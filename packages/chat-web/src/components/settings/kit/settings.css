@@ -18,199 +18,207 @@
  * more clearly here. Selectors use data attributes set by the kit, so pages need no changes.
  */
 
-/* Outside a row's narrow layout, a segmented control shows its track; the picker form is for narrow rows. */
-[data-segmented] > [data-segmented-picker] {
-    display: none;
-}
-
-/* The Select trigger has two chevrons: a down chevron in a field, an up-down chevron as a row value. */
-[data-picker] > [data-caret="row"] {
-    display: none;
-}
-
-/* Hidden-row summary of a closed Advanced section: narrow columns only. */
-[data-advanced-summary] {
-    display: none;
-}
-
-@container settings (width < 36rem) {
-    /* Rows */
-
-    [data-row-main] {
-        flex-wrap: wrap;
-        row-gap: calc(10px * var(--density, 1));
-    }
-    [data-row-main] > [data-row-text] {
-        flex: 1 1 50%;
-    }
-    /* Natural width (also in `split` rows), so a control that does not fit beside the text wraps instead of
-       squeezing its value. */
-    [data-row-main] > [data-row-control] {
-        flex: 0 0 auto;
-        min-width: 0;
-        max-width: 100%;
-        margin-inline-start: 0;
-    }
-
-    /* Wide controls: full width under the text. */
-    [data-row-main]:has(> [data-row-control] [data-wide]) {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    [data-row-main]:has(> [data-row-control] [data-wide]) > [data-row-control] {
-        width: 100%;
-        justify-content: flex-start;
-    }
-    [data-row-control] > [data-wide] {
-        flex: 1 1 auto;
-        width: 100%;
-        max-width: none;
-    }
-
-    /* A segmented track that is the row's control fills the row; its segments share it equally. */
-    [data-row-control] > [data-segmented][data-wide] > [role="radiogroup"] {
-        width: 100%;
-    }
-    [data-row-control] > [data-segmented][data-wide] > [role="radiogroup"] > button {
-        flex: 1 1 0;
-        min-width: 0;
-        justify-content: center;
-    }
-    [data-row-control] > [data-segmented][data-wide] > [role="radiogroup"] > button > span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    /* Too many segments, or labels that do not fit: the same choice as a value picker. */
-    [data-segmented][data-collapse] > [role="radiogroup"] {
+/*
+ * In a host the kit's utilities are generated under `.chat-scope` (styles/chat.css), so each is one class more
+ * specific than it is in Chat's own app, and later in the sheet. These rules select on attributes and must still beat
+ * them (`display: grid` over `flex`), so they sit inside the scope with an extra attribute: the same margin they have
+ * in Chat's app, whatever the order the sheets load in. The scope element always carries `data-theme` (KitScope).
+ */
+.chat-scope[data-theme] {
+    /* Outside a row's narrow layout, a segmented control shows its track; the picker form is for narrow rows. */
+    [data-segmented] > [data-segmented-picker] {
         display: none;
     }
-    [data-segmented][data-collapse] > [data-segmented-picker] {
-        display: contents;
-    }
 
-    /* Value pickers: the value and an up-down chevron at the end of the row, no field box. */
-    [data-row-control] [data-picker] {
-        width: auto;
-        max-width: 100%;
-        border-color: transparent;
-        background: transparent;
-        padding-inline: 0;
-        color: var(--text-secondary);
-    }
-    [data-row-control] [data-picker] > [data-caret="field"] {
+    /* The Select trigger has two chevrons: a down chevron in a field, an up-down chevron as a row value. */
+    [data-picker] > [data-caret="row"] {
         display: none;
     }
-    [data-row-control] [data-picker] > [data-caret="row"] {
-        display: inline-flex;
+
+    /* Hidden-row summary of a closed Advanced section: narrow columns only. */
+    [data-advanced-summary] {
+        display: none;
     }
 
-    /* Whole-row hit areas: the picker, or a switch that is the row's control. */
-    [data-row-control] [data-picker]::after,
-    [data-row-control] > [role="switch"]::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-    }
-    [data-row-control] > [role="switch"] {
-        position: static;
-    }
-    [data-row-control] [data-picker]:focus-visible,
-    [data-row-control] > [role="switch"]:focus-visible {
-        outline: none;
-        box-shadow: none;
-    }
-    [data-row-control] [data-picker]:focus-visible::after,
-    [data-row-control] > [role="switch"]:focus-visible::after {
-        outline: 2px solid var(--ring);
-        outline-offset: -2px;
-    }
-    [data-setting-row]:has([data-row-control] [data-picker]:active),
-    [data-setting-row]:has([data-row-control] > [role="switch"]:not(:disabled):active) {
-        background-color: var(--hover);
-    }
+    @container settings (width < 36rem) {
+        /* Rows */
 
-    /* Everything else that takes input stays above the hit area. */
-    [data-row-control] > :not([data-picker]):not(:has([data-picker])):not([role="switch"]),
-    [data-row-text] :is(a, button, input, [tabindex]),
-    [data-setting-row] > :not(:first-child) {
-        position: relative;
-        z-index: 1;
-    }
+        [data-row-main] {
+            flex-wrap: wrap;
+            row-gap: calc(10px * var(--density, 1));
+        }
+        [data-row-main] > [data-row-text] {
+            flex: 1 1 50%;
+        }
+        /* Natural width (also in `split` rows), so a control that does not fit beside the text wraps instead of
+           squeezing its value. */
+        [data-row-main] > [data-row-control] {
+            flex: 0 0 auto;
+            min-width: 0;
+            max-width: 100%;
+            margin-inline-start: 0;
+        }
 
-    /* Sections: title above the group in small capitals, the note under the group. */
+        /* Wide controls: full width under the text. */
+        [data-row-main]:has(> [data-row-control] [data-wide]) {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        [data-row-main]:has(> [data-row-control] [data-wide]) > [data-row-control] {
+            width: 100%;
+            justify-content: flex-start;
+        }
+        [data-row-control] > [data-wide] {
+            flex: 1 1 auto;
+            width: 100%;
+            max-width: none;
+        }
 
-    [data-settings-section] {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-    }
-    [data-settings-section] > [data-section-head],
-    [data-settings-section] > [data-section-head] > [data-section-text] {
-        display: contents;
-    }
-    [data-settings-section] [data-section-title] {
-        grid-column: 1;
-        grid-row: 1;
-        align-self: end;
-        padding-inline: calc(16px * var(--density, 1));
-        padding-bottom: calc(8px * var(--density, 1));
-        font-size: 12px;
-        line-height: 16px;
-        font-weight: 500;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--text-tertiary);
-    }
-    [data-settings-section][data-tone="danger"] [data-section-title] {
-        color: var(--danger);
-    }
-    [data-settings-section] [data-section-action] {
-        grid-column: 2;
-        grid-row: 1;
-        align-self: end;
-        padding-bottom: calc(8px * var(--density, 1));
-    }
-    [data-settings-section] [data-section-note] {
-        grid-column: 1 / -1;
-        grid-row: 3;
-        padding-inline: calc(16px * var(--density, 1));
-        padding-top: calc(8px * var(--density, 1));
-    }
-    [data-settings-section] > [data-section-body] {
-        grid-column: 1 / -1;
-        grid-row: 2;
-    }
+        /* A segmented track that is the row's control fills the row; its segments share it equally. */
+        [data-row-control] > [data-segmented][data-wide] > [role="radiogroup"] {
+            width: 100%;
+        }
+        [data-row-control] > [data-segmented][data-wide] > [role="radiogroup"] > button {
+            flex: 1 1 0;
+            min-width: 0;
+            justify-content: center;
+        }
+        [data-row-control] > [data-segmented][data-wide] > [role="radiogroup"] > button > span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
-    /* Advanced: a card row that opens in place, with a summary of what it holds while closed (Material). */
-    [data-settings-section] [data-section-title]:has([data-advanced-toggle]) {
-        padding-inline: 0;
-        text-transform: none;
-        letter-spacing: normal;
-    }
-    [data-advanced-toggle] {
-        display: flex;
-        width: 100%;
-        min-height: 44px;
-        flex-wrap: wrap;
-        align-items: center;
-        column-gap: calc(4px * var(--density, 1));
-        border: 1px solid var(--border);
-        border-radius: var(--radius-2xl);
-        background: var(--panel);
-        padding: calc(10px * var(--density, 1)) calc(16px * var(--density, 1));
-        color: var(--text);
-        text-align: start;
-    }
-    [data-advanced-toggle] > [data-advanced-label] {
-        flex: 1 1 auto;
-    }
-    [data-advanced-toggle][aria-expanded="false"] > [data-advanced-summary] {
-        display: block;
-        order: 3;
-        flex-basis: 100%;
-        font-size: 13px;
-        line-height: 18.5px;
-        font-weight: 400;
-        color: var(--text-secondary);
+        /* Too many segments, or labels that do not fit: the same choice as a value picker. */
+        [data-segmented][data-collapse] > [role="radiogroup"] {
+            display: none;
+        }
+        [data-segmented][data-collapse] > [data-segmented-picker] {
+            display: contents;
+        }
+
+        /* Value pickers: the value and an up-down chevron at the end of the row, no field box. */
+        [data-row-control] [data-picker] {
+            width: auto;
+            max-width: 100%;
+            border-color: transparent;
+            background: transparent;
+            padding-inline: 0;
+            color: var(--text-secondary);
+        }
+        [data-row-control] [data-picker] > [data-caret="field"] {
+            display: none;
+        }
+        [data-row-control] [data-picker] > [data-caret="row"] {
+            display: inline-flex;
+        }
+
+        /* Whole-row hit areas: the picker, or a switch that is the row's control. */
+        [data-row-control] [data-picker]::after,
+        [data-row-control] > [role="switch"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+        }
+        [data-row-control] > [role="switch"] {
+            position: static;
+        }
+        [data-row-control] [data-picker]:focus-visible,
+        [data-row-control] > [role="switch"]:focus-visible {
+            outline: none;
+            box-shadow: none;
+        }
+        [data-row-control] [data-picker]:focus-visible::after,
+        [data-row-control] > [role="switch"]:focus-visible::after {
+            outline: 2px solid var(--ring);
+            outline-offset: -2px;
+        }
+        [data-setting-row]:has([data-row-control] [data-picker]:active),
+        [data-setting-row]:has([data-row-control] > [role="switch"]:not(:disabled):active) {
+            background-color: var(--hover);
+        }
+
+        /* Everything else that takes input stays above the hit area. */
+        [data-row-control] > :not([data-picker]):not(:has([data-picker])):not([role="switch"]),
+        [data-row-text] :is(a, button, input, [tabindex]),
+        [data-setting-row] > :not(:first-child) {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Sections: title above the group in small capitals, the note under the group. */
+
+        [data-settings-section] {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+        }
+        [data-settings-section] > [data-section-head],
+        [data-settings-section] > [data-section-head] > [data-section-text] {
+            display: contents;
+        }
+        [data-settings-section] [data-section-title] {
+            grid-column: 1;
+            grid-row: 1;
+            align-self: end;
+            padding-inline: calc(16px * var(--density, 1));
+            padding-bottom: calc(8px * var(--density, 1));
+            font-size: var(--type-footnote, 12px);
+            line-height: 16px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+        }
+        [data-settings-section][data-tone="danger"] [data-section-title] {
+            color: var(--danger);
+        }
+        [data-settings-section] [data-section-action] {
+            grid-column: 2;
+            grid-row: 1;
+            align-self: end;
+            padding-bottom: calc(8px * var(--density, 1));
+        }
+        [data-settings-section] [data-section-note] {
+            grid-column: 1 / -1;
+            grid-row: 3;
+            padding-inline: calc(16px * var(--density, 1));
+            padding-top: calc(8px * var(--density, 1));
+        }
+        [data-settings-section] > [data-section-body] {
+            grid-column: 1 / -1;
+            grid-row: 2;
+        }
+
+        /* Advanced: a card row that opens in place, with a summary of what it holds while closed (Material). */
+        [data-settings-section] [data-section-title]:has([data-advanced-toggle]) {
+            padding-inline: 0;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        [data-advanced-toggle] {
+            display: flex;
+            width: 100%;
+            min-height: 44px;
+            flex-wrap: wrap;
+            align-items: center;
+            column-gap: calc(4px * var(--density, 1));
+            border: 1px solid var(--border);
+            border-radius: var(--radius-2xl);
+            background: var(--panel);
+            padding: calc(10px * var(--density, 1)) calc(16px * var(--density, 1));
+            color: var(--text);
+            text-align: start;
+        }
+        [data-advanced-toggle] > [data-advanced-label] {
+            flex: 1 1 auto;
+        }
+        [data-advanced-toggle][aria-expanded="false"] > [data-advanced-summary] {
+            display: block;
+            order: 3;
+            flex-basis: 100%;
+            font-size: var(--type-subhead, 13px);
+            line-height: 18.5px;
+            font-weight: 400;
+            color: var(--text-secondary);
+        }
     }
 }

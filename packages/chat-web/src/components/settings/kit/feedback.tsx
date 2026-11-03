@@ -35,6 +35,8 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
     size?: ButtonSize;
     /** Show a spinner and block clicks. */
     busy?: boolean;
+    /** Draw the single child element (a link) with the button's look. */
+    asChild?: boolean;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
