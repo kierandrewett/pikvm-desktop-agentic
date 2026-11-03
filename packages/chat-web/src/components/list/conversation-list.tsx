@@ -131,7 +131,7 @@ export function ConversationList() {
                 )}
                 {groups.map((g) => (
                     <section key={g.id} className="mb-[var(--section-gap)]">
-                        <h3 className="px-[var(--row-padding-x)] py-1 text-[13px] text-tertiary">{g.label}</h3>
+                        <h3 className="px-[var(--row-padding-x)] py-1 text-[length:var(--type-subhead,13px)] text-tertiary">{g.label}</h3>
                         <ul className="flex flex-col gap-[var(--row-gap)]">
                             {g.items.map((c) => (
                                 <Row key={c.id} c={c} selected={c.id === active} />

@@ -38,7 +38,7 @@ export function ForkNotice({ conversationId }: { conversationId: string }) {
     return (
         <p
             data-fork-notice=""
-            className="mx-auto mb-6 flex max-w-full items-center justify-center gap-1.5 px-2 pt-2 text-[13px] leading-5 text-tertiary"
+            className="mx-auto mb-6 flex max-w-full items-center justify-center gap-1.5 px-2 pt-2 text-[length:var(--type-subhead,13px)] leading-5 text-tertiary"
         >
             <GitForkIcon aria-hidden size={14} className="shrink-0" />
             <span className="min-w-0 truncate">

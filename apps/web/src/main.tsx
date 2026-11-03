@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { enablePressedState, markIos } from "./app/platform";
 import { createAppRouter } from "./app/router";
 import { markStandalone } from "./app/standalone";
 import { registerServiceWorkerForPage } from "./host/service-worker";
@@ -17,6 +18,8 @@ const queryClient = new QueryClient({
 });
 
 markStandalone();
+markIos();
+enablePressedState();
 initTheme();
 registerServiceWorkerForPage();
 watchPageForUpdates();

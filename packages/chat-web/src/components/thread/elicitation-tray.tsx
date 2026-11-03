@@ -283,7 +283,7 @@ function TrayBody({
         >
             <div className="flex items-center gap-2 px-1">
                 <PlugIcon size={16} className="shrink-0 text-secondary" aria-hidden />
-                <h3 className="min-w-0 flex-1 truncate text-[14px] leading-5 font-semibold text-text">
+                <h3 className="min-w-0 flex-1 truncate text-[length:var(--type-body,14px)] leading-5 font-semibold text-text">
                     {t("thread-form-asks", { server: item.server_label })}
                 </h3>
                 {count > 1 && (

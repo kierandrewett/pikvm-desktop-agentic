@@ -472,6 +472,8 @@ export function RawKeyRow({ k, scope = "user", label }: { k: string; scope?: "us
                         aria-label={t("settings-json-label", { label: label ?? k })}
                         value={draft}
                         spellCheck={false}
+                        autoCapitalize="none"
+                        autoCorrect="off"
                         disabled={!b.writable}
                         rows={Math.min(12, Math.max(2, draft.split("\n").length))}
                         onChange={(e) => {

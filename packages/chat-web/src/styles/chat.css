@@ -12,6 +12,15 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 @custom-variant hover-device (@media (hover: hover) and (pointer: fine));
+/* Tailwind's own `hover:` is (hover: hover) alone; a touch screen that reports hover (an iPad with a pointer, some
+   Android) would still stick a hover state after a tap. `hover:` and `group-hover:` mean a real pointer here. */
+@custom-variant hover {
+    @media (hover: hover) and (pointer: fine) {
+        &:hover {
+            @slot;
+        }
+    }
+}
 
 
 /* Map tokens to Tailwind utilities: bg-surface, text-secondary, border-default, ... */
@@ -117,20 +126,23 @@
     --default-transition-duration: calc(150ms * var(--motion-scale));
     --default-transition-timing-function: var(--ease-standard);
 
-    --text-xs: 12px;
-    --text-xs--line-height: 16px;
-    --text-sm: 13px;
-    --text-sm--line-height: 18.5px;
-    --text-base: 14px;
-    --text-base--line-height: 20px;
-    --text-md: 16px;
-    --text-md--line-height: 26px;
-    --text-lg: 18px;
-    --text-lg--line-height: 24px;
-    --text-xl: 20px;
-    --text-xl--line-height: 28px;
-    --text-2xl: 28px;
-    --text-2xl--line-height: 34px;
+    /* The type scale is the host's (apps/web styles.css: --type-*): the same px as before on a desktop and Android,
+       the system text styles scaled by Dynamic Type on iOS. The fallbacks are the scale this pane shipped with, for a
+       host that defines none. Line heights keep their ratio. */
+    --text-xs: var(--type-footnote, 12px);
+    --text-xs--line-height: calc(var(--type-footnote, 12px) * 16 / 12);
+    --text-sm: var(--type-subhead, 13px);
+    --text-sm--line-height: calc(var(--type-subhead, 13px) * 18.5 / 13);
+    --text-base: var(--type-body, 14px);
+    --text-base--line-height: calc(var(--type-body, 14px) * 20 / 14);
+    --text-md: var(--type-headline, 16px);
+    --text-md--line-height: calc(var(--type-headline, 16px) * 26 / 16);
+    --text-lg: var(--type-title3, 18px);
+    --text-lg--line-height: calc(var(--type-title3, 18px) * 24 / 18);
+    --text-xl: var(--type-title2, 20px);
+    --text-xl--line-height: calc(var(--type-title2, 20px) * 28 / 20);
+    --text-2xl: var(--type-title1, 28px);
+    --text-2xl--line-height: calc(var(--type-title1, 28px) * 34 / 28);
 
     --font-weight-normal: var(--font-weight-ui);
 }
@@ -280,7 +292,7 @@
         0 0 0 0.5px var(--border),
         var(--shadow-card);
 }
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
     :is(button, a).glass-chip:hover:not(:disabled) {
         background-image: linear-gradient(var(--color-hover), var(--color-hover));
     }

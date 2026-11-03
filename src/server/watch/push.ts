@@ -31,6 +31,9 @@ export interface PushPayload {
     tag: string;
     /** Where a tap goes, within the app. */
     url: string;
+    /** What this push adds to the app icon's badge: a positive whole number, or `true` for one. The service worker
+     *  (apps/web/public/sw.js) counts them until the person looks at the screen. */
+    badge?: number | true;
 }
 
 export interface SendResult {

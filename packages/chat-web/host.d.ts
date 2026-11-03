@@ -22,3 +22,11 @@ export function ChatPane(): ReactElement;
 export function ProvidersPage(): ReactElement;
 export function ModelsPage(): ReactElement;
 export function AgentPage(): ReactElement;
+
+export interface RunFinished {
+    readonly conversationId: string;
+    /** How the response ended; `cancelled` is the person stopping it themselves. */
+    readonly status: "completed" | "failed" | "incomplete" | "cancelled";
+}
+/** Hear every response this page watches end, from now on. Returns what stops listening. */
+export function onRunFinished(listener: (event: RunFinished) => void): () => void;

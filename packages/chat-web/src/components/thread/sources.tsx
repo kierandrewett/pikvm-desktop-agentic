@@ -192,6 +192,8 @@ export function SourcesView({
                         type="search"
                         name="source-filter"
                         autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
                         aria-label={t("thread-sources-filter")}
                         placeholder={t("thread-sources-filter")}
                         value={query}

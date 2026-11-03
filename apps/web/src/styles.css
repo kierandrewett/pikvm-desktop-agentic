@@ -2,6 +2,17 @@
 @import "tw-animate-css";
 @import "tw-shimmer";
 
+/* Tailwind's own `hover:` is (hover: hover) alone; a touch screen that reports hover (an iPad with a pointer, some
+   Android) would stick a hover state after a tap. Here `hover:` and `group-hover:` mean a real pointer, the same
+   media query every hand-written :hover rule in this app sits in (and which test/hover-media.test.ts audits). */
+@custom-variant hover {
+    @media (hover: hover) and (pointer: fine) {
+        &:hover {
+            @slot;
+        }
+    }
+}
+
 /*
  * The desktop app's palette and component language (src/views/console.css, DESIGN.md),
  * written once here. Names match the console's tokens so a rule can be lifted between the
@@ -37,6 +48,87 @@
     /* What the top of the page keeps clear for the system: the status-bar inset, or at least --status-edge. */
     --status-edge: 0px;
     --top-reserved: max(env(safe-area-inset-top, 0px), var(--status-edge));
+}
+
+/*
+ * Type tokens: the one place the app's text sizes are decided. Named after the iOS text styles (the role, not the
+ * number), so a size is picked by what the text IS. On a desktop and on Android they are the app's own scale in px,
+ * exactly what the CSS said before the tokens existed. On iOS (html[data-ios], below) they are the system's text
+ * styles at the size the person chose in Settings > Display & Brightness > Text Size (Dynamic Type).
+ *
+ * The "chrome" tokens are for dense controls (the KVM toolbar, the key rows, the bottom bar): they follow Dynamic Type
+ * only up to a ceiling, so a key or a tab still fits its box at a large setting. The chat pane's Tailwind scale
+ * (text-xs ... text-2xl, and its prose) reads the same tokens (packages/chat-web styles/chat.css).
+ */
+:root {
+    --type-title1: 28px;
+    --type-page-title: 24px;
+    --type-title2: 20px;
+    --type-title2-lg: 22px;
+    --type-title3: 18px;
+    --type-headline: 16px;
+    --type-callout: 15px;
+    --type-body: 14px;
+    --type-subhead-lg: 13.5px;
+    --type-subhead: 13px;
+    --type-footnote-lg: 12.5px;
+    --type-footnote: 12px;
+    --type-caption: 11px;
+    /* A text field is never smaller than this on a phone: iOS zooms the page into a field under 16px. */
+    --type-field: 16px;
+    /* Dense chrome. */
+    --type-chrome-lg: 15px;
+    --type-chrome: 13px;
+    --type-chrome-sm: 12.5px;
+    --type-chrome-xs: 11.5px;
+    --type-nav: 11px;
+}
+
+/* --dt is the body text size the system gives the page, set on <body> below (a length, so a token can scale it). */
+@property --dt {
+    syntax: "<length>";
+    inherits: true;
+    initial-value: 17px;
+}
+
+/*
+ * iOS: the system font at the system's text sizes. `font: -apple-system-body` is Dynamic Type: the size follows the
+ * person's text-size setting (and -apple-system-body is not a size CSS can read into a variable, so --dt takes it
+ * from the body's own computed size; `1em` on the element that has it). The other text styles are Apple's sizes at
+ * the default setting (17 body, 15 subheadline, 13 footnote, 12 caption, 28 title) as a share of the body size,
+ * so they scale with it. The scale stops at 28px (about AX1: past that a phone row has no room for the words).
+ * Dense chrome scales less and stops sooner: at the default setting it is the size it always was, and the
+ * ceilings are what a key, a toolbar button and a tab can hold. `data-ios` is set before first paint by index.html
+ * (and app/platform.ts, for a page that script did not run for).
+ */
+html[data-ios] body {
+    font: -apple-system-body;
+    line-height: 1.4;
+    --dt: min(1em, 28px);
+    --type-title1: calc(var(--dt) * 28 / 17);
+    --type-page-title: calc(var(--dt) * 28 / 17);
+    --type-title2: calc(var(--dt) * 22 / 17);
+    --type-title2-lg: calc(var(--dt) * 22 / 17);
+    --type-title3: calc(var(--dt) * 20 / 17);
+    --type-headline: var(--dt);
+    --type-callout: calc(var(--dt) * 16 / 17);
+    --type-body: var(--dt);
+    --type-subhead-lg: calc(var(--dt) * 15 / 17);
+    --type-subhead: calc(var(--dt) * 15 / 17);
+    --type-footnote-lg: calc(var(--dt) * 13 / 17);
+    --type-footnote: calc(var(--dt) * 13 / 17);
+    --type-caption: calc(var(--dt) * 12 / 17);
+    --type-field: max(16px, var(--dt));
+    --type-chrome-lg: min(calc(var(--dt) * 15 / 17), 19px);
+    --type-chrome: min(calc(var(--dt) * 13 / 17), 17px);
+    --type-chrome-sm: min(calc(var(--dt) * 12.5 / 17), 16px);
+    --type-chrome-xs: min(calc(var(--dt) * 11.5 / 17), 15px);
+    --type-nav: clamp(10px, calc(var(--dt) * 11 / 17), 14px);
+}
+
+/* Everything under <body> starts from the body size, capped; <body>'s own font is the uncapped system size. */
+html[data-ios] body > * {
+    font-size: var(--type-body);
 }
 
 /* The installed app has no URL bar, so its large viewport (100vh) is the whole screen. 100dvh, 100svh,
@@ -142,6 +234,7 @@ html[data-ios-standalone] {
     html,
     body {
         margin: 0;
+        -webkit-touch-callout: none;
         height: 100%;
         overflow: hidden;
         position: fixed;
@@ -193,12 +286,75 @@ html[data-ios-standalone] {
  *    top edge. The system tints its bar from the page at the top edge, so what is found there is one solid colour,
  *    the same as html, body and the theme-color meta: no blur, no gradient, no shadow.
  *    It follows --app-top, which the shell sets on <html>, when iOS pans the visual viewport for the keyboard.
+    /* A tap is a tap: no double-tap zoom or 300ms wait on anything that can be pressed. (The KVM picture keeps its
+       own touch-action, kvm.css: it takes the finger.) */
+    :is(
+            button,
+            a[href],
+            input,
+            select,
+            textarea,
+            label,
+            summary,
+            [role="button"],
+            [role="tab"],
+            [role="menuitem"],
+            [role="menuitemradio"],
+            [role="menuitemcheckbox"],
+            [role="switch"],
+            [role="option"],
+            [role="radio"],
+            [role="checkbox"]
+        ) {
+        touch-action: manipulation;
+    }
+
  *  - BOTTOM. The inset belongs to the navigation bar (nav-bar pads itself by it, on its own background),
  *    and nothing else paints it: the shell has no bottom padding in the phone layout, and the bar is the last
  *    row. That the shell then REACHES the bottom is the height rule above (100vh in the installed app).
  *
  * All of this is 0 where there is no inset (desktop, Android, a browser tab), so it costs nothing there.
  */
+/*
+ * Pressed. Anything that can be pressed answers the finger at once: dimmed on touch-down, no transition on the way in
+ * (the way out keeps the control's own, usually none). iOS only draws :active when the page listens for touches (see
+ * app/platform.ts). Unlayered and a little specific on purpose: it must beat a control's own `transition`, and it adds
+ * to, not replaces, a control's own pressed colour.
+ */
+:is(
+        button,
+        a[href],
+        summary,
+        [role="button"],
+        [role="tab"],
+        [role="menuitem"],
+        [role="menuitemradio"],
+        [role="menuitemcheckbox"],
+        [role="switch"],
+        [role="option"],
+        [role="radio"],
+        [role="checkbox"]
+    ):active:not(:disabled, [aria-disabled="true"]) {
+    opacity: 0.6;
+    transition-duration: 0s;
+}
+
+/*
+ * iOS zooms the page into any text field whose font is under 16px when it takes focus, and does not zoom back. So on a
+ * touch screen no text field is smaller than --type-field, whatever a component or a Tailwind class says (this is
+ * `!important` for that reason: the chat pane's utilities and every dialog's own size would otherwise each need it).
+ * The fields a person types words into; a checkbox, a file picker or a button-type input has no text to zoom to.
+ */
+@media (pointer: coarse) {
+    :is(
+            input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="color"], [type="image"], [type="hidden"]),
+            textarea,
+            select
+        ) {
+        font-size: var(--type-field) !important;
+    }
+}
+
 #status-edge {
     position: fixed;
     top: var(--app-top, 0px);
@@ -314,7 +470,7 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     background: var(--card);
     border-bottom: 1px solid var(--border);
     color: var(--muted-foreground);
-    font-size: 12.5px;
+    font-size: var(--type-chrome-sm);
     font-weight: 600;
     user-select: none;
 }
@@ -369,7 +525,7 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     background: transparent;
     color: var(--muted-foreground);
     text-decoration: none;
-    font-size: 11px;
+    font-size: var(--type-nav);
     font-weight: 550;
     line-height: 1.2;
     transition:
@@ -449,7 +605,7 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     color: var(--foreground);
     border: 1px solid var(--border);
     box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
-    font-size: 12px;
+    font-size: var(--type-footnote);
     font-weight: 550;
     line-height: 1.2;
     white-space: nowrap;
@@ -643,7 +799,7 @@ a.row[aria-current="page"][data-selected="true"] {
     padding: 0 12px;
     border-radius: var(--radius-control);
     color: var(--muted-foreground);
-    font-size: 13px;
+    font-size: var(--type-subhead);
     font-weight: 550;
     cursor: pointer;
     transition:
@@ -748,7 +904,7 @@ a.row[aria-current="page"][data-selected="true"] {
     border-radius: var(--radius-control);
     background: var(--secondary);
     color: var(--foreground);
-    font-size: 13px;
+    font-size: var(--type-subhead);
     font-weight: 550;
     text-decoration: none;
     display: inline-flex;
@@ -878,7 +1034,7 @@ a.row[aria-current="page"][data-selected="true"] {
 .empty-state h1 {
     margin: 0;
     color: var(--foreground);
-    font-size: 16px;
+    font-size: var(--type-headline);
     font-weight: 600;
 }
 

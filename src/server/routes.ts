@@ -31,7 +31,7 @@ import {
     gate,
     isLoopback,
     loginPage,
-    PUBLIC_PATHS,
+    isPublicPath,
     sameOrigin,
     sessionValue,
     SESSION_COOKIE,
@@ -289,7 +289,7 @@ export interface Router {
 export function createRouter(targets: RouteTargets): Router {
     const routes = createRoutes(targets);
     const refused = (req: IncomingMessage, path: string): boolean =>
-        targets.refuseLoopback === true && isLoopback(req) && !Object.hasOwn(PUBLIC_PATHS, path);
+        targets.refuseLoopback === true && isLoopback(req) && !isPublicPath(path);
 
     return {
         onRequest(req, res) {

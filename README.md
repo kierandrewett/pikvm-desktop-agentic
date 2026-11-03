@@ -123,7 +123,11 @@ signed in:
 GET=^/app/manifest\.webmanifest$
 GET=^/app/sw\.js$
 GET=^/app/(icon|icon-192|icon-512|apple-touch-icon)\.png$
+GET=^/app/splash/apple-splash-(portrait|landscape)-[23]x-[0-9]+x[0-9]+\.png$
 ```
+
+The last line is the launch image of the installed iPhone app (`apple-touch-startup-image`, generated at build time
+from the icon). iOS fetches it without the session; without the rule the app starts on a blank screen, as before.
 
 Everything else under `/app/`, and everything the host proxies to the Pi, stays
 behind sign-in. The idle jiggler is off unless `PIKVM_JIGGLER=1` sets its

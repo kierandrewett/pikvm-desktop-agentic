@@ -16,6 +16,10 @@
 "use strict";
 
 const CACHE = "pikvm-app-v1";
+// The unseen screen pushes, counted here because no page may be open to count them (see notify/app-badge.ts, which
+// reads and clears the same record).
+const BADGE_CACHE = "pikvm-badge-v1";
+const BADGE_KEY = "/app/badge-state";
 
 self.addEventListener("install", () => {
     self.skipWaiting();
@@ -26,7 +30,7 @@ self.addEventListener("activate", (e) => {
     e.waitUntil(
         caches
             .keys()
-            .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+            .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== BADGE_CACHE).map((k) => caches.delete(k))))
             .then(() => self.clients.claim()),
     );
 });
@@ -124,16 +128,60 @@ self.addEventListener("push", (e) => {
     const tag = typeof data.tag === "string" && data.tag !== "" ? data.tag : "pikvm-screen";
     const url = typeof data.url === "string" && data.url.startsWith("/app/") ? data.url : "/app/";
     e.waitUntil(
-        self.registration.showNotification(title, {
-            body,
-            tag,
-            renotify: true,
-            icon: "/app/icon-192.png",
-            badge: "/app/icon-192.png",
-            data: { url },
-        }),
+        Promise.all([
+            self.registration.showNotification(title, {
+                body,
+                tag,
+                renotify: true,
+                icon: "/app/icon-192.png",
+                badge: "/app/icon-192.png",
+                data: { url },
+            }),
+            countBadge(badgeIncrement(data.badge)),
+        ]),
     );
 });
+
+// ---- The icon badge --------------------------------------------------------------------------------
+//
+// A push may carry `badge`: a positive integer (how many things it adds), or `true` (one). The worker puts the
+// running total of unseen ones on the app icon with navigator.setAppBadge, so it is there when the app is closed, and
+// tells any open page (which clears it when the person is looking at the KVM). Where the API is missing, or the cache
+// is, the notification is all there is: nothing here may fail the push.
+
+function badgeIncrement(value) {
+    if (value === true) return 1;
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : 0;
+}
+
+async function unseenPushes() {
+    try {
+        const hit = await (await caches.open(BADGE_CACHE)).match(BADGE_KEY);
+        const record = hit ? await hit.json() : null;
+        return record && Number.isInteger(record.screen) && record.screen > 0 ? record.screen : 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
+async function countBadge(add) {
+    if (add <= 0) return;
+    try {
+        const unseen = (await unseenPushes()) + add;
+        try {
+            const cache = await caches.open(BADGE_CACHE);
+            await cache.put(BADGE_KEY, new Response(JSON.stringify({ screen: unseen }), { headers: { "content-type": "application/json" } }));
+        } catch (_) {
+            // No cache: the icon still gets this push's count.
+        }
+        const nav = self.navigator;
+        if (nav && typeof nav.setAppBadge === "function") await nav.setAppBadge(unseen);
+        const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+        for (const w of windows) w.postMessage({ type: "pikvm-badge", kind: "screen", count: unseen });
+    } catch (_) {
+        // A browser that refuses the badge (no permission, not installed) still shows the notification.
+    }
+}
 
 self.addEventListener("notificationclick", (e) => {
     e.notification.close();

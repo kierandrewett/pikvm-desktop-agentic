@@ -242,7 +242,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     border: 1px solid var(--border);
     background: color-mix(in srgb, var(--card) 94%, transparent);
     color: var(--foreground);
-    font-size: 12px;
+    font-size: var(--type-footnote);
     font-weight: 650;
     letter-spacing: 0.01em;
     white-space: nowrap;
@@ -299,7 +299,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     opacity: 0;
     border: 0;
     padding: 0;
-    font-size: 16px;
+    font-size: var(--type-field);
     background: transparent;
     pointer-events: none;
 }
@@ -323,7 +323,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 }
 .kvm-status {
     min-width: 0;
-    font-size: 12.5px;
+    font-size: var(--type-chrome-sm);
     font-weight: 550;
     color: var(--muted-foreground);
     white-space: nowrap;
@@ -349,7 +349,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     justify-content: center;
     flex: none;
     font: inherit;
-    font-size: 15px;
+    font-size: var(--type-chrome-lg);
     font-weight: 600;
     line-height: 1;
     touch-action: manipulation;
@@ -376,10 +376,12 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     height: 15px;
     pointer-events: none;
 }
-.kvm-tb-btn:hover,
-.kvm-ibtn:hover {
-    background: color-mix(in srgb, currentColor 16%, transparent);
-    color: var(--foreground);
+@media (hover: hover) and (pointer: fine) {
+    .kvm-tb-btn:hover,
+    .kvm-ibtn:hover {
+        background: color-mix(in srgb, currentColor 16%, transparent);
+        color: var(--foreground);
+    }
 }
 .kvm-tb-btn:active,
 .kvm-ibtn:active {
@@ -467,7 +469,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     background: var(--secondary);
     color: var(--foreground);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--type-chrome);
     font-weight: 550;
     white-space: nowrap;
     touch-action: manipulation;
@@ -502,7 +504,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     padding: 8px 10px;
     border-radius: 7px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--type-chrome);
     font-weight: 500;
     display: block;
     width: 100%;
@@ -511,6 +513,11 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 .kvm-item:hover,
 .kvm-item:active {
     background: var(--accent);
+@media (hover: hover) and (pointer: fine) {
+    .kvm-item:hover {
+        background: var(--accent);
+    }
+}
 }
 .kvm-item:disabled {
     opacity: 0.45;
@@ -532,7 +539,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 }
 .kvm-pip {
     flex: none;
-    font-size: 11px;
+    font-size: var(--type-nav);
     font-weight: 700;
     color: var(--muted-foreground);
     background: var(--secondary);
@@ -597,7 +604,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 }
 .kvm-krow-wrap > .kvm-key {
     flex: 0 0 calc((100% - 30px) / 6);
-    font-size: 12.5px;
+    font-size: var(--type-chrome-sm);
 }
 /* The status text gives way first on a narrow phone; the dot keeps the state. */
 @media (max-width: 440px) {
@@ -623,7 +630,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 }
 .kvm-sheet-label {
     padding: 4px 8px 6px;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     font-weight: 550;
     color: var(--muted-foreground);
 }
@@ -664,7 +671,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     width: 22px;
     height: 22px;
     color: var(--foreground);
-    font-size: 12px;
+    font-size: var(--type-footnote);
     font-weight: 650;
 }
 .kvm-macro-icon svg {
@@ -672,7 +679,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     height: 22px;
 }
 .kvm-macro-label {
-    font-size: 11.5px;
+    font-size: var(--type-chrome-xs);
     line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -821,7 +828,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     border-radius: 999px;
     background: color-mix(in srgb, var(--card) 90%, transparent);
     box-shadow: 0 0 0 1px var(--border);
-    font-size: 12px;
+    font-size: var(--type-footnote);
     font-weight: 600;
 }
 
@@ -843,7 +850,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     padding: 4px 12px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--card) 90%, transparent);
-    font-size: 12px;
+    font-size: var(--type-footnote);
     font-weight: 600;
     pointer-events: none;
 }
@@ -887,14 +894,14 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 }
 .kvm-dialog-title {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--type-body);
     font-weight: 650;
     letter-spacing: -0.01em;
 }
 .kvm-dialog-note {
     margin: 0;
     color: var(--muted-foreground);
-    font-size: 13px;
+    font-size: var(--type-subhead);
 }
 .kvm-dialog-row {
     display: flex;
@@ -902,12 +909,12 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     gap: 8px;
 }
 .kvm-dialog-label {
-    font-size: 12px;
+    font-size: var(--type-footnote);
     color: var(--muted-foreground);
 }
 .kvm-dialog-hint {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     color: var(--muted-foreground);
 }
 .kvm-dialog-actions {
@@ -922,7 +929,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     background: var(--secondary);
     color: var(--foreground);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--type-subhead);
 }
 .kvm-textarea {
     width: 100%;
@@ -949,11 +956,13 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     background: var(--secondary);
     color: var(--foreground);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--type-subhead);
     font-weight: 600;
 }
-.kvm-btn:hover {
-    background: var(--accent);
+@media (hover: hover) and (pointer: fine) {
+    .kvm-btn:hover {
+        background: var(--accent);
+    }
 }
 .kvm-btn:disabled {
     opacity: 0.5;
@@ -1014,7 +1023,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     color: var(--overlay-ink);
     border: 1px solid color-mix(in srgb, var(--overlay-ink) 16%, transparent);
     box-shadow: 0 4px 18px rgb(0 0 0 / 0.4);
-    font-size: 13px;
+    font-size: var(--type-subhead);
     animation: kvm-fade 0.15s ease-out;
 }
 .kvm-agent-text {

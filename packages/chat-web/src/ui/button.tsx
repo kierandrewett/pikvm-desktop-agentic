@@ -98,7 +98,7 @@ const variants: Record<ButtonVariant, string> = {
     secondary: "font-normal text-text before:bg-soft hover-device:hover:before:bg-hover active:before:bg-pressed",
     "danger-soft":
         "font-medium text-danger before:bg-danger-bg hover-device:hover:text-on-danger hover-device:hover:before:bg-danger-solid",
-    link: "font-normal text-[13px] leading-5 gap-1.5 [--icon:14px] text-tertiary hover-device:hover:text-text focus-visible:text-text",
+    link: "font-normal text-[length:var(--type-subhead,13px)] leading-5 gap-1.5 [--icon:14px] text-tertiary hover-device:hover:text-text focus-visible:text-text",
 };
 
 /**

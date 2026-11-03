@@ -30,3 +30,5 @@ vi.mock("@pikvm/chat-web", async () => {
         AgentPage: page("agent"),
     };
 });
+        // The run-end signal the app listens to (the icon badge): a stub that never fires.
+        onRunFinished: () => () => {},

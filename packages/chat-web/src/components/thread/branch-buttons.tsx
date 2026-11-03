@@ -123,7 +123,7 @@ export function MessageTime({ at }: { at: number | undefined }) {
                 dateTime={new Date(at).toISOString()}
                 aria-label={t("branch-sent-at", { day, time })}
                 data-message-time=""
-                className="msg-time flex h-8 shrink-0 items-center px-1.5 text-[13px] leading-5 text-tertiary tabular-nums pointer-coarse:h-11"
+                className="msg-time flex h-8 shrink-0 items-center px-1.5 text-[length:var(--type-subhead,13px)] leading-5 text-tertiary tabular-nums pointer-coarse:h-11"
             >
                 {day === t("thread-day-today") ? time : t("branch-time-other-day", { day, time })}
             </time>

@@ -63,7 +63,7 @@ function Body({ conversationId }: { conversationId: string | undefined }) {
         return (
             <div className="flex min-h-0 flex-1 flex-col" data-new-chat="">
                 <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3">
-                    <h2 className="text-center text-[22px] font-normal text-balance">{t("thread-home-heading")}</h2>
+                    <h2 className="text-center text-[length:var(--type-title2-lg,22px)] font-normal text-balance">{t("thread-home-heading")}</h2>
                 </div>
                 <div className="thread-content shrink-0 pb-[max(12px,var(--dock-safe-bottom))]">
                     <div className="thread-col flex flex-col" style={{ "--thread-pad": "12px" } as CSSProperties}>
@@ -80,7 +80,7 @@ function Body({ conversationId }: { conversationId: string | undefined }) {
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]">
             <div className="thread-content mt-auto pb-[max(12px,var(--dock-safe-bottom))]">
                 <div className="thread-col flex flex-col">
-                    <h2 className="mb-6 text-center text-[22px] font-normal text-balance">{t("thread-home-heading")}</h2>
+                    <h2 className="mb-6 text-center text-[length:var(--type-title2-lg,22px)] font-normal text-balance">{t("thread-home-heading")}</h2>
                     <Composer variant="home" embedded onCreated={create} />
                 </div>
             </div>

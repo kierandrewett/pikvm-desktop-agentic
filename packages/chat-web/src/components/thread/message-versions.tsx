@@ -111,7 +111,7 @@ export function MessageEditor({ message }: { message: MessageItem }) {
                 rows={1}
                 aria-label={t("branch-editor-label")}
                 aria-describedby={`edit-hint-${message.id}`}
-                className="max-h-80 w-full resize-none bg-transparent px-1 text-[16px] leading-6 text-text outline-none"
+                className="max-h-80 w-full resize-none bg-transparent px-1 text-[length:var(--type-headline,16px)] leading-6 text-text outline-none"
                 onChange={(e) => {
                     setText(e.target.value);
                     fit(e.target);
@@ -119,7 +119,7 @@ export function MessageEditor({ message }: { message: MessageItem }) {
                 onKeyDown={onKeyDown}
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
-                <p id={`edit-hint-${message.id}`} className="me-auto px-1 text-[13px] leading-5 text-tertiary">
+                <p id={`edit-hint-${message.id}`} className="me-auto px-1 text-[length:var(--type-subhead,13px)] leading-5 text-tertiary">
                     {busy ? t("branch-busy") : t("branch-editor-hint")}
                 </p>
                 <Button size="lg" variant="soft" pill onClick={cancel}>
@@ -204,7 +204,7 @@ export function VersionSwitcher({ message }: { message: MessageItem }) {
             aria-label={t("branch-versions", { index: index + 1, count: ids.length })}
             aria-busy={pending || undefined}
             data-versions={`${index + 1}/${ids.length}`}
-            className={cn("flex min-h-8 items-center text-[13px] leading-5 text-tertiary", pending && "opacity-60")}
+            className={cn("flex min-h-8 items-center text-[length:var(--type-subhead,13px)] leading-5 text-tertiary", pending && "opacity-60")}
         >
             {arrow(-1)}
             <span aria-hidden className="min-w-8 text-center tabular-nums" data-version-label="">

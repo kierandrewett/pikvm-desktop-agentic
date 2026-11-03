@@ -41,7 +41,7 @@
     border: 1px solid var(--border);
     border-radius: 999px;
     background: var(--surface);
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     color: var(--text);
 }
@@ -66,6 +66,11 @@
 .aa-result:hover,
 .aa-result:focus-visible {
     background: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+    .aa-result:hover {
+        background: var(--hover);
+    }
+}
 }
 .aa-result:focus-visible {
     outline: 2px solid var(--ring);
@@ -99,12 +104,12 @@
     white-space: nowrap;
 }
 .aa-result-host {
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 17px;
     color: var(--text);
 }
 .aa-result-path {
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 16px;
     color: var(--text-tertiary);
 }
@@ -114,14 +119,16 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     margin-top: calc(6px * var(--density));
-    font-size: 16px;
+    font-size: var(--type-headline, 16px);
     line-height: 22px;
     font-weight: 500;
     color: var(--accent-text);
 }
-.aa-result:hover .aa-result-title {
-    text-decoration: underline;
-    text-underline-offset: 2px;
+@media (hover: hover) and (pointer: fine) {
+    .aa-result:hover .aa-result-title {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
 }
 .aa-result-snippet {
     display: -webkit-box;
@@ -129,14 +136,14 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     margin-top: 2px;
-    font-size: 13.5px;
+    font-size: var(--type-subhead-lg, 13.5px);
     line-height: 20px;
     color: var(--text-secondary);
 }
 .aa-error-line,
 .aa-quiet-line {
     padding: calc(6px * var(--density)) 8px;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 19px;
     color: var(--text-tertiary);
 }
@@ -164,13 +171,17 @@
     padding: calc(9px * var(--density)) 12px;
     text-align: start;
 }
-.aa-lane-row:hover,
-.aa-view-run:hover {
-    background: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+    .aa-lane-row:hover,
+    .aa-view-run:hover {
+        background: var(--hover);
+    }
 }
-.aa-lane-row:hover .act-caret,
-.aa-view-run:hover .act-caret {
-    color: var(--text);
+@media (hover: hover) and (pointer: fine) {
+    .aa-lane-row:hover .act-caret,
+    .aa-view-run:hover .act-caret {
+        color: var(--text);
+    }
 }
 .aa-lane-row:focus-visible,
 .aa-view-run:focus-visible {
@@ -187,7 +198,7 @@
     min-width: 0;
     align-items: baseline;
     gap: 8px;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     color: var(--text);
 }
@@ -199,7 +210,7 @@
 }
 .aa-lane-name {
     flex-shrink: 0;
-    font-size: 12.5px;
+    font-size: var(--type-footnote-lg, 12.5px);
     color: var(--text-tertiary);
 }
 .aa-lane-now {
@@ -208,7 +219,7 @@
     align-items: center;
     gap: 8px;
     margin-top: 1px;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-secondary);
 }
@@ -231,7 +242,7 @@
     height: 20px;
     align-items: center;
     gap: 8px;
-    font-size: 12.5px;
+    font-size: var(--type-footnote-lg, 12.5px);
     color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
 }
@@ -277,7 +288,7 @@
 }
 
 .aa-task {
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-tertiary);
     white-space: pre-wrap;
@@ -286,7 +297,7 @@
     border-radius: calc(10px * var(--roundness));
     background: color-mix(in srgb, var(--text) 3.5%, transparent);
     padding: calc(8px * var(--density)) 12px;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-secondary);
 }
@@ -319,7 +330,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12.5px;
+    font-size: var(--type-footnote-lg, 12.5px);
     line-height: 18px;
     font-weight: 500;
     color: var(--text-tertiary);

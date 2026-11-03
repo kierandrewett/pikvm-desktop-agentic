@@ -1834,8 +1834,9 @@ export function Composer({
         if ((e.key === "Backspace" || e.key === "Delete") && !composing && deleteChip(e)) return;
         if (e.key !== "Enter" || composing) return;
         const mod = e.ctrlKey || e.metaKey;
-        // Touch keyboards insert a newline on Enter (as in the reference mobile apps); the send button sends.
-        const sends = enterToSend && !coarse ? !e.shiftKey && !e.altKey : mod;
+        // Return sends wherever "Enter sends" is on, on a touch keyboard too (its key says "send", see enterKeyHint
+        // below); a newline is shift+Return on a hardware keyboard, or the expanded editor.
+        const sends = enterToSend ? !e.shiftKey && !e.altKey : mod;
         if (!sends) return;
         e.preventDefault();
         submit();
@@ -2064,7 +2065,10 @@ export function Composer({
                                 placeholder={question?.placeholder ?? t("composer-placeholder")}
                                 rows={1}
                                 wrap={multi ? "soft" : "off"}
-                                enterKeyHint={enterToSend && !coarse ? "send" : "enter"}
+                                enterKeyHint={enterToSend ? "send" : "enter"}
+                                autoCapitalize="sentences"
+                                autoCorrect="on"
+                                spellCheck
                                 value={text}
                                 onChange={(e) => {
                                     typedSinceLoad.current = true;

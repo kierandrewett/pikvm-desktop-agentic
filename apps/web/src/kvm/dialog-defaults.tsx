@@ -60,6 +60,8 @@ export function PasteDialog({ session, onClose }: DialogProps) {
                 data-autofocus=""
                 rows={6}
                 spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
                 aria-label="Text to type on the target"
                 placeholder={"Text to type on the target\u2026"}
                 value={text}

@@ -181,7 +181,7 @@ describe("what Jev decides", () => {
         await r.show(dialog(flat(60)), "Install complete");
         assert.equal(r.push.sent.length, 1);
         assert.equal(r.push.sent[0]!.userId, USER);
-        assert.deepEqual(r.push.sent[0]!.payload, { title: "PiKVM", body: "Screen Install complete. Something else.", tag: "pikvm-screen", url: "/app/" });
+        assert.deepEqual(r.push.sent[0]!.payload, { title: "PiKVM", body: "Screen Install complete. Something else.", tag: "pikvm-screen", url: "/app/", badge: 1 });
         const [entry] = r.store.log(USER, 1);
         assert.equal(entry!.outcome, "pushed");
         assert.equal(entry!.noul, 0.9);

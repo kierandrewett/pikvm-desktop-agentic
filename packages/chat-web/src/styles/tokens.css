@@ -17,8 +17,8 @@
     /* The host's font stack, with the system stack as the fallback. */
     --font-ui: var(--font-sans, ui-sans-serif), system-ui, -apple-system, "Segoe UI", sans-serif;
     --font-code: ui-monospace, "SFMono-Regular", "SF Mono", "Menlo", "Consolas", monospace;
-    --font-ui-size: 14px;
-    --font-code-size: 12px;
+    --font-ui-size: var(--type-body, 14px);
+    --font-code-size: var(--type-footnote, 12px);
     --font-weight-ui: 430;
 
     /* Roundness (ui.roundness) multiplies every radius; 1 reproduces the reference. */

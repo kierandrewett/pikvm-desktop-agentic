@@ -40,6 +40,15 @@ export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
     "/app/apple-touch-icon.png": true,
 };
 
+/** The launch-splash images (apps/web/startup-images.ts): iOS fetches them for a home-screen app without the
+ *  session cookie, like the icon. A pattern, not a list, so a new screen size needs no change here. A proxy in front
+ *  skips `^/app/splash/apple-splash-[a-z]+-[23]x-[0-9]+x[0-9]+\.png$`. */
+const SPLASH_IMAGE = /^\/app\/splash\/apple-splash-(?:portrait|landscape)-[23]x-\d+x\d+\.png$/;
+
+export function isPublicPath(path: string): boolean {
+    return Object.hasOwn(PUBLIC_PATHS, path) || SPLASH_IMAGE.test(path);
+}
+
 /** Stable cookie value for a token (so sessions persist across restarts). */
 export function sessionValue(token: string): string {
     return createHash("sha256").update(`${SALT}:${token}`).digest("hex");
@@ -100,7 +109,7 @@ export type GateVerdict =
  *  the same host defeats the gate; the web host therefore refuses a non-loopback
  *  bind unless an authenticating proxy is declared (src/web-server.ts). */
 export function gate(req: IncomingMessage, path: string, token: string): GateVerdict {
-    if (!token || Object.hasOwn(PUBLIC_PATHS, path) || isLoopback(req) || isAuthed(req, token)) return "allow";
+    if (!token || isPublicPath(path) || isLoopback(req) || isAuthed(req, token)) return "allow";
     return String(req.headers.accept ?? "").includes("text/html") ? "login" : "deny";
 }
 

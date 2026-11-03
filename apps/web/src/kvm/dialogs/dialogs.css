@@ -83,7 +83,7 @@
 
 .dlg-title {
     margin: 0;
-    font-size: 14px;
+    font-size: var(--type-body);
     font-weight: 650;
     letter-spacing: -0.01em;
 }
@@ -131,7 +131,7 @@
 
 .dlg-confirm-body {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--type-subhead);
     line-height: 1.5;
 }
 
@@ -146,7 +146,7 @@
 }
 
 .dlg-label {
-    font-size: 12px;
+    font-size: var(--type-footnote);
     color: var(--muted-foreground);
 }
 
@@ -157,14 +157,14 @@
 
 .dlg-hint {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
 }
 
 .dlg-note {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     line-height: 1.5;
     color: var(--muted-foreground);
 }
@@ -202,7 +202,7 @@
     background: var(--secondary);
     color: var(--foreground);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--type-subhead);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -213,6 +213,13 @@
 .dlg-btn:hover:not(:disabled) {
     background: var(--accent);
     border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .dlg-btn:hover:not(:disabled) {
+        background: var(--accent);
+        border-color: color-mix(in srgb, var(--foreground) 18%, var(--border));
+    }
 }
 
 .dlg-btn:focus-visible,
@@ -238,6 +245,12 @@
     background: color-mix(in srgb, var(--primary) 88%, #000);
 }
 
+@media (hover: hover) and (pointer: fine) {
+    .dlg-btn.primary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--primary) 88%, #000);
+    }
+}
+
 .dlg-btn.danger {
     background: color-mix(in srgb, var(--danger) 78%, #000);
     border-color: color-mix(in srgb, var(--danger) 78%, #000);
@@ -246,6 +259,12 @@
 
 .dlg-btn.danger:hover:not(:disabled) {
     background: color-mix(in srgb, var(--danger) 88%, #000);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .dlg-btn.danger:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--danger) 88%, #000);
+    }
 }
 
 .dlg-btn:disabled {
@@ -271,7 +290,7 @@
     background: var(--background);
     color: var(--foreground);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--type-subhead);
     outline: none;
 }
 
@@ -304,7 +323,7 @@
     background-size: 13px;
     color: var(--foreground);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     max-width: 100%;
 }
 
@@ -317,7 +336,7 @@
     align-items: center;
     gap: 8px;
     min-height: 24px;
-    font-size: 13px;
+    font-size: var(--type-subhead);
 }
 
 .dlg-check input {
@@ -348,7 +367,7 @@
 .dlg-file {
     flex: 1;
     min-width: 0;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     color: var(--foreground);
 }
 
@@ -372,7 +391,7 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 13px;
+    font-size: var(--type-subhead);
     line-height: 1.45;
 }
 
@@ -424,7 +443,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     color: var(--muted-foreground);
 }
 
@@ -450,7 +469,7 @@
 
 .dlg-section-title {
     margin: 0;
-    font-size: 11px;
+    font-size: var(--type-caption);
     font-weight: 600;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -485,7 +504,7 @@
     background: transparent;
     color: var(--foreground);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--type-subhead);
     text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -494,6 +513,12 @@
 
 .macro-list button:hover {
     background: var(--secondary);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .macro-list button:hover {
+        background: var(--secondary);
+    }
 }
 
 .macro-list button[aria-current="true"] {
@@ -532,7 +557,7 @@
     background: var(--secondary);
     color: var(--foreground);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--type-footnote);
     font-weight: 600;
     cursor: pointer;
 }
@@ -568,7 +593,7 @@
     flex: none;
     width: 40px;
     padding-top: 6px;
-    font-size: 11px;
+    font-size: var(--type-caption);
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -594,7 +619,7 @@
 .dlg-btn.macro-mod {
     min-height: 28px;
     padding: 0 8px;
-    font-size: 12px;
+    font-size: var(--type-footnote);
 }
 
 .macro-key {
@@ -680,11 +705,11 @@
 .dlg-scrim[data-compact="true"] .dlg-select,
 .dlg-scrim[data-compact="true"] .dlg-text {
     min-height: 44px;
-    font-size: 16px;
+    font-size: var(--type-field);
 }
 
 .dlg-scrim[data-compact="true"] .dlg-input {
-    font-size: 16px;
+    font-size: var(--type-field);
 }
 
 .dlg-scrim[data-compact="true"] .dlg-check {

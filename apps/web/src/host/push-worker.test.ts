@@ -6,6 +6,8 @@
  *  W2. The payload's text is not what the notification shows, or its tag does not replace the last one.
  *  W3. A tap opens a new window every time instead of the app that is already open, or opens a page outside /app/.
  *  W4. The worker's existing behaviour (offline page, caching) is disturbed by the handlers.
+ *  W5. A push that carries a badge does not put it on the app icon (so it is missing when the app is closed), counts
+ *      only the first of several, tells no open page, or an API that fails or is missing stops the notification.
  */
 
 import { readFileSync } from "node:fs";
@@ -20,7 +22,14 @@ interface PushEvent {
     waitUntil: ReturnType<typeof vi.fn>;
 }
 
-function boot(windows: { url: string; focus: ReturnType<typeof vi.fn> }[] = []) {
+interface Boot {
+    /** navigator in the worker: with the Badging API, or without it. */
+    navigator?: { setAppBadge?: (count?: number) => Promise<void> };
+    /** The badge cache's records, by key (a Map the test can look into), or no Cache Storage at all. */
+    cache?: Map<string, string> | "none";
+}
+
+function boot(windows: { url: string; focus: ReturnType<typeof vi.fn>; postMessage?: ReturnType<typeof vi.fn> }[] = [], options: Boot = {}) {
     const listeners: Record<string, (event: unknown) => void> = {};
     const showNotification = vi.fn(async () => undefined);
     const openWindow = vi.fn(async () => undefined);
@@ -30,8 +39,20 @@ function boot(windows: { url: string; focus: ReturnType<typeof vi.fn> }[] = []) 
         skipWaiting: vi.fn(),
         clients: { claim: vi.fn(), matchAll: vi.fn(async () => windows), openWindow },
         registration: { showNotification },
+        navigator: options.navigator,
     };
-    new Function("self", "caches", "fetch", "Response", "URL", source)(self, { keys: async () => [] }, vi.fn(), Response, URL);
+    const records = options.cache instanceof Map ? options.cache : new Map<string, string>();
+    const cacheStorage =
+        options.cache === "none"
+            ? { keys: async () => [] }
+            : {
+                  keys: async () => [],
+                  open: async () => ({
+                      match: async (key: string) => (records.has(key) ? new Response(records.get(key)) : undefined),
+                      put: async (key: string, response: Response) => void records.set(key, await response.text()),
+                  }),
+              };
+    new Function("self", "caches", "fetch", "Response", "URL", source)(self, cacheStorage, vi.fn(), Response, URL);
     const push = (data: unknown | "unreadable" | null): PushEvent => {
         const event: PushEvent = {
             data: data === null ? null : { json: () => (data === "unreadable" ? JSON.parse("{") : data) },
@@ -108,5 +129,78 @@ describe("the worker's other jobs", () => {
     it("W4: still has its install, activate and fetch handlers", () => {
         const { listeners } = boot();
         expect(Object.keys(listeners).sort()).toEqual(["activate", "fetch", "install", "notificationclick", "push"]);
+    });
+});
+
+describe("the icon badge", () => {
+    const pushed = async (event: PushEvent): Promise<void> => void (await event.waitUntil.mock.calls[0]?.[0]);
+
+    it("W5: a push with badge: 1 puts 1 on the icon, keeps the count, and tells the open page", async () => {
+        const setAppBadge = vi.fn(async () => undefined);
+        const postMessage = vi.fn();
+        const cache = new Map<string, string>();
+        const { push, showNotification } = boot([{ url: `${ORIGIN}/app/chat`, focus: vi.fn(), postMessage }], { navigator: { setAppBadge }, cache });
+        await pushed(push({ title: "PiKVM", body: "b", tag: "pikvm-screen", url: "/app/", badge: 1 }));
+        expect(showNotification).toHaveBeenCalledTimes(1);
+        expect(setAppBadge).toHaveBeenCalledWith(1);
+        expect(JSON.parse(cache.get("/app/badge-state") ?? "{}")).toEqual({ screen: 1 });
+        expect(postMessage).toHaveBeenCalledWith({ type: "pikvm-badge", kind: "screen", count: 1 });
+    });
+
+    it("W5: a second push while the first is unseen makes it 2, from the cache, as when no page has been open between them", async () => {
+        const setAppBadge = vi.fn(async () => undefined);
+        const cache = new Map<string, string>();
+        await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: 1 }));
+        await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: 1 }));
+        expect(setAppBadge.mock.calls.map((c) => c[0])).toEqual([1, 2]);
+    });
+
+    it("W5: `badge: true` is one, and a count adds that many", async () => {
+        const setAppBadge = vi.fn(async () => undefined);
+        const cache = new Map<string, string>();
+        await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: true }));
+        await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: 3 }));
+        expect(setAppBadge.mock.calls.map((c) => c[0])).toEqual([1, 4]);
+    });
+
+    it("W5: a push with no badge, or one that is not a positive whole number, leaves the icon alone", async () => {
+        for (const badge of [undefined, 0, -2, 1.5, "1", null, false]) {
+            const setAppBadge = vi.fn(async () => undefined);
+            const { push, showNotification } = boot([], { navigator: { setAppBadge } });
+            await pushed(push({ title: "t", body: "b", badge }));
+            expect(showNotification, String(badge)).toHaveBeenCalledTimes(1);
+            expect(setAppBadge, String(badge)).not.toHaveBeenCalled();
+        }
+    });
+
+    it("W5: a worker without the Badging API, with one that rejects, or with no Cache Storage still shows the notification", async () => {
+        const variants: Boot[] = [
+            { navigator: {} },
+            { navigator: undefined },
+            { navigator: { setAppBadge: async () => Promise.reject(new Error("not installed")) } },
+            { navigator: { setAppBadge: vi.fn(async () => undefined) }, cache: "none" },
+        ];
+        for (const variant of variants) {
+            const { push, showNotification } = boot([{ url: `${ORIGIN}/app/`, focus: vi.fn() }], variant);
+            await pushed(push({ title: "t", body: "b", badge: 1 }));
+            expect(showNotification).toHaveBeenCalledTimes(1);
+        }
+    });
+
+    it("W5: the badge cache survives the worker's cleanup of old caches", async () => {
+        const deleted: string[] = [];
+        const listeners: Record<string, (event: unknown) => void> = {};
+        const self = {
+            location: { origin: ORIGIN },
+            addEventListener: (type: string, listener: (event: unknown) => void) => (listeners[type] = listener),
+            skipWaiting: vi.fn(),
+            clients: { claim: vi.fn() },
+        };
+        const storage = { keys: async () => ["pikvm-app-v1", "pikvm-badge-v1", "pikvm-console-v2"], delete: async (name: string) => void deleted.push(name) };
+        new Function("self", "caches", "fetch", "Response", "URL", source)(self, storage, vi.fn(), Response, URL);
+        const activate = { waitUntil: vi.fn() };
+        listeners["activate"]?.(activate);
+        await activate.waitUntil.mock.calls[0]?.[0];
+        expect(deleted).toEqual(["pikvm-console-v2"]);
     });
 });

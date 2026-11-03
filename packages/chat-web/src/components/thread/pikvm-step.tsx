@@ -239,7 +239,7 @@ export function PikvmStep({
     const code = failed ? pikvmErrorCode(output) : undefined;
     const title = describePikvmCall(name, args);
     return (
-        <li data-pikvm-step="" data-state={state} className="act-step flex items-start gap-2 py-1 text-[14px] leading-5">
+        <li data-pikvm-step="" data-state={state} className="act-step flex items-start gap-2 py-1 text-[length:var(--type-body,14px)] leading-5">
             <span className={cn("mt-0.5 shrink-0", failed ? "text-danger" : "text-secondary")}>
                 {failed ? <WarningCircleIcon aria-hidden /> : iconFor(name.slice(PIKVM_PREFIX.length))}
             </span>

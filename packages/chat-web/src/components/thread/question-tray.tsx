@@ -254,7 +254,7 @@ function StepView({ item, conversationId, step, autoFocus }: StepProps) {
             <div className="flex items-start gap-1 pl-2.5">
                 <h3
                     id={titleId}
-                    className="min-w-0 flex-1 py-1 text-[15px] leading-6 font-semibold text-pretty text-text"
+                    className="min-w-0 flex-1 py-1 text-[length:var(--type-callout,15px)] leading-6 font-semibold text-pretty text-text"
                 >
                     {q.question}
                 </h3>

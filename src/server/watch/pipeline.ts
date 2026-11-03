@@ -172,7 +172,7 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
             };
             if (decision.verdict === "no") return record({ ...common, outcome: "no" });
             if (decision.verdict === "undecided") return record({ ...common, outcome: "undecided", reason: "Jev's answer was not decisive, so nothing was sent" });
-            const payload: PushPayload = { title: "PiKVM", body: notificationBody(current), tag: "pikvm-screen", url: "/app/" };
+            const payload: PushPayload = { title: "PiKVM", body: notificationBody(current), tag: "pikvm-screen", url: "/app/", badge: 1 };
             try {
                 const sent = await deps.push.send(deps.userId, payload);
                 const push = { sent: sent.sent, removed: sent.removed, failed: sent.failed.length };

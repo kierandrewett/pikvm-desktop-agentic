@@ -58,7 +58,7 @@ export function ExternalLink({
                         bodyClassName="flex max-w-[min(420px,calc(100vw-24px))] min-w-52 items-center gap-1.5 py-1 ps-2.5 pe-1"
                     >
                         {host && <Favicon host={host} size={16} className="shrink-0 rounded-full" />}
-                        <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-text" title={href}>
+                        <span className="min-w-0 flex-1 truncate text-[length:var(--type-subhead,13px)] leading-5 text-text" title={href}>
                             {readable(href)}
                         </span>
                         <Tooltip label="Open in new tab">

@@ -63,7 +63,7 @@ export const QuestionRecord = memo(function QuestionRecord({ item }: { item: Ask
                 const { verb, text } = answerWords(t, item, q, a);
                 const answered = !!text && !a?.timed_out;
                 return (
-                    <p key={q.id} className="text-[14px] leading-[22px] text-pretty">
+                    <p key={q.id} className="text-[length:var(--type-body,14px)] leading-[22px] text-pretty">
                         <span className="text-tertiary">{t("thread-question-asked")} </span>
                         <span className="text-secondary">{q.question}</span>
                         <ArrowRightIcon

@@ -6,6 +6,7 @@ import { MutationCache, QueryCache, QueryClient, queryOptions, useQuery } from "
 import { resetSessionState } from "./session-reset";
 import { api, ApiError } from "./api";
 import { applyEvent, clearAllLive, clearLive, getLive, type LiveState } from "./live";
+import { announceRunFinished, type RunFinished } from "./run-end";
 import { resetSocketSession, socket } from "./socket";
 import type { Bootstrap, SettingView } from "./types";
 
@@ -316,7 +317,11 @@ function onEvent(e: ServerEvent) {
             return;
     }
     const cid = applyEvent(e);
-    if (cid && /^response\.(completed|failed|cancelled|incomplete)$/.test(e.type)) void settle(cid);
+    const ended = /^response\.(completed|failed|cancelled|incomplete)$/.exec(e.type);
+    if (cid && ended) {
+        void settle(cid);
+        announceRunFinished({ conversationId: cid, status: ended[1] as RunFinished["status"] });
+    }
 }
 
 let wired = false;

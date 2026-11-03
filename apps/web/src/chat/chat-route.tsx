@@ -12,11 +12,21 @@
  * whether the Chat tab is in front: a hidden pane stays mounted, with its page-wide listeners off.
  */
 
-import { ChatPane, ChatScope } from "@pikvm/chat-web";
+import { ChatPane, ChatScope, onRunFinished } from "@pikvm/chat-web";
+import { useEffect } from "react";
 import { useAppState } from "../api/queries";
+import { badgeController } from "../notify/app-badge";
 
 export function ChatRoute({ active }: { active: boolean }) {
     const state = useAppState();
+    // A run that ends while the app is out of sight puts a badge on its icon (a run the person stopped does not).
+    useEffect(
+        () =>
+            onRunFinished((run) => {
+                if (run.status !== "cancelled") badgeController.chatRunFinished();
+            }),
+        [],
+    );
 
     if (state.isPending) return <div className="empty-state" role="status" aria-label="Loading" />;
 

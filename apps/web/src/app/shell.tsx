@@ -22,6 +22,7 @@ import { useAppState } from "../api/queries";
 import { KvmPane } from "../kvm/kvm-screen";
 import { SettingsPane, settingsPageOf } from "../settings/settings-layout";
 import { desktopBridge } from "../host/desktop";
+import { useAppBadge } from "../notify/use-app-badge";
 import { currentTheme, subscribeTheme } from "../theme";
 import { ChatPane } from "./chat-pane";
 import { activeTab, NavTabs, type TabId } from "./nav";
@@ -39,6 +40,8 @@ export function Shell() {
     // theme showing (status-colour.ts). Updated when the tab or the theme changes.
     const theme = useSyncExternalStore(subscribeTheme, currentTheme, () => "dark" as const);
     useLayoutEffect(() => paintStatusColour(statusColour(active, theme)), [active, theme]);
+    // The icon badge is cleared when the app is in front on the tab it was about (notify/app-badge.ts).
+    useAppBadge(active);
     // What the agent is doing is streamed while the host has a chat server; the KVM and the tab bar both show it.
     const agentStream = useAppState().data?.features.chat === true;
 

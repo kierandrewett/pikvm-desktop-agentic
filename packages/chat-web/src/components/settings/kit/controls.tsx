@@ -570,7 +570,9 @@ export function TextField(props: TextFieldProps) {
         "aria-invalid": invalid || undefined,
         disabled,
         spellCheck: false,
-        autoComplete: rest.autoComplete ?? (type === "password" ? "new-password" : "off"),
+        autoCapitalize: "none",
+        autoCorrect: "off",
+        autoComplete: rest.autoComplete ?? "off",
         className: cn(fieldClass(sz, mono), inline ? "w-[min(240px,100%)]" : "w-full", className),
     };
     if (!inline) {
@@ -1025,6 +1027,8 @@ export function ListEditor({
                         placeholder={placeholder}
                         value={draft}
                         spellCheck={false}
+                        autoCapitalize="none"
+                        autoCorrect="off"
                         autoComplete="off"
                         onChange={(e) => setDraft(e.target.value)}
                         onKeyDown={(e) => {
@@ -1082,6 +1086,8 @@ export function KeyValueList({
                         placeholder={keyPlaceholder ?? t("settings-pairs-name-placeholder")}
                         value={k}
                         spellCheck={false}
+                        autoCapitalize="none"
+                        autoCorrect="off"
                         disabled={disabled}
                         onChange={(e) => onChange(value.map((p, j) => (j === i ? [e.target.value, p[1]] : p)))}
                         className={cn(fieldClass("sm", true), "w-2/5 min-w-0")}
@@ -1091,6 +1097,8 @@ export function KeyValueList({
                         placeholder={valuePlaceholder ?? t("settings-pairs-value-placeholder")}
                         type={secret ? "password" : "text"}
                         autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
                         value={v}
                         spellCheck={false}
                         disabled={disabled}

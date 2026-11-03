@@ -70,7 +70,7 @@ export function TimeSeparator({ at }: { at: number }) {
     const { day, time } = formatStamp(at);
     return (
         <div role="separator" aria-label={`${day} ${time}`} className="flex justify-center py-4">
-            <time dateTime={new Date(at).toISOString()} className="text-[14px] leading-5 text-tertiary">
+            <time dateTime={new Date(at).toISOString()} className="text-[length:var(--type-body,14px)] leading-5 text-tertiary">
                 <span className="font-medium">{day}</span> {time}
             </time>
         </div>
@@ -112,7 +112,7 @@ export function BubbleTail({
 
 // 70% leaves a clear gutter on wide threads; on phones that gutter wastes a third of the screen, so allow 85%.
 const bubbleShape =
-    "relative max-w-[85%] md:max-w-[70%] whitespace-pre-wrap rounded-[calc(22px*var(--roundness))] px-4 py-2.5 text-[16px] leading-[26px] font-normal break-words";
+    "relative max-w-[85%] md:max-w-[70%] whitespace-pre-wrap rounded-[calc(22px*var(--roundness))] px-4 py-2.5 text-[length:var(--type-headline,16px)] leading-[26px] font-normal break-words";
 /** A neutral bubble (memory thoughts, previews of other people's words). */
 export const userBubbleClass = `${bubbleShape} bg-user-bubble text-text`;
 /** A message you sent: the accent colour. */
@@ -360,7 +360,7 @@ function FailedNote({ end, live, retryWith }: { end: RunEndItem; live: boolean; 
         <div
             role={live ? "alert" : undefined}
             data-run-end={end.status}
-            className="mt-3 max-w-[768px] rounded-xl border border-subtle px-3.5 py-3 text-[14px] leading-5"
+            className="mt-3 max-w-[768px] rounded-xl border border-subtle px-3.5 py-3 text-[length:var(--type-body,14px)] leading-5"
         >
             <div className="flex items-start gap-2.5">
                 <WarningCircleIcon aria-hidden size={18} weight="fill" className="mt-px shrink-0 text-danger" />
@@ -380,7 +380,7 @@ function FailedNote({ end, live, retryWith }: { end: RunEndItem; live: boolean; 
                 </div>
             )}
             {open && raw && (
-                <pre className="mt-2 ms-7 overflow-x-auto rounded-lg bg-soft px-3 py-2 font-mono text-[12px] leading-[18px] whitespace-pre-wrap break-all text-secondary">
+                <pre className="mt-2 ms-7 overflow-x-auto rounded-lg bg-soft px-3 py-2 font-mono text-[length:var(--type-footnote,12px)] leading-[18px] whitespace-pre-wrap break-all text-secondary">
                     {raw}
                 </pre>
             )}
@@ -440,7 +440,7 @@ const RunEndNote = memo(function RunEndNote({
         <div
             role={live ? "status" : undefined}
             data-run-end={end.status}
-            className="mt-3 flex items-start gap-1.5 text-[14px] leading-5 text-tertiary"
+            className="mt-3 flex items-start gap-1.5 text-[length:var(--type-body,14px)] leading-5 text-tertiary"
         >
             <Icon aria-hidden size={16} className="mt-0.5 shrink-0" />
             <span className="min-w-0 break-words">
@@ -519,7 +519,7 @@ export const TurnView = memo(function TurnView({
                                 )}
                                 {group.length > 0 && <WorkedGroup turn={turn} items={group} />}
                                 {thinking && (
-                                    <div className="flex h-7 items-center text-[14px] leading-6">
+                                    <div className="flex h-7 items-center text-[length:var(--type-body,14px)] leading-6">
                                         <ThinkingIndicator
                                             label={
                                                 stopping
@@ -546,7 +546,7 @@ export const TurnView = memo(function TurnView({
                         )}
                     </div>
                     {stopping && !thinking && (
-                        <div role="status" className="mt-3 flex h-6 items-center text-[14px] leading-5">
+                        <div role="status" className="mt-3 flex h-6 items-center text-[length:var(--type-body,14px)] leading-5">
                             <ThinkingIndicator label={t("thread-stopping")} />
                         </div>
                     )}
@@ -569,7 +569,7 @@ export const TurnView = memo(function TurnView({
 export function CompactionMarker() {
     const t = useT();
     return (
-        <div role="separator" className="flex items-center gap-3 py-4 text-[14px] leading-5 text-tertiary">
+        <div role="separator" className="flex items-center gap-3 py-4 text-[length:var(--type-body,14px)] leading-5 text-tertiary">
             <div className="h-px flex-1 bg-[var(--border)]" />
             {t("thread-context-compacted")}
             <div className="h-px flex-1 bg-[var(--border)]" />

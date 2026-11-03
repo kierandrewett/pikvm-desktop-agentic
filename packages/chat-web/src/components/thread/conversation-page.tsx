@@ -320,7 +320,7 @@ function ConversationView({
                                     className="pointer-events-none absolute inset-x-0 z-30 flex justify-center"
                                     style={{ top: "calc(var(--thread-header-h, 0px) + 8px)" }}
                                 >
-                                    <div className="flex h-8 items-center gap-2 rounded-full bg-elevated px-3 text-[13px] text-secondary shadow-menu">
+                                    <div className="flex h-8 items-center gap-2 rounded-full bg-elevated px-3 text-[length:var(--type-subhead,13px)] text-secondary shadow-menu">
                                         <CircleNotchIcon size={14} className="animate-spin" />
                                         {t("thread-page-reconnecting")}
                                     </div>

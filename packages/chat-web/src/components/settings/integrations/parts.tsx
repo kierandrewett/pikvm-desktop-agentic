@@ -114,6 +114,8 @@ export function PresetGallery({
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder={t(NOUN_LABEL[noun].search)}
                     autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
                     spellCheck={false}
                     className={cn(fieldClass("md"), "w-full ps-9")}
                     data-gallery-search

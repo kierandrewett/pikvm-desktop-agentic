@@ -214,7 +214,7 @@ const Lane = memo(function Lane({
                     <span className="aa-lane-title">
                         <span className="aa-lane-goal">{goalOf(run)}</span>
                         <span className="aa-lane-name">{run.id}</span>
-                        <SubagentModel model={run.model} className="text-[12.5px] max-w-[45%] shrink" />
+                        <SubagentModel model={run.model} className="text-[length:var(--type-footnote-lg,12.5px)] max-w-[45%] shrink" />
                     </span>
                     <span className="aa-lane-now">
                         {running ? (

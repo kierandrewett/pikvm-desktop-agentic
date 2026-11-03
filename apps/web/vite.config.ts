@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { scopeChatTheme } from "./scope-chat-theme";
+import { startupImagesPlugin } from "./startup-images";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 
@@ -42,6 +43,7 @@ export default defineConfig({
         react(),
         tailwindcss(),
         scopeChatTheme(),
+        startupImagesPlugin(),
         {
             name: "build-id-file",
             generateBundle() {

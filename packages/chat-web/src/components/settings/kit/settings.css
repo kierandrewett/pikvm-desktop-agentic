@@ -140,77 +140,78 @@
 
     /* Sections: title above the group in small capitals, the note under the group. */
 
-    [data-settings-section] {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-    }
-    [data-settings-section] > [data-section-head],
-    [data-settings-section] > [data-section-head] > [data-section-text] {
-        display: contents;
-    }
-    [data-settings-section] [data-section-title] {
-        grid-column: 1;
-        grid-row: 1;
-        align-self: end;
-        padding-inline: calc(16px * var(--density, 1));
-        padding-bottom: calc(8px * var(--density, 1));
-        font-size: 12px;
-        line-height: 16px;
-        font-weight: 500;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--text-tertiary);
-    }
-    [data-settings-section][data-tone="danger"] [data-section-title] {
-        color: var(--danger);
-    }
-    [data-settings-section] [data-section-action] {
-        grid-column: 2;
-        grid-row: 1;
-        align-self: end;
-        padding-bottom: calc(8px * var(--density, 1));
-    }
-    [data-settings-section] [data-section-note] {
-        grid-column: 1 / -1;
-        grid-row: 3;
-        padding-inline: calc(16px * var(--density, 1));
-        padding-top: calc(8px * var(--density, 1));
-    }
-    [data-settings-section] > [data-section-body] {
-        grid-column: 1 / -1;
-        grid-row: 2;
-    }
+        [data-settings-section] {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+        }
+        [data-settings-section] > [data-section-head],
+        [data-settings-section] > [data-section-head] > [data-section-text] {
+            display: contents;
+        }
+        [data-settings-section] [data-section-title] {
+            grid-column: 1;
+            grid-row: 1;
+            align-self: end;
+            padding-inline: calc(16px * var(--density, 1));
+            padding-bottom: calc(8px * var(--density, 1));
+            font-size: var(--type-footnote, 12px);
+            line-height: 16px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+        }
+        [data-settings-section][data-tone="danger"] [data-section-title] {
+            color: var(--danger);
+        }
+        [data-settings-section] [data-section-action] {
+            grid-column: 2;
+            grid-row: 1;
+            align-self: end;
+            padding-bottom: calc(8px * var(--density, 1));
+        }
+        [data-settings-section] [data-section-note] {
+            grid-column: 1 / -1;
+            grid-row: 3;
+            padding-inline: calc(16px * var(--density, 1));
+            padding-top: calc(8px * var(--density, 1));
+        }
+        [data-settings-section] > [data-section-body] {
+            grid-column: 1 / -1;
+            grid-row: 2;
+        }
 
-    /* Advanced: a card row that opens in place, with a summary of what it holds while closed (Material). */
-    [data-settings-section] [data-section-title]:has([data-advanced-toggle]) {
-        padding-inline: 0;
-        text-transform: none;
-        letter-spacing: normal;
-    }
-    [data-advanced-toggle] {
-        display: flex;
-        width: 100%;
-        min-height: 44px;
-        flex-wrap: wrap;
-        align-items: center;
-        column-gap: calc(4px * var(--density, 1));
-        border: 1px solid var(--border);
-        border-radius: var(--radius-2xl);
-        background: var(--panel);
-        padding: calc(10px * var(--density, 1)) calc(16px * var(--density, 1));
-        color: var(--text);
-        text-align: start;
-    }
-    [data-advanced-toggle] > [data-advanced-label] {
-        flex: 1 1 auto;
-    }
-    [data-advanced-toggle][aria-expanded="false"] > [data-advanced-summary] {
-        display: block;
-        order: 3;
-        flex-basis: 100%;
-        font-size: 13px;
-        line-height: 18.5px;
-        font-weight: 400;
-        color: var(--text-secondary);
+        /* Advanced: a card row that opens in place, with a summary of what it holds while closed (Material). */
+        [data-settings-section] [data-section-title]:has([data-advanced-toggle]) {
+            padding-inline: 0;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+        [data-advanced-toggle] {
+            display: flex;
+            width: 100%;
+            min-height: 44px;
+            flex-wrap: wrap;
+            align-items: center;
+            column-gap: calc(4px * var(--density, 1));
+            border: 1px solid var(--border);
+            border-radius: var(--radius-2xl);
+            background: var(--panel);
+            padding: calc(10px * var(--density, 1)) calc(16px * var(--density, 1));
+            color: var(--text);
+            text-align: start;
+        }
+        [data-advanced-toggle] > [data-advanced-label] {
+            flex: 1 1 auto;
+        }
+        [data-advanced-toggle][aria-expanded="false"] > [data-advanced-summary] {
+            display: block;
+            order: 3;
+            flex-basis: 100%;
+            font-size: var(--type-subhead, 13px);
+            line-height: 18.5px;
+            font-weight: 400;
+            color: var(--text-secondary);
+        }
     }
 }

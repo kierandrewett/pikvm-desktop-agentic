@@ -408,9 +408,12 @@ test("an unauthenticated upgrade is refused when the gate is on", async () => {
 function fakeAppBuild(): string {
     const dir = mkdtempSync(join(tmpdir(), "pikvm-app-build-"));
     mkdirSync(join(dir, "assets"));
+    mkdirSync(join(dir, "splash"));
     writeFileSync(join(dir, "index.html"), "<!doctype html><title>app shell</title>");
     writeFileSync(join(dir, "assets", "index-abc123.js"), "console.log('app')");
     writeFileSync(join(dir, "icon-192.png"), "png");
+    writeFileSync(join(dir, "splash", "apple-splash-portrait-3x-402x874.png"), "png");
+    writeFileSync(join(dir, "splash", "secret.png"), "png");
     return dir;
 }
 
@@ -470,6 +473,11 @@ test("the web app's pages are behind the gate; its icons are public", async () =
         assert.equal((await call(s.origin, "/app/kvm", { headers: { accept: "application/json" } })).status, 401);
         assert.equal((await call(s.origin, "/app/assets/index-abc123.js", { headers: { accept: "application/json" } })).status, 401);
         assert.equal((await call(s.origin, "/app/icon-192.png")).status, 200);
+        // The launch splash: iOS fetches it for the home-screen app without the session. Only the generated names.
+        const splash = await call(s.origin, "/app/splash/apple-splash-portrait-3x-402x874.png");
+        assert.equal(splash.status, 200);
+        assert.equal(splash.headers.get("content-type"), "image/png");
+        assert.equal((await call(s.origin, "/app/splash/secret.png", { headers: { accept: "application/json" } })).status, 401);
     } finally {
         await s.close();
         rmSync(dir, { recursive: true, force: true });

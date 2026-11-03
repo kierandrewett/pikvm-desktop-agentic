@@ -269,6 +269,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
                             <input
                                 id="msd-url"
                                 type="text"
+                                inputMode="url"
                                 className="dlg-text dlg-grow"
                                 placeholder={"https://\u2026/image.iso"}
                                 spellCheck={false}

@@ -20,7 +20,7 @@ export const RuntimeNotices = memo(function RuntimeNotices({ notices }: { notice
                         role={n.level === "error" ? "alert" : "status"}
                         data-notice={n.level}
                         className={cn(
-                            "flex items-start gap-1.5 text-[14px] leading-5",
+                            "flex items-start gap-1.5 text-[length:var(--type-body,14px)] leading-5",
                             n.level === "info" ? "text-tertiary" : "text-danger",
                         )}
                     >

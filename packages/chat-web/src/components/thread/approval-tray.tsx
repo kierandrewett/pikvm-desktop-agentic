@@ -63,7 +63,7 @@ function TrayBody({
         >
             <div className="flex items-center gap-2 px-1">
                 <IconCmp size={16} className="shrink-0 text-secondary" />
-                <h3 className="min-w-0 flex-1 truncate text-[14px] leading-5 font-semibold text-text">{v.title}</h3>
+                <h3 className="min-w-0 flex-1 truncate text-[length:var(--type-body,14px)] leading-5 font-semibold text-text">{v.title}</h3>
                 {count > 1 && (
                     <span className="text-xs text-tertiary tabular-nums">
                         {index + 1} of {count}

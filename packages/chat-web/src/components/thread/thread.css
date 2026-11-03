@@ -50,6 +50,11 @@
 .msg-group:hover .hover-actions,
 .msg-group:focus-within .hover-actions {
     opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+    .msg-group:hover .hover-actions {
+        opacity: 1;
+    }
+}
 }
 @media (hover: none) {
     .hover-actions {
@@ -63,6 +68,11 @@
 }
 [data-turn-key]:hover .msg-time,
 [data-turn-key]:focus-within .msg-time {
+@media (hover: hover) and (pointer: fine) {
+    [data-turn-key]:hover .msg-time {
+        opacity: 1;
+    }
+}
     opacity: 1;
 }
 
@@ -96,10 +106,12 @@
     -webkit-text-fill-color: transparent;
     animation: thread-loading-shimmer 2s steps(48) infinite;
 }
-.thread-shimmer:hover {
-    -webkit-text-fill-color: var(--text-tertiary);
-    background: none;
-    animation: none;
+@media (hover: hover) and (pointer: fine) {
+    .thread-shimmer:hover {
+        -webkit-text-fill-color: var(--text-tertiary);
+        background: none;
+        animation: none;
+    }
 }
 
 /* Activity panel enter (ui-spec 4.6): 180ms height-free fade and slide, collapse is instant. */
@@ -242,7 +254,7 @@
     border-radius: calc(24px * var(--roundness));
     background: var(--surface-under);
     padding: 16px;
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 16px;
 }
 
@@ -278,13 +290,19 @@
     padding-inline: 4px;
     border-radius: calc(8px * var(--roundness));
     text-align: start;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     color: color-mix(in oklab, var(--text) 60%, transparent);
     user-select: none;
 }
 .act-summary:hover,
 .act-summary:focus-visible {
+@media (hover: hover) and (pointer: fine) {
+    .act-summary:hover {
+        background: var(--hover);
+        color: var(--text);
+    }
+}
     background: var(--hover);
     color: var(--text);
 }
@@ -327,6 +345,12 @@
     scale: -1 1;
 }
 .act-summary:hover .act-caret,
+@media (hover: hover) and (pointer: fine) {
+    .act-summary:hover .act-caret,
+    .act-row-head:hover .act-caret {
+        color: var(--text);
+    }
+}
 .act-summary:focus-visible .act-caret,
 .act-row-head:hover .act-caret,
 .act-row-head:focus-visible .act-caret {
@@ -364,11 +388,13 @@
     padding-inline: 6px;
     border-radius: calc(6px * var(--roundness));
     text-align: start;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
 }
-button.act-row-head:hover {
-    background: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+    button.act-row-head:hover {
+        background: var(--hover);
+    }
 }
 .act-verb {
     flex-shrink: 0;
@@ -384,7 +410,7 @@ button.act-row-head:hover {
 }
 .act-mono {
     font-family: var(--font-code);
-    font-size: 12.5px;
+    font-size: var(--type-footnote-lg, 12.5px);
 }
 .act-subject-quiet {
     color: var(--text-tertiary);
@@ -395,7 +421,7 @@ button.act-row-head:hover {
     flex-shrink: 0;
     align-items: center;
     gap: 6px;
-    font-size: 12.5px;
+    font-size: var(--type-footnote-lg, 12.5px);
     color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -405,7 +431,7 @@ button.act-row-head:hover {
 }
 .act-stat {
     font-family: var(--font-code);
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
 }
 
 /* MCP progress of a running tool, one quiet line under its row. */
@@ -414,7 +440,7 @@ button.act-row-head:hover {
     flex-direction: column;
     gap: 4px;
     padding-block: 2px 4px;
-    font-size: 12.5px;
+    font-size: var(--type-footnote-lg, 12.5px);
     color: var(--text-tertiary);
 }
 .act-progress-bar {
@@ -442,6 +468,12 @@ button.act-row-head:hover {
     gap: 6px;
     vertical-align: top;
     color: var(--text);
+@media (hover: hover) and (pointer: fine) {
+    .act-link:hover {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+}
 }
 .act-link:hover,
 .act-link:focus-visible {
@@ -469,7 +501,7 @@ button.act-row-head:hover {
 }
 .act-block-label {
     padding: 8px 12px 0;
-    font-size: 12.5px;
+    font-size: var(--type-footnote-lg, 12.5px);
     line-height: 18px;
     color: var(--text-secondary);
 }
@@ -480,7 +512,7 @@ button.act-row-head:hover {
     overflow-x: auto;
     padding-block: 8px;
     font-family: var(--font-code);
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 18px;
     color: var(--text-secondary);
     scrollbar-width: thin;
@@ -558,7 +590,17 @@ button.act-row-head:hover {
 .act-copy:focus-visible {
     opacity: 1;
 }
-.act-copy:hover,
+@media (hover: hover) and (pointer: fine) {
+    .act-block:hover .act-copy {
+@media (hover: hover) and (pointer: fine) {
+    .act-copy:hover {
+        background: var(--hover);
+        color: var(--text);
+    }
+}
+        opacity: 1;
+    }
+}
 .act-copy:focus-visible {
     background: var(--hover);
     color: var(--text);
@@ -571,7 +613,12 @@ button.act-row-head:hover {
     }
 }
 .act-more {
-    font-size: 13px;
+@media (hover: hover) and (pointer: fine) {
+    .act-more:hover {
+        color: var(--text);
+    }
+}
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-tertiary);
 }
@@ -592,14 +639,14 @@ button.act-row-head:hover {
     border-radius: calc(10px * var(--roundness));
     background: color-mix(in srgb, var(--text) 3.5%, transparent);
     font-family: var(--font-code);
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 18px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     color: var(--text);
 }
 .act-empty {
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-tertiary);
 }
@@ -614,7 +661,7 @@ button.act-row-head:hover {
     border-radius: calc(10px * var(--roundness));
     background: color-mix(in srgb, var(--text) 3.5%, transparent);
     font-family: var(--font-code);
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 18px;
 }
 .act-args > div > dt {
@@ -635,7 +682,7 @@ button.act-row-head:hover {
     }
 }
 .md.md-step {
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 22px;
     color: var(--text-secondary);
 }

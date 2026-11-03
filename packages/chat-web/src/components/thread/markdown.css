@@ -10,7 +10,7 @@
     --md-gap-sm: calc(8px * var(--density));
     --md-gap-lg: calc(24px * var(--density));
     --md-radius: calc(16px * var(--roundness));
-    font-size: 16px;
+    font-size: var(--type-headline, 16px);
     line-height: 26px;
     font-weight: 400;
     color: var(--text);
@@ -40,19 +40,19 @@
     margin-top: var(--md-gap);
 }
 .md h1 {
-    font-size: 20px;
+    font-size: var(--type-title2, 20px);
     line-height: 28px;
 }
 .md h2 {
-    font-size: 18px;
+    font-size: var(--type-title3, 18px);
     line-height: 28px;
 }
 .md :is(h3, h4) {
-    font-size: 16px;
+    font-size: var(--type-headline, 16px);
     line-height: 26px;
 }
 .md :is(h5, h6) {
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 22px;
 }
 .md h6 {
@@ -77,8 +77,15 @@
 .md-anchor:focus-visible {
     opacity: 1;
 }
-.md-anchor:hover {
-    color: var(--text);
+@media (hover: hover) and (pointer: fine) {
+    .md-heading:hover .md-anchor {
+        opacity: 1;
+    }
+}
+@media (hover: hover) and (pointer: fine) {
+    .md-anchor:hover {
+        color: var(--text);
+    }
 }
 @media (hover: none) {
     .md-anchor {
@@ -168,8 +175,10 @@
     text-underline-offset: 3px;
     border-radius: 2px;
 }
-.md a:hover {
-    text-decoration-color: currentColor;
+@media (hover: hover) and (pointer: fine) {
+    .md a:hover {
+        text-decoration-color: currentColor;
+    }
 }
 .md a:focus-visible {
     outline: 2px solid var(--ring);
@@ -181,8 +190,10 @@
     vertical-align: -0.1em;
     color: var(--text-tertiary);
 }
-.md a:hover .md-ext {
-    color: var(--text-secondary);
+@media (hover: hover) and (pointer: fine) {
+    .md a:hover .md-ext {
+        color: var(--text-secondary);
+    }
 }
 
 /* Inline code, kbd, mark, sub and sup. */
@@ -266,7 +277,7 @@
     align-items: center;
     gap: 8px;
     margin-bottom: 4px;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 22px;
     font-weight: 600;
     color: var(--alert);
@@ -314,8 +325,10 @@
     display: none;
 }
 /* A light tint, below the border's contrast, so the hairline stays visible next to it. */
-.md details > summary:hover {
-    background-color: var(--soft);
+@media (hover: hover) and (pointer: fine) {
+    .md details > summary:hover {
+        background-color: var(--soft);
+    }
 }
 .md details > summary svg {
     color: var(--text-tertiary);
@@ -349,7 +362,7 @@
     padding-inline: 4px;
     margin-inline-start: 1px;
     vertical-align: 0.2em;
-    font-size: 11px;
+    font-size: var(--type-caption, 11px);
     line-height: 1;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
@@ -359,21 +372,23 @@
     border-radius: 999px;
     transition: background-color var(--duration-basic) var(--ease-basic);
 }
-.md a[data-footnote-ref]:hover {
-    color: var(--text);
-    background: var(--pressed);
+@media (hover: hover) and (pointer: fine) {
+    .md a[data-footnote-ref]:hover {
+        color: var(--text);
+        background: var(--pressed);
+    }
 }
 .md section[data-footnotes] {
     margin-top: var(--md-gap-lg);
     padding-top: 12px;
     border-top: 1px solid var(--border-subtle);
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 22px;
     color: var(--text-secondary);
 }
 .md .md-fn-label {
     margin: 0 0 4px;
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 18px;
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -396,8 +411,10 @@
     padding: 1px;
     color: var(--text-tertiary);
 }
-.md-fn-back:hover {
-    color: var(--text);
+@media (hover: hover) and (pointer: fine) {
+    .md-fn-back:hover {
+        color: var(--text);
+    }
 }
 @keyframes md-flash {
     0%,
@@ -467,7 +484,7 @@ a.md-img {
     max-width: 100%;
     min-height: 44px;
     padding: 10px 14px;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     color: var(--text-tertiary);
     border: 1px dashed var(--border);
@@ -552,7 +569,7 @@ a.md-img {
     padding: calc(8px + var(--safe-top, 0px)) 12px 8px 20px;
 }
 .md-lightbox-count {
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     font-variant-numeric: tabular-nums;
     color: var(--text-secondary);
@@ -577,7 +594,7 @@ a.md-img {
 }
 .md-lightbox-stage figcaption {
     max-width: 640px;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     text-align: center;
     color: var(--text-secondary);
@@ -676,7 +693,7 @@ a.md-img {
     min-width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     font-variant-numeric: tabular-nums;
     overflow-wrap: normal;
@@ -716,8 +733,10 @@ a.md-img {
 .md-table tbody tr:last-child td {
     border-bottom: 0;
 }
-.md-table tbody tr:hover td {
-    background: var(--soft);
+@media (hover: hover) and (pointer: fine) {
+    .md-table tbody tr:hover td {
+        background: var(--soft);
+    }
 }
 .md-table-tools {
     position: absolute;
@@ -732,6 +751,11 @@ a.md-img {
 .md-table:hover .md-table-tools,
 .md-table-tools:focus-within,
 .md-table-tools:has([data-state="open"]) {
+@media (hover: hover) and (pointer: fine) {
+    .md-table:hover .md-table-tools {
+        opacity: 1;
+    }
+}
     opacity: 1;
 }
 @media (hover: none) {
@@ -763,14 +787,14 @@ a.md-img {
     min-height: 48px;
     padding: 6px 6px 6px 20px;
     background: var(--code-header);
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     font-weight: 500;
     color: var(--text);
     user-select: none;
 }
 .md-code-lang {
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     font-weight: 400;
     color: var(--text-tertiary);
 }
@@ -789,7 +813,7 @@ a.md-img {
 .md-pre {
     padding: 0 20px 12px;
     font-family: var(--font-code);
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 20px;
     font-weight: 400;
     white-space: pre;
@@ -812,7 +836,7 @@ a.md-img {
     gap: 6px;
     width: 100%;
     min-height: 40px;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     font-weight: 500;
     color: var(--text-secondary);
@@ -821,9 +845,11 @@ a.md-img {
     border-radius: 0 0 calc(24px * var(--roundness) - 1px) calc(24px * var(--roundness) - 1px);
     transition: background-color var(--duration-basic) var(--ease-basic);
 }
-.md-code-more:hover {
-    color: var(--text);
-    background-color: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+    .md-code-more:hover {
+        color: var(--text);
+        background-color: var(--hover);
+    }
 }
 .md-code-more:focus-visible {
     outline: none;
@@ -900,7 +926,7 @@ a.md-img {
     /* Optical centre: middle sits on half the x-height; a pixel up lands between x-height and cap height. */
     vertical-align: middle;
     translate: 0 -1px;
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 18px;
     font-weight: 500;
     color: var(--text-secondary);
@@ -910,6 +936,12 @@ a.md-img {
 }
 .md-cite:hover,
 .md-cite[data-open] {
+@media (hover: hover) and (pointer: fine) {
+    .md-cite:hover {
+        color: var(--text);
+        background: color-mix(in srgb, var(--text) 22%, transparent);
+    }
+}
     color: var(--text);
     background: color-mix(in srgb, var(--text) 22%, transparent);
 }
@@ -926,6 +958,11 @@ a.md-img {
 .md-cite-more {
     flex-shrink: 0;
     color: var(--text-tertiary);
+}
+@media (hover: hover) and (pointer: fine) {
+    .md-cite:hover .md-cite-more {
+        color: var(--text-secondary);
+    }
 }
 .md-cite[data-open] .md-cite-more,
 .md-cite:hover .md-cite-more {
@@ -973,8 +1010,10 @@ a.md-img {
     outline: none;
     transition: background-color var(--duration-basic) var(--ease-basic);
 }
-.md-cite-source:hover {
-    background-color: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+    .md-cite-source:hover {
+        background-color: var(--hover);
+    }
 }
 .md-cite-source:focus-visible {
     box-shadow: inset 0 0 0 2px var(--ring);
@@ -985,7 +1024,7 @@ a.md-img {
     gap: 8px;
     min-width: 0;
     min-height: 20px;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-secondary);
 }
@@ -993,12 +1032,17 @@ a.md-img {
     margin-inline-start: auto;
     flex-shrink: 0;
     color: var(--text-tertiary);
+@media (hover: hover) and (pointer: fine) {
+    .md-cite-source:hover .md-cite-out {
+        color: var(--text);
+    }
+}
 }
 .md-cite-source:is(:hover, :focus-visible) .md-cite-out {
     color: var(--text);
 }
 .md-cite-title {
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     font-weight: 600;
     display: -webkit-box;
@@ -1008,7 +1052,7 @@ a.md-img {
     overflow-wrap: anywhere;
 }
 .md-cite-snippet {
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 19px;
     color: var(--text-tertiary);
     display: -webkit-box;
@@ -1023,7 +1067,7 @@ a.md-img {
     justify-content: space-between;
     min-height: var(--menu-row-height);
     padding-inline: 10px 0;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-secondary);
 }
@@ -1039,7 +1083,7 @@ a.md-img {
     width: 100%;
     min-height: var(--menu-row-height);
     padding: 4px 10px;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     font-weight: 500;
     text-align: start;
@@ -1048,8 +1092,10 @@ a.md-img {
     outline: none;
     transition: background-color var(--duration-basic) var(--ease-basic);
 }
-.md-cite-all:hover {
-    background-color: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+    .md-cite-all:hover {
+        background-color: var(--hover);
+    }
 }
 .md-cite-all:focus-visible {
     box-shadow: inset 0 0 0 2px var(--ring);
@@ -1077,7 +1123,7 @@ a.md-img {
     min-width: 0;
     flex: 1;
     padding-block: 8px;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     background: transparent;
     color: var(--text);
@@ -1094,7 +1140,7 @@ a.md-img {
 }
 .source-group h3 {
     margin: 0 4px 8px;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     font-weight: 500;
     color: var(--text-secondary);
@@ -1119,6 +1165,11 @@ a.md-img {
     text-decoration: none;
     outline: none;
     transition: background-color var(--duration-basic) var(--ease-basic);
+@media (hover: hover) and (pointer: fine) {
+    .source-card:hover {
+        background: var(--hover);
+    }
+}
 }
 .source-card:hover,
 .source-card[data-focused] {
@@ -1132,7 +1183,7 @@ a.md-img {
     align-items: center;
     gap: 8px;
     min-width: 0;
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 18px;
     color: var(--text-secondary);
 }
@@ -1144,7 +1195,7 @@ a.md-img {
     white-space: nowrap;
 }
 .source-title {
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     font-weight: 500;
     overflow-wrap: anywhere;
@@ -1154,13 +1205,13 @@ a.md-img {
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 20px;
     color: var(--text-secondary);
     overflow-wrap: anywhere;
 }
 .source-date {
-    font-size: 12px;
+    font-size: var(--type-footnote, 12px);
     line-height: 18px;
     color: var(--text-secondary);
 }
@@ -1172,12 +1223,12 @@ a.md-img {
     padding: 40px 16px;
     text-align: center;
     color: var(--text-secondary);
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
 }
 .source-empty p:last-child {
     max-width: 30ch;
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
 }
 
 /* "Sources" pill in an answer's action row. */
@@ -1187,16 +1238,18 @@ a.md-img {
     gap: 6px;
     height: 32px;
     padding: 0 12px 0 8px;
-    font-size: 14px;
+    font-size: var(--type-body, 14px);
     line-height: 20px;
     font-weight: 500;
     color: var(--text-secondary);
     border-radius: 999px;
     transition: background-color var(--duration-basic) var(--ease-basic);
 }
-.md-sources-button:hover {
-    color: var(--text);
-    background: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+    .md-sources-button:hover {
+        color: var(--text);
+        background: var(--hover);
+    }
 }
 .md-sources-button:focus-visible {
     outline: 2px solid var(--ring);

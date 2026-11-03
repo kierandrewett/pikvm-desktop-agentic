@@ -190,8 +190,11 @@ export function InputRow({
                 <input
                     id={id}
                     type={input.secret ? "password" : "text"}
-                    autoComplete={input.secret ? "new-password" : "off"}
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
                     spellCheck={false}
+                    inputMode={input.target.kind === "baseUrl" ? "url" : undefined}
                     value={value}
                     placeholder={input.defaultValue}
                     onChange={(e) => onChange(e.target.value)}

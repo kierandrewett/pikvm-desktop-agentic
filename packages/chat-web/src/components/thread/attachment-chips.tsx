@@ -16,7 +16,7 @@ import { FileTypeIcon } from "../file-icons/file-type-icon";
 
 const thumbCls = "block overflow-hidden rounded-[calc(18px*var(--roundness))]";
 const chipCls =
-    "flex h-10 items-center gap-2 rounded-[calc(18px*var(--roundness))] border border-default px-3 text-[14px] text-text";
+    "flex h-10 items-center gap-2 rounded-[calc(18px*var(--roundness))] border border-default px-3 text-[length:var(--type-body,14px)] text-text";
 
 function openImages(e: MouseEvent<HTMLElement>, images: InputImage[], index: number, sessionEpoch: number): void {
     const trigger = e.currentTarget;

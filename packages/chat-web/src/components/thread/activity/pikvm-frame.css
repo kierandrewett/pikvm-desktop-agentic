@@ -99,7 +99,7 @@
 .pk-gone {
     display: block;
     margin-top: calc(4px * var(--density));
-    font-size: 13px;
+    font-size: var(--type-subhead, 13px);
     line-height: 18px;
     color: var(--text-tertiary);
 }
