@@ -148,7 +148,7 @@ async function phone(browser) {
         return [!during && !after.on, `lens shown during the swipe: ${during}; 1.3 s after: ${after.on}`];
     });
 
-    await check(profile, "trackpad lens: a slow drag shows it at once at one size, and the lift hides it", async () => {
+    await check(profile, "trackpad lens: a slow drag shows it after its delay at one size, and it hides after its delay once lifted", async () => {
         await sleep(400);
         const id = await touch.start(cx - 30, cy);
         // ~45 px/s: 0.7 px every 16 ms
@@ -162,10 +162,13 @@ async function phone(browser) {
             if (last.on && firstOn < 0) firstOn = Date.now() - t0;
         }
         await touch.end(id);
-        await sleep(150);
+        // The lens waits before it hides (LENS_HIDE_DELAY_MS, 250 ms): still up just after the lift, gone well after.
+        await sleep(100);
+        const held = await lensState();
+        await sleep(400);
         const gone = await lensState();
-        const pass = firstOn >= 0 && firstOn < 600 && last.on && last.w === 96 && !gone.on;
-        return [pass, `first shown ${firstOn} ms into the drag (a hold would be 450 ms+); at the end on=${last.on}, ${last.w}px; 150 ms after the lift on=${gone.on}`];
+        const pass = firstOn >= 0 && firstOn < 600 && last.on && last.w === 96 && held.on && !gone.on;
+        return [pass, `first shown ${firstOn} ms into the drag (a hold would be 450 ms+); at the end on=${last.on}, ${last.w}px; 100 ms after the lift on=${held.on}; 500 ms after on=${gone.on}`];
     });
 
     await check(profile, "two-finger tap = right click", async () => {
