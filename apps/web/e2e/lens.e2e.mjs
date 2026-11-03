@@ -415,7 +415,7 @@ const section = [
     "<!-- lens:begin -->",
     "## The cursor lens, made basic",
     "",
-    'Kieran, on the real iPhone: "make the zoom cursor thing just more basic, it\'s doing too much at the moment and it\'s confusing".',
+    "Feedback from a real iPhone: the zoom cursor did too much and was confusing, so it was made more basic.",
     "",
     "What it is now (`packages/kvm-engine/src/view/lens.ts`, every number in its tuning block; failure modes L1-L10 in `view/FAILURE_MODES.md`):",
     "",

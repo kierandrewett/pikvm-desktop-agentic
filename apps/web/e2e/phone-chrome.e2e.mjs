@@ -452,21 +452,23 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
         }
 
         if (opts.ios) {
-            // Real device (402x874, black bar): 100vh is the 874 screen, the web view 812. Headless Chrome cannot make 100vh
-            // differ from the viewport, so what is asserted is the rule: the height is 100dvh, and the bar ends at the web view's bottom.
-            await check(profile, "the installed app is 100dvh tall, not the screen-tall 100vh, and the bar ends at the bottom", async () => {
+            // Real devices (402x874): 100dvh is 812 in both apps; the page shows 812 below a black bar (top inset 0) and 874 under a
+            // black-translucent one (top inset 62). Headless Chrome cannot make 100dvh short of the web view, so what is asserted is the
+            // rule (100dvh plus the top inset, at most 100vh) and that the bar ends at the web view's bottom.
+            await check(profile, "the installed app is 100dvh plus the top inset, at most 100vh, and the bar ends at the bottom", async () => {
                 await goTo(page, "kvm", true);
                 const m = await page.evaluate(() => ({
                     heightVar: getComputedStyle(document.documentElement).getPropertyValue("--app-height").trim(),
                     shell: Math.round(document.querySelector(".app-shell").getBoundingClientRect().bottom),
                     nav: Math.round(document.querySelector(".nav-bar").getBoundingClientRect().bottom),
                 }));
-                return [m.heightVar === "100dvh" && m.shell === real && m.nav === real, `--app-height ${m.heightVar}; shell bottom ${m.shell}, bar bottom ${m.nav} of ${real}`];
+                const rule = /^min\(100vh,\s*calc\(100dvh \+/.test(m.heightVar);
+                return [rule && m.shell === real && m.nav === real, `--app-height ${m.heightVar}; shell bottom ${m.shell}, bar bottom ${m.nav} of ${real}`];
             });
         }
 
         if (opts.ios) {
-            // Settings > About > Display: what a device reports, as text; read here the way Kieran's phone would copy it.
+            // Settings > About > Display: what a device reports, as text; read here the way a phone would copy it.
             await check(profile, "Settings > About > Display reports the viewport, the flags and the clipping chain", async () => {
                 await page.goto(`${WEB}/app/settings/about`, { waitUntil: "load" });
                 await page.waitForSelector('[data-testid="display-report"]');
@@ -651,10 +653,12 @@ try {
         await phone(browser, scratch, "iPhone 13 standalone, black bar", BELOW, BELOW_BAR, theme, { ios: true });
         // With the soft keyboard: the visual viewport shrinks under the layout viewport.
         await phone(browser, scratch, "iPhone 13 standalone, soft keyboard", BELOW, BELOW_BAR, theme, { ios: true, keyboard: true });
-        // The device the 100dvh fix was measured on (Firefox-made home-screen app, 402x874): display-mode standalone, the web view
-        // 812 tall below the black bar. Headless 100vh is the 812 too, so this asserts the rule and the geometry, not the 874.
+        // The Firefox-made app the fix was measured on (402x874, black bar): display-mode standalone, the web view 812 tall below the bar.
         const IPHONE_402 = { width: 402, height: 812, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
         await phone(browser, scratch, "iPhone 402x812 installed app, display-mode standalone", IPHONE_402, BELOW_BAR, theme, { ios: true });
+        // The Safari-made app on the same phone, added under black-translucent: the page runs under the bar (top inset 62) and the web
+        // view is the whole 874. 100dvh plus the inset would be 936 here, so this is the case where 100vh caps it.
+        await phone(browser, scratch, "iPhone 402x874 installed app, page under the bar", { width: 402, height: 874, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, { top: 62, bottom: 34, left: 0, right: 0 }, theme, { ios: true });
         // navigator.standalone true with display-mode browser (an earlier report from the same app): the plain browser layout.
         await phone(browser, scratch, "iPhone 402x812, navigator.standalone with display-mode browser", IPHONE_402, BELOW_BAR, theme, { firefox: true });
     }

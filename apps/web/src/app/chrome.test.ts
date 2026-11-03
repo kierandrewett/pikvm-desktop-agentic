@@ -11,10 +11,11 @@
  *  5. The meta that makes the inset exist at all is dropped (viewport-fit=cover, the standalone flags),
  *     so env(safe-area-inset-*) is 0 and the strips collapse.
  *  6. The offline page the service worker serves comes up with a different status bar than the app.
- *  7. The shell is sized from 100vh (or 100lvh) in the installed app. With the black status-bar style the web view
- *     starts below the bar and is the screen minus the bar (real device, 402x874: 100vh 874, the web view, 100dvh,
- *     innerHeight and the visual viewport 812), so a 100vh shell put the bottom 62px of the navigation bar below
- *     the screen. The height is 100dvh everywhere, and only the keyboard may replace it.
+ *  7. The installed app's shell is not what the web view shows. Two apps on one iPhone (402x874) both report 100dvh,
+ *     innerHeight and the visual viewport as 812 and 100vh as 874. Added under the black status-bar style (top inset
+ *     0) the web view is 812 and a 100vh shell put the bottom 62px of the navigation bar below the screen; added under
+ *     black-translucent (top inset 62) the page runs under the bar, the web view is 874 and a 100dvh shell left a 62px
+ *     gap under the bar. The height is 100dvh plus the top inset, at most 100vh, and only the keyboard may replace it.
  *  8. The status-bar style goes back to black-translucent. On the iPhone this was reported from (iOS 26) that
  *     style gets the system's own gradient over the top of the page, which no CSS can remove, and a page 62px
  *     short of the screen with the system background under the bar. Real-device evidence, not reproducible
@@ -148,9 +149,9 @@ describe("home indicator strip", () => {
         expect(rule(css, ".nav-bar")).toMatch(/safe-area-inset-right/);
     });
 
-    it("reaches the bottom: 100dvh, never the screen-tall 100vh or 100lvh, and no backstop", () => {
+    it("reaches the bottom: 100dvh in a tab, 100dvh plus the top inset (at most 100vh) in the installed app, and no backstop", () => {
         expect(rule(css, ":root")).toMatch(/--app-height:\s*100dvh/);
-        expect(css).not.toMatch(/--app-height:\s*100l?vh/);
+        expect(rule(css, "html[data-standalone]")).toMatch(/--app-height:\s*min\(100vh,\s*calc\(100dvh \+ env\(safe-area-inset-top/);
         expect(rule(css, ".app-shell")).toMatch(/height:\s*var\(--app-height\)/);
         expect(css).not.toMatch(/body:has\([^)]*\)::after/);
     });

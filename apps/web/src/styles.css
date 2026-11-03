@@ -396,17 +396,27 @@ html[data-ios-standalone] {
  * The installed app with the keyboard closed: NO fixed root. On iOS 26 a position:fixed html, body or app container
  * is clipped to the layout viewport (docs: cjnova/piclaw-monaco PWA.md 8.6, 8.9), so the root is one normal-flow
  * column instead, html, body and the shell each var(--app-height) tall, with nothing between them that is shorter
- * or clips; overflow stays hidden on html so the page itself never scrolls. The height is 100dvh, never 100vh:
- * with the black status-bar style the web view starts below the bar, and on the device this was measured on
- * (Settings > About > Display, iPhone 402x874) 100vh and 100lvh are the screen, 874, while the web view, innerHeight,
- * the visual viewport, a fixed top:0 bottom:0 element and 100dvh are all 812. A 100vh shell put the bottom 62px of
- * the navigation bar below the screen. While the keyboard is up (data-keyboard="open", set by the shell)
+ * or clips; overflow stays hidden on html so the page itself never scrolls.
+ *
+ * The height is what the web view shows: 100dvh plus the top inset, never more than 100vh. Two apps on one iPhone
+ * (402x874, Settings > About > Display) report 100dvh, innerHeight, the visual viewport and a fixed top:0 bottom:0
+ * element as 812 and 100vh as 874 (the screen). The one added under the black status-bar style has a top inset of
+ * 0 and its page starts below the bar: it shows 812, and a 100vh shell put the bottom 62px of the navigation bar
+ * below the screen. The one added under black-translucent keeps that style (iOS keeps the style from when the app
+ * was added): its page is drawn under the bar with a top inset of 62, it shows the whole 874, and a 100dvh shell
+ * left a 62px gap under the navigation bar. 812 + 0 and 812 + 62 are both right; 100vh caps it at the screen.
+ *
+ * While the keyboard is up (data-keyboard="open", set by the shell)
  * everything is fixed to the visual viewport and no taller than it, so nothing is clipped. Dialogs and the toast,
  * portalled to <body>, are absolute in that body for the same reason.
  */
 html[data-standalone]:not([data-keyboard="open"]) {
     position: static;
     height: var(--app-height);
+}
+
+html[data-standalone] {
+    --app-height: min(100vh, calc(100dvh + env(safe-area-inset-top, 0px)));
 }
 
 html[data-standalone]:not([data-keyboard="open"]) body {

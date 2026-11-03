@@ -61,9 +61,9 @@ export function Shell() {
     // The height and the offset are on <html>, not the shell: the status-bar strip (index.html, styles.css) and
     // everything portalled to <body> (dialogs, sheets, toasts) size against them too. --app-top follows the
     // visual viewport when iOS pans it for the keyboard. --app-height is written only when the CSS cannot know
-    // it: in the installed app with the keyboard closed the CSS says 100dvh (the web view's height) and nothing
-    // is written. (With the bar hidden the content runs to the screen edge, and the keyboard covers the home
-    // indicator, so there is no bottom inset to respect.)
+    // it: in the installed app with the keyboard closed the CSS says what the web view shows (100dvh plus the top
+    // inset, styles.css) and nothing is written. (With the bar hidden the content runs to the screen edge, and the
+    // keyboard covers the home indicator, so there is no bottom inset to respect.)
     // data-keyboard says which layout the installed app is in (styles.css): normal flow with the keyboard
     // closed, fixed to the visual viewport while it is open.
     useLayoutEffect(() => {

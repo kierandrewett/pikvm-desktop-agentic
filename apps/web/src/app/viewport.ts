@@ -9,9 +9,9 @@
  *
  * In the installed app (standalone) the keyboard is measured against the layout viewport: a fixed top:0 bottom:0
  * probe, which iOS does not shrink for the keyboard, so a keyboard already up at the first sample is still seen.
- * The shell is 100dvh (styles.css, `full`) while the keyboard is closed, and the visual viewport's own height is
- * used only while it is open. 100vh is not the app's height: with the black status-bar style the web view starts
- * below the bar, and 100vh is the whole screen, 62px taller than the web view on a 402x874 iPhone.
+ * The shell is what the web view shows (styles.css: 100dvh plus the top inset, at most 100vh; `full`) while the
+ * keyboard is closed, and the visual viewport's own height is used only while it is open. The units disagree on the
+ * iPhone (100vh is the screen, 100dvh the screen minus the bar), so neither alone is the app's height.
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
@@ -41,7 +41,7 @@ export interface ViewportFrame {
     readonly height: number;
     readonly top: number;
     readonly keyboardOpen: boolean;
-    /** Standalone with the keyboard closed: the CSS (100dvh) owns the height and nothing is written for it. */
+    /** Standalone with the keyboard closed: the CSS owns the height and nothing is written for it. */
     readonly full: boolean;
 }
 
