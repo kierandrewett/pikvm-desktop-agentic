@@ -102,6 +102,39 @@ describe("ChatPane", () => {
         expect(within(card).getByText("Clicked (left) at (640, 360).")).toBeInTheDocument();
     });
 
+    it("shows the screenshot and the click point on the PiKVM cards of a stored turn", async () => {
+        const frame = { id: "abc123def456ghi789", width: 320, height: 180, url: "/api/conversations/c1/frames/abc123def456ghi789" };
+        const call = (id: string, name: string, args: unknown) =>
+            ({ id, type: "function_call", status: "completed", call_id: id, name, arguments: JSON.stringify(args) }) as OutputItem;
+        const result = (id: string, output: string) =>
+            ({ id: `o${id}`, type: "function_call_output", status: "completed", call_id: id, output, frame }) as OutputItem;
+        installFakeServer(
+            routes([
+                user,
+                call("k1", "mcp__pikvm_screenshot", {}),
+                result("k1", "Screen 320x180 (frame 1). Mouse: absolute."),
+                call("k2", "mcp__pikvm_click", { x: 160, y: 90 }),
+                result("k2", "Clicked (left) at (160, 90)."),
+            ]),
+        );
+        await open();
+        await userEvent.click(await screen.findByRole("button", { name: /Used / }));
+        const cards = await waitFor(() => {
+            const found = [...document.querySelectorAll<HTMLElement>("[data-pikvm-step]")];
+            expect(found).toHaveLength(2);
+            return found;
+        });
+        for (const c of cards) {
+            expect(c.querySelector("[data-pikvm-thumb] img")?.getAttribute("src")).toBe(
+                "/app/chat/api/conversations/c1/frames/abc123def456ghi789",
+            );
+        }
+        // The look has no point; the click is drawn on the middle of the same frame.
+        expect(cards[0]!.querySelector("[data-pikvm-marker]")).toBeNull();
+        const mark = cards[1]!.querySelector<HTMLElement>("[data-pikvm-marker]")!;
+        expect([mark.style.left, mark.style.top]).toEqual(["50%", "50%"]);
+    });
+
     it("streams an assistant reply into the thread", async () => {
         installFakeServer(routes([user]));
         await open();

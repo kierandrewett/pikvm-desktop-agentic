@@ -1,0 +1,105 @@
+/*
+ * The picture on a PiKVM tool card: a thumbnail that opens full size, and the point the agent acted on drawn over it.
+ * Marks are placed by percentage of the picture, so they stay on the same pixel at any size. The picture is a screen
+ * of any colour, so a mark carries its own contrast: a white edge inside a dark one.
+ */
+.pk-thumb {
+    position: relative;
+    display: block;
+    width: 100%;
+    max-width: 260px;
+    margin-top: calc(6px * var(--density));
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: calc(8px * var(--roundness));
+    overflow: hidden;
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+    cursor: zoom-in;
+}
+.pk-thumb:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+}
+
+.pk-frame {
+    position: relative;
+    display: block;
+    width: 100%;
+}
+.pk-frame > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.pk-marks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+/* The line of a drag: from the press point, as long and as turned as the drag was (set inline). */
+.pk-line {
+    position: absolute;
+    height: 3px;
+    margin-top: -1.5px;
+    border-radius: 2px;
+    background: #fff;
+    box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.6);
+    transform-origin: 0 50%;
+}
+.pk-mark {
+    position: absolute;
+    box-sizing: border-box;
+    width: 14px;
+    height: 14px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #ff3b30;
+    box-shadow:
+        0 0 0 1.5px rgb(0 0 0 / 0.6),
+        0 0 6px rgb(0 0 0 / 0.5);
+    transform: translate(-50%, -50%);
+}
+/* A move and the end of a drag show where the pointer arrives, without covering what is there. */
+.pk-mark[data-kind="move"],
+.pk-mark[data-kind="scroll"],
+.pk-mark[data-role="to"] {
+    background: transparent;
+}
+.pk-mark[data-kind="scroll"]::after,
+.pk-mark[data-count="2"]::after,
+.pk-mark[data-count="3"]::after {
+    content: "";
+    position: absolute;
+    inset: -7px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.6);
+}
+.pk-mark[data-count="3"]::before {
+    content: "";
+    position: absolute;
+    inset: -12px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.6);
+}
+
+/* The same picture in the viewer: larger marks to match. */
+.pk-viewer {
+    display: block;
+    margin-inline: auto;
+}
+.pk-viewer .pk-mark {
+    width: 20px;
+    height: 20px;
+    border-width: 3px;
+}
+
+.pk-gone {
+    display: block;
+    margin-top: calc(4px * var(--density));
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--text-tertiary);
+}

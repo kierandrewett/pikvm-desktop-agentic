@@ -820,7 +820,14 @@ function Steps({ items, running, id, end }: { items: OutputItem[]; running: bool
                         const kind = callKind(it.name, it.arguments);
                         if (isPikvmTool(it.name)) {
                             return (
-                                <PikvmStep key={it.id} name={it.name} args={it.arguments} output={out?.output} state={state} />
+                                <PikvmStep
+                                    key={it.id}
+                                    name={it.name}
+                                    args={it.arguments}
+                                    output={out?.output}
+                                    state={state}
+                                    frame={out?.frame}
+                                />
                             );
                         }
                         if (kind === "web-search") {
