@@ -1,6 +1,7 @@
 // Settings -> Macros against a real web host in front of tools/fake-kvmd: iPhone 13 and a
-// 1400x900 window. The page is the KVM screen's macro manager, so each case drives it the way a
-// person would (create, edit steps, icon, pin, reorder, delete with a confirmation, run) and
+// 1400x900 window. The page is Settings' list of macros with one macro's editor behind it, on the same
+// editor as the KVM screen's Macros dialog, so each case drives it the way a person would (create, edit
+// steps, icon, pin, reorder, delete with a confirmation, run) and
 // asserts what the SERVER stored and what the fake kvmd RECEIVED. The middle cases leave Settings
 // for the KVM screen to see the pinned macros arrive as tiles and as a toolbar strip.
 //
@@ -92,17 +93,29 @@ async function setText(page, selector, text) {
     await page.keyboard.press("Enter");
 }
 
+/** The list of macros: from the Settings list on a phone (the row opens the page, as it would for a person). */
 async function openMacros(page, tag) {
     if (tag === "phone") {
-        // Settings is a list on a phone: the row opens the page, as it would for a person.
         await page.goto(`${WEB}/app/settings`, { waitUntil: "load" });
         await page.waitForSelector('nav[aria-label="Settings"]');
         await page.evaluate(() => [...document.querySelectorAll('nav[aria-label="Settings"] a')].find((a) => a.textContent.includes("Macros")).click());
     } else {
         await page.goto(`${WEB}/app/settings/macros`, { waitUntil: "load" });
     }
-    await page.waitForSelector('[data-testid="macros-dialog"][data-presentation="page"]');
-    await page.waitForFunction(() => !document.querySelector('[data-testid="macros-dialog"]')?.textContent?.includes("Loading"));
+    await page.waitForSelector("[data-settings-page]");
+    await page.waitForFunction(() => document.querySelector("[data-settings-page] h1")?.textContent === "Macros" && !document.querySelector("[data-settings-page]")?.textContent?.includes("Loading"));
+}
+
+/** One macro's editor, opened from the list by its name. */
+async function openEditor(page, name) {
+    await page.evaluate((n) => [...document.querySelectorAll("#panel-settings [data-settings-page] button")].find((b) => b.textContent.includes(n)).click(), name);
+    await page.waitForFunction((n) => document.querySelector("[data-settings-page] h1")?.textContent === n, {}, name);
+}
+
+/** From an editor back to the list: the desktop's link is named "Macros", the phone's back button "Back to Macros". */
+async function backToList(page) {
+    await page.evaluate(() => [...document.querySelectorAll("#panel-settings button")].find((b) => ["Macros", "Back to Macros"].includes((b.getAttribute("aria-label") ?? b.textContent).trim())).click());
+    await page.waitForFunction(() => document.querySelector("[data-settings-page] h1")?.textContent === "Macros");
 }
 
 async function createMacro(page, { name, mods, key, text, pause }) {
@@ -138,10 +151,10 @@ async function run(browser, profile, tag) {
     await shot(page, `${tag}-empty`);
 
     await check(profile, "empty list says how to start; the page is a page (no dialog, no Done)", async () => {
-        const text = await page.$eval('[data-testid="macros-dialog"]', (el) => el.textContent);
+        const text = await page.$eval("[data-settings-page]", (el) => el.textContent);
         const dialogs = await page.$$('[role="dialog"]');
         const done = await page.evaluate(() => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Done"));
-        return [/Use New macro to add one/.test(text) && dialogs.length === 0 && !done, `${JSON.stringify(text.slice(0, 60))}; dialogs ${dialogs.length}; Done ${done}`];
+        return [/No macros yet/.test(text) && dialogs.length === 0 && !done, `${JSON.stringify(text.slice(0, 80))}; dialogs ${dialogs.length}; Done ${done}`];
     });
 
     await check(profile, "create: name, Super+R, text and pause are stored by the server", async () => {
@@ -162,11 +175,10 @@ async function run(browser, profile, tag) {
         await sleep(400);
         const m = (await stored()).find((x) => x.label === "Run box");
         const order = m.steps.map((s) => s.type);
-        const pin = await page.$('input[type="checkbox"]');
-        await pin.click();
+        await press(page, "Pin to the toolbar and menu", "switch");
         await sleep(400);
         const unpinned = (await stored()).find((x) => x.label === "Run box")?.pinned === false;
-        await pin.click();
+        await press(page, "Pin to the toolbar and menu", "switch");
         await sleep(400);
         const repinned = (await stored()).find((x) => x.label === "Run box")?.pinned !== false;
         return [m.icon === "terminal" && equal(order, ["text", "chord", "delay"]) && unpinned && repinned, `icon ${m.icon}; steps ${order.join(",")}; unpinned ${unpinned}; repinned ${repinned}`];
@@ -184,13 +196,14 @@ async function run(browser, profile, tag) {
         const { events, prints } = await rec.events(1800);
         const lines = describe(events);
         const here = new URL(page.url()).pathname;
-        const toast = await page.evaluate(() => document.querySelector(".kvm-toast")?.textContent ?? "");
+        const toast = await page.evaluate(() => [...document.querySelectorAll("#panel-settings li, #panel-settings [role=status]")].map((e) => e.textContent).find((t) => /sent/.test(t)) ?? "");
         const pass = equal(lines, ["key MetaLeft down", "key KeyR down", "key KeyR up", "key MetaLeft up"]) && prints.length === 1 && prints[0].text === "calc" && here.startsWith("/app/settings");
         await shot(page, `${tag}-run`);
         return [pass, `${lines.join(", ")}; typed "${prints[0]?.text}"; still on ${here}; toast ${JSON.stringify(toast)}`];
     });
 
     await check(profile, "second macro, then reorder: the list on the server follows", async () => {
+        await backToList(page);
         await createMacro(page, { name: "Task manager", mods: ["Ctrl", "Shift"], key: "Escape", text: "x", pause: 100 });
         const before = (await stored()).map((m) => m.label);
         await press(page, "Move up the list");
@@ -208,28 +221,29 @@ async function run(browser, profile, tag) {
 
     await check(profile, "unpin in Settings: it leaves the tiles / toolbar", async () => {
         await openMacros(page, tag);
-        await page.evaluate(() => [...document.querySelectorAll(".macro-list button")].find((b) => b.textContent.includes("Task manager")).click());
-        await sleep(200);
-        await (await page.$('input[type="checkbox"]')).click();
+        await openEditor(page, "Task manager");
+        await press(page, "Pin to the toolbar and menu", "switch");
         await sleep(500);
         const names = await tilesOrStrip(page, tag);
         return [equal(names, ["Run box"]), names.join(", ")];
     });
 
-    await check(profile, "delete asks first: Cancel keeps the macro, Delete removes it from the server", async () => {
+    await check(profile, "delete asks first: Cancel keeps the macro, Delete removes it from the server and returns to the list", async () => {
         await openMacros(page, tag);
+        await openEditor(page, "Task manager");
         await press(page, "Delete macro");
-        await page.waitForSelector('[role="alertdialog"]');
+        await page.waitForSelector('[role="dialog"]');
         await shot(page, `${tag}-confirm`);
-        await page.evaluate(() => [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === "Cancel").click());
-        await sleep(400);
+        await page.evaluate(() => [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "Cancel").click());
+        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
         const kept = (await stored()).length === 2;
         await press(page, "Delete macro");
-        await page.waitForSelector('[role="alertdialog"]');
-        await page.evaluate(() => [...document.querySelectorAll('[role="alertdialog"] button')].find((b) => b.textContent.trim() === "Delete macro").click());
+        await page.waitForSelector('[role="dialog"]');
+        await page.evaluate(() => [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === "Delete macro").click());
         await sleep(600);
         const left = (await stored()).map((m) => m.label);
-        return [kept && left.length === 1, `after Cancel ${kept ? "both kept" : "LOST"}; after Delete: ${left.join(", ")}`];
+        const onList = await page.evaluate(() => document.querySelector("[data-settings-page] h1")?.textContent === "Macros");
+        return [kept && left.length === 1 && onList, `after Cancel ${kept ? "both kept" : "LOST"}; after Delete: ${left.join(", ")}; back on the list ${onList}`];
     });
 
     await check(profile, "no page errors", async () => [logs.filter((l) => l.startsWith("pageerror") || l.startsWith("error")).length === 0, logs.join(" | ") || "clean"]);
@@ -253,7 +267,7 @@ const md = [
     "",
     "Browser: headless Chrome through puppeteer-core. Profiles: iPhone 13 (390x844, touch, coarse pointer) and desktop 1400x900. Script: `apps/web/e2e/settings-macros.e2e.mjs`; how to run it: `docs/e2e/README.md`.",
     "",
-    "Settings -> Macros is the same component as the KVM screen's Macros dialog. Each case drives it as a person would and asserts what the server STORED and what the fake kvmd RECEIVED.",
+    "Settings -> Macros is Settings' list of macros with one macro's editor behind it, on the same editor as the KVM screen's Macros dialog. Each case drives it as a person would and asserts what the server STORED and what the fake kvmd RECEIVED.",
     "",
     "| Profile | Case | Observed | Result |",
     "| --- | --- | --- | --- |",

@@ -185,7 +185,7 @@ async function run(browser, profile, tag) {
             await press(page, tag, "More");
             const items = await menuLabels(page, "#kvm-sheet .kvm-item");
             await page.goto(`${WEB}/app/settings/display`, { waitUntil: "load" });
-            await page.waitForSelector(".group-card");
+            await page.waitForSelector("[data-settings-page]");
             const text = await page.evaluate(() => document.body.innerText);
             const switchPresent = (await page.$('[role="switch"][aria-label="Alert me when the screen changes"]')) !== null;
             await shot(page, `${tag}-alerts-settings`);

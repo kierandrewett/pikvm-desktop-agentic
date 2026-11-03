@@ -109,8 +109,8 @@ async function run(browser, profile, tag, theme) {
 
     await goTo(page, tag, "settings");
     await check(label, "Settings draws its page icons with Phosphor", async () => {
-        await page.waitForSelector(".row-icon svg");
-        const g = await glyphs(page, ".row-icon svg");
+        await page.waitForSelector("#panel-settings nav svg");
+        const g = await glyphs(page, "#panel-settings nav svg");
         return [g.length >= 8 && g.every(phosphor), `${g.length} svgs in the page list, all Phosphor ${g.every(phosphor)}`];
     });
     await shot("settings");
