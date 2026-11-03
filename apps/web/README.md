@@ -1,7 +1,7 @@
 # @pikvm/web
 
 The PiKVM app: the shell (navigation, layout), the KVM screen, Settings and the agent Chat (the
-shared `@pikvm/chat-ui` workspace, rendered natively). Vite, React 19,
+conversation pane from `@pikvm/chat-web`, rendered natively). Vite, React 19,
 Tailwind 4, TanStack Router and Query, Effect. Served by the host under `/app/`.
 
 ## Develop
@@ -16,10 +16,10 @@ yarn workspace @pikvm/web dev        # http://localhost:5173/app/
 
 The dev server forwards what it cannot serve itself to the host, so dev behaves like the real
 origin (same paths, same cookies, no CORS): `/app/api`, `/app/legacy`,
-`/app/harness`, `/api` (WebSocket too), `/streamer`, `/janus` and `/oauth2`. Point it at a
+`/app/chat/api`, `/app/chat/ws`, `/api` (WebSocket too), `/streamer`, `/janus` and `/oauth2`. Point it at a
 different host with `PIKVM_WEB_HOST=http://127.0.0.1:9000 yarn workspace @pikvm/web dev`.
 
-Chat talks to the harness at `/app/harness` and needs no frame. The KVM screen talks to kvmd
+Chat talks to the chat server inside the host at `/app/chat` and needs no frame. The KVM screen talks to kvmd
 through the host (`/api/ws`, `/streamer`, `/janus/ws`). Without a host behind the proxy the shell,
 navigation and Settings still load; their data shows its error state.
 
@@ -41,7 +41,7 @@ src/main.tsx            entry: theme, query client, router
 src/app/                shell, route table, navigation (bar on phones, rail when wide), viewport hooks
 src/api/                typed client over @pikvm/contracts, and the Query bindings
 src/settings/           the Settings list and one page per section
-src/chat/               the Chat route: host states around @pikvm/chat-ui's ChatWorkspace
+src/chat/               the Chat route: host states around @pikvm/chat-web's ChatPane
 src/kvm/                the KVM screen: picture, dock and toolbar, key rows, sheet, dialog seam (see FAILURE_MODES.md)
 src/host/paths.ts       every server path the app depends on
 src/theme.ts            the stored theme, shared with the console's key
@@ -74,13 +74,11 @@ src/styles.css          tokens (the desktop app's palette) and component classes
   pane is in front, so back and forward work. The KVM is told whether it is in front
   (`kvm/active.ts`): keyboard capture, the hidden field, pointer gestures, cursor reports, the
   wake lock and the document-level shortcuts are all off while it is not.
-- **Chat** renders `ChatWorkspace` from `packages/chat-ui` with `apiBase=/app/harness`, the marker
-  credential `desktop-managed` (the proxy attaches the real operator capability; every request also
-  carries `x-pikvm-workspace: 1`) and `insets="host"` (the shell already pads the safe areas and
-  sizes itself to the visual viewport). `features.chat=false` (no agent configured, or its health
-  route does not answer) shows "Chat is not available"; a 502/503 from the proxy shows "The agent is not running" and the workspace retries on
-  its own. The route is a lazy chunk. Its tests are in `src/chat/`; the phone behaviours (sheets,
-  keyboard docking, approval dock, long-press) are tested in `packages/chat-ui`.
+- **Chat** renders `ChatPane` from `packages/chat-web` inside `ChatScope`, which carries the pane's tokens and
+  utilities so nothing it defines applies outside the pane. It talks to the chat server inside the host at
+  `/app/chat/api` and `/app/chat/ws`. `features.chat=false` (the chat server is not up) shows "Chat is not
+  available"; when the agent program (omp) was not found the pane still opens, with a note on top. The route is a
+  lazy chunk. Its tests are in `src/chat/`; the conversation's own behaviours are tested in `packages/chat-web`.
 - **KVM screen** is the engine (`@pikvm/kvm-engine`) wired to elements.
   - One session per app (`kvm/session.tsx`) owns the kvmd link, the key queue and the paste and macro runners, outside React.
   - `kvm/picture-controller.ts` wires the video and pointer machines to the picture.

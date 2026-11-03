@@ -31,7 +31,8 @@ export default defineConfig({
         proxy: {
             "/app/api": forward(false),
             "/app/legacy": forward(true),
-            "/app/harness": forward(true),
+            "/app/chat/api": forward(false),
+            "/app/chat/ws": forward(true),
             "/api": forward(true),
             "/streamer": forward(false),
             "/janus": forward(true),

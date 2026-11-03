@@ -4,7 +4,7 @@
  *
  * Failure modes:
  *  P1. The manifest is not linked from the page, or its start URL / icons fall outside what the host serves.
- *  P2. The worker answers an API or harness request itself, or caches a response meant to be live.
+ *  P2. The worker answers an API request itself, or caches a response meant to be live.
  *  P3. A navigation while the host is down shows the browser's error page instead of the worker's.
  *  P4. A POST, a cross-origin request or the proxied PiKVM UI goes through the worker.
  *  P5. An asset falls back to a stale cached copy only when the network fails, never in preference to it.
@@ -92,12 +92,10 @@ describe("worker", () => {
         expect(await event.respondWith.mock.calls[0]?.[0]).toBe(redirect);
     });
 
-    it("P2/P4: the API, the harness, the legacy console, other methods, other origins and the proxied Pi UI are not the worker's", () => {
+    it("P2/P4: the API, the legacy console, other methods, other origins and the proxied Pi UI are not the worker's", () => {
         const { fire } = boot(down);
         for (const url of [
             "https://kvm.example/app/api/v1/state",
-            "https://kvm.example/app/harness/runs",
-            "https://kvm.example/app/daemon/status",
             "https://kvm.example/app/legacy/",
             "https://kvm.example/api/ws",
             "https://kvm.example/streamer/stream",
