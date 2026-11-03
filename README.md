@@ -1,19 +1,12 @@
 # PiKVM Desktop
 
-A chat-first desktop workspace for supervised computer use. Bring an OAuth- or
-API-backed model, connect a managed PiKVM/VNC target, ask for an outcome in
-plain language, and watch planning, exact tool calls, screen transitions,
-verification, and approvals in one conversation.
+PiKVM Desktop is a chat-first workspace for supervised computer use. You connect a PiKVM, choose a model, and ask for an outcome in plain language. The conversation shows the plan, each tool call, screen changes, and approval requests.
 
-The desktop app and the web host run one server. It serves the app, proxies the PiKVM, and runs the chat server
-(`packages/chat-server`) and the PiKVM tools (`packages/pikvm-mcp`) inside its own process; the agent itself is omp's
-standalone binary, started per conversation.
+The desktop app and the web host run the same server. It serves the app, proxies the PiKVM, and runs the chat server (`packages/chat-server`) and the PiKVM tools (`packages/pikvm-mcp`) in one process. The agent is omp's standalone binary, started once per conversation.
 
-The model never receives a PiKVM address or credential, a browser token or an approval capability: the agent reaches
-models and the PiKVM only through a separate loopback listener that needs its own bearer token, and a consequential
-action waits in the conversation for the person to allow it. A person moving the mouse ends the agent's control.
+The model never receives the PiKVM address or credentials. The agent reaches models and the PiKVM only through a separate loopback listener that needs its own bearer token.
 
-## Development
+## Run it
 
 ```bash
 yarn install
@@ -22,86 +15,71 @@ yarn test
 yarn start
 ```
 
-Yarn, not npm: `yarn.lock` is the lockfile under version control, and a stray
-`package-lock.json` from an `npm install` is how the two drift apart.
+Use Yarn, not npm. `yarn.lock` is the lockfile under version control.
 
-The agent program is found through `OMP_BIN`, the packaged `resources/omp/`, or PATH. Without it Chat opens and
-says what is missing. `make package` and `make image` fetch it with `scripts/fetch-omp.mjs` against `deploy/omp.lock`.
+The chat server looks for the agent program in this order:
 
-## The PiKVM address and credentials
+1. `OMP_BIN`
+2. The packaged `resources/omp/omp`
+3. The `system.agent.binary` setting, or a name on PATH
 
-In the desktop app, Settings > Connection edits the PiKVM address, user name and password; the change
-applies at once (the proxy and the control core follow it) and the app reloads. A hosted web build keeps
-them read-only, pinned by its environment.
+Without it, Chat opens and says what is missing. `make package` and `make image` fetch it with `scripts/fetch-omp.mjs`, checked against `deploy/omp.lock`.
 
-`pikvm.json` in the app's user data folder holds the address and user name. The password is in
-`pikvm-credentials.json` beside it, mode 0600, written through a temporary file and a rename into a
-folder that is 0700 when the app created it. It is write-only: no API reply, log line or error carries it,
-and the form never shows it. Installs from before this kept `user:pass` inside the address; that is still
-read, never rewritten at startup, and moves to the credentials file the first time you save from Settings.
-The API is `GET`/`PUT /app/api/v1/target` (`@pikvm/contracts`); a host that pins the PiKVM answers
-`403` to the `PUT`.
+## PiKVM address and credentials
+
+In the desktop app, open Settings > Connection to edit the address, user name, and password. The change applies at once and the app reloads. A hosted web build shows these values read-only. Its environment sets them.
+
+- `pikvm.json` in the app's user data folder holds the address and user name.
+- `pikvm-credentials.json` beside it holds the password, with mode 0600.
+- The password is write-only. No API reply or form shows it.
+- An older install may keep `user:pass` inside the address. The app still reads it and moves it to the credentials file the first time you save from Settings.
+
+The API is `GET` and `PUT /app/api/v1/target`. A host that pins the PiKVM answers the `PUT` with `403`.
 
 ## Packaging
 
-The desktop app is an Electron app whose one window loads the embedded server's `/app/`; its only
-bridge to the OS is `window.pikvmDesktop` (`packages/contracts/src/desktop.ts`, implemented in
-`src/desktop/`). The app is built the normal Electron way (`@electron/packager` writes the Electron tree).
-What turns that tree into installers depends on the system:
+The desktop app is an Electron app. `@electron/packager` writes the Electron tree. The tool that turns the tree into installers depends on the system.
 
-| System | Formats | Written by | Notes |
-| --- | --- | --- | --- |
-| Linux (x64, arm64) | rpm, deb, Arch (`.pkg.tar.zst`), AppImage, Flatpak | [pkgsmith](https://github.com/kierandrewett/pkgsmith), from `pkgsmith.star` | needs `flatpak` on PATH for the Flatpak |
-| macOS (arm64, x64) | dmg (with the Applications link), zip | [electron-builder](https://www.electron.build), from `packaging/electron-builder.yml` | the dmg only builds on macOS; unsigned, not notarised |
-| Windows (x64) | nsis (setup wizard), msi, zip | electron-builder, from `packaging/electron-builder.yml` | Start Menu and desktop shortcuts; unsigned. On Linux wine builds the nsis and zip; the msi (WiX) only builds on Windows |
+| System | Formats | Tool |
+| --- | --- | --- |
+| Linux (x64, arm64) | rpm, deb, Arch, AppImage, Flatpak | [pkgsmith](https://github.com/kierandrewett/pkgsmith), from `pkgsmith.star` |
+| macOS (arm64, x64) | dmg, zip | electron-builder, from `packaging/electron-builder.yml` |
+| Windows (x64) | nsis, msi, zip | electron-builder, from `packaging/electron-builder.yml` |
 
-pkgsmith is for Linux only. electron-builder is run in `--prepackaged` mode over the same tree, so it
-does no compiling of its own: it only knows installers (dmg layout, NSIS, WiX) well, which is why it
-is used for macOS and Windows rather than a second implementation of them.
+- The Flatpak format needs `flatpak` on PATH.
+- The dmg builds only on macOS.
+- Off Windows, wine builds the nsis and zip. The msi builds only on Windows.
+- The macOS and Windows installers are unsigned.
 
 ```bash
-make package          # build, then every format for THIS machine's platform
-# -> builds/packages/<platform>-<arch>/
-node scripts/package.mjs --formats rpm,deb     # some formats (Linux: pkgsmith's names; macOS: dmg,zip; Windows: nsis,msi,zip)
-node scripts/package.mjs --tree-only           # just the Electron tree in builds/
+make package                                   # every format for this platform
+node scripts/package.mjs --formats rpm,deb     # chosen formats
+node scripts/package.mjs --tree-only           # the Electron tree only
 ```
 
-`make package` runs `scripts/package.mjs`, which runs the builds, has electron-packager write the Electron tree,
-fills its `resources/` (the web app, and omp's standalone binary for the target, fetched by
-`scripts/fetch-omp.mjs` and checked against `deploy/omp.lock`; a binary that does not match the pin refuses the
-package) and, on Linux, runs `pkgsmith build` over
-it; on macOS and Windows `electron-builder --prepackaged` does. Point `PKGSMITH` at the binary if it is
-not on PATH; pkgsmith has no release yet, so build it from its repository (`cargo build --release
---workspace`; its plugins must sit beside the binary). The Linux package release is `<commit
-count>.<timestamp>` (plus `.dirty`), so a rebuild is always a different package to `dnf` and `apt`. The
-macOS and Windows installers are named `pikvm-desktop-<version>-<macos|windows>-<arch>.<ext>` and carry
-the plain version.
+Output goes to `builds/packages/<platform>-<arch>/`. The script `scripts/package.mjs` builds the app, writes the tree, and adds the web app and omp's binary to `resources/`. A binary that does not match `deploy/omp.lock` stops the build.
 
-A tree for another platform can be made anywhere (`--platform win32 --arch x64 --tree-only`), because omp's
-binary for any target is one download. The macOS and Windows installers still need their own tools, so
-they come from `.github/workflows/package.yml`, which runs the build on a runner of each system and uploads
-the packages as artefacts. The icon sizes in `packaging/icons` come from
-`make icons`.
+Set `PKGSMITH` to the pkgsmith binary if it is not on PATH.
+
+A tree for another platform can be made anywhere, for example with `--platform win32 --arch x64 --tree-only`. The installers need their own platform's tools, so `.github/workflows/package.yml` builds them on a runner for each system.
+
+`make icons` regenerates `packaging/icons` from `src/assets/icon.png`. It needs ImageMagick.
 
 ## Web host
 
-`src/web-server.ts` runs the console and the PiKVM proxy without Electron, for
-phones and browsers. There is no terminal anywhere: the agent is the Chat tab, and the host runs its server
-and the agent (omp's standalone binary) itself, so there is no sidecar. One image holds all of it
-([docs/deploy-web.md](docs/deploy-web.md) has the variables and the bsociety change).
+`src/web-server.ts` runs the console and the PiKVM proxy without Electron. It serves phones and browsers. There is no terminal. The Chat tab is the only way to reach the agent.
+
+Build the image with:
 
 ```bash
-make image                           # podman (IMAGE_TOOL=docker for docker) build -f deploy/Dockerfile .
+make image    # podman build; use IMAGE_TOOL=docker for docker
 ```
 
-The environment is the whole contract; the header of `src/web-server.ts` lists
-every variable. The host has no login of its own. Run it behind an
-authenticating proxy that is the ONLY route in, and set `PIKVM_AUTH=proxy`;
-without that it refuses to bind anything but loopback. Publishing its port
-directly would put the KVM on the network with no sign-in.
+The environment is the whole configuration. The header of `src/web-server.ts` lists every variable. [docs/deploy-web.md](docs/deploy-web.md) covers deployment.
 
-The bsociety deployment (`/srv/machines/bsociety/kvm/compose.yml`) is the
-reference:
+The host has no login of its own. Put an authenticating proxy in front of it, make that proxy the only route in, and set `PIKVM_AUTH=proxy`. Without that setting, the host binds only to loopback. Never publish its port directly.
+
+This layout is the reference deployment:
 
 ```mermaid
 flowchart LR
@@ -114,10 +92,9 @@ flowchart LR
     omp -->|agent listener, bearer token| kvm
 ```
 
-Let these public static paths through the authenticating proxy without sign-in
-(oauth2-proxy: `--skip-auth-route` or `skip_auth_routes`), because browsers
-fetch them without cookies and the installed app needs them before anyone is
-signed in:
+### Public paths
+
+Browsers fetch these paths without cookies. Let them through the proxy without sign-in. In oauth2-proxy, use `--skip-auth-route` or `skip_auth_routes`.
 
 ```
 GET=^/app/manifest\.webmanifest$
@@ -126,46 +103,45 @@ GET=^/app/(icon|icon-192|icon-512|apple-touch-icon)\.png$
 GET=^/app/splash/apple-splash-(portrait|landscape)-[23]x-[0-9]+x[0-9]+\.png$
 ```
 
-The last line is the launch image of the installed iPhone app (`apple-touch-startup-image`, generated at build time
-from the icon). iOS fetches it without the session; without the rule the app starts on a blank screen, as before.
+The last rule serves the launch image of the installed iPhone app. Without it, the app starts on a blank screen.
 
-Everything else under `/app/`, and everything the host proxies to the Pi, stays
-behind sign-in. The idle jiggler is off unless `PIKVM_JIGGLER=1` sets its
-first value; once it has been changed in Settings (`PATCH /app/api/v1/settings`)
-the saved value wins.
+Everything else under `/app/` stays behind sign-in, as does everything the host proxies to the Pi.
 
-On a touch screen the console docks its controls above the soft keyboard, in
-the desktop titlebar's style: speaker, mic, paste, keyboard and ⋯ in the bar,
-then rows of modifier and navigation keys (Fn and More open F1-F12 and the
-common shortcuts). ⋯ opens as a sheet in the bar; it also holds the mouse
-buttons and the input settings. Trackpad mode (the default) moves the cursor
-by drag and taps click. Holding still for half a second arms the touch: move
-to drag with the left button held, or lift to right-click. Quick swipes never
-press a button. Two fingers scroll,
-pinch zooms on the cursor and the view follows it, and a lens at the cursor
-magnifies what is under it. Touch mode points where you tap. The trackpad uses
-the Pi's absolute mouse by default; relative is in ⋯ for targets that need it.
+### Idle jiggler
 
-Installed as an app (PWA), it keeps the screen on while open, reconnects after
-being in the background, and shows a "Can't reach the KVM" screen that
-retries by itself when the host is out of reach.
+The idle jiggler is off unless `PIKVM_JIGGLER=1` sets its first value. After you change it in Settings, the saved value wins.
 
-## Adding Executor as the one external MCP server
+### Touch screens
 
-The agent has two kinds of tools: `ask`, `todo` and the PiKVM tools (`mcp__pikvm_*`), which the host serves itself, and
-nothing else. There is no way to add an MCP server in Settings (the `agent.mcp` setting refuses writes with a 403
-that names the Executor gateway, and the discover and test routes refuse too). External integrations are meant to
-reach the agent through one gateway, Executor (`https://exe.drewett.dev/mcp`), and turning it on is one entry in
-`packages/chat-server/src/mcp/external.ts`:
+On a touch screen, the console docks its controls above the soft keyboard. The bar holds speaker, mic, paste, keyboard, and the more button. Rows of modifier and navigation keys follow.
+
+- Trackpad mode is the default. Drag to move the cursor. Tap to click.
+- Two fingers scroll. Pinch zooms on the cursor.
+- A lens at the cursor magnifies what is under it.
+- Touch mode points where you tap.
+
+The trackpad uses the Pi's absolute mouse by default. The more menu offers relative mode for targets that need it.
+
+### Installed app
+
+When installed as an app (PWA), the console keeps the screen on while it is open. It reconnects after time in the background. It shows a "Can't reach the KVM" screen when the host is out of reach.
+
+## Adding Executor as the external MCP server
+
+The host serves the agent's tools: `ask`, `todo`, and the PiKVM tools (`mcp__pikvm_*`). Settings cannot add an MCP server. The `agent.mcp` setting refuses writes with a `403` that names the Executor gateway, and the discover and test routes refuse too.
+
+External integrations are meant to reach the agent through one gateway, Executor. To turn it on, add one entry to `packages/chat-server/src/mcp/external.ts`:
+
+Use your own gateway URL:
 
 ```ts
 export const EXTERNAL_MCP: Readonly<Record<string, McpServer>> = {
-    executor: { enabled: true, type: "http", url: "https://exe.drewett.dev/mcp" },
+    executor: { enabled: true, type: "http", url: "https://executor.example.com/mcp" },
 };
 ```
 
-Rebuild (`yarn build`) and restart the host. The server renders the entry into the agent's `mcp.json` through its
-credential-holding gateway (`/mcp/s/executor`), so the agent process never holds Executor's token; the sign-in
-and per-tool policies of an HTTP MCP server work as they do in `~/dev/chat`. The host's own tests
-(`packages/chat-server`, `yarn vitest run`) pin that the table is empty today, so the change also edits the test that
-says so.
+Then run `yarn build` and restart the host.
+
+The server renders the entry into the agent's `mcp.json` through its credential-holding gateway at `/mcp/s/executor`. The agent process never holds Executor's token.
+
+A test in `packages/chat-server` asserts that the table is empty. Update that test in the same change. Run it with `yarn vitest run`.
