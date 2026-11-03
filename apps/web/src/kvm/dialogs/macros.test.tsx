@@ -5,7 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMatchMedia } from "../../test/harness";
 import { MACRO_ICON_NAMES } from "../macro-icon";
-import { MacrosDialog, resetMacroSaveChainForTests } from "./macros-dialog";
+import { MacrosDialog } from "./macros-dialog";
+import { resetMacroSaveChainForTests } from "./use-macro-editor";
 import { jsonResponse, mountDialog, openRig, stubFetch, type Mounted } from "./test-rig";
 
 interface WireMacro {

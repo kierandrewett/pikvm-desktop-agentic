@@ -40,12 +40,6 @@ function focusablesIn(root: HTMLElement): HTMLElement[] {
 
 export type DialogSize = "default" | "wide" | "full";
 
-/**
- * `modal` is a dialog over the app. `page` draws the same panel in place, as the content of a
- * page (Settings): no scrim, no focus trap, no Escape, and the title is the page's own.
- */
-export type DialogPresentation = "modal" | "page";
-
 export interface DialogShellProps {
     readonly title: string;
     readonly onClose: () => void;
@@ -62,31 +56,9 @@ export interface DialogShellProps {
     /** Stacked above another dialog (a confirmation). */
     readonly layer?: "dialog" | "confirm";
     readonly testId?: string;
-    readonly presentation?: DialogPresentation;
 }
 
-export function DialogShell(props: DialogShellProps) {
-    return props.presentation === "page" ? <PageShell {...props} /> : <ModalShell {...props} />;
-}
-
-function PageShell({ children, actions, startActions, size = "default", testId }: DialogShellProps) {
-    const compact = useMediaQuery(COMPACT_QUERY);
-    return (
-        <section className="dlg-scrim" data-presentation="page" data-compact={compact} data-testid={testId}>
-            <div className="dlg" data-size={size}>
-                <div className="dlg-body">{children}</div>
-                {actions || startActions ? (
-                    <div className="dlg-actions">
-                        {startActions ? <div className="dlg-actions-start">{startActions}</div> : null}
-                        {actions}
-                    </div>
-                ) : null}
-            </div>
-        </section>
-    );
-}
-
-function ModalShell({
+export function DialogShell({
     title,
     onClose,
     children,

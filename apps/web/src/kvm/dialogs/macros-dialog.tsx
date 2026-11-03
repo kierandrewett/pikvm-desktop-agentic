@@ -1,188 +1,45 @@
 /**
- * The macro manager and editor: a list on one side, the selected macro on the other (a strip
- * above it on a phone). Every edit saves (`PUT /app/api/v1/macros`); the draft is the editor's own
- * and only the parts the server would keep are sent (see model/macros.ts).
- *
- * One component serves both places the manager lives: a dialog on the KVM screen and the
- * Settings page (`presentation="page"`). Only the frame differs; the draft, the saves and the
- * controls are these.
- *
- * Saves are serialised through one chain shared by every instance of the dialog and coalesced
- * (failure mode 33): the last draft wins, and a dialog reopened a moment after an edit waits for
- * that edit to land before it reads the list.
+ * The macro manager and editor as a dialog on the KVM screen: a list on one side, the selected macro on the
+ * other (a strip above it on a phone). The state, the saves and the rules are the editor's (use-macro-editor.ts),
+ * which Settings > Macros draws as a page too; only the frame and the controls differ.
  */
 
 import { macroGlyph, MACRO_MODS, macroKeyGroups } from "@pikvm/kvm-engine";
-import { useQueryClient } from "@tanstack/react-query";
-import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { listMacros, replaceMacros, runApi } from "../../api/client";
-import { macrosKey } from "../../api/queries";
+import { type KeyboardEvent, useRef } from "react";
 import type { DialogProps } from "../dialog-seam";
 import { MACRO_ICON_NAMES, MacroIcon } from "../macro-icon";
-import { failureText } from "./model/guards";
 import {
     DEFAULT_DELAY_MS,
-    fromStored,
     isPinned,
     MACRO_LIMITS,
-    macroWouldPersist,
     moveMacro,
     moveStep,
-    newMacro,
     newStep,
-    persistable,
     removeStep,
     toggleMod,
-    unsavedNote,
-    updateMacro,
-    updateStep,
-    type DraftMacro,
     type DraftStep,
 } from "./model/macros";
-import { Btn, CommitInput, DialogShell, Note, useConfirm, type DialogPresentation } from "./shell";
+import { Btn, CommitInput, DialogShell, Note, useConfirm } from "./shell";
+import { useMacroEditor } from "./use-macro-editor";
 
-/** Every save, in order, across dialog instances. */
-let saveChain: Promise<void> = Promise.resolve();
-let saveVersion = 0;
-
-export function resetMacroSaveChainForTests(): void {
-    saveChain = Promise.resolve();
-    saveVersion = 0;
-}
-
-export interface MacrosDialogProps extends DialogProps {
-    /** `page` draws the manager in place (Settings): running a macro does not close it. */
-    readonly presentation?: DialogPresentation;
-}
-
-export function MacrosDialog({ session, onClose, presentation = "modal" }: MacrosDialogProps) {
-    const queryClient = useQueryClient();
-    const [draft, setDraft] = useState<readonly DraftMacro[] | null>(null);
-    const [selected, setSelected] = useState<string | null>(null);
-    const [loadError, setLoadError] = useState<string | null>(null);
+export function MacrosDialog({ session, onClose }: DialogProps) {
     const confirm = useConfirm();
-    const latest = useRef<readonly DraftMacro[]>([]);
-    const focusKey = useRef<string | null>(null);
     const body = useRef<HTMLDivElement>(null);
-
-    // A dialog reopened just after an edit reads the list only once that edit has landed, and
-    // reads it from the server rather than trusting a cache that edit may have outdated.
-    useEffect(() => {
-        let on = true;
-        void saveChain
-            .then(() => queryClient.fetchQuery({ queryKey: macrosKey, queryFn: ({ signal }) => runApi(listMacros(), signal), staleTime: 0 }))
-            .then(
-                (macros) => {
-                    if (!on) return;
-                    const initial = fromStored(macros);
-                    latest.current = initial;
-                    setDraft(initial);
-                    setSelected(initial[0]?.id ?? null);
-                },
-                (e: unknown) => {
-                    if (on) setLoadError(failureText(e));
-                },
-            );
-        return () => {
-            on = false;
-        };
-    }, [queryClient]);
-
-    // Focus follows the control that moved (a reordered step, a chosen icon), not the one that was there.
-    useLayoutEffect(() => {
-        const key = focusKey.current;
-        if (!key) return;
-        focusKey.current = null;
-        const root = body.current?.closest(".dlg") ?? null;
-        const find = (k: string): HTMLElement | null => root?.querySelector<HTMLElement>(`[data-fk="${k}"]`) ?? null;
-        let el = find(key);
-        // A move can push the step or macro to an end, which disables the arrow that got it there: the opposite one is still under the finger.
-        if (el instanceof HTMLButtonElement && el.disabled && /^([un]\d+|m[ud])$/.test(key)) {
-            el = find(/^m/.test(key) ? (key === "mu" ? "md" : "mu") : `${key[0] === "u" ? "n" : "u"}${key.slice(1)}`);
-        }
-        if (el && !(el instanceof HTMLButtonElement && el.disabled)) {
-            el.focus();
-            if (el instanceof HTMLInputElement && el.type === "text") el.select();
-        }
+    const editor = useMacroEditor({
+        session,
+        openFirst: true,
+        scope: () => body.current?.closest(".dlg") ?? null,
+        onRun: onClose,
+        confirmDelete: (target) =>
+            confirm.ask({
+                title: `Delete the macro \u201c${target.label}\u201d?`,
+                body: "This removes it from the list and the toolbar.",
+                confirm: "Delete macro",
+                danger: true,
+            }),
     });
-
-    const save = useCallback(
-        (next: readonly DraftMacro[]): void => {
-            latest.current = next;
-            const version = ++saveVersion;
-            saveChain = saveChain.then(async () => {
-                // A newer edit is queued behind this one: it will send the later draft.
-                if (version !== saveVersion) return;
-                try {
-                    const result = await runApi(replaceMacros(persistable(latest.current)));
-                    queryClient.setQueryData(macrosKey, result);
-                } catch (e) {
-                    session.notices.notify({ text: `Could not save macros: ${failureText(e)}`, error: true });
-                }
-            });
-        },
-        [queryClient, session.notices],
-    );
-
-    const apply = useCallback(
-        (next: readonly DraftMacro[], focus?: string): void => {
-            if (focus) focusKey.current = focus;
-            setDraft(next);
-            save(next);
-        },
-        [save],
-    );
-
-    const ready = draft !== null;
-    const list: readonly DraftMacro[] = draft ?? [];
-
-    const macro = list.find((m) => m.id === selected) ?? null;
-
-    const add = (): void => {
-        const base = newMacro(session.clock.now());
-        let id = base.id;
-        for (let n = 2; list.some((m) => m.id === id); n++) id = `${base.id}-${n}`;
-        const fresh = { ...base, id };
-        const next = [...list, fresh];
-        setDraft(next);
-        latest.current = next;
-        setSelected(id);
-        // Into the name, selected: the label is a placeholder and the first thing anyone does is replace it.
-        focusKey.current = "name";
-        // Not saved yet: a step with no key is dropped by the server, so it only persists once it does something.
-    };
-
-    const remove = async (target: DraftMacro): Promise<void> => {
-        const ok = await confirm.ask({
-            title: `Delete the macro \u201c${target.label}\u201d?`,
-            body: "This removes it from the list and the toolbar.",
-            confirm: "Delete macro",
-            danger: true,
-        });
-        if (!ok) return;
-        const next = list.filter((m) => m.id !== target.id);
-        setSelected(next[0]?.id ?? null);
-        // The last one going takes the form (and the button just pressed) with it: land on New macro.
-        apply(next, next.length === 0 ? "new" : undefined);
-    };
-
-    const run = (target: DraftMacro): void => {
-        const [ready] = persistable([target]);
-        if (!ready) return;
-        if (presentation === "modal") onClose();
-        void session.macros.run(ready);
-    };
-
-    const edit = (change: (m: DraftMacro) => DraftMacro, focus?: string): void => {
-        if (!macro) return;
-        apply(updateMacro(list, macro.id, change), focus);
-    };
-
-    const editStep = (index: number, change: (step: DraftStep) => DraftStep, focus?: string): void =>
-        edit((m) => updateStep(m, index, change), focus);
-
-    const note = macro ? unsavedNote(macro) : null;
-    const atStepLimit = !!macro && macro.steps.length >= MACRO_LIMITS.steps;
+    const { ready, loadError, list, selected, select, macro, add, remove, run, apply, edit, editStep, note, atStepLimit } =
+        editor;
 
     const onIconKey = (e: KeyboardEvent<HTMLDivElement>): void => {
         if (e.altKey || e.ctrlKey || e.metaKey || !macro) return;
@@ -209,20 +66,17 @@ export function MacrosDialog({ session, onClose, presentation = "modal" }: Macro
                 title="Macros"
                 size="full"
                 onClose={onClose}
-                presentation={presentation}
                 testId="macros-dialog"
                 initialFocus="[data-fk='first']"
                 startActions={
-                    <Btn data-fk="new" disabled={!ready || list.length >= MACRO_LIMITS.macros} onClick={add}>
+                    <Btn data-fk="new" disabled={!ready || editor.atMacroLimit} onClick={add}>
                         New macro
                     </Btn>
                 }
                 actions={
-                    presentation === "modal" ? (
-                        <Btn variant="primary" onClick={onClose}>
-                            Done
-                        </Btn>
-                    ) : undefined
+                    <Btn variant="primary" onClick={onClose}>
+                        Done
+                    </Btn>
                 }
             >
                 <div className="macro-body" ref={body}>
@@ -234,7 +88,7 @@ export function MacrosDialog({ session, onClose, presentation = "modal" }: Macro
                                 type="button"
                                 data-fk={i === 0 ? "first" : undefined}
                                 aria-current={m.id === selected ? "true" : undefined}
-                                onClick={() => setSelected(m.id)}
+                                onClick={() => select(m.id)}
                             >
                                 {m.icon && MACRO_ICON_NAMES.includes(m.icon) ? (
                                     <span className="macro-row-icon" aria-hidden="true">
@@ -357,7 +211,7 @@ export function MacrosDialog({ session, onClose, presentation = "modal" }: Macro
                                     ))}
                                 </div>
                                 <div className="dlg-row wrap">
-                                    <Btn variant="primary" disabled={!macroWouldPersist(macro)} onClick={() => run(macro)}>
+                                    <Btn variant="primary" disabled={!editor.canRun} onClick={() => run(macro)}>
                                         Run
                                     </Btn>
                                     {/* The list's order is the order of the pinned tiles, so it can be changed here. */}
