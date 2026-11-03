@@ -1,0 +1,13 @@
+.toast-region {
+    --toast-edge: calc(16px * var(--density));
+    --toast-radius: var(--radius-2xl);
+}
+
+.toast-region[data-toast-layout="desktop"] {
+    right: calc(var(--toast-edge) + var(--safe-right));
+}
+
+/* Concentric corners: the toast is inset from the island by edge minus the outer gutter. */
+:root[data-islands="on"] .toast-region[data-toast-layout="desktop"] {
+    --toast-radius: max(0px, calc(var(--island-radius) - (var(--toast-edge) - var(--island-gap))));
+}

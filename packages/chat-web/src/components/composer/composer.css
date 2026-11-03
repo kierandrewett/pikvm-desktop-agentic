@@ -1,0 +1,24 @@
+/*
+ * Composer shared-element move (move.ts). The composer morphs from its old rect to the new one; the rest of the
+ * page only cross-fades, quickly, so it supports the move instead of competing with it.
+ */
+:root {
+    --composer-control-height: calc(36px * var(--density));
+}
+
+::view-transition-group(composer) {
+    animation-duration: calc(420ms * var(--motion-scale));
+    animation-timing-function: var(--ease-standard);
+}
+/* One composer, not two: the new snapshot carries the move; the old one is dropped at once. */
+::view-transition-old(composer) {
+    display: none;
+}
+::view-transition-new(composer) {
+    animation: none;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: calc(180ms * var(--motion-scale));
+    animation-timing-function: var(--ease-standard);
+}

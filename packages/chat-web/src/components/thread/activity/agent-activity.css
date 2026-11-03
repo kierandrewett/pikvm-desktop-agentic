@@ -1,0 +1,372 @@
+/*
+ * Agent activity: web search results, subagent lanes, the subagent transcript and the Subagents panel tab.
+ * Extends the activity rows in thread.css (act-row, act-detail) with the same quiet grammar: text first,
+ * one faint ink-tint surface for opened detail, hairlines between lanes. Every colour and radius is a token;
+ * spacing follows --density; motion follows --motion-scale and stops under reduced motion.
+ */
+
+/* Favicons overlap like a stack of tabs; the ring cuts each from the one beneath. */
+.aa-favicons {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+}
+.aa-favicons > * {
+    border-radius: calc(4px * var(--roundness));
+    box-shadow: 0 0 0 2px var(--surface);
+    background: var(--surface);
+}
+.aa-favicons > * + * {
+    margin-inline-start: -4px;
+}
+
+.aa-bad {
+    color: var(--act-bad);
+}
+
+/* Search results: an inset list, grouped by query when there are several. */
+.aa-results {
+    border-radius: calc(10px * var(--roundness));
+    background: color-mix(in srgb, var(--text) 3.5%, transparent);
+    padding: calc(4px * var(--density));
+}
+/* The query as a search box: a pill with a magnifier and the term, heading its results. */
+.aa-searchbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: calc(38px * var(--density));
+    margin: calc(2px * var(--density)) 2px calc(6px * var(--density));
+    padding-inline: 14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--text);
+}
+.aa-searchbox svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+}
+.aa-result + .aa-searchbox,
+.aa-results > [role="listitem"] + [role="listitem"] .aa-searchbox {
+    margin-top: calc(10px * var(--density));
+}
+/* One result as a search engine lays it out: site and address, the title as a link, then the snippet. */
+.aa-result {
+    display: block;
+    padding: calc(8px * var(--density)) 10px;
+    border-radius: calc(8px * var(--roundness));
+    color: var(--text);
+    text-decoration: none;
+}
+.aa-result:hover,
+.aa-result:focus-visible {
+    background: var(--hover);
+}
+.aa-result:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+}
+.aa-result-site {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+}
+.aa-result-icon {
+    display: flex;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.aa-result-address {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+}
+.aa-result-host,
+.aa-result-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.aa-result-host {
+    font-size: 13px;
+    line-height: 17px;
+    color: var(--text);
+}
+.aa-result-path {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-tertiary);
+}
+.aa-result-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: calc(6px * var(--density));
+    font-size: 16px;
+    line-height: 22px;
+    font-weight: 500;
+    color: var(--accent-text);
+}
+.aa-result:hover .aa-result-title {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.aa-result-snippet {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: 2px;
+    font-size: 13.5px;
+    line-height: 20px;
+    color: var(--text-secondary);
+}
+.aa-error-line,
+.aa-quiet-line {
+    padding: calc(6px * var(--density)) 8px;
+    font-size: 13px;
+    line-height: 19px;
+    color: var(--text-tertiary);
+}
+.aa-error-line {
+    color: var(--act-bad);
+}
+
+/* Subagent lanes: rows in the step's detail, a hairline between rows. */
+.aa-lanes {
+    overflow: hidden;
+    border-radius: calc(10px * var(--roundness));
+    background: color-mix(in srgb, var(--text) 3.5%, transparent);
+    container-type: inline-size;
+}
+.aa-lane + .aa-lane {
+    border-top: 1px solid var(--border-subtle);
+}
+.aa-lane-row,
+.aa-view-run {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    column-gap: 10px;
+    align-items: start;
+    padding: calc(9px * var(--density)) 12px;
+    text-align: start;
+}
+.aa-lane-row:hover,
+.aa-view-run:hover {
+    background: var(--hover);
+}
+.aa-lane-row:hover .act-caret,
+.aa-view-run:hover .act-caret {
+    color: var(--text);
+}
+.aa-lane-row:focus-visible,
+.aa-view-run:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+}
+.aa-lane-glyph {
+    display: flex;
+    height: 20px;
+    align-items: center;
+}
+.aa-lane-title {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--text);
+}
+.aa-lane-goal {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.aa-lane-name {
+    flex-shrink: 0;
+    font-size: 12.5px;
+    color: var(--text-tertiary);
+}
+.aa-lane-now {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    margin-top: 1px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--text-secondary);
+}
+.aa-lane-now > .aa-clip {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+[data-status="failed"] > * > .aa-lane-now,
+[data-status="failed"] .aa-lane-now {
+    color: var(--act-bad);
+}
+[data-status="cancelled"] .aa-lane-now,
+[data-status="pending"] .aa-lane-now {
+    color: var(--text-tertiary);
+}
+.aa-lane-side {
+    display: flex;
+    height: 20px;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+/* Lined up with the lane title: 12px inset, 16px glyph, 10px gap. */
+.aa-lane-body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: calc(4px * var(--density));
+    padding: 0 12px calc(10px * var(--density)) 38px;
+}
+.aa-lane-body > .act-steps {
+    width: 100%;
+}
+
+/* Step trail: one mark per tool call, so parallel lanes show their pace at a glance. */
+.aa-trail {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 3px;
+}
+.aa-trail > i {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--text-tertiary);
+    opacity: 0.55;
+}
+.aa-trail > i[data-status="failed"] {
+    background: var(--act-bad);
+    opacity: 1;
+}
+.aa-trail > i[data-status="running"] {
+    background: var(--accent);
+    opacity: 1;
+    animation: aa-pulse calc(1.4s * var(--motion-scale)) var(--ease-standard) infinite;
+}
+@keyframes aa-pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+.aa-task {
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--text-tertiary);
+    white-space: pre-wrap;
+}
+.aa-quiet-block {
+    border-radius: calc(10px * var(--roundness));
+    background: color-mix(in srgb, var(--text) 3.5%, transparent);
+    padding: calc(8px * var(--density)) 12px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--text-secondary);
+}
+
+/* Transcript panel: the header, then the subagent's work as a thread turn. */
+.aa-panel {
+    display: flex;
+    flex-direction: column;
+    gap: calc(12px * var(--density));
+    padding: calc(12px * var(--density)) 16px calc(24px * var(--density));
+    container-type: inline-size;
+}
+
+/* Subagents panel tab: runs grouped by the call that started them. */
+.aa-view {
+    display: flex;
+    flex-direction: column;
+    gap: calc(16px * var(--density));
+    padding: calc(12px * var(--density)) 12px calc(24px * var(--density));
+    container-type: inline-size;
+}
+.aa-view-empty {
+    align-items: center;
+    gap: 6px;
+    padding: 48px 24px;
+    text-align: center;
+}
+.aa-view-title {
+    padding: 0 4px calc(6px * var(--density));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+    line-height: 18px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+}
+.aa-view-runs {
+    overflow: hidden;
+    border-radius: calc(10px * var(--roundness));
+    background: color-mix(in srgb, var(--text) 3.5%, transparent);
+}
+.aa-view-runs > li + li {
+    border-top: 1px solid var(--border-subtle);
+}
+
+.aa-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .aa-trail > i[data-status="running"] {
+        animation: none;
+    }
+}
+
+/* Lanes and the list adapt to their own width (the thread column, the panel, a phone). */
+@container (max-width: 520px) {
+    .aa-lane-title {
+        display: block;
+    }
+    .aa-lane-goal {
+        display: -webkit-box;
+        max-width: 100%;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        white-space: normal;
+    }
+    .aa-lane-name {
+        display: block;
+    }
+    .aa-trail {
+        display: none;
+    }
+    .aa-lane-body {
+        padding-inline-start: 12px;
+    }
+}

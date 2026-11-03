@@ -1,0 +1,413 @@
+/*
+ * The Chat pane's stylesheet: Chat's Tailwind theme, scoped to the pane.
+ *
+ * Two things keep it out of the host's way. Every token is defined on .chat-scope (tokens.css), and every utility is
+ * generated inside `.chat-scope { @tailwind utilities }`, so `text-secondary` here means Chat's secondary ink and
+ * the host's own `text-secondary` is untouched outside the pane. Preflight is not imported: the host's already ran.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "./tokens.css";
+@source "../";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@custom-variant hover-device (@media (hover: hover) and (pointer: fine));
+
+
+/* Map tokens to Tailwind utilities: bg-surface, text-secondary, border-default, ... */
+@theme inline {
+    /* Every spacing utility (p-*, gap-*, h-*, m-*) derives from this, so ui.density applies everywhere.
+       Density 1 keeps Tailwind's 4px step exactly. */
+    --spacing: calc(0.25rem * var(--density));
+
+    --color-surface: var(--surface);
+    --color-surface-under: var(--surface-under);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-island: var(--sidebar-island);
+    --color-panel: var(--panel);
+    --color-action-bar: var(--action-bar);
+    --color-editor: var(--editor);
+    --color-control: var(--control);
+    --color-control-track: var(--control-track);
+    --color-control-thumb: var(--control-thumb);
+    --color-elevated: var(--elevated);
+    --color-composer: var(--composer);
+    --color-menu: var(--menu);
+    --color-tooltip: var(--tooltip);
+    --color-kbd: var(--kbd);
+
+    --color-text: var(--text);
+    --color-secondary: var(--text-secondary);
+    --color-tertiary: var(--text-tertiary);
+    --color-sidebar-text: var(--text-sidebar);
+    --color-icon: var(--icon);
+    --color-icon-secondary: var(--icon-secondary);
+    --color-icon-tertiary: var(--icon-tertiary);
+
+    --color-default: var(--border);
+    --color-strong: var(--border-strong);
+    --color-subtle: var(--border-subtle);
+
+    --color-hover: var(--hover);
+    --color-pressed: var(--pressed);
+    --color-selected: var(--selected);
+    --color-soft: var(--soft);
+    --color-scrim: var(--scrim);
+
+    --color-accent: var(--accent);
+    --color-accent-text: var(--accent-text);
+    --color-accent-bg: var(--accent-bg);
+    --color-accent-bg-hover: var(--accent-bg-hover);
+    --color-on-accent: var(--on-accent);
+    --color-ring: var(--ring);
+
+    --color-primary-solid: var(--primary-solid);
+    --color-primary-solid-hover: var(--primary-solid-hover);
+    --color-on-primary-solid: var(--on-primary-solid);
+    --color-composer-primary: var(--composer-primary);
+    --color-on-composer-primary: var(--on-composer-primary);
+    --color-user-bubble: var(--user-bubble);
+    --color-sent-bubble: var(--sent-bubble);
+    --color-on-sent-bubble: var(--on-sent-bubble);
+    --color-code: var(--code-bg);
+    --color-code-header: var(--code-header);
+    --color-inline-code: var(--inline-code-bg);
+
+    --color-success: var(--success);
+    --color-warning: var(--warning);
+    --color-danger: var(--danger);
+    --color-danger-solid: var(--danger-solid);
+    --color-danger-bg: var(--danger-bg);
+    --color-warning-bg: var(--warning-bg);
+    --color-added: var(--added);
+    --color-drawer-scrim: var(--drawer-scrim);
+    --color-on-danger: var(--on-danger);
+    --color-toggle-thumb: var(--toggle-thumb);
+    --color-deleted: var(--deleted);
+
+    --font-sans: var(--font-ui);
+    --font-mono: var(--font-code);
+
+    --radius-xs: var(--radius-xs);
+    --radius-sm: var(--radius-sm);
+    --radius-md: var(--radius-md);
+    --radius-lg: var(--radius-lg);
+    --radius-xl: var(--radius-xl);
+    --radius-2xl: var(--radius-2xl);
+    --radius-3xl: var(--radius-3xl);
+    --radius-row: var(--radius-row);
+
+    --shadow-menu: var(--shadow-menu);
+    --shadow-prominent: var(--shadow-prominent);
+    --shadow-composer: var(--shadow-composer);
+    --shadow-dropdown: var(--shadow-dropdown);
+    --shadow-page: var(--shadow-page);
+    --shadow-card: var(--shadow-card);
+    --shadow-toggle-thumb: var(--shadow-toggle-thumb);
+    --shadow-tooltip: var(--shadow-tooltip);
+    --shadow-dialog: var(--shadow-dialog);
+    --shadow-panel: var(--shadow-panel);
+
+    --ease-standard: var(--ease-standard);
+    --ease-enter: var(--ease-enter);
+    /* Tailwind's own curves follow the motion preset too. */
+    --ease-in: var(--ease-exit);
+    --ease-out: var(--ease-enter);
+    --ease-in-out: var(--ease-standard);
+    --default-transition-duration: calc(150ms * var(--motion-scale));
+    --default-transition-timing-function: var(--ease-standard);
+
+    --text-xs: 12px;
+    --text-xs--line-height: 16px;
+    --text-sm: 13px;
+    --text-sm--line-height: 18.5px;
+    --text-base: 14px;
+    --text-base--line-height: 20px;
+    --text-md: 16px;
+    --text-md--line-height: 26px;
+    --text-lg: 18px;
+    --text-lg--line-height: 24px;
+    --text-xl: 20px;
+    --text-xl--line-height: 28px;
+    --text-2xl: 28px;
+    --text-2xl--line-height: 34px;
+
+    --font-weight-normal: var(--font-weight-ui);
+}
+
+
+/* The pane's base: what Chat sets on html and body, set on the pane. */
+@layer base {
+    .chat-scope {
+        background: var(--surface);
+        color: var(--text);
+        font-family: var(--font-ui);
+        font-weight: var(--font-weight-ui);
+        font-size: var(--font-ui-size);
+        -webkit-font-smoothing: antialiased;
+        text-size-adjust: 100%;
+        -webkit-user-select: text;
+        user-select: text;
+    }
+    .chat-scope button {
+        cursor: default;
+    }
+    .chat-scope input[type="number"] {
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
+    .chat-scope input[type="number"]::-webkit-inner-spin-button,
+    .chat-scope input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    .chat-scope ::selection {
+        background: var(--selection);
+    }
+    .chat-scope :focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
+    }
+    .chat-scope * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
+    }
+    .chat-scope[data-reduced-motion="on"] *,
+    .chat-scope[data-reduced-motion="on"] *::before,
+    .chat-scope[data-reduced-motion="on"] *::after {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+    }
+}
+
+/* Utilities, generated under the scope. */
+.chat-scope {
+    @tailwind utilities;
+}
+
+@utility duration-* {
+    transition-duration: calc(--value(integer) * 1ms * var(--motion-scale));
+    transition-duration: calc(--value([duration]) * var(--motion-scale));
+}
+
+@layer utilities {
+    /* Icons keep their designed size at every density: size-* on an svg is pinned to fixed pixels
+       (the spacing scale, and so size-*, otherwise scales with ui.density). */
+    .chat-scope svg.size-2\.5 {
+        width: 10px;
+        height: 10px;
+    }
+    .chat-scope svg.size-3 {
+        width: 12px;
+        height: 12px;
+    }
+    .chat-scope svg.size-3\.5 {
+        width: 14px;
+        height: 14px;
+    }
+    .chat-scope svg.size-4 {
+        width: 16px;
+        height: 16px;
+    }
+    .chat-scope svg.size-4\.5 {
+        width: 18px;
+        height: 18px;
+    }
+    .chat-scope svg.size-5 {
+        width: 20px;
+        height: 20px;
+    }
+    .chat-scope svg.size-5\.5 {
+        width: 22px;
+        height: 22px;
+    }
+    .chat-scope svg.size-6 {
+        width: 24px;
+        height: 24px;
+    }
+    .chat-scope svg.size-7 {
+        width: 28px;
+        height: 28px;
+    }
+    .chat-scope svg.size-8 {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* Fade out overflowing text instead of an ellipsis (reference `.text-fade-truncate`). */
+    .text-fade {
+        overflow: hidden;
+        white-space: nowrap;
+        mask-image: linear-gradient(to right, var(--mask-solid) calc(100% - 16px), transparent);
+    }
+    .no-scrollbar {
+        scrollbar-width: none;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+    .pb-safe {
+        padding-bottom: var(--safe-bottom);
+    }
+    .pt-safe {
+        padding-top: var(--safe-top);
+    }
+}
+
+/*
+ * ui.blur (tokens.css --glass-*). Solid unless data-blur="on"; nothing here reads the setting itself.
+ *
+ * .glass-bar: a sticky bar that content scrolls under (conversation header, settings page header, page
+ * headers). Put it in place of bg-surface; keep the bar's own hairline.
+ */
+@layer components {
+    .glass-bar {
+        background-color: color-mix(in srgb, var(--surface) var(--glass-alpha), transparent);
+        -webkit-backdrop-filter: var(--glass-filter);
+        backdrop-filter: var(--glass-filter);
+    }
+}
+
+/*
+ * .glass-chip: one control floating over content with no bar behind it (the Memory atlas header). Same glass as
+ * .glass-bar, so it is solid surface with the setting off, plus a hairline and a soft shadow to lift it. Unlayered
+ * on purpose: a control's own hover:bg-hover utility would otherwise swap the chip for a see-through tint, so the
+ * hover tint is layered on top as an image instead.
+ */
+.glass-chip {
+    background-color: color-mix(in srgb, var(--surface) var(--glass-alpha), transparent);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    box-shadow:
+        0 0 0 0.5px var(--border),
+        var(--shadow-card);
+}
+@media (hover: hover) {
+    :is(button, a).glass-chip:hover:not(:disabled) {
+        background-image: linear-gradient(var(--color-hover), var(--color-hover));
+    }
+}
+
+/*
+ * .composer-scrim: the backdrop of the docked composer (thread/conversation-page.tsx). Off: the solid surface the
+ * dock always had. On: it reaches --scrim-fade (tokens.css) above the dock, so text scrolling down into it blurs
+ * and fades before it passes behind the composer, instead of stopping at a hard edge.
+ *
+ * Progressive blur: five stacked layers, each starting a fifth of the fade lower and blurring twice as hard. Blur
+ * compounds (each layer's backdrop includes the layers under it), so the dock's top edge sits under about 9px of
+ * blur and the bottom under about 18px. Each layer's mask ramps in over a quarter of the fade, so no layer shows a
+ * top edge. The tint on the scrim itself trails the blur, from transparent to the solid surface, so the strip
+ * under the composer reads as surface. Lower layers are shorter boxes, not masked full-height ones, which keeps
+ * the blurred area (the cost per frame while a response streams) small. Decorative only: no pointer events, and
+ * no opacity, filter or mask on the scrim itself, because any of those would cut the layers off from the thread
+ * behind them.
+ */
+.composer-scrim {
+    position: absolute;
+    inset: 0;
+    /*
+     * Leave the thread's scrollbar unblurred. conversation-page measures a classic scrollbar; an overlay scrollbar
+     * measures 0 but still paints at the edge under this scrim, so keep at least its strip clear.
+     */
+    inset-inline-end: max(var(--thread-scrollbar-w, 0px), 12px);
+    pointer-events: none;
+    background: var(--surface);
+}
+.composer-scrim > span {
+    display: none;
+}
+.chat-scope[data-dock="fade"] .composer-scrim {
+    top: calc(var(--scrim-fade) * -1);
+    /* No solid dock: the thread stays visible (blurred) behind and around the composer. A light veil keeps the
+       controls under the composer readable over moving text. */
+    background: linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--surface) 0%, transparent),
+        color-mix(in srgb, var(--surface) 20%, transparent) var(--scrim-fade),
+        color-mix(in srgb, var(--surface) 50%, transparent)
+    );
+}
+.chat-scope[data-dock="fade"] .composer-scrim > span {
+    display: block;
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    top: calc(var(--scrim-fade) * var(--scrim-step) / 5);
+    /* Each layer eases in over most of the fade, so the blur has no visible top edge. */
+    mask-image: linear-gradient(to bottom, transparent, var(--mask-solid) calc(var(--scrim-fade) * 0.8));
+    -webkit-backdrop-filter: blur(var(--scrim-blur));
+    backdrop-filter: blur(var(--scrim-blur));
+}
+.composer-scrim > span:nth-child(1) {
+    --scrim-step: 0;
+    --scrim-blur: 1px;
+}
+.composer-scrim > span:nth-child(2) {
+    --scrim-step: 1;
+    --scrim-blur: 2px;
+}
+.composer-scrim > span:nth-child(3) {
+    --scrim-step: 2;
+    --scrim-blur: 4px;
+}
+.composer-scrim > span:nth-child(4) {
+    --scrim-step: 3;
+    --scrim-blur: 8px;
+}
+.composer-scrim > span:nth-child(5) {
+    --scrim-step: 4;
+    --scrim-blur: 16px;
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+}
+/* Settings row "saved" check: pops in, holds, then fades out (kit/feedback.tsx InlineStatus). */
+@keyframes settings-saved {
+    0% {
+        opacity: 0;
+        transform: scale(0.6);
+    }
+    15% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    70% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+@keyframes pop-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+}
+@keyframes slide-up {
+    from {
+        transform: translateY(100%);
+    }
+}
+@keyframes shimmer {
+    from {
+        background-position: 200% 0;
+    }
+    to {
+        background-position: -200% 0;
+    }
+}
+@keyframes pulse-dot {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(0.6);
+        opacity: 0.5;
+    }
+}

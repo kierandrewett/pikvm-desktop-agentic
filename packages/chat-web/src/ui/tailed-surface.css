@@ -1,0 +1,103 @@
+/*
+ * TailedSurface (tailed-surface.tsx). The root draws nothing itself: an SVG behind the content paints the one
+ * outline (body and tail). Override the custom properties on the root to restyle a surface.
+ */
+.tailed-surface {
+    --tailed-surface-bg: var(--tooltip);
+    --tailed-surface-border: color-mix(in oklab, var(--text) 5%, transparent);
+    /* A box-shadow token; the component converts it to the equivalent drop-shadow() filter. */
+    --tailed-surface-shadow: var(--shadow-tooltip);
+    --tailed-surface-radius: var(--radius-2xl);
+    /* A backdrop-filter value for translucent surfaces; the component clips it to the outline. */
+    --tailed-surface-backdrop: none;
+    position: relative;
+    /* Own stacking context, so the outline (z-index -1) paints above the page and below the content. */
+    isolation: isolate;
+    /* Read back by the component as the resolved corner radius; the root paints no background. */
+    border-radius: var(--tailed-surface-radius);
+}
+
+.tailed-surface-shape {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    /* The tail and the shadow fall outside the box. */
+    overflow: visible;
+    pointer-events: none;
+}
+
+/* Under the outline. The component sets its inset (out by the tail length) and clip-path (the outline). */
+.tailed-surface-backdrop {
+    position: absolute;
+    z-index: -1;
+    pointer-events: none;
+    -webkit-backdrop-filter: var(--tailed-surface-backdrop);
+    backdrop-filter: var(--tailed-surface-backdrop);
+}
+
+.tailed-surface-fill {
+    fill: var(--tailed-surface-bg);
+}
+
+/* Stroked 2px on the outline and clipped to it: 1px on the inside, over the fill, like a CSS border. */
+.tailed-surface-edge {
+    fill: none;
+    stroke: var(--tailed-surface-border);
+    stroke-width: 2px;
+}
+
+/* Forced colours drop shadows and author colours; draw a system-colour outline so the tail stays visible. */
+@media (forced-colors: active) {
+    .tailed-surface-shape {
+        forced-color-adjust: none;
+        filter: none !important;
+    }
+    .tailed-surface-backdrop {
+        display: none;
+    }
+    .tailed-surface-fill {
+        fill: Canvas;
+    }
+    .tailed-surface-edge {
+        stroke: CanvasText;
+    }
+}
+
+/*
+ * TailedContent (tailed-content.tsx): a Radix popout on the menu surface (5.2: --menu, --shadow-dropdown, 2xl radius).
+ * The compound selector outranks .tailed-surface wherever this file lands in the bundle.
+ */
+.tailed-surface.tailed-content {
+    --tailed-surface-bg: var(--menu);
+    --tailed-surface-shadow: var(--shadow-dropdown);
+    display: flex;
+    flex-direction: column;
+    z-index: 50;
+    color: var(--text);
+    outline: none;
+}
+
+/* The menu glass (5.2): the surface at 90% over an 8px blur, solid when the OS asks for less transparency. */
+.tailed-surface.tailed-content[data-translucent] {
+    --tailed-surface-bg: color-mix(in srgb, var(--menu) 90%, transparent);
+    --tailed-surface-backdrop: blur(8px);
+}
+@media (prefers-reduced-transparency: reduce) {
+    .tailed-surface.tailed-content[data-translucent] {
+        --tailed-surface-bg: var(--menu);
+        --tailed-surface-backdrop: none;
+    }
+}
+
+/*
+ * The children's box. Clipped 1px inside the outline with the same radius, so a scrolling list or a full-bleed
+ * background never covers the hairline or passes a corner. The tail lies outside this box, so it is never clipped.
+ */
+.tailed-content-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    clip-path: inset(1px round max(0px, calc(var(--tailed-surface-radius) - 1px)));
+}

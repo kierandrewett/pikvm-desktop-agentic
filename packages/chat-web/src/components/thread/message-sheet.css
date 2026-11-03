@@ -1,0 +1,52 @@
+/*
+ * Long-press on messages (message-sheet.tsx). Durations scale with --motion-scale; app.css shortens all motion
+ * under reduced motion, so the press feedback becomes instant there.
+ */
+
+[data-msg-press] {
+    -webkit-tap-highlight-color: transparent;
+    transition:
+        transform calc(320ms * var(--motion-scale)) var(--ease-standard),
+        background-color calc(320ms * var(--motion-scale)) var(--ease-standard),
+        box-shadow calc(320ms * var(--motion-scale)) var(--ease-standard);
+}
+[data-msg-press]:focus {
+    outline: none;
+}
+
+/* Touch: a message is pressed, not selected, until "Select text" turns selection on for it. */
+@media (pointer: coarse) {
+    [data-msg-press]:not([data-selecting]) {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+    }
+}
+[data-msg-press][data-selecting] {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+}
+
+/* Press feedback: bubbles shrink a little; answers (long blocks of text) get a soft tint instead. */
+[data-msg-press="bubble"][data-pressing] {
+    transform: scale(0.96);
+}
+[data-msg-press="text"][data-pressing] {
+    border-radius: calc(12px * var(--roundness));
+    background-color: var(--hover);
+    box-shadow: 0 0 0 8px var(--hover);
+}
+
+/* Quick reactions in the sheet: spread across the width, 44px targets. */
+.message-sheet-quick [role="toolbar"] {
+    justify-content: space-between;
+    padding: 4px 4px 8px;
+}
+.message-sheet-quick .reaction-quick {
+    width: 44px;
+    height: 44px;
+}
+.message-sheet-quick .reaction-quick .reaction-glyph {
+    font-size: 26px;
+}

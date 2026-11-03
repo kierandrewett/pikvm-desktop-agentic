@@ -1,0 +1,100 @@
+/*
+ * File renderer base styles. Local tokens (--rv-*) derive from the theme tokens only; the two literal
+ * paper colours live in styles/tokens.css. Renderer-specific rules ship with each renderer chunk.
+ */
+
+.rv-root {
+    /* The canvas a document or image sits on: one step below the surface, so a white page or a
+       transparent image reads as an object on a table. */
+    --rv-canvas: var(--surface-under);
+    --rv-checker: color-mix(in srgb, var(--text) 9%, transparent);
+    --rv-page-shadow:
+        0 0 0 0.5px var(--border-strong), 0 1px 2px 0 color-mix(in srgb, var(--surface-under) 60%, transparent),
+        0 6px 20px -6px color-mix(in srgb, var(--surface-under) 80%, transparent);
+    --rv-row-hover: color-mix(in srgb, var(--text) 3.5%, transparent);
+    --rv-row-stripe: color-mix(in srgb, var(--text) 1.6%, transparent);
+    --rv-cell-focus: color-mix(in srgb, var(--accent) 14%, transparent);
+    --rv-match: color-mix(in srgb, var(--warning) 34%, transparent);
+    --rv-match-current: color-mix(in srgb, var(--accent) 42%, transparent);
+    color: var(--text);
+}
+
+:root[data-theme="light"] .rv-root {
+    --rv-canvas: color-mix(in srgb, var(--text) 5.5%, var(--surface));
+    --rv-checker: color-mix(in srgb, var(--text) 7%, transparent);
+    --rv-page-shadow:
+        0 0 0 0.5px var(--border-strong), 0 1px 2px 0 color-mix(in srgb, var(--text) 6%, transparent),
+        0 6px 20px -6px color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.rv-canvas {
+    background: var(--rv-canvas);
+}
+
+/* A sheet of paper: documents keep their own colours in both themes. */
+.rv-page {
+    background: var(--paper);
+    color: var(--paper-ink);
+    box-shadow: var(--rv-page-shadow);
+    border-radius: calc(2px * var(--roundness));
+}
+
+/* Transparency checker, drawn from the ink so it works on every theme. */
+.rv-checker {
+    background-color: var(--surface);
+    background-image: repeating-conic-gradient(var(--rv-checker) 0% 25%, transparent 0% 50%);
+    background-size: 16px 16px;
+}
+
+/* Scrollers inside the renderer leave room for the floating toolbar. */
+.rv-scroll-pad {
+    padding-bottom: var(--rv-toolbar-space);
+}
+
+/* Highlighted code: shiki emits both themes as variables; pick by the active theme. Only shiki's own token
+   spans carry them, so the rule stays off the line-number gutter and the plain-text fallback. */
+.rv-code .rv-line .line span {
+    color: var(--shiki-dark);
+}
+:root[data-theme="light"] .rv-code .rv-line .line span {
+    color: var(--shiki-light);
+}
+
+/* Code view line numbers are generated content, not text: a selection never includes them and copy never
+   carries them, and a press or drag over the gutter lands at the start of its line. The empty alternative
+   text after "/" keeps them out of the accessibility tree (the first declaration is the fallback). */
+.rv-code .rv-line::before {
+    content: attr(data-line);
+    content: attr(data-line) / "";
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    flex-shrink: 0;
+    width: var(--gutter);
+    /* The same values as the utilities pe-3, bg-surface (app.css @theme inline); the number uses --code-line-number. */
+    padding-inline-end: calc(0.75rem * var(--density));
+    background-color: var(--surface);
+    color: var(--code-line-number);
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+}
+
+/* JSON tree value colours (from the semantic tokens, readable in both themes). */
+.rv-json {
+    --rv-json-key: var(--text);
+    --rv-json-string: var(--added);
+    --rv-json-number: var(--accent-text);
+    --rv-json-literal: var(--warning);
+    --rv-json-null: var(--text-tertiary);
+}
+
+/* On a white surface the raw success and warning hues sit near 3:1; pull them towards the ink. */
+:root[data-theme="light"] .rv-json {
+    --rv-json-string: color-mix(in srgb, var(--added) 72%, var(--text));
+    --rv-json-literal: color-mix(in srgb, var(--warning) 80%, var(--text));
+}
+
+.rv-focus-ring:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+}

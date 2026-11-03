@@ -1,0 +1,357 @@
+/*
+ * Design tokens. Every colour is a formula over three seeds (surface, ink, accent) so a theme is just
+ * three values plus optional overrides. Ratios were fitted from the reference app's generated theme
+ * (docs/spec/reference-theme-tokens.json): "mix N%" means N% of the way from surface to ink in sRGB.
+ * The Chat pane has no theme runtime of its own. Every selector is scoped to .chat-scope, an element ChatScope
+ * renders, so nothing here reaches the host app, and the seeds come from the host's palette (--background,
+ * --foreground, --primary), so the conversation can only look like the app it sits in. ChatScope mirrors the host's
+ * data-theme onto its element, which picks the light or dark formulas.
+ */
+
+.chat-scope {
+    --seed-surface: var(--background);
+    --seed-ink: var(--foreground);
+    --seed-accent: var(--primary);
+    --seed-on-accent: var(--primary-foreground);
+
+    /* The host's font stack, with the system stack as the fallback. */
+    --font-ui: var(--font-sans, ui-sans-serif), system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-code: ui-monospace, "SFMono-Regular", "SF Mono", "Menlo", "Consolas", monospace;
+    --font-ui-size: 14px;
+    --font-code-size: 12px;
+    --font-weight-ui: 430;
+
+    /* Roundness (ui.roundness) multiplies every radius; 1 reproduces the reference. */
+    --roundness: 1;
+    --radius-xs: calc(4px * var(--roundness));
+    --radius-sm: calc(7.5px * var(--roundness));
+    --radius-md: calc(10px * var(--roundness));
+    --radius-lg: calc(12.5px * var(--roundness));
+    --radius-xl: calc(15px * var(--roundness));
+    --radius-2xl: calc(20px * var(--roundness));
+    --radius-3xl: calc(28px * var(--roundness));
+    --radius-row: calc(8px * var(--roundness)); /* measured on the web reference sidebar */
+
+    /* Density (ui.density) scales row heights and list spacing; 1 reproduces the reference. */
+    --density: 1;
+    --row-height: calc(36px * var(--density));
+    --row-gap: calc(1px * var(--density));
+    --row-padding-x: calc(10px * var(--density));
+    /* Menu rows (dropdowns, context menus) share the sidebar row height so menus read as part of the UI. */
+    --menu-row-height: calc(36px * var(--density));
+    --section-gap: calc(21px * var(--density)); /* measured on the web reference sidebar */
+
+    /* Motion (ui.motion.*): theme-sync sets --motion-scale and swaps the curve tokens per preset. */
+    --motion-scale: 1;
+    --ease-basic: ease;
+    --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-enter: cubic-bezier(0.19, 1, 0.22, 1);
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+    --duration-basic: calc(150ms * var(--motion-scale));
+
+    /* Opaque stop for mask-image gradients (alpha only, never a visible colour). */
+    --mask-solid: #000;
+
+    --sidebar-width: 320px; /* ui.sidebar.width default */
+    /* Rail and header scale with density so the first rail icon stays centred on the title row
+       (both centres sit at 34px x density from the window top). */
+    --rail-width: calc(52px * var(--density));
+    /* Islands layout: the same gutter on the top, right and bottom of the inset page (the rail's own
+       right padding gives the left side the same gap) and one radius on all four corners. With
+       ui.islands off both collapse to 0 and the page fills the window next to the rail. */
+    --island-gap: calc(8px * var(--density));
+    --island-radius: calc(12px * var(--roundness));
+    --thread-max-width: 768px;
+    --header-height: calc(52px * var(--density));
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+
+    /* File renderer (components/render): documents (PDF, DOCX, HTML) keep their own paper and ink in
+       both themes, so a page reads as the author made it; only the canvas around it follows the theme. */
+    --paper: #ffffff;
+    --paper-ink: #1f1f1f;
+}
+
+/*
+ * Touch: rows (sidebar, settings navigation, dropdown and sheet menus) reach the 44px touch target size on a
+ * coarse pointer. A higher density still makes them taller; a lower one does not take them under 44px.
+ */
+@media (pointer: coarse) {
+    .chat-scope {
+        --row-height: max(44px, calc(36px * var(--density)));
+        --menu-row-height: max(44px, calc(36px * var(--density)));
+    }
+}
+
+/* Dark formulas. */
+.chat-scope,
+.chat-scope[data-theme="dark"] {
+    color-scheme: dark;
+    --mix-under: color-mix(in srgb, var(--seed-surface) 85%, #000);
+    --surface: var(--seed-surface);
+    --surface-under: var(--mix-under);
+    --sidebar: var(--mix-under);
+    --panel: color-mix(in srgb, var(--seed-ink) 4.1%, var(--seed-surface));
+    --action-bar: color-mix(in srgb, var(--seed-ink) 5.9%, var(--seed-surface));
+    --editor: color-mix(in srgb, var(--seed-ink) 6.8%, var(--seed-surface));
+    --control: color-mix(in srgb, var(--seed-ink) 7.8%, var(--seed-surface));
+    --elevated: color-mix(in srgb, var(--seed-ink) 11%, var(--seed-surface));
+    --composer: color-mix(in srgb, var(--seed-ink) 11%, var(--seed-surface));
+    --menu: color-mix(in srgb, var(--seed-ink) 7.8%, var(--seed-surface));
+    --tooltip: color-mix(in srgb, var(--seed-ink) 7.8%, var(--seed-surface));
+    /* Shortcut chips inside tooltips and menus. */
+    --kbd: color-mix(in oklab, var(--seed-ink) 22%, transparent);
+    /* Segmented controls and similar wells: a track recessed below the card and a raised thumb, both derived
+       from the card (--panel) so they stay distinct from it and from --hover / --soft on every preset. */
+    --control-track: color-mix(in srgb, #000 24%, var(--panel));
+    --control-thumb: color-mix(in srgb, var(--seed-ink) 17%, var(--panel));
+
+    --text: var(--seed-ink);
+    --text-secondary: color-mix(in srgb, var(--seed-ink) 68.8%, transparent);
+    --text-tertiary: color-mix(in srgb, var(--seed-ink) 47%, transparent);
+    --text-sidebar: color-mix(in oklab, var(--seed-ink) 85%, transparent);
+    --icon: color-mix(in srgb, var(--seed-ink) 87.4%, transparent);
+    --icon-secondary: color-mix(in srgb, var(--seed-ink) 68.8%, transparent);
+    --icon-tertiary: color-mix(in srgb, var(--seed-ink) 48.8%, transparent);
+
+    --border: color-mix(in srgb, var(--seed-ink) 7.5%, transparent);
+    --border-strong: color-mix(in srgb, var(--seed-ink) 14.3%, transparent);
+    --border-subtle: color-mix(in srgb, var(--seed-ink) 3.8%, transparent);
+
+    --hover: color-mix(in srgb, var(--seed-ink) 7.1%, transparent);
+    --pressed: color-mix(in oklab, var(--seed-ink) 16%, transparent);
+    --selected: color-mix(in srgb, var(--seed-ink) 7.1%, transparent);
+    --soft: color-mix(in srgb, var(--seed-ink) 4.8%, transparent);
+    --scrim: rgb(0 0 0 / 0.5);
+
+    --primary-solid: var(--seed-ink);
+    --primary-solid-hover: color-mix(in srgb, var(--seed-ink) 90%, var(--seed-surface));
+    --on-primary-solid: var(--seed-surface);
+    --composer-primary: var(--seed-ink);
+    --on-composer-primary: var(--seed-surface);
+    --user-bubble: color-mix(in srgb, var(--seed-ink) 11%, var(--seed-surface));
+    --code-bg: color-mix(in srgb, var(--seed-ink) 3%, var(--seed-surface));
+    --code-header: color-mix(in srgb, var(--seed-ink) 6.8%, var(--seed-surface));
+    --code-line-number: var(--text);
+    --inline-code-bg: color-mix(in srgb, var(--seed-ink) 7.1%, transparent);
+
+    --success: #40c977;
+    --warning: #ff8549;
+    --danger: #ff6764;
+    --danger-solid: #e02e2a;
+    --danger-bg: color-mix(in oklab, #fa423e 16%, transparent);
+    --warning-bg: #4a2206;
+    --added: #3fb950;
+    --deleted: #f85149;
+
+    --shadow-menu: 0 0 0 0.5px var(--border-strong), 0 8px 24px 0 rgb(0 0 0 / 0.24), 0 2px 6px 0 rgb(0 0 0 / 0.12);
+    --shadow-prominent: 0 0 0 0.5px var(--border-strong), 0 3px 7.5px 0 rgb(0 0 0 / 0.04), 0 0 20px 0 rgb(0 0 0 / 0.05);
+    /* Ambient mesh on the new chat screen: three hues around the accent. */
+    --mesh-a: oklch(from var(--accent) l c h / 0.32);
+    --mesh-b: oklch(from var(--accent) calc(l + 0.05) c calc(h + 55) / 0.26);
+    --mesh-c: oklch(from var(--accent) l calc(c * 0.9) calc(h - 50) / 0.22);
+    --mesh-blur: 80px;
+
+    /* The inset page that holds sidebar + main (reference spec 1.1). */
+    --shadow-page:
+        0 0 0 0.5px color-mix(in srgb, var(--border-strong) 40%, transparent), 0 4px 16px 0 rgb(0 0 0 / 0.05);
+    --sidebar-island: color-mix(in oklab, var(--surface) 65%, transparent);
+    /* Reference spec 5.x: dropdown overlay, tooltip, palette/dialog, floating panel. */
+    --shadow-dropdown: 0 0 0 0.5px var(--border), 0 8px 16px -4px rgb(0 0 0 / 0.12);
+    --shadow-tooltip: 0 8px 18px rgb(15 23 42 / 0.2);
+    --shadow-dialog: 0 16px 32px -8px rgb(0 0 0 / 0.19);
+    --shadow-panel: 0 3px 7.5px 0 rgb(0 0 0 / 0.05), 0 0 20px 0 rgb(0 0 0 / 0.02);
+    --shadow-card: 0 4px 16px 0 rgb(0 0 0 / 0.05);
+    --drawer-scrim: #000;
+    --on-danger: #ffffff;
+    --toggle-thumb: #ffffff;
+    --shadow-toggle-thumb: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    /* Measured on the reference: the shimmer band is dark in dark mode and light in light mode. */
+    --shimmer-contrast: rgb(0 0 0 / 0.6);
+    /* Composer edge: a soft inner highlight (25% ink) inside a harder outer edge. */
+    --composer-inset: color-mix(in srgb, var(--seed-ink) 25%, transparent);
+    --composer-edge: color-mix(in srgb, #000 55%, transparent);
+    --composer-shadow: 0 2px 6px 0 rgb(0 0 0 / 0.22), 0 10px 28px -6px rgb(0 0 0 / 0.4);
+    --shadow-composer: inset 0 0 0 0.5px var(--composer-inset), 0 0 0 1px var(--composer-edge), var(--composer-shadow);
+}
+
+/*
+ * Accent formulas, apart from the other tokens so they follow the seeds in both themes.
+ */
+.chat-scope,
+.chat-scope[data-theme="dark"] {
+    --accent: var(--seed-accent);
+    --accent-text: color-mix(in srgb, var(--seed-accent) 64.5%, #fff);
+    --accent-bg: color-mix(in srgb, var(--seed-accent) 23%, #000);
+    --accent-bg-hover: color-mix(in srgb, var(--seed-accent) 25%, #000);
+    --accent-bg-active: color-mix(in srgb, var(--seed-accent) 27%, #000);
+    --on-accent: var(--seed-on-accent);
+    /* Messages you send take the accent colour, like a messaging app. --user-bubble stays for neutral bubbles. */
+    --sent-bubble: var(--accent);
+    --on-sent-bubble: var(--on-accent);
+    --ring: color-mix(in srgb, var(--accent-text) 73.8%, transparent);
+    --selection: color-mix(in srgb, var(--accent-text) 30%, transparent);
+}
+
+/* Light formulas. */
+.chat-scope[data-theme="light"] {
+    /* See the dark block: a grey well on the white card and a white thumb, also on tinted paper presets. */
+    --control-track: color-mix(in srgb, var(--seed-ink) 7%, var(--panel));
+    --control-thumb: color-mix(in srgb, #fff 80%, var(--panel));
+    color-scheme: light;
+    --mix-under: color-mix(in srgb, var(--seed-ink) 3.4%, var(--seed-surface));
+    --surface: var(--seed-surface);
+    --surface-under: var(--mix-under);
+    --sidebar: var(--mix-under);
+    --panel: var(--seed-surface);
+    --action-bar: color-mix(in srgb, var(--seed-ink) 3.4%, var(--seed-surface));
+    --editor: var(--seed-surface);
+    --control: var(--seed-surface);
+    --elevated: var(--seed-surface);
+    --composer: var(--seed-surface);
+    --menu: var(--seed-surface);
+    /* Same derivation as dark (the control surface), so tooltip text stays ink on a light surface. */
+    --tooltip: var(--seed-surface);
+    /* On the light tooltip a lighter tint; 25% ink read as a dark slab. */
+    --kbd: color-mix(in oklab, var(--seed-ink) 8%, transparent);
+
+    --text: var(--seed-ink);
+    --text-secondary: color-mix(in srgb, var(--seed-ink) 68.4%, transparent);
+    --text-tertiary: color-mix(in srgb, var(--seed-ink) 48.4%, transparent);
+    --text-sidebar: var(--seed-ink);
+    --icon: var(--seed-ink);
+    --icon-secondary: color-mix(in srgb, var(--seed-ink) 68.4%, transparent);
+    --icon-tertiary: color-mix(in srgb, var(--seed-ink) 48.4%, transparent);
+
+    --border: color-mix(in srgb, var(--seed-ink) 7.4%, transparent);
+    --border-strong: color-mix(in srgb, var(--seed-ink) 11.1%, transparent);
+    --border-subtle: color-mix(in srgb, var(--seed-ink) 4.7%, transparent);
+
+    --hover: color-mix(in srgb, var(--seed-ink) 5%, transparent);
+    --pressed: color-mix(in srgb, var(--seed-ink) 9.4%, transparent);
+    --selected: color-mix(in srgb, var(--seed-ink) 5%, transparent);
+    --soft: color-mix(in srgb, var(--seed-ink) 4.7%, transparent);
+    --scrim: rgb(0 0 0 / 0.25);
+
+    --primary-solid: var(--seed-ink);
+    --primary-solid-hover: color-mix(in srgb, var(--seed-ink) 85%, var(--seed-surface));
+    --on-primary-solid: var(--seed-surface);
+    --composer-primary: var(--seed-ink);
+    --on-composer-primary: var(--seed-surface);
+    --user-bubble: color-mix(in srgb, var(--seed-ink) 5.5%, var(--seed-surface));
+    --code-bg: color-mix(in srgb, var(--seed-ink) 2.5%, var(--seed-surface));
+    --code-header: color-mix(in srgb, var(--seed-ink) 4.5%, var(--seed-surface));
+    --code-line-number: var(--text);
+    --inline-code-bg: color-mix(in srgb, var(--seed-ink) 6%, transparent);
+
+    --success: #00a240;
+    --warning: #e25507;
+    --danger: #e02e2a;
+    --danger-solid: #e02e2a;
+    --danger-bg: color-mix(in oklab, #fa423e 10%, transparent);
+    --warning-bg: #ffe7d9;
+    --added: #28a948;
+    --deleted: #eb001d;
+
+    --shadow-menu: 0 0 0 0.5px var(--border-strong), 0 8px 24px 0 rgb(0 0 0 / 0.1), 0 2px 6px 0 rgb(0 0 0 / 0.05);
+    --shadow-prominent: 0 0 0 0.5px var(--border-strong), 0 3px 7.5px 0 rgb(0 0 0 / 0.04), 0 0 20px 0 rgb(0 0 0 / 0.05);
+    --shadow-page: 0 0 0 0.5px var(--border), 0 4px 16px 0 rgb(0 0 0 / 0.04);
+    --mesh-a: oklch(from var(--accent) calc(l + 0.15) c h / 0.2);
+    --mesh-b: oklch(from var(--accent) calc(l + 0.18) c calc(h + 55) / 0.16);
+    --mesh-c: oklch(from var(--accent) calc(l + 0.15) calc(c * 0.9) calc(h - 50) / 0.14);
+    --sidebar-island: color-mix(in oklab, var(--surface) 65%, transparent);
+    --shadow-dropdown: 0 0 0 0.5px var(--border), 0 8px 16px -4px rgb(0 0 0 / 0.08);
+    --shadow-tooltip: 0 8px 18px rgb(15 23 42 / 0.12);
+    --shadow-dialog: 0 16px 32px -8px rgb(0 0 0 / 0.12);
+    --shadow-panel: 0 3px 7.5px 0 rgb(0 0 0 / 0.05), 0 0 20px 0 rgb(0 0 0 / 0.02);
+    --shadow-card: 0 4px 16px 0 rgb(0 0 0 / 0.05);
+    --drawer-scrim: #000;
+    --on-danger: #ffffff;
+    --toggle-thumb: #ffffff;
+    --shadow-toggle-thumb: 0 1px 2px 0 rgb(0 0 0 / 0.15);
+    --shimmer-contrast: rgb(255 255 255 / 0.75);
+    /* Composer edge: on a light surface a white highlight is invisible, so the soft inner line is a faint
+       ink tint and the outer edge a firmer one; together they read as a two-tone border. */
+    --composer-inset: color-mix(in srgb, var(--seed-ink) 7%, transparent);
+    --composer-edge: color-mix(in srgb, var(--seed-ink) 18%, transparent);
+    --composer-shadow: 0 4px 4px 0 rgb(0 0 0 / 0.04), 0 2px 8px 0 rgb(0 0 0 / 0.05), 0 12px 32px -8px rgb(0 0 0 / 0.1);
+    --shadow-composer: inset 0 0 0 0.5px var(--composer-inset), 0 0 0 1px var(--composer-edge), var(--composer-shadow);
+}
+
+.chat-scope[data-theme="light"],
+.chat-scope[data-theme="light"]  {
+    --accent: var(--seed-accent);
+    --accent-text: var(--seed-accent);
+    --accent-bg: color-mix(in srgb, var(--seed-accent) 12.5%, #fff);
+    --accent-bg-hover: color-mix(in srgb, var(--seed-accent) 13.7%, #fff);
+    --accent-bg-active: color-mix(in srgb, var(--seed-accent) 14.9%, #fff);
+    --ring: var(--seed-accent);
+    --selection: color-mix(in srgb, var(--seed-accent) 22%, transparent);
+}
+
+.chat-scope[data-islands="off"] {
+    --island-gap: 0px;
+    --island-radius: 0px;
+}
+
+/*
+ * ui.blur. Sticky bars mix their surface with transparency at --glass-alpha and blur what scrolls under them
+ * with --glass-filter. The defaults are solid and unfiltered; data-blur="on" (ThemeSync, only when the setting
+ * is on, backdrop-filter works and reduced transparency is not requested) turns the glass on. Consumers:
+ * .glass-bar and .composer-scrim in app.css, or any sticky surface in plain CSS:
+ *   background: color-mix(in srgb, var(--surface) var(--glass-alpha), transparent);
+ *   backdrop-filter: var(--glass-filter);
+ * The alpha keeps bar text at AA: blurred text under the bar averages towards the surface, and at most 20%
+ * of the mix is what shows through.
+ * --scrim-fade is how far the composer scrim reaches above the dock. --scrim-clear is what the thread's end
+ * spacer adds so that, scrolled to the bottom, the last message still ends above the fade: the thread column
+ * already leaves 52px (44px at compact density) under the last message, so 40px less than the fade is enough.
+ */
+.chat-scope {
+    --glass-alpha: 100%;
+    --glass-filter: none;
+    --scrim-fade: 0px;
+    --scrim-clear: 0px;
+}
+.chat-scope[data-blur="on"] {
+    --glass-alpha: 80%;
+    --glass-filter: blur(16px) saturate(1.5);
+}
+/* ui.composer.dock "fade" (ThemeSync sets data-dock and --composer-fade-height from ui.composer.fadeHeight). */
+.chat-scope[data-dock="fade"] {
+    --scrim-fade: var(--composer-fade-height, 56px);
+    --scrim-clear: max(0px, calc(var(--scrim-fade) - 40px));
+}
+
+/* Memory hue resolves on each point, while lightness, chroma and opacity follow the active theme. */
+   and a soft top highlight with a hairline edge gives the depth. Never the accent, so people look different. */
+.avatar-monogram {
+    --avatar-top: oklch(0.54 0.1 var(--avatar-hue, 250));
+    --avatar-bottom: oklch(0.45 0.12 calc(var(--avatar-hue, 250) + 18));
+    background-image: linear-gradient(to bottom, var(--avatar-top), var(--avatar-bottom));
+    color: #ffffff;
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.22),
+        inset 0 0 0 0.5px rgb(0 0 0 / 0.14);
+    text-shadow: 0 0.5px 1px rgb(0 0 0 / 0.2);
+}
+
+/* Custom agent avatars (components/agents/agent-avatar.tsx, docs/spec/custom-agents.md). An agent stores a colour
+   name, never a value: `agentColourCss` in lib/theme.ts (the only hue table) sets --agent-colour on the tile. The tile mixes the hue with the surface and the glyph with the
+   text colour, so one set reads in both themes and follows presets. */
+.chat-scope {
+    --ficon-blue: light-dark(oklch(0.52 0.16 255), oklch(0.76 0.12 255));
+    --ficon-cyan: light-dark(oklch(0.52 0.11 215), oklch(0.78 0.11 215));
+    --ficon-teal: light-dark(oklch(0.52 0.1 185), oklch(0.78 0.11 185));
+    --ficon-green: light-dark(oklch(0.52 0.14 150), oklch(0.78 0.14 150));
+    --ficon-lime: light-dark(oklch(0.54 0.13 120), oklch(0.8 0.15 120));
+    --ficon-yellow: light-dark(oklch(0.56 0.12 85), oklch(0.84 0.14 90));
+    --ficon-orange: light-dark(oklch(0.55 0.16 50), oklch(0.78 0.14 55));
+    --ficon-red: light-dark(oklch(0.52 0.19 25), oklch(0.74 0.15 25));
+    --ficon-pink: light-dark(oklch(0.53 0.19 350), oklch(0.77 0.14 350));
+    --ficon-purple: light-dark(oklch(0.5 0.18 305), oklch(0.76 0.13 305));
+    --ficon-indigo: light-dark(oklch(0.5 0.17 275), oklch(0.76 0.12 275));
+    --ficon-neutral: color-mix(in srgb, var(--seed-ink) 80%, var(--seed-surface));
+}

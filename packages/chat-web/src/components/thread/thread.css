@@ -1,0 +1,862 @@
+/*
+ * Conversation view styles. Values are measured from the reference web conversation view
+ * (the web notes, A.7) and the desktop reference "Worked for" group (ui-spec 4.6).
+ * Colours come from theme tokens only.
+ */
+
+/* Column (A.7.2): 768px text column, 640px when the main area is under 856px, 16px gutters under 640px. */
+.thread-content {
+    container-type: inline-size;
+    container-name: thread-content;
+}
+.thread-col {
+    --thread-pad: 20px;
+    --thread-w: 768px;
+    width: 100%;
+    max-width: calc(var(--thread-w) + var(--thread-pad) * 2);
+    padding-inline: var(--thread-pad);
+    margin-inline: auto;
+}
+@container thread-content (width < 53.5rem) {
+    .thread-col {
+        --thread-w: 640px;
+    }
+}
+@media (width < 40rem) {
+    .thread-col {
+        --thread-pad: 16px;
+    }
+}
+
+/* Scroller: the scrollbar runs under the overlaid composer; a spacer at the end keeps text clear of it. */
+.thread-scroll {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding-top: 32px;
+    scrollbar-gutter: stable both-edges;
+}
+
+/* Older turns skip layout and paint until they scroll into view (A.7.11). */
+.turn-cv {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 480px;
+}
+
+/* User and assistant hover actions: instant show and hide, always visible on touch (A.7.4). */
+.hover-actions {
+    opacity: 0;
+}
+.msg-group:hover .hover-actions,
+.msg-group:focus-within .hover-actions {
+    opacity: 1;
+}
+@media (hover: none) {
+    .hover-actions {
+        opacity: 1;
+    }
+}
+
+/* When a message was sent (branch-buttons.tsx MessageTime): only while its turn is hovered or focused. */
+.msg-time {
+    opacity: 0;
+}
+[data-turn-key]:hover .msg-time,
+[data-turn-key]:focus-within .msg-time {
+    opacity: 1;
+}
+
+/*
+ * "Working" label shimmer (ui-spec 7.3 `loading-shimmer`, computed on the reference): the text is the
+ * tertiary colour at 45%, a band (transparent -> 40%..60% -> transparent) sweeps across in 2s steps(48).
+ */
+@keyframes thread-loading-shimmer {
+    0% {
+        background-position: -100% 0;
+    }
+    100% {
+        background-position: 250% 0;
+    }
+}
+.thread-shimmer {
+    display: inline-block;
+    background-color: color-mix(in srgb, var(--text-tertiary) 45%, transparent);
+    background-image: linear-gradient(
+        to left,
+        transparent,
+        var(--shimmer-contrast) 40%,
+        var(--shimmer-contrast) 60%,
+        transparent
+    );
+    background-repeat: no-repeat;
+    background-size: 50% 200%;
+    background-position: -100% 0;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: thread-loading-shimmer 2s steps(48) infinite;
+}
+.thread-shimmer:hover {
+    -webkit-text-fill-color: var(--text-tertiary);
+    background: none;
+    animation: none;
+}
+
+/* Activity panel enter (ui-spec 4.6): 180ms height-free fade and slide, collapse is instant. */
+@keyframes thread-activity-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+}
+.activity-enter {
+    animation: thread-activity-enter 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Command output (ui-spec 4.5): capped at 12rem with a 1.5rem edge fade. */
+.cmd-output {
+    max-height: 12rem;
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+@keyframes thread-pulse {
+    50% {
+        opacity: 0.5;
+    }
+}
+.thread-skeleton {
+    animation: thread-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+/* Skeleton to content hand-over: both at the same bottom edge, one fading out as the other fades in. */
+@keyframes thread-fade-in {
+    from {
+        opacity: 0;
+    }
+}
+@keyframes thread-fade-out {
+    to {
+        opacity: 0;
+    }
+}
+.thread-reveal {
+    animation: thread-fade-in calc(200ms * var(--motion-scale)) var(--ease-standard) both;
+}
+.thread-skeleton-out {
+    animation: thread-fade-out calc(200ms * var(--motion-scale)) var(--ease-standard) both;
+}
+
+/* Approval tray: springs up from behind the composer, slides back down when answered. */
+@keyframes thread-tray-in {
+    from {
+        transform: translateY(100%);
+    }
+}
+@keyframes thread-tray-out {
+    to {
+        transform: translateY(100%);
+    }
+}
+.approval-tray[data-state="open"] {
+    animation: thread-tray-in 360ms
+        linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+}
+.approval-tray[data-state="closed"] {
+    animation: thread-tray-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* Intermediate assistant text inside the activity group reads as step text (A.7.8). */
+.md.md-tertiary {
+    color: var(--text-tertiary);
+}
+
+/*
+ * Live activity label (islands-and-panels 1.1, cadenced shimmer): base text at 55% of the tertiary
+ * colour; a highlight copy in --shimmer-contrast sits in a sweep whose mask window crosses the label.
+ * The two translates cancel so the highlight stays on top of the base glyphs. One 1s steps(48) pass
+ * per 2s cadence; a new label restarts the pass (the sweep is keyed on the text).
+ */
+.live-label {
+    position: relative;
+    display: inline-block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    vertical-align: top;
+    user-select: none;
+    color: color-mix(in srgb, var(--text-tertiary) 55%, transparent);
+}
+.live-sweep {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 100%;
+    overflow: hidden;
+    transform: translate(-50%);
+    mask-image: linear-gradient(
+        90deg,
+        transparent 0%,
+        var(--mask-solid) 20%,
+        var(--mask-solid) 30%,
+        transparent 50%,
+        transparent 100%
+    );
+    animation: thread-live-sweep 2s steps(96) infinite;
+}
+.live-highlight {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--shimmer-contrast);
+    transform: translate(50%);
+    animation: thread-live-highlight 2s steps(96) infinite;
+}
+@keyframes thread-live-sweep {
+    0% {
+        transform: translate(-50%);
+    }
+    50%,
+    100% {
+        transform: translate(125%);
+    }
+}
+@keyframes thread-live-highlight {
+    0% {
+        transform: translate(50%);
+    }
+    50%,
+    100% {
+        transform: translate(-125%);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .live-sweep {
+        display: none;
+    }
+}
+
+/* Run result card (1.2): 24px radius, 16px padding, 12px / 16px label. */
+.run-result {
+    border-radius: calc(24px * var(--roundness));
+    background: var(--surface-under);
+    padding: 16px;
+    font-size: 12px;
+    line-height: 16px;
+}
+
+/*
+ * Agent activity (docs/spec/tool-call-reference-notes.md 4): quiet text rows under a one-line header. Only an
+ * opened step's detail gets a surface. Colours are tokens; spacing follows --density, radii --roundness and
+ * motion --motion-scale (none under reduced motion). `--act-bad` is the soft danger tone for failure words:
+ * the danger hue pulled towards the text colour so 12.5px text keeps its contrast on both themes.
+ */
+.act-group,
+.act-steps,
+.aa-panel,
+.aa-view {
+    --act-bad: color-mix(in oklab, var(--danger) 78%, var(--text));
+}
+.act-group {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    padding-bottom: calc(12px * var(--density));
+}
+
+/* Header: the whole row is the button, the caret comes last. */
+.act-summary {
+    display: inline-flex;
+    max-width: calc(100% + 8px);
+    min-width: 0;
+    height: 28px;
+    align-self: flex-start;
+    align-items: center;
+    gap: 6px;
+    margin-inline: -4px;
+    padding-inline: 4px;
+    border-radius: calc(8px * var(--roundness));
+    text-align: start;
+    font-size: 14px;
+    line-height: 20px;
+    color: color-mix(in oklab, var(--text) 60%, transparent);
+    user-select: none;
+}
+.act-summary:hover,
+.act-summary:focus-visible {
+    background: var(--hover);
+    color: var(--text);
+}
+.act-summary:focus-visible,
+.act-row-head:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+}
+.act-summary:disabled {
+    cursor: default;
+    background: none;
+}
+.act-summary-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.act-summary-live {
+    min-width: 0;
+}
+.act-summary-meta {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+    white-space: pre;
+}
+.act-summary-bad {
+    color: var(--act-bad);
+}
+.act-caret {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+    transition: rotate calc(160ms * var(--motion-scale)) var(--ease-standard);
+}
+.act-caret[data-open="true"] {
+    rotate: 90deg;
+}
+.act-caret:dir(rtl) {
+    scale: -1 1;
+}
+.act-summary:hover .act-caret,
+.act-summary:focus-visible .act-caret,
+.act-row-head:hover .act-caret,
+.act-row-head:focus-visible .act-caret {
+    color: var(--text);
+}
+
+/* Steps: a thin rule on the start side ties them to the header. */
+.act-steps {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: calc(2px * var(--density));
+    margin-top: calc(4px * var(--density));
+    margin-inline-start: 2px;
+    padding-inline-start: 12px;
+    border-inline-start: 1px solid var(--border);
+}
+.act-steps-nested {
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+.act-row {
+    position: relative;
+    min-width: 0;
+}
+.act-row-head {
+    display: flex;
+    width: calc(100% + 12px);
+    min-width: 0;
+    min-height: calc(28px * var(--density));
+    align-items: center;
+    gap: 8px;
+    margin-inline: -6px;
+    padding-inline: 6px;
+    border-radius: calc(6px * var(--roundness));
+    text-align: start;
+    font-size: 14px;
+    line-height: 20px;
+}
+button.act-row-head:hover {
+    background: var(--hover);
+}
+.act-verb {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.act-subject {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+}
+.act-mono {
+    font-family: var(--font-code);
+    font-size: 12.5px;
+}
+.act-subject-quiet {
+    color: var(--text-tertiary);
+}
+.act-meta,
+.act-note {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.act-note[data-tone="failed"] {
+    color: var(--act-bad);
+}
+.act-stat {
+    font-family: var(--font-code);
+    font-size: 12px;
+}
+
+/* MCP progress of a running tool, one quiet line under its row. */
+.act-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-block: 2px 4px;
+    font-size: 12.5px;
+    color: var(--text-tertiary);
+}
+.act-progress-bar {
+    height: 4px;
+    max-width: 240px;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--soft);
+}
+.act-progress-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width calc(160ms * var(--motion-scale)) var(--ease-enter);
+}
+.act-progress-text {
+    font-variant-numeric: tabular-nums;
+}
+.act-link {
+    display: inline-flex;
+    max-width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    vertical-align: top;
+    color: var(--text);
+}
+.act-link:hover,
+.act-link:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.act-text {
+    padding-block: 2px calc(6px * var(--density));
+}
+
+/* Detail of an opened step. */
+.act-detail {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: calc(6px * var(--density));
+    margin-block: calc(2px * var(--density)) calc(8px * var(--density));
+}
+.act-block {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: calc(10px * var(--roundness));
+    background: color-mix(in srgb, var(--text) 3.5%, transparent);
+}
+.act-block-label {
+    padding: 8px 12px 0;
+    font-size: 12.5px;
+    line-height: 18px;
+    color: var(--text-secondary);
+}
+.act-block-label[data-bad] {
+    color: var(--act-bad);
+}
+.act-lines {
+    overflow-x: auto;
+    padding-block: 8px;
+    font-family: var(--font-code);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--text-secondary);
+    scrollbar-width: thin;
+}
+.act-lines-all {
+    max-height: 20rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.act-lines-all:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+}
+.act-line {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+    padding-inline: 12px;
+    white-space: pre;
+}
+.act-line-n {
+    flex-shrink: 0;
+    min-width: 3ch;
+    margin-inline-end: 12px;
+    text-align: end;
+    color: var(--code-line-number);
+    user-select: none;
+}
+.act-line-sign {
+    flex-shrink: 0;
+    width: 1ch;
+    margin-inline-end: 8px;
+    user-select: none;
+}
+.act-line[data-kind="add"] {
+    background: color-mix(in srgb, var(--added) 10%, transparent);
+    color: var(--text);
+}
+.act-line[data-kind="add"] .act-line-sign {
+    color: var(--added);
+}
+.act-line[data-kind="del"] {
+    background: color-mix(in srgb, var(--deleted) 10%, transparent);
+}
+.act-line[data-kind="del"] .act-line-sign {
+    color: var(--deleted);
+}
+.act-fade {
+    mask-image: linear-gradient(to bottom, var(--mask-solid) 55%, transparent);
+}
+.act-block-foot {
+    display: flex;
+    min-height: 28px;
+    align-items: center;
+    gap: 14px;
+    padding: 0 12px 6px;
+}
+/* Copy sits on the block's top end corner, shown on hover or focus. */
+.act-copy {
+    position: absolute;
+    top: 4px;
+    inset-inline-end: 4px;
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: calc(8px * var(--roundness));
+    background: var(--surface);
+    color: var(--text-tertiary);
+    opacity: 0;
+}
+.act-block:hover .act-copy,
+.act-copy:focus-visible {
+    opacity: 1;
+}
+.act-copy:hover,
+.act-copy:focus-visible {
+    background: var(--hover);
+    color: var(--text);
+}
+@media (pointer: coarse) {
+    .act-copy {
+        width: 40px;
+        height: 40px;
+        opacity: 1;
+    }
+}
+.act-more {
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--text-tertiary);
+}
+.act-more:hover,
+.act-more:focus-visible {
+    color: var(--text);
+}
+.act-more:focus-visible,
+.act-copy:focus-visible,
+.act-link:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: calc(4px * var(--roundness));
+}
+.act-command {
+    margin: 0;
+    padding: 8px 12px !important;
+    border-radius: calc(10px * var(--roundness));
+    background: color-mix(in srgb, var(--text) 3.5%, transparent);
+    font-family: var(--font-code);
+    font-size: 12px;
+    line-height: 18px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--text);
+}
+.act-empty {
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--text-tertiary);
+}
+.act-thinking {
+    padding-bottom: 4px;
+}
+.act-args {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 2px 12px;
+    padding: 8px 12px;
+    border-radius: calc(10px * var(--roundness));
+    background: color-mix(in srgb, var(--text) 3.5%, transparent);
+    font-family: var(--font-code);
+    font-size: 12px;
+    line-height: 18px;
+}
+.act-args > div > dt {
+    color: var(--text-tertiary);
+}
+.act-args > div > dd {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+@media (prefers-reduced-motion: reduce) {
+    .act-caret {
+        transition: none;
+    }
+    .activity-enter {
+        animation: none;
+    }
+}
+.md.md-step {
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--text-secondary);
+}
+.md.md-step > * {
+    margin-top: 8px;
+}
+.md.md-step > :first-child {
+    margin-top: 0;
+}
+
+/*
+ * Bubble tail: sized from the bubble's corner radius so it scales with roundness (and never shrinks
+ * below a 14px radius). The tailed corner tightens to 30% of the radius so the bubble's bottom stays
+ * flat under the tail's concave underside (no notch where they meet).
+ */
+.thread-page,
+.bubble-tailed {
+    --bubble-r: max(calc(22px * var(--roundness)), 14px);
+}
+.bubble-tailed {
+    border-end-end-radius: calc(var(--bubble-r) * 0.3);
+}
+.bubble-tailed[data-tail-side="start"] {
+    border-end-end-radius: calc(22px * var(--roundness));
+    border-end-start-radius: calc(var(--bubble-r) * 0.3);
+}
+/* Tail up (avatar above): the tight corner moves to the top end corner. */
+.bubble-tailed[data-tail-dir="up"] {
+    border-end-end-radius: calc(22px * var(--roundness));
+    border-start-end-radius: calc(var(--bubble-r) * 0.3);
+}
+.bubble-tail {
+    position: absolute;
+    bottom: 0;
+    inset-inline-end: calc(var(--bubble-r, 22px) * -7 / 22);
+    width: calc(var(--bubble-r, 22px) * 20 / 22);
+    height: calc(var(--bubble-r, 22px) * 25 / 22);
+    pointer-events: none;
+    overflow: visible;
+}
+.bubble-tail[data-side="start"] {
+    inset-inline-end: auto;
+    inset-inline-start: calc(var(--bubble-r, 22px) * -7 / 22);
+    transform: scaleX(-1);
+}
+.bubble-tail:dir(rtl) {
+    transform: scaleX(-1);
+}
+.bubble-tail[data-side="start"]:dir(rtl) {
+    transform: none;
+}
+/* The upper tail rises above the top-end corner and joins the bubble at SVG y=12. */
+.bubble-tail[data-dir="up"] {
+    top: calc(var(--bubble-r, 22px) * -12 / 22);
+    bottom: auto;
+    inset-inline-end: 0;
+    transform: none;
+}
+.bubble-tail[data-dir="up"]:dir(rtl) {
+    transform: scaleX(-1);
+}
+
+/*
+ * Thinking glyph: three accent dots 120deg apart on a slow 2.4s orbit (the whole cluster turns), each
+ * breathing on an offset phase. Done: the dots draw into the centre and fade to one still dot.
+ */
+.thinking-glyph {
+    position: relative;
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    color: var(--accent);
+}
+.thinking-orbit {
+    position: absolute;
+    inset: 0;
+    animation: thinking-orbit calc(2400ms * var(--motion-scale)) linear infinite;
+}
+.thinking-slot {
+    position: absolute;
+    inset: 0;
+    rotate: calc(var(--i) * 120deg);
+    transition: translate calc(300ms * var(--motion-scale)) var(--ease-standard);
+}
+.thinking-dot {
+    position: absolute;
+    top: 1px;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    margin-left: -2.5px;
+    border-radius: 999px;
+    background: currentColor;
+    animation: thinking-breathe calc(1200ms * var(--motion-scale)) var(--ease-standard) infinite;
+    animation-delay: calc(var(--i) * -400ms * var(--motion-scale));
+    transition:
+        top calc(300ms * var(--motion-scale)) var(--ease-standard),
+        opacity calc(300ms * var(--motion-scale)) var(--ease-standard);
+}
+.thinking-glyph[data-done="true"] .thinking-orbit {
+    animation-play-state: paused;
+}
+.thinking-glyph[data-done="true"] .thinking-dot {
+    top: 5.5px;
+    animation: none;
+    opacity: 0;
+}
+.thinking-glyph[data-done="true"] .thinking-slot:first-child .thinking-dot {
+    opacity: 0.6;
+}
+@keyframes thinking-orbit {
+    to {
+        rotate: 360deg;
+    }
+}
+@keyframes thinking-breathe {
+    0%,
+    100% {
+        transform: scale(0.7);
+        opacity: 0.45;
+    }
+    50% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+@keyframes thinking-pulse {
+    50% {
+        opacity: 0.4;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .thinking-orbit {
+        animation: thinking-pulse 1.6s ease-in-out infinite;
+    }
+    .thinking-dot {
+        animation: none;
+    }
+}
+.thinking-label {
+    color: var(--text-secondary);
+    animation: thinking-label-in calc(250ms * var(--motion-scale)) var(--ease-enter) both;
+}
+@keyframes thinking-label-in {
+    from {
+        opacity: 0;
+        transform: translateY(40%);
+    }
+}
+
+/*
+ * Avatars (ui.thread.avatars): in the gutter outside the text column, so toggling them never moves the
+ * text. User avatar at the end of the first bubble line, the model's at the start of the reply.
+ * Smaller where the gutter is narrow, hidden when there is no room.
+ */
+.thread-avatar {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 999px;
+}
+/* Assistant: in a gutter outside the column, level with the bottom of the turn's last block. */
+.thread-avatar-slot {
+    position: absolute;
+    bottom: 0;
+    z-index: 1;
+}
+.thread-avatar-slot[data-side="start"] {
+    inset-inline-end: calc(100% + 12px);
+}
+/* User avatar above the upward tail. Its centre is on the tail tip, with a 3px gap. */
+.thread-avatar-above {
+    display: flex;
+    justify-content: flex-end;
+    /* Mostly over the bubble: the up tail's tip (the bubble's end edge) meets the avatar's end third. */
+    margin-inline-end: -6px;
+    margin-bottom: calc(3px + var(--bubble-r) * 12 / 22);
+}
+/* With assistant bubbles the start tail's tip ends 3px from the gutter avatar. */
+.thread-avatar-slot:has(~ div .assistant-bubble) {
+    inset-inline-end: calc(100% + var(--bubble-r) * 7 / 22 + 3px);
+}
+@container thread-content (width < 56rem) {
+    .thread-avatar {
+        width: 22px;
+        height: 22px;
+    }
+    .thread-avatar-above {
+        margin-inline-end: -3px;
+    }
+    .thread-avatar-slot[data-side="start"] {
+        inset-inline-end: calc(100% + 6px);
+    }
+}
+@container thread-content (width < 44rem) {
+    .thread-avatar-slot {
+        display: none;
+    }
+}
+
+/*
+ * Assistant bubbles (ui.thread.assistantBubbles): an opaque soft surface in the user bubble's radius
+ * family, sized to its content and scrolling wide blocks inside; the tail sits on the start side.
+ */
+.thread-page {
+    --assistant-bubble: color-mix(in srgb, var(--text) 5%, var(--surface));
+}
+.assistant-bubble {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
+    padding: 10px 16px;
+    border-radius: calc(22px * var(--roundness));
+    background: var(--assistant-bubble);
+}
+.assistant-bubble > .md {
+    overflow-x: auto;
+}

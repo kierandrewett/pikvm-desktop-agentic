@@ -1,0 +1,17 @@
+/*
+ * Logo marks are CSS masks filled with currentColor. Forced colours replace background colours, which would
+ * fill the mask with Canvas and hide the logo, so the fill is set to a system colour. The corner badge gets a
+ * Canvas disc and a CanvasText edge so the two marks stay apart.
+ */
+@media (forced-colors: active) {
+    .provider-logo-fill {
+        forced-color-adjust: none;
+        background-color: CanvasText !important;
+    }
+    .provider-logo-badge {
+        forced-color-adjust: none;
+        background-color: Canvas !important;
+        box-shadow: 0 0 0 1px CanvasText !important;
+        color: CanvasText;
+    }
+}

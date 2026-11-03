@@ -1,0 +1,50 @@
+/*
+ * Question tray (thread/question-tray.tsx). Rises from behind the composer like the approval tray
+ * (same keyframes in thread.css) and sinks back once answered. Durations scale with ui.motion; the
+ * global reduced-motion rule (styles/app.css) turns them off.
+ */
+@keyframes question-tray-in {
+    from {
+        transform: translateY(100%);
+    }
+}
+@keyframes question-tray-out {
+    to {
+        transform: translateY(100%);
+    }
+}
+.question-tray[data-state="open"] {
+    animation: question-tray-in calc(360ms * var(--motion-scale))
+        linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+}
+.question-tray[data-state="closed"] {
+    animation: question-tray-out calc(180ms * var(--motion-scale)) var(--ease-exit) forwards;
+}
+
+/* The step body fades in when the stepper moves, so the change of question reads as a change. */
+.question-tray section {
+    animation: question-step-in calc(160ms * var(--motion-scale)) var(--ease-enter);
+}
+@keyframes question-step-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+}
+
+/* Keyboard focus: the active row carries the accent ring (the list itself draws none). */
+.question-row[data-active] {
+    box-shadow: inset 0 0 0 1.5px var(--ring);
+}
+.question-row {
+    transition:
+        background-color var(--duration-basic) var(--ease-standard),
+        box-shadow var(--duration-basic) var(--ease-standard);
+}
+.question-input:focus-within,
+textarea.question-input:focus {
+    box-shadow: inset 0 0 0 1.5px var(--ring);
+}
+.question-list:focus-visible:not(:has([data-active])) {
+    box-shadow: inset 0 0 0 1.5px var(--ring);
+}

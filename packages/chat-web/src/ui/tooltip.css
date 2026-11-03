@@ -1,0 +1,4 @@
+/* The positioning wrapper must not intercept clicks below non-interactive tooltip content. */
+[data-radix-popper-content-wrapper]:has(> [data-chat-tooltip]) {
+    pointer-events: none;
+}
