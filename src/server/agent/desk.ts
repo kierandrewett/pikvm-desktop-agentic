@@ -351,8 +351,9 @@ export function createDesk(options: DeskOptions): AgentDesk {
         // Abort first: the action in flight lifts what it holds in its own finally, and every
         // later call is refused with the reason.
         run.abort.abort(new DeskError("control_released", RELEASE_MESSAGE[reason]));
-        input?.releaseAll();
         if (holder === conversationId) {
+            // The action in flight lifts what it holds in its own finally; this covers one that is between steps.
+            input?.releaseAll();
             if (run.engaged) publish(run, conversationId);
             holder = null;
         }
@@ -525,11 +526,11 @@ export function createDesk(options: DeskOptions): AgentDesk {
             runs.delete(conversationId);
             frames.delete(conversationId);
             lastLookAt.delete(conversationId);
-            input?.releaseAll();
             if (holder === conversationId) {
+                input?.releaseAll();
                 holder = null;
-                activity.set({ state: "idle" });
             }
+            if (activity.current().conversationId === conversationId) activity.set({ state: "idle" });
             scheduleIdleClose();
         },
 

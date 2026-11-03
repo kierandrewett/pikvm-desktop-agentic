@@ -705,6 +705,33 @@ describe("who holds the desk", () => {
         assert.equal(r.activity.current().state, "idle");
     });
 
+    it("Stop releases control with its own reason, and the end of the run clears the banner after any release", async () => {
+        const r = rig();
+        r.desk.beginRun("a");
+        const c = r.client("a");
+        await c.call("screenshot");
+        r.desk.stop();
+        assert.equal(r.activity.current().state, "released");
+        assert.equal(r.activity.current().reason, "stopped");
+        const result = await c.call("click", { x: 5, y: 5 });
+        assert.match(result.text, /^control_released: The person pressed Stop/);
+        r.desk.endRun("a");
+        assert.equal(r.activity.current().state, "idle");
+        assert.equal(r.desk.busy(), false);
+    });
+
+    it("stopping one conversation leaves another's action in flight alone", async () => {
+        const r = rig({ timing: { dragHoldMs: 150 } });
+        r.desk.beginRun("a");
+        r.desk.beginRun("b");
+        const a = r.client("a");
+        await a.call("screenshot");
+        const drag = a.call("drag", { from: { x: 10, y: 10 }, to: { x: 100, y: 100 } });
+        await until(async () => (await fake.state()).buttonsDown.includes("left"), "the drag to press");
+        r.desk.stop("b");
+        assert.equal((await drag).isError, false, "the holder's drag ran to its end");
+    });
+
     it("a lease that has run out is taken back, and its next call is refused", async () => {
         let t = 1_000_000;
         const r = rig({ leaseMs: 60_000, now: () => t });
