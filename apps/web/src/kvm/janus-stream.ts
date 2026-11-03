@@ -178,9 +178,15 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
         if (!stopped && !retry) {
             retry = setTimeout(() => {
                 retry = null;
-                ensure();
+                // A page nobody can see reconnects nothing; `onVisible` picks the session back up when it is shown.
+                if (!document.hidden) ensure();
             }, RETRY_MS);
         }
+    };
+
+    const onVisible = (): void => {
+        if (document.hidden || stopped || janus || retry || !Janus) return;
+        ensure();
     };
 
     const destroy = (): void => {
@@ -312,6 +318,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
     return {
         start() {
             stopped = false;
+            document.addEventListener("visibilitychange", onVisible);
             void ensureJanus().then((J) => {
                 if (stopped) return;
                 if (!J) {
@@ -324,6 +331,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
         },
         stop() {
             stopped = true;
+            document.removeEventListener("visibilitychange", onVisible);
             if (restartTimer) {
                 clearTimeout(restartTimer);
                 restartTimer = null;

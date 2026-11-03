@@ -32,7 +32,7 @@ export const SNAPSHOT_DISCONNECTED_AFTER = 3;
 export const PLAY_WATCHDOG_MS = 6000;
 /** WebRTC: no video at all within this of starting the Janus session = fall back (harmless; MJPEG already runs). */
 export const START_GUARD_MS = 8000;
-/** Back from the background for longer than this: replace the sockets instead of trusting them. */
+/** Back from the background for longer than this: the WebRTC session is restarted instead of trusted (the stream and the socket go past `RESUME_STALE_MS`). */
 export const AWAY_RECONNECT_MS = 3000;
 /** Blank-frame sampling cadence, grid size and rule (see blank.ts). */
 export const BLANK_SAMPLE_MS = 1500;
@@ -125,6 +125,22 @@ export interface VisibilityEvent extends Stamped {
     readonly type: "visibility";
     readonly hidden: boolean;
 }
+/**
+ * The page is about to be frozen or put in the back/forward cache (`freeze`, `pagehide`): it may
+ * never be told it is hidden, so this is where the time away starts if nothing has started it.
+ */
+export interface FreezeEvent extends Stamped {
+    readonly type: "freeze";
+}
+/**
+ * Something says the page is back: `pageshow` after a back/forward cache restore, the window gaining
+ * focus, the Page Lifecycle `resume`. `hidden` is what `document.hidden` reads when it arrives.
+ */
+export interface ResumeEvent extends Stamped {
+    readonly type: "resume";
+    readonly reason: "pageshow" | "focus" | "resume";
+    readonly hidden: boolean;
+}
 export interface OnlineEvent extends Stamped {
     readonly type: "online";
 }
@@ -163,6 +179,8 @@ export type VideoEvent =
     | BlankSampleEvent
     | VisibilityEvent
     | OnlineEvent
+    | FreezeEvent
+    | ResumeEvent
     | OfflineEvent
     | FullUiEvent
     | NeedEvent;
@@ -186,6 +204,11 @@ export interface CancelTimerEffect {
     readonly id: string;
 }
 export type VideoSchedulingEffect = StartTimerEffect | CancelTimerEffect;
+
+/** The running Janus session should be stopped (the driver owns the Janus client port). */
+export interface JanusStopEffect {
+    readonly type: "janusStop";
+}
 
 /** The Janus session should be created and started (the driver owns the Janus client port). */
 export interface JanusStartEffect {
@@ -222,7 +245,7 @@ export type VideoRenderEffect =
     /** The input socket should be replaced (`kick`: it may be dead) or ensured (`connect`). */
     | { readonly type: "hid"; readonly action: "kick" | "connect" };
 
-export type VideoEffect = VideoSchedulingEffect | JanusStartEffect | VideoRenderEffect;
+export type VideoEffect = VideoSchedulingEffect | JanusStartEffect | JanusStopEffect | VideoRenderEffect;
 
 /* ---- status chip ---- */
 

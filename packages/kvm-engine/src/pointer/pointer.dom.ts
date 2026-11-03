@@ -104,6 +104,17 @@ export function attachPointerInput(opts: PointerDomOptions): () => void {
     };
     window.addEventListener("blur", blur);
     off.push(() => window.removeEventListener("blur", blur));
+    // A page sent to the background (an app switched away from, a tab left, a frozen page) gets no pointerup either.
+    // iOS does not blur the window when it does that, so the page being hidden is the signal.
+    const hide = (): void => {
+        if (document.hidden) blur();
+    };
+    document.addEventListener("visibilitychange", hide);
+    window.addEventListener("pagehide", blur);
+    off.push(
+        () => document.removeEventListener("visibilitychange", hide),
+        () => window.removeEventListener("pagehide", blur),
+    );
 
     return () => off.forEach((f) => f());
 }

@@ -45,9 +45,22 @@ a manual clock (no real timers).
 
 ## Lifecycle
 
-- L1. Back from the background after more than 3 s replaces the input socket and reloads the stream; within 3 s it only ensures the socket and reloads only if not live. Snapshot mode just polls again at once.
-- L2. Network offline says "disconnected"; online clears the server-down flag, replaces the input socket and reloads.
+- L1. Back from the background (visible) after more than 1 s (`RESUME_STALE_MS`) replaces the input socket and reloads the stream; within 1 s it only ensures the socket and reloads only if the stream is not up. Snapshot mode just polls again at once.
+- L2. Network offline says "disconnected"; online clears the server-down flag, replaces the input socket, restarts a WebRTC session and reloads (unless a load is already on its way).
 - L3. The health poll (2.5 s) and the blank sampler (1.5 s) repeat until the driver is disposed; the health poll only runs in native mode.
+
+## Coming back from the background
+
+A dropped MJPEG stream raises NO event in the page: the `<img>` neither errors nor loads again, it just stops updating, still reading "live" (measured in headless Chrome: 0 `load`, 0 `error` over 5 s after the server cut the stream, `streams` on the fake 0). So after the page was frozen, hidden or put in the back/forward cache, the stream cannot be asked whether it is alive; it is replaced.
+
+- R1. Returning counts however it is announced: `visibilitychange` to visible, `pageshow` with `persisted` (back/forward cache), the window's `focus`, the Page Lifecycle `resume`. A plain `pageshow` (first load) is not a return.
+- R2. A page that was never told it was hidden is still found out: the repeating timers (health 2.5 s, blank 1.5 s) stop while it is frozen, so a tick that comes more than 4 s after the last one IS the return, whatever events did or did not arrive. `freeze` and `pagehide` start the clock if `hidden` never did.
+- R3. After an absence over 1 s the stream is reloaded even though the page believes it is live (a cut or silent stream looks exactly like a good one), and the input socket is replaced. Under 1 s nothing that is up is touched.
+- R4. One return, many signals (visible + pageshow + focus + resume + online + the tick): exactly ONE new stream. The first signal clears the absence, so the rest find none; a load already on its way to its first frame is never doubled (after an absence, a load from the last 1.5 s counts; on a return that was no absence, anything inside the first-frame watchdog). A pending backoff reconnect is cancelled by the load that replaces it.
+- R5. A hidden page reconnects nothing: no MJPEG reconnect, no reload from the watchdog, health or `need`, no backoff timer ticking for a screen nobody sees (unless background screen alerts watch it). Whatever dropped meanwhile is found stale on return and reloaded once. A `focus` or `pageshow` while `document.hidden` is not a return.
+- R6. A WebRTC session is restarted after an absence over 3 s (`AWAY_RECONNECT_MS`) and when the network comes back: the old one is stopped, MJPEG takes the picture while the new one negotiates (never blank), and the old session's late callbacks are ignored. A session that is not in use is not touched.
+- R7. Whatever the target holds because of this page (keys, modifiers, mouse buttons) is released when the page leaves and again when it comes back from an absence, before the socket is replaced, so a release that would have died with the old socket is never needed.
+- R8. The input socket (`target/FAILURE_MODES.md`, 9 and 20 to 23) opens no attempt while the page is hidden and is kicked, once, on return.
 
 ## Status
 

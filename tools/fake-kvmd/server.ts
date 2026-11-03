@@ -154,6 +154,8 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
     const streams = new Set<ServerResponse>();
     /** While in the future, new /api/ws upgrades are refused (see POST /__fake/drop?refuse_ms=). */
     let refuseUntil = 0;
+    /** MJPEG streams that stay open and write nothing: a connection that looks alive and is dead (POST /__fake/stall). */
+    const stalled = new Set<ServerResponse>();
 
     // ---- kvmd event payloads -------------------------------------------------
 
@@ -378,6 +380,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
         });
         streams.add(res);
         const write = () => {
+            if (stalled.has(res)) return;
             res.write(
                 `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${currentFrame().length}\r\n` +
                     `X-Timestamp: ${(Date.now() / 1000).toFixed(6)}\r\n\r\n`,
@@ -390,6 +393,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
         const stop = () => {
             clearInterval(timer);
             streams.delete(res);
+            stalled.delete(res);
         };
         req.on("close", stop);
         res.on("close", stop);
@@ -702,6 +706,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                 requestLog = [];
                 seq = 0;
                 refuseUntil = 0;
+                stalled.clear();
                 wsAuthUsers.length = 0;
                 // Clients stay connected; give them the clean state so they do not keep a stale LED.
                 broadcast("hid", hidEvent());
@@ -730,15 +735,28 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                 requireMethod(req, "POST");
                 const graceful = q.get("graceful") === "1";
                 const refuseMs = Number(q.get("refuse_ms") ?? 0) || 0;
-                if (refuseMs > 0) refuseUntil = Date.now() + refuseMs;
-                const dropped = clients.size;
-                for (const ws of clients.keys()) {
-                    if (graceful) ws.close(1001, "fake-kvmd drop");
-                    else ws.terminate();
+                const what = q.get("what") ?? "ws";
+                if (what !== "ws" && what !== "streams" && what !== "all") {
+                    throw new HttpError(400, "ValidatorError", "what must be ws, streams or all");
                 }
-                json(res, 200, { ok: true, dropped });
+                if (refuseMs > 0) refuseUntil = Date.now() + refuseMs;
+                const dropped = what === "streams" ? 0 : clients.size;
+                if (what !== "streams") {
+                    for (const ws of clients.keys()) {
+                        if (graceful) ws.close(1001, "fake-kvmd drop");
+                        else ws.terminate();
+                    }
+                }
+                const droppedStreams = what === "ws" ? 0 : streams.size;
+                if (what !== "ws") for (const stream of streams) stream.destroy();
+                json(res, 200, { ok: true, dropped, droppedStreams });
                 return;
             }
+            case "/__fake/stall":
+                requireMethod(req, "POST");
+                for (const stream of streams) stalled.add(stream);
+                json(res, 200, { ok: true, stalled: stalled.size });
+                return;
             case "/__fake/picture": {
                 requireMethod(req, "POST");
                 const name = q.get("name");

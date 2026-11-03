@@ -73,7 +73,8 @@ Plain JSON, not the kvmd envelope. `seq` numbers all records in one order;
 | `GET /__fake/state` | Clients, the `X-KVMD-User` of each `/api/ws` upgrade (`wsAuthUsers`), LEDs, mouse mode, keys and buttons held, ATX, MSD, GPIO. |
 | `POST /__fake/reset` | Clears all logs and state; connected clients get fresh `hid`, `streamer`, `atx`, `msd` and `gpio` events. |
 | `POST /__fake/event` | Body `{"event_type": "...", "event": {...}}` is pushed to every connected client as-is. It does not change the fake's own state. |
-| `POST /__fake/drop[?graceful=1][&refuse_ms=N]` | Closes every WebSocket (abruptly by default, so the client sees 1006). `refuse_ms` makes new `/api/ws` connections fail with 503 for that long, to exercise reconnect backoff. |
+| `POST /__fake/drop[?what=ws\|streams\|all][&graceful=1][&refuse_ms=N]` | Closes every WebSocket (`what=ws`, the default; abruptly unless `graceful=1`, so the client sees 1006), every MJPEG stream (`what=streams`), or both. `refuse_ms` makes new `/api/ws` connections fail with 503 for that long, to exercise reconnect backoff. |
+| `POST /__fake/stall` | Every MJPEG stream open right now stays connected and sends nothing from here on: a connection that looks alive and is dead. Streams opened afterwards are normal. Reset by `/__fake/reset`. |
 | `POST /__fake/source?online=0\|1` | Marks the video source offline/online and emits a `streamer` event. |
 | `POST /__fake/resolution?width=W&height=H` | The resolution the streamer reports: the `streamer` event, `X-UStreamer-Width`/`Height` on snapshots and `/streamer/state`. The JPEG served keeps its own 320x180 size. Reset by `/__fake/reset`. |
 | `POST /__fake/ocr[?enabled=0\|1]` | Sets what an `ocr=1` snapshot answers (the request body, as text) and whether OCR is on; broadcasts an `ocr` event. With OCR off the snapshot is a 503. |

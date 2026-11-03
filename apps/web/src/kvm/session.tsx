@@ -72,6 +72,8 @@ export function createKvmSession(options: KvmSessionOptions = {}): KvmSession {
         http,
         clock,
         ...(options.timing ? { timing: options.timing } : {}),
+        // A hidden page opens no connection; it is reconnected, once, when it is shown again (the lifecycle binding).
+        ...(options.bindLifecycle !== false ? { mayConnect: () => !document.hidden } : {}),
     });
     const keyboard = createKeyboard({ clock, target: link });
     const gate = createTypingGate();
@@ -109,7 +111,11 @@ export function createKvmSession(options: KvmSessionOptions = {}): KvmSession {
             link.start();
             // Back from the background after more than a few seconds, or the network returning:
             // the socket that still reads open usually is not.
-            if (options.bindLifecycle !== false) unbind = bindLinkLifecycle(link, clock);
+            if (options.bindLifecycle !== false) {
+                // A key or modifier held when the page goes away never gets its keyup, and the release the target
+                // needs must not depend on the socket that is about to be replaced: let go as the page leaves and again on return.
+                unbind = bindLinkLifecycle(link, clock, document, window, { onBackground: () => keyboard.releaseAll() });
+            }
         },
         async stop() {
             started = false;

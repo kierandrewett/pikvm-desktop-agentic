@@ -8,8 +8,8 @@ export {
     type CapsState,
     type DeviceState,
 } from "./device-state";
-export { bindLinkLifecycle } from "./lifecycle.dom";
-export { BACKGROUND_KICK_AFTER_MS, networkCameBack, returnedFromBackground } from "./lifecycle";
+export { bindLinkLifecycle, type LinkLifecycleHooks } from "./lifecycle.dom";
+export { networkCameBack, returnedFromBackground } from "./lifecycle";
 export {
     createTargetLink,
     defaultLinkTiming,

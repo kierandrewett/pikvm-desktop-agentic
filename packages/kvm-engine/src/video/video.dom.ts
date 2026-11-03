@@ -272,7 +272,7 @@ export function createVideoDom(opts: VideoDomOptions): VideoDom {
         attach(d) {
             driver = d;
             const off: (() => void)[] = [];
-            const listen = <T extends EventTarget>(target: T, type: string, fn: () => void): void => {
+            const listen = <T extends EventTarget>(target: T, type: string, fn: (e: Event) => void): void => {
                 target.addEventListener(type, fn);
                 off.push(() => target.removeEventListener(type, fn));
             };
@@ -282,7 +282,20 @@ export function createVideoDom(opts: VideoDomOptions): VideoDom {
             });
             listen(img, "error", () => d.send({ type: "mjpegError" }));
             listen(video, "playing", () => d.send({ type: "videoPlaying" }));
-            listen(document, "visibilitychange", () => d.send({ type: "visibility", hidden: document.hidden }));
+            listen(document, "visibilitychange", () => {
+                d.send({ type: "visibility", hidden: document.hidden });
+                // Safari pauses a playing <video> in the background and does not start it again.
+                if (!document.hidden && video.srcObject && video.paused) void video.play().catch(() => {});
+            });
+            // A page that is frozen or put in the back/forward cache may never be told it is hidden; a
+            // restored one may never be told it is visible. These are how it finds out it was gone.
+            listen(document, "freeze", () => d.send({ type: "freeze" }));
+            listen(window, "pagehide", () => d.send({ type: "freeze" }));
+            listen(document, "resume", () => d.send({ type: "resume", reason: "resume", hidden: document.hidden }));
+            listen(window, "pageshow", (e) => {
+                if ((e as PageTransitionEvent).persisted) d.send({ type: "resume", reason: "pageshow", hidden: document.hidden });
+            });
+            listen(window, "focus", () => d.send({ type: "resume", reason: "focus", hidden: document.hidden }));
             listen(window, "online", () => d.send({ type: "online" }));
             listen(window, "offline", () => d.send({ type: "offline" }));
             return () => {

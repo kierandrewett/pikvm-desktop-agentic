@@ -77,6 +77,12 @@ export interface TargetLinkOptions {
     readonly http: HttpPort;
     readonly clock?: Clock;
     readonly timing?: Partial<LinkTiming>;
+    /**
+     * Whether a connection may be opened right now. While it answers no, no attempt is made and the
+     * backoff clock does not run: a hidden page reconnecting forever to a target nobody is looking at.
+     * Asked again whenever the link is kicked or asked to connect. An open socket is not affected.
+     */
+    readonly mayConnect?: () => boolean;
 }
 
 export interface TargetLink {
@@ -301,6 +307,9 @@ export function createTargetLink(options: TargetLinkOptions): TargetLink {
     const program = Effect.gen(function* () {
         const driver = yield* Schedule.driver(backoff);
         for (;;) {
+            // A page nobody can see opens no connection: wait here until something wants one (the page being
+            // shown again kicks the link, a send into the queue connects it).
+            while (options.mayConnect && !options.mayConnect()) yield* wake.wait(() => true);
             wake.dropConnect();
             const attempt: Attempt = {
                 socket: null,

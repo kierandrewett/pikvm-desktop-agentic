@@ -4,7 +4,7 @@ import type { HttpResponse } from "../http";
 import { FakeHttp, FakeSocketHub, status } from "../testing/fake-socket";
 import { createTargetLink, type TargetLink } from "./link";
 
-// Failure modes 1-8, 10-13, 17-18 in FAILURE_MODES.md.
+// Failure modes 1-8, 10-13, 17-18, 22 in FAILURE_MODES.md.
 
 const T0 = 1_000_000;
 
@@ -479,5 +479,73 @@ describe("stop (failure mode 5)", () => {
         await clock.advanceAsync(60_000);
         expect(hub.sockets).toHaveLength(1);
         expect(clock.pending()).toBe(0);
+    });
+});
+
+describe("a page nobody can see (failure mode 22)", () => {
+    function hiddenSetup() {
+        const clock = createManualClock(T0);
+        const hub = new FakeSocketHub();
+        const http = new FakeHttp();
+        const visible = { now: true };
+        const link = createTargetLink({ url: "ws://kvm/api/ws", socket: hub.factory, http, clock, mayConnect: () => visible.now });
+        created.push(link);
+        return { clock, hub, link, visible };
+    }
+
+    it("a socket that drops while hidden is not reconnected, however long the page stays hidden", async () => {
+        const { link, hub, clock, visible } = hiddenSetup();
+        link.start();
+        await clock.settle();
+        hub.last.serverOpen();
+        await clock.settle();
+        visible.now = false;
+        hub.last.serverClose();
+        await clock.advanceAsync(10 * 60_000);
+        expect(hub.sockets).toHaveLength(1);
+        expect(link.store.getState().link.connecting).toBe(false);
+    });
+
+    it("a retry already waiting on its backoff does not fire while hidden", async () => {
+        const { link, hub, clock, visible } = hiddenSetup();
+        link.start();
+        await clock.settle();
+        hub.last.serverClose(); // refused: the backoff timer is now running
+        await clock.settle();
+        visible.now = false;
+        await clock.advanceAsync(60_000);
+        expect(hub.sockets).toHaveLength(1);
+    });
+
+    it("a start while hidden waits, and the first kick once visible makes the one socket", async () => {
+        const { link, hub, clock, visible } = hiddenSetup();
+        visible.now = false;
+        link.start();
+        await clock.advanceAsync(30_000);
+        expect(hub.sockets).toHaveLength(0);
+        link.key("KeyA", true); // typing into a hidden page asks for a connection; the answer is still no
+        await clock.advanceAsync(30_000);
+        expect(hub.sockets).toHaveLength(0);
+        visible.now = true;
+        link.kick();
+        await clock.settle();
+        expect(hub.sockets).toHaveLength(1);
+        hub.last.serverOpen();
+        await clock.settle();
+        // Typed half a minute ago into a page nobody could see: stale, so not replayed at the target (failure mode 10).
+        expect(hub.last.commands()).toEqual([]);
+    });
+
+    it("an open socket is left alone while hidden", async () => {
+        const { link, hub, clock, visible } = hiddenSetup();
+        link.start();
+        await clock.settle();
+        hub.last.serverOpen();
+        await clock.settle();
+        visible.now = false;
+        await clock.advanceAsync(20_000);
+        hub.last.serverMessage({ event_type: "pong", event: {} });
+        expect(link.isOpen()).toBe(true);
+        expect(hub.sockets).toHaveLength(1);
     });
 });

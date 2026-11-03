@@ -5,10 +5,12 @@
 
 import { describe, expect, it } from "vitest";
 import { createVideoState, reduceVideo } from "./machine";
+import type { VideoState } from "./machine";
 import { sourceOnline, streamModeForInfo, streamPath } from "./stream-path";
 import { createVideoRig } from "./test-rig";
 import type { VideoRig } from "./test-rig";
 import { statusLabel } from "./types";
+import type { VideoEffect, VideoEvent } from "./types";
 
 /** Boot a native screen and bring it live on MJPEG. */
 function liveNative(init?: Parameters<typeof createVideoRig>[0]): VideoRig {
@@ -526,10 +528,10 @@ describe("blank frames", () => {
 });
 
 describe("lifecycle", () => {
-    it("L1: back after more than 3 s replaces the socket and reloads the stream", () => {
+    it("L1: back after more than 1 s replaces the socket and reloads the stream", () => {
         const r = liveNative();
         r.send({ type: "visibility", hidden: true });
-        r.advance(3001);
+        r.advance(1001);
         r.clear();
         r.send({ type: "visibility", hidden: false });
         expect(r.of("hid")).toEqual([{ type: "hid", action: "kick" }]);
@@ -537,10 +539,10 @@ describe("lifecycle", () => {
         expect(r.count("loadMjpeg")).toBe(1);
     });
 
-    it("L1: back within 3 s only ensures the socket, and reloads only if not live", () => {
+    it("L1: back within 1 s only ensures the socket, and reloads only if the stream is not up", () => {
         const r = liveNative();
         r.send({ type: "visibility", hidden: true });
-        r.advance(3000);
+        r.advance(1000);
         r.clear();
         r.send({ type: "visibility", hidden: false });
         expect(r.of("hid")).toEqual([{ type: "hid", action: "connect" }]);
@@ -551,7 +553,7 @@ describe("lifecycle", () => {
         r.advance(100);
         r.clear();
         r.send({ type: "visibility", hidden: false });
-        expect(r.count("loadMjpeg")).toBe(1); // not live: reload
+        expect(r.count("loadMjpeg")).toBe(1); // not up: reload
     });
 
     it("L1: snapshot mode just polls again at once", () => {
@@ -603,6 +605,262 @@ describe("lifecycle", () => {
         r.bootNative();
         r.driver.dispose();
         expect(r.janus.stopped).toBe(1);
+    });
+});
+
+/** The reducer by hand, for what a manual clock cannot do: a page whose timers did not run while it was away. */
+function pure(): {
+    send(ev: Record<string, unknown> & { type: string; t: number }): VideoEffect[];
+    readonly state: VideoState;
+} {
+    let state = createVideoState();
+    return {
+        send(ev) {
+            const step = reduceVideo(state, ev as unknown as VideoEvent);
+            state = step.state;
+            return [...step.effects];
+        },
+        get state() {
+            return state;
+        },
+    };
+}
+
+/** A native screen that has shown a frame, at t = 1000, last heartbeat at t = 4000. */
+function pureLive() {
+    const m = pure();
+    m.send({ type: "start", t: 1000, janusAvailable: false, streamKey: "k" });
+    m.send({ type: "infoResult", t: 1000, mode: "native" });
+    m.send({ type: "mjpegLoaded", t: 1200 });
+    m.send({ type: "healthResult", t: 1300, online: true });
+    m.send({ type: "timer", t: 4000, id: "blank" });
+    return m;
+}
+
+const loads = (fx: readonly VideoEffect[]): number => fx.filter((e) => e.type === "loadMjpeg").length;
+const hidAction = (fx: readonly VideoEffect[]): unknown => fx.find((e) => e.type === "hid");
+
+describe("coming back from the background", () => {
+    it("R1: pageshow (persisted), focus and the Page Lifecycle resume are returns like visibilitychange", () => {
+        for (const reason of ["pageshow", "focus", "resume"] as const) {
+            const m = pureLive();
+            m.send({ type: "freeze", t: 4100 });
+            const fx = m.send({ type: "resume", t: 9000, reason, hidden: false });
+            expect(hidAction(fx), reason).toEqual({ type: "hid", action: "kick" });
+            expect(loads(fx), reason).toBe(1);
+        }
+    });
+
+    it("R1: a return while document.hidden is not a return: nothing opens, and the page stays hidden", () => {
+        const m = pureLive();
+        m.send({ type: "visibility", t: 4100, hidden: true });
+        const fx = m.send({ type: "resume", t: 9000, reason: "focus", hidden: true });
+        expect(fx).toEqual([]);
+        expect(m.state.documentHidden).toBe(true);
+        expect(m.state.hiddenAt).toBe(4100);
+    });
+
+    it("R2: a page frozen without ever being told is found by the gap in its own heartbeat", () => {
+        const m = pureLive();
+        const fx = m.send({ type: "timer", t: 64_000, id: "blank" }); // first thing to run after a minute frozen
+        expect(hidAction(fx)).toEqual({ type: "hid", action: "kick" });
+        expect(loads(fx)).toBe(1);
+        expect(fx.some((e) => e.type === "pollHealth")).toBe(true);
+    });
+
+    it("R2: the gap has to be a real one: ticks 1.5 s and even 4 s apart are a busy page, not a return", () => {
+        const m = pureLive();
+        expect(loads(m.send({ type: "timer", t: 5500, id: "blank" }))).toBe(0);
+        expect(loads(m.send({ type: "timer", t: 9500, id: "blank" }))).toBe(0); // exactly 4 s
+        expect(loads(m.send({ type: "timer", t: 13_501, id: "blank" }))).toBe(1); // 4.001 s
+    });
+
+    it("R2: freeze and pagehide start the clock when hidden never came; visible then finds the absence", () => {
+        const m = pureLive();
+        m.send({ type: "freeze", t: 4100 });
+        expect(m.state.hiddenAt).toBe(4100);
+        const fx = m.send({ type: "visibility", t: 5200, hidden: false }); // 1.1 s later
+        expect(loads(fx)).toBe(1);
+        // ...but a freeze never overrides the earlier hidden.
+        const n = pureLive();
+        n.send({ type: "visibility", t: 4050, hidden: true });
+        n.send({ type: "freeze", t: 4900 });
+        expect(n.state.hiddenAt).toBe(4050);
+    });
+
+    it("R3: a stream that reads live is reloaded after a real absence, and a short one is left alone", () => {
+        const m = pureLive();
+        m.send({ type: "visibility", t: 4100, hidden: true });
+        expect(m.state.signal).toBe("live");
+        expect(loads(m.send({ type: "visibility", t: 5100, hidden: false }))).toBe(0); // exactly 1 s
+        m.send({ type: "visibility", t: 5200, hidden: true });
+        expect(loads(m.send({ type: "visibility", t: 6201, hidden: false }))).toBe(1);
+    });
+
+    it("R3: the picture is held while the new stream loads, and goes live on its first frame, not before", () => {
+        const m = pureLive();
+        m.send({ type: "visibility", t: 4100, hidden: true });
+        const fx = m.send({ type: "visibility", t: 9000, hidden: false });
+        expect(fx.map((e) => e.type)).toContain("freeze");
+        expect(fx.findIndex((e) => e.type === "freeze")).toBeLessThan(fx.findIndex((e) => e.type === "loadMjpeg"));
+        expect(m.state.streamUp).toBe(true); // still believed up until a frame says otherwise
+        const fx2 = m.send({ type: "mjpegLoaded", t: 9100 });
+        expect(fx2.map((e) => e.type)).toContain("thaw");
+        expect(m.state.signal).toBe("live");
+    });
+
+    it("R4: visible, pageshow, focus, resume, online and the heartbeat tick make ONE reload", () => {
+        const m = pureLive();
+        m.send({ type: "visibility", t: 4100, hidden: true });
+        const fx = [
+            ...m.send({ type: "visibility", t: 20_000, hidden: false }),
+            ...m.send({ type: "resume", t: 20_001, reason: "pageshow", hidden: false }),
+            ...m.send({ type: "resume", t: 20_002, reason: "focus", hidden: false }),
+            ...m.send({ type: "resume", t: 20_003, reason: "resume", hidden: false }),
+            ...m.send({ type: "online", t: 20_004 }),
+            ...m.send({ type: "timer", t: 20_500, id: "blank" }),
+        ];
+        expect(loads(fx)).toBe(1);
+    });
+
+    it("R4: a reload already waiting for its first frame is not doubled; one that waited too long is", () => {
+        const m = pureLive();
+        m.send({ type: "mjpegError", t: 4100 }); // reconnect pending, backoff timer armed
+        m.send({ type: "timer", t: 4900, id: "reconnect" }); // the backoff fired: a load is on its way
+        const quick = m.send({ type: "resume", t: 5000, reason: "focus", hidden: false }); // not an absence; stream not up yet
+        expect(loads(quick)).toBe(0);
+        const slow = m.send({ type: "resume", t: 12_000, reason: "focus", hidden: false }); // the watchdog's 7 s are long gone
+        expect(loads(slow)).toBe(1);
+    });
+
+    it("R4: the load that replaces a stream cancels the backoff reconnect that was waiting", () => {
+        const m = pureLive();
+        m.send({ type: "mjpegError", t: 4100 });
+        expect(m.state.reconnectPending).toBe(true);
+        m.send({ type: "freeze", t: 4200 });
+        const fx = m.send({ type: "resume", t: 9000, reason: "pageshow", hidden: false });
+        expect(fx).toContainEqual({ type: "cancelTimer", id: "reconnect" });
+        expect(loads(fx)).toBe(1);
+        expect(m.state.reconnectPending).toBe(false);
+    });
+
+    it("R5: a hidden page opens no connection: not on error, watchdog, need or health recovery", () => {
+        const m = pureLive();
+        m.send({ type: "visibility", t: 4100, hidden: true });
+        const fx = [
+            ...m.send({ type: "mjpegError", t: 4200 }),
+            ...m.send({ type: "timer", t: 4300, id: "streamWatchdog" }),
+            ...m.send({ type: "timer", t: 4400, id: "reconnect" }),
+            ...m.send({ type: "need", t: 4500, collapsed: false, watching: false }),
+            ...m.send({ type: "healthFailed", t: 4600 }),
+            ...m.send({ type: "healthResult", t: 7100, online: true }), // the server came back
+        ];
+        expect(loads(fx)).toBe(0);
+        expect(fx.some((e) => e.type === "startTimer" && e.id === "reconnect")).toBe(false);
+        expect(m.state.reconnectPending).toBe(false);
+    });
+
+    it("R5: ...and the one reload happens on return, with the server's new stream key", () => {
+        const m = pureLive();
+        m.send({ type: "visibility", t: 4100, hidden: true });
+        m.send({ type: "mjpegError", t: 4200 });
+        m.send({ type: "healthFailed", t: 4600 });
+        m.send({ type: "healthResult", t: 7100, online: true });
+        const fx = m.send({ type: "visibility", t: 30_000, hidden: false });
+        expect(loads(fx)).toBe(1);
+        expect(fx.find((e) => e.type === "loadMjpeg")).toEqual({ type: "loadMjpeg", key: "k-1" });
+    });
+
+    it("R5: background screen alerts are watching, so a hidden page keeps its stream", () => {
+        const m = pureLive();
+        m.send({ type: "need", t: 4050, collapsed: false, watching: true });
+        m.send({ type: "visibility", t: 4100, hidden: true });
+        const fx = m.send({ type: "mjpegError", t: 4200 });
+        expect(fx).toContainEqual({ type: "startTimer", id: "reconnect", ms: 800 });
+    });
+
+    it("R5: through the driver, a minute hidden with the stream cut opens nothing, and the return opens one", () => {
+        const r = liveNative();
+        r.send({ type: "visibility", hidden: true });
+        r.send({ type: "mjpegError" });
+        r.clear();
+        r.advance(60_000);
+        expect(r.count("loadMjpeg")).toBe(0);
+        r.send({ type: "visibility", hidden: false });
+        expect(r.count("loadMjpeg")).toBe(1);
+        r.advance(500);
+        expect(r.count("loadMjpeg")).toBe(1);
+    });
+
+    it("R6: WebRTC is restarted after an absence over 3 s, with MJPEG holding the picture meanwhile", () => {
+        const r = liveNative({ janus: "ok" });
+        r.webrtcUp();
+        r.send({ type: "visibility", hidden: true });
+        r.advance(3001);
+        r.clear();
+        r.send({ type: "visibility", hidden: false });
+        expect(r.janus.stopped).toBe(1);
+        expect(r.janus.started).toBe(2);
+        expect(r.count("webrtcFallback")).toBe(1);
+        expect(r.count("loadMjpeg")).toBe(1);
+        expect(r.driver.state.webrtcActive).toBe(false);
+        expect(r.driver.state.mjpegPaused).toBe(false);
+    });
+
+    it("R6: a shorter absence leaves a working WebRTC session alone, and so does a return that was none", () => {
+        const r = liveNative({ janus: "ok" });
+        r.webrtcUp();
+        r.send({ type: "visibility", hidden: true });
+        r.advance(3000);
+        r.send({ type: "visibility", hidden: false });
+        r.send({ type: "resume", reason: "focus", hidden: false });
+        expect(r.janus.stopped).toBe(0);
+        expect(r.janus.started).toBe(1);
+        expect(r.driver.state.webrtcSwapped).toBe(true);
+    });
+
+    it("R6: the stopped session's late words do not undo the new one", () => {
+        const r = liveNative({ janus: "ok" });
+        r.webrtcUp();
+        const old = r.janus.handlers!;
+        r.send({ type: "visibility", hidden: true });
+        r.advance(5000);
+        r.send({ type: "visibility", hidden: false });
+        r.webrtcUp(); // the new session delivers
+        expect(r.driver.state.webrtcSwapped).toBe(true);
+        r.clear();
+        old.onActive(false);
+        old.onStatus("error");
+        expect(r.driver.state.webrtcActive).toBe(true);
+        expect(r.count("webrtcFallback")).toBe(0);
+    });
+
+    it("R6: the network coming back restarts WebRTC too", () => {
+        const r = liveNative({ janus: "ok" });
+        r.webrtcUp();
+        r.clear();
+        r.send({ type: "online" });
+        expect(r.janus.stopped).toBe(1);
+        expect(r.janus.started).toBe(2);
+        expect(r.count("loadMjpeg")).toBe(1);
+    });
+
+    it("R6: a page that is not WebRTC never starts a session on return", () => {
+        const r = liveNative();
+        r.send({ type: "visibility", hidden: true });
+        r.advance(20_000);
+        r.send({ type: "visibility", hidden: false });
+        expect(r.janus.started).toBe(0);
+    });
+
+    it("R1: snapshot mode polls at once on any way back", () => {
+        const r = createVideoRig();
+        r.bootSnapshot();
+        r.send({ type: "snapshotDecoded" });
+        r.clear();
+        r.send({ type: "resume", reason: "pageshow", hidden: false });
+        r.advance(0);
+        expect(r.count("fetchSnapshot")).toBe(1);
     });
 });
 

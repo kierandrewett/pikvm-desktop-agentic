@@ -26,8 +26,8 @@ Written before the tests; each line names the test that pins it (`link.test.ts`,
 7. **Reporting "offline" during the very first connect.** `everSettled` stays false until an
    attempt opens, is refused or drops; `connecting` is true only while a socket is pending.
 8. **A frame that is not JSON** (or not an object) must not break the handler or the watchdog.
-9. **Foreground return.** After more than 3 s hidden the socket is replaced; shorter, it is
-   only asked to be connected. `online` always kicks. (`lifecycle.test.ts`)
+9. **Foreground return.** After more than 1 s away (`RESUME_STALE_MS`) the socket is replaced;
+   shorter, it is only asked to be connected. `online` always kicks. (`lifecycle.test.ts`)
 
 ## Outbound queue (`outbound-queue.ts`, via `link.ts`)
 
@@ -57,3 +57,21 @@ Written before the tests; each line names the test that pins it (`link.test.ts`,
     one is in flight; a failed request releases the busy flag.
 19. **keymaps shapes.** kvmd's `available` is a map; a list is tolerated; stored untouched for
     the paste module to normalise.
+
+## Coming back from the background (`lifecycle.dom.ts`, `link.ts`)
+
+20. **A return nobody announced.** iOS freezes an installed app without the page being told it
+    was hidden, and a back/forward cache restore has no `hidden` at all. The page's own
+    heartbeat (1 s) stops while it is frozen; a tick more than 4 s after the last is a return,
+    whatever events did or did not arrive. `visibilitychange`, `pageshow` (persisted),
+    `focus` and the Page Lifecycle `resume` land in the same place.
+21. **A burst is one return.** The first signal clears the absence (hidden time and heartbeat),
+    so visible + pageshow + focus + resume find none and only ask for a connection: one kick,
+    never several that would replace the fresh socket again.
+22. **A hidden page reconnecting forever.** With `mayConnect` answering no, no attempt is made and
+    the backoff clock does not run (a failed attempt before the page was hidden does not keep
+    retrying behind it); the link waits for a kick or a send. `focus` or `pageshow` while
+    `document.hidden` is not a return. An open socket is left alone.
+23. **A release that never comes.** The page leaving (hidden, `freeze`, `pagehide`) and the page
+    returning from an absence both call `onBackground`, so whatever the target holds for this
+    page is let go before the old socket is replaced.

@@ -10,6 +10,7 @@
 // Time arrives stamped on events and timers are requested as effects, so a test can
 // replay minutes of outage in microseconds on a manual clock.
 
+import { awayMs, RESUME_STALE_MS, SUSPEND_GAP_MS } from "../resume";
 import { INITIAL_BLANK, stepBlank } from "./blank";
 import type { BlankTracker } from "./blank";
 import {
@@ -33,6 +34,9 @@ import {
     STREAM_WATCHDOG_MS,
 } from "./types";
 import type { ScreenMode, SignalState, VideoEffect, VideoEvent } from "./types";
+
+/** A stream load that began this recently and has not yet shown a frame is still on its way: a second one would only be a duplicate. */
+const LOAD_UNDER_WAY_MS = 1500;
 
 export interface VideoState {
     readonly mode: ScreenMode;
@@ -67,6 +71,10 @@ export interface VideoState {
     readonly watching: boolean;
     readonly documentHidden: boolean;
     readonly hiddenAt: number | null;
+    /** The last tick of a repeating timer: a long gap before the next one means the page was frozen. */
+    readonly lastBeat: number;
+    /** When the load now waiting for its first frame began; null once it has one or failed. */
+    readonly lastLoadAt: number | null;
     readonly snapshotInFlight: boolean;
     readonly snapshotFailures: number;
 }
@@ -96,6 +104,8 @@ export function createVideoState(): VideoState {
         watching: false,
         documentHidden: false,
         hiddenAt: null,
+        lastBeat: 0,
+        lastLoadAt: null,
         snapshotInFlight: false,
         snapshotFailures: 0,
     };
@@ -143,6 +153,9 @@ class Mutator {
     s: { -readonly [K in keyof VideoState]: VideoState[K] };
     readonly fx: VideoEffect[] = [];
 
+    /** The stamp of the event being handled. */
+    t = 0;
+
     constructor(prev: VideoState) {
         this.s = { ...prev };
     }
@@ -179,6 +192,7 @@ class Mutator {
     }
 
     handle(ev: VideoEvent): void {
+        this.t = ev.t;
         const s = this.s;
         switch (ev.type) {
             case "start":
@@ -186,6 +200,7 @@ class Mutator {
                 s.keyBase = ev.streamKey;
                 s.janusAvailable = ev.janusAvailable;
                 s.documentHidden = ev.documentHidden ?? false;
+                s.lastBeat = ev.t;
                 this.setSignal("connecting");
                 this.emit({ type: "signal", state: "connecting" }); // paint the chip once at boot, whatever it already said
                 this.emit({ type: "fetchInfo", timeoutMs: INFO_ABORT_MS });
@@ -200,11 +215,13 @@ class Mutator {
                 this.startNativeScreen();
                 return;
             case "timer":
+                if (ev.id === TIMER.health || ev.id === TIMER.blank) this.onBeat(ev.t);
                 this.onTimer(ev.id);
                 return;
             case "mjpegLoaded":
                 if (s.mode !== "native" || s.mjpegPaused) return;
                 s.streamUp = true;
+                s.lastLoadAt = null;
                 s.hasFrame = true;
                 this.emit({ type: "thaw" }); // a real frame is on screen again
                 s.retryMs = RECONNECT_INITIAL_MS;
@@ -214,6 +231,7 @@ class Mutator {
             case "mjpegError":
                 if (s.mode !== "native" || s.mjpegPaused) return;
                 s.streamUp = false;
+                s.lastLoadAt = null;
                 this.scheduleReconnect();
                 return;
             case "healthResult":
@@ -222,6 +240,7 @@ class Mutator {
             case "healthFailed":
                 s.serverDown = true;
                 s.streamUp = false;
+                s.lastLoadAt = null;
                 if (!s.mjpegPaused) this.setSignal("disconnected");
                 return;
             case "snapshotDecoded":
@@ -265,11 +284,21 @@ class Mutator {
             case "visibility":
                 this.onVisibility(ev.hidden, ev.t);
                 return;
+            case "freeze":
+                this.onFreeze(ev.t);
+                return;
+            case "resume":
+                this.onResume(ev.hidden, ev.t);
+                return;
             case "online":
                 s.serverDown = false;
                 this.emit({ type: "hid", action: "kick" }); // the old socket rode the network that just went
                 if (s.mode === "snapshot") this.scheduleSnapshot(0);
-                else this.loadStream();
+                else {
+                    // The peer connection rode it too.
+                    if (s.mode === "native" && s.janusStarted && !s.documentHidden) this.restartWebrtc();
+                    this.reloadStream();
+                }
                 return;
             case "offline":
                 s.serverDown = true;
@@ -349,6 +378,9 @@ class Mutator {
         if (s.fullUiOn) return;
         // Nor while the preview is collapsed and nothing is watching it.
         if (s.collapsed && !s.watching) return;
+        // Nor while the page is hidden. Whatever dropped meanwhile is reloaded on return (`resume`), once, not on a
+        // backoff timer for a screen nobody is looking at. Background screen alerts are the exception: they look.
+        if (s.documentHidden && !s.watching) return;
         /*
          * While the server is known down, its verdict is the only one shown. Three writers
          * described the same "no picture, retrying" situation with three names (the health
@@ -360,7 +392,13 @@ class Mutator {
         if (s.signal !== "live" && !s.serverDown) this.setSignal(s.signal === "disconnected" ? "reconnecting" : s.signal);
         // Before the src is replaced, not after: setting it is what blanks the <img>.
         this.freeze();
+        // This load IS the reconnect: one already waiting on its timer would only open a second connection behind it.
+        if (s.reconnectPending) {
+            s.reconnectPending = false;
+            this.cancel(TIMER.reconnect);
+        }
         s.mjpegOpen = true;
+        s.lastLoadAt = this.t;
         this.emit({ type: "loadMjpeg", key: s.streamKey });
         this.start(TIMER.streamWatchdog, STREAM_WATCHDOG_MS);
     }
@@ -368,6 +406,8 @@ class Mutator {
     private scheduleReconnect(): void {
         const s = this.s;
         if (s.mode !== "native" || s.mjpegPaused || s.reconnectPending) return;
+        // A page nobody can see reconnects nothing: the stream is reloaded the moment it is shown again.
+        if (s.documentHidden && !s.watching) return;
         // Same reason as loadStream: do not talk over the health poll.
         if (s.signal !== "disconnected" && !s.serverDown) this.setSignal("offline");
         s.reconnectPending = true;
@@ -427,20 +467,88 @@ class Mutator {
         const s = this.s;
         s.documentHidden = hidden;
         if (hidden) {
-            s.hiddenAt = t;
+            s.hiddenAt ??= t;
             return;
         }
-        // After a real stay in the background what still reads as connected usually is
-        // not: iOS freezes the page and its sockets go quiet without closing. So past a
-        // few seconds the HID socket is replaced and the stream reloaded, not trusted.
-        const away = s.hiddenAt === null ? 0 : t - s.hiddenAt;
+        this.resume(t);
+    }
+
+    /**
+     * The page is going away without being hidden (frozen, put in the back/forward cache): the
+     * clock for "how long was it gone" starts here if nothing has started it already.
+     */
+    private onFreeze(t: number): void {
+        this.s.hiddenAt ??= t;
+    }
+
+    /** The page says it is visible again (pageshow, focus, the Page Lifecycle `resume`): `hidden` is what `document.hidden` reads now. */
+    private onResume(hidden: boolean, t: number): void {
+        this.s.documentHidden = hidden;
+        if (hidden) return; // not actually back: the page that is hidden reconnects nothing
+        this.resume(t);
+    }
+
+    /**
+     * A repeating timer ticked. Its gap since the last tick is how long the page was frozen, so a
+     * thaw nobody announced (no `visible`, no `pageshow`) is still seen the moment anything runs.
+     */
+    private onBeat(t: number): void {
+        const s = this.s;
+        const silent = t - s.lastBeat;
+        s.lastBeat = t;
+        if (silent > SUSPEND_GAP_MS && !s.documentHidden) this.resume(t, silent);
+    }
+
+    /**
+     * Back from wherever the page was. What still reads as connected usually is not: iOS freezes
+     * the page and its sockets go quiet without closing, and a stream that was cut while nobody
+     * could look raises no event at all. So after a real absence nothing is trusted: the socket
+     * is replaced, the stream reloaded, WebRTC restarted. A return that was not an absence (a
+     * focus change, a duplicate signal for the same return) finds a live, fresh stream and
+     * leaves it alone, and a reload already under way is never doubled.
+     */
+    private resume(t: number, silentFor = 0): void {
+        const s = this.s;
+        const away = Math.max(awayMs(t, s.hiddenAt, s.lastBeat), silentFor);
         s.hiddenAt = null;
-        this.emit({ type: "hid", action: away > AWAY_RECONNECT_MS ? "kick" : "connect" });
-        if (s.mode === "snapshot") this.scheduleSnapshot(0);
-        else {
-            if (s.mode === "native") this.emit({ type: "pollHealth", timeoutMs: HEALTH_ABORT_MS });
-            if (away > AWAY_RECONNECT_MS || s.signal !== "live") this.loadStream();
+        s.lastBeat = t;
+        const stale = away > RESUME_STALE_MS;
+        this.emit({ type: "hid", action: stale ? "kick" : "connect" });
+        if (s.mode === "snapshot") {
+            this.scheduleSnapshot(0);
+            return;
         }
+        if (s.mode !== "native") return;
+        if (stale || s.signal !== "live") this.emit({ type: "pollHealth", timeoutMs: HEALTH_ABORT_MS }); // a focus change that was no absence needs no probe
+        if (stale && s.janusStarted && away > AWAY_RECONNECT_MS) this.restartWebrtc();
+        if (!s.mjpegPaused && (stale || !s.streamUp)) this.reloadStream(!stale);
+    }
+
+    /**
+     * Reload the stream now, unless a load is already on its way to its first frame. After a real
+     * absence only a load that began a moment ago counts (the page's earlier one died with it); on
+     * a return that was no absence (`patient`) a load gets the whole first-frame watchdog, so a
+     * slow Pi is not restarted by every click into the window.
+     */
+    private reloadStream(patient = false): void {
+        const s = this.s;
+        const patience = patient ? STREAM_WATCHDOG_MS : LOAD_UNDER_WAY_MS;
+        const underWay = s.mjpegOpen && s.lastLoadAt !== null && this.t - s.lastLoadAt < patience;
+        if (!underWay) this.loadStream();
+    }
+
+    /**
+     * Bring the WebRTC session down and up again. The old one is dead or soon will be (iOS
+     * suspends the peer connection in the background and Safari pauses the <video>), and the MJPEG
+     * that was suspended under it takes over meanwhile, so the picture is never blank.
+     */
+    private restartWebrtc(): void {
+        const s = this.s;
+        this.cancel(TIMER.startGuard);
+        this.emit({ type: "janusStop" });
+        s.janusStarted = false;
+        this.fallbackToMjpeg();
+        this.startNativeWebrtc();
     }
 
     /* ---- snapshot ---- */

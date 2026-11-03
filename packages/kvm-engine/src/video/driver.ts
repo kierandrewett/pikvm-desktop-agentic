@@ -90,15 +90,30 @@ export function createVideoDriver(opts: VideoDriverOptions): VideoDriver {
             case "cancelTimer":
                 cancel(effect.id);
                 return;
+            case "janusStop": {
+                const old = session;
+                session = null;
+                try {
+                    old?.stop();
+                } catch {
+                    // A session that will not stop is already gone as far as we are concerned.
+                }
+                return;
+            }
             case "janusStart": {
                 const janus = opts.janus;
                 if (!janus) {
                     send({ type: "janusStartResult", ok: false });
                     return;
                 }
-                const created = janus.create({
-                    onStatus: (status) => send({ type: "janusStatus", status }),
-                    onActive: (active) => send({ type: "janusActive", active, hasVideo: session?.hasVideo() ?? false }),
+                // A session that was stopped (a restart after the page came back) may still say its last words: not to the machine.
+                const created: JanusSession = janus.create({
+                    onStatus: (status) => {
+                        if (session === created) send({ type: "janusStatus", status });
+                    },
+                    onActive: (active) => {
+                        if (session === created) send({ type: "janusActive", active, hasVideo: created.hasVideo() });
+                    },
                 });
                 session = created;
                 try {

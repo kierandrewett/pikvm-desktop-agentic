@@ -1,6 +1,7 @@
 export * from "./clock/index";
 export { createFetchHttp } from "./fetch-http.dom";
 export type { HttpPort, HttpRequest, HttpResponse } from "./http";
+export * from "./resume";
 export * from "./input/index";
 export * from "./pointer/index";
 export * from "./store";
