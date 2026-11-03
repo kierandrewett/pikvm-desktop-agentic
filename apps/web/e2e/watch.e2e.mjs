@@ -241,7 +241,7 @@ try {
 
     await check("the VAPID signature verifies, the payload is aes128gcm for that device, and the push names the origin it subscribed from", async () => {
         const [push] = await stack.pushReceived();
-        return [push.vapid.signatureValid && push.vapid.subject === "https://kvm.example.org" && push.vapid.audience === stack.push && push.urgency === "high", `signature ${push.vapid.signatureValid}, sub ${push.vapid.subject}, aud ${push.vapid.audience}, ttl ${push.ttl}`];
+        return [push.vapid.signatureValid && push.vapid.subject === "https://kvm.example.org" && push.vapid.audience === (stack.pushAudience ?? stack.push) && push.urgency === "high", `signature ${push.vapid.signatureValid}, sub ${push.vapid.subject}, aud ${push.vapid.audience}, ttl ${push.ttl}`];
     });
 
     await check("the check log says why: score, both descriptions, Jev's answer, the model, the cost, pushed", async () => {

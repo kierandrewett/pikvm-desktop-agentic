@@ -156,3 +156,48 @@ conversation row on a 390 px screen; the click target is not usable). Desktop pa
 - `GET /app/api/v1/state` answers `"features":{"chat":false,"agent":{"found":false,"reason":"ENOTDIR: not a directory, mkdir '/data/chat/run'"}}`, with the old `settings.json` values intact;
 - `/app/` answers 200, and `/app/chat/api/models` answers 503;
 - the KVM works: `kvm.e2e.mjs` against this container passed 15 of 15 (desktop) and 25 of 25 (phone), the same cases as the healthy image.
+
+## The image to ship: `10a037e9`
+
+Built with docker from a clean detached worktree of `10a037e9` (`yarn install --immutable` passed): `make image IMAGE_TOOL=docker IMAGE=pikvm-kvm:10a037e9`,
+`docker save pikvm-kvm:10a037e9 | gzip > ~/.cache/pikvm-wip/pikvm-kvm-10a037e9.tar.gz` (272,532,724 bytes, sha256
+`ee30180861c7310548e169423e0098fb59d7308308413f6abb1ea99e6b4f6cc9`). Reloading the tarball with `docker load` gives
+`sha256:05732ac4aaaef1150f25c3a14eaad1032c6ca73f088712ee12555008ff5139e2` (889 MB); the suites ran on the same tarball loaded into podman.
+
+**Unit tests and typechecks** from the same worktree: root `node scripts/test.mjs` 422 of 422; `tsc --noEmit` clean in `chat-protocol`, `chat-server`, `chat-web`,
+`icons`, `kvm-engine`, `pikvm-mcp` and `apps/web`; vitest: chat-protocol 9, chat-server 59, chat-web 21, kvm-engine 618, pikvm-mcp 71, apps/web 458, all passing.
+
+**Posture.** `deploy/e2e/up-inspectable.sh` now runs the image as the production user: `--user 1000:1000` (the uid of `/config/apps/kvm` on bsociety; `E2E_UID`),
+`PIKVM_AUTH=proxy`, read-only root, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, with the fake kvmd, model, push service and OpenRouter beside it. `--userns=keep-id`
+maps that uid to the invoking user so the suites can read the agent's process and `/data`. The screen-watch run also gets the watch's pacing and
+`PIKVM_PUSH_ALLOW_LOCAL=1` through `E2E_ENV_FILE` (a test-only setting, so a push endpoint on the fake service is accepted); no other suite has them.
+
+Each suite on a freshly started container:
+
+| Suite | Result |
+| --- | --- |
+| `deploy/e2e/chat.e2e.mjs` | 6 of 6 |
+| `apps/web/e2e/chat.e2e.mjs phone` | 17 of 17 |
+| `apps/web/e2e/chat.e2e.mjs desktop` | 16 of 16 |
+| `apps/web/e2e/kvm.e2e.mjs` (both profiles) | 40 of 40 |
+| `apps/web/e2e/keep-alive.e2e.mjs` | 26 of 26 |
+| `apps/web/e2e/resume.e2e.mjs phone` | 13 of 13 (12 of 13 once, 13 of 13 on two reruns) |
+| `apps/web/e2e/resume.e2e.mjs desktop` | 15 of 15 |
+| `apps/web/e2e/lens.e2e.mjs` | 12 of 12 (11 of 12 once, 12 of 12 on two reruns) |
+| `apps/web/e2e/watch.e2e.mjs` (the screen watch, against the fakes) | 22 of 22 (20 of 22 once, 22 of 22 on the rerun; in-process from the same commit: 22 of 22) |
+
+**What did not pass at first, and why it is not the image.**
+- The first complete matrix ran with a mistake in the helper: `up-inspectable.sh` ran the image as uid 10001 and did not pass the watch environment, and it printed `fetch failed` midway through the desktop resume run. It was discarded and the whole matrix rerun after the fix; the table above is that rerun.
+- `lens`, "slow movement is at the full zoom": 4.69x against a bar of the maximum 5x, a marginal timing figure; passed twice on rerun.
+- `resume phone`, "only the window gaining focus after a freeze": the screen came back 233 ms after return but with 2 new streams instead of 1; passed twice on rerun.
+- `watch`, "the real Chrome got the notification too" and "Send test notification… an expired one (410) is removed": the headless Chrome's own subscription is on Google's real push service (`fcm.googleapis.com`), whose delivery did not arrive within 25 s on that run, and the test then counted that subscription as expired (`devices 4 -> 2`). The next run on the image delivered it (22 of 22), as did the in-process run.
+
+**The screen watch in the read-only container.** `push-vapid.json` is created in `/data` (the volume) by the container's user, mode `600`; its sha256 prefix (`37132c10bc98789b`), its mode and the public key the API reports are identical after `podman restart`, so subscriptions made before a restart keep working. The watch's directory is `700`, its settings, log and subscriptions `600`. `/app` is read-only (`touch /app/x`: `Read-only file system`). The watch survives a restart (the suite's "a restart resumes the watch with no browser open" passed).
+
+**Outbound connections.** Sampled from inside the container's network namespace every 0.4 s through all the suites (about 280 samples of external sockets): every external peer was on port 443, and every other connection was in the compose network (fake kvmd, fake model, fake push, fake OpenRouter). Names from a DNS-logging resolver given to the container:
+- idle for 30 s after start: only `models.dev` (the model catalog refresh Chat has had since it was integrated);
+- once Chat lists models: `models.dev` and the catalog hosts the agent runtime looks at (`catalog.stencil.so`, `api.venice.ai`, `api.kilo.ai`, `api.commandcode.ai`, `zenmux.ai`, `hyper.charm.land`, `coding-intl.dashscope.aliyuncs.com`), all https;
+- when a push is sent to the headless Chrome's subscription: `fcm.googleapis.com`.
+OpenRouter is `https://openrouter.ai/api/v1` in the code (`openrouter` preset in `packages/chat-server/src/agent/providers.ts`); the fake runs pointed the provider at the fake instead, so that name was not exercised here. The watch and push code add no other destination: push sends go to the endpoint the browser subscribed with (the vendor's push service, always https outside tests), and nothing in the watch contacts anything but the PiKVM, the model provider and those endpoints.
+
+New with this commit for the helpers: `fake-push` and `fake-openrouter` services in `deploy/e2e/compose.yml`, and an image mode for the watch suite (`E2E_WEB` in `apps/web/e2e/watch-stack.mjs`, see its header).

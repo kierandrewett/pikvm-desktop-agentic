@@ -43,6 +43,32 @@ services:
             - "127.0.0.1:${FAKE_MODEL_PORT:-19090}:9000"
         networks: [kvm-internal]
 
+    # A push service of its own: an endpoint per device, and what was sent to it decrypted (apps/web/e2e/watch.e2e.mjs). It binds to
+    # its own name so that the endpoints it hands out are http://fake-push:14720/..., which the kvm container can reach.
+    fake-push:
+        image: docker.io/library/node:22-bookworm-slim
+        init: true
+        working_dir: /repo
+        command: ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "tools/fake-push/server.ts", "--host", "fake-push", "--port", "14720"]
+        volumes:
+            - ../..:/repo:ro
+        security_opt: ["label=disable"]
+        ports:
+            - "127.0.0.1:${FAKE_PUSH_PORT:-14720}:14720"
+        networks: [kvm-internal]
+
+    fake-openrouter:
+        image: docker.io/library/node:22-bookworm-slim
+        init: true
+        working_dir: /repo
+        command: ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "tools/fake-openrouter/server.ts", "--host", "0.0.0.0", "--port", "14730"]
+        volumes:
+            - ../..:/repo:ro
+        security_opt: ["label=disable"]
+        ports:
+            - "127.0.0.1:${FAKE_OPENROUTER_PORT:-14730}:14730"
+        networks: [kvm-internal]
+
     kvm:
         image: ${KVM_IMAGE:-pikvm-kvm:local}
         environment:

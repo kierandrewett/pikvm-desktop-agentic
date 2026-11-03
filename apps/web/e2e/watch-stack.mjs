@@ -4,8 +4,13 @@
 //
 // sharp is not a dependency of the repo (the image installs it): SHARP_MODULES names a node_modules that has it. It draws the
 // two frames the fake kvmd serves, and the host needs it too (NODE_PATH).
+//
+// With E2E_WEB set the host is the IMAGE, started by deploy/e2e/up-inspectable.sh (E2E_ENV_FILE carries the watch's pacing and
+// PIKVM_PUSH_ALLOW_LOCAL): nothing is started here. E2E_WEB, E2E_KVMD, E2E_PUSH, E2E_OR are the published origins of the fakes,
+// E2E_PUSH_AUDIENCE is the push service as the host names it, E2E_OR_URL the OpenRouter base URL as the host sees it, E2E_DATA the
+// host directory mounted at /data and E2E_CONTAINER the container (restarted and logged through podman).
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -119,11 +124,36 @@ export async function loadMeasure() {
     return loaded;
 }
 
+/** The image's own watch stack: see the header. */
+async function externalWatchStack({ openrouter }) {
+    const need = (name) => process.env[name] ?? (() => { throw new Error(`${name} is required with E2E_WEB`); })();
+    const sh = (args) => spawnSync("podman", args, { encoding: "utf8" });
+    const container = need("E2E_CONTAINER");
+    const web = need("E2E_WEB");
+    const common = await watchStackCommon({
+        web,
+        fakeUrl: need("E2E_KVMD"),
+        pushUrl: need("E2E_PUSH"),
+        orControl: need("E2E_OR"),
+        orUrl: openrouter === "fake" ? need("E2E_OR_URL") : "https://openrouter.ai/api/v1",
+        data: need("E2E_DATA"),
+        logs: () => { const r = sh(["logs", container]); return `${r.stdout}${r.stderr}`; },
+        async restartHost() {
+            sh(["restart", "-t", "5", container]);
+            await until(async () => (await fetch(`${web}/app/manifest.webmanifest`)).ok, "web host");
+            await until(async () => (await (await fetch(`${web}/app/api/v1/state`)).json()).features.chat, "the chat server");
+        },
+        async stop() {},
+    });
+    return { ...common, pushAudience: need("E2E_PUSH_AUDIENCE"), host: () => ({ lines: [] }) };
+}
+
 /**
  * Bring the stack up. `openrouter: "fake"` starts tools/fake-openrouter; "real" starts none (the run adds the real provider).
  * Ports default to a range of their own so a run does not collide with the other suites' servers.
  */
 export async function startWatchStack({ openrouter = "fake", ports = {}, env = {}, dataDir } = {}) {
+    if (process.env.E2E_WEB) return externalWatchStack({ openrouter });
     const p = { web: 18290, kvmd: 14710, push: 14720, openrouter: 14730, ...ports };
     const data = dataDir ?? mkdtempSync(join(scratch, "data-"));
     const sharp = process.env.SHARP_MODULES ?? join(home, ".cache/pikvm-e2e/sharp/node_modules");
@@ -169,10 +199,27 @@ export async function startWatchStack({ openrouter = "fake", ports = {}, env = {
     };
     await startHost();
 
-    const web = `http://127.0.0.1:${p.web}`;
-    const fakeUrl = `http://127.0.0.1:${p.kvmd}`;
-    const pushUrl = `http://127.0.0.1:${p.push}`;
-    const orControl = `http://127.0.0.1:${p.openrouter}`;
+    return watchStackCommon({
+        web: `http://127.0.0.1:${p.web}`,
+        fakeUrl: `http://127.0.0.1:${p.kvmd}`,
+        pushUrl: `http://127.0.0.1:${p.push}`,
+        orControl: `http://127.0.0.1:${p.openrouter}`,
+        orUrl,
+        data,
+        host: () => host,
+        logs: () => host.lines.join("\n"),
+        async restartHost() {
+            await host.stop();
+            await startHost();
+        },
+        async stop() {
+            for (const proc of procs) await proc.stop();
+        },
+    });
+}
+
+/** What both stacks answer with: the helpers over the host's origins. `host`, `logs`, `restartHost` and `stop` are the stack's own. */
+function watchStackCommon({ web, fakeUrl, pushUrl, orControl, orUrl, data, host, logs, restartHost, stop }) {
     const json = async (url, init) => (await fetch(url, init)).json();
     const post = (url, body, headers = {}) =>
         fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -184,8 +231,8 @@ export async function startWatchStack({ openrouter = "fake", ports = {}, env = {
         orUrl,
         orControl,
         data,
-        host: () => host,
-        logs: () => host.lines.join("\n"),
+        host,
+        logs,
         /** Store the OpenRouter provider the way Settings, Providers does (the chat server's own route and request header). */
         async setProvider(apiKey = CANARY.key, baseUrl = orUrl) {
             const res = await fetch(`${web}/app/chat/api/settings/agent.providers`, {
@@ -219,12 +266,7 @@ export async function startWatchStack({ openrouter = "fake", ports = {}, env = {
         pushStatus: (id, status) => post(`${pushUrl}/__fake/status?id=${id}${status ? `&status=${status}` : ""}`),
         orScript: (body) => post(`${orControl}/__fake/script`, body),
         orCalls: async () => (await json(`${orControl}/__fake/requests`)).calls,
-        async restartHost() {
-            await host.stop();
-            await startHost();
-        },
-        async stop() {
-            for (const proc of procs) await proc.stop();
-        },
+        restartHost,
+        stop,
     };
 }
