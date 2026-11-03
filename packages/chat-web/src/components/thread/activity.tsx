@@ -43,6 +43,7 @@ import { ThinkingIndicator, thinkingStatus } from "./thinking-indicator";
 import { argSummary, formatDuration, historyDuration, messageText, parseArgs, toolKind, type Turn } from "./turns";
 import { entryOf, fetchOf, isWebFetchCall, isWebSearchCall, WebFetchStep, WebSearchStep } from "./web-search";
 import { TodoStep } from "./activity/todo-step";
+import { isPikvmTool, PikvmStep } from "./pikvm-step";
 
 // Kinds and labels
 
@@ -852,6 +853,11 @@ function Steps({ items, running, id, end }: { items: OutputItem[]; running: bool
                         const out = outputs.get(it.call_id);
                         const state = states.get(it.call_id) ?? "running";
                         const kind = callKind(it.name, it.arguments);
+                        if (isPikvmTool(it.name)) {
+                            return (
+                                <PikvmStep key={it.id} name={it.name} args={it.arguments} output={out?.output} state={state} />
+                            );
+                        }
                         if (kind === "web-search") {
                             // Consecutive searches are one step, drawn by the first of the run.
                             const run = searchRunAt(items, idx);

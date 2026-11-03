@@ -14,7 +14,13 @@ const root = process.cwd();
 const LEGACY_PACKAGES: readonly string[] = ["packages/chat-ui", "agent"];
 const SCANNED_DIRS = ["apps", "src", "packages", "tools"] as const;
 /** Inline brand logos are the one allowed use of <svg>; list the files (relative to the repo root) here. */
-const SVG_ALLOW_LIST: readonly string[] = [];
+const SVG_ALLOW_LIST: readonly string[] = [
+    // Drawn geometry, not icons: the chat bubble tail, the tailed popover shape and the per-language file glyphs
+    // (a Phosphor file outline with a computed badge). None has a Phosphor equivalent.
+    "packages/chat-web/src/components/thread/turn.tsx",
+    "packages/chat-web/src/ui/tailed-surface.tsx",
+    "packages/chat-web/src/components/file-icons/file-type-icon.tsx",
+];
 const SVG_SCANNED = ["apps/web/src", "packages/chat-web/src"] as const;
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", "generated"]);

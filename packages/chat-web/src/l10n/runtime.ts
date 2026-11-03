@@ -34,3 +34,4 @@ export const msg = <T extends string>(id: T): T => id;
 
 /** The locale in use, for `Intl` formatters. There is one. */
 export const activeLocalization = () => ({ locale: SOURCE_LOCALE, dir: "ltr" as const });
+

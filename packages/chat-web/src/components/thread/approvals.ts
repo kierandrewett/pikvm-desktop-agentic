@@ -101,12 +101,15 @@ export function riskHint(command: string): string | undefined {
 export function describeApproval(item: ApprovalRequestItem): ApprovalView {
     const view = describeBase(item);
     const gateway = item.reason !== undefined || item.hints !== undefined;
+    // A risky PiKVM action says in words what it will do and which rules made it ask.
+    const risky = item.reason === "risky";
     return {
         ...view,
         badges: hintBadges(item.hints),
         warning: item.reason === "destructive" ? translate(DESTRUCTIVE_WARNING) : undefined,
+        risk: risky && item.reasons?.length ? item.reasons.join(", ") : view.risk,
         server: gateway ? item.server_label : undefined,
-        title: gateway ? translate("thread-appr-use", { name: item.name }) : view.title,
+        title: risky && item.summary ? item.summary : gateway ? translate("thread-appr-use", { name: item.name }) : view.title,
     };
 }
 
