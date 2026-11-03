@@ -518,6 +518,10 @@ test("chat: its REST routes are ours, behind the gate; its socket needs the gate
         const rest = await call(s.origin, "/app/chat/api/conversations", { headers: signedIn });
         assert.equal(rest.target, "chat");
         assert.equal(rest.body, "chat GET /app/chat/api/conversations");
+        // A screenshot the agent took is served by the chat server under the same prefix, so it is behind the same gate.
+        const frame = "/app/chat/api/conversations/c1/frames/abc123def456ghi789";
+        assert.equal((await call(s.origin, frame, { headers: { accept: "image/*" } })).status, 401);
+        assert.equal((await call(s.origin, frame, { headers: signedIn })).body, `chat GET ${frame}`);
         // A lookalike is not the chat API: it is under /app, so ours to refuse.
         assert.equal((await call(s.origin, "/app/chat/apix", { headers: signedIn })).status, 404);
 

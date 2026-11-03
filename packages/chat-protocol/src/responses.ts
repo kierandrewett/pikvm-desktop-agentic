@@ -6,6 +6,7 @@
  */
 
 import type { ChatHelloEvent, ChatSyncEvent } from "./realtime.ts";
+import type { ToolFrame } from "./frames.ts";
 
 // Content parts
 
@@ -145,6 +146,12 @@ export interface FunctionCallOutputItem {
     wall_time_ms?: number;
     /** Chat extension: the tool call ended because the user pressed Stop (not because it failed). */
     aborted?: boolean;
+    /**
+     * Chat extension: a picture the tool took (a PiKVM screenshot), kept by the server for this conversation, or for an
+     * action tool the latest screenshot its coordinates refer to. Load `url` with the session cookie; it can be gone
+     * once the server pruned old frames. Not set for a tool that took none.
+     */
+    frame?: ToolFrame;
 }
 
 export type TodoStatus = "pending" | "in_progress" | "completed" | "abandoned" | "blocked";

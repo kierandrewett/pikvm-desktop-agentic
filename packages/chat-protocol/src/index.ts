@@ -11,3 +11,4 @@ export * from "./branching.ts";
 export * from "./sidebar-view.ts";
 export * from "./realtime.ts";
 export * from "./chat-urls.ts";
+export * from "./frames.ts";

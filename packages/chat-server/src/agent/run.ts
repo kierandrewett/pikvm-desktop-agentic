@@ -280,7 +280,11 @@ export class ResponseRun {
                               (f.result as { details?: unknown })?.details,
                           ),
                     {
-                        ...toolFacts(f.toolName as string | undefined, (f.result as { details?: unknown })?.details),
+                        ...toolFacts(
+                            f.toolName as string | undefined,
+                            (f.result as { details?: unknown })?.details,
+                            this.response.conversation.id,
+                        ),
                         // An error result that arrives after Stop is the stop itself, not a failure of the tool.
                         ...(f.isError === true && this.#cancelRequested ? { aborted: true } : {}),
                     },
@@ -507,7 +511,7 @@ export class ResponseRun {
         sources?: SourceRef[],
         subagents?: SubagentRun[],
         todos?: TodoPhase[],
-        facts?: Pick<FunctionCallOutputItem, "diff" | "exit_code" | "wall_time_ms" | "aborted">,
+        facts?: Pick<FunctionCallOutputItem, "diff" | "exit_code" | "frame" | "wall_time_ms" | "aborted">,
     ): void {
         let idx = this.#toolOutputs.get(callId);
         if (idx === undefined) {

@@ -33,6 +33,7 @@ import { join } from "node:path";
 import { uuidv7 } from "../ids.ts";
 import { AgentBusyError, agentCwd, isActive, stopIdleProcess, withSessionHeld } from "../agent/sessions.ts";
 import { paths } from "../paths.ts";
+import { copyFrames } from "../storage/frames.ts";
 import { forgetSession, readSessionItems, splitUserText } from "./history.ts";
 import {
     createConversation,
@@ -471,6 +472,8 @@ export async function forkConversation(
             if (existsSync(artifacts)) cpSync(artifacts, out.replace(/\.jsonl$/, ""), COPY);
         }
         if (existsSync(workspace)) cpSync(workspace, u.chatWorkspace(row.id), COPY);
+        // The fork's history names the same frames as the chat it came from.
+        copyFrames(userId, src.id, row.id);
         const done = sessionFile ? updateConversation(userId, row.id, { sessionFile }) : row;
         console.log(`[branch] forked ${sourceId} at ${cut.leaf ?? "root"} into ${row.id}`);
         return { row: done, ...(cut.draft !== undefined ? { draft: cut.draft } : {}) };

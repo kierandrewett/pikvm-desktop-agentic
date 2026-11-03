@@ -15,6 +15,7 @@ const reply = await mcp.handle({ conversationId, signal: req.signal }, jsonRpcMe
 
 - `Desk` (`src/types.ts`): everything that touches the target. `src/server/agent/desk.ts` is the real one, over `@pikvm/kvm-engine` and kvmd. Its `open()` is the one place the lease, the release state and the stale-frame rule are checked, so a refusal comes before the person is asked anything.
 - `Approver`: `ask({ conversationId, tool, title, summary, reasons, arguments, signal })` resolves to `approved`, `denied` or `unavailable`. The chat server implements it with its elicitation in the thread of that conversation. `unavailable` means nobody could be asked; the action is then refused, never queued. `signal` aborts when the person takes over, so the question can be withdrawn.
+- `FrameSink` (`McpCaller.frames`, optional): where this conversation's screenshots are kept for the person to look at afterwards. `save(jpeg, size)` returns `{ id, width, height }`, or undefined when the host keeps nothing or refuses the picture. A `screenshot` result then carries the reference in its `_meta["chat/frame"]` (`FRAME_META_KEY`), and so does each `click`, `mouse_move`, `drag` and `scroll` result, naming the conversation's latest whole-screen frame (the picture its coordinates refer to; a zoom is kept but never replaces it). The model gets the image in the result as before. The chat server implements the sink (`BuiltinMcpContext.saveFrame`): per conversation, bounded, served at `/app/chat/api/conversations/:id/frames/:frameId`, and shown on the PiKVM card in the thread.
 
 ## Tools
 

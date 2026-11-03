@@ -224,7 +224,7 @@ export function messageToItems(
             sources: m.isError ? undefined : (sourcesFromResult(m.toolName, m) ?? sourcesOfRuns(subagents)),
             subagents,
             todos: m.isError ? undefined : todosFromResult(m.toolName, m.details),
-            ...toolFacts(m.toolName, m.details),
+            ...toolFacts(m.toolName, m.details, conversationId),
         });
     }
     return out;

@@ -53,6 +53,8 @@ function build(root: string) {
                 conversations: join(base, "conversations"),
                 conversation: (conversationId: string) =>
                     join(base, "conversations", id(conversationId, "conversation id")),
+                /** The pictures tools took in a conversation (screenshots), kept for the thread to show. */
+                frames: (conversationId: string) => join(base, "frames", id(conversationId, "conversation id")),
             };
         },
     };

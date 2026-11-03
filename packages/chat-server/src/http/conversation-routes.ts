@@ -26,6 +26,7 @@ import {
     updateConversation,
 } from "../conversations/service.ts";
 import { paths } from "../paths.ts";
+import { frameFile } from "../storage/frames.ts";
 import { subagentItems } from "../conversations/history.ts";
 import { conversationMarkdown, exportFileName } from "../conversations/export.ts";
 import { resolveConversationRef } from "../conversations/slug.ts";
@@ -171,6 +172,23 @@ export const conversationRoutes = new Hono<Env>()
         const found = await stat(file).catch(() => undefined);
         if (!found?.isFile()) throw new HTTPException(404, { message: "Blob not found" });
         return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, { headers: { "cache-control": "private, max-age=31536000, immutable" } });
+    })
+    // A picture a tool took in this conversation (a PiKVM screenshot). Looked up under the conversation's own directory,
+    // so another conversation's frame id is a 404 here, as is one that was pruned.
+    .get("/conversations/:id/frames/:frameId", (c) => {
+        const user = requireUser(c);
+        const id = c.req.param("id");
+        notFound(() => getConversation(user.id, id));
+        const file = frameFile(user.id, id, c.req.param("frameId"));
+        if (!file) throw new HTTPException(404, { message: "Frame not found" });
+        return new Response(Readable.toWeb(createReadStream(file)) as ReadableStream, {
+            headers: {
+                "content-type": "image/jpeg",
+                "x-content-type-options": "nosniff",
+                "content-security-policy": "sandbox; default-src 'none'",
+                "cache-control": "private, max-age=31536000, immutable",
+            },
+        });
     })
     .patch("/conversations/:id", async (c) => {
         const user = requireUser(c);

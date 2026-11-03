@@ -13,6 +13,14 @@ export interface BuiltinMcpContext {
     userId: string;
     /** From `X-Chat-Conversation`; absent when the agent did not send it. */
     conversationId: string | undefined;
+    /**
+     * Keep a picture the tool took (a JPEG) in this conversation, for the thread to show; the returned reference goes in
+     * the result's `_meta["chat/frame"]`. Undefined when there is no conversation or the picture is refused.
+     */
+    saveFrame(
+        jpeg: Uint8Array,
+        size: { width: number; height: number },
+    ): { id: string; width: number; height: number } | undefined;
 }
 
 export interface BuiltinMcp {

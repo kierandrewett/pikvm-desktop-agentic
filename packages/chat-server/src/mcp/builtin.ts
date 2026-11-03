@@ -3,13 +3,20 @@
  * the host process, so its credentials never leave it, and the agent reaches it with the same bearer token as the
  * gateway. Chat's own `/mcp/conversations` is mounted separately.
  */
+import type { FrameRef } from "@pikvm/chat-protocol";
 import { mcpToolName } from "../agent/mcp-names.ts";
-import { OPERATOR_ID } from "../paths.ts";
+import { saveFrame } from "../storage/frames.ts";
 
 export interface BuiltinMcpContext {
     userId: string;
     /** From `X-Chat-Conversation`; absent when the agent did not send it. */
     conversationId: string | undefined;
+    /**
+     * Keep a picture the tool took (a JPEG) in this conversation, for the thread to show, and get the reference to put
+     * in the result's `_meta` (`frameMeta` in chat-protocol). Undefined when there is no conversation or the picture
+     * is refused (not a JPEG, too big): the result then goes out without one.
+     */
+    saveFrame(jpeg: Uint8Array, size: { width: number; height: number }): FrameRef | undefined;
 }
 
 export interface BuiltinMcp {
@@ -134,9 +141,19 @@ export function listBuiltinMcp(): BuiltinMcp[] {
     return [...servers.values()];
 }
 
-export const builtinContext = (
-    conversationId: string | undefined,
-): BuiltinMcpContext => ({
-    userId: OPERATOR_ID,
-    conversationId,
-});
+export function builtinContext(userId: string, conversationId: string | undefined): BuiltinMcpContext {
+    return {
+        userId,
+        conversationId,
+        saveFrame(jpeg, size) {
+            if (!conversationId) return undefined;
+            try {
+                return saveFrame(userId, conversationId, jpeg, size);
+            } catch (error) {
+                // The tool's result stands without a picture for the thread; the model still has its image.
+                console.error("[frames] not kept:", error instanceof Error ? error.message : error);
+                return undefined;
+            }
+        },
+    };
+}

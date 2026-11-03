@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    builtinContext,
     guardToolNames,
     registerBuiltinMcp,
     type BuiltinMcp,
@@ -43,10 +44,7 @@ const call = (server: BuiltinMcp, body: unknown) =>
             method: "POST",
             body: JSON.stringify(body),
         }),
-        {
-            userId: "u",
-            conversationId: undefined,
-        },
+        builtinContext("u", undefined),
     );
 
 describe("a built-in server's tool names", () => {
@@ -103,7 +101,7 @@ describe("a built-in server's tool names", () => {
         expect(batch.error.code).toBe(-32600);
         const bad = await server.handle(
             new Request("http://x/", { method: "POST", body: "{" }),
-            { userId: "u", conversationId: undefined },
+            builtinContext("u", undefined),
         );
         expect(
             ((await bad.json()) as { error: { code: number } }).error.code,

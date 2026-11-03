@@ -15,6 +15,12 @@ export type ToolBlock =
     | { readonly type: "text"; readonly text: string }
     | { readonly type: "image"; readonly data: string; readonly mimeType: string };
 
+/** What a tool run gives back: the blocks the model reads, and the screenshot it took, if it took one. */
+export interface ToolOutput {
+    readonly content: ToolBlock[];
+    readonly shot?: Shot;
+}
+
 export interface ToolAnnotations {
     readonly readOnlyHint: boolean;
     readonly destructiveHint: boolean;
@@ -33,14 +39,14 @@ export interface Tool {
     readonly inputSchema: Readonly<Record<string, unknown>>;
     /** Validate the model's arguments. Throws DeskError `invalid_arguments`, in words the model can fix. */
     readonly parse: (args: unknown) => Readonly<Record<string, unknown>>;
-    readonly run: (desk: Desk, session: DeskSession, args: Readonly<Record<string, unknown>>) => Promise<ToolBlock[]>;
+    readonly run: (desk: Desk, session: DeskSession, args: Readonly<Record<string, unknown>>) => Promise<ToolOutput>;
 }
 
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const INPUT: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
 const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true };
 
-const text = (value: string): ToolBlock[] => [{ type: "text", text: value }];
+const text = (value: string): ToolOutput => ({ content: [{ type: "text", text: value }] });
 
 /** Whole pixels: a model that does arithmetic in the frame sends 640.5, and a pixel is what it meant. */
 const pixel = (description: string) => z.number().finite().min(0).transform(Math.round).describe(description);
@@ -68,7 +74,7 @@ function define<S extends z.ZodType>(spec: {
     intent: "observe" | "act";
     enabled?: (policy: PikvmPolicy) => boolean;
     schema: S;
-    run: (desk: Desk, session: DeskSession, args: z.output<S>) => Promise<ToolBlock[]>;
+    run: (desk: Desk, session: DeskSession, args: z.output<S>) => Promise<ToolOutput>;
 }): Tool {
     const { $schema: _draft, ...inputSchema } = z.toJSONSchema(spec.schema, { io: "input" }) as Record<string, unknown>;
     return {
@@ -130,10 +136,13 @@ export const tools: readonly Tool[] = [
             const where = shot.region
                 ? `Zoom of x ${shot.region.x}, y ${shot.region.y}, ${shot.region.width}x${shot.region.height} of the ${shot.reference.width}x${shot.reference.height} frame, shown at ${shot.width}x${shot.height}. Coordinates still refer to the full ${shot.reference.width}x${shot.reference.height} frame.`
                 : `Screen ${shot.width}x${shot.height} (frame ${shot.frameId}).`;
-            return [
-                { type: "text", text: `${where} ${stateWords(shot)}.` },
-                { type: "image", data: Buffer.from(shot.jpeg).toString("base64"), mimeType: "image/jpeg" },
-            ];
+            return {
+                content: [
+                    { type: "text", text: `${where} ${stateWords(shot)}.` },
+                    { type: "image", data: Buffer.from(shot.jpeg).toString("base64"), mimeType: "image/jpeg" },
+                ],
+                shot,
+            };
         },
     }),
 

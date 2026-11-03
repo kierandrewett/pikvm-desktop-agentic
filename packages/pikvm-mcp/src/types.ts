@@ -100,6 +100,29 @@ export interface Shot {
     readonly hidOnline: boolean | null;
 }
 
+/** A screenshot kept for the person to review, by the id the host's store gave it. */
+export interface FrameRef {
+    readonly id: string;
+    readonly width: number;
+    readonly height: number;
+}
+
+/**
+ * Where the screenshots the agent takes are kept so the person can look at them afterwards, for the conversation the
+ * call belongs to. The model gets the image in the tool result either way; this only adds a reference to it in the
+ * result's `_meta`, under `FRAME_META_KEY`. Without one (a host that keeps nothing, or a picture it refuses) the results
+ * go out without.
+ */
+export interface FrameSink {
+    save(jpeg: Uint8Array, size: FrameSize): FrameRef | undefined;
+}
+
+/**
+ * The `_meta` key of a tool result that names a kept frame. It is the chat server's key (`FRAME_META_KEY` in
+ * `@pikvm/chat-protocol`); the two packages do not import each other, and a test on each side pins the string.
+ */
+export const FRAME_META_KEY = "chat/frame";
+
 export interface WaitResult {
     readonly waitedMs: number;
     /** With `until_stable`: whether the screen settled before the time ran out. */

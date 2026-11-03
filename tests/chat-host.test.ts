@@ -8,6 +8,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createPikvmMcp } from "@pikvm/mcp";
+import { createFakeApprover, createFakeDesk } from "@pikvm/mcp/testing";
 import { createActivity } from "../src/server/agent/activity";
 import { createAgentRoutes } from "../src/server/agent/routes";
 import { pikvmBuiltin, startChat } from "../src/server/chat";
@@ -110,7 +111,7 @@ const rpc = (id: number | undefined, method: string, params?: unknown) =>
 test("the PiKVM MCP adapter answers one message with one reply and a notification with 202", async () => {
     const desk = {} as never;
     const builtin = pikvmBuiltin(createPikvmMcp({ desk, approver: { ask: async () => "unavailable" } }));
-    const ctx = { userId: "operator", conversationId: undefined };
+    const ctx = { userId: "operator", conversationId: undefined, saveFrame: () => undefined };
     assert.equal(builtin.name, "pikvm");
     assert.ok(builtin.tools.includes("click") && builtin.tools.includes("screenshot"));
 
@@ -123,6 +124,38 @@ test("the PiKVM MCP adapter answers one message with one reply and a notificatio
 
     const bad = await builtin.handle(new Request("http://agent/mcp/pikvm", { method: "POST", body: "{" }), ctx);
     assert.equal(((await bad.json()) as { error: { code: number } }).error.code, -32700);
+});
+
+test("the adapter gives the MCP the chat server's frame store: a screenshot names the frame kept, a click names it again", async () => {
+    const kept: { size: { width: number; height: number }; bytes: number }[] = [];
+    const ctx = {
+        userId: "operator",
+        conversationId: "c1",
+        saveFrame(jpeg: Uint8Array, size: { width: number; height: number }) {
+            kept.push({ size, bytes: jpeg.length });
+            return { id: `frame${String(kept.length).padStart(10, "0")}`, ...size };
+        },
+    };
+    const builtin = pikvmBuiltin(createPikvmMcp({ desk: createFakeDesk(), approver: createFakeApprover("approved") }));
+    const call = async (name: string, args: unknown) =>
+        (await (await builtin.handle(rpc(1, "tools/call", { name, arguments: args }), ctx)).json()) as {
+            result: { content: { type: string }[]; _meta?: Record<string, unknown> };
+        };
+
+    const shot = await call("screenshot", {});
+    // The key is the chat server's `FRAME_META_KEY`, pinned by packages/chat-protocol's own test.
+    assert.deepEqual(shot.result._meta, { "chat/frame": { id: "frame0000000001", width: 1280, height: 720 } });
+    assert.ok(shot.result.content.some((b) => b.type === "image"), "the model still gets the image");
+    assert.deepEqual(kept.map((k) => k.size), [{ width: 1280, height: 720 }]);
+
+    const click = await call("click", { x: 640, y: 360 });
+    assert.deepEqual(click.result._meta, shot.result._meta);
+    assert.equal(kept.length, 1, "a click keeps no picture of its own");
+
+    // With no conversation the tool refuses, and nothing is kept.
+    const bare = await builtin.handle(rpc(2, "tools/call", { name: "screenshot", arguments: {} }), { ...ctx, conversationId: undefined });
+    assert.equal(((await bare.json()) as { result: { isError?: boolean } }).result.isError, true);
+    assert.equal(kept.length, 1);
 });
 
 test("features: not chat while the server starts or if it never does, and what is missing when the agent is", async () => {

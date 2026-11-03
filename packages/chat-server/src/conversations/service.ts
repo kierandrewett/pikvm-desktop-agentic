@@ -9,6 +9,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { db, newId, now, schema } from "../db/index.ts";
 import { paths } from "../paths.ts";
+import { removeFrames } from "../storage/frames.ts";
 import { readSessionItems, forgetSession } from "./history.ts";
 import { conversationSlug, pickShortId, recordSlug } from "./slug.ts";
 
@@ -156,6 +157,7 @@ export function deleteConversation(userId: string, id: string): void {
     db.delete(conversations).where(eq(conversations.id, id)).run();
     rmSync(u.conversation(id), { recursive: true, force: true });
     rmSync(u.chatWorkspace(id), { recursive: true, force: true });
+    removeFrames(userId, id);
 }
 
 export function sessionFilePath(userId: string, row: ConversationRow): string | undefined {

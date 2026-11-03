@@ -31,7 +31,7 @@ export async function handleAgentRequest(req: Request): Promise<Response> {
     if (!server) return text(404, "Not found");
     if (req.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
     const conversationId = ownedConversation(userId, req.headers.get("x-chat-conversation"));
-    return server.handle(req, { ...builtinContext(conversationId), userId });
+    return server.handle(req, builtinContext(userId, conversationId));
 }
 
 export interface AgentSurface {

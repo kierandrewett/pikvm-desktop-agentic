@@ -1,12 +1,15 @@
 import { assess, describeCall, needsApproval } from "./risk";
-import { tools, type Tool, type ToolBlock } from "./tools";
+import { tools, type Tool, type ToolBlock, type ToolOutput } from "./tools";
 import {
     DeskError,
+    FRAME_META_KEY,
     defaultPolicy,
     type ApprovalDecision,
     type Approver,
     type Desk,
     type DeskSession,
+    type FrameRef,
+    type FrameSink,
     type PikvmPolicy,
 } from "./types";
 
@@ -35,11 +38,26 @@ export interface JsonRpcResponse {
     readonly error?: { readonly code: number; readonly message: string };
 }
 
+/** A tool result as the MCP `tools/call` reply carries it. */
+interface ToolResult {
+    content: ToolBlock[];
+    isError?: true;
+    _meta?: Record<string, unknown>;
+}
+
+/** The tools whose arguments are a pixel of the latest screenshot. */
+const POINTER_TOOLS: ReadonlySet<string> = new Set(["click", "mouse_move", "drag", "scroll"]);
+
+/** Conversations whose latest frame is remembered; the oldest is forgotten past this. */
+const MAX_REMEMBERED = 64;
+
 export interface McpCaller {
     /** From `X-Chat-Conversation`. Without it the desk tools refuse: control belongs to a conversation. */
     readonly conversationId: string | undefined;
     /** Aborts when the HTTP request does. */
     readonly signal?: AbortSignal;
+    /** Where this conversation's screenshots are kept for the person to see; none when the host keeps nothing. */
+    readonly frames?: FrameSink;
 }
 
 export interface PikvmMcpOptions {
@@ -95,6 +113,30 @@ export function createPikvmMcp(options: PikvmMcpOptions): PikvmMcp {
 
     const advertised = (): Tool[] => tools.filter((t) => t.enabled(policy()));
 
+    /** Each conversation's latest whole-screen frame: the picture a pointer tool's coordinates refer to. Bounded, oldest out. */
+    const reference = new Map<string, FrameRef>();
+
+    /**
+     * The frame a result names. A screenshot's is the picture it took, kept through the caller's sink; a zoom is kept
+     * too but is not a frame coordinates refer to. A pointer tool's is the latest whole-screen frame, so the person
+     * sees where the agent clicked on what it was looking at.
+     */
+    function frameOf(caller: McpCaller, tool: Tool, out: ToolOutput): FrameRef | undefined {
+        const conversationId = caller.conversationId;
+        if (!conversationId) return undefined;
+        if (out.shot) {
+            const { jpeg, width, height, region } = out.shot;
+            const ref = caller.frames?.save(jpeg, { width, height });
+            if (ref && !region) {
+                reference.delete(conversationId);
+                reference.set(conversationId, ref);
+                if (reference.size > MAX_REMEMBERED) reference.delete(reference.keys().next().value!);
+            }
+            return ref;
+        }
+        return POINTER_TOOLS.has(tool.name) ? reference.get(conversationId) : undefined;
+    }
+
     async function ask(tool: Tool, args: Readonly<Record<string, unknown>>, session: DeskSession): Promise<void> {
         const risk = assess(tool.name, args, { lookAgeMs: session.lookAgeMs });
         if (!needsApproval(risk, policy().approval)) return;
@@ -126,7 +168,7 @@ export function createPikvmMcp(options: PikvmMcpOptions): PikvmMcp {
         );
     }
 
-    async function callTool(caller: McpCaller, name: string, rawArgs: unknown): Promise<{ content: ToolBlock[]; isError?: true }> {
+    async function callTool(caller: McpCaller, name: string, rawArgs: unknown): Promise<ToolResult> {
         const tool = advertised().find((t) => t.name === name) ?? undefined;
         if (!tool) throw new DeskError("invalid_arguments", `there is no tool named ${name}`);
         try {
@@ -139,7 +181,9 @@ export function createPikvmMcp(options: PikvmMcpOptions): PikvmMcp {
                 tool.intent,
             );
             await ask(tool, args, session);
-            return { content: await tool.run(options.desk, session, args) };
+            const out = await tool.run(options.desk, session, args);
+            const frame = frameOf(caller, tool, out);
+            return { content: out.content, ...(frame ? { _meta: { [FRAME_META_KEY]: frame } } : {}) };
         } catch (error) {
             if (error instanceof DeskError) return failure(error);
             throw error;

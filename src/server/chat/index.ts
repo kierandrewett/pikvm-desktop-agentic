@@ -63,7 +63,11 @@ export function pikvmBuiltin(mcp: PikvmMcp): BuiltinMcp {
             } catch {
                 return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
             }
-            const reply = await mcp.handle({ conversationId: ctx.conversationId, signal: req.signal }, message);
+            // The chat server keeps the screenshots (per conversation, bounded); the agent's own copy goes to the model.
+            const reply = await mcp.handle(
+                { conversationId: ctx.conversationId, signal: req.signal, frames: { save: ctx.saveFrame } },
+                message,
+            );
             return reply ? Response.json(reply) : new Response(null, { status: 202 });
         },
     };

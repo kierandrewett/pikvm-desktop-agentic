@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPikvmMcp, type McpCaller, type PikvmMcpOptions } from "./handler";
 import { MAX_LOOK_AGE_MS, MAX_PLAIN_TYPE_CHARS } from "./risk";
 import { createFakeApprover, createFakeDesk, createTestClient, inProcessTransport } from "./testing/index";
-import { DeskError, defaultPolicy, type PikvmPolicy } from "./types";
+import { DeskError, FRAME_META_KEY, defaultPolicy, type FrameSink, type PikvmPolicy } from "./types";
 
 function setup(overrides: Partial<PikvmMcpOptions> = {}, caller: Partial<McpCaller> = {}) {
     const desk = createFakeDesk();
@@ -369,5 +369,128 @@ describe("tool results", () => {
     it("read_text returns the text, or says there was none", async () => {
         const { client } = setup();
         expect((await client.call("read_text")).text).toBe("hello");
+    });
+});
+
+/** A sink that keeps what it is given, numbering the frames, as the chat server's store does. */
+function sink() {
+    const saved: { jpeg: Uint8Array; size: { width: number; height: number } }[] = [];
+    return {
+        saved,
+        frames: {
+            save(jpeg: Uint8Array, size: { width: number; height: number }) {
+                saved.push({ jpeg, size });
+                return { id: `frame${String(saved.length).padStart(12, "0")}`, ...size };
+            },
+        } satisfies FrameSink,
+    };
+}
+
+const frameOfResult = (meta: Record<string, unknown> | undefined) => meta?.[FRAME_META_KEY];
+
+describe("frames for the person", () => {
+    it("pins the metadata key the chat server reads", () => {
+        // packages/chat-protocol pins the same string; the two packages do not import each other.
+        expect(FRAME_META_KEY).toBe("chat/frame");
+    });
+
+    it("a screenshot names the frame it kept, and the model still gets the image", async () => {
+        const s = sink();
+        const { client } = setup({}, { frames: s.frames });
+        const result = await client.call("screenshot");
+        expect(frameOfResult(result.meta)).toEqual({ id: "frame000000000001", width: 1280, height: 720 });
+        expect(s.saved).toHaveLength(1);
+        expect(s.saved[0]?.jpeg).toEqual(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+        expect(result.image?.mimeType).toBe("image/jpeg");
+        expect(result.text).toBe("Screen 1280x720 (frame 1). Mouse: absolute.");
+    });
+
+    it("a pointer tool names the latest whole-screen frame, and a zoom does not replace it", async () => {
+        const s = sink();
+        const { client } = setup({}, { frames: s.frames });
+        await client.call("screenshot");
+        const zoom = await client.call("screenshot", { region: { x: 0, y: 0, width: 300, height: 200 } });
+        // The zoom is kept for the person to see, at its own size.
+        expect(frameOfResult(zoom.meta)).toEqual({ id: "frame000000000002", width: 640, height: 360 });
+        for (const [tool, args] of [
+            ["click", { x: 10, y: 20 }],
+            ["mouse_move", { x: 10, y: 20 }],
+            ["drag", { from: { x: 1, y: 2 }, to: { x: 3, y: 4 } }],
+            ["scroll", { x: 10, y: 20 }],
+        ] as const) {
+            const result = await client.call(tool, args);
+            expect(frameOfResult(result.meta), tool).toEqual({ id: "frame000000000001", width: 1280, height: 720 });
+        }
+        await client.call("screenshot");
+        expect(frameOfResult((await client.call("click", { x: 1, y: 1 })).meta)).toMatchObject({ id: "frame000000000003" });
+        // Nothing was saved for the actions themselves.
+        expect(s.saved).toHaveLength(3);
+    });
+
+    it("keys, text, waiting, info and read_text name no frame", async () => {
+        const s = sink();
+        const { client } = setup({}, { frames: s.frames });
+        await client.call("screenshot");
+        for (const [tool, args] of [
+            ["key", { keys: ["Enter"] }],
+            ["type_text", { text: "hi" }],
+            ["wait", { ms: 10 }],
+            ["screen_info", {}],
+            ["read_text", {}],
+        ] as const) {
+            expect((await client.call(tool, args)).meta, tool).toBeUndefined();
+        }
+    });
+
+    it("a click before any screenshot names none", async () => {
+        const s = sink();
+        const { client } = setup({}, { frames: s.frames });
+        expect((await client.call("click", { x: 1, y: 1 })).meta).toBeUndefined();
+    });
+
+    it("a failed call names no frame", async () => {
+        const s = sink();
+        const { client, desk } = setup({}, { frames: s.frames });
+        await client.call("screenshot");
+        desk.onAction = () => {
+            throw new DeskError("control_released", "a person took over");
+        };
+        const result = await client.call("click", { x: 1, y: 1 });
+        expect(result.isError).toBe(true);
+        expect(result.meta).toBeUndefined();
+    });
+
+    it("a conversation's click never names another conversation's frame", async () => {
+        const s = sink();
+        const mcp = createPikvmMcp({ desk: createFakeDesk(), approver: createFakeApprover("approved") });
+        const a = createTestClient(inProcessTransport(mcp, { conversationId: "a", frames: s.frames }));
+        const b = createTestClient(inProcessTransport(mcp, { conversationId: "b", frames: s.frames }));
+        await a.call("screenshot");
+        expect((await b.call("click", { x: 1, y: 1 })).meta).toBeUndefined();
+        await b.call("screenshot");
+        expect(frameOfResult((await a.call("click", { x: 1, y: 1 })).meta)).toMatchObject({ id: "frame000000000001" });
+        expect(frameOfResult((await b.call("click", { x: 1, y: 1 })).meta)).toMatchObject({ id: "frame000000000002" });
+    });
+
+    it("without a sink, or when it refuses the picture, the result is what it always was", async () => {
+        const none = setup();
+        const plain = await none.client.call("screenshot");
+        expect(plain.meta).toBeUndefined();
+        expect(plain.image).toBeDefined();
+        const refusing = setup({}, { frames: { save: () => undefined } });
+        const refused = await refusing.client.call("screenshot");
+        expect(refused.meta).toBeUndefined();
+        expect(refused.image).toBeDefined();
+        expect((await refusing.client.call("click", { x: 1, y: 1 })).meta).toBeUndefined();
+    });
+
+    it("remembers the latest frame of a bounded number of conversations, oldest forgotten", async () => {
+        const s = sink();
+        const mcp = createPikvmMcp({ desk: createFakeDesk(), approver: createFakeApprover("approved") });
+        const as = (id: string) => createTestClient(inProcessTransport(mcp, { conversationId: id, frames: s.frames }));
+        await as("first").call("screenshot");
+        for (let i = 0; i < 70; i++) await as(`other${i}`).call("screenshot");
+        expect((await as("first").call("click", { x: 1, y: 1 })).meta).toBeUndefined();
+        expect((await as("other69").call("click", { x: 1, y: 1 })).meta).toBeDefined();
     });
 });

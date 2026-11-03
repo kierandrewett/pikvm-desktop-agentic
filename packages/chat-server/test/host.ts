@@ -7,6 +7,8 @@ import { rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocket } from "ws";
+import { frameMeta, type FrameRef } from "@pikvm/chat-protocol";
+import { FRAME_HEIGHT, FRAME_JPEG, FRAME_WIDTH } from "../../../tools/fake-kvmd/frame.ts";
 import { startFakeModel, type FakeModel } from "../../../tools/fake-model/server.ts";
 import { sendResponse, toRequest } from "../src/http/node-adapter.ts";
 import { createChatServer, type BuiltinMcp, type ChatServer, type ChatServerOptions } from "../src/index.ts";
@@ -68,6 +70,7 @@ const TOOLS = [
 
 /** A stand-in for the PiKVM server: three tools, `key` asks for approval through the chat thread. */
 function fakePikvm(fixture: () => Fixture): BuiltinMcp {
+    const latest = new Map<string, FrameRef>();
     return {
         name: "pikvm",
         tools: TOOLS.map((t) => t.name),
@@ -103,14 +106,21 @@ function fakePikvm(fixture: () => Fixture): BuiltinMcp {
                     }
                     // Recorded after the approval, so a denied action leaves nothing behind.
                     f.calls.push({ tool: name, args, conversationId: ctx.conversationId });
-                    return reply({
-                        content: [
-                            {
-                                type: "text",
-                                text: name === "screenshot" ? "Screen is 320 x 180" : `${name} done`,
-                            },
-                        ],
-                    });
+                    const text = name === "screenshot" ? "Screen is 320 x 180" : `${name} done`;
+                    // As the real server does: a screenshot's frame is kept and named in `_meta`; a click names the latest.
+                    if (name === "screenshot") {
+                        const frame = ctx.saveFrame(FRAME_JPEG, { width: FRAME_WIDTH, height: FRAME_HEIGHT });
+                        if (frame && ctx.conversationId) latest.set(ctx.conversationId, frame);
+                        return reply({
+                            content: [
+                                { type: "text", text },
+                                { type: "image", data: FRAME_JPEG.toString("base64"), mimeType: "image/jpeg" },
+                            ],
+                            ...(frame ? { _meta: frameMeta(frame) } : {}),
+                        });
+                    }
+                    const frame = name === "click" && ctx.conversationId ? latest.get(ctx.conversationId) : undefined;
+                    return reply({ content: [{ type: "text", text }], ...(frame ? { _meta: frameMeta(frame) } : {}) });
                 }
                 default:
                     return Response.json({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "no" } });

@@ -15,6 +15,8 @@ export interface CallResult {
     readonly text: string;
     /** The first image block, if any. */
     readonly image: { readonly data: string; readonly mimeType: string } | undefined;
+    /** The result's `_meta`, if it has one (a frame reference, `FRAME_META_KEY`). */
+    readonly meta: Record<string, unknown> | undefined;
 }
 
 export interface TestClient {
@@ -76,6 +78,7 @@ export function createTestClient(transport: Transport): TestClient {
                 content,
                 text: content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n"),
                 image: image && image.type === "image" ? { data: image.data, mimeType: image.mimeType } : undefined,
+                meta: result._meta as Record<string, unknown> | undefined,
             };
         },
     };

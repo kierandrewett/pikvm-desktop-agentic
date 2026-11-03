@@ -6,7 +6,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { which } from "../src/agent/launch.ts";
-import { CANARY_KEY, startFixture, type Client, type Event, type Fixture } from "./host.ts";
+import { API, CANARY_KEY, startFixture, type Client, type Event, type Fixture } from "./host.ts";
+import { FRAME_JPEG } from "../../../tools/fake-kvmd/frame.ts";
 
 let f: Fixture;
 
@@ -195,6 +196,111 @@ describe("a conversation", () => {
         expect(sent).toContain("remember the word saffron");
         expect(sent).toContain("You said: remember the word saffron");
         c2.close();
+    });
+});
+
+/** The tool results of a run, from the items either a live response or the history route gives. */
+type Frame = { id: string; width: number; height: number; url: string };
+const resultFrames = (items: { type?: string; frame?: Frame }[]) =>
+    items.filter((i) => i.type === "function_call_output").map((i) => i.frame);
+
+/** Where the browser reaches a frame URL the server wrote (`/api/...`) on this host's mount. */
+const mounted = (url: string) => `${API}${url.replace(/^\/api/, "")}`;
+
+describe("the pictures a tool took", () => {
+    it("reach the thread as the tool result's frame, live and from history, and the route serves the picture", async () => {
+        const c = await f.connect();
+        const r = await say(c, "pikvm:click");
+        expect(r.end.type).toBe("response.completed");
+        const live = resultFrames(
+            r.events.filter((e) => e.type === "response.output_item.done").map((e) => e.item),
+        );
+        // The screenshot names the picture it took; the click names the one its coordinates refer to.
+        expect(live).toHaveLength(2);
+        expect(live[0]).toMatchObject({ width: 320, height: 180, url: `/api/conversations/${r.conversation}/frames/${live[0]!.id}` });
+        expect(live[1]).toEqual(live[0]);
+
+        const history = (await (await f.api(`/conversations/${r.conversation}/items`)).json()) as {
+            items: { type?: string; frame?: Frame }[];
+        };
+        expect(resultFrames(history.items)).toEqual(live);
+
+        const picture = await fetch(`${f.origin}${mounted(live[0]!.url)}`);
+        expect(picture.status).toBe(200);
+        expect(picture.headers.get("content-type")).toBe("image/jpeg");
+        expect(picture.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(Buffer.from(await picture.arrayBuffer()).equals(FRAME_JPEG)).toBe(true);
+
+        // The model had the image all along: the frame is in addition, not instead.
+        const sent = JSON.stringify(f.model.requests.at(-1)?.messages);
+        expect(sent).toContain("image");
+        c.close();
+    });
+
+    it("are served only inside the conversation that took them", async () => {
+        const c = await f.connect();
+        const a = await say(c, "pikvm:click");
+        const b = await say(c, "pikvm:click");
+        expect(a.conversation).not.toBe(b.conversation);
+        const frame = async (conversation: string) =>
+            resultFrames(
+                ((await (await f.api(`/conversations/${conversation}/items`)).json()) as { items: { type?: string; frame?: Frame }[] })
+                    .items,
+            )[0]!;
+        const mine = await frame(a.conversation);
+        const theirs = await frame(b.conversation);
+        expect(mine.id).not.toBe(theirs.id);
+        const get = (conversation: string, id: string) => f.api(`/conversations/${conversation}/frames/${id}`);
+        expect((await get(a.conversation, mine.id)).status).toBe(200);
+        expect((await get(b.conversation, theirs.id)).status).toBe(200);
+        // Another conversation's frame id, a conversation that does not exist, a malformed id, and one never made.
+        expect((await get(b.conversation, mine.id)).status).toBe(404);
+        expect((await get(a.conversation, theirs.id)).status).toBe(404);
+        expect((await get("00000000-0000-4000-8000-000000000000", mine.id)).status).toBe(404);
+        for (const bad of ["..", "%2e%2e%2fchat.db", mine.id.toUpperCase(), "x", `${mine.id}.jpg`])
+            expect((await get(a.conversation, bad)).status, bad).toBe(404);
+        expect((await get(a.conversation, "0".repeat(21))).status).toBe(404);
+        c.close();
+    });
+
+    it("go with the conversation when it is deleted, and a fork keeps its own", async () => {
+        const c = await f.connect();
+        const r = await say(c, "pikvm:click");
+        const items = (await (await f.api(`/conversations/${r.conversation}/items`)).json()) as {
+            items: { type?: string; frame?: Frame }[];
+        };
+        const frame = resultFrames(items.items)[0]!;
+        const dir = (conversation: string) => join(f.dataDir, "chat", "users", "operator", "frames", conversation);
+        expect(readdirSync(dir(r.conversation))).toEqual([`${frame.id}.jpg`]);
+
+        const forked = (await (await f.api(`/conversations/${r.conversation}/fork`, { method: "POST", json: {} })).json()) as {
+            conversation: { id: string };
+        };
+        const copy = await f.api(`/conversations/${forked.conversation.id}/frames/${frame.id}`);
+        expect(copy.status).toBe(200);
+        expect(readdirSync(dir(forked.conversation.id))).toEqual([`${frame.id}.jpg`]);
+
+        expect((await f.api(`/conversations/${r.conversation}`, { method: "DELETE" })).status).toBe(200);
+        expect(existsSync(dir(r.conversation))).toBe(false);
+        expect((await f.api(`/conversations/${r.conversation}/frames/${frame.id}`)).status).toBe(404);
+        // The fork is a conversation of its own now.
+        expect((await f.api(`/conversations/${forked.conversation.id}/frames/${frame.id}`)).status).toBe(200);
+        expect((await f.api(`/conversations/${forked.conversation.id}`, { method: "DELETE" })).status).toBe(200);
+        expect(existsSync(dir(forked.conversation.id))).toBe(false);
+        c.close();
+    });
+
+    it("survive a restart of the server", async () => {
+        const c = await f.connect();
+        const r = await say(c, "pikvm:click");
+        c.close();
+        await f.restart();
+        const items = (await (await f.api(`/conversations/${r.conversation}/items`)).json()) as {
+            items: { type?: string; frame?: Frame }[];
+        };
+        const frame = resultFrames(items.items)[0]!;
+        expect(frame).toBeDefined();
+        expect((await f.api(`/conversations/${r.conversation}/frames/${frame.id}`)).status).toBe(200);
     });
 });
 
