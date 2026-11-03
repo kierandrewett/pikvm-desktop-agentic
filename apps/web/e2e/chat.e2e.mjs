@@ -167,10 +167,34 @@ async function press(page, tag, name, scope = "") {
 const waitText = (page, text, scope = "body", timeout = 30000) =>
     page.waitForFunction((t, s) => (document.querySelector(s)?.innerText ?? "").includes(t), { timeout }, text, scope);
 
-/** Open the thread's group of steps so its PiKVM cards are in view (a reload closes it). */
+/**
+ * Open the thread's group of steps so its PiKVM cards are in view (a reload closes it). A tap made while the thread is
+ * still laying out (the drawer closing, the thread sticking to the bottom) lands on nothing, so the header is tapped only
+ * once its box has stopped moving, and the group's own `aria-expanded` says whether it opened.
+ */
 async function openSteps(page, tag) {
-    if (!(await page.$("#panel-chat [data-pikvm-step]"))) await press(page, tag, "Used", "#panel-chat");
-    await page.waitForSelector("#panel-chat [data-pikvm-step]", { visible: true, timeout: 10000 });
+    const header = "#panel-chat button[aria-expanded]";
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const open = await page.$eval(header, (b) => b.getAttribute("aria-expanded") === "true").catch(() => false);
+        if (!open) {
+            await page.waitForFunction(
+                (sel) =>
+                    new Promise((done) => {
+                        const box = () => {
+                            const r = [...document.querySelectorAll(sel)].find((b) => /^Used /.test(b.textContent.trim()))?.getBoundingClientRect();
+                            return r && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight ? `${r.left},${r.top}` : null;
+                        };
+                        const first = box();
+                        requestAnimationFrame(() => requestAnimationFrame(() => done(first !== null && first === box())));
+                    }),
+                { timeout: 10000, polling: "raf" },
+                header,
+            );
+            await press(page, tag, "Used", "#panel-chat");
+        }
+        if (await page.waitForSelector("#panel-chat [data-pikvm-step]", { visible: true, timeout: 3000 }).catch(() => null)) break;
+    }
+    await page.waitForSelector("#panel-chat [data-pikvm-step]", { visible: true, timeout: 5000 });
     await sleep(600);
 }
 
@@ -462,7 +486,21 @@ async function run(browser, label, tag, index) {
             await page.waitForSelector("#panel-chat textarea[aria-label='Message']", { visible: true });
             // The pane keeps no address of its own, so a reload lands on a new chat: the conversation is opened from the list.
             if (tag === "phone") await press(page, tag, "Open sidebar", "#panel-chat");
-            const row = await page.waitForSelector("[aria-label='Sidebar'] a[href*='/c/']", { visible: true, timeout: 20000 });
+            // The row is tappable once the drawer has finished sliding in (it is off-screen and inert until then) and the
+            // list has rendered: wait for its box to be on screen and unchanged across frames, then take the element afresh.
+            await page.waitForFunction(
+                () =>
+                    new Promise((done) => {
+                        const box = () => {
+                            const r = document.querySelector("[aria-label='Sidebar'] a[href*='/c/']")?.getBoundingClientRect();
+                            return r && r.width > 0 && r.left >= 0 && r.right <= innerWidth ? `${r.left},${r.top},${r.width},${r.height}` : null;
+                        };
+                        const first = box();
+                        requestAnimationFrame(() => requestAnimationFrame(() => done(first !== null && first === box())));
+                    }),
+                { timeout: 20000, polling: "raf" },
+            );
+            const row = await page.$("[aria-label='Sidebar'] a[href*='/c/']");
             if (tag === "phone") await row.tap();
             else await row.click();
             await waitText(page, "I clicked the centre of the screen.", "#panel-chat", 60000);
