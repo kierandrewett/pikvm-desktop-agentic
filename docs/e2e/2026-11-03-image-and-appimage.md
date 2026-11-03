@@ -228,3 +228,29 @@ From the running container (outside the suites):
 - `/app/` is 200 and its `index.html` carries `apple-mobile-web-app-status-bar-style` = `black`.
 - `Cache-Control: no-cache` on `/app/`, `/app/sw.js`, `/app/version.json` and `/app/manifest.webmanifest`; the hashed asset `/app/assets/index-DGY6tMTP.js` is `public, max-age=31536000, immutable`.
 - Settings > About shows the build the host serves in `/app/version.json`: the phone-chrome case "Settings > About shows the build the host serves in /app/version.json" passed against the container.
+
+## The image deployed: `43860abc`
+
+The tarball Main built from a clean worktree of `43860abc`: `~/.cache/pikvm-wip/pikvm-kvm-43860abc.tar.gz`, sha256
+`132c9a7a971d277695e449be062aed43ea57dc8fa675dbaa284d0896333031d3`, config digest (manifest.json `Config`)
+`sha256:45ade10f81f7352ee583e28944913a074380fdc3076f30d07193136ec05afb20`, tag `pikvm-kvm:43860abc`. It was loaded into podman as it is
+(`gunzip -c … | podman load`, image id equal to the config digest) and the suites ran on that load, from a separate clean worktree of the same commit.
+Posture as before: `deploy/e2e/up-inspectable.sh`, uid 1000, read-only root, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, `PIKVM_AUTH=proxy`, a fresh container per suite.
+
+| Suite | Result |
+| --- | --- |
+| `apps/web/e2e/phone-chrome.e2e.mjs` (all profiles) | 117 of 117 |
+| `apps/web/e2e/desktop-layout.e2e.mjs` (rail, composer width at 1280, 1920, 2560 and the narrow end, phone bar labels) | 20 of 20 |
+| `apps/web/e2e/kvm.e2e.mjs` | 40 of 40 |
+| `apps/web/e2e/chat.e2e.mjs phone` | 17 of 17 |
+| `apps/web/e2e/chat.e2e.mjs desktop` | 16 of 16 |
+| `apps/web/e2e/resume.e2e.mjs phone` | 13 of 13 |
+| `apps/web/e2e/keep-alive.e2e.mjs` | 26 of 26 |
+| `apps/web/e2e/watch.e2e.mjs` | 22 of 22 (20 of 22 on the first run, below) |
+
+The first watch run failed the two cases that depend on the headless Chrome's own subscription on Google's real push service (`fcm.googleapis.com`):
+"the real Chrome got the notification too" (no notification within 25 s) and "Send test notification…" (that subscription was counted as expired, `devices 4 -> 2`). Nothing the
+image serves is involved; the rerun on a fresh container delivered it and passed 22 of 22, as in the earlier runs of this suite.
+
+Two false starts of the run itself, for whoever repeats it: the e2e helper's fake kvmd runs from the checkout mounted into the container and needs the checkout's `node_modules` (`ws`), so a fresh
+worktree needs `yarn install` first (without it the fake exits and every suite reports `fetch failed`); the helpers also share one compose project name and the host ports 18080, 14510, 19090, 14720 and 14730, so two runs at once on one machine collide.
