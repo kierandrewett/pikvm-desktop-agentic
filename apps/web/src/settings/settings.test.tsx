@@ -27,6 +27,8 @@
  * Navigation
  * 15. A phone shows list and page together, or no way back; a wide screen opens on nothing.
  * 16. (Chat's own failure modes are listed in chat/chat-route.test.tsx.)
+ * 17. A phone's slide leaves its direction (data-settings-nav) on <html> after the page opens: the list that started
+ *     it unmounts and takes the timer that removes it, so the slide's view-transition name stays on for good.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -524,5 +526,24 @@ describe("settings navigation", () => {
     it("says so for an unknown settings page", async () => {
         renderApp("/settings/nope", { compact: true });
         expect(await screen.findByText("Page not found")).toBeInTheDocument();
+    });
+
+    it("17: takes the slide's direction off <html> once a page has opened from the list", async () => {
+        const user = userEvent.setup();
+        const transition = (update?: () => void) => {
+            update?.();
+            const done = Promise.resolve();
+            return { finished: done, ready: done, updateCallbackDone: done, skipTransition: () => undefined };
+        };
+        Object.defineProperty(document, "startViewTransition", { configurable: true, value: transition });
+        try {
+            renderApp("/settings", { compact: true });
+            await user.click(await screen.findByRole("link", { name: "Keyboard" }));
+            expect(await screen.findByRole("heading", { level: 1, name: "Keyboard" })).toBeInTheDocument();
+            await waitFor(() => expect(document.documentElement.hasAttribute("data-settings-nav")).toBe(false), { timeout: 2000 });
+        } finally {
+            Reflect.deleteProperty(document, "startViewTransition");
+            document.documentElement.removeAttribute("data-settings-nav");
+        }
     });
 });

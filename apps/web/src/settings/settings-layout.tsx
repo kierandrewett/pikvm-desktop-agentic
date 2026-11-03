@@ -47,6 +47,12 @@ type Direction = "forward" | "back";
 /** How long the attribute that selects a slide direction stays on <html>: past the longest transition. */
 const DIRECTION_MS = 600;
 
+/**
+ * One removal timer for the whole app, not per component: the list that starts a forward slide unmounts as the page
+ * opens, and a per-instance timer cleared on unmount left data-settings-nav on <html> for good.
+ */
+let directionTimer: ReturnType<typeof setTimeout> | undefined;
+
 const reducedMotion = (): boolean => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
@@ -55,16 +61,14 @@ const reducedMotion = (): boolean => window.matchMedia("(prefers-reduced-motion:
  * as the transition lasts, and is called when the change is made, not when it is drawn.
  */
 function useSlide(compact: boolean) {
-    const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    useEffect(() => () => clearTimeout(timer.current), []);
     const mark = useCallback(
         (direction: Direction): boolean => {
             const animate = compact && "startViewTransition" in document && !reducedMotion();
             if (animate) {
                 const root = document.documentElement;
                 root.setAttribute("data-settings-nav", direction);
-                clearTimeout(timer.current);
-                timer.current = setTimeout(() => root.removeAttribute("data-settings-nav"), DIRECTION_MS);
+                clearTimeout(directionTimer);
+                directionTimer = setTimeout(() => root.removeAttribute("data-settings-nav"), DIRECTION_MS);
             }
             return animate;
         },
