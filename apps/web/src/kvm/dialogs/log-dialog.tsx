@@ -81,8 +81,8 @@ export function LogDialog({ session, onClose }: DialogProps) {
     const shown =
         state.phase === "loading"
             ? state.bytes > 0
-                ? `Loading\u2026 ${humanBytes(state.bytes)}`
-                : "Loading\u2026"
+                ? `Loading ${humanBytes(state.bytes)}`
+                : "Loading"
             : state.phase === "error"
               ? state.message
               : state.text || "(nothing in this window)";

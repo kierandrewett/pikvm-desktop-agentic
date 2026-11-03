@@ -2,7 +2,7 @@
   "id": "/app/",
   "name": "PiKVM",
   "short_name": "PiKVM",
-  "description": "Live screen, keyboard and mouse for the PiKVM target, and the agent that can operate it.",
+  "description": "Screen, keyboard and mouse for a PiKVM target, with an agent that can operate it.",
   "start_url": "/app/",
   "scope": "/app/",
   "display": "standalone",

@@ -52,7 +52,7 @@ export function FullUiFrame({ onBack }: { readonly onBack: () => void }) {
             />
             {state === "ready" ? null : (
                 <div className="kvm-full-ui-note" role="status" aria-live="polite">
-                    <span>{state === "loading" ? "Loading the PiKVM UI\u2026" : "The PiKVM UI did not load."}</span>
+                    <span>{state === "loading" ? "Loading the PiKVM UI" : "The PiKVM UI did not load."}</span>
                     <button type="button" className="kvm-btn" onClick={onBack}>
                         Back to console
                     </button>

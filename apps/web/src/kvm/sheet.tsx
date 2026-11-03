@@ -189,7 +189,7 @@ export function Sheet(props: SheetProps) {
                         <span className="kvm-pip">{audio.micLabel}</span>
                     </button>
                     <button type="button" className="kvm-item" onClick={() => { onClose(); props.openDialog("audio-devices"); }}>
-                        Audio devices{"\u2026"}
+                        Audio devices
                     </button>
                     <div className="kvm-sep" />
                 </>

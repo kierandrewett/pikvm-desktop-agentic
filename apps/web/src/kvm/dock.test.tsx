@@ -37,7 +37,7 @@ function stubController(initial: PictureState = idle) {
 }
 
 const NO_ACTIONS: ActionSections = {
-    tools: [{ id: "paste", label: "Paste text to the target\u2026", run: () => {} }],
+    tools: [{ id: "paste", label: "Paste text to the target", run: () => {} }],
     power: [],
     view: [{ id: "theme", label: "Toggle theme", run: () => {} }],
 };

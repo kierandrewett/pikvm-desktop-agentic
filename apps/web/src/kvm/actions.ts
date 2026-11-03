@@ -99,16 +99,16 @@ export function useActions(inputs: ActionInputs): ActionSections {
         };
 
         const tools: Action[] = [
-            { id: "paste", label: "Paste text to the target\u2026", run: () => openDialog("paste") },
-            { id: "stream", label: "Stream settings\u2026", run: () => openDialog("stream") },
+            { id: "paste", label: "Paste text to the target", run: () => openDialog("paste") },
+            { id: "stream", label: "Stream settings", run: () => openDialog("stream") },
             { id: "screenshot", label: "Save screenshot", run: shoot, disabled: shooting },
-            { id: "health", label: "System, GPIO & health\u2026", run: () => openDialog("health") },
+            { id: "health", label: "System, GPIO and health", run: () => openDialog("health") },
         ];
-        if (msdEnabled) tools.push({ id: "msd", label: "Mass storage\u2026", run: () => openDialog("msd") });
-        if (ocrEnabled) tools.push({ id: "ocr", label: "Read text from the screen\u2026", run: () => openDialog("ocr") });
+        if (msdEnabled) tools.push({ id: "msd", label: "Mass storage", run: () => openDialog("msd") });
+        if (ocrEnabled) tools.push({ id: "ocr", label: "Read text from the screen", run: () => openDialog("ocr") });
         tools.push(
-            { id: "log", label: "PiKVM log\u2026", run: () => openDialog("log") },
-            { id: "macros", label: "Macros\u2026", run: () => openDialog("macros") },
+            { id: "log", label: "PiKVM log", run: () => openDialog("log") },
+            { id: "macros", label: "Macros", run: () => openDialog("macros") },
         );
 
         const power: Action[] = atxEnabled

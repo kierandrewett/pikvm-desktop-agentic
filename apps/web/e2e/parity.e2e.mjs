@@ -135,7 +135,7 @@ async function run(browser, profile, tag) {
         // The page reloads itself on the browser's online event, or by its five-second poll.
         await page.waitForSelector(".kvm-screen", { timeout: 15000 });
         await live(page);
-        return [heading === "Can't reach the KVM" && retry, `page said ${JSON.stringify(heading)}, retry button ${retry}; back on the KVM screen afterwards`];
+        return [heading === "Cannot reach the app server" && retry, `page said ${JSON.stringify(heading)}, retry button ${retry}; back on the KVM screen afterwards`];
     });
 
     await check(profile, "health indicator: appears when the target loses signal, goes when it returns", async () => {

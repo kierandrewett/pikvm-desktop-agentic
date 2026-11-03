@@ -32,7 +32,7 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
         onRun: onClose,
         confirmDelete: (target) =>
             confirm.ask({
-                title: `Delete the macro \u201c${target.label}\u201d?`,
+                title: `Delete the macro "${target.label}"?`,
                 body: "This removes it from the list and the toolbar.",
                 confirm: "Delete macro",
                 danger: true,
@@ -102,7 +102,7 @@ export function MacrosDialog({ session, onClose }: DialogProps) {
 
                     <div className="macro-edit">
                         {!ready ? (
-                            <Note live>{loadError !== null ? `Could not load macros: ${loadError}` : "Loading\u2026"}</Note>
+                            <Note live>{loadError !== null ? `Could not load macros: ${loadError}` : "Loading"}</Note>
                         ) : !macro ? (
                             <Note>{list.length > 0 ? "Select a macro to edit it." : "Use New macro to add one."}</Note>
                         ) : (
@@ -289,7 +289,7 @@ function StepRow({ step, index, count, onChange, onMove, onRemove }: StepRowProp
                             value={step.code}
                             onChange={(e) => onChange((s) => (s.type === "chord" ? { ...s, code: e.target.value } : s))}
                         >
-                            <option value="">{"Choose a key\u2026"}</option>
+                            <option value="">{"Choose a key"}</option>
                             {macroKeyGroups().map(([group, keys]) => (
                                 <optgroup key={group} label={group}>
                                     {keys.map(([code, label]) => (

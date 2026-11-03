@@ -191,7 +191,7 @@ describe("system dialog (17-22)", () => {
         expect(screen.getByTestId("hid-state")).toHaveTextContent("attached");
         fireEvent.click(screen.getByRole("button", { name: "Detach" }));
         await waitFor(() => expect(posted(rig)).toEqual(["/api/hid/set_connected?connected=0"]));
-        expect(rig.session.notices.store.getState().text).toBe("Detaching the keyboard and mouse\u2026");
+        expect(rig.session.notices.store.getState().text).toBe("Detaching the keyboard and mouse");
         pi(rig, "hid", { busy: true });
         expect(screen.getByRole("button", { name: "Detach" })).toBeDisabled();
         expect(screen.getByTestId("hid-state")).toHaveTextContent("attached \u00b7 busy");
@@ -210,7 +210,7 @@ describe("system dialog (17-22)", () => {
         const sw = screen.getByRole("switch", { name: "relay0" });
         expect(sw).toHaveAttribute("aria-checked", "false");
         fireEvent.click(sw);
-        const ask = screen.getByRole("alertdialog", { name: "Turn \u201crelay0\u201d on?" });
+        const ask = screen.getByRole("alertdialog", { name: 'Turn "relay0" on?' });
         expect(within(ask).getByText("The console cannot tell what this output is wired to.")).toBeInTheDocument();
         expect(rig.http.requests).toEqual([]);
         fireEvent.click(within(ask).getByRole("button", { name: "Turn on" }));
@@ -223,7 +223,7 @@ describe("system dialog (17-22)", () => {
     it("20: Pulse asks, naming a power button press; Cancel sends nothing", async () => {
         const { rig } = await mountHealth([["gpio", gpioFrame]]);
         fireEvent.click(screen.getByRole("button", { name: "Pulse relay0" }));
-        const ask = screen.getByRole("alertdialog", { name: "Pulse \u201crelay0\u201d?" });
+        const ask = screen.getByRole("alertdialog", { name: 'Pulse "relay0"?' });
         expect(within(ask).getByText(/press of it/)).toBeInTheDocument();
         fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
         expect(rig.http.requests).toEqual([]);

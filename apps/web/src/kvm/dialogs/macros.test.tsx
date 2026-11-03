@@ -45,7 +45,7 @@ function serveMacros(initial: WireMacro[]): MacroServer {
 
 const chord = (code: string, mods: string[] = []) => ({ type: "chord", mods, code });
 const reboot: WireMacro = { id: "reboot", label: "Reboot", icon: "power", steps: [chord("KeyR", ["ControlLeft"])] };
-const login: WireMacro = { id: "login", label: "Login", pinned: false, steps: [{ type: "text", text: "kieran" }, chord("Tab"), { type: "delay", ms: 250 }] };
+const login: WireMacro = { id: "login", label: "Login", pinned: false, steps: [{ type: "text", text: "admin" }, chord("Tab"), { type: "delay", ms: 250 }] };
 
 beforeEach(() => {
     installMatchMedia({ compact: false });
@@ -62,7 +62,7 @@ async function mountMacros(initial: WireMacro[]): Promise<{ server: MacroServer;
     const server = serveMacros(initial);
     const view = await mountDialog(MacrosDialog);
     await screen.findByRole("group", { name: "Saved macros" });
-    await waitFor(() => expect(screen.queryByText("Loading\u2026")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Loading")).toBeNull());
     return { server, view };
 }
 
@@ -213,8 +213,8 @@ describe("steps (36, 37)", () => {
         const { server } = await mountMacros([login]);
         const text = screen.getByLabelText("Text for step 1");
         await userEvent.clear(text);
-        await userEvent.type(text, "admin{Enter}");
-        await waitFor(() => expect(lastPut(server)[0]?.steps[0]).toEqual({ type: "text", text: "admin" }));
+        await userEvent.type(text, "root{Enter}");
+        await waitFor(() => expect(lastPut(server)[0]?.steps[0]).toEqual({ type: "text", text: "root" }));
         const pause = screen.getByLabelText("Pause for step 3, milliseconds");
         expect(pause).toHaveValue(250);
         await userEvent.clear(pause);
@@ -299,7 +299,7 @@ describe("delete and run (35)", () => {
     it("35: Delete macro asks first; Cancel changes nothing, Confirm removes it and selects the next", async () => {
         const { server } = await mountMacros([reboot, login]);
         fireEvent.click(screen.getByRole("button", { name: "Delete macro" }));
-        const ask = screen.getByRole("alertdialog", { name: "Delete the macro \u201cReboot\u201d?" });
+        const ask = screen.getByRole("alertdialog", { name: 'Delete the macro "Reboot"?' });
         fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
         expect(server.puts).toEqual([]);
         fireEvent.click(screen.getByRole("button", { name: "Delete macro" }));
@@ -326,7 +326,7 @@ describe("delete and run (35)", () => {
             rig.clock.advance(1000);
             await rig.clock.settle();
         });
-        expect(rig.http.requests[0]).toMatchObject({ path: "/api/hid/print?limit=0&delay=0.02", body: "kieran" });
+        expect(rig.http.requests[0]).toMatchObject({ path: "/api/hid/print?limit=0&delay=0.02", body: "admin" });
         await act(async () => {
             rig.clock.advance(1000);
             await rig.clock.settle();
@@ -353,7 +353,7 @@ describe("delete and run (35)", () => {
         const rig = await openRig();
         await mountDialog(MacrosDialog, rig);
         await act(async () => {});
-        expect(screen.getByText("Loading\u2026")).toBeInTheDocument();
+        expect(screen.getByText("Loading")).toBeInTheDocument();
         release.resolve();
         await screen.findByRole("switch", { name: "Alt" });
         await waitFor(() => expect(screen.getByRole("switch", { name: "Alt" })).toHaveAttribute("aria-checked", "true"));

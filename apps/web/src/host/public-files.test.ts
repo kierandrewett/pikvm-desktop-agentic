@@ -81,7 +81,7 @@ describe("worker", () => {
         expect(res.status).toBe(503);
         expect(res.headers.get("cache-control")).toBe("no-store");
         const html = await res.text();
-        expect(html).toContain("Can't reach the KVM");
+        expect(html).toContain("Cannot reach the app server");
         expect(html).toContain('id="retry"');
     });
 

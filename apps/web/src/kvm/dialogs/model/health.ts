@@ -52,7 +52,7 @@ export function healthProblems({ device, everSettled, inputOpen }: HealthInput):
                 level: undervolt === "now" ? "error" : "warn",
                 text:
                     undervolt === "now"
-                        ? "The Pi is undervolted \u2014 check the power supply and cable"
+                        ? "The Pi is undervolted. Check the power supply and cable"
                         : "The Pi was undervolted recently",
             });
         }
@@ -202,7 +202,7 @@ export function gpioConfirmation(output: GpioOutput, action: "pulse" | "switch",
     const warning = GPIO_WARNINGS[output.name];
     if (action === "pulse") {
         return {
-            title: `Pulse \u201c${output.label}\u201d?`,
+            title: `Pulse "${output.label}"?`,
             body:
                 warning ??
                 "A pulse is a momentary contact closure. On a relay wired to a power button, that is a press of it.",
@@ -210,7 +210,7 @@ export function gpioConfirmation(output: GpioOutput, action: "pulse" | "switch",
         };
     }
     return {
-        title: `Turn \u201c${output.label}\u201d ${turningOn ? "on" : "off"}?`,
+        title: `Turn "${output.label}" ${turningOn ? "on" : "off"}?`,
         body: warning ?? "The console cannot tell what this output is wired to.",
         confirm: turningOn ? "Turn on" : "Turn off",
     };

@@ -6,7 +6,7 @@
 // Network first, always. This is a live remote-control surface behind a sign-in, so a cached copy
 // of the page is never better than the real one: it would come up "working" with no stream and no
 // input. What this worker adds is the failure case. When the KVM cannot be reached at all (no
-// signal, tailnet down, server restarting), the app opens on a proper "can't reach" screen that
+// signal, VPN down, server restarting), the app opens on a proper "can't reach" screen that
 // retries on its own, instead of the browser's error page, which in a standalone app has no
 // address bar and no reload button.
 //
@@ -54,8 +54,8 @@ const OFFLINE_HTML = `<!doctype html>
   button:focus-visible { outline: 2px solid #5b8cff; outline-offset: 2px; }
 </style></head>
 <body><main>
-  <h1>Can't reach the KVM</h1>
-  <p>The app will open again as soon as the connection is back. Check that this device is on the tailnet.</p>
+  <h1>Cannot reach the app server</h1>
+  <p>The app opens again when the connection returns. Check that this device can reach the server.</p>
   <button type="button" id="retry">Try again</button>
 </main>
 <script>

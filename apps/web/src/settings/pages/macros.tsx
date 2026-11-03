@@ -414,7 +414,7 @@ function StepRow({ step, index, count, onChange, onMove, onRemove }: StepRowProp
                                 value={step.code}
                                 onChange={(e) => onChange((s) => (s.type === "chord" ? { ...s, code: e.target.value } : s))}
                             >
-                                <option value="">{"Choose a key\u2026"}</option>
+                                <option value="">{"Choose a key"}</option>
                                 {groups.map(([group, keys]) => (
                                     <optgroup key={group} label={group}>
                                         {keys.map(([code, label]) => (

@@ -63,7 +63,7 @@ export function PasteDialog({ session, onClose }: DialogProps) {
                 autoCapitalize="off"
                 autoCorrect="off"
                 aria-label="Text to type on the target"
-                placeholder={"Text to type on the target\u2026"}
+                placeholder={"Text to type on the target"}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {

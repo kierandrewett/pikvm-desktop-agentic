@@ -94,7 +94,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
 
     const sendKeys: MenuEntry[] = [
         { id: "keys", label: "Show on-screen keys", checked: keysOpen, run: () => onKeys(!keysOpen) },
-        { id: "paste", label: "Paste text\u2026", run: () => openDialog("paste") },
+        { id: "paste", label: "Paste text", run: () => openDialog("paste") },
     ];
     const all = macros.data ?? [];
     if (all.length > 0) {
@@ -126,10 +126,10 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
             ...(a.checked !== undefined ? { checked: a.checked } : {}),
         }));
     const more: MenuEntry[] = [];
-    if (audio.available) more.push({ id: "audio-devices", label: "Audio devices\u2026", run: () => openDialog("audio-devices") }, { type: "separator" });
+    if (audio.available) more.push({ id: "audio-devices", label: "Audio devices", run: () => openDialog("audio-devices") }, { type: "separator" });
     more.push(...toEntries(actions.tools), { type: "separator" }, ...toEntries(actions.view));
 
-    const powerLabel = actions.power.length === 0 ? "Power" : atxBusy ? "Power \u2014 busy" : atxOn ? "Power \u2014 target is on" : "Power \u2014 target is off";
+    const powerLabel = actions.power.length === 0 ? "Power" : atxBusy ? "Power: busy" : atxOn ? "Power: target is on" : "Power: target is off";
 
     return (
         <div className="kvm-toolbar" data-desktop-app={isDesktopApp()}>

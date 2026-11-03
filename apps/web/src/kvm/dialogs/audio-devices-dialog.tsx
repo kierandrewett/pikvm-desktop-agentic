@@ -88,7 +88,7 @@ export function AudioDevicesDialog({ onClose }: DialogProps) {
     else if (hidden) notes.push("Device names appear once the microphone has been allowed.");
     else if (wrong.length === 0) {
         notes.push(
-            "Both choices are remembered, so the system default moving \u2014 a headset plugged in, a call app taking the line \u2014 no longer moves the microphone being sent to the target.",
+            "Both choices are remembered. A headset plugged in, or a call app taking the line, no longer moves the microphone sent to the target.",
         );
     }
 

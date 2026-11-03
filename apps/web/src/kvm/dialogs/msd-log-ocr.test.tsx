@@ -100,7 +100,7 @@ describe("mass storage (23-26)", () => {
 
     it("23: says it is checking, not that there is no drive, before the first event", async () => {
         await mountMsd(null);
-        expect(screen.getByText("Checking the drive\u2026")).toBeInTheDocument();
+        expect(screen.getByText("Checking the drive")).toBeInTheDocument();
         expect(screen.queryByLabelText("Image")).toBeNull();
     });
 
@@ -142,7 +142,7 @@ describe("mass storage (23-26)", () => {
         fireEvent.click(mount);
         expect(posted(rig)).toEqual(["/api/msd/set_connected?connected=1"]);
         gate.resolve({ ok: true, status: 200 });
-        await waitFor(() => expect(rig.session.notices.store.getState().text).toBe("Mounting on the target\u2026"));
+        await waitFor(() => expect(rig.session.notices.store.getState().text).toBe("Mounting on the target"));
     });
 
     it("24: while mounted nothing can change; Unmount is offered instead of Mount", async () => {
@@ -167,7 +167,7 @@ describe("mass storage (23-26)", () => {
     it("26: Delete image and Reset drive ask first", async () => {
         const { rig } = await mountMsd();
         fireEvent.click(screen.getByRole("button", { name: "Delete image" }));
-        const ask = screen.getByRole("alertdialog", { name: "Delete \u201ca.iso\u201d?" });
+        const ask = screen.getByRole("alertdialog", { name: 'Delete "a.iso"?' });
         expect(rig.http.requests).toEqual([]);
         fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
         expect(rig.http.requests).toEqual([]);
@@ -232,7 +232,7 @@ describe("mass storage (23-26)", () => {
         expect(xhr.body).toBeNull();
         const bar = screen.getByRole("progressbar", { name: "Upload progress" });
         expect(bar).not.toHaveAttribute("value");
-        expect(screen.getByText("the Pi is downloading it\u2026")).toBeInTheDocument();
+        expect(screen.getByText("the Pi is downloading it")).toBeInTheDocument();
         pi(rig, "msd", msdFrame({ storage: { downloading: { name: "os.iso", written: 25, size: 100 } } }));
         await waitFor(() => expect(bar).toHaveAttribute("value", "25"));
         // Numbers vanish: back to "working, length unknown" rather than a frozen 25%.
@@ -253,7 +253,7 @@ describe("log (27-29)", () => {
         const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
         Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
         await mountDialog(LogDialog, rig);
-        expect(screen.getByTestId("log-body")).toHaveTextContent("Loading\u2026");
+        expect(screen.getByTestId("log-body")).toHaveTextContent("Loading");
         // 28: while it loads, Copy would copy the word "Loading".
         expect(screen.getByRole("button", { name: "Copy" })).toBeDisabled();
         await waitFor(() => expect(screen.getByTestId("log-body")).toHaveTextContent("line one"));

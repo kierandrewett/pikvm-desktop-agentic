@@ -83,7 +83,7 @@ export function msdTransfer(msd: MsdState | null): MsdTransfer | null {
 
 /** Not knowing yet and knowing there is none are different answers. */
 export function msdSummary(msd: MsdState | null): string {
-    if (!msd) return "Checking the drive\u2026";
+    if (!msd) return "Checking the drive";
     if (!msd.enabled) return "This PiKVM has no mass storage.";
     if (!msd.online) return "The drive is offline.";
     const d = msdDrive(msd);

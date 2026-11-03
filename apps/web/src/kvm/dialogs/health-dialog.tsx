@@ -149,7 +149,7 @@ export function HealthDialog({ session, onClose }: DialogProps) {
             // Present tense: a 200 is kvmd taking the request; the hid event reports what happened.
             session.notices.notify(
                 result.ok
-                    ? { text: attach ? "Attaching the keyboard and mouse\u2026" : "Detaching the keyboard and mouse\u2026" }
+                    ? { text: attach ? "Attaching the keyboard and mouse" : "Detaching the keyboard and mouse" }
                     : {
                           text: failureLine(`${attach ? "attach" : "detach"} the keyboard and mouse`, result),
                           error: true,
@@ -272,7 +272,7 @@ export function HealthDialog({ session, onClose }: DialogProps) {
                 <Rule />
                 <div className="dlg-section">
                     <div className="dlg-row wrap">
-                        <span className="dlg-label">Keyboard &amp; mouse</span>
+                        <span className="dlg-label">Keyboard and mouse</span>
                         <span className="dlg-hint" data-testid="hid-state">
                             {hid.text}
                         </span>

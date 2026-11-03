@@ -68,7 +68,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
             const pct = Math.max(0, Math.min(100, Math.round((transfer.written / transfer.size) * 100)));
             setProgress({ pct, label: `${pct}%  \u00b7  ${humanBytes(transfer.written)} of ${humanBytes(transfer.size)}` });
         } else {
-            setProgress({ pct: null, label: "the Pi is downloading it\u2026" });
+            setProgress({ pct: null, label: "the Pi is downloading it" });
         }
     }, [upload, transfer?.written, transfer?.size]);
 
@@ -79,7 +79,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
         const isRemote = !picked && remote !== "";
         const xhr = new XMLHttpRequest();
         setUpload({ xhr, remote: isRemote });
-        setProgress(isRemote ? { pct: null, label: "starting\u2026" } : { pct: 0, label: "0%" });
+        setProgress(isRemote ? { pct: null, label: "starting" } : { pct: 0, label: "0%" });
 
         const done = (ok: string | null, error: string | null): void => {
             setUpload(null);
@@ -93,7 +93,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
 
         if (isRemote) {
             xhr.open("POST", `/api/msd/write_remote?url=${encodeURIComponent(remote)}&remove_incomplete=1`, true);
-            setProgress({ pct: null, label: "the Pi is downloading it\u2026" });
+            setProgress({ pct: null, label: "the Pi is downloading it" });
         } else if (picked) {
             xhr.open("POST", `/api/msd/write?image=${encodeURIComponent(picked.name)}&remove_incomplete=1`, true);
             xhr.upload.onprogress = (e) => {
@@ -119,7 +119,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
         // Present tense: a 200 is kvmd taking the request; the msd event says what happened.
         session.notices.notify(
             result.ok
-                ? { text: on ? "Mounting on the target\u2026" : "Unmounting\u2026" }
+                ? { text: on ? "Mounting on the target" : "Unmounting" }
                 : { text: failureLine(on ? "mount" : "unmount", result), error: true },
         );
         setMountPending(false);
@@ -129,7 +129,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
         if (!drive.image) return;
         const name = drive.image.name;
         const ok = await confirm.ask({
-            title: `Delete \u201c${name}\u201d?`,
+            title: `Delete "${name}"?`,
             body: "It is removed from the PiKVM. This cannot be undone.",
             confirm: "Delete image",
             danger: true,
@@ -191,7 +191,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
                                 disabled={!controls.settable}
                                 onChange={(e) => void setDriveParam(session, "image", e.target.value)}
                             >
-                                <option value="">{images.length > 0 ? "\u2014 select an image \u2014" : "no images uploaded"}</option>
+                                <option value="">{images.length > 0 ? "Select an image" : "No images uploaded"}</option>
                                 {images.map((image) => (
                                     <option key={image.name} value={image.name}>
                                         {image.name} ({humanBytes(image.size)})
@@ -271,7 +271,7 @@ export function MsdDialog({ session, onClose }: DialogProps) {
                                 type="text"
                                 inputMode="url"
                                 className="dlg-text dlg-grow"
-                                placeholder={"https://\u2026/image.iso"}
+                                placeholder={"https://example.com/image.iso"}
                                 spellCheck={false}
                                 autoCapitalize="off"
                                 autoCorrect="off"

@@ -96,7 +96,7 @@ export function unsavedNote(macro: DraftMacro): string | null {
     const incomplete = macro.steps.filter((s) => !stepWouldPersist(s)).length;
     if (incomplete === 0) return null;
     if (incomplete === macro.steps.length) {
-        return "Not saved yet \u2014 choose the key or enter the text below and it will be kept.";
+        return "Not saved yet. Choose the key or enter the text below to keep it.";
     }
     return incomplete === 1
         ? "One step is still empty; it will be dropped when saved."

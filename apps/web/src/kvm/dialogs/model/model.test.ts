@@ -76,7 +76,7 @@ describe("health problems (17, 18)", () => {
         const now = device(["hid", { connected: false, online: false }], info(throttling(true, true)));
         expect(healthProblems({ device: now, ...open })).toEqual([
             { level: "error", text: "Keyboard and mouse are detached from the target" },
-            { level: "error", text: "The Pi is undervolted \u2014 check the power supply and cable" },
+            { level: "error", text: "The Pi is undervolted. Check the power supply and cable" },
             { level: "warn", text: "The Pi was throttled by heat recently" },
         ]);
         const past = device(info(throttling(false, true)));
@@ -180,7 +180,7 @@ describe("GPIO (20, 21)", () => {
         expect(gpioConfirmation(locator!, "switch", true)).toBeNull();
         expect(gpioConfirmation(relay!, "pulse", false)?.body).toContain("press of it");
         expect(gpioConfirmation(relay!, "switch", true)).toMatchObject({
-            title: "Turn \u201crelay0\u201d on?",
+            title: 'Turn "relay0" on?',
             confirm: "Turn on",
         });
         expect(gpioConfirmation(breaker!, "switch", false)?.body).toContain("keyboard, mouse and any mounted image");
@@ -220,7 +220,7 @@ describe("mass storage (23, 24)", () => {
     };
 
     it("does not claim there is no drive before the first event", () => {
-        expect(msdSummary(null)).toBe("Checking the drive\u2026");
+        expect(msdSummary(null)).toBe("Checking the drive");
         expect(msdSummary(device(["msd", { enabled: false }]).msd)).toBe("This PiKVM has no mass storage.");
         expect(msdSummary(device(["msd", { enabled: true, online: false }]).msd)).toBe("The drive is offline.");
     });

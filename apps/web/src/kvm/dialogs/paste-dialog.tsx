@@ -112,7 +112,7 @@ export function PasteDialog({ session, onClose }: DialogProps) {
                 autoCapitalize="off"
                 autoCorrect="off"
                 aria-label="Text to type on the target"
-                placeholder={"Text to type on the target\u2026"}
+                placeholder={"Text to type on the target"}
                 value={text}
                 readOnly={typing !== null}
                 onChange={(e) => setText(e.target.value)}
@@ -165,12 +165,8 @@ export function PasteDialog({ session, onClose }: DialogProps) {
                         />
                     </div>
                     <p className="dlg-note">
-                        Typing {humanCount(typing.chars)} {typing.chars === 1 ? "character" : "characters"} on the target
-                        {progress === null
-                            ? " \u2014 still typing\u2026"
-                            : remaining >= 10_000
-                              ? ` \u2014 ${humanDuration(remaining)} left (estimate)`
-                              : "\u2026"}{" "}
+                        Typing {humanCount(typing.chars)} {typing.chars === 1 ? "character" : "characters"} on the target.{" "}
+                        {progress !== null && remaining >= 10_000 ? `About ${humanDuration(remaining)} left. ` : null}
                         Closing this does not stop it.
                     </p>
                 </div>

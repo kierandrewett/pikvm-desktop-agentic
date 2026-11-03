@@ -31,7 +31,7 @@ export const DIALOG_TITLES: Readonly<Record<DialogName, string>> = {
     paste: "Paste text to the target",
     stream: "Stream settings",
     "audio-devices": "Audio devices",
-    health: "System, GPIO & health",
+    health: "System, GPIO and health",
     msd: "Mass storage",
     ocr: "Text from the screen",
     log: "PiKVM log",

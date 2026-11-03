@@ -135,7 +135,7 @@ export function OcrDialog({ session, onClose }: DialogProps) {
             {reading ? (
                 <div className="dlg-section" role="status" aria-live="polite">
                     <progress className="dlg-grow" max={100} aria-label="Reading the screen" />
-                    <p className="dlg-note">Reading the screen{"\u2026"} this can take several seconds.</p>
+                    <p className="dlg-note">Reading the screen. This can take several seconds.</p>
                 </div>
             ) : state.phase === "error" ? (
                 <p className="dlg-note is-warn" role="alert">
