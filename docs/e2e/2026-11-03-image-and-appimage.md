@@ -125,3 +125,34 @@ Each suite on a freshly started container (`deploy/e2e/up-inspectable.sh`, read-
 | `apps/web/e2e/chat.e2e.mjs desktop` | 13 of 13 |
 | `apps/web/e2e/kvm.e2e.mjs` | 40 of 40 |
 | `apps/web/e2e/keep-alive.e2e.mjs` | 26 of 26 |
+
+## The image to ship: `1d49c3e2`
+
+Built with docker from a clean detached worktree of `1d49c3e2` (`yarn install --immutable` passed): `make image IMAGE_TOOL=docker IMAGE=pikvm-kvm:1d49c3e2`,
+`docker save pikvm-kvm:1d49c3e2 | gzip > ~/.cache/pikvm-wip/pikvm-kvm-1d49c3e2.tar.gz` (272,404,461 bytes, sha256
+`a667b174baf9522244167b5ad3a380f902ba730edb316f138ccf7b7158aeff20`). Reloading the tarball with `docker load` gives `sha256:9b977b949030e3f94b0bd1246054b6ddc2950460ba085f35466538fa41c9ac84`
+(888 MB), the id the build printed; podman loads the same tarball with config digest `0ad290a1d98d…`, and the suites ran on that load.
+
+Each suite on a freshly started container (`deploy/e2e/up-inspectable.sh`: read-only, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`):
+
+| Suite | Result |
+| --- | --- |
+| `deploy/e2e/chat.e2e.mjs` | 6 of 6 |
+| `apps/web/e2e/chat.e2e.mjs desktop` | 16 of 16 |
+| `apps/web/e2e/chat.e2e.mjs phone` | 16 of 17, twice (two fresh containers) |
+| `apps/web/e2e/kvm.e2e.mjs` | 40 of 40 |
+| `apps/web/e2e/keep-alive.e2e.mjs` | 26 of 26 |
+
+The one failure, both times and only on the phone profile: "a reload keeps the pictures: the same cards, the same frames, and the screen is not looked at again"
+threw `Node is either not clickable or not an Element`. It is not the image: the same suite against the host started in-process from the same commit (no container,
+`node dist/web-server.js`) fails the same case the same way. The case is `apps/web/e2e/chat.e2e.mjs:459` (after the reload it opens the sidebar and taps the first
+conversation row on a 390 px screen; the click target is not usable). Desktop passes the case.
+
+### An unwritable `/data/chat`
+
+`/data/chat` was a regular file in the data directory (which also held an old `settings.json`); everything else as above, with a healthcheck of 5 s. After 75 s:
+
+- the container is `running`, 0 restarts, health `healthy`; no `TypeError` or uncaught error in its log, only `[chat] did not start: ENOTDIR: not a directory, mkdir '/data/chat/run'`;
+- `GET /app/api/v1/state` answers `"features":{"chat":false,"agent":{"found":false,"reason":"ENOTDIR: not a directory, mkdir '/data/chat/run'"}}`, with the old `settings.json` values intact;
+- `/app/` answers 200, and `/app/chat/api/models` answers 503;
+- the KVM works: `kvm.e2e.mjs` against this container passed 15 of 15 (desktop) and 25 of 25 (phone), the same cases as the healthy image.
