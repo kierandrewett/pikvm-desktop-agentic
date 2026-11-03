@@ -2,7 +2,7 @@
  * The chat server, as a library: the host process creates it, mounts `handleRest` and `handleUpgrade` behind its own
  * gate, and starts the agent runtime through it.
  *
- * Ported from ~/dev/chat (Bun) to Node and cut down to one operator. It has no sign-in, no static files and no knowledge
+ * Ported from an upstream chat project (Bun) to Node and cut down to one operator. It has no sign-in, no static files and no knowledge
  * of PiKVM: the computer-use server arrives as a `BuiltinMcp` and the host's hooks, so this package never imports PiKVM
  * code.
  */

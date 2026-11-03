@@ -1,5 +1,5 @@
 /**
- * A scripted OpenAI-compatible model for tests and end-to-end runs of the chat server. Lifted from ~/dev/chat's
+ * A scripted OpenAI-compatible model for tests and end-to-end runs of the chat server. Lifted from an upstream chat project's
  * `e2e/fixtures/fake-llm.ts` (its chat-completions wire, directives and server-call answers), on Node, plus scenarios
  * that drive the PiKVM tools. It streams scripted replies, so agent runs are deterministic and cost nothing, and it
  * records every request so a test can assert what the agent sent: the tool list, the credentials, the prompt.

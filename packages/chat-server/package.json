@@ -2,7 +2,7 @@
     "name": "@pikvm/chat-server",
     "version": "0.0.0",
     "private": true,
-    "description": "The chat server of ~/dev/chat, ported to Node and trimmed to one operator; runs inside the PiKVM host process",
+    "description": "The chat server of an upstream chat project, ported to Node and trimmed to one operator; runs inside the PiKVM host process",
     "type": "module",
     "exports": {
         ".": "./src/index.ts"

@@ -28,7 +28,7 @@ test("the OS is only ever asked to open web and mail links", () => {
     }
     assert.equal(externalUrl("https://example.org/a?b=1"), "https://example.org/a?b=1");
     assert.equal(externalUrl("http://example.org"), "http://example.org/");
-    assert.equal(externalUrl("mailto:kieran@drewett.dev"), "mailto:kieran@drewett.dev");
+    assert.equal(externalUrl("mailto:user@example.com"), "mailto:user@example.com");
 });
 
 test("the window stays on the app's origin, and everything else goes to the browser or nowhere", () => {

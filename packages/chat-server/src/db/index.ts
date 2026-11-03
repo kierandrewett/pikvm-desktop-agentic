@@ -4,7 +4,7 @@
  * Drizzle has no node:sqlite driver, and its `sqlite-proxy` driver is asynchronous, which would put an `await` on
  * every query in code that was written against a synchronous driver. Its better-sqlite3 session only needs a client
  * with `prepare`, `transaction` and `raw`, so `NodeSqliteClient` gives it exactly that over `DatabaseSync`, and the
- * query code stays as it is in ~/dev/chat. We build the database object ourselves because the better-sqlite3 entry
+ * query code stays as it is upstream. We build the database object ourselves because the better-sqlite3 entry
  * point imports the native addon, which Electron would need rebuilt.
  */
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from "drizzle-orm";

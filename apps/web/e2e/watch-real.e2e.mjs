@@ -1,6 +1,6 @@
 // One real smoke of the screen watch: the real image model and the real Jev, on the fake kvmd's frames. The web host is the real
 // one; only the PiKVM (tools/fake-kvmd) and the push service (tools/fake-push) are fakes. The OpenRouter key is read from the
-// environment (GNOBLIN_OPENROUTER_API_KEY; load it with `set -a; . ~/.env; set +a`) and goes into Settings, Providers the way a
+// environment (OPENROUTER_API_KEY) and goes into Settings, Providers the way a
 // person's would; it is never printed.
 //
 //   node apps/web/e2e/watch-real.e2e.mjs
@@ -12,9 +12,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { drawFrames, sleep, startWatchStack, until } from "./watch-stack.mjs";
 
-const key = process.env.GNOBLIN_OPENROUTER_API_KEY;
+const key = process.env.OPENROUTER_API_KEY;
 if (!key) {
-    console.error("GNOBLIN_OPENROUTER_API_KEY is not set (set -a; . ~/.env; set +a)");
+    console.error("OPENROUTER_API_KEY is not set");
     process.exit(2);
 }
 const RULE = "tell me when the install finishes or an error shows";

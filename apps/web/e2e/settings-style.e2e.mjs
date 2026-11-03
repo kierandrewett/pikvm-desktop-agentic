@@ -1,12 +1,12 @@
 // Settings in Chat's style, against a real web host in front of tools/fake-kvmd: every Settings page on a phone (iPhone 13,
 // installed-app profile) and on desktop windows (1280x800, 1920x1080), light and dark, side by side with the matching
-// ~/dev/chat screen where there is one; and the phone's page stack: one tap on a row opens its page (from KVM, from Chat and
+// the upstream chat app's screen where there is one; and the phone's page stack: one tap on a row opens its page (from KVM, from Chat and
 // from a fresh load, with real CDP touch events), the page slides in and out (a view transition, not on desktop, not under
 // reduced motion), and a swipe from the left edge goes back with the page following the finger.
 //
 //   node apps/web/e2e/settings-style.e2e.mjs [--out docs/e2e/settings-style] [--ref docs/e2e/settings-style/chat-ref]
 //
-// See docs/e2e/README.md for how to bring the two servers up. The chat references are screenshots of ~/dev/chat's own
+// See docs/e2e/README.md for how to bring the two servers up. The chat references are screenshots of the upstream chat app's own
 // Settings in an isolated stack (ref/README in the record says how they were taken); without them the side-by-sides are skipped.
 // iOS's hover-on-first-tap cannot be emulated headless: the tap cases use real touch events, and the CSS case asserts the
 // cause instead (no :hover rule in the settings and navigation styles outside a (hover: hover) media query).
@@ -31,7 +31,7 @@ const VIEWPORTS = [
     { name: "desktop-1920x1080", width: 1920, height: 1080 },
 ];
 
-/** Page -> the ~/dev/chat screen it answers to (chat's slug). */
+/** Page -> the upstream chat app's screen it answers to (chat's slug). */
 const CHAT_PAIRS = { notifications: "notifications", display: "appearance", providers: "providers", models: "chat", account: "me" };
 
 async function check(profile, name, fn) {
@@ -46,7 +46,7 @@ async function check(profile, name, fn) {
 async function seedMacros() {
     const macros = [
         { id: "reboot", label: "Reboot", icon: "power", steps: [{ type: "chord", mods: ["ControlLeft", "AltLeft"], code: "Delete" }] },
-        { id: "login", label: "Login", pinned: false, steps: [{ type: "text", text: "kieran" }, { type: "chord", mods: [], code: "Tab" }, { type: "delay", ms: 300 }] },
+        { id: "login", label: "Login", pinned: false, steps: [{ type: "text", text: "admin" }, { type: "chord", mods: [], code: "Tab" }, { type: "delay", ms: 300 }] },
     ];
     await fetch(`${WEB}/app/api/v1/macros`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ macros }) });
 }
@@ -86,7 +86,7 @@ async function openPage(browser, vp, theme, { ios = true, account = true, reduce
         await page.setRequestInterception(true);
         page.on("request", (request) => {
             if (new URL(request.url()).pathname === "/oauth2/userinfo") {
-                request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ user: "kieran" }) });
+                request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ user: "admin" }) });
             } else request.continue();
         });
     }
@@ -127,7 +127,7 @@ async function shots(browser) {
     report.add("all", "screenshots", `${readdirSync(outDir).filter((f) => f.endsWith(".png")).length} pages in ${VIEWPORTS.length} viewports, light and dark`, true);
 }
 
-/** Our screen on the left, ~/dev/chat's on the right, as one image, rendered by the browser from the two PNGs. */
+/** Our screen on the left, the upstream chat app's on the right, as one image, rendered by the browser from the two PNGs. */
 async function sideBySides(browser) {
     if (!existsSync(refDir)) return [];
     const { readFileSync } = await import("node:fs");
@@ -145,7 +145,7 @@ async function sideBySides(browser) {
                 await page.setViewport(frame);
                 await page.setContent(
                     `<style>body{margin:0;display:flex;gap:24px;background:#888;font:12px sans-serif}figure{margin:0;flex:1;min-width:0}img{width:100%;display:block}figcaption{position:absolute;top:0;padding:2px 6px;background:#000c;color:#fff}</style>` +
-                        `<figure><figcaption>PiKVM ${ours}</figcaption><img src="${uri(a)}"></figure><figure><figcaption style="right:0">~/dev/chat ${theirs}</figcaption><img src="${uri(b)}"></figure>`,
+                        `<figure><figcaption>PiKVM ${ours}</figcaption><img src="${uri(a)}"></figure><figure><figcaption style="right:0">upstream chat ${theirs}</figcaption><img src="${uri(b)}"></figure>`,
                 );
                 await sleep(150);
                 const file = `side-by-side-${ours}-${vp.name}-${theme}.jpg`;
@@ -155,7 +155,7 @@ async function sideBySides(browser) {
         }
     }
     await page.close();
-    report.add("all", "side by side with ~/dev/chat", `${made.length} images (${Object.keys(pairs).join(", ")})`, made.length > 0);
+    report.add("all", "side by side with the upstream chat app", `${made.length} images (${Object.keys(pairs).join(", ")})`, made.length > 0);
     return made;
 }
 
@@ -432,7 +432,7 @@ const md = [
     "",
     "## Screenshots",
     "",
-    `${images.length} images in \`${outDir.replace(/^docs\/e2e\//, "")}/\`: \`<page>-<viewport>-<theme>.png\` for every page, \`macros-editor-…\` for one macro's editor, \`list-phone-…\` for the phone's list, and \`side-by-side-<page>-<viewport>-<theme>.jpg\` with ~/dev/chat's matching screen (\`chat-ref/\`) on the right.`,
+    `${images.length} images in \`${outDir.replace(/^docs\/e2e\//, "")}/\`: \`<page>-<viewport>-<theme>.png\` for every page, \`macros-editor-…\` for one macro's editor, \`list-phone-…\` for the phone's list, and \`side-by-side-<page>-<viewport>-<theme>.jpg\` with the upstream chat app's matching screen (\`chat-ref/\`) on the right.`,
     "",
 ];
 if (only !== "shots") writeFileSync(`${outDir}/last-run.md`, md.join("\n"));

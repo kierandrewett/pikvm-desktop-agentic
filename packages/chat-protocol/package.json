@@ -2,7 +2,7 @@
     "name": "@pikvm/chat-protocol",
     "version": "0.0.0",
     "private": true,
-    "description": "Wire types and the settings schema of the chat server, lifted from ~/dev/chat and trimmed to one operator",
+    "description": "Wire types and the settings schema of the chat server, lifted from an upstream chat project and trimmed to one operator",
     "type": "module",
     "sideEffects": false,
     "exports": {

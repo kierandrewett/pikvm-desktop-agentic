@@ -83,7 +83,7 @@ services:
             - kvm-data:/data
         networks: [kvm-internal]
         depends_on: [fake-kvmd, fake-model]
-        # As on bsociety: nothing in the image needs a writable root or a capability.
+        # As in the recommended production setup: nothing in the image needs a writable root or a capability.
         read_only: true
         tmpfs: [/tmp]
         cap_drop: [ALL]

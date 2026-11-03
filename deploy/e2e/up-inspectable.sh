@@ -1,14 +1,14 @@
 #!/bin/sh
 # The image for apps/web/e2e/chat.e2e.mjs (podman only). That suite reads the agent's environment, command line and files to
 # prove no secret reaches them, so they must be readable by the user running it. Under rootless podman's default mapping they
-# belong to a sub-uid; `--userns=keep-id:uid=1000,gid=1000` runs the image's user (E2E_UID, 1000 by default, as on bsociety) as THIS user instead, and /data
+# belong to a sub-uid; `--userns=keep-id:uid=1000,gid=1000` runs the image's user (E2E_UID, 1000 by default, the uid a production data volume is usually owned by) as THIS user instead, and /data
 # is a host directory (label=disable, as in compose.yml: Fedora's SELinux refuses a bind mount otherwise). Everything else is as deploy/e2e/compose.yml: read-only root, tmpfs /tmp, no capability.
 #
 #   deploy/e2e/up-inspectable.sh up      # starts fake-kvmd, fake-model (compose project E2E_PROJECT, default pikvm-e2e) and the image
 #   deploy/e2e/up-inspectable.sh down
 #
 # Prints the environment the browser suites need (E2E_WEB, E2E_KVMD, E2E_MODEL, E2E_MODEL_URL, E2E_HOST_PID, E2E_DATA, and for the screen
-# watch E2E_CONTAINER, E2E_PUSH, E2E_PUSH_AUDIENCE, E2E_OR, E2E_OR_URL). E2E_UID (default 1000, the uid of /config/apps/kvm on bsociety)
+# watch E2E_CONTAINER, E2E_PUSH, E2E_PUSH_AUDIENCE, E2E_OR, E2E_OR_URL). E2E_UID (default 1000, the uid of a typical production data volume)
 # is the user the image runs as; E2E_ENV_FILE adds `-e` variables to the kvm container (the watch run's pacing).
 set -eu
 cd "$(dirname "$0")/../.."

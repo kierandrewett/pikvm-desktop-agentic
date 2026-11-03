@@ -15,7 +15,7 @@ function id(value: string, what: string): string {
     return value;
 }
 
-/** The only user. Kept as an id so every query that names a user stays as it is in ~/dev/chat. */
+/** The only user. Kept as an id so every query that names a user stays as it is upstream. */
 export const OPERATOR_ID = "operator";
 
 function build(root: string) {

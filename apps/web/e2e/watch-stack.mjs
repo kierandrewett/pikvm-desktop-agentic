@@ -69,9 +69,9 @@ export async function drawFrames() {
         list
             .map((l, i) => `<text x="24" y="${52 + i * 26}" font-family="DejaVu Sans Mono, monospace" font-size="18" fill="${l.c ?? "#d0d0d0"}">${esc(l.t)}</text>`)
             .join("");
-    const head = `<rect width="1280" height="720" fill="#1a1b26"/><rect width="1280" height="34" fill="#16161e"/><text x="16" y="23" font-family="DejaVu Sans, sans-serif" font-size="15" fill="#a9b1d6">Terminal - kieran@build-box: ~</text>`;
+    const head = `<rect width="1280" height="720" fill="#1a1b26"/><rect width="1280" height="34" fill="#16161e"/><text x="16" y="23" font-family="DejaVu Sans, sans-serif" font-size="15" fill="#a9b1d6">Terminal - user@build-box: ~</text>`;
     const base = [
-        { t: "kieran@build-box:~$ sudo apt install -y postgresql-16", c: "#9ece6a" },
+        { t: "user@build-box:~$ sudo apt install -y postgresql-16", c: "#9ece6a" },
         { t: "Reading package lists... Done" },
         { t: "Building dependency tree... Done" },
         { t: "The following NEW packages will be installed: postgresql-16 postgresql-client-16" },
