@@ -1,11 +1,11 @@
-# Agent chat map (pikvm-desktop-agentic <-> ~/dev/chat)
+# Agent chat map (the previous console <-> the upstream chat project)
 
 > **Superseded (2026-11-03).** This map described the Python harness, its `agent/frontend` UI and `packages/chat-ui`, and advised
 > reusing them. All three are deleted: Chat is `packages/chat-web` on `packages/chat-server` inside our server, with the
 > PiKVM tools in `packages/pikvm-mcp`. See `docs/rebuild/chat-integration.md`. Kept as history only.
 
 Read-only investigation. `[INFERENCE]` marks anything not directly read.
-Paths: `PK` = ~/dev/pikvm-desktop-agentic, `CH` = ~/dev/chat.
+Paths: `PK` = the previous console checkout, `CH` = the upstream chat project.
 
 ## 0. Headline findings
 
@@ -20,7 +20,7 @@ Paths: `PK` = ~/dev/pikvm-desktop-agentic, `CH` = ~/dev/chat.
 4. CH web is deeply coupled (TanStack Query/Router, Fluent l10n, its own WebSocket protocol, custom Tailwind tokens,
    Phosphor icon package, no LICENSE file). Copy *ideas and small leaf components*, not the thread/composer wholesale.
 
-## 1. ~/dev/chat
+## 1. The upstream chat project
 
 ### Stack
 - Bun monorepo: `CH/package.json:5-9` workspaces `apps/*`, `packages/*`, `plugins/*`; TS `^7.0.2` (`:19`).
@@ -57,11 +57,11 @@ Paths: `PK` = ~/dev/pikvm-desktop-agentic, `CH` = ~/dev/chat.
 
 ### Licence
 - **No `LICENSE` file** at `CH/` (glob of `LICENSE*` returned only nothing in repo root); no `"license"` field in
-  `CH/package.json`, `apps/web/package.json`, `packages/ui/package.json`; `.git/config` has no remote (local repo).
+  `CH/package.json`, `apps/web/package.json`, `packages/ui/package.json`.
   `CH/README.md` never mentions a licence. `CH/docs/spec/genui-openui.md:44-46` only discusses third-party MIT deps.
-- Ownership: README/AGENTS read as Kieran's own project [INFERENCE - no author/licence metadata read]. Its UI is declared a
-  clean-room reproduction of a third-party product from observation (`AGENTS.md:24-26`), so copying CH UI is Kieran's
-  decision, but a downstream-open-source release of PK could inherit that provenance question.
+- Ownership: `CH` was written by the same author as this project [INFERENCE - no author/licence metadata read], so copying its
+  code was a decision for that author. Its UI is declared a clean-room reproduction of a third-party product from observation
+  (`AGENTS.md:24-26`), so a downstream open-source release of PK could inherit that provenance question.
 - Third-party icons: Phosphor (MIT) (`CH/docs/spec/file-icons.md:20-22`); Geist/Inter fonts via @fontsource (OFL).
 
 ### Best candidates to copy (value/effort)

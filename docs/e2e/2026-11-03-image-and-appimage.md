@@ -34,7 +34,7 @@ fail under `--format docker` ("no such file") until it was renamed.
 
 ## The Linux AppImage
 
-`node scripts/package.mjs --formats appimage` (pkgsmith from `~/dev/pkgsmith`): 290.7 MiB (304,777,720 bytes). `resources/` holds `app`, `apps` and
+`node scripts/package.mjs --formats appimage` (pkgsmith, https://github.com/kierandrewett/pkgsmith): 290.7 MiB (304,777,720 bytes). `resources/` holds `app`, `apps` and
 `omp` (277 MB, `omp/18.14.2`); no `agent/`. The omp step fails the package on a bad checksum: with the pin changed to a wrong sha256 the run
 exited non-zero from `fetch-omp.mjs` and no tree was left with an `omp/`.
 
@@ -66,7 +66,7 @@ S4's `--mode rpc-ui` fix (`867d7d65`) lists the model correctly. Clear it betwee
 ## The full browser suites against the image (commit `34ab54c5`)
 
 From a clean detached worktree of `34ab54c5` (`yarn install --immutable` passed, so the committed lock is good), `make image` (podman, 55 s, 600 MB, image id
-`6d1e94321ab3`), then the image with the bsociety posture beside `tools/fake-kvmd` and `tools/fake-model`: `deploy/e2e/up-inspectable.sh up`
+`6d1e94321ab3`), then the image with the recommended production posture (`docs/deploy-web.md`) beside `tools/fake-kvmd` and `tools/fake-model`: `deploy/e2e/up-inspectable.sh up`
 (read-only root, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, `--userns=keep-id:uid=10001` so the suite can read the agent's process and
 `/data`, which is a host directory). Chrome 154 through puppeteer-core. Each suite ran against a freshly started container.
 
@@ -103,8 +103,8 @@ What it took, in order:
 When `/data` is not writable by the container's user, the host logs `[chat] did not start: EACCES: permission denied, mkdir '/data/chat/run'` and
 carries on serving the KVM, and then, about 30 seconds later, a timer reads a setting from the chat database that never opened and the process dies with
 `TypeError: Cannot read properties of undefined (reading 'select')` (`getRow`, `resolveSetting`, `setting`), so the container restarts in a loop. This is
-the failure bsociety would hit if the volume's owner is not the container's uid (`/config/apps/kvm` belongs to uid 1000 and the image runs as 10001 unless
-`user: "1000:1000"` is set; see the cutover in `docs/deploy-web.md`). Exercised with the image as uid 1000 over a volume holding an old `settings.json` and
+the failure a deployment would hit if the volume's owner is not the container's uid (the image runs as 10001 unless
+`user: "<uid>:<gid>"` is set to the volume's owner; see "Volume ownership" in `docs/deploy-web.md`). Exercised with the image as uid 1000 over a volume holding an old `settings.json` and
 `macros.json`: `[chat] up`, `chat/` created 0700, the old files unchanged, `/app/api/v1/state` reports `chat: true`.
 
 ## The image to ship: `17317f5b`
@@ -167,7 +167,7 @@ Built with docker from a clean detached worktree of `10a037e9` (`yarn install --
 **Unit tests and typechecks** from the same worktree: root `node scripts/test.mjs` 422 of 422; `tsc --noEmit` clean in `chat-protocol`, `chat-server`, `chat-web`,
 `icons`, `kvm-engine`, `pikvm-mcp` and `apps/web`; vitest: chat-protocol 9, chat-server 59, chat-web 21, kvm-engine 618, pikvm-mcp 71, apps/web 458, all passing.
 
-**Posture.** `deploy/e2e/up-inspectable.sh` now runs the image as the production user: `--user 1000:1000` (the uid of `/config/apps/kvm` on bsociety; `E2E_UID`),
+**Posture.** `deploy/e2e/up-inspectable.sh` now runs the image as a typical production user: `--user 1000:1000` (`E2E_UID`),
 `PIKVM_AUTH=proxy`, read-only root, tmpfs `/tmp`, `--cap-drop ALL`, `no-new-privileges`, with the fake kvmd, model, push service and OpenRouter beside it. `--userns=keep-id`
 maps that uid to the invoking user so the suites can read the agent's process and `/data`. The screen-watch run also gets the watch's pacing and
 `PIKVM_PUSH_ALLOW_LOCAL=1` through `E2E_ENV_FILE` (a test-only setting, so a push endpoint on the fake service is accepted); no other suite has them.

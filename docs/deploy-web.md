@@ -31,7 +31,7 @@ Built from the repository root, in three stages:
    `dist/`, `apps/web/dist` and the binary at `/opt/omp/omp`.
 
 It runs as uid 10001, writes only `/data` and `/tmp`, needs no capability, and has a healthcheck on `/app/login`.
-The default posture is the one bsociety uses:
+The recommended posture is:
 
 ```yaml
 read_only: true
@@ -172,86 +172,37 @@ reaches it from Apple, not through the proxy. The host must be able to reach the
   `push-subscriptions.json` to stop the notifications and keep the watch's log.
 - To stop all spending: remove the OpenRouter provider in Settings, Providers. Nothing is asked of a model without it.
 
-## The bsociety cutover
+## Running it
 
-Not applied from this repo: these are the exact steps for `/srv/machines/bsociety/kvm/compose.yml`. The cutover replaces two
-containers (`kvm`, `kvm-agent`) with one and takes a few seconds of downtime. Everything before step 3 changes nothing that runs.
+The host has no login of its own, so run it behind an authenticating reverse proxy (oauth2-proxy with your identity provider,
+Authelia, or similar) and make that proxy the only route to it. A layout that works:
 
-What is on bsociety today (read 2026-11-03): `kvm` from `pikvm-web:latest` (203 MB, built from `./app`, user `node`, uid 1000) with
-`/config/apps/kvm:/data` (owned by `kieran`, uid 1000, mode 755: `settings.json`, `macros.json`), and `kvm-agent` from
-`pikvm-agent:latest` (1.61 GB) with `/config/apps/kvm-agent:/data` (uid 10001, mode 700).
+- one Docker network (`kvm-internal` below) shared by the proxy and the host, with nothing else published: the host's port
+  is never mapped to the machine's own interfaces;
+- the proxy terminates TLS (or sits behind something that does) and forwards to `http://kvm:8080` with the original `Host`
+  header intact;
+- the proxy lets the few paths a browser fetches without a session through unauthenticated (the web manifest, the service
+  worker, the app icons and the iPhone launch images; the exact list is under "Public paths" in the README). Everything
+  else, Chat's API and sockets included, stays behind the sign-in;
+- `PIKVM_AUTH=proxy` tells the host that this is so. Without it the host binds only to loopback.
 
-### How the image gets there: `docker save | ssh docker load`
-
-Build it here, from a clean checkout of the commit that was tested, and send the image itself. Why, and not a build on bsociety
-from a `git archive`:
-
-- What is deployed is byte-for-byte what the e2e suites ran against: the image id is compared after the load (step 1).
-- A build on bsociety needs the toolchain's network at that moment (npm registry, GitHub for omp, Debian mirrors) and a build
-  cache on the production host, and a failure there leaves a half-built tag. A transfer is one compressed stream of the final image.
-- The compose file stops building anything (`build:` goes), so nothing on bsociety can drift from the repository.
-
-The cost is that the image is rebuilt on a workstation with docker; the tag carries the commit so it is never ambiguous.
-
-### 1. Build and load the image (no downtime)
-
-```sh
-# on the workstation, in a clean checkout of the commit to ship (not a dirty tree)
-git status --short                                  # must print nothing
-SHA=$(git rev-parse --short=8 HEAD)
-make image IMAGE_TOOL=docker IMAGE=pikvm-kvm:$SHA   # about a minute; fails if omp's sha256 does not match deploy/omp.lock
-docker image inspect -f '{{.Id}}' pikvm-kvm:$SHA    # note this id
-docker save pikvm-kvm:$SHA | gzip | ssh bsociety 'gunzip | docker load'
-ssh bsociety "docker image inspect -f '{{.Id}}' pikvm-kvm:$SHA"   # must be the same id
-```
-
-### 2. Keep the way back (no downtime)
-
-```sh
-# on bsociety
-cd /srv/machines/bsociety
-docker tag pikvm-web:latest   pikvm-web:pre-chat
-docker tag pikvm-agent:latest pikvm-agent:pre-chat
-cp -a kvm/compose.yml kvm/compose.yml.pre-chat
-cp -a .env .env.pre-chat                    # holds KVM_HARNESS_TOKEN, which the rollback needs
-cp -a /config/apps/kvm /config/apps/kvm.pre-chat   # settings.json and macros.json only: small
-docker image ls | grep -E 'pikvm-(web|agent)'      # pre-chat and latest show one image id each
-```
-
-`/config/apps/kvm-agent` (the old provider keys and CLI sign-ins) is left exactly as it is.
-
-### 3. Edit `kvm/compose.yml`
-
-On `kvm`:
-
-- delete the `build:` block, and set `image: pikvm-kvm:<SHA>` (the tag from step 1);
-- delete `PIKVM_HARNESS_URL` and `PIKVM_HARNESS_TOKEN` (and their comment);
-- add `user: "1000:1000"`. This is required: the image's own user is 10001, but `/config/apps/kvm` belongs to uid 1000 (the old
-  image ran as `node`, uid 1000). Without it Chat cannot create `/data/chat` and the host stops. With it the volume needs no
-  `chown`, and the old image can still use it, which is what makes the rollback a pure file swap;
-- keep `PIKVM_URL`, `PIKVM_USER`, `PIKVM_PASSWORD`, `PIKVM_AUTH: proxy`, `PIKVM_KEYBOARD_LAYOUT`, `PORT`, the `/config/apps/kvm:/data`
-  volume, `kvm-internal`, `read_only`, `tmpfs: /tmp`, `cap_drop: [ALL]` and `no-new-privileges`. No capability, no `seccomp` change.
-
-Delete the whole `kvm-agent` service. `kvm-oauth2-proxy` is untouched, and so are its `SKIP_AUTH_ROUTES`: Chat's API and socket are under
-`/app/` and stay behind the sign-in. Leave `KVM_HARNESS_TOKEN` in `.env` until the soak is over (step 6): the rollback needs it.
-
-Result:
+### A compose file for the host
 
 ```yaml
+services:
     kvm:
-        image: pikvm-kvm:<SHA>
-        user: "1000:1000"
+        image: pikvm-kvm:<tag>              # built with `make image`, see above
         container_name: kvm
         restart: unless-stopped
         environment:
-            PIKVM_URL: https://pikvm.tail93a99.ts.net
+            PIKVM_URL: https://pikvm.example.ts.net
             PIKVM_USER: admin
-            PIKVM_PASSWORD: <as it is now>
+            PIKVM_PASSWORD: ${PIKVM_PASSWORD:?set it in .env}
             PIKVM_AUTH: proxy
             PIKVM_KEYBOARD_LAYOUT: us
             PORT: "8080"
         volumes:
-            - /config/apps/kvm:/data
+            - /path/to/kvm-data:/data       # the only thing to back up
         networks:
             - kvm-internal
         read_only: true
@@ -261,72 +212,66 @@ Result:
             - ALL
         security_opt:
             - no-new-privileges:true
+
+    # your authenticating proxy goes here, on the same network, and is the only service that publishes a port
+    # (for example kvm-oauth2-proxy, upstream http://kvm:8080, serving https://kvm.example.com)
+
+networks:
+    kvm-internal:
 ```
 
-### 4. Switch
+The model provider is called from this container, so `kvm-internal` must have outbound internet: do not declare it `internal`.
+
+**Volume ownership.** The image runs as uid 10001 and writes `/data`, including the `chat/` directory it creates on first
+start. Either give that uid the volume (`chown -R 10001:10001 /path/to/kvm-data`), or add `user: "<uid>:<gid>"` to the service
+to run as the volume's own owner. With neither, Chat cannot create `/data/chat` and the host stops at start.
+
+### Image delivery: `docker save | ssh docker load`
+
+To run exactly the image the e2e suites ran against, build it in a clean checkout of the tested commit and send the image
+itself rather than building on the server:
+
+- the image id is compared after the load, so what is deployed is byte-for-byte what was tested;
+- a build on the server needs the toolchain's network at that moment (npm registry, GitHub for omp, Debian mirrors) and a build
+  cache there, and a failure leaves a half-built tag. A transfer is one compressed stream of the final image;
+- the compose file stops building anything, so nothing on the server drifts from the repository.
 
 ```sh
-cd /srv/machines/bsociety/kvm
-docker compose config -q && echo compose ok         # the file parses and no ${VAR:?} is missing
-docker stop kvm-agent && docker rm kvm-agent        # the service is gone from the file, so compose would only warn about it
-docker compose up -d kvm                            # recreates kvm from the new image; kvm-oauth2-proxy is not restarted
+# on the workstation, in a clean checkout of the commit to ship (not a dirty tree)
+git status --short                                  # must print nothing
+SHA=$(git rev-parse --short=8 HEAD)
+make image IMAGE_TOOL=docker IMAGE=pikvm-kvm:$SHA   # fails if omp's sha256 does not match deploy/omp.lock
+docker image inspect -f '{{.Id}}' pikvm-kvm:$SHA    # note this id
+docker save pikvm-kvm:$SHA | gzip | ssh your-server 'gunzip | docker load'
+ssh your-server "docker image inspect -f '{{.Id}}' pikvm-kvm:$SHA"   # must be the same id
 ```
 
-### 5. Verify
+### Verify
 
 ```sh
-docker inspect -f '{{.State.Health.Status}} {{.HostConfig.ReadonlyRootfs}} {{.Config.User}}' kvm   # healthy true 1000:1000 (after ~15 s)
+docker inspect -f '{{.State.Health.Status}} {{.HostConfig.ReadonlyRootfs}} {{.Config.User}}' kvm   # healthy true <user> (after ~15 s)
 docker logs kvm 2>&1 | grep -E '\[web\]|\[chat\]'    # "[web] console on http://0.0.0.0:8080/ ..." and "[chat] up, agent /opt/omp/omp"
-ls -ld /config/apps/kvm/chat                         # created by the container: owner kieran, mode 700
-curl -sI https://kvm.drewett.dev/app/manifest.webmanifest | head -1                 # HTTP/2 200 (the signed-out route)
+curl -sI https://kvm.example.com/app/manifest.webmanifest | head -1   # HTTP/2 200 (the signed-out route)
 ```
 
-Then in a signed-in browser at `https://kvm.drewett.dev/app/`:
+Then in a signed-in browser at `https://kvm.example.com/app/`:
 
-1. The KVM tab shows the picture, and macros and the jiggler setting are as they were (`settings.json` and `macros.json` are read as before).
-2. Settings, Providers: add the model key again (the old sidecar's keys are not migrated). The models appear in Chat.
+1. The KVM tab shows the picture.
+2. Settings, Providers: add a model key. The models appear in Chat.
 3. Chat: send a message and read the reply. If Chat says it is offline, the socket was refused: it needs the browser's `Origin` to equal the
-   `Host` it reaches the container with, or `X-Forwarded-Host`; Caddy and oauth2-proxy keep the original `Host` by default, so this only
+   `Host` it reaches the container with, or `X-Forwarded-Host`; most proxies keep the original `Host` by default, so this only
    happens if a hop was changed. `docker logs kvm` shows nothing for a refused socket; the browser's network panel shows a 403 on `/app/chat/ws`.
 4. Ask the agent to look at the screen. The KVM tab shows "Agent is working", a tap on the picture takes control back, and Stop ends the run.
 
-`docker stats kvm --no-stream` once while a conversation runs: the container now holds the host plus one omp process per active conversation,
-and the compose file sets no memory limit.
+`docker stats kvm --no-stream` once while a conversation runs: the container holds the host plus one omp process per active conversation,
+and the compose file above sets no memory limit.
 
-### Rollback
+### Updating and rolling back
 
-At any time, and the data stays compatible because the container ran as the volume's own uid and nothing else wrote to it:
-
-```sh
-cd /srv/machines/bsociety
-docker compose -f kvm/compose.yml stop kvm && docker rm kvm
-cp kvm/compose.yml kvm/compose.yml.chat                  # keep the edited file for the next attempt
-cp kvm/compose.yml.pre-chat kvm/compose.yml
-cp .env.pre-chat .env                                     # only if .env was edited
-docker tag pikvm-web:pre-chat   pikvm-web:latest          # in case `latest` moved
-docker tag pikvm-agent:pre-chat pikvm-agent:latest
-cd kvm && docker compose up -d kvm kvm-agent              # no --build: the images are the ones tagged above
-docker inspect -f '{{.State.Health.Status}}' kvm kvm-agent   # healthy healthy
-```
-
-`/config/apps/kvm/chat/` stays behind and is ignored by the old image. `settings.json` and `macros.json` are read by both; if the old host
-misreads `settings.json` after a run of the new one, restore the copy from step 2:
-`mv /config/apps/kvm /config/apps/kvm.post-chat && cp -a /config/apps/kvm.pre-chat /config/apps/kvm` (macros edited since step 2 are in
-`kvm.post-chat/macros.json`). `/config/apps/kvm-agent` was never touched, so the old Chat history and keys are as they were.
-
-### 6. After the soak (a week of use, no rollback needed)
-
-```sh
-# on bsociety
-sed -i '/^KVM_HARNESS_TOKEN=/d' /srv/machines/bsociety/.env
-rm -rf /srv/machines/bsociety/kvm/agent-app /srv/machines/bsociety/kvm/app
-docker rmi pikvm-agent:latest pikvm-agent:pre-chat pikvm-web:pre-chat pikvm-web:latest
-rm -rf /config/apps/kvm.pre-chat
-# /config/apps/kvm-agent holds provider keys and CLI sign-ins in the clear: copy anything wanted, then
-sudo rm -rf /config/apps/kvm-agent
-```
-
-The model needs outbound internet; `kvm-internal` has it because it is not declared `internal`.
+Before switching to a new image, keep the way back: tag the running image (`docker tag pikvm-kvm:<old> pikvm-kvm:previous`) and copy the
+data volume's small files (`settings.json`, `macros.json`) aside. To roll back, point the compose file at the old tag and
+`docker compose up -d kvm`. The data stays compatible between builds that share a data layout; if an older build misreads
+`settings.json` after a run of the new one, restore the copy.
 
 ## Sandboxing the agent
 

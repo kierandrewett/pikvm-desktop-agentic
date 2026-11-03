@@ -1,12 +1,12 @@
 # PiKVM app rebuild
 
-Branch `feat/app-rebuild`, worktree `~/dev/pikvm-rebuild`. The main checkout keeps
-Kieran's uncommitted work untouched; this branch merges when the rebuild is done.
+Branch `feat/app-rebuild`. The main checkout keeps uncommitted work untouched; this
+branch merges when the rebuild is done.
 
 Inputs, kept beside this plan while it is in flight:
 - `docs/rebuild/console-inventory.md`: every console feature, endpoint, route, IPC
   channel, test pin and dead path, with file:line.
-- `docs/rebuild/agent-chat-map.md`: the old agent workspace and ~/dev/chat (superseded; see below).
+- `docs/rebuild/agent-chat-map.md`: the old agent workspace and the upstream chat project (superseded; see below).
 - `docs/rebuild/chat-integration.md`: how Chat, the agent and the PiKVM MCP were integrated, with the deletions (done).
 
 ## 1. What the product is
@@ -17,8 +17,8 @@ the same:
 
 | Host | Shell | Has |
 |---|---|---|
-| Desktop (Electron, fsociety) | native window | the chat server and agent (omp, bundled), native menus, window focus |
-| Web host (container, bsociety) | browser, Pocket ID in front | KVM; Chat and its agent in the same container |
+| Desktop (Electron) | native window | the chat server and agent (omp, bundled), native menus, window focus |
+| Web host (container) | browser, an authenticating proxy in front | KVM; Chat and its agent in the same container |
 | Phone | installed PWA | touch, soft keyboard, dictation, background suspends |
 
 Today it is a set of parts bolted together: an 11k-line closure (`console.js`)
@@ -45,7 +45,7 @@ another domain's state.
    picture and HID units. Pure maths plus one transform.
 5. **Device control**: ATX, mass storage, GPIO, stream settings, OCR, logs,
    health. Request/response over kvmd HTTP plus state from the target link.
-6. **Agent**: the chat server (`packages/chat-server`, from ~/dev/chat) inside our Node process, omp as the agent
+6. **Agent**: the chat server (`packages/chat-server`, from an upstream chat project) inside our Node process, omp as the agent
    program, the PiKVM computer-use MCP (`packages/pikvm-mcp`, on `@pikvm/kvm-engine`), conversation, approvals,
    providers and models. Chat's pane and settings pages are `packages/chat-web`.
 7. **Host**: settings, auth, PWA lifecycle (wake lock, visibility, offline),
@@ -69,7 +69,7 @@ another domain's state.
   the kvmd messages we read and send. Server and client import the same types.
 - **One route table** on the server, in one file, reviewed as a whole.
 - **Same look as the desktop app**: its tokens, titlebar language, density. The
-  conversation interface and its server come out of `~/dev/chat`, Kieran's own repo, as
+  conversation interface and its server come out of an upstream chat project as
   workspace packages (`chat-protocol`, `chat-server`, `chat-web`); Phosphor is the icon set.
 
 ## 4. Target layout
@@ -86,7 +86,7 @@ apps/web/                 the app (Vite, React 19, Tailwind 4, TanStack, Effect)
   src/chat/               the Chat route (host states around @pikvm/chat-web's ChatPane)
   src/settings/           settings pages
 packages/contracts/       Effect Schemas: our API + kvmd messages
-packages/chat-protocol/   the chat wire protocol (from ~/dev/chat)
+packages/chat-protocol/   the chat wire protocol (from an upstream chat project)
 packages/chat-server/     the chat server, run inside our process; spawns omp per conversation
 packages/chat-web/        the conversation pane and the Providers, Models and Agent settings pages
 packages/pikvm-mcp/       the PiKVM computer-use MCP server
@@ -141,7 +141,7 @@ manifest and the docs move in the same change. `/_agent/*` goes away.
   touching the real target, which is somebody's working machine.
 - Browser E2E (phone and desktop profiles) against the fake kvmd, recorded under
   `docs/e2e/`.
-- Each phase deploys to kvm.drewett.dev and is checked there signed in.
+- Each phase is deployed behind the authenticating proxy and checked there signed in.
 
 ## 8. Phases
 
@@ -160,8 +160,7 @@ Each ends committed, deployed and working.
 5. **Providers.** Chat's Providers, Models and Agent settings pages on the chat server's write-only key store
    (done). Signing in with an account instead of a key is an open question in `docs/rebuild/chat-integration.md`.
 6. **Desktop.** Electron loads `/app/`, one slim preload, the settings window
-   goes. Packaging moves to **pkgsmith** (`~/dev/pkgsmith`, github
-   kierandrewett/pkgsmith): one `pkgsmith.star` producing the major formats for
+   goes. Packaging moves to **pkgsmith** (https://github.com/kierandrewett/pkgsmith): one `pkgsmith.star` producing the major formats for
    each OS from per-platform Electron builds (Linux: rpm, deb, Arch, AppImage,
    Flatpak; macOS: dmg; Windows: msi and nsis). It replaces scripts/make-rpm.mjs.
 

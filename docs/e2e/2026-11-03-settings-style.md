@@ -1,6 +1,6 @@
 # E2E run: Settings in Chat's style (2026-11-03)
 
-Every Settings page of apps/web now looks and behaves like ~/dev/chat's settings. This record: what was decided, the browser run, and the screenshots (every page, phone and desktop, light and dark, beside the matching ~/dev/chat screen).
+Every Settings page of apps/web now looks and behaves like the upstream chat app's settings. This record: what was decided, the browser run, and the screenshots (every page, phone and desktop, light and dark, beside the matching upstream chat screen).
 
 ## Decisions
 
@@ -44,7 +44,7 @@ Also run against this build, green: `settings-macros.e2e.mjs` (phone and desktop
 
 `settings-style/<page>-<viewport>-<theme>.png` for connection, keep-awake, notifications, keyboard, input, macros (plus `macros-editor-…`), providers, models, agent, display, audio, account, about; viewports `phone` (iPhone 13), `desktop-1280x800`, `desktop-1920x1080`; themes `light` and `dark`; `list-phone-…` is the phone's list. Account is listed only behind a sign-in proxy: the run answers the proxy probe like oauth2-proxy does.
 
-Beside ~/dev/chat (`settings-style/side-by-side-<page>-<viewport>-<theme>.jpg`, ours left, Chat's right; Chat's screens are in `settings-style/chat-ref/`, taken from ~/dev/chat's own web app in an isolated stack with its e2e harness, signed in as a throwaway admin; sources: `apps/web/src/components/settings/{settings-layout,settings-section}.tsx`, `kit/*`, `sidebar-kit/sidebar-kit.tsx` in ~/dev/chat):
+Beside the upstream chat app (`settings-style/side-by-side-<page>-<viewport>-<theme>.jpg`, ours left, Chat's right; Chat's screens are in `settings-style/chat-ref/`, taken from the upstream chat project's own web app in an isolated stack with its e2e harness, signed in as a throwaway admin; sources: `apps/web/src/components/settings/{settings-layout,settings-section}.tsx`, `kit/*`, `sidebar-kit/sidebar-kit.tsx` in the upstream project):
 
 | Ours | Chat's |
 | --- | --- |

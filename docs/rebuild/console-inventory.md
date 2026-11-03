@@ -3,7 +3,7 @@
 > **Historical snapshot** of the console before the rebuild. The agent daemon, harness and workspace routes, the backend-status pill and the
 > cursor report listed here were deleted with the Python agent (`docs/rebuild/chat-integration.md`, S6).
 
-Read-only investigation of `~/dev/pikvm-desktop-agentic`. Line refs are to the working tree. `[INFERENCE]` = not directly confirmed by running code.
+Read-only investigation of the previous console checkout. Line refs are to its working tree. `[INFERENCE]` = not directly confirmed by running code.
 `console.js` below means `src/views/console.js` (10 987 lines, one IIFE; `"use strict"`, `var`-style, no modules). Other views: `console.html` (700), `console.css` (~2 950), `key-chord.js`, `webrtc.js`, `janus.js`+`adapter.js` (vendored), `touch.js`, `sw.js`, `terminal.html`, `settings-console.html`. Agent chat map is in `local://agent-chat-map.md` (not repeated).
 
 ## 0. Headlines

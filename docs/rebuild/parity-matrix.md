@@ -7,7 +7,7 @@ Providers, and the desktop bridge (`packages/contracts/src/desktop.ts`).
 **Platforms**
 
 - **Desktop**: the Electron app (`window.pikvmDesktop` exists).
-- **Web**: a browser on a computer, including the hosted `kvm.drewett.dev` (Docker, behind oauth2-proxy).
+- **Web**: a browser on a computer, including a hosted web host (Docker, behind oauth2-proxy).
 - **Mobile**: the same web app on a phone, installed as a PWA or in a browser (coarse pointer: the touch dock).
 
 **Cells** are one of:
@@ -142,7 +142,7 @@ matrix records its rows and defers to those documents for evidence.
 | The screenshot the agent took on its PiKVM card: a thumbnail, the click, move, scroll or drag point drawn on it, a tap opens it full size (a sheet on a phone, a dialog on a desktop), and it is still there after a reload | available | available | available | the old harness chat's computer sheet. The chat server keeps the frames per conversation (bounded, deleted with it) and serves them only inside it. T `pikvm-step.test.tsx`, `chat-pane.test.tsx`, `packages/chat-server/src/storage/frames.test.ts`, `packages/chat-server/test/e2e.test.ts`, `packages/pikvm-mcp/src/handler.test.ts`, `packages/chat-protocol/src/frames.test.ts`, `tests/chat-host.test.ts`, `tests/routes.test.ts`; E2E `docs/e2e/2026-11-03-chat-integrated.md` |
 | "Chat is not available" page when the host's chat server is not up, and a note when the agent program is missing | available | available | available | T `chat-route.test.tsx` |
 | Provider connections inside Chat | available | available | available | the same pages as Settings -> Providers |
-| Shared terminal (the old xterm panel over `/app/terminal`) | removed: chat replaces the terminal | removed: chat replaces the terminal | removed: chat replaces the terminal | Kieran's decision. The PTY sessions, `/app/terminal`, the xterm bundle, `features.terminal` and the GUI-MCP ticket for shell agents are deleted. The Chat tab (`packages/chat-web`) is the one agent surface |
+| Shared terminal (the old xterm panel over `/app/terminal`) | removed: chat replaces the terminal | removed: chat replaces the terminal | removed: chat replaces the terminal | A project decision. The PTY sessions, `/app/terminal`, the xterm bundle, `features.terminal` and the GUI-MCP ticket for shell agents are deleted. The Chat tab (`packages/chat-web`) is the one agent surface |
 
 ## 8. The desktop bridge (`packages/contracts/src/desktop.ts`)
 
@@ -180,7 +180,7 @@ The four sweeps the audit was asked to make, and what each found.
 
 | | What | Why it is not done | What unblocks it |
 |---|---|---|---|
-| B1 | Removed: chat replaces the terminal. | Decision from Kieran: no terminal on any platform. Nothing is blocked; the row stays so the number is not reused. | |
+| B1 | Removed: chat replaces the terminal. | Project decision: no terminal on any platform. Nothing is blocked; the row stays so the number is not reused. | |
 | B2 | ~~Screen wake lock inside the desktop app.~~ Done: the bridge member `keepDisplayAwake(on)` (Electron `powerSaveBlocker`, "prevent-display-sleep", one per window, released when the window closes) is driven by `useWakeLock` on the web wake lock's visibility rule. | | |
 
 ## Evidence index

@@ -1,4 +1,4 @@
-# Chat integration plan: ~/dev/chat becomes the Chat tab
+# Chat integration plan: an upstream chat project becomes the Chat tab
 
 Status: executed through S6, on branch `feat/app-rebuild`. Written 2026-11-02, status updated 2026-11-03.
 
@@ -36,17 +36,17 @@ Not covered by the S4 acceptance run: the `bwrap --unshare-net` loopback test (t
 the desktop (Electron) path, which S5 smoke-tests, and a real PiKVM.
 
 This replaces two earlier positions: the "patterns only, do not copy" rule in `docs/PLAN.md` section 3, and the
-"reuse `agent/frontend`" advice in `docs/rebuild/agent-chat-map.md` section 6. Kieran's decisions:
+"reuse `agent/frontend`" advice in `docs/rebuild/agent-chat-map.md` section 6. The decisions:
 
-- The Chat tab takes the whole conversation interface out of `~/dev/chat`, with its server components, and
+- The Chat tab takes the whole conversation interface out of the upstream chat project, with its server components, and
   integrates it into our server.
 - One Dockerfile for everything, no agent sidecar. The agent is chat's, so everything is TypeScript.
 - Computer use is a PiKVM computer-use MCP server in TypeScript, built on `@pikvm/kvm-engine`.
-- `~/dev/chat` is Kieran's own repo, so copying its code is allowed.
+- The upstream chat project has the same author as this one, so copying its code is allowed.
 - Phosphor icons across the whole app, through chat's `@chat/icons`.
 
 Evidence markers. **Verified** means read from code, or run on this machine on 2026-11-02. `[INFERENCE]` means not
-observed; the slice named beside it must prove it. Paths: `CH` is `~/dev/chat`, `PK` is this repo.
+observed; the slice named beside it must prove it. Paths: `CH` is the upstream chat project, `PK` is this repo.
 
 ## 0. The recommendation in one page
 
@@ -61,12 +61,12 @@ observed; the slice named beside it must prove it. Paths: `CH` is `~/dev/chat`, 
    reaches models and the PiKVM only through a separate listener, the *agent surface*, that needs a bearer token.
 5. **The PiKVM MCP server runs in the server process**, mounted on the agent surface. It asks for approval through
    MCP elicitation in the Chat thread. A person moving the mouse ends agent control, detected server-side.
-6. **One image**, `deploy/Dockerfile`. The bsociety compose loses `kvm-agent`. The bubblewrap sandbox is opt-in
+6. **One image**, `deploy/Dockerfile`. A deployment's compose file loses `kvm-agent`. The bubblewrap sandbox is opt-in
    there, because it needs relaxed seccomp.
 7. **Slices.** Wave 1 is four independent agents: icons, chat server on Node, PiKVM MCP, chat UI lift. Wave 2 is
    integration, packaging and the cutover that deletes Python and the sidecar.
 
-## 1. Inventory: what to lift from ~/dev/chat
+## 1. Inventory: what to lift from the upstream chat project
 
 Sizes are `wc -l` counts (verified). The chat server is 24,246 lines in `apps/server/src`. The web app is about
 90,000 lines in `apps/web/src`.
@@ -242,9 +242,9 @@ Verified facts:
 - Chat runs it as `[bun, entry, "--config", ...]` with the server's own Bun, and mounts the Bun directory and
   `node_modules` read-only into the sandbox (`agent/sandbox.ts:118-122`).
 - Upstream CI builds standalone binaries for darwin x64 and arm64, linux x64 and arm64 with musl variants of each,
-  and windows x64 and arm64 (`~/dev/omp/upstream/.github/workflows/ci.yml:749-793`).
-- Kieran's fork (`~/dev/omp`, `just build`) builds `dist/omp-linux-x64` (242 MB), and musl variants with `LIBC=musl`.
-- `~/.local/bin/omp` here is such a binary. Its `--help` lists `--mode`, `--config`, `--session-dir`, `--tools`,
+  and windows x64 and arm64 (`ci.yml:749-793` in omp's upstream repository).
+- A fork of omp (`just build`) builds `dist/omp-linux-x64` (242 MB), and musl variants with `LIBC=musl`.
+- An `omp` binary on the build machine's PATH is such a binary. Its `--help` lists `--mode`, `--config`, `--session-dir`, `--tools`,
   `--no-skills`, `--no-rules`, `--no-extensions`, `--approval-mode` and `--restore`.
 
 Decision: spawn the standalone binary as `omp --mode rpc --config <generated> --session-dir <dir> [--resume ...]`.
@@ -690,8 +690,8 @@ The sandbox needs more, so it is opt-in:
 - User namespaces inside Docker need `seccomp=unconfined`. Chat's compose also sets `apparmor=unconfined` and
   `systempaths=unconfined` for the fresh `/proc`.
 - `[INFERENCE]` `cap_drop: ALL` and `no-new-privileges` still allow bwrap, because it uses unprivileged user
-  namespaces that need neither. S5 proves it with podman and docker, both installed on fsociety.
-- Default for bsociety: `agent.sandbox.mode=auto` with stock security options. That means the *computer* profile, and no
+  namespaces that need neither. S5 proves it with podman and docker, both installed on the build machine.
+- Default for the web host: `agent.sandbox.mode=auto` with stock security options. That means the *computer* profile, and no
   relaxed seccomp on the container that holds the PiKVM password.
 - The full profile is a documented override: `security_opt: [seccomp=unconfined, apparmor=unconfined,
   systempaths=unconfined]` with `PIKVM_AGENT_SANDBOX=required`.
@@ -705,9 +705,9 @@ Environment:
 | `PIKVM_AGENT_SANDBOX` | new | `auto` (default), `required` or `none` |
 | `PIKVM_HARNESS_URL`, `PIKVM_HARNESS_TOKEN`, `PIKVM_DESKTOP_URL`, `PIKVM_DESKTOP_TOKEN` | removed | The host refuses to start if they are set |
 
-**bsociety compose** (`/srv/machines/bsociety/kvm/compose.yml`, not applied from this repo):
+**A deployment's compose file** (not applied from this repo):
 
-- Remove the `kvm-agent` service, its `/config/apps/kvm-agent` volume and `KVM_HARNESS_TOKEN` from `.env`.
+- Remove the `kvm-agent` service, its data volume and `KVM_HARNESS_TOKEN` from `.env`.
 - Remove the two `PIKVM_HARNESS_*` lines on `kvm`.
 - `kvm` keeps its data volume; the first start creates `/data/chat`.
 - The Python side's `provider-keys.json` and CLI sign-ins are not migrated (open question 1). Enter keys in Settings.
@@ -966,7 +966,7 @@ File boundaries above do not overlap, except at two points:
 - `apps/web/src/app/panes.tsx` is AppShell's file in progress. S4 reads it and integrates after AppShell commits.
 - `packages/kvm-engine` gets new files from S2 only.
 
-## 10. Open questions for Kieran
+## 10. Open questions
 
 Only what the code cannot decide.
 
@@ -974,17 +974,17 @@ Only what the code cannot decide.
    OAuth; its non-goals say so. omp has its own account logins, and fork patch 0010 is about Anthropic accounts. Should
    Settings drive omp's logins, so a subscription works without an API key? That is a feature, not a port. omp's auth
    store lives in the agent HOME and needs a start and finish flow in the UI.
-2. **omp binaries for macOS and Windows.** Upstream CI builds them. `~/dev/omp` (your fork with elicitation, task
+2. **omp binaries for macOS and Windows.** Upstream CI builds them. A fork of omp (with elicitation, task
    models and sequential accounts) builds only Linux today. Should desktop packages ship upstream's binaries, without
    fork patches, or does the fork get macOS and Windows release builds first? The plan works either way, because
    approvals use our own MCP elicitation.
-3. **The full profile.** Do you want shell and file tools in Chat at all, on Linux with the sandbox? The plan keeps
+3. **The full profile.** Are shell and file tools wanted in Chat at all, on Linux with the sandbox? The plan keeps
    them behind `sandbox.mode=required`, shipped off. If the answer is no, bubblewrap, socat, the socket forwarder and
    the seccomp discussion leave the image and S1.
 4. **External MCP clients.** `src/mcp-launcher.ts` is a stdio entry for Claude Code and similar clients. Keep a
    `pikvm-mcp` stdio bridge to a running app, or delete it with the harness?
 5. **Memory.** Chat's long-term memory (omp's mnemopi bank and an embeddings download) is dropped from the first cut.
-   Do you want it later?
+   Is it wanted later?
 6. **Provenance.** `docs/PLAN.md` said no copying, because chat has no licence and its UI is a clean-room copy of a
-   third-party product. You decided to copy. If PiKVM Desktop is ever published, that needs a licence on chat or a
+   third-party product. The decision was to copy. If PiKVM Desktop is ever published, that needs a licence on chat or a
    re-skin. Nothing in this plan blocks either.

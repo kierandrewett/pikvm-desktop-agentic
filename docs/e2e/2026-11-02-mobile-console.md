@@ -5,23 +5,22 @@ Paths below use the current `/app` prefix. The run itself used the previous name
 Covers commits `f610350` (headless web host) and `b19b997` (touch dock, touch
 modes, soft-keyboard mirror, Caps Lock sync).
 
-The token login these runs used was replaced by Pocket ID sign-in in
-`7786b08`. That change was checked on the deployed host instead:
+The token login these runs used was later replaced by an OIDC sign-in through an authenticating proxy
+(`7786b08`). That change was checked on a deployed host instead:
 
 | Case | Observed | Result |
 | --- | --- | --- |
-| `/`, `/app/api/v1/state`, `/api/info` signed out | 302 to `id.drewett.dev/authorize` with S256 PKCE | pass |
+| `/`, `/app/api/v1/state`, `/api/info` signed out | 302 to the identity provider's `/authorize` with S256 PKCE | pass |
 | `/app/manifest.webmanifest`, `/app/icon.png` signed out | 200 | pass |
-| Container on `intranet` reaching `kvm:8080` | name does not resolve | pass |
+| Container on a network shared only with other services reaching `kvm:8080` | name does not resolve | pass |
 | Container on `kvm-internal` reaching the Pi | HTTPS answered | pass |
 | Full sign-in in desktop Chrome (consent accepted) | console "Live · HD", `/app/api/v1/state` 200, `/api/info` 200 | pass |
 
 ## Environment
 
 - Host under test: `node dist/web-server.js` on the workstation (port 8099),
-  then the deployed container at `https://kvm.drewett.dev` (bsociety, private
-  Caddy, tailnet only).
-- Target: the real PiKVM at `pikvm.tail93a99.ts.net`. Video and the HID socket
+  then a deployed container behind the authenticating proxy (private, tailnet only).
+- Target: a real PiKVM on the same tailnet. Video and the HID socket
   were live; the target was in use, so NO input was sent to it (see below).
 - Browser: headless Google Chrome via the omp `browser` helper, emulated as
   `iPhone 13` (390x844, touch, coarse pointer).
@@ -158,8 +157,8 @@ Chrome in full screen, and behaviour through a real network dropout.
 A real phone: the iOS and Android soft keyboards, dictation, and the feel of
 the gestures. Headless Chrome cannot raise a system keyboard, so the keyboard
 cases above replay the event patterns those keyboards are documented to send;
-they are not proof of the devices. Check these on the phone at
-`https://kvm.drewett.dev`.
+they are not proof of the devices. Check these on the phone against a
+deployed host.
 
 Known limit: dictation or typing of characters outside the US/UK key maps
 (accented letters, emoji) sends nothing for those characters. Use "Paste text
