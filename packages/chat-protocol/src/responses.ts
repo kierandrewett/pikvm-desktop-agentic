@@ -219,9 +219,14 @@ export interface ApprovalRequestItem {
     title: string;
     /**
      * Chat extension: set when the MCP gateway asks (not the runtime). `destructive` means the server marked the tool
-     * as one that can destroy data (`agent.mcpApprovals.confirmDestructive`). `hints` are the server's annotations.
+     * as one that can destroy data (`agent.mcpApprovals.confirmDestructive`); `risky` means a built-in server asked for
+     * an action it judges risky (PiKVM computer use). `hints` are the server's annotations.
      */
-    reason?: "destructive";
+    reason?: "destructive" | "risky";
+    /** Chat extension: what will be done, in words (the PiKVM server's `summary`). With `reason: "risky"`. */
+    summary?: string;
+    /** Chat extension: why this action asks, one short phrase per rule that matched. */
+    reasons?: string[];
     hints?: { readOnly?: boolean; destructive?: boolean; idempotent?: boolean; openWorld?: boolean };
     /** Chat extension: the `function_call` this approval is for, when known. */
     call_id?: string;

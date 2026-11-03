@@ -279,6 +279,14 @@ export const settingDefs = [
         merge: "override",
     }),
     def({
+        key: "system.agent.maxResponseMinutes",
+        schema: z.number().int().min(0),
+        default: 30,
+        description: "Stop a response still running after this many minutes. 0 means no limit.",
+        userTwin: "none",
+        merge: "override",
+    }),
+    def({
         key: "system.agent.queueTimeoutSec",
         // The web client stops waiting for a response to start after 180 s (lib/send.ts), so a longer wait would end
         // without the client hearing why.
@@ -389,19 +397,10 @@ export const settingDefs = [
     def({
         key: "agent.conversationsTool",
         schema: z.boolean(),
-        default: true,
-        description: "Give the agent read-only tools to list, search and read the user's other conversations.",
-        userTwin: "user",
-        merge: "override",
-    }),
-    def({
-        key: "agent.uploads.linkIntoWorkspace",
-        schema: z.boolean(),
-        default: true,
+        default: false,
         description:
-            "Link files you attach into the chat's folder, at `attachments/<name>` (the project folder for project chats). " +
-            "The link points at the read-only upload, so the assistant can open it there but cannot change it.",
-        userTwin: "none",
+            "Give the agent tools to list, search, read and rename the user's other conversations. Off by default: the computer profile offers only the computer tools.",
+        userTwin: "user",
         merge: "override",
     }),
     def({
@@ -976,6 +975,12 @@ function mapLeaves(value: unknown, fn: (path: string[], leaf: unknown) => unknow
 
 function isSecretPath(d: SettingDef, path: string[]): boolean {
     return (d.secrets ?? []).some((p) => matchPath(p.split("."), path));
+}
+
+/** Apply `fn` to every non-empty string leaf the setting declares secret (`secrets`), keeping the rest as it is. */
+export function mapSecrets(d: SettingDef, value: unknown, fn: (leaf: string, path: string[]) => string): unknown {
+    if (!d.secrets?.length) return value;
+    return mapLeaves(value, (path, leaf) => (typeof leaf === "string" && leaf && isSecretPath(d, path) ? fn(leaf, path) : leaf));
 }
 
 /** Replace secret leaves with the mask. */
