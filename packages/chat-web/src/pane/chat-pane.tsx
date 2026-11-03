@@ -25,7 +25,7 @@ function Header({ conversationId }: { conversationId: string | undefined }) {
     const navigate = useNavigate();
     const summary = useConversationSummary(conversationId);
     return (
-        <header className="flex h-[var(--header-height)] shrink-0 items-center gap-2 border-b border-default px-2">
+        <header className="flex h-[var(--header-height)] shrink-0 items-center gap-2 border-b border-default bg-surface px-2">
             {mobile && (
                 <Button variant="ghost" size="lg" uniform aria-label={t("shell-sidebar-open")} onClick={toggleSidebar}>
                     <ListIcon />

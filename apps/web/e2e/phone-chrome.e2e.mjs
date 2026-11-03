@@ -314,6 +314,32 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
             return [ok, seen.join(" | ")];
         });
 
+        // Whatever sits in the band under the top edge is opaque and the page's colour, so nothing can scroll into it as a
+        // visible, blurred-under-the-system's-glass shape: the first thing with a background at the top of each tab has
+        // alpha 1 and the tab's status colour (Chat's header, Settings' sticky title bar, the KVM's black stage).
+        await check(profile, "the header under the top edge is opaque in the page's colour on every tab", async () => {
+            const seen = [];
+            let ok = true;
+            for (const tab of TABS) {
+                await goTo(page, tab, true);
+                const want = expectedStatus(tab, theme);
+                const probe = await page.evaluate((y) => {
+                    for (const el of document.elementsFromPoint(innerWidth / 2, y)) {
+                        if (el.id === "status-edge") continue;
+                        const m = getComputedStyle(el).backgroundColor.match(/rgba?\(([^)]*)\)/);
+                        const parts = m ? m[1].split(",").map((s) => Number.parseFloat(s)) : [];
+                        const alpha = parts.length === 4 ? parts[3] : parts.length === 3 ? 1 : 0;
+                        if (alpha > 0) return { what: `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 28)}`, alpha, colour: `rgb(${parts.slice(0, 3).join(", ")})` };
+                    }
+                    return null;
+                }, edge + 22);
+                const good = probe !== null && probe.alpha === 1 && probe.colour === rgbOf(want);
+                ok &&= good;
+                seen.push(`${tab}: ${probe ? `${probe.what} ${probe.colour} alpha ${probe.alpha}` : "nothing"} (want ${want})`);
+            }
+            return [ok, seen.join(" | ")];
+        });
+
         // No backdrop-filter or blur anywhere in the app: every tab, then the sheets and dialogs that can be opened here.
         await check(profile, "no backdrop-filter or blur anywhere, on every tab and with the sheets open", async () => {
             const seen = [];
@@ -345,6 +371,9 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
                 await add.tap();
                 await sleep(450);
                 await scan("Chat add sheet");
+                // The sheet is modal and covers the tab bar: start the next step from a fresh page.
+                await page.reload({ waitUntil: "load" });
+                await page.waitForSelector('[role="tab"]');
             }
             await goTo(page, "settings", true);
             return [ok, seen.join(" | ")];
@@ -596,6 +625,8 @@ const section = [
     "**What the earlier versions got wrong.** (1) The status bar: on a real iPhone (iOS 26) the top showed a grey-to-black gradient. That is the system's own scrim over a `black-translucent` page, which no CSS removes, so the style is now `black` (a solid bar, the page below it, no top inset; iOS keeps the style from when the app was added, so the app had to be added again). (2) The gap under the navigation bar was first put down to the web view being short and the system background showing outside it. That was wrong: nothing is outside the web view. In the installed app (no URL bar) `100vh` is the whole screen, while `100dvh`, `100svh`, `innerHeight` and the visual viewport report the screen minus an inset when the app starts, and the shell was sized from those, so it stopped short. The shell became `100vh` in the installed app, and the visual viewport's height is used only while the soft keyboard is up (its baseline is a `100vh` probe). That was not enough on the device (the navigation bar came out cut in half at 811 of 874 pt, the page's own background below the cut): on iOS 26 a `position: fixed` html, body or app container is clipped to the layout viewport, which the installed app reports short, so a 100vh fixed shell is cut off at that height (docs: cjnova/piclaw-monaco PWA.md 8.6 and 8.9). In the installed app with the keyboard closed, html, body and the shell are therefore normal flow and each `--app-height` tall, with no ancestor that clips or is shorter (the `shell fills the screen exactly` case reads the position of html, body and the shell and lists any clipping ancestor shorter than the shell); while the keyboard is up they are fixed to the visual viewport as before (`data-keyboard` on html says which). Headless Chrome does not clip fixed elements that way, so what the e2e can prove is the structure and the geometry, and the `viewport reports 62px short` profile still reproduces the earlier report (shell 0,0,390,735 of 390x797). (3) The blur at the top after visiting Chat or Settings: the resolution pill (`.kvm-res-toast`, top 10px) was a `backdrop-filter` and was still showing; it no longer blurs. With the `black` style the page starts below the bar and the system paints the bar area itself, from what it finds at the top edge of the page, so the top edge is one opaque black `#status-edge` element (12px deep in the installed iOS app, now also recognised by the device when `navigator.standalone` is not true) that the shell is padded by. The `KVM > Chat > Settings > KVM` case scans the top 60px after each step. What the system draws over the page on a real device cannot be reproduced headless: Settings > About > Display lists what the phone reports (flags, insets, every viewport unit, the boxes and positions of html, body, #root, the shell, the bar and #status-edge, and any clipping ancestor) and copies it as text.",
     "",
     "**The status area, as read from the phone (iOS 27.2, through the inspector) and decided.** Nothing of ours blurred anything at the top on any tab, and `#status-edge` was opaque black, 62 px, on top of everything on every tab; the grey frosted bar on Chat and Settings is iOS's own glass, tinted from the page (body was `rgb(238, 240, 244)` there and transparent over a black html on the KVM, which is why only the KVM bar was black). So the black edge in point (3) above is superseded: the status area now follows the page, one colour from the active tab and the theme (`app/status-colour.ts`): black over the KVM; the page's own colour on Chat and Settings (`#eef0f4` light, `#0a0a0c` dark). The top edge, html, body and the `theme-color` meta all take it (the `--status-colour` property), the shell updates it on a tab change and on a theme change, and `index.html` works it out before first paint for the route it opens on, so the system samples one solid colour and picks its own text colour for it. Every remaining `backdrop-filter` and blur in the app and the chat is gone (the resolution pill, the dialog scrim, the stream-state card, menus and toolbars, the lightbox, table headers, the composer's progressive-blur scrim, tailed surfaces, ui.blur's glass), and the chat's page card has no resting shadow (it was a soft shadow over the top edge); the `no backdrop-filter or blur anywhere` case scans every element and its pseudo-elements on every tab and with the sheets open, and the `KVM > Chat > Settings > KVM` case also flags a wide soft shadow near the top.",
+    "",
+    "**The source-level finding (so nobody chases it again).** The blur is UIKit's soft scroll edge effect (the top scroll pocket) of the WKWebView's scroll view, about the status bar and 40 pt below it. WebKit hides it only when a top colour extension view exists, which needs `_obscuredInsets.top > 0` and a fixed or sticky opaque full-width box over 10 px deep at the top edge; in the installed app with the `black` style the top obscured inset is 0, and live tests with `#status-edge` at 62 px, at 80 px and with `pointer-events: auto` stayed blurred. No page change removes it; what the page controls is what lies under it, so the headers there are opaque in the status colour. Details and the WebKit source references: `docs/rebuild/ios-top-edge.md`. This does not apply in a normal browser tab (Safari or Firefox on iOS), which has no top inset and draws its own bars.",
     "",
     "| Profile | Case | Observed | Result |",
     "| --- | --- | --- | --- |",
