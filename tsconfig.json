@@ -9,8 +9,12 @@
 
         // Environment Settings
         // See also https://aka.ms/tsconfig/module
-        "module": "nodenext",
-        "moduleResolution": "node16",
+        // esbuild bundles everything under src/, so module resolution is the bundler's: the workspace
+        // packages (kvm-engine, chat-*) are TypeScript source with extensionless imports, which the
+        // node16 rules reject.
+        "target": "ES2022",
+        "module": "esnext",
+        "moduleResolution": "bundler",
         "types": ["node", "electron"],
         "lib": ["ES2022", "DOM"],
         // Other Outputs
