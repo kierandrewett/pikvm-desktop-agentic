@@ -1,17 +1,18 @@
-# The hosted deployment on one machine, with nothing real in it: the web host and
-# the agent sidecar (the two images this repo builds), a fake kvmd standing in for
-# the PiKVM and a scripted model standing in for a provider. docs/e2e/ records a run.
+# The hosted deployment on one machine, with nothing real in it: the one image this repo builds
+# (deploy/Dockerfile), a fake kvmd standing in for the PiKVM and a scripted model standing in for
+# a provider. docs/e2e/ records a run.
 #
-#   make web-bundle agent-bundle
-#   podman build -t pikvm-web:local builds/web && podman build -t pikvm-agent:local builds/agent
+#   make image                               # builds pikvm-kvm:local from deploy/Dockerfile
 #   podman compose -f deploy/e2e/compose.yml up -d
 #   open http://127.0.0.1:18080/app/chat
 #
-# The web host listens on 127.0.0.1 only here (PIKVM_AUTH=proxy states that an
-# authenticating proxy is in front, which on this machine is "nobody can reach it").
+# In the chat's Settings, add a provider with base URL http://fake-model:9000/v1 and any key; the
+# gateway accepts any operator-configured base URL. The web host listens on 127.0.0.1 only here
+# (PIKVM_AUTH=proxy states that an authenticating proxy is in front, which on this machine is
+# "nobody can reach it").
 services:
     fake-kvmd:
-        image: docker.io/library/node:22-alpine
+        image: docker.io/library/node:22-bookworm-slim
         init: true
         working_dir: /repo
         command: ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "tools/fake-kvmd/server.ts", "--host", "0.0.0.0", "--port", "4510"]
@@ -25,59 +26,43 @@ services:
         networks: [kvm-internal]
 
     fake-model:
-        image: pikvm-agent:local
+        image: docker.io/library/node:22-bookworm-slim
         init: true
-        entrypoint: ["python", "/fake/server.py", "--host", "0.0.0.0", "--port", "9000", "--dump"]
+        working_dir: /repo
+        environment:
+            HOST: 0.0.0.0
+            PORT: "9000"
+        command: ["node", "--experimental-strip-types", "--disable-warning=ExperimentalWarning", "tools/fake-model/server.ts"]
         volumes:
-            - ../../tools/fake-model:/fake:ro
+            - ../..:/repo:ro
         security_opt: ["label=disable"]
-        # The harness accepts only https or LOOPBACK http provider URLs, so the
-        # stand-in model shares the sidecar's network namespace and is 127.0.0.1:9000.
-        network_mode: "service:kvm-agent"
-        depends_on: [kvm-agent]
+        ports:
+            # The browser run reads back what the agent sent (the credentials, the tool list).
+            - "127.0.0.1:19000:9000"
+        networks: [kvm-internal]
 
     kvm:
-        image: pikvm-web:local
+        image: ${KVM_IMAGE:-pikvm-kvm:local}
         environment:
             PIKVM_URL: http://fake-kvmd:4510
             PIKVM_USER: admin
             PIKVM_PASSWORD: anything
             PIKVM_AUTH: proxy
-            PIKVM_HARNESS_URL: http://kvm-agent:47616
-            PIKVM_HARNESS_TOKEN: ${KVM_HARNESS_TOKEN:-e2e-operator-capability-0123456789abcdef}
             PORT: "8080"
         ports:
             - "127.0.0.1:18080:8080"
         volumes:
             - kvm-data:/data
         networks: [kvm-internal]
-        depends_on: [fake-kvmd]
-        # As on bsociety: nothing in either image needs a writable root or a capability.
+        depends_on: [fake-kvmd, fake-model]
+        # As on bsociety: nothing in the image needs a writable root or a capability.
         read_only: true
         tmpfs: [/tmp]
         cap_drop: [ALL]
         security_opt: ["no-new-privileges:true"]
-
-    kvm-agent:
-        image: pikvm-agent:local
-        environment:
-            PIKVM_URL: http://fake-kvmd:4510
-            PIKVM_USER: admin
-            PIKVM_PASSWORD: anything
-            PIKVM_HARNESS_TOKEN: ${KVM_HARNESS_TOKEN:-e2e-operator-capability-0123456789abcdef}
-            PIKVM_HARNESS_ALLOWED_ORIGINS: http://127.0.0.1:18080
-        volumes:
-            - kvm-agent-data:/data
-        networks: [kvm-internal]
-        depends_on: [fake-kvmd]
-        read_only: true
-        tmpfs: [/tmp]
-        cap_drop: [ALL]
-        security_opt: ["no-new-privileges:true"]
-
-volumes:
-    kvm-data:
-    kvm-agent-data:
 
 networks:
     kvm-internal:
+
+volumes:
+    kvm-data:

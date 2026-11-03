@@ -4,7 +4,7 @@
 # (packaging/electron-builder.yml), made from the same Electron tree.
 #
 # pkgsmith builds nothing. scripts/package.mjs builds the app and the Linux Electron tree (with
-# the web app, the agent harness UI and the agent runtime inside it), and runs
+# the web app and omp's binary inside it), and runs
 #
 #     pkgsmith build --prefix builds/<tree> --build-arg PKG_ARCH=...
 #
@@ -35,7 +35,7 @@ common = {
     "description": SUMMARY + """
 One remote-control surface for one machine, driven through a PiKVM: its screen, keyboard, mouse,
 power and virtual media, and a chat with an agent that can operate the same machine with your
-approval. The agent runtime ships inside the app.
+approval. The agent's runtime ships inside the app.
 """,
     "maintainer": "Kieran Drewett <kieran@drewett.dev>",
     "homepage": "https://github.com/kierandrewett/pikvm-desktop-agentic",

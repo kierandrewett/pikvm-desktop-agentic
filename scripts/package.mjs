@@ -8,18 +8,18 @@
 //
 //   1. yarn build, and the web app's build (skipped with --skip-build).
 //   2. electron-packager: the Electron tree for the target, into builds/.
-//   3. Fill the tree's resources/ with what the app finds there at run time: the web app, the
-//      agent harness UI and the agent runtime.
+//   3. Fill the tree's resources/ with what the app finds there at run time: the web app and omp's
+//      standalone binary for the target (the agent runtime), fetched with scripts/fetch-omp.mjs and
+//      checked against deploy/omp.lock.
 //   4. Installers, into builds/packages/<platform>-<arch>/:
 //        linux          pkgsmith build over the tree (pkgsmith.star): rpm, deb, archlinux, appimage, flatpak
 //        darwin, win32  electron-builder --prepackaged over the tree (packaging/electron-builder.yml):
 //                       dmg and zip; nsis, msi and zip. pkgsmith is only for Linux.
 //
 // Electron trees for another platform are downloaded by electron-packager, so any machine can
-// make any tree. What it cannot do is carry the agent runtime across: that is a CPython built for
-// one platform, made by `make agent-runtime` on that platform (Windows: also from any host). A tree built without one says so
-// and is refused unless --allow-no-runtime is given. electron-builder's installers need their own
-// platform's tools (dmg: macOS; msi: WiX, run under wine off Windows; nsis: its bundled makensis).
+// make any tree, and omp's binary for any target is one download, so the agent travels with it. A tree
+// whose omp binary cannot be fetched or does not match its pin is refused. electron-builder's
+// installers need their own platform's tools (dmg: macOS; msi: WiX, run under wine off Windows; nsis: its bundled makensis).
 import { packager } from "@electron/packager";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -37,7 +37,6 @@ const { values: opts } = parseArgs({
         formats: { type: "string" },
         "skip-build": { type: "boolean", default: false },
         "tree-only": { type: "boolean", default: false },
-        "allow-no-runtime": { type: "boolean", default: false },
     },
 });
 const platform = opts.platform;
@@ -106,7 +105,6 @@ if (!opts["skip-build"]) {
 for (const [what, path] of [
     ["the app bundle", join(root, "dist", "main.js")],
     ["the web app", join(root, "apps", "web", "dist", "index.html")],
-    ["the harness UI", join(root, "agent", "pikvm_agent", "harness_ui", "index.html")],
 ]) {
     if (!existsSync(path)) throw new Error(`${what} is not built (${path}); run without --skip-build`);
 }
@@ -154,27 +152,18 @@ const place = (from, to) => {
     cpSync(from, join(resources, to), { recursive: true, dereference: true });
 };
 place(join(root, "apps", "web", "dist"), join("apps", "web", "dist"));
-place(join(root, "agent", "pikvm_agent", "harness_ui"), join("agent", "pikvm_agent", "harness_ui"));
-log("shipped the web app and the harness UI");
+log("shipped the web app");
 
-/* The agent runtime: a self-contained CPython with the agent installed into it, built by
- * `make agent-runtime` for the machine it runs on. dereference:false keeps the interpreter's
- * internal symlinks (python3 -> python3.12) as symlinks; following them turns a handful of
- * links into a handful of extra copies of a 100MB binary. */
-/* One per target. A native build is agent/runtime; the Windows one is agent/runtime-win32-x64, which any
- * host can make (`node scripts/build-agent-runtime.mjs --platform win32 --arch x64`). macOS and Linux
- * runtimes are built on their own platform. */
-const runtime = join(root, "agent", platform === "win32" ? "runtime-win32-x64" : "runtime");
-const runtimeFits = platform === "win32" ? arch === "x64" : platform === process.platform && arch === process.arch;
-if (existsSync(runtime) && runtimeFits) {
-    mkdirSync(join(resources, "agent"), { recursive: true });
-    cpSync(runtime, join(resources, "agent", "runtime"), { recursive: true, dereference: false, verbatimSymlinks: true });
-    log("shipped the agent runtime");
-} else {
-    const why = runtimeFits ? `${runtime} is not built; run \`make agent-runtime\` (\`node scripts/build-agent-runtime.mjs --platform win32 --arch x64\` for Windows)` : `the agent runtime is built per platform and this is a ${process.platform}-${process.arch} machine, not ${target}; build it on a ${target} machine`;
-    if (!opts["allow-no-runtime"]) throw new Error(`no agent runtime for ${target}: ${why} (--allow-no-runtime packages the app without an agent)`);
-    console.warn(`[package] WARNING: ${why}; this package has NO agent.`);
-}
+/* The agent runtime: omp's standalone binary for this target, at resources/omp/omp[.exe], where the
+ * chat server looks (packages/chat-server/src/agent/launch.ts). fetch-omp.mjs downloads it into
+ * builds/omp/<version>/<target>, verifies its sha256 against deploy/omp.lock and exits non-zero on
+ * a mismatch, which run() turns into a refused package. */
+const ompDir = join(builds, "omp", JSON.parse(readFileSync(join(root, "deploy", "omp.lock"), "utf8")).version, target);
+run(process.execPath, [join(root, "scripts", "fetch-omp.mjs"), "--target", target, "--out", ompDir]);
+const ompName = platform === "win32" ? "omp.exe" : "omp";
+place(join(ompDir, ompName), join("omp", ompName));
+if (!existsSync(join(resources, "omp", ompName))) throw new Error(`omp was not placed at ${join(resources, "omp", ompName)}`);
+log(`shipped omp (${target})`);
 
 if (opts["tree-only"]) {
     log(`done (tree only): ${tree}`);

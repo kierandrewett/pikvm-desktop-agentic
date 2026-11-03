@@ -1,211 +1,114 @@
-# Deploying the web host and its agent
+# Deploying the web host
 
-The web host (`src/web-server.ts`, image `deploy/web`) serves the app and proxies the PiKVM. Chat needs
-an agent, and the host does not run one: it forwards `/app/harness/*` to one of two places, chosen by
-the environment and never by a request.
-
-| Agent | Set | When |
-| --- | --- | --- |
-| **The agent sidecar** (`deploy/agent`) | `PIKVM_HARNESS_URL` + `PIKVM_HARNESS_TOKEN` | The hosted deployment. Chat works with nothing else running. |
-| The desktop app | `PIKVM_DESKTOP_URL` + `PIKVM_DESKTOP_TOKEN` | The agent runs on a computer the host can reach. |
-
-Set one pair. Half a pair, or both, stops the host at start with a message naming the variables.
+One image, `deploy/Dockerfile`, holds everything: the web host (`src/web-server.ts`), which serves the app and
+proxies the PiKVM, the chat server it runs in the same process, and omp's standalone binary, which is the agent.
+There is no sidecar, no Python and no Bun. The agent is spawned by the host, once per active conversation, and
+reaches the PiKVM only through the host's own tools.
 
 ```mermaid
 flowchart LR
     phone[Browser or PWA] --> caddy[Caddy, private route]
     caddy --> proxy[kvm-oauth2-proxy]
-    proxy -->|kvm-internal network only| kvm[kvm: the web host]
-    kvm -->|/app/harness/*, operator token added here| agent[kvm-agent: sidecar]
+    proxy -->|kvm-internal network only| kvm[kvm: host + chat server + omp]
     kvm --> pi[PiKVM]
-    agent -->|the daemon's own session, same credentials| pi
-    agent -->|API keys, claude and codex sign-in| models[Model providers]
+    kvm -->|API keys set in Settings| models[Model providers]
 ```
 
-`features.chat` in `GET /app/api/v1/state` is true while the agent answers `GET /api/health` (checked at
-most every two seconds), not merely while a route to it is configured. A stopped sidecar shows the app's
-"Chat is not available" page, and the workspace reconnects by itself when it returns.
+## The image
 
-## The sidecar
+```sh
+make image                       # podman build --format docker -f deploy/Dockerfile -t pikvm-kvm:local .
+make image IMAGE_TOOL=docker     # or docker; IMAGE=name:tag renames the result
+```
 
-One container, two processes started the way the desktop app starts them (`src/main.ts`,
-`src/harness-manager.ts`): the machine-control daemon (`pikvm-agent daemon`, the only thing that talks to
-kvmd for the agent) and the chat harness (`pikvm-agent harness serve`). `deploy/agent/entrypoint.sh`
-starts the daemon on `127.0.0.1` inside the container, waits for it, then starts the harness on
-`0.0.0.0:47616`. If either process exits the container does, so the restart policy brings both back.
+Built from the repository root, in three stages:
 
-The image is built from `agent/pyproject.toml` and `agent/uv.lock` (`uv sync --frozen --no-dev`, no
-vision extras: the daemon's OCR is the `tesseract` binary) plus the `claude` and `codex` CLIs, pinned by
-build argument (`CLAUDE_CODE_VERSION`, `CODEX_VERSION`). The Gemini CLI is not installed and cannot be signed in from
-the app; its row in Settings says so and points to adding a Gemini API key provider. The image is large (about 1.6 GB) because both CLIs are native
-binaries of 300 to 450 MB.
+1. **omp.** `scripts/fetch-omp.mjs` downloads the release asset for the image's architecture (`linux-x64` or
+   `linux-arm64`, by `TARGETARCH`) and checks it against the sha256 in `deploy/omp.lock`. A mismatch fails the build.
+2. **build.** `yarn install --immutable`, `yarn build` and the web app's build.
+3. **runtime** (`node:22-bookworm-slim`). `tini`, `ca-certificates`, `sharp` (the build argument `SHARP_VERSION`,
+   for screenshot resize and crop; a native addon with a prebuilt binary, so the image is glibc and not alpine),
+   `dist/`, `apps/web/dist` and the binary at `/opt/omp/omp`.
 
-Everything the sidecar is told, all environment:
+It runs as uid 10001, writes only `/data` and `/tmp`, needs no capability, and has a healthcheck on `/app/login`.
+The default posture is the one bsociety uses:
+
+```yaml
+read_only: true
+tmpfs: [/tmp]
+cap_drop: [ALL]
+security_opt: ["no-new-privileges:true"]
+```
+
+podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` passes `--format docker` for podman.
+
+### Environment
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
-| `PIKVM_URL` | yes | The PiKVM, as the web host has it. |
+| `PIKVM_URL` | yes | The PiKVM, e.g. `https://pikvm.example.ts.net`. |
 | `PIKVM_USER` | no | kvmd user (default `admin`). |
-| `PIKVM_PASSWORD` | yes | kvmd password. |
-| `PIKVM_HARNESS_TOKEN` | yes | The operator capability, 32+ characters. The same value goes in the web host's `PIKVM_HARNESS_TOKEN`. |
-| `PIKVM_HARNESS_ALLOWED_ORIGINS` | yes | Where the app is served from, e.g. `https://kvm.drewett.dev` (comma-separated). The harness accepts an approval only from these. |
-| `PIKVM_VERIFY_TLS` | no | `1` to verify the Pi's certificate. Default off, as in the web host. |
-| `PIKVM_AGENT_DATA` | no | The data volume (default `/data`). |
-| `PIKVM_HARNESS_LISTEN` | no | Bind address (default `0.0.0.0:47616`). |
+| `PIKVM_PASSWORD` | yes | kvmd password. Held by the host only; never in the agent's environment, files or prompt. |
+| `PIKVM_AUTH` | for `HOST=0.0.0.0` | `proxy`: an authenticating proxy is in front. The image sets `HOST=0.0.0.0`, so this is required in practice. |
+| `PORT` | no | Listen port (default `8080`). |
+| `PIKVM_DATA_DIR` | no | The data volume (image default `/data`). |
+| `PIKVM_KEYBOARD_LAYOUT`, `PIKVM_JIGGLER` | no | As before. |
+| `OMP_BIN` | no | The agent binary (image default `/opt/omp/omp`). |
 
-The daemon's two capabilities and the harness's agent and observer tokens are generated at each start
-inside the container and never leave it. The sidecar publishes no port: put it on the same private
-network as the web host and nothing else.
+`PIKVM_HARNESS_URL`, `PIKVM_HARNESS_TOKEN`, `PIKVM_DESKTOP_URL` and `PIKVM_DESKTOP_TOKEN` are gone: there is no
+sidecar to point at.
 
 The data volume holds, and is the only thing that needs backing up:
 
 | Path | What |
 | --- | --- |
-| `config/harness.yaml` | The harness config, created once by `harness init`. Holds providers and routes, never a secret. |
-| `config/provider-keys.json` | API keys set from Settings, mode 0600, write-only from the browser. |
-| `config/.pikvm-harness/` | Run history and screenshots. |
-| `home/.claude`, `home/.codex` | The two CLIs' sign-ins (`HOME` is `/data/home`). The harness never reads them. |
+| `settings.json` | The host's settings. |
+| `chat/` | The chat database, per-conversation files, the agent's `HOME`, and provider keys entered in Settings (mode 0600, write-only from the browser). |
 
-### Why the origin setting exists
+Model providers are set in the app: Settings, then Providers, then add a base URL and key. Sign-in with a provider
+account (the old Claude and Codex CLI flows) is not part of this image.
 
-An approval is a `POST` the browser makes, and the harness refuses one whose `Origin` is not on its list
-(`agent/pikvm_agent/harness/api.py`). Behind the web host that origin is the public one, so it has to be
-said once. The sidecar passes it to `harness serve --allowed-origins`, together with
-`--allow-remote-bind`, for that run only: the YAML is not rewritten. A wide bind with no origins, or an
-origin that is not a bare `https://host`, is refused at start.
+## The bsociety change
 
-### First sign-in
+Not applied from this repo. In `/srv/machines/bsociety/kvm/compose.yml`:
 
-1. Open Settings, then Providers. The page is the same on a phone.
-2. **Sign in with an account.** Codex shows a link and a one-time code: open the link on any device and
-   enter the code. Claude Code shows a link; open it, sign in, and paste the code the page shows into the
-   box. The harness runs each CLI's own login and never sees its tokens.
-3. **API keys.** Add a provider, paste the key. It is sent once, kept in `provider-keys.json`, and never
-   shown again. An added provider is available in the chat model picker.
-
-## The bsociety deployment
-
-Not applied from this repo. `/srv/machines/bsociety/kvm/compose.yml` has `kvm` and `kvm-oauth2-proxy` on
-`kvm-internal`. The change is: two environment lines on `kvm`, one new service, and one new key in
-`/srv/machines/bsociety/.env`.
-
-### `/srv/machines/bsociety/.env`
-
-```
-# 32+ characters, shared by kvm and kvm-agent. Generate with: openssl rand -hex 32
-KVM_HARNESS_TOKEN=
-```
-
-`PIKVM_PASSWORD` is already there and is reused.
-
-### On the `kvm` service, add to `environment`
-
-```yaml
-            PIKVM_HARNESS_URL: http://kvm-agent:47616
-            PIKVM_HARNESS_TOKEN: ${KVM_HARNESS_TOKEN:?kvm harness token required}
-```
-
-### New service, beside `kvm`
-
-```yaml
-    # The agent behind Chat (deploy/agent in ~/dev/pikvm-desktop-agentic). The build
-    # context in ./agent-app is generated there with `make agent-bundle` (builds/agent/)
-    # and copied here, like ./app. It holds the daemon that drives the PiKVM, so it is on
-    # kvm-internal only: nothing but the kvm container can reach it, and kvm adds the
-    # token. The data volume carries the harness config, the 0600 key store and both
-    # CLIs' sign-ins.
-    kvm-agent:
-        build:
-            context: ./agent-app
-            dockerfile: Dockerfile
-        image: pikvm-agent:latest
-        container_name: kvm-agent
-        restart: unless-stopped
-        environment:
-            PIKVM_URL: https://pikvm.tail93a99.ts.net
-            PIKVM_USER: admin
-            PIKVM_PASSWORD: ${PIKVM_PASSWORD}
-            PIKVM_HARNESS_TOKEN: ${KVM_HARNESS_TOKEN:?kvm harness token required}
-            PIKVM_HARNESS_ALLOWED_ORIGINS: https://kvm.drewett.dev
-        volumes:
-            - /config/apps/kvm-agent:/data
-        networks:
-            - kvm-internal
-        read_only: true
-        tmpfs:
-            - /tmp
-        cap_drop:
-            - ALL
-        security_opt:
-            - no-new-privileges:true
-```
-
-The container runs as uid 10001. Create the data directory before the first start:
+1. **`kvm` service.** Build the new image instead of the old one: copy the repository checkout (or a `git archive`
+   of it) to the host and build from its root, e.g. `build: { context: ./app, dockerfile: deploy/Dockerfile }`.
+   Delete the two `PIKVM_HARNESS_*` environment lines. Keep `PIKVM_URL`, `PIKVM_USER`, `PIKVM_PASSWORD`,
+   `PIKVM_AUTH: proxy`, `PORT`, the `/data` volume and the hardening block above. The first start creates
+   `/data/chat`; the volume is already owned by uid 10001.
+2. **Remove `kvm-agent`**: the service, its `/config/apps/kvm-agent` volume directory, and `./agent-app`.
+3. **`/srv/machines/bsociety/.env`**: remove `KVM_HARNESS_TOKEN`, and any `KVM_HARNESS_*`. `PIKVM_PASSWORD` stays.
+4. **oauth2-proxy**: nothing changes. Chat's API lives under `/app/` and sits behind the sign-in like the rest;
+   the agent's own surface is a loopback listener inside the container and is not reachable from outside.
+5. The old sidecar's provider keys and CLI sign-ins are not migrated. Enter the keys again in Settings.
 
 ```sh
-sudo install -d -m 700 -o 10001 -g 10001 /config/apps/kvm-agent
+# on bsociety
+docker compose -f /srv/machines/bsociety/kvm/compose.yml up -d --build kvm
+docker inspect -f '{{.State.Health.Status}}' kvm      # healthy
 ```
 
-It needs outbound internet (model APIs, and the CLIs' sign-in), which `kvm-internal` has because it is not
-declared `internal`. Behind oauth2-proxy nothing else changes: `/app/harness/*` is not in
-`OAUTH2_PROXY_SKIP_AUTH_ROUTES`, so it needs the sign-in like the rest of `/app/`.
+The model needs outbound internet; `kvm-internal` has it because it is not declared `internal`.
 
-### Build and deploy
+## Sandboxing the agent
 
-```sh
-# in ~/dev/pikvm-desktop-agentic
-make web-bundle agent-bundle
-rsync -a --delete builds/web/   bsociety:/srv/machines/bsociety/kvm/app/
-rsync -a --delete builds/agent/ bsociety:/srv/machines/bsociety/kvm/agent-app/
-# on bsociety, after the compose and .env edits above
-docker compose -f /srv/machines/bsociety/kvm/compose.yml up -d --build kvm kvm-agent
-```
-
-Check: `docker logs kvm-agent` ends with `Uvicorn running on http://0.0.0.0:47616`,
-`docker inspect -f '{{.State.Health.Status}}' kvm-agent` is `healthy`, and
-`/app/api/v1/state` (signed in) reports `"chat": true`.
-
-## The desktop route
-
-`PIKVM_DESKTOP_URL` is the desktop app's console server (for example `http://fsociety.example.ts.net:25650`)
-and `PIKVM_DESKTOP_TOKEN` its access token. That server mounts the harness at `/app/harness` itself and
-attaches its own operator capability, so the web host forwards the path whole and authenticates as a client
-of it. Same proxy, same health probe, same rule that the browser never holds a credential.
-
-## The cursor report
-
-When a person moves the pointer on the picture, the page tells the agent's daemon where it went
-(`POST /app/daemon/cursor`, kvmd units): kvmd never broadcasts the position, and the daemon ends the agent's
-control of the machine when a person takes the mouse. On the desktop the daemon is behind `/app/daemon`. A
-hosted host has no daemon of its own, so it relays that one route, and no other under `/app/daemon` (they
-answer 404), to the agent through the same upstream and credential as Chat: the sidecar's operator API takes it
-at `POST /api/cursor` (operator token only; the model-side agent token is refused) and sends it to its daemon.
-The page sends reports while `features.chat` is true.
-
-## What the host does not forward
-
-The proxy sets `Authorization` itself (whatever the browser sent is dropped) and does not forward the
-browser's cookies, which belong to the sign-in in front of the host. A request without the
-`x-pikvm-workspace: 1` header the app adds is refused before it reaches the agent. When the browser
-leaves, an open event stream is closed upstream.
+The agent runs the *computer* profile: its tools are `ask`, `todo` and the PiKVM tools (`mcp__pikvm_*`). It has no
+tool that reads files, runs commands or makes requests, and there is no process sandbox in the image (no bubblewrap,
+no socat), so no relaxed seccomp on the container that holds the PiKVM password. The residual risk is a bug in omp or
+in the tool allow-list, which is the reason to keep the container's default hardening.
 
 ## Verified how
 
-`docs/e2e/2026-11-02-chat-sidecar.md` records a run of this exact stack on one machine:
-`deploy/e2e/compose.yml` brings up both images (with the bsociety hardening: read-only root, `/tmp` tmpfs,
-no capabilities, `no-new-privileges`), a fake kvmd and a scripted model, and
-`apps/web/e2e/chat-sidecar.e2e.mjs` drives it on an iPhone 13 and a desktop profile: a key set from
-Settings, both CLI sign-ins reaching their link and code, a run streaming, a click and an approved Enter
-arriving at the fake kvmd, a denied one not arriving, and the Chat page of a host whose agent is down.
+`docs/e2e/2026-11-03-image-and-appimage.md` records the image and the Linux AppImage running against a fake kvmd and
+a scripted model.
 
-Also checked by hand on that stack: stopping the sidecar flips `features.chat` to false within the two-second
-cache and `/app/harness/*` answers 502; starting it brings Chat back in about ten seconds with the stored
-keys intact (they live on the volume).
+`deploy/e2e/compose.yml` is that stack for a person: `make image`, then `podman compose -f deploy/e2e/compose.yml up`,
+then Settings, Providers, base URL `http://fake-model:9000/v1`.
 
 ## Known limits
 
-- The Gemini CLI is not in the image, and its sign-in is a terminal UI the harness cannot drive; use a Gemini
-  API key provider.
-- The image is about 1.6 GB (the two native CLIs are 750 MB of it).
-- The sidecar's `HOME` is on the volume, so a CLI sign-in is as private as the volume's directory
-  (mode 700, uid 10001). Anyone who can read the volume can use the signed-in account.
+- Sizes: see the e2e record. omp's binary is about 277 MB of the image.
+- The image is `linux/amd64` or `linux/arm64`; omp has no other Linux build pinned.
+- `docker compose` and `podman compose` both work; `deploy/agent` (the old sidecar's Dockerfile) remains in the
+  repository until the Python code is removed, and nothing here uses it.

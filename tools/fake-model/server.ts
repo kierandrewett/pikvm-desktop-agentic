@@ -21,7 +21,7 @@
  * A step is chosen from the conversation itself: the number of tool results after the last user message. That keeps a
  * resumed process (a new omp started from the session file) on the same script.
  *
- * Run it by hand: `node --experimental-strip-types tools/fake-model/server.ts` (PORT, default 4517).
+ * Run it by hand: `node --experimental-strip-types tools/fake-model/server.ts` (PORT, default 4517; HOST, default 127.0.0.1).
  */
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -55,6 +55,8 @@ interface Message {
 
 export interface FakeModelOptions {
     port?: number;
+    /** The address to listen on. Loopback unless a container has to be reached from another one. */
+    host?: string;
     /** Where the `pikvm:click` scenario clicks, in the reference frame. Default 160,90 (the centre of 320x180). */
     click?: { x: number; y: number };
     /** Characters per frame and delay between frames for `slow:`. */
@@ -285,7 +287,7 @@ export async function startFakeModel(options: FakeModelOptions = {}): Promise<Fa
                 res.end();
             });
     });
-    await new Promise<void>((resolve) => server.listen(options.port ?? 0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => server.listen(options.port ?? 0, options.host ?? "127.0.0.1", resolve));
     const { port } = server.address() as AddressInfo;
     return {
         url: `http://127.0.0.1:${port}/v1`,
@@ -301,6 +303,6 @@ export async function startFakeModel(options: FakeModelOptions = {}): Promise<Fa
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-    const fake = await startFakeModel({ port: Number(process.env.PORT ?? 4517) });
+    const fake = await startFakeModel({ port: Number(process.env.PORT ?? 4517), host: process.env.HOST });
     console.log(`fake model on ${fake.url}`);
 }

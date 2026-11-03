@@ -1,7 +1,7 @@
 # The macOS and Windows installers of PiKVM Desktop, written by electron-builder.
 #
 # scripts/package.mjs has electron-packager write the Electron tree, fills its resources/ (web app,
-# harness UI, agent runtime) and runs
+# omp binary) and runs
 #
 #     electron-builder --prepackaged <tree> --config packaging/electron-builder.yml ...
 #
@@ -64,6 +64,6 @@ msi:
   createStartMenuShortcut: true
   createDesktopShortcut: true
   shortcutName: PiKVM Desktop
-  # electron-builder gives light.exe two minutes (a fixed timeout, wine or not), and the agent runtime
-  # is about 24,000 files: the fastest cabinet compression keeps it inside that.
+  # electron-builder gives light.exe two minutes (a fixed timeout, wine or not), and the app tree is
+  # thousands of files: the fastest cabinet compression keeps it inside that.
   additionalLightArgs: ["-dcl:mszip"]

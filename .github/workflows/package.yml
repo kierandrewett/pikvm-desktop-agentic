@@ -8,8 +8,9 @@ name: package
 #   macos   electron-builder (packaging/electron-builder.yml): dmg, zip   (arm64 and x64)
 #   windows electron-builder (packaging/electron-builder.yml): nsis, msi, zip (x64)
 #
-# The agent runtime is a CPython built for the machine it runs on, so each job builds its own; that is
-# why this is a matrix of real runners and not one Linux job cross-building.
+# Each package carries omp's standalone binary for its target (scripts/fetch-omp.mjs, pinned and
+# sha256-checked by deploy/omp.lock): that is the agent, with no Python and no Bun. The image job
+# builds deploy/Dockerfile, the one image of the headless host and its agent.
 #
 # Packages are unsigned: no Apple notarisation, no Authenticode, no package signing key.
 
@@ -51,8 +52,6 @@ jobs:
       - run: corepack enable
       - run: yarn install --immutable
 
-      - uses: astral-sh/setup-uv@v5
-
       # Linux packages only: pkgsmith has no release yet, so it is built from source (its plugins sit
       # next to the binary), and flatpak writes the Flatpak bundle. macOS and Windows installers need
       # neither: electron-builder (a devDependency) brings its own dmg, NSIS and WiX tooling.
@@ -68,12 +67,6 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y flatpak
 
-      # A CPython built for the platform with the agent installed into it. Windows gets the standalone
-      # Windows build with Windows wheels and a pikvm-agent.exe launcher (it is also what a Linux host
-      # can cross-build with the same flags).
-      - name: Build the agent runtime
-        run: node scripts/build-agent-runtime.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
-
       - name: Package
         run: node scripts/package.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
 
@@ -82,3 +75,22 @@ jobs:
           name: pikvm-desktop-${{ matrix.name }}
           path: builds/packages/${{ matrix.platform }}-${{ matrix.arch }}/*
           if-no-files-found: error
+
+  image:
+    name: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deploy/Dockerfile
+        run: docker build -f deploy/Dockerfile -t pikvm-kvm:ci .
+      - name: The image starts read-only as an unprivileged user and answers its healthcheck
+        run: |
+          docker run -d --name kvm --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -e PIKVM_URL=http://127.0.0.1:9 -e PIKVM_PASSWORD=x -e PIKVM_AUTH=proxy -p 127.0.0.1:8080:8080 pikvm-kvm:ci
+          for _ in $(seq 30); do
+            curl -fsS -o /dev/null http://127.0.0.1:8080/app/login && exit 0
+            sleep 1
+          done
+          docker logs kvm
+          exit 1
