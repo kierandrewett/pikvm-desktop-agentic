@@ -16,7 +16,7 @@
         "module": "esnext",
         "moduleResolution": "bundler",
         "types": ["node", "electron"],
-        "lib": ["ES2022", "DOM"],
+        "lib": ["ES2024", "DOM"],
         // Other Outputs
         "sourceMap": true,
         "declaration": true,

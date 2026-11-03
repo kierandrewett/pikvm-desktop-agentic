@@ -21,6 +21,9 @@ import { request as httpsRequest } from "node:https";
 import type { Duplex } from "node:stream";
 import type { PiKvmControl } from "../../pikvm-control";
 
+/** What a person did through the proxy that reaches the target as input. A heartbeat is not one. */
+export type HidInputKind = "key" | "mouse_move" | "mouse_button" | "mouse_wheel" | "mouse_relative" | "print";
+
 export interface ProxyDeps {
     control: PiKvmControl;
     /**
@@ -35,17 +38,36 @@ export interface ProxyDeps {
      * teleport the user's pointer to a stale guess.
      */
     onHidMouseMove?: (x: number, y: number) => void;
+    /**
+     * A key, button, move, wheel or paste a person sent to the target through this proxy. Unlike
+     * onHidActivity it ignores heartbeats, so it can end the agent's control without a pinging
+     * tab doing it. The agent's own input never passes here: it has its own link to the Pi.
+     */
+    onHidInput?: (kind: HidInputKind) => void;
 }
 
 export interface HidTapEvents {
     onActivity: () => void;
     onMouseMove?: (x: number, y: number) => void;
+    onInput?: (kind: HidInputKind) => void;
 }
+
+/** kvmd's binary HID frames carry the event type in the first byte; 0 is a ping. */
+const BINARY_KINDS: Readonly<Record<number, HidInputKind>> = {
+    1: "key",
+    2: "mouse_button",
+    3: "mouse_move",
+    4: "mouse_relative",
+    5: "mouse_wheel",
+};
+
+const TEXT_KINDS: Record<string, true> = { key: true, mouse_move: true, mouse_button: true, mouse_wheel: true, mouse_relative: true };
 
 /**
  * Watch the (always-masked) client→server HID socket. Every data frame counts as user
  * activity; `mouse_move` frames are unmasked and parsed so we also learn where the
- * cursor is. Buffers across TCP segment boundaries; defensive — never throws into the
+ * cursor is, and every frame that is real input (not a ping) is classified for onInput.
+ * Buffers across TCP segment boundaries; defensive — never throws into the
  * socket pipeline, and never modifies it (the pipe still forwards every byte).
  */
 export function makeHidTap(events: HidTapEvents): (chunk: Buffer) => void {
@@ -73,10 +95,16 @@ export function makeHidTap(events: HidTapEvents): (chunk: Buffer) => void {
                 buf = buf.subarray(frameLen);
                 if (opcode !== 0x1 && opcode !== 0x2) continue; // ping/pong/close carry no input
                 events.onActivity();
-                // Text frames only, and only ones small enough to be an input event —
-                // anything larger is not a KVMD HID message and isn't worth decoding.
-                if (opcode === 0x1 && events.onMouseMove && len > 0 && len <= 4096) {
-                    readMouseMove(frame.subarray(off + (masked ? 4 : 0)), masked ? frame.subarray(off, off + 4) : undefined, events.onMouseMove);
+                // Only frames small enough to be an input event — anything larger is not a
+                // KVMD HID message and isn't worth decoding.
+                if (len === 0 || len > 4096) continue;
+                const payload = frame.subarray(off + (masked ? 4 : 0));
+                const mask = masked ? frame.subarray(off, off + 4) : undefined;
+                if (opcode === 0x2) {
+                    const kind = BINARY_KINDS[mask ? payload[0]! ^ mask[0]! : payload[0]!];
+                    if (kind) events.onInput?.(kind);
+                } else if (events.onMouseMove || events.onInput) {
+                    readTextEvent(payload, mask, events);
                 }
             }
             if (buf.length > 1 << 20) buf = Buffer.alloc(0); // safety cap (not a real WS stream)
@@ -86,8 +114,8 @@ export function makeHidTap(events: HidTapEvents): (chunk: Buffer) => void {
     };
 }
 
-/** Unmask a WebSocket text payload and report it if it is a KVMD `mouse_move`. */
-function readMouseMove(payload: Buffer, mask: Buffer | undefined, onMouseMove: (x: number, y: number) => void): void {
+/** Unmask a WebSocket text payload and report what KVMD event it is. */
+function readTextEvent(payload: Buffer, mask: Buffer | undefined, events: HidTapEvents): void {
     let text: string;
     if (mask) {
         const out = Buffer.allocUnsafe(payload.length);
@@ -96,15 +124,36 @@ function readMouseMove(payload: Buffer, mask: Buffer | undefined, onMouseMove: (
     } else {
         text = payload.toString("utf8");
     }
-    if (!text.includes("mouse_move")) return;
-    let msg: { event_type?: string; event?: { to?: { x?: unknown; y?: unknown } } };
+    // A bare "ping" text frame is not JSON; every input event is.
+    if (text.charCodeAt(0) !== 0x7b) return;
+    let msg: { event_type?: unknown; event?: { to?: { x?: unknown; y?: unknown } } };
     try {
         msg = JSON.parse(text);
     } catch {
         return;
     }
-    const to = msg?.event_type === "mouse_move" ? msg.event?.to : undefined;
-    if (typeof to?.x === "number" && typeof to?.y === "number") onMouseMove(to.x, to.y);
+    const type = msg?.event_type;
+    if (typeof type !== "string" || !Object.hasOwn(TEXT_KINDS, type)) return;
+    events.onInput?.(type as HidInputKind);
+    const to = type === "mouse_move" ? msg.event?.to : undefined;
+    if (typeof to?.x === "number" && typeof to?.y === "number") events.onMouseMove?.(to.x, to.y);
+}
+
+const HTTP_HID_KINDS: Record<string, HidInputKind> = {
+    "/api/hid/print": "print",
+    "/api/hid/events/send_key": "key",
+    "/api/hid/events/send_shortcut": "key",
+    "/api/hid/events/send_mouse_button": "mouse_button",
+    "/api/hid/events/send_mouse_move": "mouse_move",
+    "/api/hid/events/send_mouse_relative": "mouse_relative",
+    "/api/hid/events/send_mouse_wheel": "mouse_wheel",
+};
+
+/** The HTTP routes a client can also type, click or paste through. A person pasting into the target is input. */
+function httpHidInput(method: string | undefined, url: string | undefined): HidInputKind | null {
+    if (method !== "POST" || !url) return null;
+    const path = url.split("?", 1)[0] ?? "";
+    return Object.hasOwn(HTTP_HID_KINDS, path) ? HTTP_HID_KINDS[path]! : null;
 }
 
 /** Rewrite a Set-Cookie so it binds to OUR origin, not the Pi's. */
@@ -132,6 +181,8 @@ function rewriteLocation(location: string, target: URL): string {
 
 export function createPiKvmProxy(deps: ProxyDeps) {
     async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        const input = httpHidInput(req.method, req.url);
+        if (input) deps.onHidInput?.(input);
         const { origin, headers: auth, rejectUnauthorized } = await deps.control.proxyTarget();
         const isHttps = origin.protocol === "https:";
         const requestFn = isHttps ? httpsRequest : httpRequest;
@@ -235,9 +286,15 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             clientSocket.on("close", cleanup);
             // Observe user HID input (mouse/keys) on the input WebSocket for the idle
             // jiggler — a passive 'data' listener; the pipe still forwards every byte.
-            const onActivity = deps.onHidActivity;
-            if (onActivity && typeof req.url === "string" && req.url.startsWith("/api/ws")) {
-                clientSocket.on("data", makeHidTap({ onActivity, ...(deps.onHidMouseMove ? { onMouseMove: deps.onHidMouseMove } : {}) }));
+            if ((deps.onHidActivity || deps.onHidInput) && typeof req.url === "string" && req.url.startsWith("/api/ws")) {
+                clientSocket.on(
+                    "data",
+                    makeHidTap({
+                        onActivity: deps.onHidActivity ?? (() => undefined),
+                        ...(deps.onHidMouseMove ? { onMouseMove: deps.onHidMouseMove } : {}),
+                        ...(deps.onHidInput ? { onInput: deps.onHidInput } : {}),
+                    }),
+                );
             }
             proxySocket.pipe(clientSocket);
             clientSocket.pipe(proxySocket);
