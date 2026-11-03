@@ -3,9 +3,6 @@
 **/node_modules
 builds
 dist
-agent
-**/.venv
-**/__pycache__
 apps/web/dist
 docs
 tests/e2e-output

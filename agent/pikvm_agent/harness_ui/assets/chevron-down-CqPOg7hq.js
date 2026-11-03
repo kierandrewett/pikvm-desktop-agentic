@@ -1,1 +1,0 @@
-import{t as e}from"./createLucideIcon-CB5jKH7I.js";var t=e(`Check`,[[`path`,{d:`M20 6 9 17l-5-5`,key:`1gmf2c`}]]),n=e(`ChevronDown`,[[`path`,{d:`m6 9 6 6 6-6`,key:`qrunsl`}]]);export{t as n,n as t};

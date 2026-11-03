@@ -1,4 +1,4 @@
-.PHONY: package icons image agent-bundle
+.PHONY: package icons image
 
 # Build and package for this machine's platform: the Electron tree (with omp's binary, fetched and
 # checked against deploy/omp.lock), then Linux packages with pkgsmith
@@ -21,14 +21,3 @@ IMAGE ?= pikvm-kvm:local
 IMAGE_FLAGS ?= $(if $(filter podman,$(IMAGE_TOOL)),--format docker)
 image:
 	$(IMAGE_TOOL) build $(IMAGE_FLAGS) -f deploy/Dockerfile -t $(IMAGE) .
-
-# Docker build context for the agent sidecar (deploy/agent/Dockerfile): the agent package
-# and its lock. The standalone UI's sources, tests and caches stay out.
-agent-bundle:
-	rm -rf builds/agent
-	mkdir -p builds/agent
-	cp agent/pyproject.toml agent/uv.lock agent/README.md builds/agent/
-	cp -r agent/pikvm_agent builds/agent/pikvm_agent
-	find builds/agent -name __pycache__ -type d -prune -exec rm -rf {} +
-	cp deploy/agent/Dockerfile deploy/agent/entrypoint.sh builds/agent/
-	chmod -R a+rX builds/agent

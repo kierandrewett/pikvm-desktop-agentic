@@ -1,65 +1,18 @@
 #!/usr/bin/env bash
 #
-# pikvm - one command for the desktop app and the agent CLI.
+# pikvm - launch the desktop app from a checkout.
 #
 #   pikvm             launch the desktop app
-#   pikvm cli ...     run the agent CLI, arguments passed straight through
-#
-# The app and the daemon are one product, so they get one entrypoint. Keep the
-# dispatch here dumb: anything clever belongs in the app or in the CLI, never in
-# the thing that only has to choose between them.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 usage() {
     cat <<'EOF'
-pikvm - PiKVM desktop app and agent CLI
+pikvm - PiKVM desktop app
 
-  pikvm                 launch the desktop app
-  pikvm cli [args...]   run the agent CLI (try: pikvm cli --help)
-
-The desktop app spawns and owns the daemon; you do not need to start it
-yourself.
+  pikvm        launch the desktop app
 EOF
-}
-
-# The SAME preference order as resolveAgentRuntime() in src/agent-runtime.ts,
-# and a test pins the two together. A launcher that finds a different
-# installation from the app it launches is worse than one that finds nothing:
-# both would appear to work, on different builds.
-#
-# The bundled runtime leads, so an installed copy never quietly runs a
-# developer's checkout. Prints nothing when there is no runtime — the caller
-# decides what to say, rather than a bare name being passed along and failing
-# somewhere less informative. Two locations and an override; no PATH sweep,
-# because nothing publishes this executable.
-agent_executable() {
-    if [ -n "${PIKVM_AGENT_DAEMON_CMD:-}" ] && [ -x "${PIKVM_AGENT_DAEMON_CMD}" ]; then
-        printf '%s\n' "${PIKVM_AGENT_DAEMON_CMD}"
-        return
-    fi
-    for candidate in \
-        "${root}/agent/runtime/bin/pikvm-agent" \
-        "${root}/agent/.venv/bin/pikvm-agent"; do
-        if [ -x "${candidate}" ]; then
-            printf '%s\n' "${candidate}"
-            return
-        fi
-    done
-}
-
-run_cli() {
-    local exe
-    exe="$(agent_executable)"
-    if [ -z "${exe}" ]; then
-        echo "[pikvm] no agent installation found." >&2
-        echo "[pikvm] looked in: \$PIKVM_AGENT_DAEMON_CMD, ${root}/agent/runtime, ${root}/agent/.venv" >&2
-        echo "[pikvm] build the bundled runtime with: make agent-runtime" >&2
-        echo "[pikvm] or for a development checkout: cd ${root}/agent && uv sync" >&2
-        exit 127
-    fi
-    exec "${exe}" "$@"
 }
 
 run_desktop() {
@@ -82,10 +35,6 @@ run_desktop() {
 }
 
 case "${1:-}" in
-    cli)
-        shift
-        run_cli "$@"
-        ;;
     -h | --help | help)
         usage
         ;;

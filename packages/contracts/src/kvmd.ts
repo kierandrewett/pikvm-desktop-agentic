@@ -8,7 +8,7 @@
  *
  * What is written down here is what the app reads or sends, not all of kvmd.
  * Behaviour notes cite either the console code that depends on it or
- * agent/docs/PIKVM_API.md, which records what the harness learnt from the Pi.
+ * docs/PIKVM_API.md, which records what was learnt from the Pi.
  */
 
 import { Schema } from "effect";
@@ -57,7 +57,7 @@ export const MouseButtonCommand = Schema.Struct({
     }),
 });
 
-/** `mouse_wheel`: scroll. Convention recorded by the harness: `y > 0` scrolls
+/** `mouse_wheel`: scroll. Convention: `y > 0` scrolls
  *  up and `x > 0` scrolls right (PIKVM_API.md "Mouse"). */
 export const MouseWheelCommand = Schema.Struct({
     event_type: Schema.Literal("mouse_wheel"),

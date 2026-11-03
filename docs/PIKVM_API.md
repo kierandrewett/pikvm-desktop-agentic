@@ -1,10 +1,8 @@
 # PiKVM API & inherited tuning constants
 
-Reverse-engineered from the battle-tested TypeScript client in
-`~/dev/pikvm-desktop-agentic` (`src/pikvm-control.ts`, `src/human-typing.ts`,
-`src/ambient/fingerprint.ts`, `src/agent/watched-typing.ts`,
-`src/agent/regions.ts`). The Python `pikvm/` and `vision/`/`executor/` packages
-reproduce these exactly. Treat this as the contract.
+What the PiKVM's kvmd API does and the tuning constants that came with it, recorded from the original TypeScript client
+and the Python agent that preceded `@pikvm/kvm-engine`. `packages/contracts/src/kvmd.ts` and
+`packages/kvm-engine` implement it; treat this as the contract.
 
 ## Transport & auth
 

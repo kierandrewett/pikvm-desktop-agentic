@@ -1,1 +1,0 @@
-var e=(e,t,n)=>`${e} ${e===1?t:n??`${t}s`}`;export{e as t};
