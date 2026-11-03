@@ -50,7 +50,7 @@ All kvmd answers use the `{"ok": true, "result": ...}` envelope; errors are
 | `POST /api/hid/print?limit=&delay=&keymap=` | Records the text body (`prints` in `/__fake/hid`). |
 | `POST /api/hid/set_connected`, `/api/hid/reset` | Update state and emit an `hid` event. |
 | `GET /streamer/stream` | MJPEG (`multipart/x-mixed-replace`), 10 fps of a 320x180 colour-bar JPEG embedded in `frame.ts`. |
-| `GET /streamer/snapshot`, `/api/streamer/snapshot` | The same JPEG. With `ocr=1` it returns plain text. 503 when the source is offline unless `allow_offline=1`. |
+| `GET /streamer/snapshot`, `/api/streamer/snapshot` | The same JPEG. With `ocr=1` it returns plain text (see `/__fake/ocr`; the `ocr_*` region parameters are logged in `/__fake/requests`). 503 when the source is offline unless `allow_offline=1`. |
 | `GET /streamer/state` | `{source: {online, resolution, ...}}`. |
 | `WS /janus/ws` and `GET /janus/ws` | Refused with 503, so the console falls back to MJPEG. |
 | `POST /api/streamer/set_params`, `/api/streamer/reset` | Update the applied params and emit a `streamer` event. |
@@ -75,6 +75,9 @@ Plain JSON, not the kvmd envelope. `seq` numbers all records in one order;
 | `POST /__fake/event` | Body `{"event_type": "...", "event": {...}}` is pushed to every connected client as-is. It does not change the fake's own state. |
 | `POST /__fake/drop[?graceful=1][&refuse_ms=N]` | Closes every WebSocket (abruptly by default, so the client sees 1006). `refuse_ms` makes new `/api/ws` connections fail with 503 for that long, to exercise reconnect backoff. |
 | `POST /__fake/source?online=0\|1` | Marks the video source offline/online and emits a `streamer` event. |
+| `POST /__fake/resolution?width=W&height=H` | The resolution the streamer reports: the `streamer` event, `X-UStreamer-Width`/`Height` on snapshots and `/streamer/state`. The JPEG served keeps its own 320x180 size. Reset by `/__fake/reset`. |
+| `POST /__fake/ocr[?enabled=0\|1]` | Sets what an `ocr=1` snapshot answers (the request body, as text) and whether OCR is on; broadcasts an `ocr` event. With OCR off the snapshot is a 503. |
+| `POST /__fake/keymap?name=en-gb` | Sets kvmd's default keymap and broadcasts `hid_keymaps`. |
 | `POST /__fake/picture?name=bars\|changed` | Which picture the stream and snapshots serve: the colour bars, or a dialog-sized change (a light window over a dark desktop), so a test can make the target's screen change. Reset by `/__fake/reset`. |
 
 Example:

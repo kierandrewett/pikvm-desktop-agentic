@@ -102,7 +102,7 @@ function freshState() {
         // A map of name -> details, as kvmd sends it (console.js fillKeymaps records
         // that a list of names broke the picker once); the console reads the keys.
         keymaps: { default: "en-us", available: { "en-us": {}, "en-gb": {}, de: {}, fr: {} } as Record<string, object> },
-        source: { online: true },
+        source: { online: true, width: FRAME_WIDTH, height: FRAME_HEIGHT },
         /** Which picture the streamer serves: the colour bars, or a window-sized change. */
         picture: "bars" as "bars" | "changed",
         streamerApplied: {
@@ -121,7 +121,12 @@ function freshState() {
             images: {} as Record<string, { size: number; complete: boolean; mod_ts: number }>,
         },
         gpio: { relay0: { state: false, busy: false } } as Record<string, { state: boolean; busy: boolean }>,
-        ocr: { enabled: true, langs: { default: ["eng"], available: ["eng", "deu", "fra"] } },
+        ocr: {
+            enabled: true,
+            langs: { default: ["eng"], available: ["eng", "deu", "fra"] },
+            /** What an `ocr=1` snapshot answers; a test sets it with POST /__fake/ocr. */
+            text: "FAKE KVMD TEST PATTERN\n",
+        },
     };
 }
 
@@ -177,7 +182,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
         streamer: {
             source: {
                 online: state.source.online,
-                resolution: { width: FRAME_WIDTH, height: FRAME_HEIGHT },
+                resolution: { width: state.source.width, height: state.source.height },
                 desired_fps: Number(state.streamerApplied.desired_fps),
                 captured_fps: state.source.online ? Number(state.streamerApplied.desired_fps) : 0,
             },
@@ -381,7 +386,8 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
             throw new HttpError(503, "UnavailableError", "Streamer source is offline");
         }
         if (q.get("ocr") === "1") {
-            send(res, 200, "FAKE KVMD TEST PATTERN\n", "text/plain; charset=utf-8");
+            if (!state.ocr.enabled) throw new HttpError(503, "UnavailableError", "OCR is disabled");
+            send(res, 200, state.ocr.text, "text/plain; charset=utf-8");
             return;
         }
         res.writeHead(200, {
@@ -389,8 +395,8 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
             "Content-Length": currentFrame().length,
             "Cache-Control": "no-store",
             "X-UStreamer-Online": String(state.source.online),
-            "X-UStreamer-Width": String(FRAME_WIDTH),
-            "X-UStreamer-Height": String(FRAME_HEIGHT),
+            "X-UStreamer-Width": String(state.source.width),
+            "X-UStreamer-Height": String(state.source.height),
         });
         res.end(currentFrame());
     };
@@ -414,7 +420,7 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                 okJson(res, {
                     source: {
                         online: state.source.online,
-                        resolution: { width: FRAME_WIDTH, height: FRAME_HEIGHT },
+                        resolution: { width: state.source.width, height: state.source.height },
                         desired_fps: Number(state.streamerApplied.desired_fps),
                         captured_fps: state.source.online ? Number(state.streamerApplied.desired_fps) : 0,
                     },
@@ -731,6 +737,38 @@ export async function startFakeKvmd(options: FakeKvmdOptions = {}): Promise<Fake
                 broadcast("streamer", streamerEvent());
                 json(res, 200, { ok: true, online: state.source.online });
                 return;
+            case "/__fake/resolution": {
+                requireMethod(req, "POST");
+                const width = Number(q.get("width"));
+                const height = Number(q.get("height"));
+                if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+                    throw new HttpError(400, "ValidatorError", "width and height must be positive integers");
+                }
+                // The served JPEG keeps its own size; the headers and events are what a client reads.
+                state.source.width = width;
+                state.source.height = height;
+                state.streamerApplied.resolution = `${width}x${height}`;
+                broadcast("streamer", streamerEvent());
+                json(res, 200, { ok: true, width, height });
+                return;
+            }
+            case "/__fake/ocr": {
+                requireMethod(req, "POST");
+                if (q.has("enabled")) state.ocr.enabled = flag(q, "enabled");
+                if (body.length) state.ocr.text = body.toString("utf8");
+                broadcast("ocr", ocrEvent());
+                json(res, 200, { ok: true, enabled: state.ocr.enabled });
+                return;
+            }
+            case "/__fake/keymap": {
+                requireMethod(req, "POST");
+                const name = q.get("name") ?? "";
+                if (!(name in state.keymaps.available)) throw new HttpError(400, "ValidatorError", `Unknown keymap: ${name}`);
+                state.keymaps.default = name;
+                broadcast("hid_keymaps", keymapsEvent());
+                json(res, 200, { ok: true, keymap: name });
+                return;
+            }
         }
         throw new HttpError(404, "NotFoundError", `No such control route: ${req.method} ${path}`);
     };
