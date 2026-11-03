@@ -24,6 +24,7 @@ import { packager } from "@electron/packager";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { builderCli } from "./builder-cli.mjs";
 import { parseArgs } from "node:util";
 
 const root = resolve(import.meta.dirname, "..");
@@ -67,7 +68,9 @@ function run(command, args, options = {}) {
 
 /* On Windows `yarn` is a .cmd shim, which Node only starts through a shell (since the
  * CVE-2024-27980 fix it refuses .cmd files without one), so spawnSync("yarn") fails with no
- * exit status. The arguments here are fixed words, so the shell cannot split anything. */
+ * exit status. Only the build calls use it, and their arguments are fixed words, so the shell
+ * cannot split anything. Anything with a path in it (the tree is "PiKVM Desktop-win32-x64") must
+ * not go through it: electron-builder is started with Node and an argument array. */
 function yarn(args) {
     run("yarn", args, { shell: process.platform === "win32" });
 }
@@ -217,7 +220,6 @@ if (platform === "linux") {
      * is this repo's app bundle, so it is always set. */
     const prepackaged = platform === "darwin" ? join(tree, `${appName}.app`) : tree;
     const args = [
-        "electron-builder",
         platform === "darwin" ? "--mac" : "--win",
         ...formats,
         `--${arch}`,
@@ -226,8 +228,8 @@ if (platform === "linux") {
         `--config.directories.output=${outDir}`,
         "--publish", "never",
     ];
-    log(`yarn ${args.join(" ")}`);
-    yarn(args);
+    log(`electron-builder ${args.join(" ")}`);
+    run(process.execPath, [builderCli(), ...args]);
     /* electron-builder also writes files that are not packages: its debug log whenever it thinks it is
      * debugging (CI=true is enough), and a .blockmap beside every macOS zip, for an updater this
      * app does not have. */
