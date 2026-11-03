@@ -6,6 +6,8 @@
 #   podman compose -f deploy/e2e/compose.yml up -d
 #   open http://127.0.0.1:18080/app/chat
 #
+# KVM_HOST_PORT, FAKE_KVMD_PORT and FAKE_MODEL_PORT move the published ports (defaults 18080, 14510, 19090).
+#
 # In the chat's Settings, add a provider with base URL http://fake-model:9000/v1 and any key; the
 # gateway accepts any operator-configured base URL. The web host listens on 127.0.0.1 only here
 # (PIKVM_AUTH=proxy states that an authenticating proxy is in front, which on this machine is
@@ -22,7 +24,7 @@ services:
         security_opt: ["label=disable"]
         ports:
             # The browser run reads back what the fake received (/__fake/hid).
-            - "127.0.0.1:14510:4510"
+            - "127.0.0.1:${FAKE_KVMD_PORT:-14510}:4510"
         networks: [kvm-internal]
 
     fake-model:
@@ -38,7 +40,7 @@ services:
         security_opt: ["label=disable"]
         ports:
             # The browser run reads back what the agent sent (the credentials, the tool list).
-            - "127.0.0.1:19090:9000"
+            - "127.0.0.1:${FAKE_MODEL_PORT:-19090}:9000"
         networks: [kvm-internal]
 
     kvm:
@@ -50,7 +52,7 @@ services:
             PIKVM_AUTH: proxy
             PORT: "8080"
         ports:
-            - "127.0.0.1:18080:8080"
+            - "127.0.0.1:${KVM_HOST_PORT:-18080}:8080"
         volumes:
             - kvm-data:/data
         networks: [kvm-internal]
