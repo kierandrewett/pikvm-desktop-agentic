@@ -18,7 +18,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:f
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import postcss, { type AtRule, type Container, type Root, type Rule } from "postcss";
+import postcss, { type AtRule, type Container, type Document, type Root, type Rule } from "postcss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { decodePng, SCREENS, SPLASH_BACKGROUND, startupImages } from "../../startup-images";
 
@@ -65,7 +65,7 @@ afterAll(() => {
 const HOVER_MEDIA = /^\(hover:\s*hover\)\s+and\s+\(pointer:\s*fine\)$/;
 
 function guardedByHoverMedia(rule: Rule): boolean {
-    for (let at: Container | undefined = rule.parent; at && at.type !== "root"; at = at.parent) {
+    for (let at: Container | Document | undefined = rule.parent; at && at.type !== "root"; at = at.parent) {
         if (at.type === "atrule" && (at as AtRule).name === "media" && HOVER_MEDIA.test((at as AtRule).params.trim())) return true;
     }
     return false;

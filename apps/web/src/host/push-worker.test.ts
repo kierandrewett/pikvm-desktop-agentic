@@ -136,7 +136,7 @@ describe("the icon badge", () => {
     const pushed = async (event: PushEvent): Promise<void> => void (await event.waitUntil.mock.calls[0]?.[0]);
 
     it("W5: a push with badge: 1 puts 1 on the icon, keeps the count, and tells the open page", async () => {
-        const setAppBadge = vi.fn(async () => undefined);
+        const setAppBadge = vi.fn(async (_count?: number) => undefined);
         const postMessage = vi.fn();
         const cache = new Map<string, string>();
         const { push, showNotification } = boot([{ url: `${ORIGIN}/app/chat`, focus: vi.fn(), postMessage }], { navigator: { setAppBadge }, cache });
@@ -148,7 +148,7 @@ describe("the icon badge", () => {
     });
 
     it("W5: a second push while the first is unseen makes it 2, from the cache, as when no page has been open between them", async () => {
-        const setAppBadge = vi.fn(async () => undefined);
+        const setAppBadge = vi.fn(async (_count?: number) => undefined);
         const cache = new Map<string, string>();
         await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: 1 }));
         await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: 1 }));
@@ -156,7 +156,7 @@ describe("the icon badge", () => {
     });
 
     it("W5: `badge: true` is one, and a count adds that many", async () => {
-        const setAppBadge = vi.fn(async () => undefined);
+        const setAppBadge = vi.fn(async (_count?: number) => undefined);
         const cache = new Map<string, string>();
         await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: true }));
         await pushed(boot([], { navigator: { setAppBadge }, cache }).push({ badge: 3 }));
@@ -165,7 +165,7 @@ describe("the icon badge", () => {
 
     it("W5: a push with no badge, or one that is not a positive whole number, leaves the icon alone", async () => {
         for (const badge of [undefined, 0, -2, 1.5, "1", null, false]) {
-            const setAppBadge = vi.fn(async () => undefined);
+            const setAppBadge = vi.fn(async (_count?: number) => undefined);
             const { push, showNotification } = boot([], { navigator: { setAppBadge } });
             await pushed(push({ title: "t", body: "b", badge }));
             expect(showNotification, String(badge)).toHaveBeenCalledTimes(1);
@@ -176,7 +176,7 @@ describe("the icon badge", () => {
     it("W5: a worker without the Badging API, with one that rejects, or with no Cache Storage still shows the notification", async () => {
         const variants: Boot[] = [
             { navigator: {} },
-            { navigator: undefined },
+            {},
             { navigator: { setAppBadge: async () => Promise.reject(new Error("not installed")) } },
             { navigator: { setAppBadge: vi.fn(async () => undefined) }, cache: "none" },
         ];
