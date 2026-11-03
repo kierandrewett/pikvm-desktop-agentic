@@ -254,3 +254,34 @@ image serves is involved; the rerun on a fresh container delivered it and passed
 
 Two false starts of the run itself, for whoever repeats it: the e2e helper's fake kvmd runs from the checkout mounted into the container and needs the checkout's `node_modules` (`ws`), so a fresh
 worktree needs `yarn install` first (without it the fake exits and every suite reports `fetch failed`); the helpers also share one compose project name and the host ports 18080, 14510, 19090, 14720 and 14730, so two runs at once on one machine collide.
+
+## The image deployed next: `4420aad9`
+
+Main's tarball from a clean worktree of `4420aad9` (iPhone fix `91931a79`, cursor sync `4420aad9`, which changes the kvmd WebSocket proxy): `~/.cache/pikvm-wip/pikvm-kvm-4420aad9.tar.gz`,
+sha256 `fe862d6132da6a9c5c24efa940d710509cd66d57e00f2b98f2b322a79a69227f`, config digest `sha256:1c1c6e89899ffbc7c8839f77468c32b37559c8f35022f9e3b73972dc37585b24`, tag `pikvm-kvm:4420aad9`.
+Loaded into podman unchanged (image id equal to the config digest); the suites ran from a separate clean worktree of the same commit. Posture as before: uid 1000, read-only root, tmpfs `/tmp`,
+`--cap-drop ALL`, `no-new-privileges`, `PIKVM_AUTH=proxy`, a fresh container per suite.
+
+| Suite | Result |
+| --- | --- |
+| `apps/web/e2e/kvm.e2e.mjs` (phone and desktop) | 40 of 40 |
+| `apps/web/e2e/cursor-sync.e2e.mjs` (desktop page and phone page on one host) | 13 of 13 on three fresh containers; 12 of 13 on the first run (below) |
+| `apps/web/e2e/phone-chrome.e2e.mjs` (all profiles) | 121 of 121 |
+| `apps/web/e2e/chat.e2e.mjs phone` | 17 of 17 |
+| `apps/web/e2e/chat.e2e.mjs desktop` | 16 of 16 |
+| `apps/web/e2e/resume.e2e.mjs phone` | 13 of 13 |
+| `apps/web/e2e/keep-alive.e2e.mjs` | 26 of 26 |
+| `apps/web/e2e/desktop-layout.e2e.mjs` | 20 of 20 |
+| `apps/web/e2e/watch.e2e.mjs` | 22 of 22 not reached on this image: 20 of 22, 19 of 22, 20 of 22 and one run in which the push subscription never completed (below) |
+
+**cursor-sync, the one failure.** On the first run the case "a fast mouse (90 moves at 8 ms) ends with the phone on the last point, within the budget, and about one update per frame" failed:
+the phone's cursor never reached the last point after the last event, and the blob was redrawn 86 times for 90 moves over 900+ ms. The same suite then passed 13 of 13 on three more fresh containers, so it is intermittent
+under load (the machine was busy with other agents' runs); it is the one case that depends on the page keeping up with a burst, and it is worth rerunning on the phone if the shared cursor feels late.
+
+**watch, why it is not 22 of 22 here.** Every failure is a case that waits on the headless Chrome's own subscription on Google's real push service (`fcm.googleapis.com`), or on a check log written after that send:
+"the real Chrome got the notification too", "Send test notification… an expired one (410) is removed" (that subscription counted as expired, `devices 4 -> 2`), and, when delivery was slow, the checks that follow it in the log
+("the check log says why", "the screen changes and settles…"). On one run the browser's subscription did not complete within 90 s and the 12 cases after it failed; the cases that do not need Chrome's subscription passed in every run
+(the threshold, the missing key, Safari-tab message, no secret in the log, the 0600 files, the restart resuming the watch). Nothing in this change touches the watch or push code. The same suite passed 22 of 22 against the two previous images on a quiet machine.
+
+**The helper, and a collision.** A run on this machine collided with another agent's: `up-inspectable.sh` used one compose project, container name, ports and data directory, so a `down` in one run killed the other's containers (`fetch failed`, `ENOENT` on the data directory), and the image itself was removed from podman
+between two runs. The helper now takes `E2E_PROJECT` (default `pikvm-e2e`) next to the existing port and `E2E_DATA` variables, so a second run can have its own; the watch reruns above used `E2E_PROJECT=s5w` and their own ports.
