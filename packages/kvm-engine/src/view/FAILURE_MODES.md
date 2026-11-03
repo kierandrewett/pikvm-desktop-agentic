@@ -28,27 +28,21 @@ beside this file assert each one as behaviour.
 
 ## lens.ts (magnifier)
 
-The lens is a precision aid whose zoom is tied directly to how fast the finger moves. There
-is no hold time and no distance gate beyond a few pixels. Speed is the finger's px/s,
-averaged over ~70 ms (decayed distance / decayed time); zoom is `lensZoomForSpeed`: 5x total at <= 60 px/s,
-1x at >= 360 px/s, a smoothstep between. Every constant is the tuning block at the top of
-`lens.ts`. The desktop mouse has no lens and is unaffected.
+The lens is deliberately plain: one fixed size (96 px) and one fixed zoom (3x total, the picture's own zoom
+counted), a short fade, nothing inside it but the magnified picture and the cursor point. It is on while one
+finger is down on the trackpad and moving slowly, off when the finger speeds up or lifts. Speed decides only
+that. Every number is in the tuning block at the top of `lens.ts`. The desktop mouse has no lens.
 
-- L1. Zoom is MAX at or under the slow speed, 1 at or over the fast speed, monotonic non-increasing in between, and always within 1..MAX.
-- L2. No step anywhere on the curve (flat at both ends, smooth between): it is continuous, so the lens never jumps in zoom.
-- L3. The speed average: the first sample IS the speed (averaging it against the 0 of "no data" would show the lens at the start of every swipe); events at the same instant do not spike it; a steady speed reads as itself however unevenly the events arrive (distance and time are decayed together, so a late or bunched event cannot make the zoom jitter); it follows a change of speed within the 70 ms time constant in both directions; a pause is not averaged into the speed of the move that ends it (a gap, and the first move of a gesture, count as at most 50 ms: some browsers hold the first move back until the finger has left its touch slop, and a 15 px jump is not then a flick); the moves are timed by the events\' OWN timestamps, not by when they were handled, because a browser hands a frame\'s worth of moves over together.
-- L4. A finger that stops sending moves HOLDS its speed: a swipe that ends with the finger resting must not have the lens creep in afterwards, and a nudge that ends resting keeps its zoom.
-- L5. Nothing before the finger has moved: a resting finger or a tap (jitter under LENS_ENGAGE_PX, 4 px, inside the 16 px tap slop) never shows it.
-- L6. No delay: the first slow move after engaging shows it on the first frame, at the zoom its speed asks for.
-- L7. Fast movement never shows it, from the first event (a single flick event is already past the fast speed).
-- L8. Slowing down zooms in and speeding up zooms out, frame by frame without a jump; fast hides it within a few frames and slowing again brings it straight back.
-- L9. It opens small (56 px) and eases to 96 px within 160 ms: never shrinks, never overshoots.
-- L10. A nudge that ends with the finger resting keeps its zoom (see L4).
-- L11. A new touch starts from nothing: the last gesture's lens and speed are dropped, and a first fast move is not averaged against an old slow speed.
-- L12. Hysteresis on the lens magnification: it appears at 1.3x and goes only below 1.12x, so a finger hovering on the threshold does not flicker.
-- L13. Magnification is max(1, zoom / pictureScale) (the picture's own zoom counts towards the total); where the picture alone is as close as the lens could make it (scale > 5 / 1.3 = 3.85) the lens never shows.
-- L14. No lens where the cursor position is a guess (relative mouse), with the socket down, under a dialog, with no picture, before a real frame (< 32 px), or after the linger time (1.4 s after the last touch activity; while a finger rests on the trackpad it keeps lingering).
-- L15. At the picture's edge only the part inside the picture is sampled; wholly outside, nothing is.
+- L1. The finger's speed (px/s, averaged over ~70 ms as decayed distance / decayed time, from the events' OWN timestamps) is the same however unevenly the events arrive: the first move is the speed itself (counted as 50 ms), events at the same instant do not spike it, a steady speed reads as itself, it follows a change within the time constant in both directions, and a pause (a gap counts as at most 50 ms) is not averaged into the move that ends it. A browser hands a frame's worth of moves over together, so timing by when they are handled made it jump.
+- L2. One threshold to show (300 px/s) and a higher one to hide (420 px/s).
+- L3. Nothing before the finger has moved: a touch alone, a tap or a hold (jitter under 4 px, inside the 16 px tap slop) and the first move alone show nothing. No wait beyond that: it shows on the second move of a slow finger.
+- L4. A fast finger never shows it, from the first move (a flick from standing included); speeding up hides it within a few moves and slowing down brings it back.
+- L5. A finger that stops sending moves keeps the decision: a swipe that ends with the finger resting never lets the lens creep in, a nudge that ends resting keeps it.
+- L6. Hysteresis: between the two thresholds it stays as it was, so a finger hovering on the threshold does not flicker.
+- L7. Magnification is max(1, 3 / pictureScale); where that is under 1.2 (picture zoom over 2.5x) the lens never shows. No size or zoom animation: only a CSS fade.
+- L8. Placement is fixed: 24 px above the cursor (its bottom edge 24 px over it, so the finger and hand are clear and the cursor stays in view), following it sideways but held inside the pane. It goes below only where it would not fit above (in a pane too short for either side, on whichever has more room), and comes back above only with 40 px to spare, so it does not hop at the edge.
+- L9. Only while exactly ONE finger is down (a lift or a pinch hides it at once, no linger), and never where the cursor position is a guess (relative mouse), with the socket down, under a dialog, with no picture, before a real frame (< 32 px).
+- L10. At the picture's edge only the part inside the picture is sampled; wholly outside, nothing is.
 
 ## cursor.ts (blob and host pointer)
 

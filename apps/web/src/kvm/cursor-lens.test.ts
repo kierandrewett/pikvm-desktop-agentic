@@ -1,5 +1,5 @@
-// The painter's side of the lens (failure modes L3, L5-L8, L11 in packages/kvm-engine/src/view/FAILURE_MODES.md):
-// that the finger's speed is read off the moves' OWN times, and that what it decides reaches the canvas.
+// The painter's side of the lens (failure modes L1, L3-L9 in packages/kvm-engine/src/view/FAILURE_MODES.md):
+// that the finger's speed is read off the moves' OWN times, and that what the engine decides reaches the canvas.
 // The decisions themselves are the engine's and are tested there.
 
 import { createManualClock, type PointerMachine } from "@pikvm/kvm-engine";
@@ -21,6 +21,7 @@ function setup() {
         stroke: () => undefined,
     };
     lens.getContext = (() => ctx) as unknown as HTMLCanvasElement["getContext"];
+    pane.getBoundingClientRect = () => ({ left: 0, top: 0, width: 390, height: 700, right: 390, bottom: 700, x: 0, y: 0, toJSON: () => ({}) });
     const machine = {
         trackpadActive: true,
         pointersDown: 1,
@@ -53,7 +54,7 @@ function setup() {
         painter,
         lens,
         clock,
-        machine: machine as unknown as { currentView: { scale: number } },
+        machine: machine as unknown as { currentView: { scale: number }; pointersDown: number; virtualCursorClient: { x: number; y: number } },
         /** Run the queued animation frame, if any (the painter draws on it and queues the next). */
         frame() {
             const cb = queued;
@@ -64,30 +65,17 @@ function setup() {
 }
 
 describe("the lens painter", () => {
-    it("L3: the speed comes from the moves' own times, not from when they were handled", () => {
+    it("L1: the speed comes from the moves' own times, not from when they were handled", () => {
         const t = setup();
-        t.painter.lens(); // a touch began
+        t.painter.lens();
         // A frame's worth of moves handled in one instant (the clock never moves): 1 px each, 16 ms apart on the
         // events' own clock = 62 px/s, a slow finger. Read off the handling time they would be 1 px per 1 ms.
         for (let i = 1; i <= 6; i++) t.painter.lens(1, 90_000 + i * 16);
         t.frame();
         expect(t.lens.classList.contains("on")).toBe(true);
-        expect(Number(t.lens.dataset.mag)).toBeGreaterThan(4.5);
     });
 
-    it("L3: a fast finger on its own clock hides it, whatever the handling times say", () => {
-        const t = setup();
-        t.painter.lens();
-        for (let i = 1; i <= 6; i++) {
-            t.clock.advance(16);
-            t.painter.lens(24, 90_000 + i * 16); // 1500 px/s
-        }
-        t.frame();
-        expect(t.lens.classList.contains("on")).toBe(false);
-        expect(t.lens.dataset.mag).toBeUndefined();
-    });
-
-    it("L3: with no timestamp the moment of the call stands in", () => {
+    it("L1: with no timestamp the moment of the call stands in", () => {
         const t = setup();
         t.painter.lens();
         for (let i = 0; i < 6; i++) {
@@ -98,31 +86,23 @@ describe("the lens painter", () => {
         expect(t.lens.classList.contains("on")).toBe(true);
     });
 
-    it("L6: a slow move shows it on the first frame, with no wait", () => {
+    it("L3/L4: nothing for a touch alone or a fast finger; it shows for a slow one, on the first frame", () => {
         const t = setup();
         t.painter.lens();
-        expect(t.lens.classList.contains("on")).toBe(false); // a touch alone is not enough
-        t.painter.lens(1, 90_016);
-        t.frame();
-        expect(t.lens.classList.contains("on")).toBe(true);
-        expect(t.lens.style.left).toBe("200px");
-    });
-
-    it("L5/L11: a touch that has not moved shows nothing, and a new touch drops the last gesture's lens", () => {
-        const t = setup();
-        t.painter.lens();
-        t.clock.advance(2000);
         t.frame();
         expect(t.lens.classList.contains("on")).toBe(false);
-        t.painter.lens(1, 90_016);
+        for (let i = 1; i <= 6; i++) t.painter.lens(24, 90_000 + i * 16); // 1500 px/s
         t.frame();
-        expect(t.lens.classList.contains("on")).toBe(true);
-        t.painter.lens(); // the next touch
         expect(t.lens.classList.contains("on")).toBe(false);
-        expect(t.lens.dataset.mag).toBeUndefined();
+        const slow = setup();
+        slow.painter.lens();
+        slow.painter.lens(1, 90_016);
+        slow.painter.lens(1, 90_032);
+        slow.frame();
+        expect(slow.lens.classList.contains("on")).toBe(true);
     });
 
-    it("L8: speeding up takes it away and slowing down brings it back, with the zoom following", () => {
+    it("L4/L6: speeding up takes it away and slowing down brings it back; one size throughout", () => {
         const t = setup();
         t.painter.lens();
         let at = 90_000;
@@ -135,23 +115,69 @@ describe("the lens painter", () => {
             }
         };
         move(0.8, 10);
-        const slow = Number(t.lens.dataset.mag);
-        move(2.4, 8);
-        const mid = Number(t.lens.dataset.mag);
-        expect(slow).toBeGreaterThan(mid);
-        expect(mid).toBeGreaterThan(1.3);
+        expect(t.lens.classList.contains("on")).toBe(true);
+        expect(t.lens.style.width).toBe("96px");
         move(20, 8);
         expect(t.lens.classList.contains("on")).toBe(false);
         move(0.8, 30);
         expect(t.lens.classList.contains("on")).toBe(true);
-        expect(Number(t.lens.dataset.mag)).toBeGreaterThan(4.5);
+        expect(t.lens.style.width).toBe("96px");
+        expect(t.lens.style.height).toBe("96px");
     });
 
-    it("L13: where the picture alone is as close as the lens could make it, it never shows", () => {
+    it("L8: sits 24 px above the cursor, and below it only where there is no room above", () => {
         const t = setup();
-        t.machine.currentView.scale = 4;
         t.painter.lens();
         t.painter.lens(1, 90_016);
+        t.painter.lens(1, 90_032);
+        t.frame();
+        expect(t.lens.style.left).toBe("200px");
+        expect(t.lens.style.top).toBe(`${150 - 72}px`);
+        t.machine.virtualCursorClient = { x: 200, y: 60 };
+        t.frame();
+        expect(t.lens.style.top).toBe(`${60 + 72}px`);
+        t.machine.virtualCursorClient = { x: 200, y: 150 }; // fits above again, but not with room to spare: stays below
+        t.frame();
+        expect(t.lens.style.top).toBe(`${150 + 72}px`);
+        t.machine.virtualCursorClient = { x: 200, y: 300 };
+        t.frame();
+        expect(t.lens.style.top).toBe(`${300 - 72}px`);
+    });
+
+    it("L9: a lift hides it on the next frame, with no linger, and a new touch starts from nothing", () => {
+        const t = setup();
+        t.painter.lens();
+        t.painter.lens(1, 90_016);
+        t.painter.lens(1, 90_032);
+        t.frame();
+        expect(t.lens.classList.contains("on")).toBe(true);
+        t.machine.pointersDown = 0;
+        t.frame();
+        expect(t.lens.classList.contains("on")).toBe(false);
+        t.machine.pointersDown = 1;
+        t.painter.lens(); // the next touch
+        t.painter.lens(1, 91_000);
+        t.frame();
+        expect(t.lens.classList.contains("on")).toBe(false); // one move is not enough
+    });
+
+    it("L9: a second finger (a pinch) hides it", () => {
+        const t = setup();
+        t.painter.lens();
+        t.painter.lens(1, 90_016);
+        t.painter.lens(1, 90_032);
+        t.frame();
+        t.machine.pointersDown = 2;
+        t.frame();
+        expect(t.lens.classList.contains("on")).toBe(false);
+    });
+
+    it("L7: where the picture alone is nearly 3x, it never shows", () => {
+        const t = setup();
+        t.machine.currentView.scale = 2.6;
+        t.painter.lens();
+        t.painter.lens(1, 90_016);
+        t.painter.lens(1, 90_032);
         t.frame();
         expect(t.lens.classList.contains("on")).toBe(false);
     });

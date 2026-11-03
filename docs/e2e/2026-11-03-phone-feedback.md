@@ -286,79 +286,76 @@ Headless Chrome, iPhone 13 and desktop 1400x900. "Away" is Chrome's own freeze (
 <!-- resume:end -->
 
 <!-- lens:begin -->
-## Zoom-in cursor lens: trigger and speed-tied zoom
+## The cursor lens, made basic
 
-Kieran: "the zoom in cursor thing I need you to make it easier to trigger, and you gotta tie it directly to the movement speed".
+Kieran, on the real iPhone: "make the zoom cursor thing just more basic, it's doing too much at the moment and it's confusing".
 
-What changed (`packages/kvm-engine/src/view/lens.ts`, every number in its tuning block; failure modes L1-L15 in `view/FAILURE_MODES.md`, P17 in `pointer/FAILURE_MODES.md`):
+What it is now (`packages/kvm-engine/src/view/lens.ts`, every number in its tuning block; failure modes L1-L10 in `view/FAILURE_MODES.md`):
 
-- Trigger: no hold. The lens used to need about a second of sustained fine movement (and a 160 px path cap) before it appeared and 450 ms to grow. It now appears on the first frame after the finger has moved more than 4 px from where it touched in trackpad mode (before the cursor itself starts moving at the 16 px tap slop), and opens in 160 ms. A tap, a hold or a resting finger (jitter under 4 px) never shows it.
-- Zoom is a function of finger speed: the finger's px/s, averaged over about 70 ms (decayed distance / decayed time, using each event's own timestamp), goes through a smoothstep from 5x total at <= 60 px/s to 1x (no lens) at >= 360 px/s. Continuous and monotonic, flat at both ends.
-- Hysteresis: the lens appears at 1.3x and goes away only below 1.12x, so a finger hovering on the threshold does not flicker.
-- The speed is held while the finger rests (a swipe that ends still never lets the lens creep in; a nudge that ends still keeps its zoom). The picture's own zoom still counts towards the total (lens mag = max(1, zoom / picture scale)).
-- Desktop mouse: unchanged, the lens has never applied there (it needs the trackpad's virtual cursor); the desktop case below confirms none appears.
+- One fixed size (96 px) and one fixed zoom (3x total, the picture's own zoom counted), a short CSS fade in and out, nothing inside it but the magnified picture and the cursor point.
+- On while ONE finger is down on the trackpad and moving slowly; off when the finger speeds up, lifts, or a second finger comes down. Speed decides only that: show under 300 px/s, hide over 420 px/s, in between it keeps what it had. No continuous speed-to-zoom curve, no grow animation, no linger after the lift.
+- Fixed place: 24 px above the cursor (its bottom edge), following it sideways, held inside the pane. Below the cursor only where it would not fit above (in a pane too short for either side, on whichever has more room), and back above only with 40 px to spare, so it never hops.
+- Desktop mouse: unchanged; the lens has never applied there.
 
-Found by the run: the painter proxy in `picture-controller.ts` dropped the event timestamp, so the first version timed moves by when the browser handed them over (a frame's worth together) and the zoom jumped by up to 1.2x a frame. With the proxy forwarding it the largest frame-to-frame change in these runs is 0.2-0.35x.
-
-Script: `apps/web/e2e/lens.e2e.mjs`; iPhone 13 profile with raw CDP touch events, then the desktop mouse. The page records the lens (on, `data-mag`, size) on every animation frame and every pointermove on its own clock; the finger speed in the table is read off those pointermoves (trailing 120 ms).
+Script: `apps/web/e2e/lens.e2e.mjs`; iPhone 13 (portrait, then landscape for the top edge) with raw CDP touch events, then the desktop mouse. The page records the lens box and the cursor centre on every animation frame and every pointermove on its own clock; the finger speed below is read off those pointermoves (trailing 120 ms).
 
 | Profile | Case | Observed | Result |
 | --- | --- | --- | --- |
-| iPhone 13 | trackpad lens: a slow finger shows it at once, with no hold: within a frame or two of leaving its touch point by 4 px, and not before | finger past 4 px at +178.7 ms of the touch (4.3 px away); lens first on 36.4 ms later at 5.00x and 56px; on before that: 0 frames | pass |
-| iPhone 13 | trackpad lens: slow movement is at the full zoom | 48 frames at 40-40 px/s: lens always on, zoom >= 5.00x (max 5) | pass |
-| iPhone 13 | trackpad lens: speeding up zooms out continuously, to nothing by the fast speed, with no jump | 42 frames on; largest frame-to-frame zoom change 0.32x (longest pointer gap just before it 31 ms); zoom every 200 ms 5.0 > 4.9 > 3.5 > 1.7; on/off changes 1; went off at 352 px/s of finger speed (fast = 360) | pass |
-| iPhone 13 | trackpad lens: fast movement never has it, from the first fast frame | 27 frames at up to 521 px/s: lens on in 0 | pass |
-| iPhone 13 | trackpad lens: slowing down zooms back in continuously, with no jump | back on at 285 px/s (lens needs the finger under 360); largest frame-to-frame zoom change 0.35x (longest pointer gap just before it 33 ms); zoom every 200 ms 1.4 < 1.4 < 1.4 < 1.6 < 3.5; on/off changes 1; ended at 4.91x | pass |
-| iPhone 13 | trackpad lens: slow again is back to the full zoom | 25 frames, zoom >= 5.00x | pass |
-| iPhone 13 | trackpad lens: the zoom is tied to the speed: the slower the finger, the higher the zoom, across the whole gesture | 0-90 px/s: 4.99x (n=133); 90-150 px/s: 4.52x (n=14); 150-220 px/s: 3.50x (n=18); 220-300 px/s: 2.15x (n=18); 300-420 px/s: 1.41x (n=6) | pass |
-| iPhone 13 | trackpad lens: it grows from small to full size inside 200 ms, then lingers after the lift and goes | first 56px, full 96px 133 ms later; 1.0 s after lift on=true; 1.7 s after on=false | pass |
-| iPhone 13 | trackpad lens: screenshots slow / medium / fast | slow on=true 5.00x; medium on=true 3.20x; fast on=false -x (lens-1-slow.png, lens-2-medium.png, lens-3-fast.png) | pass |
-| iPhone 13 | trackpad lens: a tap and a resting finger with a few px of jitter never show it | 111 frames over a 1.5 s rest with 1.5 px jitter: lens on in 0 | pass |
+| iPhone 13 | slow finger: the lens is there at once, no hold: within a frame or two of the finger leaving its touch point by 4 px, and not before | finger past 4 px at +166.1 ms of the touch; lens first on 54.5 ms later; on before that: 0 frames | pass |
+| iPhone 13 | slow finger: the lens stays on for the whole slow stretch | 51 frames at 40-40 px/s, on in 51 | pass |
+| iPhone 13 | speeding up: it goes off once, between the show and the hide speed, and stays off | went off at 448 px/s of finger speed (show under 300, hide over 420); on/off changes 1; off for the rest of the fast stretch: true | pass |
+| iPhone 13 | fast finger: never on, from its first fast frame | 22 frames at up to 562 px/s: on in 0 | pass |
+| iPhone 13 | slowing down: back on once, under the show speed, and stays on | back on at 283 px/s; on/off changes 1; on from there to the lift: true | pass |
+| iPhone 13 | one fixed size: 96 x 96 on every frame it is on, however fast the finger | 190 frames on, sizes 96x96 | pass |
+| iPhone 13 | one fixed place: centred on the cursor sideways and 72 px above it on every frame, and it never jumps | 190 frames: x offset from the (pane-held) cursor 0.0..0.0, y offset -72.0..-72.0 (expected 0 and -72); worst deviation 0.00 px | pass |
+| iPhone 13 | the lift hides it on the next frame: no linger | off 34.9 ms after the pointerup; off for the 467 ms after that | pass |
+| iPhone 13 | hysteresis: held at 360 px/s (between show and hide) after a slow stretch it stays on, after a fast one it stays off | after slow, 28 frames at 359-361 px/s: on in 28; after fast, 28 frames at 358-362 px/s: on in 0 | pass |
+| iPhone 13 | screenshots: finger held slow shows it, fast does not | slow on=true; fast on=false (lens-1-slow.png, lens-2-fast.png) | pass |
+| iPhone 13 | a tap and a resting finger with a few px of jitter never show it | 111 frames over a 1.5 s rest with 1.5 px jitter: on in 0 | pass |
+| iPhone 13 | two fingers (a pinch) take it away | one finger on=true; second finger down on=false | pass |
 | iPhone 13 | no page errors | clean | pass |
-| Desktop 1400x900 | desktop mouse: no lens, slow or fast (the lens is a trackpad aid) | 111 frames over a slow then a fast mouse sweep: lens on in 0 | pass |
+| iPhone 13 landscape | at the top edge of a short pane (landscape): it goes below the cursor where there is no room above, and does not hop | pane 197 px high; 415 frames on; cursor reached 0 px below the pane top; side changes 2 (at most above to below to above); every above frame 72 px up (inside the pane wherever the cursor is 120 px or more down): true; every below frame 72 px down: true | pass |
+| Desktop 1400x900 | desktop mouse: no lens, slow or fast (the lens is a trackpad aid) | 113 frames over a slow then a fast mouse sweep: lens on in 0 | pass |
 
-One gesture, one finger: slow (40 px/s) -> speeding up to 520 px/s -> fast (520) -> slowing down to 40 -> slow again, then lift. Sampled every 150 ms:
+One gesture, one finger: slow (40 px/s) -> speeding up to 560 px/s -> fast (560) -> slowing down to 40 -> slow again, then lift. Sampled every 150 ms:
 
-| t (s) | leg | finger px/s | lens | zoom | size px |
-| --- | --- | --- | --- | --- | --- |
-| 0.02 |  | 0 | off | - | - |
-| 0.17 | slow | 40 | off | - | - |
-| 0.32 | slow | 40 | on | 5.00 | 94 |
-| 0.47 | slow | 40 | on | 5.00 | 96 |
-| 0.62 | slow | 40 | on | 5.00 | 96 |
-| 0.77 | slow | 40 | on | 5.00 | 96 |
-| 0.92 | slow | 40 | on | 5.00 | 96 |
-| 1.06 | slow | 40 | on | 5.00 | 96 |
-| 1.22 | speeding up | 37 | on | 5.00 | 96 |
-| 1.37 | speeding up | 105 | on | 4.96 | 96 |
-| 1.52 | speeding up | 176 | on | 4.06 | 96 |
-| 1.67 | speeding up | 247 | on | 2.68 | 96 |
-| 1.81 | speeding up | 320 | on | 1.45 | 96 |
-| 1.97 | speeding up | 391 | off | - | - |
-| 2.12 | speeding up | 463 | off | - | - |
-| 2.27 | fast | 426 | off | - | - |
-| 2.42 | fast | 520 | off | - | - |
-| 2.57 | fast | 521 | off | - | - |
-| 2.72 | slowing down | 432 | off | - | - |
-| 2.87 | slowing down | 449 | off | - | - |
-| 3.02 | slowing down | 372 | off | - | - |
-| 3.17 | slowing down | 304 | off | - | - |
-| 3.32 | slowing down | 232 | on | 2.05 | 94 |
-| 3.47 | slowing down | 160 | on | 3.55 | 96 |
-| 3.62 | slowing down | 88 | on | 4.70 | 96 |
-| 3.77 | slow again | 34 | on | 5.00 | 96 |
-| 3.92 | slow again | 40 | on | 5.00 | 96 |
-| 4.06 | slow again | 40 | on | 5.00 | 96 |
-| 4.21 | slow again | 40 | on | 5.00 | 96 |
-| 4.37 | slow again | 40 | on | 5.00 | 96 |
-| 4.51 | slow again | 40 | on | 5.00 | 96 |
-| 4.66 | lifted | 40 | on | 5.00 | 96 |
-| 4.82 | lifted | 0 | on | 5.00 | 96 |
-| 4.96 | lifted | 0 | on | 5.00 | 96 |
-| 5.11 | lifted | 0 | on | 5.00 | 96 |
-| 5.26 | lifted | 0 | on | 5.00 | 96 |
+| t (s) | leg | finger px/s | lens | lens centre vs cursor (x, y) |
+| --- | --- | --- | --- | --- |
+| 0.00 |  | 0 | off | - |
+| 0.15 | slow | 40 | off | - |
+| 0.30 | slow | 40 | on | 0, -72 |
+| 0.45 | slow | 40 | on | 0, -72 |
+| 0.60 | slow | 40 | on | 0, -72 |
+| 0.75 | slow | 40 | on | -2, -72 |
+| 0.90 | slow | 40 | on | -7, -72 |
+| 1.05 | slow | 40 | on | -13, -72 |
+| 1.20 | speeding up | 38 | on | -17, -72 |
+| 1.35 | speeding up | 109 | on | -17, -72 |
+| 1.50 | speeding up | 188 | on | -17, -72 |
+| 1.65 | speeding up | 265 | on | -17, -72 |
+| 1.80 | speeding up | 344 | on | -17, -72 |
+| 1.95 | speeding up | 426 | on | -17, -72 |
+| 2.10 | speeding up | 499 | off | - |
+| 2.25 | fast | 457 | off | - |
+| 2.40 | fast | 561 | off | - |
+| 2.55 | fast | 561 | off | - |
+| 2.70 | slowing down | 450 | off | - |
+| 2.85 | slowing down | 482 | off | - |
+| 3.00 | slowing down | 400 | off | - |
+| 3.15 | slowing down | 323 | off | - |
+| 3.30 | slowing down | 243 | on | -48, -72 |
+| 3.45 | slowing down | 169 | on | -48, -72 |
+| 3.60 | slowing down | 91 | on | -48, -72 |
+| 3.75 | slow again | 34 | on | -46, -72 |
+| 3.90 | slow again | 40 | on | -40, -72 |
+| 4.05 | slow again | 40 | on | -35, -72 |
+| 4.20 | slow again | 40 | on | -30, -72 |
+| 4.35 | slow again | 40 | on | -25, -72 |
+| 4.50 | slow again | 40 | on | -19, -72 |
+| 4.65 | lifted | 40 | off | - |
+| 4.80 | lifted | 0 | off | - |
 
-Screenshots (finger held at 40, 200 and 650 px/s, cursor recentred first): [slow](phone-feedback/lens-1-slow.png), [medium](phone-feedback/lens-2-medium.png), [fast](phone-feedback/lens-3-fast.png).
+Screenshots: [finger slow](phone-feedback/lens-1-slow.png), [finger fast](phone-feedback/lens-2-fast.png), [landscape, cursor at the top edge, lens below it](phone-feedback/lens-3-top-edge.png).
 <!-- lens:end -->
 
 <!-- chat-dock:start -->

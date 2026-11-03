@@ -184,7 +184,7 @@ export class PointerMachine {
         return this.lastInputTouch;
     }
 
-    /** Pointers currently down. While a trackpad finger rests the lens keeps lingering ("held still, still looking"). */
+    /** Pointers currently down: the lens shows only while exactly one is. */
     get pointersDown(): number {
         return this.pts.size;
     }
@@ -773,20 +773,30 @@ export class PointerMachine {
             this.cancelHold();
             if (this.holdArmed) this.startHoldDrag();
         }
-        // The lens takes its zoom from the finger's speed, so it hears every move once the finger has left
-        // the spot it touched by LENS_ENGAGE_PX: before the cursor itself starts moving at TOUCH_SLOP.
-        if (!this.gestureDirect && movedDist > LENS_ENGAGE_PX) {
-            const distance = Math.hypot(i.x - prev.x, i.y - prev.y);
-            this.emit(i.at === undefined ? { type: "lens", distance } : { type: "lens", distance, at: i.at });
+        if (!this.moved) {
+            this.lensMove(i, prev, movedDist);
+            return false;
         }
-        if (!this.moved) return false;
-        if (!this.gestureDirect) this.relMove(i.x - prev.x, i.y - prev.y);
-        else if (this.pressing) this.moveTo(i.x, i.y, false, true);
+        if (!this.gestureDirect) {
+            this.relMove(i.x - prev.x, i.y - prev.y);
+            this.lensMove(i, prev, movedDist);
+        } else if (this.pressing) this.moveTo(i.x, i.y, false, true);
         else if (this.view.scale > 1) {
             // Direct touch: one finger pans a zoomed view, like a map.
             this.setView(panBy(this.view, i.x - prev.x, i.y - prev.y, this.env.pane, this.env.nat));
         } else this.moveTo(i.x, i.y, false);
         return true;
+    }
+
+    /**
+     * The lens decides from the finger's speed, so it hears every trackpad move once the finger has left the
+     * spot it touched by LENS_ENGAGE_PX (before the cursor itself starts moving at TOUCH_SLOP). Sent AFTER the
+     * cursor has moved, so the lens is drawn where the cursor now is.
+     */
+    private lensMove(i: PointerMoveInput, prev: Point, movedDist: number): void {
+        if (this.gestureDirect || movedDist <= LENS_ENGAGE_PX) return;
+        const distance = Math.hypot(i.x - prev.x, i.y - prev.y);
+        this.emit(i.at === undefined ? { type: "lens", distance } : { type: "lens", distance, at: i.at });
     }
 
     private onMouseMove(i: PointerMoveInput): void {

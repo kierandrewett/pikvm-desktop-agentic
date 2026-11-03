@@ -1,143 +1,75 @@
-// Failure modes L1-L15: see FAILURE_MODES.md.
+// Failure modes L1-L10: see FAILURE_MODES.md.
 //
-// Fingers are simulated on a plain time axis: `drag` feeds touch moves of `px` pixels
-// every `everyMs` into the model and runs the per-frame update after each. No real timers.
+// A finger is simulated on a plain time axis: `drag` feeds touch moves of `px` pixels every `everyMs`.
+// No real timers.
 
 import { describe, expect, it } from "vitest";
 import {
     LENS_ENGAGE_PX,
-    LENS_FAST_SPEED,
-    LENS_FULL,
-    LENS_GROW_MS,
-    LENS_MAG_OFF,
-    LENS_MAG_ON,
+    LENS_FLIP_BACK_PX,
+    LENS_GAP,
+    LENS_HIDE_SPEED,
     LENS_MAX_DT_MS,
-    LENS_SLOW_SPEED,
+    LENS_MIN_MAG,
+    LENS_MIN_MOVES,
+    LENS_SHOW_SPEED,
+    LENS_SIZE,
     LENS_SPEED_TAU_MS,
-    LENS_START,
-    LENS_ZOOM_MAX,
+    LENS_ZOOM,
     createLensSize,
     lensMag,
+    lensPlace,
     lensReachable,
     lensSource,
     lensVisible,
-    lensZoomForSpeed,
     noteLensSpeed,
-    smoothLensSpeed,
-    updateLensSize,
 } from "./lens";
-import type { LensFrame, LensSizeState, LensVisibilityInput } from "./lens";
+import type { LensSizeState, LensVisibilityInput } from "./lens";
 
-/** A finger over a timeline, at a picture zoom. */
 class Finger {
     state: LensSizeState = createLensSize();
     t = 1000;
-    scale = 1;
-    last: LensFrame = updateLensSize(this.state, this.t);
-    /** Every frame's total zoom and visibility, in order. */
-    readonly zooms: number[] = [];
+    /** `shown` after every move, in order. */
     readonly shown: boolean[] = [];
 
-    /** Move `px` pixels every `everyMs` for `forMs`, running a frame after each move. */
+    /** Move `px` pixels every `everyMs` for `forMs`. */
     drag(px: number, everyMs: number, forMs: number): void {
         for (let spent = 0; spent < forMs; spent += everyMs) {
             this.t += everyMs;
             this.state = noteLensSpeed(this.state, px, this.t);
-            this.frame();
+            this.shown.push(this.state.shown);
         }
     }
 
-    /** Frames with no movement (the finger rests). */
-    wait(ms: number): void {
-        for (let spent = 0; spent < ms; spent += 16) {
-            this.t += 16;
-            this.frame();
-        }
-    }
-
-    frame(): void {
-        this.last = updateLensSize(this.state, this.t, this.scale);
-        this.state = this.last.state;
-        this.zooms.push(this.last.zoom);
-        this.shown.push(this.last.visible);
-    }
-
-    get visible(): boolean {
-        return this.last.visible;
-    }
-    get size(): number {
-        return this.last.size;
+    get on(): boolean {
+        return this.state.shown;
     }
 }
 
-/** 0.5 px every 16 ms = 31 px/s: under the slow speed. */
+/** 0.5 px every 16 ms = 31 px/s. */
 const SLOW = [0.5, 16] as const;
-/** 3 px every 16 ms = 188 px/s: between slow and fast. */
-const MID = [3, 16] as const;
+/** 3.5 px every 16 ms = 219 px/s: under the show speed, well under the hide speed. */
+const MID = [3.5, 16] as const;
+/** 6 px every 16 ms = 375 px/s: between the show and the hide speed. */
+const BAND = [6, 16] as const;
 /** A fast swipe: 20 px every 16 ms = 1250 px/s. */
 const FAST = [20, 16] as const;
 
-/** The speed at which the lens magnification (scale 1) is exactly `mag`, by bisection on the curve. */
-function speedForMag(mag: number): number {
-    let lo = LENS_SLOW_SPEED;
-    let hi = LENS_FAST_SPEED;
-    for (let i = 0; i < 60; i++) {
-        const mid = (lo + hi) / 2;
-        if (lensZoomForSpeed(mid) > mag) lo = mid;
-        else hi = mid;
-    }
-    return (lo + hi) / 2;
-}
-
-describe("speed to zoom curve", () => {
-    it("L1: full zoom at or under the slow speed, none at or over the fast speed", () => {
-        expect(LENS_SLOW_SPEED).toBeLessThan(LENS_FAST_SPEED);
-        for (const s of [0, 1, LENS_SLOW_SPEED]) expect(lensZoomForSpeed(s)).toBe(LENS_ZOOM_MAX);
-        for (const s of [LENS_FAST_SPEED, LENS_FAST_SPEED + 1, 5000, 1e9]) expect(lensZoomForSpeed(s)).toBe(1);
-    });
-
-    it("L1: monotonic (never zooms in as the finger speeds up) and always within 1..max", () => {
-        let prev = Infinity;
-        for (let s = 0; s <= 1000; s += 0.5) {
-            const z = lensZoomForSpeed(s);
-            expect(z).toBeLessThanOrEqual(prev);
-            expect(z).toBeGreaterThanOrEqual(1);
-            expect(z).toBeLessThanOrEqual(LENS_ZOOM_MAX);
-            prev = z;
-        }
-    });
-
-    it("L2: continuous, with no step anywhere along it", () => {
-        let prev = lensZoomForSpeed(0);
-        let biggest = 0;
-        for (let s = 0.5; s <= 1000; s += 0.5) {
-            const z = lensZoomForSpeed(s);
-            biggest = Math.max(biggest, Math.abs(z - prev));
-            prev = z;
-        }
-        // 0.5 px/s of speed moves the zoom by well under 0.02 even at the steepest point
-        expect(biggest).toBeLessThan(0.02);
-        // and the middle of the range is the middle of the zoom
-        expect(lensZoomForSpeed((LENS_SLOW_SPEED + LENS_FAST_SPEED) / 2)).toBeCloseTo((1 + LENS_ZOOM_MAX) / 2, 9);
-    });
-});
-
-describe("speed average", () => {
-    it("L3: the first sample is the speed (no averaging against the 0 of no data), over the longest gap a move may count as", () => {
-        const s = smoothLensSpeed(createLensSize(), 8, 1000);
+describe("the speed average", () => {
+    it("L1: the first move is the speed, over the longest gap a move may count as", () => {
+        const s = noteLensSpeed(createLensSize(), 8, 1000);
         expect(s.speed).toBeCloseTo((8 / LENS_MAX_DT_MS) * 1000, 9);
-        expect(s.speedAt).toBe(1000);
+        expect(s.moves).toBe(1);
     });
 
-    it("L3: events at the same instant are finite and add no spike", () => {
-        const a = smoothLensSpeed(createLensSize(), 0.5, 1000);
-        const b = smoothLensSpeed(a, 0.5, 1000);
+    it("L1: events at the same instant are finite and add no spike", () => {
+        const a = noteLensSpeed(createLensSize(), 0.5, 1000);
+        const b = noteLensSpeed(a, 0.5, 1000);
         expect(Number.isFinite(b.speed)).toBe(true);
         expect(b.speed).toBeLessThan(2 * a.speed + 1);
     });
 
-    it("L3: a steady speed reads as itself however unevenly the events arrive", () => {
-        // 200 px/s with the events 3-30 ms apart in a repeating, lumpy pattern
+    it("L1: a steady speed reads as itself however unevenly the events arrive", () => {
         let s = createLensSize();
         let t = 1000;
         const gaps = [3, 30, 5, 22, 16, 8, 27, 16];
@@ -145,215 +77,174 @@ describe("speed average", () => {
             const gap = gaps[i % gaps.length] as number;
             t += gap;
             s = noteLensSpeed(s, (200 * gap) / 1000, t);
-            if (i > 10) expect(s.speed).toBeGreaterThan(165);
-            if (i > 10) expect(s.speed).toBeLessThan(235);
+            if (i > 10) {
+                expect(s.speed).toBeGreaterThan(165);
+                expect(s.speed).toBeLessThan(235);
+            }
         }
     });
 
-    it("L3: follows a change of speed within the time constant, in both directions alike", () => {
-        const settle = (from: number, to: number) => {
+    it("L1: follows a change of speed within the time constant, in both directions alike", () => {
+        for (const [from, to] of [
+            [40, 600],
+            [600, 40],
+        ] as const) {
             const f = new Finger();
             f.drag((from * 16) / 1000, 16, 1000);
-            const before = f.state.speed;
             f.drag((to * 16) / 1000, 16, LENS_SPEED_TAU_MS);
-            const afterOneTau = f.state.speed;
+            expect(Math.abs(f.state.speed - to)).toBeLessThan(0.5 * Math.abs(from - to)); // more than halfway in one time constant
             f.drag((to * 16) / 1000, 16, 4 * LENS_SPEED_TAU_MS);
-            return { before, afterOneTau, settled: f.state.speed };
-        };
-        for (const [from, to] of [[40, 600], [600, 40]] as const) {
-            const r = settle(from, to);
-            expect(r.before).toBeCloseTo(from, 0);
-            expect(Math.abs(r.afterOneTau - to)).toBeLessThan(0.5 * Math.abs(from - to)); // more than halfway in one time constant
-            expect(r.settled).toBeCloseTo(to, -1); // and there within a few percent
+            expect(f.state.speed).toBeCloseTo(to, -1);
         }
     });
 
-    it("L3: a finger that paused and sets off again is not averaged against the pause", () => {
+    it("L1: a finger that paused and sets off again is not averaged against the pause", () => {
         const f = new Finger();
         f.drag(...SLOW, 800);
         f.t += 2500; // a long rest with no moves
-        f.drag(20, 16, 48); // then three fast events
-        expect(f.state.speed).toBeGreaterThan(LENS_FAST_SPEED);
-    });
-
-    it("L4: a finger that stops sending moves holds its speed: a swipe's rest never lets the lens creep in", () => {
-        const f = new Finger();
-        f.drag(...FAST, 400);
-        const held = f.state.speed;
-        f.wait(5000);
-        expect(f.state.speed).toBe(held);
-        expect(f.visible).toBe(false);
-        expect(Math.max(...f.zooms)).toBeLessThan(1.0001);
+        f.drag(...FAST, 48);
+        expect(f.state.speed).toBeGreaterThan(LENS_HIDE_SPEED);
     });
 });
 
-describe("when it appears", () => {
-    it("L5: nothing before the finger has moved: a resting finger or a tap never shows it", () => {
+describe("on and off", () => {
+    it("L2: the thresholds are ordered, so there is a band", () => {
+        expect(LENS_SHOW_SPEED).toBeLessThan(LENS_HIDE_SPEED);
+    });
+
+    it("L3: no lens before the finger has moved: a touch alone, or one move, shows nothing", () => {
+        expect(createLensSize().shown).toBe(false);
         const f = new Finger();
-        f.wait(5000);
-        expect(f.visible).toBe(false);
-        expect(f.zooms.every((z) => z === LENS_ZOOM_MAX)).toBe(true); // the speed is 0: max zoom, but not engaged
-        expect(f.shown.some(Boolean)).toBe(false);
+        f.drag(...SLOW, 16); // one move
+        expect(f.state.moves).toBe(LENS_MIN_MOVES - 1);
+        expect(f.on).toBe(false);
         expect(LENS_ENGAGE_PX).toBeGreaterThan(0);
-        expect(LENS_ENGAGE_PX).toBeLessThan(16); // well inside the tap slop, so a tap's jitter is under it
+        expect(LENS_ENGAGE_PX).toBeLessThan(16); // inside the tap slop, so a tap's jitter is under it
     });
 
-    it("L6: no wait: a slow move shows it on the very first frame, at the full zoom", () => {
+    it("L3: no wait: a slowly moving finger shows it on its second move", () => {
         const f = new Finger();
-        f.drag(...SLOW, 16);
-        expect(f.shown).toEqual([true]);
-        expect(f.last.zoom).toBe(LENS_ZOOM_MAX);
-        expect(f.last.mag).toBe(LENS_ZOOM_MAX);
-        expect(f.size).toBe(LENS_START);
+        f.drag(...SLOW, 32);
+        expect(f.shown).toEqual([false, true]);
     });
 
-    it("L6: a medium move shows it too, at a zoom in between (it is not on/off)", () => {
-        const f = new Finger();
-        f.drag(...MID, 400);
-        expect(f.visible).toBe(true);
-        expect(f.last.zoom).toBeGreaterThan(1.5);
-        expect(f.last.zoom).toBeLessThan(LENS_ZOOM_MAX - 0.5);
-    });
-
-    it("L7: fast movement never shows it, from the first event, however long it goes on", () => {
+    it("L4: a fast finger never shows it, from the first move, however long it goes on", () => {
         const f = new Finger();
         f.drag(...FAST, 10000);
         expect(f.shown.some(Boolean)).toBe(false);
-        expect(f.zooms.every((z) => z < LENS_MAG_ON)).toBe(true);
-        // a single flick event is enough to be past the fast speed even from a standing start
         const flick = new Finger();
-        flick.drag(40, 16, 16);
-        expect(flick.shown).toEqual([false]);
+        flick.drag(40, 16, 48); // a flick from standing
+        expect(flick.shown.some(Boolean)).toBe(false);
     });
 
-    it("L8: the zoom follows the finger continuously: slowing down zooms in, speeding up zooms out, no jump in a frame", () => {
-        const f = new Finger();
-        f.drag(...FAST, 160);
-        f.drag(...SLOW, 1200); // slow right down
-        const down = f.zooms.slice(10);
-        for (let i = 1; i < down.length; i++) {
-            expect(down[i]).toBeGreaterThanOrEqual(down[i - 1] as number);
-            expect(Math.abs((down[i] as number) - (down[i - 1] as number))).toBeLessThan(1.2);
-        }
-        expect(f.last.zoom).toBeGreaterThan(LENS_ZOOM_MAX - 0.3);
-        const n = f.zooms.length;
-        f.drag(...FAST, 400); // and out again
-        const up = f.zooms.slice(n);
-        for (let i = 1; i < up.length; i++) expect(up[i]).toBeLessThanOrEqual(up[i - 1] as number);
-        expect(f.visible).toBe(false);
-    });
-
-    it("L8: a fast move after it has appeared hides it within a few frames, and slowing again brings it straight back", () => {
+    it("L4: speeding up hides it within a few moves, and slowing down brings it back", () => {
         const f = new Finger();
         f.drag(...SLOW, 400);
-        expect(f.visible).toBe(true);
-        f.drag(...FAST, 64);
-        expect(f.visible).toBe(false);
+        expect(f.on).toBe(true);
+        f.drag(...FAST, 96);
+        expect(f.on).toBe(false);
         f.drag(...SLOW, 800);
-        expect(f.visible).toBe(true);
+        expect(f.on).toBe(true);
     });
 
-    it("L9: starts small and eases to full size within the grow time, never past it, never shrinking", () => {
-        const f = new Finger();
-        f.drag(...SLOW, 16);
-        const sizes: number[] = [f.size];
-        for (let i = 0; i < 40; i++) {
-            f.drag(...SLOW, 16);
-            sizes.push(f.size);
-        }
-        expect(sizes[0]).toBe(LENS_START);
-        for (let i = 1; i < sizes.length; i++) {
-            expect(sizes[i]).toBeGreaterThanOrEqual(sizes[i - 1] as number);
-            expect(sizes[i]).toBeLessThanOrEqual(LENS_FULL);
-        }
-        expect(sizes.at(-1)).toBe(LENS_FULL);
-        expect(LENS_GROW_MS).toBeLessThanOrEqual(200); // no perceptible wait
-        const half = new Finger();
-        half.drag(...SLOW, 16 + LENS_GROW_MS / 2);
-        expect(half.size).toBeGreaterThan(LENS_START);
-        expect(half.size).toBeLessThan(LENS_FULL);
+    it("L5: a finger that stops sending moves keeps the decision: a swipe's rest never lets it in, a nudge's rest keeps it", () => {
+        const swipe = new Finger();
+        swipe.drag(...FAST, 400);
+        swipe.t += 5000;
+        expect(swipe.on).toBe(false);
+        const nudge = new Finger();
+        nudge.drag(...MID, 400);
+        nudge.t += 5000;
+        expect(nudge.on).toBe(true);
     });
 
-    it("L10: a slow nudge that ends with the finger resting keeps its zoom", () => {
-        const f = new Finger();
-        f.drag(...MID, 800);
-        const z = f.last.zoom;
-        f.wait(1000);
-        expect(f.last.zoom).toBe(z);
-        expect(f.visible).toBe(true);
-    });
-
-    it("L11: a new touch starts from nothing: the last gesture's lens and speed are dropped", () => {
-        const f = new Finger();
-        f.drag(...SLOW, 800);
-        expect(f.visible).toBe(true);
-        f.state = createLensSize();
-        f.frame();
-        expect(f.visible).toBe(false);
-        f.drag(...FAST, 160); // and a first fast move is not averaged against the old slow speed
-        expect(f.shown.slice(-10).some(Boolean)).toBe(false);
-    });
-});
-
-describe("hysteresis", () => {
-    const on = speedForMag(LENS_MAG_ON);
-    const off = speedForMag(LENS_MAG_OFF);
-    const at = (speed: number, shownAt: number | null): LensSizeState => ({ speed, dist: 0, time: 0, speedAt: 1000, engaged: true, shownAt });
-
-    it("L12: the band is real: the speed that shows it is slower than the speed that hides it", () => {
-        expect(LENS_MAG_OFF).toBeLessThan(LENS_MAG_ON);
-        expect(off).toBeGreaterThan(on);
-    });
-
-    it("L12: hidden stays hidden inside the band; it appears once the speed is under the ON speed", () => {
-        expect(updateLensSize(at((on + off) / 2, null), 2000).visible).toBe(false);
-        expect(updateLensSize(at(on + 0.5, null), 2000).visible).toBe(false);
-        expect(updateLensSize(at(on - 0.5, null), 2000).visible).toBe(true);
-    });
-
-    it("L12: shown stays shown inside the band; it goes only once the speed is over the OFF speed", () => {
-        expect(updateLensSize(at((on + off) / 2, 1500), 2000).visible).toBe(true);
-        expect(updateLensSize(at(off - 0.5, 1500), 2000).visible).toBe(true);
-        expect(updateLensSize(at(off + 0.5, 1500), 2000).visible).toBe(false);
-    });
-
-    it("L12: a finger hovering on the threshold does not flicker", () => {
-        // Speed wobbling +-4 % round the ON speed, frame by frame: at most one change in either direction.
-        let state = at(on * 1.1, null);
-        let changes = 0;
-        let prev = false;
+    it("L6: hysteresis: in the band it stays as it was, so a finger hovering on the threshold does not flicker", () => {
+        // hidden stays hidden in the band
+        const hidden = new Finger();
+        hidden.drag(...FAST, 400);
+        hidden.drag(...BAND, 800);
+        expect(hidden.state.speed).toBeGreaterThan(LENS_SHOW_SPEED);
+        expect(hidden.state.speed).toBeLessThan(LENS_HIDE_SPEED);
+        expect(hidden.on).toBe(false);
+        // shown stays shown in the band
+        const shown = new Finger();
+        shown.drag(...SLOW, 400);
+        shown.drag(...BAND, 800);
+        expect(shown.state.speed).toBeGreaterThan(LENS_SHOW_SPEED);
+        expect(shown.state.speed).toBeLessThan(LENS_HIDE_SPEED);
+        expect(shown.on).toBe(true);
+        // and a speed wobbling +-5 % round the show threshold changes the decision at most once
+        const wobble = new Finger();
+        wobble.drag(...FAST, 400);
+        let t = wobble.t;
+        const changes: boolean[] = [];
         for (let i = 0; i < 400; i++) {
-            const speed = on * (1 + 0.04 * Math.sin(i / 3));
-            state = { ...state, speed };
-            const frame = updateLensSize(state, 2000 + i * 16);
-            state = frame.state;
-            if (frame.visible !== prev) changes++;
-            prev = frame.visible;
+            t += 16;
+            const speed = LENS_SHOW_SPEED * (1 + 0.05 * Math.sin(i / 3));
+            wobble.state = noteLensSpeed(wobble.state, (speed * 16) / 1000, t);
+            if (changes.at(-1) !== wobble.state.shown) changes.push(wobble.state.shown);
         }
-        expect(changes).toBeLessThanOrEqual(1);
+        expect(changes.length).toBeLessThanOrEqual(2);
     });
 });
 
-describe("picture zoom", () => {
-    it("L13: the picture's own zoom counts towards the total; the lens makes up the rest, never below 1", () => {
-        const f = new Finger();
-        f.scale = 2;
-        f.drag(...SLOW, 400);
-        expect(f.last.zoom).toBe(LENS_ZOOM_MAX);
-        expect(f.last.mag).toBe(LENS_ZOOM_MAX / 2);
-        expect(lensMag(1)).toBe(LENS_ZOOM_MAX);
-        expect(lensMag(2)).toBe(LENS_ZOOM_MAX / 2);
-        expect(lensMag(LENS_ZOOM_MAX)).toBe(1);
-        expect(lensMag(LENS_ZOOM_MAX * 2)).toBe(1);
+describe("magnification", () => {
+    it("L7: the picture's own zoom counts towards the total, never below 1", () => {
+        expect(lensMag(1)).toBe(LENS_ZOOM);
+        expect(lensMag(1.5)).toBe(LENS_ZOOM / 1.5);
+        expect(lensMag(LENS_ZOOM)).toBe(1);
+        expect(lensMag(LENS_ZOOM * 2)).toBe(1);
     });
 
-    it("L13: where the picture alone is that close the lens never shows, however slow the finger", () => {
-        const f = new Finger();
-        f.scale = LENS_ZOOM_MAX / LENS_MAG_ON + 0.05;
-        expect(lensReachable(f.scale)).toBe(false);
-        f.drag(...SLOW, 1000);
-        expect(f.shown.some(Boolean)).toBe(false);
-        expect(lensReachable(LENS_ZOOM_MAX / LENS_MAG_ON - 0.05)).toBe(true);
+    it("L7: where the picture alone is nearly that close it never shows", () => {
+        expect(lensReachable(LENS_ZOOM / LENS_MIN_MAG - 0.05)).toBe(true);
+        expect(lensReachable(LENS_ZOOM / LENS_MIN_MAG + 0.05)).toBe(false);
+    });
+});
+
+describe("placement", () => {
+    const pane = { left: 0, top: 0, width: 390, height: 700 };
+    const half = LENS_SIZE / 2;
+    const offset = half + LENS_GAP;
+
+    it("L8: fixed above the cursor, the same offset wherever it is in the pane", () => {
+        for (const at of [
+            { x: 200, y: 400 },
+            { x: 60, y: 300 },
+            { x: 330, y: 650 },
+            { x: 200, y: 400.5 },
+        ]) {
+            const p = lensPlace(at, pane, false);
+            expect(p.y).toBe(at.y - offset);
+            expect(p.below).toBe(false);
+        }
+        // and the cursor is not under it: the lens's bottom edge is LENS_GAP above the cursor
+        expect(lensPlace({ x: 200, y: 400 }, pane, false).y + half).toBe(400 - LENS_GAP);
+    });
+
+    it("L8: follows the cursor sideways, held inside the pane", () => {
+        expect(lensPlace({ x: 200, y: 400 }, pane, false).x).toBe(200);
+        expect(lensPlace({ x: 3, y: 400 }, pane, false).x).toBe(half);
+        expect(lensPlace({ x: 388, y: 400 }, pane, false).x).toBe(390 - half);
+    });
+
+    it("L8: goes below only where there is no room above, and does not hop at the edge", () => {
+        const edge = offset + half; // the cursor y at which the lens just fits above
+        expect(lensPlace({ x: 200, y: edge }, pane, false)).toMatchObject({ below: false, y: edge - offset });
+        const flipped = lensPlace({ x: 200, y: edge - 1 }, pane, false);
+        expect(flipped).toMatchObject({ below: true, y: edge - 1 + offset });
+        // once below it stays below while the cursor wobbles over the edge ...
+        expect(lensPlace({ x: 200, y: edge + 10 }, pane, true).below).toBe(true);
+        expect(lensPlace({ x: 200, y: edge + LENS_FLIP_BACK_PX - 1 }, pane, true).below).toBe(true);
+        // ... and returns above only with room to spare
+        expect(lensPlace({ x: 200, y: edge + LENS_FLIP_BACK_PX }, pane, true)).toMatchObject({ below: false, y: edge + LENS_FLIP_BACK_PX - offset });
+        // a pane too short for either side: whichever side has more room, with the same margin before it changes
+        const short = { left: 0, top: 0, width: 390, height: 228 };
+        expect(lensPlace({ x: 200, y: 99 }, short, false).below).toBe(true);
+        expect(lensPlace({ x: 200, y: 120 }, short, true).below).toBe(true);
+        expect(lensPlace({ x: 200, y: 134 }, short, true).below).toBe(true);
+        expect(lensPlace({ x: 200, y: 135 }, short, true).below).toBe(false);
+        expect(lensPlace({ x: 200, y: 120 }, short, false).below).toBe(false); // comfortably above: room above >= room below
     });
 });
 
@@ -363,46 +254,28 @@ describe("visibility in context", () => {
         relative: false,
         hidOpen: true,
         modalOpen: false,
+        oneFinger: true,
         at: { x: 100, y: 100 },
         scale: 1,
-        now: 1000,
-        until: 2000,
         box: { left: 0, top: 0, w: 800, h: 450 },
         nat: { w: 1600, h: 900 },
     };
 
-    it("L14: shows only where every condition holds", () => {
+    it("L9: shows only where every condition holds, and only while ONE finger is down", () => {
         expect(lensVisible(base)).toBe(true);
         const cases: [string, Partial<LensVisibilityInput>][] = [
             ["not a trackpad (the desktop mouse has no lens)", { trackpadActive: false }],
             ["relative mouse: cursor is a guess", { relative: true }],
             ["socket down", { hidOpen: false }],
             ["dialog open", { modalOpen: true }],
+            ["finger lifted, or a pinch", { oneFinger: false }],
             ["no cursor position", { at: null }],
             ["no picture", { box: null }],
             ["no real frame yet", { nat: { w: 16, h: 9 } }],
-            ["linger expired", { now: 2001 }],
-            ["zoomed past the lens's usefulness", { scale: LENS_ZOOM_MAX / LENS_MAG_ON + 0.05 }],
+            ["zoomed past the lens's usefulness", { scale: LENS_ZOOM / LENS_MIN_MAG + 0.05 }],
         ];
         for (const [name, patch] of cases) expect(lensVisible({ ...base, ...patch }), name).toBe(false);
-        expect(lensVisible({ ...base, scale: LENS_ZOOM_MAX / LENS_MAG_ON - 0.05 })).toBe(true);
-        expect(lensVisible({ ...base, now: 2000 })).toBe(true); // linger is inclusive
-    });
-
-    it("L14: after the lift it stays for the linger time, then hides (the painter's deadline)", () => {
-        const f = new Finger();
-        f.drag(...SLOW, 800);
-        expect(f.visible).toBe(true);
-        const liftedAt = f.t;
-        const until = liftedAt + 1400;
-        const shownAt = (ms: number) => {
-            f.t = liftedAt + ms;
-            f.frame();
-            return f.visible && lensVisible({ ...base, now: f.t, until });
-        };
-        expect(shownAt(16)).toBe(true);
-        expect(shownAt(1400)).toBe(true);
-        expect(shownAt(1401)).toBe(false);
+        expect(lensVisible({ ...base, scale: LENS_ZOOM / LENS_MIN_MAG - 0.05 })).toBe(true);
     });
 });
 
@@ -422,7 +295,7 @@ describe("lensSource", () => {
         expect(lensSource(100, 100, 3, box, nat, { x: 400, y: 225 }).smoothing).toBe(false);
     });
 
-    it("L15: clips to the picture at an edge and offsets the draw", () => {
+    it("L10: clips to the picture at an edge and offsets the draw", () => {
         const s = lensSource(100, 200, 2, box, nat, { x: 0, y: 225 });
         // side = 100 stream px, centred on x=0: left half is outside the picture
         expect(s.sx).toBe(0);
@@ -432,7 +305,7 @@ describe("lensSource", () => {
         expect(s.visible).toBe(true);
     });
 
-    it("L15: draws nothing when wholly outside the picture", () => {
+    it("L10: draws nothing when wholly outside the picture", () => {
         expect(lensSource(100, 200, 2, box, nat, { x: -500, y: -500 }).visible).toBe(false);
         expect(lensSource(100, 200, 2, box, nat, { x: 5000, y: 225 }).visible).toBe(false);
     });

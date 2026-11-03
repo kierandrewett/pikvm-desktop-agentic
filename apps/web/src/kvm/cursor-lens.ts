@@ -5,15 +5,16 @@
  */
 
 import {
-    LENS_LINGER_MS,
+    LENS_SIZE,
     createLensSize,
+    lensMag,
+    lensPlace,
     lensReachable,
     lensSource,
     lensVisible,
     noteLensSpeed,
     paintMouseCursor,
     paintTrackpadCursor,
-    updateLensSize,
     type Clock,
     type LensSizeState,
     type PointerMachine,
@@ -45,7 +46,7 @@ export interface Painter {
     /** Another client moved the pointer and it is theirs (`show`), or this client moved it since (not `show`). */
     remote(show: boolean): void;
     /**
-     * A finger moved `distance` px at the event's own time `at` (feeds the lens's speed, so its zoom); no
+     * A finger moved `distance` px at the event's own time `at` (its speed decides whether the lens shows); no
      * distance = a new touch began. Without `at` the moment of the call stands in.
      */
     lens(distance?: number, at?: number): void;
@@ -56,9 +57,12 @@ export interface Painter {
 
 export function createPainter(deps: PainterDeps): Painter {
     const { pane, cursor, remote, lens, clock, machine } = deps;
-    let lensSize: LensSizeState = createLensSize();
-    let lensUntil = 0;
+    let lensState: LensSizeState = createLensSize();
+    let lensBelow = false;
     let lensFrame = 0;
+    // One size, set once: the canvas's pixels follow the screen's density.
+    lens.style.width = `${LENS_SIZE}px`;
+    lens.style.height = `${LENS_SIZE}px`;
 
     const place = (el: HTMLElement, x: number, y: number): void => {
         const rect = pane.getBoundingClientRect();
@@ -80,57 +84,43 @@ export function createPainter(deps: PainterDeps): Painter {
 
     const hideLens = (): void => {
         lens.classList.remove("on");
-        delete lens.dataset.mag;
     };
 
     const relative = (): boolean => machine.environment.mouseMode === "relative";
 
+    /** Redrawn every frame while the lens shows, so the target's own changes appear in it and a lift hides it at once. */
     const draw = (): void => {
         lensFrame = 0;
-        const now = clock.now();
-        // Held still, still looking.
-        if (machine.trackpadActive && machine.pointersDown > 0) lensUntil = now + LENS_LINGER_MS;
         const at = machine.virtualCursorClient;
         const env = machine.environment;
         const scale = machine.currentView.scale;
         const box = machine.pictureBox;
-        // The finger's speed sets the zoom; the clock runs even while the lens is hidden.
-        const stepped = updateLensSize(lensSize, now, scale);
-        lensSize = stepped.state;
-        const allowed = lensVisible({
-            trackpadActive: machine.trackpadActive,
-            relative: relative(),
-            hidOpen: deps.hidOpen(),
-            modalOpen: deps.modalOpen(),
-            at,
-            scale,
-            now,
-            until: lensUntil,
-            box,
-            nat: env.nat,
-        });
+        const allowed =
+            lensState.shown &&
+            lensVisible({
+                trackpadActive: machine.trackpadActive,
+                relative: relative(),
+                hidOpen: deps.hidOpen(),
+                modalOpen: deps.modalOpen(),
+                oneFinger: machine.pointersDown === 1,
+                at,
+                scale,
+                box,
+                nat: env.nat,
+            });
         if (!allowed || !at || !box) {
             hideLens();
             return;
         }
-        if (!stepped.visible) {
-            // Not earned yet (resting, or travelling too fast to want a lens): stay out of the way, keep watching.
-            hideLens();
-            lensFrame = deps.frame(draw);
-            return;
-        }
-        const size = stepped.size;
         const dpr = window.devicePixelRatio || 1;
-        const px = Math.round(size * dpr);
+        const px = Math.round(LENS_SIZE * dpr);
         if (lens.width !== px) {
             lens.width = px;
             lens.height = px;
-            lens.style.width = `${size}px`;
-            lens.style.height = `${size}px`;
         }
         const ctx = lens.getContext("2d");
         if (!ctx) return;
-        const src = lensSource(size, px, stepped.mag, box, env.nat, at);
+        const src = lensSource(LENS_SIZE, px, lensMag(scale), box, env.nat, at);
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, px, px);
         if (src.visible) {
@@ -150,10 +140,10 @@ export function createPainter(deps: PainterDeps): Painter {
         ctx.lineWidth = 1.5 * dpr;
         ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
         ctx.stroke();
-        place(lens, at.x, at.y);
-        lens.dataset.mag = stepped.mag.toFixed(2);
+        const spot = lensPlace(at, pane.getBoundingClientRect(), lensBelow);
+        lensBelow = spot.below;
+        place(lens, spot.x, spot.y);
         lens.classList.add("on");
-        // Redrawn every frame while it shows, so the target's own changes appear in it.
         lensFrame = deps.frame(draw);
     };
 
@@ -217,13 +207,17 @@ export function createPainter(deps: PainterDeps): Painter {
         lens(distance, at) {
             if (distance === undefined) {
                 // A new touch starts from nothing: no lens until the finger has moved.
-                lensSize = createLensSize();
+                lensState = createLensSize();
+                lensBelow = false;
                 hideLens();
-            } else lensSize = noteLensSpeed(lensSize, distance, at ?? clock.now());
-            // The lens magnifies less the further the picture is pinched in, and goes away once it adds nothing.
-            if (!lensReachable(machine.currentView.scale)) return;
-            lensUntil = clock.now() + LENS_LINGER_MS;
-            if (!lensFrame) lensFrame = deps.frame(draw);
+                return;
+            }
+            lensState = noteLensSpeed(lensState, distance, at ?? clock.now());
+            // Drawn now, not on the next frame: the cursor has just moved and the lens must not trail it.
+            if (lensState.shown && lensReachable(machine.currentView.scale)) {
+                if (lensFrame) deps.cancelFrame(lensFrame);
+                draw();
+            }
         },
         inputChanged() {
             if (deps.hidOpen()) {

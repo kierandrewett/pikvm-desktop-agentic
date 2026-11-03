@@ -6,7 +6,10 @@
 import { describe, expect, it } from "vitest";
 import { fracToNorm } from "../view/geometry";
 import { IDENTITY_VIEW } from "../view/transform";
+import { createManualClock } from "../clock";
+import { createPointerDriver } from "./driver";
 import { createRig } from "./test-rig";
+import { DEFAULT_ENV } from "./types";
 import type { Rig } from "./test-rig";
 
 /** The kvmd units of a client point on the default 800x450 pane showing a 16:9 picture. */
@@ -91,6 +94,16 @@ describe("trackpad on an absolute Pi", () => {
             { type: "lens", distance: 10, at: 5123.5 },
             { type: "lens", distance: 10 },
         ]);
+    });
+
+    it("P17: the lens is told AFTER the cursor has moved, so it is drawn where the cursor now is", () => {
+        const seen: string[] = [];
+        const driver = createPointerDriver({ clock: createManualClock(1000), sink: (c) => seen.push(c.type), env: DEFAULT_ENV, coarsePointer: true });
+        driver.send({ type: "down", id: 1, kind: "touch", x: 400, y: 225, button: 0 });
+        driver.send({ type: "move", id: 1, kind: "touch", x: 440, y: 225, buttons: 0 }); // past the slop: the cursor moves
+        const move = seen.slice(seen.indexOf("lens") + 1);
+        expect(move).toContain("lens");
+        expect(move.indexOf("trackpadCursor")).toBeLessThan(move.indexOf("lens"));
     });
 
     it("P17: a tap with finger jitter sends the lens no speed, and neither does a direct touch, two fingers or a mouse", () => {

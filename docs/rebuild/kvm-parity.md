@@ -85,7 +85,7 @@ and exercised through real touch events:
 | Hold-still arms (cue), move = hold-to-drag, lift = right click | done | E2E "hold, then drag" (cue shown, one down, moves, one up, no right click), "hold, then lift = one right click" |
 | Two-finger tap = right click; two-finger drag = wheel (22 px/step); pinch zoom | done | E2E "two-finger tap", "two-finger drag scrolls the target, no clicks, no zoom", "pinch zooms" |
 | Touch (direct) vs trackpad; absolute vs relative; stored under `pikvm-touch-mode`/`-hid` | done | K10 `kvm-screen.test.tsx`; E2E "touch (direct) mode" (move, then click, at the finger); machine D1-D9 |
-| Cursor dot, hold cue, magnifier lens (zoom tied to finger speed: 5x total at <= 60 px/s to none at >= 360 px/s, no hold time, lingers 1.4 s) | done | `cursor-lens.ts` over the engine's view module; T `lens.test.ts` L1-L15, `cursor-lens.test.ts`; E2E `lens.e2e.mjs` (zoom over time against finger speed, screenshots) |
+| Cursor dot, hold cue, magnifier lens (one fixed size and zoom, 3x total, above the cursor; on while one finger moves slowly, off when it speeds up or lifts) | done | `cursor-lens.ts` over the engine's view module; T `lens.test.ts` L1-L10, `cursor-lens.test.ts`; E2E `lens.e2e.mjs` (on/off against finger speed over one gesture, fixed size and place, top-edge flip, screenshots) |
 | Browser pinch suppressed | done | `gesturestart` handler in `kvm-screen.tsx` |
 
 ## 1.7 Desktop mouse and wheel

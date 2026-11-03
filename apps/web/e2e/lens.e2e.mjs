@@ -1,13 +1,13 @@
-// The trackpad lens (the magnifier round the cursor): its zoom follows how fast the finger moves, and it
-// is there as soon as the finger moves slowly. Phone (iPhone 13) with raw CDP touch events, and the
-// desktop mouse, which has no lens.
+// The trackpad lens (the magnifier above the cursor): on while one finger is down and moving slowly,
+// off when it speeds up or lifts; one fixed size, one fixed place relative to the cursor. Phone (iPhone 13,
+// portrait and landscape) with raw CDP touch events, and the desktop mouse, which has no lens.
 //
-//   node apps/web/e2e/lens.e2e.mjs [--out docs/e2e/phone-feedback] [--section /tmp/lens-section.md]
+//   node apps/web/e2e/lens.e2e.mjs [--out docs/e2e/phone-feedback] [--section FILE]
 //
-// The page records two streams on its own clock: one sample per animation frame of the lens (is it on,
-// its magnification from `data-mag`, its size) and every pointermove. The run then reads the finger's speed
-// off the moves and lines the two up, so the numbers are what a person's eye would have seen, not
-// what this script intended to send. See docs/e2e/README.md for how to bring the two servers up.
+// The page records two streams on its own clock: one sample per animation frame (is the lens on, its box,
+// the cursor's centre) and every pointermove. The run reads the finger's speed off the pointermoves and lines
+// the two up, so the numbers are what a person's eye would have seen, not what this script meant to send.
+// See docs/e2e/README.md for how to bring the two servers up.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { WEB, Report, fakeReset, launch, line, puppeteer, sleep, touchSession } from "./harness.mjs";
@@ -21,10 +21,11 @@ mkdirSync(outDir, { recursive: true });
 const report = new Report("Trackpad lens");
 const profile = "iPhone 13";
 
-/** The tuning in packages/kvm-engine/src/view/lens.ts, which the page bundle does not expose: the run checks the behaviour against these. */
-const SLOW = 60; // px/s at or under which the zoom is at its maximum
-const FAST = 360; // px/s at or over which there is no lens
-const ZOOM_MAX = 5;
+/** The numbers in packages/kvm-engine/src/view/lens.ts, which the page bundle does not expose. */
+const SHOW = 300; // px/s under which it shows
+const HIDE = 420; // px/s over which it hides
+const SIZE = 96;
+const OFFSET = SIZE / 2 + 24; // centre above the cursor
 
 async function check(name, fn, as = profile) {
     try {
@@ -42,29 +43,36 @@ async function live(page) {
     );
 }
 
-/** Start the in-page recorders. Everything is stamped with the page's own performance.now(). */
+/** Start the in-page recorders. Everything is stamped with the page's own clock (event.timeStamp for pointers). */
 async function record(page) {
     await page.evaluate(() => {
         const lens = document.querySelector(".kvm-lens");
+        const cursor = document.querySelector(".kvm-cursor");
         const rec = { frames: [], touches: [], running: true };
         window.__lensRec = rec;
         const tick = () => {
             if (!rec.running) return;
+            const l = lens.getBoundingClientRect();
+            const c = cursor.getBoundingClientRect();
             rec.frames.push({
                 t: performance.now(),
                 on: lens.classList.contains("on"),
-                mag: lens.dataset.mag ? Number(lens.dataset.mag) : null,
-                size: Math.round(parseFloat(lens.style.width) || 0),
+                w: l.width,
+                h: l.height,
+                lx: l.x + l.width / 2,
+                ly: l.y + l.height / 2,
+                cx: c.x + c.width / 2,
+                cy: c.y + c.height / 2,
             });
             requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
-        // pointermove is what the app itself listens to (Chrome withholds touchmove until the finger leaves its own slop).
         const note = (e, start) => {
             if (e.pointerType === "touch") rec.touches.push({ t: e.timeStamp, x: e.clientX, y: e.clientY, start });
         };
         document.addEventListener("pointermove", (e) => note(e, false), { capture: true, passive: true });
         document.addEventListener("pointerdown", (e) => note(e, true), { capture: true, passive: true });
+        document.addEventListener("pointerup", (e) => rec.touches.push({ t: e.timeStamp, up: true }), { capture: true, passive: true });
     });
 }
 
@@ -75,9 +83,8 @@ const collect = (page) =>
     });
 
 /**
- * Drive one finger along `legs`, each `{ dx, dy, from, to, ms }`: it travels in the (dx, dy) direction at a
- * speed that goes linearly from `from` to `to` px/s over `ms`. Position is advanced by the REAL time between
- * sends, so the speed is what it says whatever the tick does.
+ * Drive one finger along `legs`, each `{ dx, dy, from, to, ms }`: it travels in the (dx, dy) direction at a speed
+ * that goes linearly from `from` to `to` px/s over `ms`. Position advances by the REAL time between sends.
  */
 async function drive(touch, id, at, legs) {
     let [x, y] = at;
@@ -103,71 +110,55 @@ async function drive(touch, id, at, legs) {
 
 /** The finger's speed at time `t`, over the pointermoves of the 120 ms before. */
 function fingerSpeed(touches, t, window = 120) {
-    const recent = touches.filter((p) => !p.start && p.t <= t && p.t > t - window);
+    const recent = touches.filter((p) => !p.start && !p.up && p.t <= t && p.t > t - window);
     if (recent.length < 2) return 0;
     let path = 0;
     for (let i = 1; i < recent.length; i++) path += Math.hypot(recent[i].x - recent[i - 1].x, recent[i].y - recent[i - 1].y);
     return (path / (recent.at(-1).t - recent[0].t)) * 1000;
 }
 
-/** The largest frame-to-frame change in zoom among consecutive on-frames, and the longest gap between pointer events just before it. */
-function biggestStep(frames, touches) {
-    let best = { jump: 0, gap: 0 };
-    for (let i = 1; i < frames.length; i++) {
-        if (!frames[i].on || !frames[i - 1].on) continue;
-        const jump = Math.abs(frames[i].mag - frames[i - 1].mag);
-        if (jump <= best.jump) continue;
-        const near = touches.filter((p) => p.t > frames[i].t - 100 && p.t <= frames[i].t);
-        let gap = 0;
-        for (let k = 1; k < near.length; k++) gap = Math.max(gap, near[k].t - near[k - 1].t);
-        best = { jump, gap };
-    }
-    return best;
-}
+const fmt = (n, d = 1) => (n === null || n === undefined || Number.isNaN(n) ? "-" : n.toFixed(d));
+const changes = (frames) => frames.slice(1).filter((f, i) => f.on !== frames[i].on).length;
 
-/** Zoom sampled every `every` ms across on-frames, to see the trend through the finger's own unevenness. */
-function trend(frames, every = 200) {
-    const out = [];
-    for (let t = frames[0].t; t <= frames.at(-1).t; t += every) {
-        const f = frames.find((x) => x.t >= t && x.on);
-        if (f) out.push(f.mag);
-    }
-    return out;
-}
-
-const fmt = (n, d = 1) => (n === null || n === undefined ? "-" : n.toFixed(d));
-
-async function phone(browser) {
-    await fakeReset();
+async function open(browser, device) {
     const page = await browser.newPage();
     const logs = [];
     page.on("console", (m) => {
         if (!/janus\/ws/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`);
     });
     page.on("pageerror", (e) => logs.push(`pageerror: ${e.message}`));
-    await page.emulate(puppeteer.KnownDevices["iPhone 13"]);
+    await page.emulate(puppeteer.KnownDevices[device]);
     await page.goto(`${WEB}/app/kvm`, { waitUntil: "load" });
     await live(page);
-    const touch = await touchSession(page);
-    const box = await page.$eval('[data-testid="kvm-pane"]', (el) => {
-        const r = el.getBoundingClientRect();
-        return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
-    });
-    const { cx, cy } = box;
-    const lensNow = () => page.$eval(".kvm-lens", (el) => ({ on: el.classList.contains("on"), mag: el.dataset.mag ? Number(el.dataset.mag) : null, size: Math.round(parseFloat(el.style.width) || 0) }));
-    const shot = (name) => page.screenshot({ path: `${outDir}/lens-${name}.png` });
     await sleep(600);
+    return { page, logs };
+}
 
-    /* ---- one long gesture: slow, speeding up, fast, slowing down, slow ---- */
+const paneCentre = (page) =>
+    page.$eval('[data-testid="kvm-pane"]', (el) => {
+        const r = el.getBoundingClientRect();
+        return { cx: r.x + r.width / 2, cy: r.y + r.height / 2, top: r.y, w: r.width, h: r.height };
+    });
+
+async function phone(browser) {
+    await fakeReset();
+    const { page, logs } = await open(browser, "iPhone 13");
+    const touch = await touchSession(page);
+    const pane = await paneCentre(page);
+    const { cx, cy } = pane;
+    const shot = (name) => page.screenshot({ path: `${outDir}/lens-${name}.png` });
+    const lensOn = () => page.$eval(".kvm-lens", (el) => el.classList.contains("on"));
+
+    /* ---- one long gesture: slow, speeding up, fast, slowing down, slow again, lift ---- */
     await record(page);
     const start = [cx - 100, cy - 150];
     const id = await touch.start(...start);
     await sleep(50);
     const legs = [
         { name: "slow", dx: 1, dy: 0, from: 40, to: 40, ms: 1100 },
-        { name: "speeding up", dx: 0, dy: 1, from: 40, to: 520, ms: 1000 },
-        { name: "fast", dx: 1, dy: 0, from: 520, to: 520, ms: 450 },
-        { name: "slowing down", dx: 0, dy: -1, from: 520, to: 40, ms: 1000 },
+        { name: "speeding up", dx: 0, dy: 1, from: 40, to: 560, ms: 1000 },
+        { name: "fast", dx: 1, dy: 0, from: 560, to: 560, ms: 450 },
+        { name: "slowing down", dx: 0, dy: -1, from: 560, to: 40, ms: 1000 },
         { name: "slow again", dx: -1, dy: 0, from: 40, to: 40, ms: 900 },
     ];
     const marks = [];
@@ -178,101 +169,106 @@ async function phone(browser) {
         marks.push({ name: leg.name, from, to: await page.evaluate(() => performance.now()) });
     }
     await touch.end(id);
-    const lastLift = await page.evaluate(() => performance.now());
-    await sleep(1800); // the linger
+    await sleep(500);
     const rec = await collect(page);
-    const firstMove = rec.touches.find((p) => !p.start).t;
     const touchAt = rec.touches[0].t;
-
-    // The merged series: every frame with the finger's speed beside it.
+    const liftAt = rec.touches.find((p) => p.up).t;
     const series = rec.frames.map((f) => ({ ...f, speed: fingerSpeed(rec.touches, f.t) }));
     const during = (name) => {
         const m = marks.find((x) => x.name === name);
         return series.filter((s) => s.t >= m.from && s.t <= m.to);
     };
+    const onFrames = series.filter((s) => s.on);
 
-    await check("trackpad lens: a slow finger shows it at once, with no hold: within a frame or two of leaving its touch point by 4 px, and not before", async () => {
-        const away = rec.touches.find((p) => !p.start && Math.hypot(p.x - start[0], p.y - start[1]) > 4);
+    await check("slow finger: the lens is there at once, no hold: within a frame or two of the finger leaving its touch point by 4 px, and not before", async () => {
+        const away = rec.touches.find((p) => !p.start && !p.up && Math.hypot(p.x - start[0], p.y - start[1]) > 4);
         const firstOn = series.find((s) => s.on);
         const delay = firstOn.t - away.t;
-        return [delay >= 0 && delay < 60, `finger past 4 px at +${fmt(away.t - touchAt)} ms of the touch (${fmt(Math.hypot(away.x - start[0], away.y - start[1]))} px away); lens first on ${fmt(delay)} ms later at ${fmt(firstOn.mag, 2)}x and ${firstOn.size}px; on before that: ${series.filter((s) => s.on && s.t < away.t).length} frames`];
+        const before = series.filter((s) => s.on && s.t < away.t).length;
+        return [delay >= 0 && delay < 70 && before === 0, `finger past 4 px at +${fmt(away.t - touchAt)} ms of the touch; lens first on ${fmt(delay)} ms later; on before that: ${before} frames`];
     });
 
-    await check("trackpad lens: slow movement is at the full zoom", async () => {
-        const slow = during("slow").filter((s) => s.t > marks[0].from + 300);
-        const worst = Math.min(...slow.map((s) => s.mag ?? 0));
-        const speeds = slow.map((s) => s.speed);
-        return [slow.every((s) => s.on) && worst >= ZOOM_MAX - 0.3, `${slow.length} frames at ${fmt(Math.min(...speeds), 0)}-${fmt(Math.max(...speeds), 0)} px/s: lens always on, zoom >= ${fmt(worst, 2)}x (max ${ZOOM_MAX})`];
+    await check("slow finger: the lens stays on for the whole slow stretch", async () => {
+        const slow = during("slow").filter((s) => s.t > marks[0].from + 250);
+        return [slow.every((s) => s.on), `${slow.length} frames at ${fmt(Math.min(...slow.map((s) => s.speed)), 0)}-${fmt(Math.max(...slow.map((s) => s.speed)), 0)} px/s, on in ${slow.filter((s) => s.on).length}`];
     });
 
-    await check("trackpad lens: speeding up zooms out continuously, to nothing by the fast speed, with no jump", async () => {
+    await check("speeding up: it goes off once, between the show and the hide speed, and stays off", async () => {
         const up = during("speeding up");
-        const { jump: biggestJump, gap } = biggestStep(up, rec.touches);
-        const steps = trend(up);
-        const falling = steps.every((m, i) => i === 0 || m <= steps[i - 1] + 0.05);
-        const onFrames = up.filter((s) => s.on);
-        const firstOff = up.find((s) => !s.on && s.t > up[0].t + 100);
-        const offAt = firstOff ? firstOff.speed : NaN;
-        const flips = up.slice(1).filter((s, i) => s.on !== up[i].on).length;
-        const pass = onFrames.length >= 10 && biggestJump < 0.9 && falling && firstOff !== undefined && flips === 1 && offAt < FAST + 120;
-        return [pass, `${onFrames.length} frames on; largest frame-to-frame zoom change ${fmt(biggestJump, 2)}x (longest pointer gap just before it ${fmt(gap, 0)} ms); zoom every 200 ms ${steps.map((m) => fmt(m, 1)).join(" > ")}; on/off changes ${flips}; went off at ${fmt(offAt, 0)} px/s of finger speed (fast = ${FAST})`];
+        const off = up.find((s) => !s.on && s.t > up[0].t + 100);
+        const stays = series.filter((s) => s.t >= off.t && s.t <= marks[3].from).every((s) => !s.on);
+        return [changes(up) === 1 && stays && off.speed > SHOW - 80 && off.speed < HIDE + 80, `went off at ${fmt(off.speed, 0)} px/s of finger speed (show under ${SHOW}, hide over ${HIDE}); on/off changes ${changes(up)}; off for the rest of the fast stretch: ${stays}`];
     });
 
-    await check("trackpad lens: fast movement never has it, from the first fast frame", async () => {
-        const fast = during("fast").filter((s) => s.speed > FAST + 60);
-        const anyOn = fast.filter((s) => s.on);
-        const peak = Math.max(...fast.map((s) => s.speed));
-        return [fast.length > 10 && anyOn.length === 0, `${fast.length} frames at up to ${fmt(peak, 0)} px/s: lens on in ${anyOn.length}`];
+    await check("fast finger: never on, from its first fast frame", async () => {
+        const fast = during("fast").filter((s) => s.speed > HIDE + 60);
+        const any = fast.filter((s) => s.on);
+        return [fast.length > 10 && any.length === 0, `${fast.length} frames at up to ${fmt(Math.max(...fast.map((s) => s.speed)), 0)} px/s: on in ${any.length}`];
     });
 
-    await check("trackpad lens: slowing down zooms back in continuously, with no jump", async () => {
+    await check("slowing down: back on once, under the show speed, and stays on", async () => {
         const down = during("slowing down");
-        const { jump: biggestJump, gap } = biggestStep(down, rec.touches);
-        const steps = trend(down);
-        const rising = steps.every((m, i) => i === 0 || m >= steps[i - 1] - 0.05);
-        const firstOn = down.find((s) => s.on);
-        const flips = down.slice(1).filter((s, i) => s.on !== down[i].on).length;
-        const end = down.filter((s) => s.on).at(-1);
-        return [Boolean(firstOn) && biggestJump < 0.9 && rising && flips === 1 && end.mag > ZOOM_MAX - 1.2, `back on at ${fmt(firstOn?.speed, 0)} px/s (lens needs the finger under ${FAST}); largest frame-to-frame zoom change ${fmt(biggestJump, 2)}x (longest pointer gap just before it ${fmt(gap, 0)} ms); zoom every 200 ms ${steps.map((m) => fmt(m, 1)).join(" < ")}; on/off changes ${flips}; ended at ${fmt(end?.mag, 2)}x`];
+        const on = down.find((s) => s.on);
+        const stays = series.filter((s) => s.t >= on.t && s.t <= liftAt).every((s) => s.on);
+        return [changes(down) === 1 && stays && on.speed < SHOW + 60, `back on at ${fmt(on.speed, 0)} px/s; on/off changes ${changes(down)}; on from there to the lift: ${stays}`];
     });
 
-    await check("trackpad lens: slow again is back to the full zoom", async () => {
-        const slow = during("slow again").filter((s) => s.t > marks[4].from + 500);
-        const worst = Math.min(...slow.map((s) => s.mag ?? 0));
-        return [slow.every((s) => s.on) && worst >= ZOOM_MAX - 0.3, `${slow.length} frames, zoom >= ${fmt(worst, 2)}x`];
+    await check("one fixed size: 96 x 96 on every frame it is on, however fast the finger", async () => {
+        const sizes = new Set(onFrames.map((s) => `${Math.round(s.w)}x${Math.round(s.h)}`));
+        return [sizes.size === 1 && sizes.has(`${SIZE}x${SIZE}`), `${onFrames.length} frames on, sizes ${[...sizes].join(", ")}`];
     });
 
-    await check("trackpad lens: the zoom is tied to the speed: the slower the finger, the higher the zoom, across the whole gesture", async () => {
-        const on = series.filter((s) => s.on && s.speed > 0);
-        const bins = [[0, 90], [90, 150], [150, 220], [220, 300], [300, 420]].map(([lo, hi]) => {
-            const m = on.filter((s) => s.speed >= lo && s.speed < hi).map((s) => s.mag);
-            return { lo, hi, n: m.length, mean: m.length ? m.reduce((a, b) => a + b, 0) / m.length : null };
-        });
-        const filled = bins.filter((b) => b.n >= 3);
-        const monotonic = filled.every((b, i) => i === 0 || b.mean <= filled[i - 1].mean + 0.15);
-        return [filled.length >= 4 && monotonic, bins.map((b) => `${b.lo}-${b.hi} px/s: ${fmt(b.mean, 2)}x (n=${b.n})`).join("; ")];
+    await check("one fixed place: centred on the cursor sideways and 72 px above it on every frame, and it never jumps", async () => {
+        // Sideways the lens follows the cursor but is held inside the pane (SIZE / 2 from either edge).
+        const dx = onFrames.map((s) => s.lx - Math.max(SIZE / 2, Math.min(pane.w - SIZE / 2, s.cx)));
+        const dy = onFrames.map((s) => s.ly - s.cy);
+        const worst = Math.max(...dx.map(Math.abs), ...dy.map((v) => Math.abs(v + OFFSET)));
+        return [worst <= 1.5, `${onFrames.length} frames: x offset from the (pane-held) cursor ${fmt(Math.min(...dx))}..${fmt(Math.max(...dx))}, y offset ${fmt(Math.min(...dy))}..${fmt(Math.max(...dy))} (expected 0 and -${OFFSET}); worst deviation ${fmt(worst, 2)} px`];
     });
 
-    await check("trackpad lens: it grows from small to full size inside 200 ms, then lingers after the lift and goes", async () => {
-        const first = series.find((s) => s.on);
-        const full = series.find((s) => s.on && s.size >= 96);
-        const after = (ms) => series.find((s) => s.t >= lastLift + ms);
-        const at1 = after(1000);
-        const at1700 = after(1700);
-        return [first.size < 96 && full.t - first.t <= 220 && at1.on && !at1700.on, `first ${first.size}px, full 96px ${fmt(full.t - first.t, 0)} ms later; 1.0 s after lift on=${at1.on}; 1.7 s after on=${at1700.on}`];
+    await check("the lift hides it on the next frame: no linger", async () => {
+        const after = series.filter((s) => s.t >= liftAt);
+        const firstOff = after.find((s) => !s.on);
+        const delay = firstOff.t - liftAt;
+        return [delay < 70 && after.filter((s) => s.t > firstOff.t).every((s) => !s.on), `off ${fmt(delay)} ms after the pointerup; off for the ${fmt(series.at(-1).t - firstOff.t, 0)} ms after that`];
     });
 
     // The trace itself, 150 ms apart, for the record.
-    const t0 = rec.touches[0].t;
     const rows = [];
-    for (let t = t0; t < series.at(-1).t - 1000; t += 150) {
+    for (let t = touchAt; t < liftAt + 300; t += 150) {
         const s = series.find((f) => f.t >= t);
-        const leg = marks.find((m) => s.t >= m.from && s.t <= m.to)?.name ?? (s.t > lastLift ? "lifted" : "");
-        rows.push(`| ${fmt((s.t - t0) / 1000, 2)} | ${leg} | ${fmt(s.speed, 0)} | ${s.on ? "on" : "off"} | ${fmt(s.mag, 2)} | ${s.on ? s.size : "-"} |`);
+        if (!s) break;
+        const leg = marks.find((m) => s.t >= m.from && s.t <= m.to)?.name ?? (s.t > liftAt ? "lifted" : "");
+        rows.push(`| ${fmt((s.t - touchAt) / 1000, 2)} | ${leg} | ${fmt(s.speed, 0)} | ${s.on ? "on" : "off"} | ${s.on ? `${fmt(s.lx - s.cx, 0)}, ${fmt(s.ly - s.cy, 0)}` : "-"} |`);
     }
-    const table = ["| t (s) | leg | finger px/s | lens | zoom | size px |", "| --- | --- | --- | --- | --- | --- |", ...rows].join("\n");
+    const table = ["| t (s) | leg | finger px/s | lens | lens centre vs cursor (x, y) |", "| --- | --- | --- | --- | --- |", ...rows].join("\n");
 
-    /* ---- screenshots: the finger held at three speeds ---- */
+    /* ---- hysteresis: a finger holding in the band between the two speeds keeps what it had ---- */
+    const band = async (before) => {
+        await record(page);
+        const bid = await touch.start(cx - 60, cy - 150);
+        await sleep(40);
+        const first = before === "slow" ? { dx: 1, dy: 0, from: 40, to: 40, ms: 700 } : { dx: 1, dy: 0, from: 600, to: 600, ms: 350 };
+        const p = await drive(touch, bid, [cx - 60, cy - 150], [first]);
+        const mark = await page.evaluate(() => performance.now());
+        // then down the screen at a steady 360 px/s, the band between the two speeds
+        await drive(touch, bid, p, [{ dx: 0, dy: 1, from: 360, to: 360, ms: 700 }]);
+        const r = await collect(page);
+        await touch.end(bid);
+        await sleep(300);
+        const inBand = r.frames.filter((f) => f.t > mark + 250).map((f) => ({ ...f, speed: fingerSpeed(r.touches, f.t) }));
+        return { inBand, speeds: inBand.map((f) => f.speed) };
+    };
+    await check("hysteresis: held at 360 px/s (between show and hide) after a slow stretch it stays on, after a fast one it stays off", async () => {
+        const fromSlow = await band("slow");
+        const fromFast = await band("fast");
+        const a = fromSlow.inBand.every((f) => f.on);
+        const b = fromFast.inBand.every((f) => !f.on);
+        const range = (x) => `${fmt(Math.min(...x.speeds), 0)}-${fmt(Math.max(...x.speeds), 0)}`;
+        return [a && b && fromSlow.inBand.length > 10 && fromFast.inBand.length > 10, `after slow, ${fromSlow.inBand.length} frames at ${range(fromSlow)} px/s: on in ${fromSlow.inBand.filter((f) => f.on).length}; after fast, ${fromFast.inBand.length} frames at ${range(fromFast)} px/s: on in ${fromFast.inBand.filter((f) => f.on).length}`];
+    });
+
+    /* ---- screenshots ---- */
     // Bring the cursor back to the middle of the picture with one quick flick, so the lens is in frame.
     const recentre = async () => {
         const at = await page.$eval(".kvm-cursor", (el) => {
@@ -284,48 +280,93 @@ async function phone(browser) {
         const rid = await touch.start(cx - fx / 2, cy - fy / 2 + 150);
         await touch.drag(rid, line([cx - fx / 2, cy - fy / 2 + 150], [cx + fx / 2, cy + fy / 2 + 150], 8), 16);
         await touch.end(rid);
-        await sleep(1700);
+        await sleep(400);
     };
-    const holdAt = async (name, leg, settle) => {
+    const holdAt = async (name, leg) => {
         await recentre();
         const sid = await touch.start(cx - 100, cy - 100);
         await sleep(40);
         await drive(touch, sid, [cx - 100, cy - 100], [leg]);
-        await sleep(settle);
-        const now = await lensNow();
+        const on = await lensOn();
         await shot(name);
         await touch.end(sid);
-        await sleep(1700);
-        return now;
+        await sleep(400);
+        return on;
     };
-    const slowShot = await holdAt("1-slow", { dx: 1, dy: 0, from: 40, to: 40, ms: 900 }, 0);
-    const midShot = await holdAt("2-medium", { dx: 1, dy: 0, from: 200, to: 200, ms: 500 }, 0);
-    const fastShot = await holdAt("3-fast", { dx: -1, dy: 0, from: 650, to: 650, ms: 350 }, 0);
-    await check("trackpad lens: screenshots slow / medium / fast", async () => [
-        slowShot.on && !fastShot.on && midShot.on && slowShot.mag > midShot.mag && midShot.mag > 1.3,
-        `slow on=${slowShot.on} ${fmt(slowShot.mag, 2)}x; medium on=${midShot.on} ${fmt(midShot.mag, 2)}x; fast on=${fastShot.on} ${fmt(fastShot.mag, 2)}x (lens-1-slow.png, lens-2-medium.png, lens-3-fast.png)`,
-    ]);
+    const slowShot = await holdAt("1-slow", { dx: 1, dy: 0, from: 40, to: 40, ms: 900 });
+    const fastShot = await holdAt("2-fast", { dx: -1, dy: 0, from: 650, to: 650, ms: 350 });
+    await check("screenshots: finger held slow shows it, fast does not", async () => [slowShot && !fastShot, `slow on=${slowShot}; fast on=${fastShot} (lens-1-slow.png, lens-2-fast.png)`]);
 
     /* ---- a tap, and a finger resting with jitter, never show it ---- */
-    await check("trackpad lens: a tap and a resting finger with a few px of jitter never show it", async () => {
+    await check("a tap and a resting finger with a few px of jitter never show it", async () => {
         await record(page);
         const tid = await touch.start(cx, cy + 120);
         for (let i = 0; i < 12; i++) {
             await touch.move(tid, cx + (i % 2 ? 1.5 : -1.5), cy + 120 + (i % 3) - 1);
             await sleep(40);
         }
-        const during = await lensNow();
         await sleep(700);
         await touch.end(tid);
         await sleep(300);
         const r = await collect(page);
         const on = r.frames.filter((f) => f.on).length;
-        return [on === 0 && !during.on, `${r.frames.length} frames over a 1.5 s rest with 1.5 px jitter: lens on in ${on}`];
+        return [on === 0, `${r.frames.length} frames over a 1.5 s rest with 1.5 px jitter: on in ${on}`];
+    });
+
+    await check("two fingers (a pinch) take it away", async () => {
+        const a = await touch.start(cx - 30, cy + 200);
+        await sleep(30);
+        await touch.drag(a, line([cx - 30, cy + 200], [cx - 10, cy + 200], 25), 16); // slow: lens on
+        const wasOn = await lensOn();
+        const b = await touch.start(cx + 60, cy + 200);
+        await sleep(150);
+        const withTwo = await lensOn();
+        await touch.end(b);
+        await touch.end(a);
+        await sleep(300);
+        return [wasOn && !withTwo, `one finger on=${wasOn}; second finger down on=${withTwo}`];
     });
 
     await check("no page errors", async () => [logs.filter((l) => l.startsWith("pageerror") || l.startsWith("error")).length === 0, logs.join(" | ") || "clean"]);
     await page.close();
     return table;
+}
+
+/** Landscape: the picture fills the pane's height, so the cursor can reach the top edge and the lens must go below it, once. */
+async function landscape(browser) {
+    const as = "iPhone 13 landscape";
+    const { page } = await open(browser, "iPhone 13 landscape");
+    const touch = await touchSession(page);
+    const { cx, cy, top, h: paneH } = await paneCentre(page);
+    await record(page);
+    // Slowly up to the top of the picture, then slowly back down. 36 px/s, a cursor speed of ~32 px/s.
+    const id = await touch.start(cx, cy + 60);
+    await sleep(50);
+    let pos = [cx, cy + 60];
+    pos = await drive(touch, id, pos, [{ dx: 0, dy: -1, from: 70, to: 70, ms: 3600 }]);
+    const topShot = await page.evaluate(() => performance.now());
+    await page.screenshot({ path: `${outDir}/lens-3-top-edge.png` });
+    pos = await drive(touch, id, pos, [{ dx: 0, dy: 1, from: 70, to: 70, ms: 3600 }]);
+    await touch.end(id);
+    await sleep(300);
+    const r = await collect(page);
+    void topShot;
+    await check(
+        "at the top edge of a short pane (landscape): it goes below the cursor where there is no room above, and does not hop",
+        async () => {
+            const on = r.frames.filter((f) => f.on);
+            const side = on.map((f) => (f.ly - f.cy < 0 ? "above" : "below"));
+            const flips = side.slice(1).filter((v, i) => v !== side[i]).length;
+            // The lens is drawn on the move that moved the cursor, so it matches the cursor of this frame or, at worst, the one before.
+            const at = (f, i, sign) => Math.min(Math.abs(f.ly - f.cy - sign * OFFSET), i > 0 ? Math.abs(f.ly - on[i - 1].cy - sign * OFFSET) : Infinity);
+            const aboveOk = on.every((f, i) => side[i] !== "above" || (at(f, i, -1) <= 1.5 && (f.cy - top < 120 || f.ly - SIZE / 2 >= top - 1)));
+            const belowOk = on.every((f, i) => side[i] !== "below" || at(f, i, 1) <= 1.5);
+            const nearTop = Math.min(...on.map((f) => f.cy));
+            return [on.length > 20 && side.includes("below") && flips <= 2 && aboveOk && belowOk, `pane ${fmt(paneH, 0)} px high; ${on.length} frames on; cursor reached ${fmt(nearTop - top, 0)} px below the pane top; side changes ${flips} (at most above to below to above); every above frame 72 px up (inside the pane wherever the cursor is 120 px or more down): ${aboveOk}; every below frame 72 px down: ${belowOk}`];
+        },
+        as,
+    );
+    await page.close();
 }
 
 async function desktop(browser) {
@@ -334,25 +375,29 @@ async function desktop(browser) {
     await page.goto(`${WEB}/app/kvm`, { waitUntil: "load" });
     await live(page);
     await sleep(600);
-    await check("desktop mouse: no lens, slow or fast (the lens is a trackpad aid)", async () => {
-        await record(page);
-        const b = await page.$eval('[data-testid="kvm-pane"]', (el) => {
-            const r = el.getBoundingClientRect();
-            return { x: r.x, y: r.y, w: r.width, h: r.height };
-        });
-        await page.mouse.move(b.x + b.w / 2, b.y + b.h / 2);
-        for (let i = 0; i < 40; i++) {
-            await page.mouse.move(b.x + b.w / 2 + i * 1.5, b.y + b.h / 2);
-            await sleep(16);
-        }
-        for (let i = 0; i < 15; i++) {
-            await page.mouse.move(b.x + b.w / 2 + 60 + i * 30, b.y + b.h / 2 + i * 8);
-            await sleep(16);
-        }
-        const r = await collect(page);
-        const on = r.frames.filter((f) => f.on).length;
-        return [on === 0, `${r.frames.length} frames over a slow then a fast mouse sweep: lens on in ${on}`];
-    }, "Desktop 1400x900");
+    await check(
+        "desktop mouse: no lens, slow or fast (the lens is a trackpad aid)",
+        async () => {
+            await record(page);
+            const b = await page.$eval('[data-testid="kvm-pane"]', (el) => {
+                const r = el.getBoundingClientRect();
+                return { x: r.x, y: r.y, w: r.width, h: r.height };
+            });
+            await page.mouse.move(b.x + b.w / 2, b.y + b.h / 2);
+            for (let i = 0; i < 40; i++) {
+                await page.mouse.move(b.x + b.w / 2 + i * 1.5, b.y + b.h / 2);
+                await sleep(16);
+            }
+            for (let i = 0; i < 15; i++) {
+                await page.mouse.move(b.x + b.w / 2 + 60 + i * 30, b.y + b.h / 2 + i * 8);
+                await sleep(16);
+            }
+            const r = await collect(page);
+            const on = r.frames.filter((f) => f.on).length;
+            return [on === 0, `${r.frames.length} frames over a slow then a fast mouse sweep: lens on in ${on}`];
+        },
+        "Desktop 1400x900",
+    );
     await page.close();
 }
 
@@ -360,6 +405,7 @@ const browser = await launch();
 let table = "";
 try {
     table = await phone(browser);
+    await landscape(browser);
     await desktop(browser);
 } finally {
     await browser.close();
@@ -367,31 +413,28 @@ try {
 
 const section = [
     "<!-- lens:begin -->",
-    "## Zoom-in cursor lens: trigger and speed-tied zoom",
+    "## The cursor lens, made basic",
     "",
-    "Kieran: \"the zoom in cursor thing I need you to make it easier to trigger, and you gotta tie it directly to the movement speed\".",
+    'Kieran, on the real iPhone: "make the zoom cursor thing just more basic, it\'s doing too much at the moment and it\'s confusing".',
     "",
-    "What changed (`packages/kvm-engine/src/view/lens.ts`, every number in its tuning block; failure modes L1-L15 in `view/FAILURE_MODES.md`, P17 in `pointer/FAILURE_MODES.md`):",
+    "What it is now (`packages/kvm-engine/src/view/lens.ts`, every number in its tuning block; failure modes L1-L10 in `view/FAILURE_MODES.md`):",
     "",
-    "- Trigger: no hold. The lens used to need about a second of sustained fine movement (and a 160 px path cap) before it appeared and 450 ms to grow. It now appears on the first frame after the finger has moved more than 4 px from where it touched in trackpad mode (before the cursor itself starts moving at the 16 px tap slop), and opens in 160 ms. A tap, a hold or a resting finger (jitter under 4 px) never shows it.",
-    "- Zoom is a function of finger speed: the finger's px/s, averaged over about 70 ms (decayed distance / decayed time, using each event's own timestamp), goes through a smoothstep from 5x total at <= 60 px/s to 1x (no lens) at >= 360 px/s. Continuous and monotonic, flat at both ends.",
-    "- Hysteresis: the lens appears at 1.3x and goes away only below 1.12x, so a finger hovering on the threshold does not flicker.",
-    "- The speed is held while the finger rests (a swipe that ends still never lets the lens creep in; a nudge that ends still keeps its zoom). The picture's own zoom still counts towards the total (lens mag = max(1, zoom / picture scale)).",
-    "- Desktop mouse: unchanged, the lens has never applied there (it needs the trackpad's virtual cursor); the desktop case below confirms none appears.",
+    "- One fixed size (96 px) and one fixed zoom (3x total, the picture's own zoom counted), a short CSS fade in and out, nothing inside it but the magnified picture and the cursor point.",
+    "- On while ONE finger is down on the trackpad and moving slowly; off when the finger speeds up, lifts, or a second finger comes down. Speed decides only that: show under 300 px/s, hide over 420 px/s, in between it keeps what it had. No continuous speed-to-zoom curve, no grow animation, no linger after the lift.",
+    "- Fixed place: 24 px above the cursor (its bottom edge), following it sideways, held inside the pane. Below the cursor only where it would not fit above (in a pane too short for either side, on whichever has more room), and back above only with 40 px to spare, so it never hops.",
+    "- Desktop mouse: unchanged; the lens has never applied there.",
     "",
-    "Found by the run: the painter proxy in `picture-controller.ts` dropped the event timestamp, so the first version timed moves by when the browser handed them over (a frame's worth together) and the zoom jumped by up to 1.2x a frame. With the proxy forwarding it the largest frame-to-frame change in these runs is 0.2-0.35x.",
-    "",
-    `Script: \`apps/web/e2e/lens.e2e.mjs\`; iPhone 13 profile with raw CDP touch events, then the desktop mouse. The page records the lens (on, \`data-mag\`, size) on every animation frame and every pointermove on its own clock; the finger speed in the table is read off those pointermoves (trailing 120 ms).`,
+    "Script: `apps/web/e2e/lens.e2e.mjs`; iPhone 13 (portrait, then landscape for the top edge) with raw CDP touch events, then the desktop mouse. The page records the lens box and the cursor centre on every animation frame and every pointermove on its own clock; the finger speed below is read off those pointermoves (trailing 120 ms).",
     "",
     "| Profile | Case | Observed | Result |",
     "| --- | --- | --- | --- |",
     ...report.rows.map((r) => `| ${r.profile} | ${r.name} | ${r.observed.replaceAll("|", "/")} | ${r.pass ? "pass" : "FAIL"} |`),
     "",
-    "One gesture, one finger: slow (40 px/s) -> speeding up to 520 px/s -> fast (520) -> slowing down to 40 -> slow again, then lift. Sampled every 150 ms:",
+    "One gesture, one finger: slow (40 px/s) -> speeding up to 560 px/s -> fast (560) -> slowing down to 40 -> slow again, then lift. Sampled every 150 ms:",
     "",
     table,
     "",
-    "Screenshots (finger held at 40, 200 and 650 px/s, cursor recentred first): [slow](phone-feedback/lens-1-slow.png), [medium](phone-feedback/lens-2-medium.png), [fast](phone-feedback/lens-3-fast.png).",
+    "Screenshots: [finger slow](phone-feedback/lens-1-slow.png), [finger fast](phone-feedback/lens-2-fast.png), [landscape, cursor at the top edge, lens below it](phone-feedback/lens-3-top-edge.png).",
     "<!-- lens:end -->",
     "",
 ].join("\n");

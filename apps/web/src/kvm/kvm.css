@@ -184,15 +184,10 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
         0 0 0 3px color-mix(in srgb, var(--ok) 75%, transparent),
         0 0 0 4px rgb(0 0 0 / 55%);
 }
-.kvm-pane.hold-armed .kvm-lens {
-    border-color: var(--ok);
-}
-/* The trackpad magnifier. Centred on the cursor; the canvas draws the enlarged picture and the
-   hotspot dot, this is only the frame. */
+/* The trackpad magnifier: a fixed-size circle, above the cursor. The canvas draws the enlarged picture and the
+   hotspot dot, this is only the frame; its size is set by the painter (LENS_SIZE), its place by lensPlace. */
 .kvm-lens {
     position: absolute;
-    width: 96px;
-    height: 96px;
     border-radius: 50%;
     transform: translate(-50%, -50%);
     pointer-events: none;
@@ -203,7 +198,7 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
         0 8px 24px -6px rgb(0 0 0 / 60%);
     opacity: 0;
     visibility: hidden;
-    /* Fast movement hides it: fade out quickly so it never trails the finger. */
+    /* Fades out quickly when the finger lifts or speeds up, so it never trails it. */
     transition:
         opacity 0.09s,
         visibility 0s linear 0.09s;

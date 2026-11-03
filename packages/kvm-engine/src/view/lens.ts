@@ -1,66 +1,52 @@
-// The trackpad magnifier: a lens round the cursor showing what is under it.
+// The trackpad magnifier: a lens showing what is under the cursor.
 //
-// Its zoom is a continuous function of how fast the finger is moving. Slow, precise
-// movement zooms in; fast movement zooms out to nothing; nothing in between is a step.
-// There is no hold time: the lens is there as soon as the finger starts moving slowly in
-// trackpad mode (see LENS_ENGAGE_PX), and a finger that only rests, or taps, never shows it.
+// It is deliberately plain. One fixed size and one fixed zoom (LENS_ZOOM counts the picture's own
+// zoom, so the lens magnifies by max(1, LENS_ZOOM / pictureScale)), a short fade in and out and
+// nothing else inside it but the magnified picture and the cursor point.
 //
-//   speed (px/s of the finger, smoothed)  ->  zoom (total magnification)
+// It is on while ONE finger is down on the trackpad and moving slowly, and off when the finger
+// speeds up or lifts. Speed decides only that: one threshold to show (LENS_SHOW_SPEED) and a higher
+// one to hide (LENS_HIDE_SPEED), so a finger hovering on the threshold does not flicker.
 //
-//        zoom
-//   MAX  |‾‾‾‾‾‾‾╲
-//        |        ╲        smoothstep between SLOW and FAST:
-//        |         ╲       flat at both ends, so no kink, and monotonic
-//    1x  |          ╲_______
-//        +------+------+----> speed
-//             SLOW   FAST
+// It sits at a fixed offset above the cursor, clear of the finger, and goes below it only when
+// there is no room above (lensPlace).
 //
-// The picture's own zoom counts towards the same total, so the lens magnifies by
-// max(1, zoom / pictureScale): the further the picture has been pinched in, the less the
-// lens adds, and once it adds nothing (mag < LENS_MAG_OFF) it goes away.
-//
-// Every tuning constant is in the block below; nothing else in the app has a lens number.
+// Every number is in the block below; nothing else in the app has a lens number.
 
 import type { Box, NaturalSize, Point } from "./geometry";
 
 /* ---- tuning ---- */
 
-/** Finger speed at or below which the lens is at full zoom: 60 px/s (a careful nudge). */
-export const LENS_SLOW_SPEED = 60;
-/** Finger speed at or above which there is no zoom (1x, lens hidden): 360 px/s (travelling). */
-export const LENS_FAST_SPEED = 360;
-/** Total magnification at or below LENS_SLOW_SPEED (lens x picture zoom). */
-export const LENS_ZOOM_MAX = 5;
+/** Finger speed (px/s) under which the lens shows. */
+export const LENS_SHOW_SPEED = 300;
+/** Finger speed (px/s) over which it hides again. Above LENS_SHOW_SPEED: the gap is the hysteresis. */
+export const LENS_HIDE_SPEED = 420;
+/** The lens's size on screen, CSS px. */
+export const LENS_SIZE = 96;
+/** Total magnification, the picture's own zoom included. */
+export const LENS_ZOOM = 3;
+/** Under this the lens would add next to nothing (the picture alone is near LENS_ZOOM) and it stays away. */
+export const LENS_MIN_MAG = 1.2;
+/** The finger must have left its touch point by this much (px, well inside the 16 px tap slop): a tap's jitter is under it. */
+export const LENS_ENGAGE_PX = 4;
+/** Moves needed before the speed means anything: the first has nothing before it. */
+export const LENS_MIN_MOVES = 2;
+/** Gap between the lens's edge and the cursor, CSS px. */
+export const LENS_GAP = 24;
+/** Once flipped below the cursor it comes back above only when it would clear the pane's edge by this much. */
+export const LENS_FLIP_BACK_PX = 40;
 /**
- * Time constant of the speed filter. Distance and time are each summed with an exponential
- * decay of this constant and the speed is their ratio: the average speed over roughly the
- * last LENS_SPEED_TAU_MS, weighted by time, so events that arrive late or in a burst
- * (touch delivery is never even) do not make the zoom jitter.
+ * Time constant of the speed filter. Distance and time are each summed with an exponential decay of this
+ * constant and the speed is their ratio: the average speed over roughly the last LENS_SPEED_TAU_MS,
+ * weighted by time, so events that arrive late or in a burst do not make it jitter.
  */
 export const LENS_SPEED_TAU_MS = 70;
 /**
  * A gap between moves longer than this counts as this long: a finger that paused and set off again is not "slow
- * for 2 s". The first move of a gesture has nothing before it (and some browsers hold the first move back until
- * the finger has left its touch slop), so it counts as this long too.
+ * for 2 s". The first move of a gesture has nothing before it (some browsers hold the first move back until the
+ * finger has left its touch slop), so it counts as this long too.
  */
 export const LENS_MAX_DT_MS = 50;
-/**
- * Hysteresis on the lens magnification, so it does not flicker at the threshold: it appears
- * once the magnification reaches LENS_MAG_ON and goes away only when it falls below LENS_MAG_OFF.
- */
-export const LENS_MAG_ON = 1.3;
-export const LENS_MAG_OFF = 1.12;
-/**
- * The finger must have travelled this far from where it touched (px, well under the 16 px tap
- * slop) before the lens is allowed: a tap or a resting finger jitters less than this.
- */
-export const LENS_ENGAGE_PX = 4;
-/** The lens's frame (CSS px): it opens at LENS_START and eases to LENS_FULL over LENS_GROW_MS. */
-export const LENS_START = 56;
-export const LENS_FULL = 96;
-export const LENS_GROW_MS = 160;
-/** After the finger lifts the lens stays this long. */
-export const LENS_LINGER_MS = 1400;
 
 export interface LensSizeState {
     /** Smoothed finger speed, px/s. */
@@ -68,86 +54,71 @@ export interface LensSizeState {
     /** Decayed sums behind `speed`: finger px and ms. */
     readonly dist: number;
     readonly time: number;
-    /** When `speed` was last updated; null before the first sample of the gesture. */
+    /** When `speed` was last updated (the events' own clock); null before the first move of the gesture. */
     readonly speedAt: number | null;
-    /** The finger has moved past LENS_ENGAGE_PX in this gesture: the lens may appear. */
-    readonly engaged: boolean;
-    /** When the lens started appearing, or null while hidden. */
-    readonly shownAt: number | null;
+    /** Moves seen in this gesture. */
+    readonly moves: number;
+    /** The finger is moving slowly enough for the lens. */
+    readonly shown: boolean;
 }
 
 export function createLensSize(): LensSizeState {
-    return { speed: 0, dist: 0, time: 0, speedAt: null, engaged: false, shownAt: null };
+    return { speed: 0, dist: 0, time: 0, speedAt: null, moves: 0, shown: false };
 }
 
 /**
- * Total magnification for a smoothed finger speed (px/s): LENS_ZOOM_MAX at or below
- * LENS_SLOW_SPEED, 1 at or above LENS_FAST_SPEED, a smoothstep between. Monotonic
- * non-increasing and continuous.
+ * One finger move of `distance` px at time `now` (ms, any clock as long as it is the same one every call).
+ * Folds it into the smoothed speed and decides on/off. A finger that stops sends no moves and the decision
+ * stands: a swipe that ends with the finger resting never has the lens creep in, and a nudge that ends
+ * resting keeps it.
  */
-export function lensZoomForSpeed(speed: number): number {
-    const f = Math.max(0, Math.min(1, (speed - LENS_SLOW_SPEED) / (LENS_FAST_SPEED - LENS_SLOW_SPEED)));
-    return LENS_ZOOM_MAX - (LENS_ZOOM_MAX - 1) * (f * f * (3 - 2 * f));
-}
-
-/** Fold one finger move of `distance` px at time `now` (ms) into the smoothed speed. */
-export function smoothLensSpeed(s: LensSizeState, distance: number, now: number): LensSizeState {
+export function noteLensSpeed(s: LensSizeState, distance: number, now: number): LensSizeState {
     // The first sample is the speed itself (nothing before it to average against); after that old data decays by real elapsed time.
     const elapsed = s.speedAt === null ? LENS_MAX_DT_MS : Math.max(1, now - s.speedAt);
     const keep = s.speedAt === null ? 0 : Math.exp(-elapsed / LENS_SPEED_TAU_MS);
     const dist = s.dist * keep + distance;
     const time = s.time * keep + Math.min(elapsed, LENS_MAX_DT_MS);
-    return { ...s, dist, time, speed: (dist / time) * 1000, speedAt: now };
+    const speed = (dist / time) * 1000;
+    const moves = s.moves + 1;
+    const shown = moves >= LENS_MIN_MOVES && speed < (s.shown ? LENS_HIDE_SPEED : LENS_SHOW_SPEED);
+    return { speed, dist, time, speedAt: now, moves, shown };
 }
 
-/** One finger move of `distance` px: the speed average moves and the gesture is engaged. */
-export function noteLensSpeed(prev: LensSizeState, distance: number, now: number): LensSizeState {
-    return { ...smoothLensSpeed(prev, distance, now), engaged: true };
+/** What the lens magnifies by at a picture zoom: it makes up what the picture lacks. */
+export function lensMag(scale: number): number {
+    return Math.max(1, LENS_ZOOM / scale);
 }
 
-export interface LensFrame {
-    readonly state: LensSizeState;
-    /** The finger has earned the lens (the context conditions in lensVisible still apply). */
-    readonly visible: boolean;
-    /** Whole CSS px to draw at; meaningful only when visible. */
-    readonly size: number;
-    /** Total magnification the speed asks for (1..LENS_ZOOM_MAX), before the picture's own zoom is taken off. */
-    readonly zoom: number;
-    /** What the lens itself magnifies by: max(1, zoom / scale). */
-    readonly mag: number;
+/** The lens can appear at all at this picture zoom. */
+export function lensReachable(scale: number): boolean {
+    return lensMag(scale) >= LENS_MIN_MAG;
 }
 
-function easeOutCubic(t: number): number {
-    return 1 - Math.pow(1 - t, 3);
+export interface LensPlace {
+    /** The lens's centre, client px. */
+    readonly x: number;
+    readonly y: number;
+    /** It is below the cursor (no room above). Pass it back in next time: it is the hysteresis. */
+    readonly below: boolean;
 }
 
 /**
- * Advance one frame at picture zoom `scale`. A finger that has stopped sends no moves and
- * the speed is HELD, not decayed: a swipe that ends with the finger resting must not have
- * the lens creep in, and a nudge that ends resting keeps its zoom.
+ * Where the lens goes: LENS_GAP above the cursor, so the finger and the hand stay clear of it and the cursor
+ * stays in view. Only when it would not fit above the pane does it go below (or, in a pane too short for either,
+ * to whichever side has more room), and it comes back above only with LENS_FLIP_BACK_PX to spare, so it does not
+ * hop at the edge. Sideways it is held inside the pane.
  */
-export function updateLensSize(prev: LensSizeState, now: number, scale = 1): LensFrame {
-    const zoom = lensZoomForSpeed(prev.speed);
-    const mag = Math.max(1, zoom / scale);
-    let shownAt = prev.shownAt;
-    if (!prev.engaged) shownAt = null;
-    else if (shownAt === null) {
-        if (mag >= LENS_MAG_ON) shownAt = now;
-    } else if (mag < LENS_MAG_OFF) shownAt = null;
-    const state = shownAt === prev.shownAt ? prev : { ...prev, shownAt };
-    if (shownAt === null) return { state, visible: false, size: 0, zoom, mag };
-    const t = Math.max(0, Math.min(1, (now - shownAt) / LENS_GROW_MS));
-    return { state, visible: true, size: Math.round(LENS_START + (LENS_FULL - LENS_START) * easeOutCubic(t)), zoom, mag };
-}
-
-/** Largest lens magnification reachable at a picture zoom: the lens makes up what the picture lacks. */
-export function lensMag(scale: number): number {
-    return Math.max(1, LENS_ZOOM_MAX / scale);
-}
-
-/** The lens can appear at all at this picture zoom (it still adds at least LENS_MAG_ON). */
-export function lensReachable(scale: number): boolean {
-    return lensMag(scale) >= LENS_MAG_ON;
+export function lensPlace(at: Point, pane: { left: number; top: number; width: number; height: number }, below: boolean): LensPlace {
+    const half = LENS_SIZE / 2;
+    const offset = half + LENS_GAP;
+    const need = offset + half; // room a side needs
+    const spaceAbove = at.y - pane.top;
+    const spaceBelow = pane.top + pane.height - at.y;
+    const flipped = below
+        ? !(spaceAbove >= need + LENS_FLIP_BACK_PX || spaceAbove > spaceBelow + LENS_FLIP_BACK_PX)
+        : spaceAbove < need && spaceBelow > spaceAbove;
+    const x = Math.max(pane.left + half, Math.min(pane.left + pane.width - half, at.x));
+    return { x, y: flipped ? at.y + offset : at.y - offset, below: flipped };
 }
 
 export interface LensVisibilityInput {
@@ -156,20 +127,19 @@ export interface LensVisibilityInput {
     readonly relative: boolean;
     readonly hidOpen: boolean;
     readonly modalOpen: boolean;
+    /** Exactly one finger is down (not none, not a pinch). */
+    readonly oneFinger: boolean;
     /** Cursor in client pixels, or null with no picture. */
     readonly at: Point | null;
     readonly scale: number;
-    readonly now: number;
-    /** Time until which the lens lingers after the last trackpad activity. */
-    readonly until: number;
     readonly box: Box | null;
     readonly nat: NaturalSize;
 }
 
-/** Whether the lens should be on screen this frame. */
+/** Whether the lens may be on screen this frame (the finger's speed has its own say in LensSizeState.shown). */
 export function lensVisible(i: LensVisibilityInput): boolean {
-    if (!(i.trackpadActive && !i.relative && i.hidOpen && !i.modalOpen) || !i.at) return false;
-    if (!lensReachable(i.scale) || i.now > i.until) return false;
+    if (!(i.trackpadActive && !i.relative && i.hidOpen && !i.modalOpen && i.oneFinger) || !i.at) return false;
+    if (!lensReachable(i.scale)) return false;
     // A stream that has not delivered a real frame yet has nothing to magnify.
     return !!i.box && i.nat.w >= 32 && i.nat.h >= 32;
 }

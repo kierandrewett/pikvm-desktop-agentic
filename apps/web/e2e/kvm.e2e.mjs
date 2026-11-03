@@ -128,13 +128,13 @@ async function phone(browser) {
         return [equal(lines, ["button right down", "button right up"]), lines.join(", ")];
     });
 
-    // The trackpad lens is a precision aid whose zoom follows the finger's speed: there at once for a slow
-    // finger, gone for a fast one (the time series is apps/web/e2e/lens.e2e.mjs).
+    // The trackpad lens: one fixed size and place, on while a finger is down and moving slowly, off when it speeds up
+    // or lifts (the time series is apps/web/e2e/lens.e2e.mjs).
     const lensState = () =>
-        page.$eval(".kvm-lens", (el) => ({ on: el.classList.contains("on"), size: Math.round(parseFloat(el.style.width) || 0), mag: el.dataset.mag ? Number(el.dataset.mag) : null }));
+        page.$eval(".kvm-lens", (el) => ({ on: el.classList.contains("on"), w: Math.round(el.getBoundingClientRect().width) }));
     await check(profile, "trackpad lens: a fast drag never shows it", async () => {
         const id = await touch.start(cx - 90, cy);
-        // 200 px in 10 events about 10 ms apart: ~2 px/ms, far over the 360 px/s at which the zoom is gone
+        // 200 px in 10 events about 10 ms apart: ~2 px/ms, far over the speed at which it hides
         const sampled = [];
         for (const [x, y] of line([cx - 90, cy], [cx + 110, cy + 40], 10)) {
             await touch.move(id, x, y);
@@ -148,8 +148,8 @@ async function phone(browser) {
         return [!during && !after.on, `lens shown during the swipe: ${during}; 1.3 s after: ${after.on}`];
     });
 
-    await check(profile, "trackpad lens: a slow drag shows it at once at a high zoom, then it hides after lift", async () => {
-        await sleep(1700); // let the last lens linger lapse
+    await check(profile, "trackpad lens: a slow drag shows it at once at one size, and the lift hides it", async () => {
+        await sleep(400);
         const id = await touch.start(cx - 30, cy);
         // ~45 px/s: 0.7 px every 16 ms
         let firstOn = -1;
@@ -162,10 +162,10 @@ async function phone(browser) {
             if (last.on && firstOn < 0) firstOn = Date.now() - t0;
         }
         await touch.end(id);
-        await sleep(1900); // linger (1.4 s), then hidden
+        await sleep(150);
         const gone = await lensState();
-        const pass = firstOn >= 0 && firstOn < 600 && last.on && last.mag > 4.5 && last.size >= 90 && !gone.on;
-        return [pass, `first shown ${firstOn} ms into the drag (hold would be 450 ms+); at the end ${last.mag}x, ${last.size}px; after lift + linger on=${gone.on}`];
+        const pass = firstOn >= 0 && firstOn < 600 && last.on && last.w === 96 && !gone.on;
+        return [pass, `first shown ${firstOn} ms into the drag (a hold would be 450 ms+); at the end on=${last.on}, ${last.w}px; 150 ms after the lift on=${gone.on}`];
     });
 
     await check(profile, "two-finger tap = right click", async () => {
