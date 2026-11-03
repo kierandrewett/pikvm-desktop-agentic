@@ -18,7 +18,9 @@ export function useAppBadge(tab: TabId | undefined): void {
         document.addEventListener("visibilitychange", reconcile);
         window.addEventListener("pageshow", reconcile);
         window.addEventListener("focus", reconcile);
-        const worker = "serviceWorker" in navigator ? navigator.serviceWorker : undefined;
+        // A container that cannot take listeners (a stub, an old engine) is as good as none.
+        const container = "serviceWorker" in navigator ? navigator.serviceWorker : undefined;
+        const worker = typeof container?.addEventListener === "function" ? container : undefined;
         const onMessage = (event: MessageEvent<unknown>): void => {
             if (isPushBadgeMessage(event.data)) badgeController.screenPush(event.data.count);
         };
