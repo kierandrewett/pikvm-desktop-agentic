@@ -41,8 +41,14 @@
                     navigator.standalone === true ||
                     matchMedia("(display-mode: standalone)").matches ||
                     matchMedia("(display-mode: fullscreen)").matches;
+                // navigator.standalone is not always true in the installed app on iOS 26 (display-mode is), so an iPhone
+                // or iPad is told by what it says it is.
+                var ios =
+                    navigator.standalone === true ||
+                    /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+                    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
                 if (standalone) document.documentElement.setAttribute("data-standalone", "true");
-                if (navigator.standalone === true) document.documentElement.setAttribute("data-ios-standalone", "true");
+                if (standalone && ios) document.documentElement.setAttribute("data-ios-standalone", "true");
             } catch (e) {}
         </script>
     </head>

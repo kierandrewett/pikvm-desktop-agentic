@@ -284,9 +284,11 @@ describe("layout", () => {
             await screen.findByRole("tablist");
             act(() => viewport.resize(450));
             await waitFor(() => expect(shellHeight()).toBe("450px"));
+            expect(document.documentElement.getAttribute("data-keyboard")).toBe("open");
             expect(screen.queryByRole("tablist")).toBeNull();
             act(() => viewport.resize(SCREEN - 62));
             await waitFor(() => expect(shellHeight()).toBe(""));
+            expect(document.documentElement.getAttribute("data-keyboard")).toBe("closed");
             expect(screen.getByRole("tablist")).toBeInTheDocument();
         });
     });

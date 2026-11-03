@@ -207,6 +207,43 @@ html[data-ios-standalone] {
     background: var(--background);
 }
 
+/*
+ * The installed app with the keyboard closed: NO fixed root. On iOS 26 a position:fixed html, body or app container
+ * is clipped to the layout viewport, which the installed app reports short (the screen minus an inset), so a fixed
+ * shell that is 100vh tall was cut off there with the page's own background showing below the cut: the navigation
+ * bar lost its bottom, the more so the taller it was (docs: cjnova/piclaw-monaco PWA.md 8.6, 8.9). Here the
+ * document is one normal-flow column, html, body and the shell each var(--app-height) (100vh) tall, with nothing
+ * between them that is shorter or clips; overflow stays hidden on html so the page itself never scrolls. While the
+ * keyboard is up (data-keyboard="open", set by the shell) everything is as before, fixed to the visual viewport
+ * and no taller than it, so nothing is clipped. Dialogs and the toast, portalled to <body>, are absolute in that body
+ * for the same reason.
+ */
+html[data-standalone]:not([data-keyboard="open"]) {
+    position: static;
+    height: var(--app-height);
+}
+
+html[data-standalone]:not([data-keyboard="open"]) body {
+    position: relative;
+    inset: auto;
+    height: var(--app-height);
+}
+
+html[data-standalone]:not([data-keyboard="open"]) #root {
+    height: 100%;
+}
+
+html[data-standalone]:not([data-keyboard="open"]) .app-shell {
+    position: relative;
+    inset: auto;
+    height: var(--app-height);
+}
+
+html[data-standalone]:not([data-keyboard="open"]) .dlg-scrim,
+html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
+    position: absolute;
+}
+
 /* The side insets (a notch in landscape) are the content's margin; the navigation bar runs under
    them to the screen edge, so it is not cut short by a strip of page background. */
 .app-shell[data-layout="compact"] .app-main {

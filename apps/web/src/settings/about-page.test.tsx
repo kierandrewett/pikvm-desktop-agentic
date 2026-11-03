@@ -4,7 +4,7 @@
  */
 
 import { DESKTOP_BRIDGE_KEY } from "@pikvm/contracts/desktop";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultServer, installFakeServer, renderApp } from "../test/harness";
 
@@ -25,6 +25,37 @@ describe("about", () => {
         expect(screen.getByText("App build")).toBeInTheDocument();
         expect(screen.getByText(__BUILD_ID__)).toBeInTheDocument();
         expect(screen.queryByText("Desktop app")).toBeNull();
+    });
+
+    it("lists what the device reports about its display and copies it", async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+        renderApp("/settings/about");
+        const report = await screen.findByTestId("display-report");
+        for (const field of [
+            "navigator.standalone:",
+            "display-mode:",
+            "html data:",
+            "safe-area insets:",
+            "screen:",
+            "100vh / 100lvh / 100svh / 100dvh:",
+            "inner / outer:",
+            "visualViewport:",
+            "documentElement:",
+            "html:",
+            "body:",
+            "#root:",
+            ".app-shell:",
+            "nav:",
+            "#status-edge:",
+            "ancestors that would clip the shell:",
+        ]) {
+            expect(report.textContent).toContain(field);
+        }
+        screen.getByRole("button", { name: "Copy" }).click();
+        await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+        expect(writeText.mock.calls[0]?.[0]).toBe(report.textContent);
+        expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
     });
 
     it("the desktop app adds its own version and the operating system it runs on", async () => {

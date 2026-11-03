@@ -22,6 +22,12 @@
  *  9. A soft blur or gradient at the top that appears once a pane has been visited: a backdrop-filter, mask or
  *     gradient near the top edge, or no solid black element there for the system to find. The top edge is one
  *     opaque black #status-edge on every tab, deep enough to count, and the shell is padded by the same amount.
+ * 10. The shell is a position:fixed element (or sits in a fixed html or body) in the installed app: iOS 26 clips a
+ *     fixed root to the layout viewport, which the app reports short, so a 100vh shell is cut off and the page
+ *     background shows below the cut (real device: the navigation bar cut in half at 811 of 874 pt). With the
+ *     keyboard closed html, body and the shell are normal flow and as tall as each other; while it is up,
+ *     everything is fixed to the visual viewport as before.
+ * 11. The diagnostics that settle a device (Settings > About > Display) lose a field, or cannot be copied.
  *
  * What a browser draws from this is asserted in e2e/phone-chrome.e2e.mjs; this file is the static
  * contract the pixels depend on.
@@ -131,6 +137,22 @@ describe("home indicator strip", () => {
         expect(rule(css, ":root")).toMatch(/--app-height:\s*100dvh/);
         expect(rule(css, ".app-shell")).toMatch(/height:\s*var\(--app-height\)/);
         expect(css).not.toMatch(/body:has\([^)]*\)::after/);
+    });
+
+    it("is normal flow in the installed app while the keyboard is closed: no fixed root that iOS 26 would clip", () => {
+        const flow = (selector: string) => rule(css, `html[data-standalone]:not([data-keyboard="open"])${selector}`);
+        expect(flow("")).toMatch(/position:\s*static/);
+        expect(flow("")).toMatch(/height:\s*var\(--app-height\)/);
+        expect(flow(" body")).toMatch(/position:\s*relative/);
+        expect(flow(" body")).toMatch(/height:\s*var\(--app-height\)/);
+        expect(flow(" .app-shell")).toMatch(/position:\s*relative/);
+        expect(flow(" .app-shell")).toMatch(/height:\s*var\(--app-height\)/);
+        expect(flow(" .dlg-scrim,\nhtml[data-standalone]:not([data-keyboard=\"open\"]) .kvm-toast")).toMatch(/position:\s*absolute/);
+    });
+
+    it("is told apart for iOS by the device as well as navigator.standalone", () => {
+        expect(html).toMatch(/iPhone\|iPad\|iPod/);
+        expect(html).toMatch(/standalone && ios/);
     });
 
     it("is decided before first paint, from the same rule as the app's own", () => {

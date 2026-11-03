@@ -11,14 +11,15 @@
 const STANDALONE = "data-standalone";
 const IOS_STANDALONE = "data-ios-standalone";
 
-/** Set the flags on <html> if the inline script did not. Idempotent: a flag already there is kept. */
+/** Set the flags on <html> if the inline script did not (the same rule as index.html). Idempotent: a flag already there is kept. */
 export function markStandalone(root: HTMLElement = document.documentElement): void {
     if (root.hasAttribute(STANDALONE)) return;
     try {
-        const ios = "standalone" in navigator && navigator.standalone === true;
+        const legacy = "standalone" in navigator && navigator.standalone === true;
         const display = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches;
-        if (ios || display) root.setAttribute(STANDALONE, "true");
-        if (ios) root.setAttribute(IOS_STANDALONE, "true");
+        const ios = legacy || /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        if (legacy || display) root.setAttribute(STANDALONE, "true");
+        if ((legacy || display) && ios) root.setAttribute(IOS_STANDALONE, "true");
     } catch {
         // No matchMedia: a browser tab.
     }

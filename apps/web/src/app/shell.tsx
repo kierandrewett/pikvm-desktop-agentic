@@ -55,16 +55,20 @@ export function Shell() {
     // it: in the installed app with the keyboard closed the CSS says 100vh (the whole screen, which the
     // visual viewport misreports at launch) and nothing is written. (With the bar hidden the content runs to
     // the screen edge, and the keyboard covers the home indicator, so there is no bottom inset to respect.)
+    // data-keyboard says which layout the installed app is in (styles.css): normal flow with the keyboard
+    // closed, fixed to the visual viewport while it is open.
     useLayoutEffect(() => {
         const root = document.documentElement;
         root.style.setProperty("--app-top", `${frame.top}px`);
         if (frame.full) root.style.removeProperty("--app-height");
         else root.style.setProperty("--app-height", `${frame.height}px`);
+        root.setAttribute("data-keyboard", frame.keyboardOpen ? "open" : "closed");
         return () => {
             root.style.removeProperty("--app-top");
             root.style.removeProperty("--app-height");
+            root.removeAttribute("data-keyboard");
         };
-    }, [frame.top, frame.height, frame.full]);
+    }, [frame.top, frame.height, frame.full, frame.keyboardOpen]);
 
     return (
         <AgentActivityProvider enabled={agentStream}>

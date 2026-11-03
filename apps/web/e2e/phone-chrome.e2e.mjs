@@ -152,6 +152,20 @@ const chrome = (page, realHeight) =>
             shellBg: shell.backgroundColor,
             bodyBg: getComputedStyle(document.body).backgroundColor,
             appHeightVar: document.documentElement.style.getPropertyValue("--app-height"),
+            htmlPos: getComputedStyle(document.documentElement).position,
+            bodyPos: getComputedStyle(document.body).position,
+            shellPos: shell.position,
+            keyboardAttr: document.documentElement.getAttribute("data-keyboard"),
+            // Every ancestor of the shell that clips and ends above the shell's bottom: where it would be cut off.
+            clippers: (() => {
+                const out = [];
+                for (let up = document.querySelector(".app-shell").parentElement; up; up = up.parentElement) {
+                    const s = getComputedStyle(up);
+                    const clips = s.overflowX !== "visible" || s.overflowY !== "visible" || s.contain !== "none";
+                    if (clips && up.getBoundingClientRect().bottom < shellRect.bottom - 0.5) out.push(`${up.tagName.toLowerCase()} ends ${Math.round(up.getBoundingClientRect().bottom)}`);
+                }
+                return out;
+            })(),
             underBottomEdge: at ? (at.closest(".nav-bar, .nav-rail") ? "nav" : at.className || at.tagName) : "none",
         };
     }, realHeight);
@@ -218,8 +232,11 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
             });
 
             await check(profile, `${tab}: the shell fills the screen exactly (bottom ${real})`, async () => {
-                const ok = c.shellRect[0] === 0 && c.shellRect[2] === w && c.shellRect[3] === real && c.shellRect[1] === 0;
-                return [ok, `shell ${c.shellRect.join(",")} of ${w}x${real}; the page reports innerHeight ${c.reported}; --app-height written by the shell: "${c.appHeightVar}"`];
+                // The installed app (ios profiles): no fixed html, body or shell for iOS 26 to clip to a short layout viewport,
+                // and no clipping ancestor shorter than the shell.
+                const flow = !opts.ios || (c.htmlPos !== "fixed" && c.bodyPos !== "fixed" && c.shellPos !== "fixed" && c.clippers.length === 0);
+                const ok = flow && c.shellRect[0] === 0 && c.shellRect[2] === w && c.shellRect[3] === real && c.shellRect[1] === 0;
+                return [ok, `shell ${c.shellRect.join(",")} of ${w}x${real}; the page reports innerHeight ${c.reported}; --app-height written by the shell: "${c.appHeightVar}"; position html ${c.htmlPos} / body ${c.bodyPos} / shell ${c.shellPos}; clipping ancestors shorter than the shell: ${c.clippers.length ? c.clippers.join(", ") : "none"}`];
             });
 
             await check(profile, `${tab}: home-indicator strip is the navigation bar's ${navHex}`, async () => {
@@ -272,14 +289,16 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
                 await page.evaluate(() => window.__keyboard(350));
                 await page.waitForFunction(() => !document.querySelector(".nav-bar"), { timeout: 3000 });
                 const heightOpen = await page.evaluate(() => Math.round(document.querySelector(".app-shell").getBoundingClientRect().height));
+                const during = await chrome(page, real).catch(() => null);
+                const openState = await page.evaluate(() => ({ attr: document.documentElement.getAttribute("data-keyboard"), shell: getComputedStyle(document.querySelector(".app-shell")).position, body: getComputedStyle(document.body).position }));
                 await page.evaluate(() => window.__keyboard(0));
                 await page.waitForSelector(".nav-bar", { timeout: 3000 });
                 await sleep(300);
                 const closed = await chrome(page, real);
                 const expectedOpen = real - opts.lie - 350;
                 return [
-                    Math.abs(heightOpen - expectedOpen) <= 1 && closed.shellRect[3] === real && closed.navRect[3] === real && closed.appHeightVar === "",
-                    `keyboard up: shell ${heightOpen}px (visual viewport ${expectedOpen}), no bar; closed: shell bottom ${closed.shellRect[3]} of ${real}, bar bottom ${closed.navRect[3]}, --app-height written "${closed.appHeightVar}"`,
+                    Math.abs(heightOpen - expectedOpen) <= 1 && openState.attr === "open" && openState.shell === "fixed" && closed.keyboardAttr === "closed" && closed.shellPos === "relative" && closed.bodyPos === "relative" && closed.shellRect[3] === real && closed.navRect[3] === real && closed.appHeightVar === "" && during === null,
+                    `keyboard up: shell ${heightOpen}px (visual viewport ${expectedOpen}), data-keyboard ${openState.attr}, shell ${openState.shell}, no bar; closed: data-keyboard ${closed.keyboardAttr}, shell ${closed.shellPos}, body ${closed.bodyPos}, shell bottom ${closed.shellRect[3]} of ${real}, bar bottom ${closed.navRect[3]}, --app-height written "${closed.appHeightVar}"`,
                 ];
             });
         }
@@ -307,6 +326,20 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
                 const png = await page.screenshot({ path: `${outDir}/${file}-${theme}-sheet.png` });
                 const got = await pixels(scratch, png, dsf, [[2, 2], [Math.round(page.viewport().width / 2), edge - 2], [Math.round(page.viewport().width / 2), edge + 12]]);
                 return [opened && got[0] === "#000000" && got[1] === "#000000", `opened ${opened}; sheet ${dialog.bg} from y=${dialog.top}; pixels in the edge ${got.slice(0, 2).join("/")}, just below ${got[2]}`];
+            });
+        }
+
+        if (opts.ios) {
+            // Settings > About > Display: what a device reports, as text; read here the way Kieran's phone would copy it.
+            await check(profile, "Settings > About > Display reports the viewport, the flags and the clipping chain", async () => {
+                await page.goto(`${WEB}/app/settings/about`, { waitUntil: "load" });
+                await page.waitForSelector('[data-testid="display-report"]');
+                await sleep(500);
+                const text = await page.$eval('[data-testid="display-report"]', (el) => el.textContent ?? "");
+                await page.screenshot({ path: `${outDir}/${file}-${theme}-about-display.png` });
+                const fields = ["navigator.standalone:", "display-mode:", "html data: standalone true, ios-standalone true", "safe-area insets:", "screen:", "100vh / 100lvh / 100svh / 100dvh:", "visualViewport:", "fixed element, top 0 bottom 0:", "html:", "body:", "#root:", ".app-shell:", "nav:", "#status-edge:", "ancestors that would clip the shell: none", "ancestors that would clip the nav: none"];
+                const missing = fields.filter((f) => !text.includes(f));
+                return [missing.length === 0, missing.length ? `missing: ${missing.join(" | ")}` : `${text.split("\n").length} lines; ${text.split("\n").filter((l) => /^(html|body|\.app-shell|#status-edge):/.test(l)).join(" || ")}`];
             });
         }
 
@@ -476,7 +509,7 @@ const section = [
     "",
     `Run ${today}. Host under test: \`node dist/web-server.js\` (${WEB}) in front of \`tools/fake-kvmd\` (${FAKE}). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP \`Emulation.setSafeAreaInsetsOverride\` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. The two \`standalone\` profiles are the installed app as iOS draws it with the \`black\` status-bar style: the page starts below the bar, so the viewport is 390x797 with no top inset and 34 at the bottom, and \`navigator.standalone\` is true before any script runs. In the second one the page also reports 62px less than the screen from \`innerHeight\` and the visual viewport (injected before any script; \`100vh\` stays the screen), and \`window.__keyboard(px)\` takes more away as the soft keyboard does. The \`update\` cases drive coming back to the app after a deploy (the host's \`/app/version.json\` answered with another build) and check Settings > About against it. Script: \`apps/web/e2e/phone-chrome.e2e.mjs\`; how to run it: \`docs/e2e/README.md\`.`,
     "",
-    "**What the earlier versions got wrong.** (1) The status bar: on a real iPhone (iOS 26) the top showed a grey-to-black gradient. That is the system's own scrim over a `black-translucent` page, which no CSS removes, so the style is now `black` (a solid bar, the page below it, no top inset; iOS keeps the style from when the app was added, so the app had to be added again). (2) The gap under the navigation bar was first put down to the web view being short and the system background showing outside it. That was wrong: nothing is outside the web view. In the installed app (no URL bar) `100vh` is the whole screen, while `100dvh`, `100svh`, `innerHeight` and the visual viewport report the screen minus an inset when the app starts, and the shell was sized from those, so it stopped short and what showed under the bar was the page behind the shell. The shell is now `100vh` in the installed app, and the visual viewport's height is used only while the soft keyboard is up (its baseline is a `100vh` probe, so a short launch value is not read as a keyboard). The emulation missed it because it set an inset on a viewport that already filled the screen; the `viewport reports 62px short` profile reproduces the report (before the change: shell 0,0,390,735 of 390x797, the bar ending 62px above the bottom). (3) The blur that appeared at the top after visiting Chat or Settings: nothing on the page is a gradient or mask there, but the resolution pill (`.kvm-res-toast`, top 10px, a `backdrop-filter`) is, and it was still showing; it is no longer a backdrop blur, and the top edge is one opaque black `#status-edge` element (12px deep in the installed iOS app) that the shell is padded by, so no scroller touches it. The `KVM > Chat > Settings > KVM` case scans the top 60px after each step. What the system draws over the page on a real device cannot be reproduced headless: the check on the device is Settings > About > Viewport (what the phone reports) and the status bar after visiting each tab.",
+    "**What the earlier versions got wrong.** (1) The status bar: on a real iPhone (iOS 26) the top showed a grey-to-black gradient. That is the system's own scrim over a `black-translucent` page, which no CSS removes, so the style is now `black` (a solid bar, the page below it, no top inset; iOS keeps the style from when the app was added, so the app had to be added again). (2) The gap under the navigation bar was first put down to the web view being short and the system background showing outside it. That was wrong: nothing is outside the web view. In the installed app (no URL bar) `100vh` is the whole screen, while `100dvh`, `100svh`, `innerHeight` and the visual viewport report the screen minus an inset when the app starts, and the shell was sized from those, so it stopped short. The shell became `100vh` in the installed app, and the visual viewport's height is used only while the soft keyboard is up (its baseline is a `100vh` probe). That was not enough on the device (the navigation bar came out cut in half at 811 of 874 pt, the page's own background below the cut): on iOS 26 a `position: fixed` html, body or app container is clipped to the layout viewport, which the installed app reports short, so a 100vh fixed shell is cut off at that height (docs: cjnova/piclaw-monaco PWA.md 8.6 and 8.9). In the installed app with the keyboard closed, html, body and the shell are therefore normal flow and each `--app-height` tall, with no ancestor that clips or is shorter (the `shell fills the screen exactly` case reads the position of html, body and the shell and lists any clipping ancestor shorter than the shell); while the keyboard is up they are fixed to the visual viewport as before (`data-keyboard` on html says which). Headless Chrome does not clip fixed elements that way, so what the e2e can prove is the structure and the geometry, and the `viewport reports 62px short` profile still reproduces the earlier report (shell 0,0,390,735 of 390x797). (3) The blur at the top after visiting Chat or Settings: the resolution pill (`.kvm-res-toast`, top 10px) was a `backdrop-filter` and was still showing; it no longer blurs. With the `black` style the page starts below the bar and the system paints the bar area itself, from what it finds at the top edge of the page, so the top edge is one opaque black `#status-edge` element (12px deep in the installed iOS app, now also recognised by the device when `navigator.standalone` is not true) that the shell is padded by. The `KVM > Chat > Settings > KVM` case scans the top 60px after each step. What the system draws over the page on a real device cannot be reproduced headless: Settings > About > Display lists what the phone reports (flags, insets, every viewport unit, the boxes and positions of html, body, #root, the shell, the bar and #status-edge, and any clipping ancestor) and copies it as text.",
     "",
     "| Profile | Case | Observed | Result |",
     "| --- | --- | --- | --- |",
