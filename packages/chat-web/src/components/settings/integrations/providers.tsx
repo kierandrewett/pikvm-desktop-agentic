@@ -2,7 +2,7 @@
  * Model providers: list, catalogue, guided setup and detail pages (see common.tsx for the view model).
  *
  * Status comes from GET /api/models (what the runtime actually loaded) and from connection tests run in this session
- * (POST /api/providers/test), kept in the query cache per scope and id. The detail page lists the provider's models
+ * (POST /api/providers/test), kept in the query cache per id. The detail page lists the provider's models
  * from GET /api/providers/:id/models, which also returns the models turned off on the entry (`disabledModels`), so
  * they can be turned back on. Nothing here loads on app start: the catalogue loads on the catalogue view, and one
  * provider's models load on its detail page.
@@ -18,7 +18,6 @@ import {
 } from "@pikvm/chat-protocol";
 import { ArrowClockwise, ArrowSquareOut, Cube, LockSimple, PlugsConnected, Plus } from "@pikvm/icons";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "../../../nav";
 import { useMemo, useState } from "react";
 import type { z } from "zod";
 import { apiUrl } from "../../../lib/config";
@@ -29,7 +28,6 @@ import { useT } from "../../../l10n/provider";
 import { ModelBrowser, type BulkAction } from "../../model-browser";
 import { ProviderLogo } from "../../model-picker/provider-logo";
 import { ConfirmDialog } from "../../ui/dialog";
-import { useAdminSetting } from "../bindings";
 import { modelsQuery } from "../models";
 import {
     CheckCard,
@@ -43,7 +41,6 @@ import {
     type Check,
     type RecordEntry,
     type Records,
-    type Scope,
     type SubView,
 } from "./common";
 import { GalleryTile, HealthLine, PresetGallery, useAgo, type GalleryItem, type Health } from "./parts";
@@ -80,25 +77,22 @@ const catalogQuery = queryOptions({
     staleTime: 10 * 60_000,
 });
 
-const apiScope = (scope: Scope) => (scope === "admin" ? "global" : "user");
-
 /** One provider's models, including turned-off ones. Loaded by the detail page only. */
-const providerModelsQuery = (scope: Scope, id: string, enabled: boolean) =>
+const providerModelsQuery = (id: string, enabled: boolean) =>
     queryOptions({
-        queryKey: ["providerModels", scope, id],
-        queryFn: () =>
-            api.get<ProviderModelsResponse>(`/providers/${encodeURIComponent(id)}/models?scope=${apiScope(scope)}`),
+        queryKey: ["providerModels", id],
+        queryFn: () => api.get<ProviderModelsResponse>(`/providers/${encodeURIComponent(id)}/models`),
         enabled,
         staleTime: 30_000,
     });
 
-const testKey = (scope: Scope, id: string) => ["providerTest", scope, id] as const;
+const testKey = (id: string) => ["providerTest", id] as const;
 
 /** Last connection test for an entry in this session. */
-function useLastTest(scope: Scope, id: string) {
+function useLastTest(id: string) {
     return (
         useQuery({
-            queryKey: testKey(scope, id),
+            queryKey: testKey(id),
             queryFn: () => null as ProviderTestResult | null,
             enabled: false,
             staleTime: Infinity,
@@ -106,8 +100,8 @@ function useLastTest(scope: Scope, id: string) {
     );
 }
 
-async function runTest(scope: Scope, id: string, value: ProviderEntry): Promise<ProviderTestResult> {
-    return api.post<ProviderTestResult>("/providers/test", { id, value, scope: apiScope(scope) });
+async function runTest(id: string, value: ProviderEntry): Promise<ProviderTestResult> {
+    return api.post<ProviderTestResult>("/providers/test", { id, value });
 }
 
 // Labels without vendor names: the API family after its vendor prefix.
@@ -185,16 +179,16 @@ const okCheck = (r: ProviderTestResult): Check => ({
 });
 
 /** One health line per provider, from this session's test or the live model list. */
-function useHealth(scope: Scope, rec: Records<ProviderEntry>): (e: RecordEntry<ProviderEntry>) => Health {
+function useHealth(rec: Records<ProviderEntry>): (e: RecordEntry<ProviderEntry>) => Health {
     const qc = useQueryClient();
     const models = useQuery(modelsQuery);
     const t = useT();
     return (e) => {
         if (e.entry.enabled === false) return { tone: "muted", text: t("integrations-health-off") };
         if (e.shadowed) return { tone: "warning", text: t("integrations-prov-health-shadowed") };
-        if (scope === "user" && e.owner === "user" && rec.lock === "policy")
+        if (e.owner === "user" && rec.lock === "policy")
             return { tone: "warning", text: t("integrations-prov-health-paused") };
-        const test = qc.getQueryData<ProviderTestResult | null>(testKey(scope, e.id));
+        const test = qc.getQueryData<ProviderTestResult | null>(testKey(e.id));
         if (test && !test.ok) return { tone: "error", text: explain(test).title };
         if (models.isLoading) return { tone: "busy", text: t("integrations-health-checking") };
         const n = models.data?.models.filter((m) => m.provider === e.id).length ?? 0;
@@ -250,13 +244,11 @@ function useListedName(id: string): string | undefined {
 // List
 
 function ProviderRow({
-    scope,
     rec,
     e,
     view,
     health,
 }: {
-    scope: Scope;
     rec: Records<ProviderEntry>;
     e: RecordEntry<ProviderEntry>;
     view: SubView;
@@ -272,7 +264,7 @@ function ProviderRow({
             label={
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     {name}
-                    {scope === "user" && e.owner === "global" && (
+                    {e.owner === "global" && (
                         <Badge>
                             <LockSimple aria-hidden /> {t("integrations-managed")}
                         </Badge>
@@ -296,15 +288,15 @@ function ProviderRow({
     );
 }
 
-function ProviderList({ scope, rec, view }: { scope: Scope; rec: Records<ProviderEntry>; view: SubView }) {
+function ProviderList({ rec, view }: { rec: Records<ProviderEntry>; view: SubView }) {
     const t = useT();
-    const health = useHealth(scope, rec);
+    const health = useHealth(rec);
     const global = rec.entries.filter((e) => e.owner === "global");
     const own = rec.entries.filter((e) => e.owner === "user");
     const canAdd = rec.writable;
     const rows = (list: RecordEntry<ProviderEntry>[]) =>
         list.map((e) => (
-            <ProviderRow key={`${e.owner}:${e.id}`} scope={scope} rec={rec} e={e} view={view} health={health(e)} />
+            <ProviderRow key={`${e.owner}:${e.id}`} rec={rec} e={e} view={view} health={health(e)} />
         ));
 
     return (
@@ -319,12 +311,12 @@ function ProviderList({ scope, rec, view }: { scope: Scope; rec: Records<Provide
                     },
             ]}
         >
-            {scope === "user" && rec.lock === "policy" && (
+            {rec.lock === "policy" && (
                 <Notice tone={own.length ? "warning" : "neutral"}>
                     {own.length ? t("integrations-prov-policy-paused") : t("integrations-prov-policy-blocked")}
                 </Notice>
             )}
-            {scope === "user" && global.length > 0 && (
+            {global.length > 0 && (
                 <SettingsSection
                     title={t("integrations-prov-org-title")}
                     description={t("integrations-prov-org-description")}
@@ -333,14 +325,7 @@ function ProviderList({ scope, rec, view }: { scope: Scope; rec: Records<Provide
                 </SettingsSection>
             )}
             <SettingsSection
-                title={
-                    scope === "admin"
-                        ? t("integrations-prov-everyone")
-                        : global.length
-                          ? t("integrations-prov-yours")
-                          : undefined
-                }
-                description={scope === "admin" ? t("integrations-prov-everyone-description") : undefined}
+                title={global.length ? t("integrations-prov-yours") : undefined}
             >
                 <SettingsCard>
                     {rec.loading && <EmptyState loading>{t("integrations-prov-loading")}</EmptyState>}
@@ -348,56 +333,19 @@ function ProviderList({ scope, rec, view }: { scope: Scope; rec: Records<Provide
                         <EmptyState
                             size="block"
                             icon={Cube}
-                            title={
-                                scope === "admin"
-                                    ? t("integrations-prov-empty-admin")
-                                    : t("integrations-prov-empty-user")
-                            }
+                            title={t("integrations-prov-empty-user")}
                             description={
                                 !canAdd
                                     ? t("integrations-prov-empty-off")
-                                    : scope === "admin"
-                                      ? t("integrations-prov-empty-admin-description")
-                                      : t("integrations-prov-empty-user-description")
+                                    : t("integrations-prov-empty-user-description")
                             }
                         />
                     )}
                     {rows(own)}
                 </SettingsCard>
             </SettingsSection>
-            {scope === "admin" && <PersonalProvidersPolicy />}
             {canAdd && own.length === 0 && !rec.loading && <Catalogue rec={rec} view={view} />}
         </SettingsPage>
-    );
-}
-
-/** Where the "users may add providers" policy lives, as a link (the key has one home: Models and policy). */
-function PersonalProvidersPolicy() {
-    const t = useT();
-    const b = useAdminSetting<boolean>("policy.users.customProviders");
-    const navigate = useNavigate();
-    return (
-        <SettingsSection>
-            <SettingsCard>
-                <LinkRow
-                    label={t("integrations-prov-personal")}
-                    description={
-                        b.loading
-                            ? t("integrations-loading")
-                            : b.value === false
-                              ? t("integrations-prov-personal-off")
-                              : t("integrations-prov-personal-on")
-                    }
-                    onClick={() =>
-                        void navigate({
-                            to: "/settings/$section",
-                            params: { section: "admin-models" },
-                            hash: "policy.users.customProviders",
-                        })
-                    }
-                />
-            </SettingsCard>
-        </SettingsSection>
     );
 }
 
@@ -498,12 +446,10 @@ function buildEntry(
 }
 
 function ProviderSetup({
-    scope,
     rec,
     view,
     presetId,
 }: {
-    scope: Scope;
     rec: Records<ProviderEntry>;
     view: SubView;
     presetId: string;
@@ -580,8 +526,8 @@ function ProviderSetup({
         const e = entry();
         setCheck({ state: "running", text: t("integrations-prov-checking-named", { name: preset.name }) });
         try {
-            const r = await runTest(scope, id, e);
-            qc.setQueryData(testKey(scope, id), r);
+            const r = await runTest(id, e);
+            qc.setQueryData(testKey(id), r);
             if (!r.ok) return setCheck(explain(r));
             setCheck(okCheck(r));
             await save(e);
@@ -638,9 +584,7 @@ function ProviderSetup({
             >
                 <SettingsSection
                     title={t("integrations-details")}
-                    description={
-                        scope === "admin" ? t("integrations-prov-details-admin") : t("integrations-prov-details-user")
-                    }
+                    description={t("integrations-prov-details-user")}
                 >
                     <SettingsCard>
                         {custom && (
@@ -717,12 +661,10 @@ function hostOf(values: Record<number, string>): string | undefined {
 // Detail
 
 function ProviderDetail({
-    scope,
     rec,
     view,
     id,
 }: {
-    scope: Scope;
     rec: Records<ProviderEntry>;
     view: SubView;
     id: string;
@@ -730,7 +672,7 @@ function ProviderDetail({
     const t = useT();
     const qc = useQueryClient();
     const cat = useQuery(catalogQuery);
-    const health = useHealth(scope, rec);
+    const health = useHealth(rec);
     const e = rec.get(id);
     const listedName = useListedName(id);
     const confirming = useConfirmMissing(!e, rec.loading);
@@ -764,8 +706,8 @@ function ProviderDetail({
     const test = async () => {
         setCheck({ state: "running", text: t("integrations-checking") });
         try {
-            const r = await runTest(scope, id, entry);
-            qc.setQueryData(testKey(scope, id), r);
+            const r = await runTest(id, entry);
+            qc.setQueryData(testKey(id), r);
             setCheck(r.ok ? okCheck(r) : explain(r));
         } catch (err) {
             setCheck({ state: "error", title: t("integrations-check-failed"), detail: errorMessage(err) });
@@ -786,7 +728,7 @@ function ProviderDetail({
             ]}
         >
             <SettingsSection>
-                {scope === "user" && e.owner === "global" && <Notice>{t("integrations-prov-managed-note")}</Notice>}
+                {e.owner === "global" && <Notice>{t("integrations-prov-managed-note")}</Notice>}
                 {e.shadowed && <Notice tone="warning">{t("integrations-prov-shadowed-note")}</Notice>}
                 {saveError && <Notice tone="danger">{saveError}</Notice>}
                 <SettingsCard>
@@ -848,7 +790,7 @@ function ProviderDetail({
                     />
                 </SettingsCard>
             </SettingsSection>
-            <ProviderModels scope={scope} id={id} name={name} entry={entry} editable={editable} update={update} />
+            <ProviderModels id={id} name={name} entry={entry} editable={editable} update={update} />
             {editable && (
                 <AdvancedSection label={t("integrations-advanced")}>
                     <SettingsCard>
@@ -960,14 +902,12 @@ function idsAsModels(id: string, ids: string[]): ModelInfo[] {
  * hidden from the model picker; models the model policy blocks are marked and cannot be turned on here.
  */
 function ProviderModels({
-    scope,
     id,
     name,
     entry,
     editable,
     update,
 }: {
-    scope: Scope;
     id: string;
     name: string;
     entry: ProviderEntry;
@@ -978,8 +918,8 @@ function ProviderModels({
     const ago = useAgo();
     const qc = useQueryClient();
     const on = entry.enabled !== false;
-    const query = useQuery(providerModelsQuery(scope, id, on));
-    const lastTest = useLastTest(scope, id);
+    const query = useQuery(providerModelsQuery(id, on));
+    const lastTest = useLastTest(id);
     const [refresh, setRefresh] = useState<{ busy: boolean; error?: string }>({ busy: false });
     const disabled = useMemo(() => new Set(entry.disabledModels ?? []), [entry.disabledModels]);
     const blocked = useMemo(() => new Set(query.data?.blocked ?? []), [query.data]);
@@ -1169,12 +1109,12 @@ function HeadersRow({
     );
 }
 
-/** Model providers section for one scope. Views come from search params. */
-export function ProvidersSection({ scope }: { scope: Scope }) {
-    const rec = useRecords<ProviderEntry>("agent.providers", scope);
+/** The model providers section. Views come from search params. */
+export function ProvidersSection() {
+    const rec = useRecords<ProviderEntry>("agent.providers");
     const view = useSubView();
     if (view.add === "catalog") return <ProviderCatalog rec={rec} view={view} />;
-    if (view.add) return <ProviderSetup key={view.add} scope={scope} rec={rec} view={view} presetId={view.add} />;
-    if (view.id) return <ProviderDetail key={view.id} scope={scope} rec={rec} view={view} id={view.id} />;
-    return <ProviderList scope={scope} rec={rec} view={view} />;
+    if (view.add) return <ProviderSetup key={view.add} rec={rec} view={view} presetId={view.add} />;
+    if (view.id) return <ProviderDetail key={view.id} rec={rec} view={view} id={view.id} />;
+    return <ProviderList rec={rec} view={view} />;
 }

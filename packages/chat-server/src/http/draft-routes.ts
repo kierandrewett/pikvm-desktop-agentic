@@ -3,7 +3,7 @@
  * Contract: packages/protocol/src/drafts.ts. Strictly per user: every query is keyed by the caller's id, and a
  * conversation scope must be one of the caller's own, non-temporary conversations.
  *
- * - GET /drafts?scope=...   one draft, or 404
+ * - GET /drafts?scope=...   one draft, or null (200: "none yet" is an answer, not a failed request)
  * - GET /drafts             the caller's drafts without content (sidebar marker)
  * - PUT /drafts             upsert { scope, text, attachments, baseUpdatedAt? }
  * - DELETE /drafts?scope=... clear the content and retain its revision
@@ -122,9 +122,9 @@ export const draftRoutes = new Hono<Env>()
                 .from(schema.drafts)
                 .where(and(eq(schema.drafts.userId, user.id), eq(schema.drafts.scope, q.scope)))
                 .get();
-            if (!row) throw new HTTPException(404, { message: "No draft" });
+            if (!row) return c.json(null);
             if (!row.text.trim() && row.attachments === "[]" && c.req.query("revision") !== "1") {
-                throw new HTTPException(404, { message: "No draft" });
+                return c.json(null);
             }
             return c.json(view(row));
         }

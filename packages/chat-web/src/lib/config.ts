@@ -24,3 +24,6 @@ export function socketUrl(): string {
 
 /** A REST URL on the chat server, for code that cannot go through `api` (downloads, image sources, beacons). */
 export const apiUrl = (path: string): string => `${endpoints.apiBase}${path}`;
+
+/** A URL the server wrote for its own API (`/api/...`) mapped onto where this host mounts that API. */
+export const serverUrl = (url: string): string => (url.startsWith("/api/") ? apiUrl(url.slice(4)) : url);

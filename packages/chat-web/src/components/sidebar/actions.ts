@@ -45,8 +45,7 @@ type Snapshot = [readonly unknown[], unknown][];
 function snapshot(): Snapshot {
     const lists = queryClient.getQueriesData({ queryKey: ["conversations"] });
     const single = queryClient.getQueriesData({ queryKey: ["conversation"] });
-    const projects = queryClient.getQueriesData({ queryKey: keys.projects });
-    return [...lists, ...single, ...projects];
+    return [...lists, ...single];
 }
 
 function restore(snap: Snapshot): void {

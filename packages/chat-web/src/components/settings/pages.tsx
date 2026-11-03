@@ -8,9 +8,19 @@ import { ProvidersSection } from "./integrations/providers";
 import { DecisionsModelRow, RoleModelRow } from "./role-models";
 import { ModelSelect } from "./models";
 import { erase, useUserSetting } from "./bindings";
-import { AdminKeyRow, BoundRow, KeyRow, row, SettingsCard, SettingsPage, SettingsSection } from "./kit";
+import type { ReactNode } from "react";
+import { AdminKeyRow, BoundRow, HostDrawsTitle, KeyRow, row, SettingsCard, SettingsPage, SettingsSection } from "./kit";
 
-export const ProvidersPage = () => <ProvidersSection scope="user" />;
+/** The host's Settings draws each page's title above these, so they leave their own out. */
+const Hosted = ({ children }: { children: ReactNode }) => (
+    <HostDrawsTitle.Provider value>{children}</HostDrawsTitle.Provider>
+);
+
+export const ProvidersPage = () => (
+    <Hosted>
+        <ProvidersSection />
+    </Hosted>
+);
 
 function DefaultModelRow() {
     const t = useT();
@@ -35,37 +45,41 @@ function DefaultModelRow() {
 
 export function ModelsPage() {
     return (
-        <SettingsPage title={row("agent.defaultModel").label}>
-            <SettingsSection>
-                <SettingsCard>
-                    <DefaultModelRow />
-                    <KeyRow k="agent.defaultThinking" />
-                    <RoleModelRow role="smol" />
-                    <RoleModelRow role="slow" />
-                    <DecisionsModelRow />
-                </SettingsCard>
-            </SettingsSection>
-        </SettingsPage>
+        <Hosted>
+            <SettingsPage title={row("agent.defaultModel").label}>
+                <SettingsSection>
+                    <SettingsCard>
+                        <DefaultModelRow />
+                        <KeyRow k="agent.defaultThinking" />
+                        <RoleModelRow role="smol" />
+                        <RoleModelRow role="slow" />
+                        <DecisionsModelRow />
+                    </SettingsCard>
+                </SettingsSection>
+            </SettingsPage>
+        </Hosted>
     );
 }
 
 export function AgentPage() {
     return (
-        <SettingsPage title="Agent">
-            <SettingsSection title="PiKVM">
-                <SettingsCard>
-                    <AdminKeyRow k="agent.pikvm.approval" />
-                    <AdminKeyRow k="agent.pikvm.allowPower" />
-                    <AdminKeyRow k="agent.pikvm.maxEdge" />
-                </SettingsCard>
-            </SettingsSection>
-            <SettingsSection title="Agent runtime">
-                <SettingsCard>
-                    <KeyRow k="agent.permission" />
-                    <AdminKeyRow k="agent.askTimeoutSec" />
-                    <KeyRow k="agent.instructions" />
-                </SettingsCard>
-            </SettingsSection>
-        </SettingsPage>
+        <Hosted>
+            <SettingsPage title="Agent">
+                <SettingsSection title="PiKVM">
+                    <SettingsCard>
+                        <AdminKeyRow k="agent.pikvm.approval" />
+                        <AdminKeyRow k="agent.pikvm.allowPower" />
+                        <AdminKeyRow k="agent.pikvm.maxEdge" />
+                    </SettingsCard>
+                </SettingsSection>
+                <SettingsSection title="Agent runtime">
+                    <SettingsCard>
+                        <KeyRow k="agent.permission" />
+                        <AdminKeyRow k="agent.askTimeoutSec" />
+                        <KeyRow k="agent.instructions" />
+                    </SettingsCard>
+                </SettingsSection>
+            </SettingsPage>
+        </Hosted>
     );
 }

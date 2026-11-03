@@ -18,10 +18,9 @@ import { SECRET_MASK } from "@pikvm/chat-protocol";
 import { cn } from "../../../lib/cn";
 import { useT } from "../../../l10n/provider";
 import { keys, settingsQuery } from "../../../lib/queries";
-import { useAdminSetting, useUserSetting, type Lock } from "../bindings";
+import { useUserSetting, type Lock } from "../bindings";
 import { Button, fieldClass, SettingRow, SettingsCard, secondaryText, Spinner, useSearchScope } from "../kit";
 
-export type Scope = "user" | "admin";
 export type Owner = "user" | "global";
 
 export interface RecordEntry<E> {
@@ -46,23 +45,16 @@ export interface Records<E> {
 
 type Rec<E> = Record<string, E>;
 
-/**
- * Entries of a `record` setting for one scope. The user scope also lists the administrator's entries,
- * read-only. `scope` must not change for the life of the component (it picks the hook).
- */
-export function useRecords<E>(
-    key: "agent.providers" | "agent.mcp" | "auth.social" | "auth.oidc",
-    scope: Scope,
-): Records<E> {
+/** Entries of a `record` setting. The administrator's entries are listed too, read-only. */
+export function useRecords<E>(key: "agent.providers"): Records<E> {
     const qc = useQueryClient();
     // Settings can be restored from the offline cache and count as fresh for 30 s. These pages show policy locks
     // and other people's entries, so they always ask the server once when they open.
     useQuery({ ...settingsQuery, refetchOnMount: "always" });
-    // Scope is fixed per mounted page, so the hook order is stable.
-    const b = scope === "admin" ? useAdminSetting<Rec<E>>(key) : useUserSetting<Rec<E>>(key);
-    const view = "view" in b ? b.view : undefined;
-    const own = ((scope === "admin" ? b.value : view?.userValue) ?? {}) as Rec<E>;
-    const global = (scope === "admin" ? {} : (view?.globalValue ?? {})) as Rec<E>;
+    const b = useUserSetting<Rec<E>>(key);
+    const view = b.view;
+    const own = (view?.userValue ?? {}) as Rec<E>;
+    const global = (view?.globalValue ?? {}) as Rec<E>;
     const shadowed = view?.shadowed;
 
     const entries = useMemo<RecordEntry<E>[]>(

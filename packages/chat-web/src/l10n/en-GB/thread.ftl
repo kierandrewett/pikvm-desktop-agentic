@@ -165,7 +165,6 @@ thread-act-result = Result
 thread-act-file = File
 thread-act-matches-label = Matches
 # $name is a file name
-thread-act-open-file = Open { $name }
 thread-act-lines-changed = { $added } lines added, { $removed } removed
 thread-act-lines =
     { $count ->
@@ -343,7 +342,6 @@ thread-sub-verb-starting = Starting
 # $id is the subagent's name
 thread-sub-steps-of = Steps of { $id }
 thread-sub-no-steps = No steps yet.
-thread-sub-open = Open in panel
 thread-sub-finished = { $id } finished
 thread-sub-failed = { $id } failed
 thread-sub-stopped = { $id } stopped
@@ -491,7 +489,6 @@ thread-form-region = Input needed
 thread-attach-image = Attached image
 thread-attach-open-image = Open attached image
 # $name is a file name
-thread-attach-open-file = Open { $name }
 thread-minimap-tools = Tool calls
 thread-minimap-response = Response
 # <source> wraps the link to the source chat.

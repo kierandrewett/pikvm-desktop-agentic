@@ -1,11 +1,10 @@
 /**
  * Dictation (speech to text) for the composer, after the reference "Dictate" control.
  *
- * Browser mode: the Web Speech API writes interim results into the editor as you speak. Where the browser has no
- * recogniser there is no button. The server mode of the original (record, then POST for a transcript) is kept for
- * a speech route this server does not offer, so `useSpeechConfig` never selects it.
+ * The Web Speech API writes interim results into the editor as you speak. Where the browser has no recogniser there
+ * is no button; this server has no speech routes.
  *
- * States: idle -> starting -> recording -> (server) transcribing -> idle. The waveform is drawn on a canvas from
+ * States: idle -> starting -> recording -> idle. The waveform is drawn on a canvas from
  * an AnalyserNode at display rate with requestAnimationFrame; React does not re-render per frame.
  */
 import { Check, Microphone, X } from "@pikvm/icons";
@@ -43,8 +42,8 @@ function recognitionCtor(): RecognitionCtor | undefined {
     return w.SpeechRecognition ?? w.webkitSpeechRecognition;
 }
 
-export type DictationMode = "off" | "browser" | "server";
-export type DictationState = "idle" | "starting" | "recording" | "transcribing";
+export type DictationMode = "off" | "browser";
+export type DictationState = "idle" | "starting" | "recording";
 
 export function useSpeechConfig(enabled = true): { mode: DictationMode; language: string | undefined } {
     // The chat server has no speech routes here, so dictation is the browser's own recogniser or nothing.
@@ -66,17 +65,9 @@ function micError(e: unknown): string {
     return translate("composer-dictation-error");
 }
 
-function recorderType(): string | undefined {
-    for (const t of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"])
-        if (MediaRecorder.isTypeSupported(t)) return t;
-    return undefined;
-}
-
 export interface DictationHandlers {
-    /** Browser mode: the live transcript for this session (final + interim), replacing the previous one. */
+    /** The live transcript for this session (final + interim), replacing the previous one. */
     onLive: (transcript: string) => void;
-    /** Server mode: the transcription result to insert at the caret. */
-    onText: (text: string) => void;
     /** Session ended without keeping text (cancel). */
     onCancel: () => void;
     onError: (message: string) => void;
@@ -88,8 +79,6 @@ export function useDictation(mode: DictationMode, language: string | undefined, 
     const stream = useRef<MediaStream | null>(null);
     const audio = useRef<AudioContext | null>(null);
     const recognition = useRef<Recognition | null>(null);
-    const recorder = useRef<MediaRecorder | null>(null);
-    const chunks = useRef<Blob[]>([]);
     const cancelled = useRef(false);
     const h = useRef(handlers);
     h.current = handlers;
@@ -101,14 +90,12 @@ export function useDictation(mode: DictationMode, language: string | undefined, 
         audio.current = null;
         analyser.current = null;
         recognition.current = null;
-        recorder.current = null;
     }, []);
 
     useEffect(
         () => () => {
             cancelled.current = true;
             recognition.current?.abort();
-            if (recorder.current?.state === "recording") recorder.current.stop();
             release();
         },
         [release],
@@ -131,74 +118,33 @@ export function useDictation(mode: DictationMode, language: string | undefined, 
             ctx.createMediaStreamSource(s).connect(node);
             analyser.current = node;
 
-            if (mode === "browser") {
-                const Ctor = recognitionCtor();
-                if (!Ctor) throw new Error("unsupported");
-                const r = new Ctor();
-                r.lang = language || navigator.language;
-                r.continuous = true;
-                r.interimResults = true;
-                let finals = "";
-                r.onresult = (e) => {
-                    let interim = "";
-                    for (let i = e.resultIndex; i < e.results.length; i++) {
-                        const res = e.results[i];
-                        if (!res) continue;
-                        if (res.isFinal) finals += res[0].transcript;
-                        else interim += res[0].transcript;
-                    }
-                    h.current.onLive((finals + interim).trim());
-                };
-                r.onerror = (e) => {
-                    if (e.error === "aborted" || e.error === "no-speech") return;
-                    h.current.onError(micError({ name: e.error }));
-                };
-                r.onend = () => {
-                    release();
-                    setState("idle");
-                };
-                recognition.current = r;
-                r.start();
-            } else {
-                const type = recorderType();
-                const rec = new MediaRecorder(s, type ? { mimeType: type } : undefined);
-                chunks.current = [];
-                rec.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
-                rec.onstop = async () => {
-                    const blob = new Blob(chunks.current, { type: rec.mimeType || type || "audio/webm" });
-                    release();
-                    if (cancelled.current || !blob.size) {
-                        setState("idle");
-                        return;
-                    }
-                    setState("transcribing");
-                    try {
-                        const form = new FormData();
-                        form.append("file", blob, `dictation.${blob.type.includes("mp4") ? "m4a" : "webm"}`);
-                        const res = await fetch("/api/speech/transcribe", {
-                            method: "POST",
-                            body: form,
-                            credentials: "same-origin",
-                            headers: { "x-chat-request": "1" },
-                        });
-                        const json = (await res.json().catch(() => ({}))) as {
-                            text?: string;
-                            error?: { message?: string };
-                        };
-                        if (!res.ok)
-                            throw new Error(json.error?.message ?? translate("composer-dictation-transcribe-failed"));
-                        if (json.text?.trim()) h.current.onText(json.text.trim());
-                    } catch (err) {
-                        h.current.onError(
-                            err instanceof Error ? err.message : translate("composer-dictation-transcribe-failed"),
-                        );
-                    } finally {
-                        setState("idle");
-                    }
-                };
-                recorder.current = rec;
-                rec.start(250);
-            }
+            const Ctor = recognitionCtor();
+            if (!Ctor) throw new Error("unsupported");
+            const r = new Ctor();
+            r.lang = language || navigator.language;
+            r.continuous = true;
+            r.interimResults = true;
+            let finals = "";
+            r.onresult = (e) => {
+                let interim = "";
+                for (let i = e.resultIndex; i < e.results.length; i++) {
+                    const res = e.results[i];
+                    if (!res) continue;
+                    if (res.isFinal) finals += res[0].transcript;
+                    else interim += res[0].transcript;
+                }
+                h.current.onLive((finals + interim).trim());
+            };
+            r.onerror = (e) => {
+                if (e.error === "aborted" || e.error === "no-speech") return;
+                h.current.onError(micError({ name: e.error }));
+            };
+            r.onend = () => {
+                release();
+                setState("idle");
+            };
+            recognition.current = r;
+            r.start();
             setState("recording");
         } catch (e) {
             release();
@@ -209,15 +155,13 @@ export function useDictation(mode: DictationMode, language: string | undefined, 
 
     /** Keep what was said. */
     const confirm = useCallback(() => {
-        if (recognition.current) recognition.current.stop();
-        else if (recorder.current?.state === "recording") recorder.current.stop();
+        recognition.current?.stop();
     }, []);
 
     /** Throw it away. */
     const cancel = useCallback(() => {
         cancelled.current = true;
         if (recognition.current) recognition.current.abort();
-        else if (recorder.current?.state === "recording") recorder.current.stop();
         else release();
         h.current.onCancel();
         setState("idle");
@@ -353,7 +297,6 @@ export function DictationControls({
     phone?: boolean;
 }) {
     const t = useT();
-    const transcribing = state === "transcribing";
     return (
         <>
             <Tooltip label={t("composer-dictation-cancel")}>
@@ -366,14 +309,11 @@ export function DictationControls({
                     <X className="size-5" />
                 </ComposerButton>
             </Tooltip>
-            <Tooltip label={transcribing ? t("composer-dictation-transcribing") : t("composer-dictation-done")}>
+            <Tooltip label={t("composer-dictation-done")}>
                 <button
                     type="button"
-                    aria-label={
-                        transcribing ? t("composer-dictation-transcribing") : t("composer-dictation-stop-label")
-                    }
-                    aria-busy={transcribing || undefined}
-                    disabled={transcribing || state === "starting"}
+                    aria-label={t("composer-dictation-stop-label")}
+                    disabled={state === "starting"}
                     onClick={onConfirm}
                     className={cn(
                         "relative flex shrink-0 items-center justify-center rounded-full p-0.5 outline-none transition-opacity duration-150 ease-[cubic-bezier(0.4,0,0.2,1)] disabled:opacity-60",
@@ -381,11 +321,7 @@ export function DictationControls({
                         phone ? "size-10 after:absolute after:-inset-1 after:content-['']" : "size-9",
                     )}
                 >
-                    {transcribing ? (
-                        <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    ) : (
-                        <Check weight="bold" className="size-5" />
-                    )}
+                    <Check weight="bold" className="size-5" />
                 </button>
             </Tooltip>
         </>

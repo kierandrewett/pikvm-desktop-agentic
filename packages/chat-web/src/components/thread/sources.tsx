@@ -14,8 +14,6 @@ import { Sheet } from "../ui/sheet";
 import { EmptyState } from "../ui/state";
 import { useT } from "../../l10n/provider";
 import { cn } from "../../lib/cn";
-import { useIsMobile } from "../../lib/media";
-import { ThreadContext } from "./context";
 
 const URL_RE = /\bhttps?:\/\/[^\s"'<>()\[\]{}`\\]+/g;
 
@@ -385,8 +383,6 @@ export const Favicon = memo(function Favicon({
  */
 export const SourcesButton = memo(function SourcesButton({ items }: { items: readonly OutputItem[] }) {
     const t = useT();
-    const { openPanel } = useContext(ThreadContext);
-    const mobile = useIsMobile();
     const [sheet, setSheet] = useState(false);
     const sources = useMemo(() => sourcesOf(items), [items, items.length]);
     const hosts = useMemo(() => hostsOf(sources), [sources]);
@@ -397,8 +393,8 @@ export const SourcesButton = memo(function SourcesButton({ items }: { items: rea
                 type="button"
                 className="md-sources-button"
                 aria-label={t("thread-sources-button-label", { count: hosts.length })}
-                aria-haspopup={mobile ? "dialog" : undefined}
-                onClick={() => (mobile ? setSheet(true) : openPanel?.({ kind: "sources" }))}
+                aria-haspopup="dialog"
+                onClick={() => setSheet(true)}
             >
                 <span className="flex items-center" aria-hidden>
                     {hosts.slice(0, 3).map((h, i) => (
@@ -407,11 +403,9 @@ export const SourcesButton = memo(function SourcesButton({ items }: { items: rea
                 </span>
                 {t("thread-panel-sources")}
             </button>
-            {mobile && (
-                <Sheet open={sheet} onOpenChange={setSheet} title={t("thread-panel-sources")}>
-                    <SourcesView sources={sources} items={items} />
-                </Sheet>
-            )}
+            <Sheet open={sheet} onOpenChange={setSheet} title={t("thread-panel-sources")}>
+                <SourcesView sources={sources} items={items} />
+            </Sheet>
         </>
     );
 });

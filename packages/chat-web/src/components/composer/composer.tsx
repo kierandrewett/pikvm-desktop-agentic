@@ -93,13 +93,11 @@ import {
     captureSessionEpoch,
     conversationsQuery,
     isSessionEpochCurrent,
-    keys,
     conversationSummaryQuery,
     queryClient,
     useBootstrap,
     useSetting,
 } from "../../lib/queries";
-import type { Project } from "../../lib/types";
 import { isSendError, sendMessage, stopResponse } from "../../lib/send";
 import { chatParams } from "../../lib/chat-path";
 import { socket } from "../../lib/socket";
@@ -240,11 +238,6 @@ function parseEffort(arg: string, efforts: ThinkingEffort[]): ThinkingSelector |
         (e) => e.startsWith(a) || EFFORT_LABELS[e].toLowerCase().replace(/\s+/g, "").startsWith(a),
     );
     return hits.length === 1 ? hits[0] : undefined;
-}
-
-/** Projects already in the query cache (used by "/new <project>"). */
-function projectsCache(): Project[] | undefined {
-    return queryClient.getQueryData<Project[]>(keys.projects);
 }
 
 let measureCanvas: HTMLCanvasElement | undefined;
@@ -759,16 +752,7 @@ export function Composer({
             setText(next.value);
             pendingCaret.current = next.caret;
         },
-        onText: (t) => {
-            const ed = editor.current;
-            const at = ed?.selectionStart ?? textRef.current.length;
-            const cur = textRef.current;
-            const next = joinAt(cur.slice(0, at), t, cur.slice(at));
-            setText(next.value);
-            pendingCaret.current = next.caret;
-        },
         onCancel: () => {
-            if (speech.mode !== "browser") return;
             const { before, after } = dictationBase.current;
             setText(before + after);
             pendingCaret.current = before.length;
@@ -784,7 +768,6 @@ export function Composer({
         setPlusOpen(false);
         void dictation.start();
     };
-    const waveInEditor = dictating && speech.mode === "server";
 
     const focusEditor = useCallback(() => {
         if (!coarse) editor.current?.focus({ preventScroll: true });
@@ -1349,10 +1332,7 @@ export function Composer({
         }
         if (name === "new") {
             clearInput();
-            const project = a
-                ? (projectsCache() ?? []).find((pr) => pr.name.toLowerCase().includes(a.toLowerCase()))
-                : undefined;
-            void navigate({ to: "/", search: project ? { project: project.id } : {} });
+            void navigate({ to: "/", search: {} });
             return true;
         }
         if (name === "effort") {
@@ -2056,18 +2036,7 @@ export function Composer({
                                         : "col-span-2",
                             )}
                         >
-                            {waveInEditor && (
-                                <Waveform
-                                    analyser={dictation.analyser}
-                                    live={dictation.state === "recording"}
-                                    className={cn(
-                                        "w-full",
-                                        dictation.state === "transcribing" && "opacity-50",
-                                        multi ? "my-[11px] px-2.5" : "",
-                                    )}
-                                />
-                            )}
-                            {marks && !waveInEditor && (
+                            {marks && (
                                 <div
                                     ref={backdrop}
                                     aria-hidden
@@ -2115,9 +2084,8 @@ export function Composer({
                                 onBlur={() => setDismissed(null)}
                                 className={cn(
                                     editorText,
-                                    waveInEditor && "sr-only",
                                     "relative block w-full resize-none bg-transparent caret-[var(--text)] outline-none placeholder:text-tertiary placeholder:opacity-100 focus-visible:outline-none disabled:cursor-not-allowed",
-                                    marks && !waveInEditor ? "text-transparent" : "text-text",
+                                    marks ? "text-transparent" : "text-text",
                                     multi
                                         ? cn(
                                               multiPad,
@@ -2166,13 +2134,11 @@ export function Composer({
                         >
                             {dictating ? (
                                 <>
-                                    {!waveInEditor && (
-                                        <Waveform
-                                            analyser={dictation.analyser}
-                                            live={dictation.state === "recording"}
-                                            className={phone ? "w-16" : "w-24"}
-                                        />
-                                    )}
+                                    <Waveform
+                                        analyser={dictation.analyser}
+                                        live={dictation.state === "recording"}
+                                        className={phone ? "w-16" : "w-24"}
+                                    />
                                     <span className="flex items-center gap-2">
                                         <DictationControls
                                             state={dictation.state}

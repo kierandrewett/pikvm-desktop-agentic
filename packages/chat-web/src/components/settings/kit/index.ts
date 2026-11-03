@@ -42,6 +42,7 @@ export {
     DangerZone,
     Described,
     FormField,
+    HostDrawsTitle,
     LinkRow,
     LockMark,
     SettingRow,

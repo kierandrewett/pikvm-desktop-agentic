@@ -189,11 +189,9 @@ export function ResultsList({
 export const WebSearchStep = memo(function WebSearchStep({
     entries,
     live,
-    onOpenSource,
 }: {
     entries: readonly WebSearchEntry[];
     live: boolean;
-    onOpenSource?: (url: string) => void;
 }) {
     const t = useT();
     const running = live && entries.some((e) => e.status === "running");
@@ -233,7 +231,7 @@ export const WebSearchStep = memo(function WebSearchStep({
                         ? t("thread-sub-n-failed", { count: failed })
                         : undefined
             }
-            detail={() => <ResultsList entries={entries} onOpen={onOpenSource} />}
+            detail={() => <ResultsList entries={entries} />}
         />
     );
 });
@@ -243,12 +241,10 @@ export const WebFetchStep = memo(function WebFetchStep({
     url,
     title,
     state,
-    onOpenSource,
 }: {
     url: string;
     title?: string;
     state: StepState;
-    onOpenSource?: (url: string) => void;
 }) {
     const t = useT();
     const host = hostOf(url) ?? url;
@@ -263,11 +259,6 @@ export const WebFetchStep = memo(function WebFetchStep({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="act-link"
-                    onClick={(e) => {
-                        if (!onOpenSource || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-                        e.preventDefault();
-                        onOpenSource(url);
-                    }}
                 >
                     <Favicon host={host} size={14} />
                     <span className="truncate">{title || host}</span>

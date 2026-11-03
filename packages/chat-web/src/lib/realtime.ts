@@ -25,7 +25,7 @@ type Key = readonly unknown[];
 /** Query keys each scope marks stale. `conversation` and `everything` are handled in `applySync`. */
 const SCOPE_KEYS: Record<Exclude<SyncScope, "conversation" | "everything">, readonly Key[]> = {
     settings: [keys.settings, keys.bootstrap, ["avatar"], ["mcp"], ["speech"]],
-    projects: [keys.projects, ["conversations"]],
+    projects: [["conversations"]],
     memories: [["memories"]],
     uploads: [["uploads"], ["files"]],
     files: [["files"], ["uploads"]],

@@ -3,40 +3,26 @@
  *
  * - `SubagentsStep`: one step row in the activity ("Ran 2 subagents · 1 failed"). Opened, one lane per
  *   subagent: status, goal, name, a trail of its tool calls, a clock and a "now doing" line. A lane opens to
- *   its steps (the same row grammar as the main activity) and "Open in panel".
- * - `SubagentPanel`: one subagent's transcript for the side panel, drawn by the thread's own turn renderer
- *   (`TurnView`) through `subagentTurn` in turns.ts, refreshed while it runs.
- * - `SubagentsView`: every subagent run in the conversation, grouped by the `task` call that started it, for
- *   the side panel's Subagents tab. A run opens `SubagentPanel`, with Back to the list.
+ *   its steps (the same row grammar as the main activity).
  *
  * Inputs are plain protocol data: the `subagents` array on the `task` call's `function_call_output`,
  * which the server updates live and rebuilds on reload.
  */
 import type { FunctionCallItem, OutputItem, SubagentRun, SubagentStep } from "@pikvm/chat-protocol";
 import {
-    ArrowsSplitIcon,
     CaretRightIcon,
     CheckCircleIcon,
     CircleDashedIcon,
     ProhibitIcon,
-    SidebarSimpleIcon,
     WarningCircleIcon,
 } from "@pikvm/icons";
-import { Button } from "../../ui/index";
-import { useQuery } from "@tanstack/react-query";
-import { memo, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
-import { api } from "../../lib/api";
-import { cn } from "../../lib/cn";
-import { ErrorState, EmptyState } from "../ui/state";
-import { Elapsed, FaviconStack, Shimmer, StepRow, type StepState } from "./activity/shared";
-import { ThreadContext } from "./context";
-import type { PanelView } from "./context";
+import { memo, useEffect, useId, useRef, useState } from "react";
+import { Elapsed, FaviconStack, StepRow, type StepState } from "./activity/shared";
 import { SubagentModel } from "./subagent-model";
 import { useT } from "../../l10n/provider";
 import { msg, translate } from "../../l10n/runtime";
 import { ThinkingGlyph, ThinkingLabel } from "./thinking-indicator";
-import { TurnView } from "./turn";
-import { formatDuration, messageText, parseArgs, subagentTurn, toolKind } from "./turns";
+import { formatDuration, parseArgs, toolKind } from "./turns";
 
 /** Subagent runs on a `task` call's output, if any. */
 export function subagentRuns(output: OutputItem | undefined): SubagentRun[] | undefined {
@@ -62,27 +48,6 @@ export function subagentRunsOf(call: FunctionCallItem, output: OutputItem | unde
         steps: [],
         tool_count: 0,
     }));
-}
-
-/** The current state of one subagent among a conversation's items, for the transcript panel. */
-export function findSubagentRun(
-    items: readonly OutputItem[],
-    callId: string,
-    agentId: string,
-): SubagentRun | undefined {
-    for (const it of items) {
-        if (it.type === "function_call_output" && it.call_id === callId)
-            return it.subagents?.find((r) => r.id === agentId);
-    }
-    return undefined;
-}
-
-/**
- * The side panel view for one subagent's transcript. When the panel has a Subagents tab
- * (`{ kind: "subagents" }`), Back from here should return to it: set `back` to that view.
- */
-export function subagentDetail(callId: string, agentId: string): PanelView {
-    return { kind: "subagent", callId, agentId, back: { kind: "subagents" } };
 }
 
 /** A short goal for the lane: the assignment's first sentence or line, without markdown noise. */
@@ -224,11 +189,9 @@ function laneLine(run: SubagentRun): string {
 const Lane = memo(function Lane({
     run,
     live,
-    onOpen,
 }: {
     run: SubagentRun;
     live: boolean;
-    onOpen?: (runId: string) => void;
 }) {
     const t = useT();
     const [open, setOpen] = useState(false);
@@ -276,12 +239,6 @@ const Lane = memo(function Lane({
                     ) : (
                         <p className="act-empty">{t("thread-sub-no-steps")}</p>
                     )}
-                    {onOpen && (
-                        <Button variant="link" onClick={() => onOpen(run.id)}>
-                            <SidebarSimpleIcon size={14} aria-hidden />
-                            {t("thread-sub-open")}
-                        </Button>
-                    )}
                 </div>
             )}
         </div>
@@ -311,19 +268,16 @@ function useStatusAnnouncement(runs: readonly SubagentRun[]): string {
 
 /**
  * A `task` call as one step row ("Ran 2 subagents · 1 failed · 12s"), opening to one lane per subagent.
- * Open while the subagents run, so parallel progress shows without a click; closed when done. `onOpen`
- * opens a subagent's transcript in the side panel.
+ * Open while the subagents run, so parallel progress shows without a click; closed when done.
  */
 export const SubagentsStep = memo(function SubagentsStep({
     runs,
     live,
     state,
-    onOpen,
 }: {
     runs: readonly SubagentRun[];
     live: boolean;
     state: StepState;
-    onOpen?: (runId: string) => void;
 }) {
     const t = useT();
     const done = runs.filter((r) => r.status === "completed").length;
@@ -366,261 +320,10 @@ export const SubagentsStep = memo(function SubagentsStep({
             detail={() => (
                 <div className="aa-lanes" role="group" aria-label={t("thread-panel-subagents")}>
                     {runs.map((r) => (
-                        <Lane key={r.id} run={r} live={live} onOpen={onOpen} />
+                        <Lane key={r.id} run={r} live={live} />
                     ))}
                 </div>
             )}
         />
     );
 });
-
-// Transcript panel
-
-interface TranscriptResponse {
-    items: OutputItem[];
-    active: boolean;
-}
-
-/**
- * A subagent's full transcript, for the side panel. `run` (from the live item) gives the header; the
- * transcript comes from the server, refreshes while the subagent runs, and is drawn by `TurnView` with
- * message actions (copy, read aloud, reactions, retry) switched off.
- */
-export function SubagentPanel({
-    conversationId,
-    agentId,
-    run,
-}: {
-    conversationId: string;
-    agentId: string;
-    run?: SubagentRun;
-}) {
-    const t = useT();
-    const parent = useContext(ThreadContext);
-    const running = run ? run.status === "running" || run.status === "pending" : false;
-    const [taskOpen, setTaskOpen] = useState(false);
-    const q = useQuery({
-        queryKey: ["conversation", conversationId, "subagent", agentId],
-        queryFn: () =>
-            api.get<TranscriptResponse>(
-                `/conversations/${conversationId}/subagents/${encodeURIComponent(agentId)}/items`,
-            ),
-        refetchInterval: running ? 1500 : false,
-        retry: (n, err) => n < 3 && !(err instanceof Error && /not found/i.test(err.message)),
-    });
-    const items = q.data?.items;
-    const turn = useMemo(
-        () => (items ? subagentTurn(`subagent_${agentId}`, items, run, running) : undefined),
-        [items, agentId, run, running],
-    );
-    const context = useMemo(
-        () => ({
-            ...parent,
-            conversationId,
-            preview: true,
-            onOpenDetails: undefined,
-            avatars: false,
-            assistantBubbles: false,
-        }),
-        [parent, conversationId],
-    );
-    const long = !!run && run.task.length > 240;
-
-    return (
-        <section
-            className="aa-panel"
-            aria-label={t("thread-sub-transcript-of", { id: agentId })}
-            data-subagent-transcript=""
-        >
-            <header className="flex min-w-0 items-start gap-2.5">
-                <span className="aa-lane-glyph">
-                    {run ? (
-                        <StatusGlyph status={run.status} live={running} />
-                    ) : (
-                        <ArrowsSplitIcon size={16} aria-hidden className="text-tertiary" />
-                    )}
-                </span>
-                <div className="min-w-0 flex-1">
-                    <h2 className="text-[15px] leading-[22px] font-medium text-text">{run ? goalOf(run) : agentId}</h2>
-                    <p className="text-[12.5px] leading-[18px] text-tertiary">
-                        {agentId}
-                        {run?.model && (
-                            <>
-                                {" · "}
-                                <SubagentModel model={run.model} className="align-bottom" />
-                            </>
-                        )}
-                        {run && (
-                            <>
-                                {" · "}
-                                {t(STATUS_WORD[run.status])}
-                                {" · "}
-                                <Elapsed
-                                    startedAt={run.started_at}
-                                    durationMs={run.duration_ms}
-                                    running={run.status === "running"}
-                                />
-                                {" · "}
-                                {t("thread-sub-step-count", { count: Math.max(run.tool_count, run.steps.length) })}
-                            </>
-                        )}
-                    </p>
-                </div>
-            </header>
-            {run?.task && run.task !== goalOf(run) && (
-                <div>
-                    <p className={cn("aa-task", !taskOpen && "line-clamp-3")}>{run.task}</p>
-                    {long && (
-                        <Button variant="link" onClick={() => setTaskOpen(!taskOpen)}>
-                            {taskOpen ? t("thread-context-show-less") : t("thread-sub-show-assignment")}
-                        </Button>
-                    )}
-                </div>
-            )}
-            {q.isPending && <Shimmer text={t("thread-sub-loading-transcript")} announce className="text-[13px]" />}
-            {q.isError &&
-                (running ? (
-                    // A running subagent may not have written its transcript yet; the poll above keeps trying.
-                    <p className="aa-quiet-block">{t("thread-sub-transcript-pending")}</p>
-                ) : (
-                    <ErrorState size="inline" title={t("thread-sub-transcript-error")} query={q} />
-                ))}
-            {turn && !turn.items.length && !running && <p className="aa-task">{t("thread-sub-none-recorded")}</p>}
-            {turn && (turn.items.length > 0 || running) && (
-                <ThreadContext.Provider value={context}>
-                    <TurnView turn={turn} />
-                </ThreadContext.Provider>
-            )}
-        </section>
-    );
-}
-
-// Subagents list (side panel tab)
-
-/** Props for the side panel's Subagents tab. */
-export interface SubagentsViewProps {
-    conversationId: string;
-    /** The conversation's items (history and live). `undefined` while they load. */
-    items: readonly OutputItem[] | undefined;
-    /** Opens a panel view; a run opens `{ kind: "subagent", callId, agentId, back }`. */
-    onView: (view: PanelView) => void;
-    /** The view Back returns to from a run: this tab (`{ kind: "subagents" }`) once the panel has it. */
-    back?: PanelView;
-}
-
-interface RunGroup {
-    callId: string;
-    /** Why the agent split the work (the call's intent), or the user's message that started the turn. */
-    title: string;
-    runs: SubagentRun[];
-}
-
-/** Every `task` call with its runs, newest first. */
-function runGroups(items: readonly OutputItem[]): RunGroup[] {
-    const outputs = new Map<string, OutputItem>();
-    for (const it of items) if (it.type === "function_call_output") outputs.set(it.call_id, it);
-    const groups: RunGroup[] = [];
-    let prompt = "";
-    for (const it of items) {
-        if (it.type === "message" && it.role === "user") prompt = messageText(it).split("\n")[0]!.trim();
-        if (it.type !== "function_call" || it.name !== "task") continue;
-        const runs = subagentRunsOf(it, outputs.get(it.call_id));
-        if (!runs?.length) continue;
-        const intent = parseArgs(it.arguments)?.i;
-        groups.push({ callId: it.call_id, title: typeof intent === "string" && intent ? intent : prompt, runs });
-    }
-    return groups.reverse();
-}
-
-/**
- * The Subagents tab: every subagent run in the conversation, grouped by the `task` call that started it,
- * each with its status, name, a summary line and a live clock while it runs. A run opens its transcript.
- */
-export function SubagentsView({ conversationId, items, onView, back }: SubagentsViewProps) {
-    const t = useT();
-    const groups = useMemo(() => (items ? runGroups(items) : []), [items]);
-    if (!items) {
-        return (
-            <section className="aa-view" data-subagents-view="" aria-busy="true">
-                <Shimmer text={t("thread-sub-loading")} announce className="text-[13px]" />
-            </section>
-        );
-    }
-    if (!groups.length) {
-        return (
-            <section className="aa-view" data-subagents-view="">
-                <EmptyState
-                    size="panel"
-                    icon={ArrowsSplitIcon}
-                    title={t("thread-sub-empty")}
-                    description={t("thread-sub-empty-hint")}
-                />
-            </section>
-        );
-    }
-    return (
-        <section
-            className="aa-view"
-            data-subagents-view=""
-            aria-label={t("thread-panel-subagents")}
-            data-conversation={conversationId}
-        >
-            {groups.map((g) => (
-                <div key={g.callId} className="aa-view-group">
-                    <h3 className="aa-view-title" title={g.title}>
-                        {g.title || t("thread-panel-subagents")}
-                    </h3>
-                    <ul className="aa-view-runs">
-                        {g.runs.map((r) => {
-                            const running = r.status === "running";
-                            return (
-                                <li key={r.id}>
-                                    <button
-                                        type="button"
-                                        className="aa-view-run"
-                                        data-run={r.id}
-                                        data-status={r.status}
-                                        onClick={() =>
-                                            onView({ kind: "subagent", callId: g.callId, agentId: r.id, back })
-                                        }
-                                    >
-                                        <span className="aa-lane-glyph">
-                                            <StatusGlyph status={r.status} live={running} />
-                                        </span>
-                                        <span className="min-w-0">
-                                            <span className="aa-lane-title">
-                                                <span className="aa-lane-goal">{goalOf(r)}</span>
-                                                <span className="aa-lane-name">{r.id}</span>
-                                                <SubagentModel
-                                                    model={r.model}
-                                                    className="text-[12.5px] max-w-[45%] shrink"
-                                                />
-                                            </span>
-                                            <span className="aa-lane-now">
-                                                {running ? (
-                                                    <ThinkingLabel label={laneLine(r)} />
-                                                ) : (
-                                                    <span className="aa-clip">{laneLine(r)}</span>
-                                                )}
-                                            </span>
-                                        </span>
-                                        <span className="aa-lane-side">
-                                            {r.status !== "pending" && (
-                                                <Elapsed
-                                                    startedAt={r.started_at}
-                                                    durationMs={r.duration_ms}
-                                                    running={running}
-                                                />
-                                            )}
-                                            <CaretRightIcon size={14} aria-hidden className="act-caret" />
-                                        </span>
-                                    </button>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                </div>
-            ))}
-        </section>
-    );
-}

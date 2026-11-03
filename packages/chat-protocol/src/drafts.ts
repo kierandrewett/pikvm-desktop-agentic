@@ -35,7 +35,7 @@ export interface DraftFileAttachment {
 
 export type DraftAttachment = DraftImageAttachment | DraftFileAttachment;
 
-/** GET /api/drafts?scope=... (404 when there is none) and the PUT response. */
+/** GET /api/drafts?scope=... (`null` when there is none) and the PUT response. */
 export interface ServerDraft {
     scope: string;
     text: string;

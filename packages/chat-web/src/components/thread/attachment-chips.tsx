@@ -9,11 +9,10 @@
 import { useT } from "../../l10n/provider";
 import { translate } from "../../l10n/runtime";
 import type { InputFile, InputImage } from "@pikvm/chat-protocol";
-import { useContext, useState, type MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import { cn } from "../../lib/cn";
 import { captureSessionEpoch, isSessionEpochCurrent } from "../../lib/queries";
 import { FileTypeIcon } from "../file-icons/file-type-icon";
-import { ThreadContext } from "./context";
 
 const thumbCls = "block overflow-hidden rounded-[calc(18px*var(--roundness))]";
 const chipCls =
@@ -43,7 +42,6 @@ export function AttachmentChips({
     interactive: boolean;
 }) {
     const t = useT();
-    const { openPanel } = useContext(ThreadContext);
     const [sessionEpoch] = useState(captureSessionEpoch);
     if (!images.length && !files.length) return null;
     return (
@@ -81,17 +79,7 @@ export function AttachmentChips({
                         <span className="max-w-60 truncate">{f.filename}</span>
                     </>
                 );
-                return interactive && openPanel ? (
-                    <button
-                        key={i}
-                        type="button"
-                        aria-label={t("thread-attach-open-file", { name: f.filename })}
-                        className={cn(chipCls, "hover-device:hover:bg-hover")}
-                        onClick={() => openPanel({ kind: "upload", uploadId: f.upload_id, name: f.filename })}
-                    >
-                        {body}
-                    </button>
-                ) : (
+                return (
                     <div key={i} className={chipCls}>
                         {body}
                     </div>

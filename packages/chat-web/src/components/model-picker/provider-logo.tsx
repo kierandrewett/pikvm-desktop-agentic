@@ -6,13 +6,14 @@
 import type { ModelInfo } from "@pikvm/chat-protocol";
 import { memo, useState } from "react";
 import { cn } from "../../lib/cn";
+import { serverUrl } from "../../lib/config";
 import { identityOf } from "./models";
 import "./provider-logo.css";
 
 const failed = new Set<string>();
 
 const Mark = memo(function Mark({
-    src,
+    src: given,
     name,
     size = 16,
     className,
@@ -22,6 +23,7 @@ const Mark = memo(function Mark({
     size?: number;
     className?: string;
 }) {
+    const src = given ? serverUrl(given) : undefined;
     const [broken, setBroken] = useState(() => !src || failed.has(src));
     const box = { width: size, height: size };
     if (broken || !src) {

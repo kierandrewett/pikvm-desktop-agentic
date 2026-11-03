@@ -14,17 +14,15 @@
  * card opens the page; "Open" says so) and "View all sources", which opens the Sources tab of the side panel.
  * No paging and no hover path: the list scrolls, and each card is a large tap target.
  */
-import { ArrowRightIcon, ArrowUpRightIcon, CaretLeftIcon, CaretRightIcon } from "@pikvm/icons";
+import { ArrowUpRightIcon, CaretLeftIcon, CaretRightIcon } from "@pikvm/icons";
 import { Popover } from "radix-ui";
-import { memo, useContext, useEffect, useRef, useState, type PointerEvent } from "react";
+import { memo, useEffect, useRef, useState, type PointerEvent } from "react";
 import { cn } from "../../../lib/cn";
 import { useIsMobile } from "../../../lib/media";
 import { touchTarget } from "../../../lib/touch";
 import { Button } from "../../ui/button";
-import { sheetRow } from "../../ui/menu";
 import { Sheet } from "../../ui/sheet";
 import { TailedContent } from "../../ui/tailed-content";
-import { ThreadContext } from "../context";
 import { Favicon, hostOf, sourceKey, sourceTitle, useSourceLookup, type Source } from "../sources";
 import type { CiteRef } from "./syntax";
 import { useThemeLayer } from "../../../lib/theme-scope";
@@ -52,8 +50,7 @@ function parseRefs(raw: unknown): CiteRef[] {
 
 export const Citation = memo(function Citation({ data }: { data: unknown }) {
     const layer = useThemeLayer();
-    const { lookup, count } = useSourceLookup();
-    const { openPanel } = useContext(ThreadContext);
+    const { lookup } = useSourceLookup();
     const sources = parseRefs(data).map((r) => lookup(r.url));
     const [open, setOpen] = useState(false);
     const [index, setIndex] = useState(0);
@@ -96,7 +93,6 @@ export const Citation = memo(function Citation({ data }: { data: unknown }) {
         },
     };
     const go = (d: number) => setIndex((i) => (i + d + n) % n);
-    const allLabel = count > 1 ? `View all ${count} sources` : "View sources";
     const chip = (
         <>
             <Favicon host={first.host} size={14} className="rounded-full" />
@@ -126,19 +122,6 @@ export const Citation = memo(function Citation({ data }: { data: unknown }) {
                             </li>
                         ))}
                     </ul>
-                    {openPanel && (
-                        <button
-                            type="button"
-                            className={cn(sheetRow, "mb-1 justify-between font-medium")}
-                            onClick={() => {
-                                setOpen(false);
-                                openPanel({ kind: "sources", focus: first.url });
-                            }}
-                        >
-                            <span className="truncate">{allLabel}</span>
-                            <ArrowRightIcon aria-hidden />
-                        </button>
-                    )}
                 </Sheet>
             </>
         );
@@ -238,23 +221,6 @@ export const Citation = memo(function Citation({ data }: { data: unknown }) {
                                     </Button>
                                 </div>
                             </div>
-                        )}
-                        {openPanel && (
-                            <>
-                                <div role="separator" className="md-cite-sep" />
-                                <button
-                                    type="button"
-                                    className="md-cite-all"
-                                    onClick={() => {
-                                        focusHandoff.current = true;
-                                        setOpen(false);
-                                        openPanel({ kind: "sources", focus: s.url });
-                                    }}
-                                >
-                                    <span className="flex-1 truncate">{allLabel}</span>
-                                    <ArrowRightIcon aria-hidden size={16} />
-                                </button>
-                            </>
                         )}
                     </TailedContent>
                 </Popover.Content>

@@ -326,17 +326,17 @@ async function draftRequest<T>(
 export async function fetchServerDraft(scope: string, userId: string): Promise<ServerDraft | null | undefined> {
     const epoch = syncEpoch;
     try {
-        const draft = await draftRequest<ServerDraft>("GET", scope, userId);
+        const draft = await draftRequest<ServerDraft | null>("GET", scope, userId);
         if (epoch !== syncEpoch) return undefined;
         const state = syncState(scope, userId);
+        if (!draft) {
+            state.revision ??= 0;
+            return null;
+        }
         state.revision = Math.max(state.revision ?? 0, draft.updatedAt);
         return draft;
     } catch (error) {
         if (epoch !== syncEpoch) return undefined;
-        if (error instanceof ApiError && error.status === 404) {
-            syncState(scope, userId).revision ??= 0;
-            return null;
-        }
         console.warn("[drafts] fetch failed", error);
         return undefined;
     }

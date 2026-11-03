@@ -22,9 +22,8 @@ import type {
     OutputItem,
     RunEndItem,
 } from "@pikvm/chat-protocol";
-import { ArrowSquareOutIcon, CaretRightIcon } from "@pikvm/icons";
-import { Button } from "../../ui/index";
-import { Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CaretRightIcon } from "@pikvm/icons";
+import { Fragment, memo, useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useToolProgress } from "../../lib/live";
 import { captureSessionEpoch } from "../../lib/queries";
 import { activeLocalization, msg, translate } from "../../l10n/runtime";
@@ -38,7 +37,7 @@ import { stripAnsi } from "./local-notices";
 import { Markdown } from "./markdown";
 import { QUESTION_WAITING_LABEL, QuestionRecord } from "./questions/question-record";
 import { isWebTool, urlsIn } from "./sources";
-import { subagentDetail, SubagentsStep, subagentRunsOf } from "./subagents";
+import { SubagentsStep, subagentRunsOf } from "./subagents";
 import { ThinkingIndicator, thinkingStatus } from "./thinking-indicator";
 import { argSummary, formatDuration, historyDuration, messageText, parseArgs, toolKind, type Turn } from "./turns";
 import { entryOf, fetchOf, isWebFetchCall, isWebSearchCall, WebFetchStep, WebSearchStep } from "./web-search";
@@ -78,17 +77,6 @@ function taskCount(args: string): number {
 }
 
 const basename = (p: string) => p.split("/").filter(Boolean).at(-1) ?? p;
-
-/**
- * A tool path as a path in the conversation workspace, if it is one: relative paths as they are,
- * sandbox paths under /workspace/chats/<id>/ with that prefix removed. Other absolute paths: undefined.
- */
-function workspacePath(p: string, conversationId: string): string | undefined {
-    const prefix = `/workspace/chats/${conversationId}/`;
-    if (p.startsWith(prefix)) return p.slice(prefix.length);
-    if (p.startsWith("/") || p.startsWith("~")) return undefined;
-    return p.replace(/^\.\//, "");
-}
 
 /**
  * The runtime sends some MCP tools as a `write` to `xd://mcp__<server>_<tool>`. Returns that tool name, or
@@ -412,19 +400,6 @@ function Command({ code }: { code: string }) {
     );
 }
 
-/** "Open config.rs" in the side panel, for a file in the conversation workspace. */
-function OpenFile({ path }: { path: string }) {
-    const t = useT();
-    const { openPanel } = useContext(ThreadContext);
-    if (!openPanel) return null;
-    return (
-        <Button variant="link" onClick={() => openPanel({ kind: "file", path })}>
-            <ArrowSquareOutIcon size={14} aria-hidden />
-            {t("thread-act-open-file", { name: basename(path) })}
-        </Button>
-    );
-}
-
 const noteFor = (state: StepState, failed = translate("thread-act-failed")) =>
     state === "failed" ? failed : state === "stopped" ? translate("thread-act-stopped") : undefined;
 
@@ -444,7 +419,6 @@ const ToolStep = memo(function ToolStep({
     facts?: Pick<FunctionCallOutputItem, "diff" | "exit_code" | "wall_time_ms">;
 }) {
     const t = useT();
-    const { conversationId } = useContext(ThreadContext);
     const kind = callKind(name, args);
     const parsed = parseArgs(args);
     const running = state === "running";
@@ -504,7 +478,6 @@ const ToolStep = memo(function ToolStep({
         const argChanges = changesOf(parsed);
         const path = argChanges?.path ?? argSummary(args);
         const changes = facts?.diff && state === "done" ? changesFromDiff(facts.diff, path) : argChanges;
-        const file = path ? workspacePath(path, conversationId) : undefined;
         const writes = typeof parsed?.content === "string";
         const failed = state === "failed" && hasOutput;
         return (
@@ -549,7 +522,6 @@ const ToolStep = memo(function ToolStep({
                                   <Lines
                                       lines={changes!.lines}
                                       label={t("thread-act-changes")}
-                                      footer={file && !running ? <OpenFile path={file} /> : undefined}
                                   />
                               )
                         : undefined
@@ -560,7 +532,6 @@ const ToolStep = memo(function ToolStep({
 
     if (kind === "read") {
         const path = argSummary(args);
-        const file = path ? workspacePath(path, conversationId) : undefined;
         const lines = hasOutput && state === "done" ? fileLines(output!) : [];
         const listing = name.toLowerCase() === "ls";
         return (
@@ -593,7 +564,6 @@ const ToolStep = memo(function ToolStep({
                                       lines={lines}
                                       label={path ? basename(path) : t("thread-act-file")}
                                       preview={6}
-                                      footer={file && !listing ? <OpenFile path={file} /> : undefined}
                                   />
                               ) : (
                                   <Lines
@@ -827,11 +797,6 @@ function ToolProgressRow({ itemId }: { itemId: string }) {
 
 /** The steps in run order. */
 function Steps({ items, running, id, end }: { items: OutputItem[]; running: boolean; id: string; end?: RunEndItem }) {
-    const { openPanel } = useContext(ThreadContext);
-    const openSource = useMemo(
-        () => (openPanel ? (url: string) => openPanel({ kind: "sources", focus: url }) : undefined),
-        [openPanel],
-    );
     const outputs = new Map<string, FunctionCallOutputItem>();
     for (const it of items) if (it.type === "function_call_output") outputs.set(it.call_id, it);
     const calls = new Set(items.flatMap((i) => (i.type === "function_call" ? [i.call_id] : [])));
@@ -871,7 +836,6 @@ function Steps({ items, running, id, end }: { items: OutputItem[]; running: bool
                                         return s === "stopped" ? { ...e, status: "stopped" as const } : e;
                                     })}
                                     live={running}
-                                    onOpenSource={openSource}
                                 />
                             );
                         }
@@ -883,7 +847,6 @@ function Steps({ items, running, id, end }: { items: OutputItem[]; running: bool
                                     url={f.url}
                                     title={f.title}
                                     state={state}
-                                    onOpenSource={openSource}
                                 />
                             );
                         }
@@ -900,11 +863,6 @@ function Steps({ items, running, id, end }: { items: OutputItem[]; running: bool
                                     runs={runs ?? []}
                                     live={running}
                                     state={state}
-                                    onOpen={
-                                        openPanel
-                                            ? (agentId) => openPanel(subagentDetail(it.call_id, agentId))
-                                            : undefined
-                                    }
                                 />
                             );
                         }
@@ -982,7 +940,6 @@ function useStableToggle(open: boolean) {
 }
 
 export function WorkedGroup({ turn, items }: { turn: Turn; items: OutputItem[] }) {
-    const { onOpenDetails } = useContext(ThreadContext);
     const running = !!turn.live && !turn.live.done;
     // Approval answers change the live label; subscribe so it updates when the tray answers.
     useApprovalVersion();
@@ -1001,7 +958,6 @@ export function WorkedGroup({ turn, items }: { turn: Turn; items: OutputItem[] }
         else if (s === "stopped") stopped++;
     }
     const toggle = () => {
-        if (onOpenDetails) return onOpenDetails(turn.key);
         mark();
         setManual(!open);
     };

@@ -5,10 +5,9 @@ import type { ConversationSummary, OutputItem, ServerEvent } from "@pikvm/chat-p
 import { MutationCache, QueryCache, QueryClient, queryOptions, useQuery } from "@tanstack/react-query";
 import { resetSessionState } from "./session-reset";
 import { api, ApiError } from "./api";
-import { noteAgenticChange } from "./agentic-change";
 import { applyEvent, clearAllLive, clearLive, getLive, type LiveState } from "./live";
 import { resetSocketSession, socket } from "./socket";
-import type { Bootstrap, Project, SettingView } from "./types";
+import type { Bootstrap, SettingView } from "./types";
 
 /** A 401 from any request means the session is gone: drop it, and the app layout redirects to /login. */
 const onError = (err: unknown) => {
@@ -41,7 +40,6 @@ export const keys = {
     conversations: (archived = false) => ["conversations", { archived }] as const,
     conversation: (id: string) => ["conversation", id] as const,
     items: (id: string) => ["items", id] as const,
-    projects: ["projects"] as const,
     settings: ["settings"] as const,
     models: ["models"] as const,
 };
@@ -132,11 +130,6 @@ export const itemsQuery = (id: string) =>
             (await api.get<{ items: OutputItem[]; hasMore: boolean }>(`/conversations/${id}/items`, signal)).items,
         staleTime: Number.POSITIVE_INFINITY,
     });
-
-export const projectsQuery = queryOptions({
-    queryKey: keys.projects,
-    queryFn: async ({ signal }) => (await api.get<{ projects: Project[] }>("/projects", signal)).projects,
-});
 
 export const settingsQuery = queryOptions({
     queryKey: keys.settings,
@@ -311,8 +304,6 @@ function onEvent(e: ServerEvent) {
             upsertConversation(e.conversation);
             return;
         case "chat.conversation.updated":
-            // First, so the components that render the new title or icon know the change was agentic.
-            noteAgenticChange(e.conversation.id, e.agentic);
             upsertConversation(e.conversation);
             return;
         case "chat.models.updated":

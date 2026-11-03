@@ -24,15 +24,6 @@ export interface Bootstrap {
     user: User | null;
 }
 
-export interface Project {
-    id: string;
-    name: string;
-    slug: string;
-    instructions: string;
-    createdAt: number;
-    updatedAt: number;
-}
-
 export interface SettingView {
     key: string;
     description: string;
