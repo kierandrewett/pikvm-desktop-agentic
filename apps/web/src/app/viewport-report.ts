@@ -2,10 +2,10 @@
  * What the phone reports about its own viewport and how the page is laid out in it, as text for Settings > About
  * (shown, and copied with one button).
  *
- * The installed iPhone app's viewport units disagree with each other (100vh is the screen; 100dvh, 100svh, innerHeight
- * and the visual viewport are the screen minus an inset when it starts), the status-bar style and iOS version change
- * what is under the bar, and a fixed element can be clipped to a shorter "layout viewport" than the screen. A
- * screenshot or a pasted copy of this settles which of those a device is doing without a debugger.
+ * The installed iPhone app's viewport units disagree with each other (with the black status-bar style 100vh is the
+ * whole screen while 100dvh, innerHeight, the visual viewport and the web view are the screen minus the bar), the
+ * status-bar style and iOS version change what is under the bar, and a fixed element is clipped to the layout
+ * viewport. A screenshot or a pasted copy of this settles which of those a device is doing without a debugger.
  */
 
 import { isStandalone } from "./standalone";

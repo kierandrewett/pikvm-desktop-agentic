@@ -15,7 +15,7 @@ const IOS_STANDALONE = "data-ios-standalone";
 export function markStandalone(root: HTMLElement = document.documentElement): void {
     if (root.hasAttribute(STANDALONE)) return;
     try {
-        // Only the manifest's display mode makes the full-screen layout: navigator.standalone alone (Firefox's home-screen app) does not.
+        // Only the manifest's display mode makes the installed layout: navigator.standalone alone does not.
         const display = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches;
         const legacy = "standalone" in navigator && navigator.standalone === true;
         const ios = legacy || /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -26,7 +26,7 @@ export function markStandalone(root: HTMLElement = document.documentElement): vo
     }
 }
 
-/** The installed app: no URL bar, so the large viewport (100vh) is the whole screen. */
+/** The installed app: no URL bar, a normal-flow root and the status edge (styles.css). */
 export function isStandalone(root: HTMLElement = document.documentElement): boolean {
     return root.getAttribute(STANDALONE) === "true";
 }

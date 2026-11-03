@@ -257,13 +257,14 @@ describe("layout", () => {
     });
 
     describe("in the installed app", () => {
-        // The screen is 874 tall; the visual viewport reports 62 less at launch (the lie); 100vh is the screen.
-        const SCREEN = 874;
+        // The device report (402x874, black status bar): the web view, the layout viewport and the visual viewport
+        // are all 812; 100vh would be the 874 screen. The layout-viewport probe is fixed top:0 bottom:0.
+        const LAYOUT = 812;
         beforeEach(() => {
             document.documentElement.setAttribute("data-standalone", "true");
             const real = HTMLElement.prototype.getBoundingClientRect;
             vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-                return this.style.height === "100vh" ? ({ height: SCREEN, width: 0, top: 0, left: 0, right: 0, bottom: SCREEN, x: 0, y: 0 } as DOMRect) : real.call(this);
+                return this.style.bottom === "0px" ? ({ height: LAYOUT, width: 0, top: 0, left: 0, right: 0, bottom: LAYOUT, x: 0, y: 0 } as DOMRect) : real.call(this);
             });
         });
         afterEach(() => {
@@ -271,22 +272,22 @@ describe("layout", () => {
             vi.restoreAllMocks();
         });
 
-        it("leaves the height to the CSS (100vh) when the visual viewport launches short, and does not read that as the keyboard", async () => {
-            installViewport(SCREEN - 62);
+        it("leaves the height to the CSS (100dvh) while the keyboard is closed", async () => {
+            installViewport(LAYOUT);
             renderApp("/kvm", { compact: true });
             expect(await screen.findByRole("tablist")).toBeInTheDocument();
             expect(shellHeight()).toBe("");
         });
 
-        it("uses the visual viewport's height while the keyboard is up and gives the screen back when it closes", async () => {
-            const viewport = installViewport(SCREEN - 62);
+        it("uses the visual viewport's height while the keyboard is up and gives the height back to the CSS when it closes", async () => {
+            const viewport = installViewport(LAYOUT);
             renderApp("/kvm", { compact: true });
             await screen.findByRole("tablist");
             act(() => viewport.resize(450));
             await waitFor(() => expect(shellHeight()).toBe("450px"));
             expect(document.documentElement.getAttribute("data-keyboard")).toBe("open");
             expect(screen.queryByRole("tablist")).toBeNull();
-            act(() => viewport.resize(SCREEN - 62));
+            act(() => viewport.resize(LAYOUT));
             await waitFor(() => expect(shellHeight()).toBe(""));
             expect(document.documentElement.getAttribute("data-keyboard")).toBe("closed");
             expect(screen.getByRole("tablist")).toBeInTheDocument();

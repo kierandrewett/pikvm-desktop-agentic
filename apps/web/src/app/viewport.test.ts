@@ -47,20 +47,19 @@ describe("trackViewport", () => {
         expect(trackViewport(INITIAL_TRACK, 450).keyboardOpen).toBe(false);
     });
 
-    describe("against a known baseline (the installed app's 100vh)", () => {
-        it("does not read a visual viewport that launched short as the keyboard", () => {
-            // 874 screen, 62 reported missing at launch.
-            expect(trackViewport(INITIAL_TRACK, 812, 874).keyboardOpen).toBe(false);
+    describe("against a known baseline (the installed app's layout viewport)", () => {
+        it("is closed while the visual viewport is the layout viewport", () => {
+            expect(trackViewport(INITIAL_TRACK, 812, 812).keyboardOpen).toBe(false);
         });
 
         it("sees a keyboard that was already up at the first sample", () => {
-            expect(trackViewport(INITIAL_TRACK, 450, 874).keyboardOpen).toBe(true);
+            expect(trackViewport(INITIAL_TRACK, 450, 812).keyboardOpen).toBe(true);
         });
 
-        it("closes the keyboard when the viewport returns to its short launch value, because the baseline is the screen", () => {
-            let track = trackViewport(INITIAL_TRACK, 450, 874);
-            track = trackViewport(track, 812, 874);
-            expect(track).toEqual({ tallest: 874, keyboardOpen: false });
+        it("closes the keyboard when the viewport returns to the layout viewport", () => {
+            let track = trackViewport(INITIAL_TRACK, 450, 812);
+            track = trackViewport(track, 812, 812);
+            expect(track).toEqual({ tallest: 812, keyboardOpen: false });
         });
 
         it("ignores a baseline of zero (a probe that could not be measured)", () => {

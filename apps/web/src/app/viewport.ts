@@ -7,12 +7,11 @@
  * focus can be held with the keyboard down (an external keyboard) and a missed blur would
  * leave the bar hidden for good.
  *
- * In the installed app (standalone) there is no URL bar, so the large viewport, 100vh, IS the screen. The
- * visual viewport, innerHeight, 100dvh and 100svh all report the screen minus an inset when the app starts, so
- * they can neither size the shell nor serve as the "tallest" the keyboard is measured against (a short report
- * would read as a keyboard, or the shell would stop short of the bottom). There the baseline is a probe of
- * height 100vh, the shell is 100vh (styles.css, `full`) while the keyboard is closed, and the visual viewport's
- * own height is used only while the keyboard is open.
+ * In the installed app (standalone) the keyboard is measured against the layout viewport: a fixed top:0 bottom:0
+ * probe, which iOS does not shrink for the keyboard, so a keyboard already up at the first sample is still seen.
+ * The shell is 100dvh (styles.css, `full`) while the keyboard is closed, and the visual viewport's own height is
+ * used only while it is open. 100vh is not the app's height: with the black status-bar style the web view starts
+ * below the bar, and 100vh is the whole screen, 62px taller than the web view on a 402x874 iPhone.
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
@@ -28,7 +27,7 @@ export interface ViewportTrack {
 
 /**
  * Pure step: fold one visual-viewport height into the running track. `baseline` is the height the keyboard is
- * measured against when it is known (standalone: the 100vh probe); without it, the tallest height seen.
+ * measured against when it is known (standalone: the layout-viewport probe); without it, the tallest height seen.
  */
 export function trackViewport(previous: ViewportTrack, height: number, baseline?: number): ViewportTrack {
     const tallest = baseline !== undefined && baseline > 0 ? baseline : Math.max(previous.tallest, height);
@@ -38,11 +37,11 @@ export function trackViewport(previous: ViewportTrack, height: number, baseline?
 export const INITIAL_TRACK: ViewportTrack = { tallest: 0, keyboardOpen: false };
 
 export interface ViewportFrame {
-    /** The height to size the shell to in px (the full screen in standalone with the keyboard closed). */
+    /** The height to size the shell to in px (the layout viewport in standalone with the keyboard closed). */
     readonly height: number;
     readonly top: number;
     readonly keyboardOpen: boolean;
-    /** Standalone with the keyboard closed: the CSS (100vh) owns the height and nothing is written for it. */
+    /** Standalone with the keyboard closed: the CSS (100dvh) owns the height and nothing is written for it. */
     readonly full: boolean;
 }
 
@@ -62,22 +61,23 @@ export function useViewportFrame(): ViewportFrame {
     useEffect(() => {
         const viewport = window.visualViewport;
         const standalone = isStandalone();
-        // Zero-size and invisible: only its height is read. 100vh is the large viewport, whole in standalone.
+        // Zero-size and invisible: only its height is read. A fixed top:0 bottom:0 box is the layout viewport,
+        // which iOS keeps whole while the keyboard is up.
         const probe = document.createElement("div");
         probe.setAttribute("aria-hidden", "true");
-        probe.style.cssText = "position:fixed;left:0;top:0;width:0;height:100vh;visibility:hidden;pointer-events:none";
+        probe.style.cssText = "position:fixed;left:0;top:0;bottom:0;width:0;visibility:hidden;pointer-events:none";
         if (standalone) document.body.append(probe);
         let track = INITIAL_TRACK;
         let pending = 0;
         const paint = () => {
             pending = 0;
             const visual = viewport?.height ?? window.innerHeight;
-            const large = standalone ? Math.round(probe.getBoundingClientRect().height) : 0;
-            track = trackViewport(track, visual, standalone ? large : undefined);
-            const full = standalone && !track.keyboardOpen && large > 0;
+            const layout = standalone ? Math.round(probe.getBoundingClientRect().height) : 0;
+            track = trackViewport(track, visual, standalone ? layout : undefined);
+            const full = standalone && !track.keyboardOpen && layout > 0;
             setFrame((current) => {
                 const next = {
-                    height: Math.round(full ? large : visual),
+                    height: Math.round(full ? layout : visual),
                     top: Math.round(viewport?.offsetTop ?? 0),
                     keyboardOpen: track.keyboardOpen,
                     full,

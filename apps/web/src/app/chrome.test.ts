@@ -11,10 +11,10 @@
  *  5. The meta that makes the inset exist at all is dropped (viewport-fit=cover, the standalone flags),
  *     so env(safe-area-inset-*) is 0 and the strips collapse.
  *  6. The offline page the service worker serves comes up with a different status bar than the app.
- *  7. The shell is sized from 100dvh, innerHeight or the visual viewport in the installed app. On the iPhone those
- *     report the screen minus an inset when the app starts (100vh does not), so the shell stops short and the
- *     system background shows under the navigation bar. The height is 100vh there, and only the keyboard may
- *     replace it.
+ *  7. The shell is sized from 100vh (or 100lvh) in the installed app. With the black status-bar style the web view
+ *     starts below the bar and is the screen minus the bar (real device, 402x874: 100vh 874, the web view, 100dvh,
+ *     innerHeight and the visual viewport 812), so a 100vh shell put the bottom 62px of the navigation bar below
+ *     the screen. The height is 100dvh everywhere, and only the keyboard may replace it.
  *  8. The status-bar style goes back to black-translucent. On the iPhone this was reported from (iOS 26) that
  *     style gets the system's own gradient over the top of the page, which no CSS can remove, and a page 62px
  *     short of the screen with the system background under the bar. Real-device evidence, not reproducible
@@ -23,8 +23,8 @@
  *     gradient near the top edge, or no solid black element there for the system to find. The top edge is one
  *     opaque black #status-edge on every tab, deep enough to count, and the shell is padded by the same amount.
  * 10. The shell is a position:fixed element (or sits in a fixed html or body) in the installed app: iOS 26 clips a
- *     fixed root to the layout viewport, which the app reports short, so a 100vh shell is cut off and the page
- *     background shows below the cut (real device: the navigation bar cut in half at 811 of 874 pt). With the
+ *     fixed root to the layout viewport, and the page background shows below the cut (real device: the navigation
+ *     bar cut in half at 811 of 874 pt). With the
  *     keyboard closed html, body and the shell are normal flow and as tall as each other; while it is up,
  *     everything is fixed to the visual viewport as before.
  * 11. The diagnostics that settle a device (Settings > About > Display) lose a field, or cannot be copied.
@@ -148,9 +148,9 @@ describe("home indicator strip", () => {
         expect(rule(css, ".nav-bar")).toMatch(/safe-area-inset-right/);
     });
 
-    it("reaches the bottom: 100vh in the installed app (the dvh/visual viewport report short at launch), and no backstop", () => {
-        expect(rule(css, "html[data-standalone]")).toMatch(/--app-height:\s*100vh/);
+    it("reaches the bottom: 100dvh, never the screen-tall 100vh or 100lvh, and no backstop", () => {
         expect(rule(css, ":root")).toMatch(/--app-height:\s*100dvh/);
+        expect(css).not.toMatch(/--app-height:\s*100l?vh/);
         expect(rule(css, ".app-shell")).toMatch(/height:\s*var\(--app-height\)/);
         expect(css).not.toMatch(/body:has\([^)]*\)::after/);
     });
