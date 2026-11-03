@@ -1051,7 +1051,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@pikvm/chat-ui@workspace:*, @pikvm/chat-ui@workspace:packages/chat-ui":
+"@pikvm/chat-ui@workspace:packages/chat-ui":
   version: 0.0.0-use.local
   resolution: "@pikvm/chat-ui@workspace:packages/chat-ui"
   dependencies:
@@ -1088,7 +1088,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@pikvm/chat-web@workspace:packages/chat-web":
+"@pikvm/chat-web@workspace:*, @pikvm/chat-web@workspace:packages/chat-web":
   version: 0.0.0-use.local
   resolution: "@pikvm/chat-web@workspace:packages/chat-web"
   dependencies:
@@ -1175,7 +1175,7 @@ __metadata:
   resolution: "@pikvm/web@workspace:apps/web"
   dependencies:
     "@effect/platform": "npm:^0.97.3"
-    "@pikvm/chat-ui": "workspace:*"
+    "@pikvm/chat-web": "workspace:*"
     "@pikvm/contracts": "workspace:*"
     "@pikvm/icons": "workspace:*"
     "@pikvm/kvm-engine": "workspace:*"
