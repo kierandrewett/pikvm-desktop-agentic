@@ -89,7 +89,7 @@ export type MenuEntry =
       };
 
 export const menuSurface =
-    "z-50 min-w-52 overflow-y-auto rounded-2xl bg-[color-mix(in_srgb,var(--menu)_90%,transparent)] p-1.5 backdrop-blur-sm shadow-dropdown outline-none";
+    "z-50 min-w-52 overflow-y-auto rounded-2xl bg-menu p-1.5 shadow-dropdown outline-none";
 export const menuItem =
     "flex min-h-[var(--menu-row-height)] cursor-default select-none items-center gap-2.5 rounded-xl px-2.5 py-1 text-sm leading-5 text-text outline-none data-[highlighted]:bg-hover data-[disabled]:opacity-40 [&_svg]:size-5 [&_svg]:shrink-0";
 

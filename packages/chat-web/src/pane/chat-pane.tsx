@@ -31,7 +31,7 @@ function Header({ conversationId }: { conversationId: string | undefined }) {
                     <ListIcon />
                 </Button>
             )}
-            <h1 className="min-w-0 flex-1 truncate px-2 text-[15px] font-medium">
+            <h1 className="min-w-0 flex-1 truncate px-2 text-[length:var(--type-callout,15px)] font-medium">
                 {conversationId ? (summary ? chatTitle(summary) : "") : t("thread-home-title")}
             </h1>
             <Button variant="ghost" size="lg" uniform aria-label={t("sidebar-new-chat")} onClick={() => void navigate({ to: "/" })}>
@@ -56,22 +56,32 @@ function Body({ conversationId }: { conversationId: string | undefined }) {
             />
         );
     }
-    // The new-chat screen sits in the conversation's own column (.thread-col: one width token, one centring), so the
-    // composer is the same box before and after the first message. Phones keep their 12px gutter.
+    const create = (id: string) => void navigate({ to: "/c/$conversationId", params: chatParams(id) });
+    // Phones: the composer is docked at the bottom of the pane, exactly where a conversation's is (same footer padding,
+    // same 12px gutters), and the greeting is centred in the room above it.
+    if (mobile) {
+        return (
+            <div className="flex min-h-0 flex-1 flex-col" data-new-chat="">
+                <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3">
+                    <h2 className="text-center text-[22px] font-normal text-balance">{t("thread-home-heading")}</h2>
+                </div>
+                <div className="thread-content shrink-0 pb-[max(12px,var(--dock-safe-bottom))]">
+                    <div className="thread-col flex flex-col" style={{ "--thread-pad": "12px" } as CSSProperties}>
+                        <Composer variant="home" embedded onCreated={create} />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+    // Wide: the new-chat screen sits in the conversation's own column (.thread-col: one width token, one centring), so the
+    // composer is the same box before and after the first message.
     return (
         // A scroller with the thread's gutter (thread.css .thread-scroll), so a classic scrollbar costs the column the same width here.
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]">
-            <div className="thread-content mt-auto pb-[max(12px,var(--safe-bottom))]">
-                <div
-                    className="thread-col flex flex-col"
-                    style={mobile ? ({ "--thread-pad": "12px" } as CSSProperties) : undefined}
-                >
+            <div className="thread-content mt-auto pb-[max(12px,var(--dock-safe-bottom))]">
+                <div className="thread-col flex flex-col">
                     <h2 className="mb-6 text-center text-[22px] font-normal text-balance">{t("thread-home-heading")}</h2>
-                    <Composer
-                        variant="home"
-                        embedded
-                        onCreated={(id) => void navigate({ to: "/c/$conversationId", params: chatParams(id) })}
-                    />
+                    <Composer variant="home" embedded onCreated={create} />
                 </div>
             </div>
         </div>

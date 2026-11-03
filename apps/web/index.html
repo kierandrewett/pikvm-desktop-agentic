@@ -29,6 +29,11 @@
                 }
                 document.documentElement.setAttribute("data-theme", t);
                 document.documentElement.classList.toggle("dark", t === "dark");
+                // The system's status area follows the page (app/status-colour.ts has the same rule): black over the KVM,
+                // the page's own colour on Chat and Settings. Right for the route it opens on, before first paint.
+                var status = /^\/app\/(chat|settings)(\/|$)/.test(location.pathname) ? (t === "light" ? "#eef0f4" : "#0a0a0c") : "#000000";
+                document.documentElement.style.setProperty("--status-colour", status);
+                document.querySelector('meta[name="theme-color"]').setAttribute("content", status);
             } catch (e) {}
         </script>
         <script>
@@ -49,6 +54,8 @@
                     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
                 if (standalone) document.documentElement.setAttribute("data-standalone", "true");
                 if (standalone && ios) document.documentElement.setAttribute("data-ios-standalone", "true");
+                // Any iPhone or iPad, tab or installed: the type tokens use the system text styles under it (styles.css).
+                if (ios) document.documentElement.setAttribute("data-ios", "true");
             } catch (e) {}
         </script>
     </head>

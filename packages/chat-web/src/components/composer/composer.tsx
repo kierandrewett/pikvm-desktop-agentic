@@ -1918,7 +1918,7 @@ export function Composer({
                 phone ? "gap-1.5" : "gap-2",
                 phone && menu && "z-20",
                 // The thread and temporary docks pad the inset themselves; padding it here too doubled it.
-                variant === "home" && "pb-safe",
+                variant === "home" && "pb-[var(--dock-safe-bottom)]",
                 !embedded && "[view-transition-name:composer]",
             )}
         >

@@ -15,8 +15,6 @@
     justify-content: center;
     padding: 20px;
     background: color-mix(in srgb, #000 62%, transparent);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
     animation: dlg-fade 0.14s ease-out;
 }
 

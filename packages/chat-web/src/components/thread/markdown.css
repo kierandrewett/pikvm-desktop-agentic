@@ -533,7 +533,6 @@ a.md-img {
     inset: 0;
     z-index: 60;
     background: color-mix(in srgb, var(--surface-under) 86%, transparent);
-    backdrop-filter: blur(12px);
     animation: fade-in calc(150ms * var(--motion-scale)) var(--ease-basic);
 }
 .md-lightbox {
@@ -709,7 +708,6 @@ a.md-img {
     font-weight: 600;
     /* Glass when ui.blur is on (tokens.css --glass-*); solid otherwise. */
     background: color-mix(in srgb, var(--surface) var(--glass-alpha), transparent);
-    backdrop-filter: var(--glass-filter);
     box-shadow: inset 0 -1px var(--border-strong);
 }
 .md-table td {

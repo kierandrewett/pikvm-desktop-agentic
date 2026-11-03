@@ -16,15 +16,17 @@
  */
 
 import { useRouterState } from "@tanstack/react-router";
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { AgentActivityProvider } from "../agent/activity";
 import { useAppState } from "../api/queries";
 import { KvmPane } from "../kvm/kvm-screen";
 import { SettingsPane, settingsPageOf } from "../settings/settings-layout";
 import { desktopBridge } from "../host/desktop";
+import { currentTheme, subscribeTheme } from "../theme";
 import { ChatPane } from "./chat-pane";
 import { activeTab, NavTabs, type TabId } from "./nav";
 import { Pane } from "./panes";
+import { paintStatusColour, statusColour } from "./status-colour";
 import { COMPACT_QUERY, useMediaQuery, useViewportFrame } from "./viewport";
 import { WindowControls } from "./window-controls";
 
@@ -33,6 +35,10 @@ export function Shell() {
     const frame = useViewportFrame();
     const pathname = useRouterState({ select: (state) => state.location.pathname });
     const active = activeTab(pathname);
+    // The system's status area follows the page: black over the KVM, the page's own colour on Chat and Settings, in the
+    // theme showing (status-colour.ts). Updated when the tab or the theme changes.
+    const theme = useSyncExternalStore(subscribeTheme, currentTheme, () => "dark" as const);
+    useLayoutEffect(() => paintStatusColour(statusColour(active, theme)), [active, theme]);
     // What the agent is doing is streamed while the host has a chat server; the KVM and the tab bar both show it.
     const agentStream = useAppState().data?.features.chat === true;
 

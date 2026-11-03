@@ -82,7 +82,7 @@ export function Toolbar({ children, label: given }: { children: ReactNode; label
                         data-rv-toolbar=""
                         className={cn(
                             "pointer-events-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full p-1 no-scrollbar",
-                            "bg-[color-mix(in_srgb,var(--menu)_90%,transparent)] shadow-dropdown backdrop-blur-sm",
+                            "bg-menu shadow-dropdown",
                             "animate-[fade-in_var(--duration-basic)_var(--ease-enter)]",
                         )}
                     >

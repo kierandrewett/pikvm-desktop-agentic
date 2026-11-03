@@ -28,6 +28,13 @@
  *     keyboard closed html, body and the shell are normal flow and as tall as each other; while it is up,
  *     everything is fixed to the visual viewport as before.
  * 11. The diagnostics that settle a device (Settings > About > Display) lose a field, or cannot be copied.
+ * 12. On Chat or Settings the status-bar area is the theme's light grey with a frosted gradient (real device): iOS colours
+ *     the bar from the page, and with no qualifying fixed element it falls back to the body's background-color. In the
+ *     installed app html and body are black (the KVM was black already, which is why only the other tabs showed it).
+ * 13. A backdrop-filter or blur is back anywhere in the app or the chat (menus, bars, the lightbox, the composer scrim,
+ *     tailed surfaces, ui.blur's glass), or the page card of the chat carries a resting shadow that reads as a line under the bar.
+ * 14. The phone's new-chat composer pads the bottom inset a second time (the navigation bar owns it), leaving a dead gap
+ *     under it that a conversation's composer does not have.
  *
  * What a browser draws from this is asserted in e2e/phone-chrome.e2e.mjs; this file is the static
  * contract the pixels depend on.
@@ -37,6 +44,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setThemeChoice } from "../theme";
+import { KVM_COLOUR, PAGE_COLOUR } from "./status-colour";
 
 const read = (path: string) => readFileSync(resolve(import.meta.dirname, "../..", path), "utf8");
 
@@ -69,24 +77,32 @@ afterEach(() => {
 });
 
 describe("status bar", () => {
-    it("is black in the manifest, the meta tag and the offline page", () => {
+    it("starts black in the manifest, the meta tag and the offline page (the shell then paints it per tab)", () => {
         expect(meta("theme-color")).toBe("#000000");
         expect(manifest.theme_color).toBe("#000000");
         expect(worker).toMatch(/<meta name="theme-color" content="#000000">/);
     });
 
-    it("is not re-tinted by the theme", () => {
+    it("is not re-tinted by theme.ts itself: the shell paints it, from the tab and the theme (status-colour.ts)", () => {
         setThemeChoice("light");
         expect(meta("theme-color")).toBe("#000000");
         setThemeChoice("dark");
         expect(meta("theme-color")).toBe("#000000");
     });
 
-    it("is one opaque black element at the top edge, above every surface, as deep as the reserved top", () => {
+    it("is worked out before first paint for the route it opens on, with the same colours as status-colour.ts", () => {
+        expect(html).toMatch(/\^\\\/app\\\/\(chat\|settings\)/);
+        expect(html).toContain(`"${PAGE_COLOUR.light}"`);
+        expect(html).toContain(`"${PAGE_COLOUR.dark}"`);
+        expect(html).toContain(`"${KVM_COLOUR}"`);
+        expect(html).toMatch(/setProperty\("--status-colour", status\)/);
+    });
+
+    it("is one opaque element at the top edge in the status colour, above every surface, as deep as the reserved top", () => {
         expect(html).toMatch(/<div id="status-edge" aria-hidden="true"><\/div>/);
         const strip = rule(css, "#status-edge");
         expect(strip).toMatch(/height:\s*var\(--top-reserved\)/);
-        expect(strip).toMatch(/background:\s*#000\s*;/);
+        expect(strip).toMatch(/background:\s*var\(--status-colour\)\s*;/);
         expect(strip).toMatch(/position:\s*fixed/);
         expect(strip).toMatch(/left:\s*0/);
         expect(strip).toMatch(/right:\s*0/);
@@ -153,6 +169,38 @@ describe("home indicator strip", () => {
     it("is told apart for iOS by the device as well as navigator.standalone", () => {
         expect(html).toMatch(/iPhone\|iPad\|iPod/);
         expect(html).toMatch(/standalone && ios/);
+    });
+
+    it("takes the status colour on html and body in the installed app, so the page the system samples is the bar's colour on every tab", () => {
+        expect(rule(css, "html[data-standalone],\nhtml[data-standalone] body")).toMatch(/background-color:\s*var\(--status-colour\)/);
+        expect(css).toMatch(/:root\s*\{\s*--status-colour:\s*#000;\s*\}/);
+    });
+
+    it("has no backdrop-filter or blur anywhere in the app's or the chat's styles and classes", () => {
+        const files = [
+            "src/styles.css",
+            "src/kvm/kvm.css",
+            "src/kvm/dialogs/dialogs.css",
+            "../../packages/chat-web/src/styles/chat.css",
+            "../../packages/chat-web/src/styles/tokens.css",
+            "../../packages/chat-web/src/components/thread/markdown.css",
+            "../../packages/chat-web/src/ui/tailed-surface.css",
+            "../../packages/chat-web/src/components/ui/menu.tsx",
+            "../../packages/chat-web/src/components/render/toolbar.tsx",
+            "../../packages/chat-web/src/components/composer/attachments.tsx",
+        ];
+        for (const file of files) {
+            const text = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
+            const live = text.split("\n").filter((line) => /backdrop-blur|backdrop-filter|(^|[^.\w])blur\(|--scrim-blur/.test(line) && !/backdrop-filter:\s*none|var\(--glass-filter\)/.test(line));
+            expect({ file, live }).toEqual({ file, live: [] });
+        }
+        // ui.blur no longer turns anything on: the glass tokens stay solid and unfiltered.
+        const tokens = read("../../packages/chat-web/src/styles/tokens.css");
+        expect(tokens).toMatch(/\.chat-scope\[data-blur="on"\]\s*\{\s*--glass-alpha:\s*100%;\s*--glass-filter:\s*none;/);
+    });
+
+    it("docks the chat's in-pane padding on nothing: the navigation bar owns the bottom inset", () => {
+        expect(rule(css, ".app-main")).toMatch(/--host-dock-safe-bottom:\s*0px/);
     });
 
     it("is decided before first paint, from the same rule as the app's own", () => {

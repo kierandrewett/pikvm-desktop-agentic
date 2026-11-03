@@ -47,6 +47,22 @@ html[data-standalone] {
     --app-height: 100vh;
 }
 
+/* The system's status area follows the page, one colour from the active tab and the theme (app/status-colour.ts, set on
+   <html> by the shell, and by index.html's script before first paint): black over the KVM, the page's own colour on Chat
+   and Settings. On the installed iPhone the bar area is the system's glass tinted from the page at the top edge (a
+   fixed element there, else the body's background-color, else the html's), with its text dark or light to suit; it was
+   the theme's grey over a black edge, a frosted gradient between the two. The top edge element, html and body all take
+   it, so the glass samples one solid colour whichever it looks at. The shell, the panes and the bar cover the page with
+   their own opaque colours, so nothing else changes. */
+:root {
+    --status-colour: #000;
+}
+
+html[data-standalone],
+html[data-standalone] body {
+    background-color: var(--status-colour);
+}
+
 /* iOS: the top edge of the page is a real, opaque, full-width black element (#status-edge) at least this
    deep, whatever the inset, so the system always finds one solid black thing at the top edge. */
 html[data-ios-standalone] {
@@ -170,12 +186,12 @@ html[data-ios-standalone] {
  * edge; env(safe-area-inset-bottom) is the home indicator). An app added while the style was
  * black-translucent keeps that style: the page is drawn under the bar and the inset is real.
  *
- *  - TOP. #status-edge (index.html) is a real, opaque, black, full-width element at the very top, as deep as
- *    --top-reserved (the inset, and in the installed iOS app at least 12px), above everything including
- *    full-page sheets, which pad for the inset with their own background. The shell pads by the same amount, so
- *    nothing sits under it and no scroller touches the top edge. iOS looks at what is at the top edge to
- *    decide how the bar meets the page, and in the installed app a soft blur showed there once a pane with a
- *    scroller or a light page had been visited; a solid black edge is the one thing to find there on every tab.
+ *  - TOP. #status-edge (index.html) is a real, opaque, full-width element at the very top in --status-colour (black
+ *    over the KVM, the page's own colour on Chat and Settings), as deep as --top-reserved (the inset, and in the
+ *    installed iOS app at least 12px), above everything including full-page sheets, which pad for the inset with
+ *    their own background. The shell pads by the same amount, so nothing sits under it and no scroller touches the
+ *    top edge. The system tints its bar from the page at the top edge, so what is found there is one solid colour,
+ *    the same as html, body and the theme-color meta: no blur, no gradient, no shadow.
  *    It follows --app-top, which the shell sets on <html>, when iOS pans the visual viewport for the keyboard.
  *  - BOTTOM. The inset belongs to the navigation bar (nav-bar pads itself by it, on its own background),
  *    and nothing else paints it: the shell has no bottom padding in the phone layout, and the bar is the last
@@ -190,7 +206,7 @@ html[data-ios-standalone] {
     right: 0;
     height: var(--top-reserved);
     z-index: 2147483647;
-    background: #000;
+    background: var(--status-colour);
     pointer-events: none;
 }
 
@@ -266,6 +282,10 @@ html[data-standalone]:not([data-keyboard="open"]) .kvm-toast {
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    /* The shell keeps the pane clear of the bottom inset (the navigation bar owns it; in the wide layout this box pads
+       it), so the chat's docks inside the pane pad nothing for it: padding it again left a dead gap under the composer.
+       Overlays portalled into the pane keep the device's inset. */
+    --host-dock-safe-bottom: 0px;
 }
 
 .app-panel {

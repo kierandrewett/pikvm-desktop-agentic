@@ -192,7 +192,7 @@ export function SettingsPage({
     return (
         <div
             data-settings-page=""
-            className="@container/settings mx-auto w-full max-w-3xl px-4 pb-[calc(40px+var(--safe-bottom))] md:px-5"
+            className="@container/settings mx-auto w-full max-w-3xl px-4 pb-[calc(40px+var(--dock-safe-bottom))] md:px-5"
         >
             <div
                 ref={header}

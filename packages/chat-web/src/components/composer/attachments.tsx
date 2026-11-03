@@ -224,7 +224,7 @@ export function DropOverlay({ active }: { active: boolean }) {
         <div
             aria-hidden
             className={cn(
-                "pointer-events-none fixed inset-0 z-[200] flex items-center justify-center bg-[color-mix(in_srgb,var(--surface)_80%,transparent)] backdrop-blur-sm",
+                "pointer-events-none fixed inset-0 z-[200] flex items-center justify-center bg-[color-mix(in_srgb,var(--surface)_80%,transparent)]",
                 "animate-[fade-in_120ms]",
             )}
         >

@@ -130,7 +130,7 @@ export function PaneShell({ list, children }: { list: ReactNode; children: React
                 <div
                     data-page-card=""
                     style={{ ["--drawer-w" as string]: DRAWER_WIDTH }}
-                    className="absolute inset-0 z-10 overflow-hidden shadow-dialog [transform:translateX(calc(var(--p)*var(--drawer-w)))] [border-start-start-radius:calc(24px*var(--roundness)*var(--p))] [border-end-start-radius:calc(24px*var(--roundness)*var(--p))] transition-[transform,border-radius] duration-300 ease-[var(--ease-enter)] group-data-[dragging=true]/shell:transition-none"
+                    className="absolute inset-0 z-10 overflow-hidden group-data-[open=true]/shell:shadow-dialog [transform:translateX(calc(var(--p)*var(--drawer-w)))] [border-start-start-radius:calc(24px*var(--roundness)*var(--p))] [border-end-start-radius:calc(24px*var(--roundness)*var(--p))] transition-[transform,border-radius] duration-300 ease-[var(--ease-enter)] group-data-[dragging=true]/shell:transition-none"
                 >
                     <main
                         inert={drawerOpen}

@@ -63,11 +63,15 @@
     --island-radius: calc(12px * var(--roundness));
     --thread-max-width: 768px;
     --header-height: calc(52px * var(--density));
-    /* The host reserves at least a solid strip at the top in the installed iOS app (--top-reserved, apps/web). */
+    /* The insets the chat pads for. --top-reserved is the host's solid strip at the top in the installed iOS app. */
     --safe-top: var(--top-reserved, env(safe-area-inset-top, 0px));
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
+    /* What the docks INSIDE the chat pane pad at the bottom (the composer, the settings page end). A host whose shell
+       already keeps the pane clear of the bottom inset (apps/web: the navigation bar owns it) sets --host-dock-safe-bottom
+       to 0 on its content, so the inset is not padded twice; overlays (sheets, toasts) keep --safe-bottom. */
+    --dock-safe-bottom: var(--host-dock-safe-bottom, var(--safe-bottom));
 
     /* File renderer (components/render): documents (PDF, DOCX, HTML) keep their own paper and ink in
        both themes, so a page reads as the author made it; only the canvas around it follows the theme. */
@@ -316,9 +320,11 @@
     --scrim-fade: 0px;
     --scrim-clear: 0px;
 }
+/* ui.blur no longer frosts anything: the installed phone app draws the system's own edge effect over the top of the
+   page, and a blurred bar under it read as a second gradient. Bars and menus are their solid surface. */
 .chat-scope[data-blur="on"] {
-    --glass-alpha: 80%;
-    --glass-filter: blur(16px) saturate(1.5);
+    --glass-alpha: 100%;
+    --glass-filter: none;
 }
 /* ui.composer.dock "fade" (ThemeSync sets data-dock and --composer-fade-height from ui.composer.fadeHeight). */
 .chat-scope[data-dock="fade"] {

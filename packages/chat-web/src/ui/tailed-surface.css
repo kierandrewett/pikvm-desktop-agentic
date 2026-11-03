@@ -33,8 +33,6 @@
     position: absolute;
     z-index: -1;
     pointer-events: none;
-    -webkit-backdrop-filter: var(--tailed-surface-backdrop);
-    backdrop-filter: var(--tailed-surface-backdrop);
 }
 
 .tailed-surface-fill {
@@ -79,10 +77,9 @@
     outline: none;
 }
 
-/* The menu glass (5.2): the surface at 90% over an 8px blur, solid when the OS asks for less transparency. */
+/* The menu surface is solid (it was 90% over an 8px blur): nothing in the app blurs what is behind it. */
 .tailed-surface.tailed-content[data-translucent] {
-    --tailed-surface-bg: color-mix(in srgb, var(--menu) 90%, transparent);
-    --tailed-surface-backdrop: blur(8px);
+    --tailed-surface-bg: var(--menu);
 }
 @media (prefers-reduced-transparency: reduce) {
     .tailed-surface.tailed-content[data-translucent] {

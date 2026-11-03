@@ -31,6 +31,11 @@ const LANDSCAPE = { top: 0, bottom: 21, left: 47, right: 47 };
 /** The page starts BELOW the system's black status bar (style "black"): no top inset, the home indicator still at the bottom. */
 const BELOW_BAR = { top: 0, bottom: 34, left: 0, right: 0 };
 
+/** The system's status area follows the page (app/status-colour.ts): black over the KVM, the page's own colour on Chat and Settings. */
+const PAGE = { light: "#eef0f4", dark: "#0a0a0c" };
+const expectedStatus = (tab, theme) => (tab === "chat" || tab === "settings" ? PAGE[theme] : "#000000");
+const rgbOf = (hexColour) => `rgb(${[1, 3, 5].map((i) => Number.parseInt(hexColour.slice(i, i + 2), 16)).join(", ")})`;
+
 async function check(profile, name, fn) {
     try {
         const [pass, observed] = await fn();
@@ -151,6 +156,9 @@ const chrome = (page, realHeight) =>
             shellPadTop: shell.paddingTop,
             shellBg: shell.backgroundColor,
             bodyBg: getComputedStyle(document.body).backgroundColor,
+            htmlBg: getComputedStyle(document.documentElement).backgroundColor,
+            metaColour: document.querySelector('meta[name="theme-color"]')?.getAttribute("content") ?? null,
+            statusVar: document.documentElement.style.getPropertyValue("--status-colour"),
             appHeightVar: document.documentElement.style.getPropertyValue("--app-height"),
             htmlPos: getComputedStyle(document.documentElement).position,
             bodyPos: getComputedStyle(document.body).position,
@@ -194,7 +202,28 @@ const topScan = (page) =>
             const alpha = s.backgroundColor.match(/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*([\d.]+)\)/)?.[1];
             if (!hiddenPane && wide && alpha !== undefined && Number(alpha) > 0 && Number(alpha) < 1) why.push(`translucent ${s.backgroundColor}`);
             if (/auto|scroll/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 1 && r.top < edge - 0.5) why.push("scroller under the edge");
+            // A soft shadow cast by something wide near the top (a resting drop shadow under a pane, say) reads as a line under the bar.
+            if (!hiddenPane && wide && s.boxShadow !== "none") {
+                for (const part of s.boxShadow.split(/,(?![^(]*\))/)) {
+                    const nums = part.replace(/rgba?\([^)]*\)/g, "").match(/-?[\d.]+px/g)?.map(Number.parseFloat) ?? [];
+                    if (!part.includes("inset") && (nums[2] ?? 0) >= 6) why.push(`shadow ${part.trim()}`);
+                }
+            }
             if (why.length) found.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 36)}@${Math.round(r.top)}: ${why.join(", ")}`);
+        }
+        return found;
+    });
+
+/** Every element (and its ::before and ::after) with a backdrop-filter or a blur filter, anywhere on the page, hidden panes and overlays included. */
+const blurScan = (page) =>
+    page.evaluate(() => {
+        const found = [];
+        for (const el of document.querySelectorAll("html, html *")) {
+            for (const pseudo of [null, "::before", "::after"]) {
+                const s = getComputedStyle(el, pseudo);
+                const backdrop = s.backdropFilter || s.webkitBackdropFilter || "none";
+                if (backdrop !== "none" || /blur/.test(s.filter || "")) found.push(`${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}.${String(el.className).slice(0, 30)}${pseudo ?? ""}: ${backdrop !== "none" ? `backdrop-filter ${backdrop}` : `filter ${s.filter}`}`);
+            }
         }
         return found;
     });
@@ -219,15 +248,18 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
             const w = c.width;
             const h = real;
 
-            await check(profile, `${tab}: the top edge is ${edge}px of solid black and the shell is padded by it`, async () => {
+            const want = expectedStatus(tab, theme);
+            await check(profile, `${tab}: the top edge is ${edge}px of ${want} (the page's colour at the top) and the shell is padded by it`, async () => {
                 if (edge === 0) return [c.strip === "0px" && c.shellPadTop === "0px", `strip height ${c.strip}, shell padding-top ${c.shellPadTop} (nothing of ours at the top: the bar is the system's, the page is below it)`];
                 const xs = [1, Math.round(w / 2), w - 2];
                 const ys = [1, Math.round(edge / 2), edge - 1];
                 const got = await pixels(scratch, png, dsf, ys.flatMap((y) => xs.map((x) => [x, y])));
                 const below = await pixels(scratch, png, dsf, [[Math.round(w / 2), edge + 3]]);
+                // html and body take the same colour in the installed app (the KVM paints its own black over a transparent body).
+                const page = !opts.ios || (c.htmlBg === rgbOf(want) && [rgbOf(want), "rgba(0, 0, 0, 0)"].includes(c.bodyBg));
                 return [
-                    c.strip === `${edge}px` && c.stripBg === "rgb(0, 0, 0)" && c.stripPosition === "fixed" && c.stripWidth === w && c.shellPadTop === `${edge}px` && got.every((p) => p === "#000000"),
-                    `status-edge ${c.strip} x ${c.stripWidth} (${c.stripPosition}), shell padding-top ${c.shellPadTop}; ${got.length} pixels over it all ${[...new Set(got)].join("/")}; first pixel below it ${below[0]} (page bg ${rgbToHex(c.shellBg)})`,
+                    c.strip === `${edge}px` && c.stripBg === rgbOf(want) && c.stripPosition === "fixed" && c.stripWidth === w && c.shellPadTop === `${edge}px` && got.every((p) => p === want) && c.metaColour === want && c.statusVar === want && page,
+                    `status-edge ${c.strip} x ${c.stripWidth} (${c.stripPosition}) ${c.stripBg}, shell padding-top ${c.shellPadTop}; ${got.length} pixels over it all ${[...new Set(got)].join("/")}; first pixel below it ${below[0]} (page bg ${rgbToHex(c.shellBg)}); html ${c.htmlBg}, body ${c.bodyBg}, theme-color ${c.metaColour}`,
                 ];
             });
 
@@ -273,11 +305,48 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
                 const found = await topScan(page);
                 const c = await chrome(page, real);
                 const png = await page.screenshot({ path: `${outDir}/${file}-${theme}-order-${n + 1}-${tab}.png` });
-                const px = edge > 0 ? await pixels(scratch, png, dsf, [[2, 2], [c.width / 2, Math.max(1, edge - 2)], [c.width - 3, 2]]) : ["#000000"];
-                const black = edge === 0 || px.every((p) => p === "#000000");
-                ok &&= found.length === 0 && black && c.strip === `${edge}px`;
+                const want = expectedStatus(tab, theme);
+                const px = edge > 0 ? await pixels(scratch, png, dsf, [[2, 2], [c.width / 2, Math.max(1, edge - 2)], [c.width - 3, 2]]) : [want];
+                const tint = px.every((p) => p === want) && c.metaColour === want;
+                ok &&= found.length === 0 && tint && c.strip === `${edge}px`;
                 seen.push(`${n + 1}. ${tab}: ${found.length ? found.join("; ") : "nothing"}, edge ${c.strip} ${edge > 0 ? [...new Set(px)].join("/") : ""}`.trim());
             }
+            return [ok, seen.join(" | ")];
+        });
+
+        // No backdrop-filter or blur anywhere in the app: every tab, then the sheets and dialogs that can be opened here.
+        await check(profile, "no backdrop-filter or blur anywhere, on every tab and with the sheets open", async () => {
+            const seen = [];
+            let ok = true;
+            const scan = async (what) => {
+                const found = await blurScan(page);
+                ok &&= found.length === 0;
+                seen.push(`${what}: ${found.length ? found.slice(0, 4).join("; ") : "none"}`);
+            };
+            for (const tab of TABS) {
+                await goTo(page, tab, true);
+                await scan(tab);
+            }
+            await goTo(page, "kvm", true);
+            await page.tap('[aria-label="More"]');
+            await sleep(350);
+            await scan("KVM More sheet");
+            await page.evaluate(() => [...document.querySelectorAll("button, [role=menuitem]")].find((b) => /PiKVM log/.test(b.textContent ?? ""))?.click());
+            await page.waitForSelector('[data-testid="log-dialog"]', { timeout: 5000 });
+            await sleep(350);
+            await scan("KVM full-page dialog");
+            await page.keyboard.press("Escape");
+            await page.evaluate(() => document.querySelector('[data-testid="log-dialog"] button')?.click());
+            await page.reload({ waitUntil: "load" });
+            await page.waitForSelector('[role="tab"]');
+            await goTo(page, "chat", true);
+            const add = await page.$('[aria-label="Add photos, files and more"], [aria-label*="Add"]');
+            if (add) {
+                await add.tap();
+                await sleep(450);
+                await scan("Chat add sheet");
+            }
+            await goTo(page, "settings", true);
             return [ok, seen.join(" | ")];
         });
 
@@ -303,10 +372,25 @@ async function phone(browser, scratch, label, device, insets, theme, opts = {}) 
             });
         }
 
-        await check(profile, "theme-color meta and the strip are black whatever the theme", async () => {
-            const meta = await page.$eval('meta[name="theme-color"]', (m) => m.content);
-            const themeAttr = await page.evaluate(() => document.documentElement.dataset.theme);
-            return [meta === "#000000" && themeAttr === theme, `meta ${meta}, data-theme ${themeAttr}`];
+        await check(profile, "Settings: switching the theme in Display repaints the status area to the other theme's page colour at once, with no navigation", async () => {
+            await page.goto(`${WEB}/app/settings/display`, { waitUntil: "load" });
+            await page.waitForSelector('[role="radiogroup"], [role="radio"], input[type="radio"]');
+            const before = await chrome(page, real);
+            const other = theme === "light" ? "dark" : "light";
+            const clicked = await page.evaluate((label) => {
+                const radio = [...document.querySelectorAll('input[type="radio"], [role="radio"]')].find((r) => (r.closest("label")?.textContent ?? r.getAttribute("aria-label") ?? r.textContent ?? "").trim().toLowerCase() === label);
+                (radio?.closest("label") ?? radio)?.click();
+                return radio !== undefined;
+            }, other);
+            await page.waitForFunction((v) => document.documentElement.dataset.theme === v, { timeout: 3000 }, other);
+            await sleep(300);
+            const after = await chrome(page, real);
+            const wantBefore = expectedStatus("settings", theme);
+            const wantAfter = expectedStatus("settings", other);
+            return [
+                clicked && before.metaColour === wantBefore && after.metaColour === wantAfter && after.stripBg === rgbOf(wantAfter) && after.statusVar === wantAfter && (!opts.ios || after.htmlBg === rgbOf(wantAfter)),
+                `${theme} -> ${other}: theme-color ${before.metaColour} -> ${after.metaColour}, status edge ${before.stripBg} -> ${after.stripBg}, html ${before.htmlBg} -> ${after.htmlBg}`,
+            ];
         });
 
         if (edge > 0) {
@@ -510,6 +594,8 @@ const section = [
     `Run ${today}. Host under test: \`node dist/web-server.js\` (${WEB}) in front of \`tools/fake-kvmd\` (${FAKE}). Headless Chrome through puppeteer-core; the iPhone 13 profile (touch, 390x844 portrait and 844x390 landscape) with the safe-area insets emulated by CDP \`Emulation.setSafeAreaInsetsOverride\` (portrait top 47 / bottom 34; landscape top 0 / bottom 21 / left and right 47). Colours are read back from the screenshots' pixels. The two \`standalone\` profiles are the installed app as iOS draws it with the \`black\` status-bar style: the page starts below the bar, so the viewport is 390x797 with no top inset and 34 at the bottom, and \`navigator.standalone\` is true before any script runs. In the second one the page also reports 62px less than the screen from \`innerHeight\` and the visual viewport (injected before any script; \`100vh\` stays the screen), and \`window.__keyboard(px)\` takes more away as the soft keyboard does. The \`update\` cases drive coming back to the app after a deploy (the host's \`/app/version.json\` answered with another build) and check Settings > About against it. Script: \`apps/web/e2e/phone-chrome.e2e.mjs\`; how to run it: \`docs/e2e/README.md\`.`,
     "",
     "**What the earlier versions got wrong.** (1) The status bar: on a real iPhone (iOS 26) the top showed a grey-to-black gradient. That is the system's own scrim over a `black-translucent` page, which no CSS removes, so the style is now `black` (a solid bar, the page below it, no top inset; iOS keeps the style from when the app was added, so the app had to be added again). (2) The gap under the navigation bar was first put down to the web view being short and the system background showing outside it. That was wrong: nothing is outside the web view. In the installed app (no URL bar) `100vh` is the whole screen, while `100dvh`, `100svh`, `innerHeight` and the visual viewport report the screen minus an inset when the app starts, and the shell was sized from those, so it stopped short. The shell became `100vh` in the installed app, and the visual viewport's height is used only while the soft keyboard is up (its baseline is a `100vh` probe). That was not enough on the device (the navigation bar came out cut in half at 811 of 874 pt, the page's own background below the cut): on iOS 26 a `position: fixed` html, body or app container is clipped to the layout viewport, which the installed app reports short, so a 100vh fixed shell is cut off at that height (docs: cjnova/piclaw-monaco PWA.md 8.6 and 8.9). In the installed app with the keyboard closed, html, body and the shell are therefore normal flow and each `--app-height` tall, with no ancestor that clips or is shorter (the `shell fills the screen exactly` case reads the position of html, body and the shell and lists any clipping ancestor shorter than the shell); while the keyboard is up they are fixed to the visual viewport as before (`data-keyboard` on html says which). Headless Chrome does not clip fixed elements that way, so what the e2e can prove is the structure and the geometry, and the `viewport reports 62px short` profile still reproduces the earlier report (shell 0,0,390,735 of 390x797). (3) The blur at the top after visiting Chat or Settings: the resolution pill (`.kvm-res-toast`, top 10px) was a `backdrop-filter` and was still showing; it no longer blurs. With the `black` style the page starts below the bar and the system paints the bar area itself, from what it finds at the top edge of the page, so the top edge is one opaque black `#status-edge` element (12px deep in the installed iOS app, now also recognised by the device when `navigator.standalone` is not true) that the shell is padded by. The `KVM > Chat > Settings > KVM` case scans the top 60px after each step. What the system draws over the page on a real device cannot be reproduced headless: Settings > About > Display lists what the phone reports (flags, insets, every viewport unit, the boxes and positions of html, body, #root, the shell, the bar and #status-edge, and any clipping ancestor) and copies it as text.",
+    "",
+    "**The status area, as read from the phone (iOS 27.2, through the inspector) and decided.** Nothing of ours blurred anything at the top on any tab, and `#status-edge` was opaque black, 62 px, on top of everything on every tab; the grey frosted bar on Chat and Settings is iOS's own glass, tinted from the page (body was `rgb(238, 240, 244)` there and transparent over a black html on the KVM, which is why only the KVM bar was black). So the black edge in point (3) above is superseded: the status area now follows the page, one colour from the active tab and the theme (`app/status-colour.ts`): black over the KVM; the page's own colour on Chat and Settings (`#eef0f4` light, `#0a0a0c` dark). The top edge, html, body and the `theme-color` meta all take it (the `--status-colour` property), the shell updates it on a tab change and on a theme change, and `index.html` works it out before first paint for the route it opens on, so the system samples one solid colour and picks its own text colour for it. Every remaining `backdrop-filter` and blur in the app and the chat is gone (the resolution pill, the dialog scrim, the stream-state card, menus and toolbars, the lightbox, table headers, the composer's progressive-blur scrim, tailed surfaces, ui.blur's glass), and the chat's page card has no resting shadow (it was a soft shadow over the top edge); the `no backdrop-filter or blur anywhere` case scans every element and its pseudo-elements on every tab and with the sheets open, and the `KVM > Chat > Settings > KVM` case also flags a wide soft shadow near the top.",
     "",
     "| Profile | Case | Observed | Result |",
     "| --- | --- | --- | --- |",
