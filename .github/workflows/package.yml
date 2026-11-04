@@ -12,10 +12,12 @@ name: package
 # sha256-checked by deploy/omp.lock): that is the agent, with no Python and no Bun. The image job
 # builds deploy/Dockerfile, the one image of the headless host and its agent.
 #
-# Packages are unsigned: no Apple notarisation, no Authenticode, no package signing key.
+# The installers are unsigned: no Apple notarisation, no Authenticode. The Flatpak repository is the one
+# exception: flatpak-repo.yml signs it with its own key, because Flatpak clients verify what they update from.
 #
 # A pushed tag v* also publishes them: the release job attaches every platform's packages to a GitHub
-# Release named after the tag. Branch pushes and pull requests only keep them as Actions artifacts.
+# Release named after the tag, and flatpak-repo then updates the Flatpak repository on GitHub Pages. Branch
+# pushes and pull requests only keep the packages as Actions artifacts.
 
 on:
   push:
@@ -135,3 +137,16 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             --verify-tag
+
+  # The Flatpak repository on GitHub Pages, so `flatpak update` finds this release (flatpak-repo.yml).
+  flatpak-repo:
+    name: flatpak repository
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/flatpak-repo.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
