@@ -63,6 +63,8 @@ Set `PKGSMITH` to the pkgsmith binary if it is not on PATH.
 
 A tree for another platform can be made anywhere, for example with `--platform win32 --arch x64 --tree-only`. The installers need their own platform's tools, so `.github/workflows/package.yml` builds them on a runner for each system.
 
+A push to a branch keeps the packages as workflow artifacts. A pushed tag such as `v1.15.0` also publishes them: the workflow creates a GitHub Release for the tag and attaches every platform's packages.
+
 `make icons` regenerates `packaging/icons` from `src/assets/icon.png`. It needs ImageMagick.
 
 ## Web host

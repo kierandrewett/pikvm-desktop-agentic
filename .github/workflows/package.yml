@@ -13,6 +13,9 @@ name: package
 # builds deploy/Dockerfile, the one image of the headless host and its agent.
 #
 # Packages are unsigned: no Apple notarisation, no Authenticode, no package signing key.
+#
+# A pushed tag v* also publishes them: the release job attaches every platform's packages to a GitHub
+# Release named after the tag. Branch pushes and pull requests only keep them as Actions artifacts.
 
 on:
   push:
@@ -94,3 +97,41 @@ jobs:
           done
           docker logs kvm
           exit 1
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [package, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      # One directory per build (pikvm-desktop-linux-x64, ...): two builds may name a file the same (a
+      # Flatpak bundle, say), and a release cannot hold two assets of one name.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pikvm-desktop-*
+          path: packages
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir assets
+          # A name that more than one build produced gets its build in front, on every copy.
+          dupes="$(find packages -mindepth 2 -maxdepth 2 -type f -printf '%f\n' | sort | uniq -d)"
+          for dir in packages/pikvm-desktop-*; do
+            build="${dir#packages/pikvm-desktop-}"
+            for file in "$dir"/*; do
+              name="$(basename "$file")"
+              if grep -qxF "$name" <<<"$dupes"; then name="$build-$name"; fi
+              cp "$file" "assets/$name"
+            done
+          done
+          ls -la assets
+          gh release create "$GITHUB_REF_NAME" assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag
