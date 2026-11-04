@@ -651,6 +651,7 @@ describe("connection: the PiKVM list", () => {
 
 describe("connection: the switch", () => {
     const serverWrites = () => requests.filter((r) => r.path.startsWith("/app/api/v1/servers") && r.method !== "GET");
+    const serverGets = () => requests.filter((r) => r.method === "GET" && r.path === "/app/api/v1/servers").length;
     const garage = (over: Partial<FakeServer> = {}): FakeServer => ({
         id: "srv-a",
         name: "Garage",
@@ -865,6 +866,36 @@ describe("connection: the switch", () => {
         await waitFor(() => expect(reload).toHaveBeenCalled());
         expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/local/use", body: undefined }]);
         expect(server.servers.items).toHaveLength(1);
+    });
+
+    it("a use that finds the saved server gone refetches the list and shows the form, with no error", async () => {
+        open([garage()], true);
+        const base = fetch;
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+                const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+                if (url.endsWith("/servers/srv-a/use")) {
+                    // Forgotten in another window: the server answers not found, and its list no longer has the server.
+                    server.servers = { ...server.servers, items: [] };
+                    return new Response(JSON.stringify({ error: "There is no server with that id." }), {
+                        status: 404,
+                        headers: { "content-type": "application/json" },
+                    });
+                }
+                return base(input, init);
+            }),
+        );
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        const before = serverGets();
+        await user.click(await screen.findByRole("switch", SWITCH));
+        expect(await screen.findByLabelText("Address", INPUT)).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
+        expect(screen.queryByText(/no server with that id/)).toBeNull();
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(reload).not.toHaveBeenCalled();
+        expect(serverGets()).toBeGreaterThan(before);
     });
 
     it("forget asks first, Cancel keeps the server, and confirming deletes it and reloads", async () => {

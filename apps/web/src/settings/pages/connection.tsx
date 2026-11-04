@@ -18,6 +18,7 @@ import {
 } from "@pikvm/chat-web/settings";
 import type { PikvmEntry, PikvmList, PikvmTarget, ServerAdd, ServerEntry } from "@pikvm/contracts/api";
 import { type FormEvent, useState } from "react";
+import type { ApiFailure } from "../../api/client";
 import {
     useActivatePikvm,
     useAddServer,
@@ -440,7 +441,20 @@ export function ConnectionPage() {
     const unreachable = connected?.state === "unreachable";
     const showingForm = on && !inUse;
     const busy = useServer.isPending || useLocal.isPending || remove.isPending;
-    const fail = (error: { readonly message: string }) => setSwitchError(error.message);
+    /**
+     * A write failed, and the lists on screen may be stale: the saved server can have been forgotten elsewhere. Reload
+     * both lists first. A 404 with no saved server left means the connect form is the answer, so no error is shown.
+     */
+    const fail = (error: ApiFailure): void => {
+        void Promise.all([servers.refetch(), list.refetch()]).then(([refreshed]) => {
+            if (error.status === 404 && refreshed.data?.items.length === 0) {
+                setSwitchError("");
+                setTurnedOn(true);
+                return;
+            }
+            setSwitchError(error.message);
+        });
+    };
 
     // The server in use decides where the PiKVMs and settings come from, so the app reloads onto it.
     const toggle = (next: boolean) => {
