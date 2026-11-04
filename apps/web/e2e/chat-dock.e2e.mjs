@@ -5,7 +5,7 @@
 //     place a conversation's composer sits (bottom within 1px), with the greeting centred in the room above it;
 //   - the same with the soft keyboard up (the installed app: the page reports a short visual viewport, the keyboard takes
 //     more away): the composer sits right above the keyboard, in both screens;
-//   - the wide layout is as it was (the composer is still the column's, bottom padded 12px).
+//   - the wide layout centres the composer vertically in the pane, and its + menu floats.
 //
 //   PUPPETEER_CORE=<node_modules with puppeteer-core> CHROME=<chrome> SHARP_MODULES=<node_modules with sharp> OMP_BIN=<omp> \
 //     node apps/web/e2e/chat-dock.e2e.mjs [--out docs/e2e/chat-dock] [--doc docs/e2e/2026-11-03-phone-feedback.md]
@@ -209,10 +209,30 @@ try {
     await sleep(700);
     const desktop = await geometry(wide);
     await shot(wide, "desktop-new-chat");
-    await check("desktop 1280x800", "new chat: the composer is still the column's box, 12px above the bottom, the greeting above it (unchanged)", async () => {
+    await check("desktop 1280x800", "new chat: the composer is the column's box, vertically centred in the pane below the header", async () => {
         const widthOk = Math.abs(desktop.form.width - 768) <= 20 && Math.abs((desktop.form.left + desktop.form.right) / 2 - (desktop.column.left + desktop.column.right) / 2) <= 1;
-        const gap = 800 - desktop.composer.bottom;
-        return [widthOk && Math.abs(gap - 12) <= 1 && desktop.heading === null, `composer ${px(desktop.form.width)} wide, centred on the column; ends ${px(desktop.composer.bottom)} of 800 (${px(gap)}px from the bottom); phone-only greeting wrapper absent: ${desktop.heading === null}`];
+        const paneTop = desktop.header.bottom;
+        const paneBottom = desktop.shell ? desktop.shell.bottom : 800;
+        const off = (desktop.form.top + desktop.form.bottom) / 2 - (paneTop + paneBottom) / 2;
+        return [widthOk && Math.abs(off) <= 24 && desktop.heading === null, `composer ${px(desktop.form.width)} wide, centred on the column; its centre is ${px(off)}px from the centre of the pane (${px(paneTop)}..${px(paneBottom)}); phone-only greeting wrapper absent: ${desktop.heading === null}`];
+    });
+    await check("desktop 1280x800", "new chat: the + menu floats (fixed, portalled) over the page without moving the composer", async () => {
+        const before = await geometry(wide);
+        await wide.click("#panel-chat button[aria-label='Add files and more'], #panel-chat [data-plus-button]");
+        await sleep(300);
+        const m = await wide.evaluate(() => {
+            const el = document.querySelector("[data-suggest-menu]");
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { position: getComputedStyle(el).position, parent: el.parentElement?.tagName, top: r.top, bottom: r.bottom, height: r.height };
+        });
+        const after = await geometry(wide);
+        const moved = Math.abs(after.form.top - before.form.top) + Math.abs(after.form.bottom - before.form.bottom);
+        await shot(wide, "desktop-plus-menu");
+        await wide.keyboard.press("Escape");
+        await sleep(200);
+        const closed = (await wide.$("[data-suggest-menu]")) === null;
+        return [!!m && m.position === "fixed" && m.parent === "BODY" && moved <= 0.5 && closed, `menu ${m ? `${m.position} in ${m.parent}, ${px(m.top)}..${px(m.bottom)}` : "missing"}; composer moved ${px(moved)}px; Escape closes: ${closed}`];
     });
     await wide.close();
 

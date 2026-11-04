@@ -1306,7 +1306,9 @@ export function Composer({
     useEffect(() => {
         if (!plusOpen) return;
         const onDown = (e: PointerEvent) => {
-            if (!root.current?.contains(e.target as Node)) setPlusOpen(false);
+            const target = e.target as Node;
+            if (!root.current?.contains(target) && !(target as Element).closest?.("[data-suggest-menu]"))
+                setPlusOpen(false);
         };
         document.addEventListener("pointerdown", onDown);
         return () => document.removeEventListener("pointerdown", onDown);
@@ -1907,6 +1909,7 @@ export function Composer({
             onHover={setActive}
             onPick={pick}
             sheet={phone ? root : undefined}
+            float={phone ? undefined : { anchor: surface, button: menu === "plus" ? "[data-plus-button]" : undefined }}
         />
     );
 
@@ -2008,6 +2011,7 @@ export function Composer({
                                     ) : (
                                         <ComposerButton
                                             aria-label={t("composer-add-more")}
+                                            data-plus-button=""
                                             aria-expanded={plusOpen}
                                             aria-controls={plusOpen ? menuId : undefined}
                                             data-state={plusOpen ? "open" : "closed"}

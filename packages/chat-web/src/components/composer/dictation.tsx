@@ -38,6 +38,8 @@ interface Recognition {
 type RecognitionCtor = new () => Recognition;
 
 function recognitionCtor(): RecognitionCtor | undefined {
+    // Electron exposes the constructor but ships no speech service (it needs a Google key), so it only errors.
+    if (/\bElectron\//.test(navigator.userAgent)) return undefined;
     const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
     return w.SpeechRecognition ?? w.webkitSpeechRecognition;
 }

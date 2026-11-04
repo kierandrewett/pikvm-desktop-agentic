@@ -78,9 +78,10 @@ function Body({ conversationId }: { conversationId: string | undefined }) {
     return (
         // A scroller with the thread's gutter (thread.css .thread-scroll), so a classic scrollbar costs the column the same width here.
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]">
-            <div className="thread-content mt-auto pb-[max(12px,var(--dock-safe-bottom))]">
-                <div className="thread-col flex flex-col">
-                    <h2 className="mb-6 text-center text-[length:var(--type-title2-lg,22px)] font-normal text-balance">{t("thread-home-heading")}</h2>
+            {/* my-auto centres the composer itself in the pane (the greeting hangs above it), and still scrolls when short. */}
+            <div className="thread-content my-auto py-3">
+                <div className="thread-col relative flex flex-col">
+                    <h2 className="absolute inset-x-0 bottom-full mb-6 text-center text-[length:var(--type-title2-lg,22px)] font-normal text-balance">{t("thread-home-heading")}</h2>
                     <Composer variant="home" embedded onCreated={create} />
                 </div>
             </div>

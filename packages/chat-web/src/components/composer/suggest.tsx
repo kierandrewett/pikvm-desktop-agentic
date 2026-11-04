@@ -52,6 +52,7 @@ import {
     Wrench,
 } from "@pikvm/icons";
 import { useQuery } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import {
     Fragment,
     memo,
@@ -64,6 +65,7 @@ import {
     type RefObject,
 } from "react";
 import { msg, translate } from "../../l10n/runtime";
+import { useThemeLayer } from "../../lib/theme-scope";
 import { api } from "../../lib/api";
 import { appHeight } from "../../lib/app-height";
 import { cn } from "../../lib/cn";
@@ -553,6 +555,7 @@ export function InlineMenu({
     onHover,
     onPick,
     sheet,
+    float,
 }: {
     id: string;
     label: string;
@@ -566,10 +569,17 @@ export function InlineMenu({
     onPick: (i: number) => void;
     /** Phones: the composer the sheet sits behind. The menu must be its child, positioned against it. */
     sheet?: RefObject<HTMLElement | null>;
+    /**
+     * Wide layouts: float the menu (portal, position fixed) against `anchor` (the composer surface), so no overflow
+     * ancestor clips it and it takes no room in the layout. `button` is the element a "+" menu lines up with.
+     */
+    float?: { anchor: RefObject<HTMLElement | null>; button?: string };
 }) {
     const scroller = useRef<HTMLDivElement>(null);
     const count = sections.reduce((n, s) => n + s.items.length, 0);
     const place = useSheetPlacement(sheet);
+    const floatPlace = useFloatPlacement(float, placement);
+    const layer = useThemeLayer();
 
     useLayoutEffect(() => {
         if (active >= 0) document.getElementById(`${id}-${active}`)?.scrollIntoView({ block: "nearest" });
@@ -585,19 +595,21 @@ export function InlineMenu({
     useLayoutEffect(updateFade);
 
     let index = 0;
-    return (
+    const menu = (
         <div
             data-suggest-menu
-            style={place}
+            style={float ? floatPlace : place}
             className={cn(
-                "absolute flex flex-col overflow-hidden bg-menu",
+                float ? "fixed" : "absolute",
+                "flex flex-col overflow-hidden bg-menu",
                 sheet
                     ? "z-0 rounded-t-3xl ps-[max(8px,var(--safe-left))] pe-[max(8px,var(--safe-right))] pt-2 shadow-menu"
                     : cn(
-                          "inset-x-0 z-30 max-h-[min(378px,45dvh)] rounded-2xl p-2 shadow-dropdown",
-                          placement === "below" ? "top-[calc(100%+4px)]" : "bottom-[calc(100%+4px)]",
+                          "z-50 max-h-[min(378px,45dvh)] rounded-2xl p-2 shadow-dropdown",
+                          !float && "inset-x-0",
+                          !float && (placement === "below" ? "top-[calc(100%+4px)]" : "bottom-[calc(100%+4px)]"),
                       ),
-                sheet && !place && "invisible",
+                (sheet && !place) || (float && !floatPlace) ? "invisible" : undefined,
             )}
         >
             <div
@@ -654,6 +666,48 @@ export function InlineMenu({
             )}
         </div>
     );
+    return float ? createPortal(menu, layer ?? document.body) : menu;
+}
+
+/**
+ * Floating geometry: the menu's edges follow the anchor's viewport rect (composer width, 4px off it, above or
+ * below). A "+" menu starts at its button instead. Re-measured on resize, any scroll and when the anchor changes size.
+ */
+function useFloatPlacement(
+    float: { anchor: RefObject<HTMLElement | null>; button?: string } | undefined,
+    placement: "above" | "below",
+): CSSProperties | undefined {
+    const [style, setStyle] = useState<CSSProperties>();
+    const anchor = float?.anchor;
+    const button = float?.button;
+    useLayoutEffect(() => {
+        const el = anchor?.current;
+        if (!el) return;
+        const update = () => {
+            const r = el.getBoundingClientRect();
+            const b = button ? el.querySelector(button)?.getBoundingClientRect() : undefined;
+            const left = b ? Math.max(r.left, b.left - 8) : r.left;
+            const next: CSSProperties = { left, width: b ? Math.min(r.right - left, 380) : r.width };
+            if (placement === "below") next.top = r.bottom + 4;
+            else next.bottom = innerHeight - r.top + 4;
+            setStyle((prev) =>
+                prev && prev.left === next.left && prev.width === next.width && prev.top === next.top && prev.bottom === next.bottom
+                    ? prev
+                    : next,
+            );
+        };
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        addEventListener("resize", update);
+        addEventListener("scroll", update, true);
+        return () => {
+            ro.disconnect();
+            removeEventListener("resize", update);
+            removeEventListener("scroll", update, true);
+        };
+    }, [anchor, button, placement]);
+    return anchor ? style : undefined;
 }
 
 /** Room kept above the sheet: the status bar inset plus a sliver of the page, so it reads as a sheet. */
