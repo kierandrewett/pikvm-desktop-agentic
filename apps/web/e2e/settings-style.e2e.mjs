@@ -53,7 +53,7 @@ async function seedMacros() {
 
 /**
  * A page for one profile. `ios` makes it the installed app (navigator.standalone before any script). `account` answers the
- * proxy probe like a host behind oauth2-proxy would, so the Account page is listed. The host's startViewTransition is counted.
+ * session read like a host that signs users in would, so the Account page is listed. The host's startViewTransition is counted.
  */
 async function openPage(browser, vp, theme, { ios = true, account = true, reduced = false } = {}) {
     const page = await browser.newPage();
@@ -85,8 +85,8 @@ async function openPage(browser, vp, theme, { ios = true, account = true, reduce
     if (account) {
         await page.setRequestInterception(true);
         page.on("request", (request) => {
-            if (new URL(request.url()).pathname === "/oauth2/userinfo") {
-                request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ user: "admin" }) });
+            if (new URL(request.url()).pathname === "/app/api/v1/session") {
+                request.respond({ status: 200, contentType: "application/json", body: JSON.stringify({ signIn: true, method: "password", subject: "admin", canSignOut: true }) });
             } else request.continue();
         });
     }

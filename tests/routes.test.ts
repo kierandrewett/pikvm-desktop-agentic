@@ -36,11 +36,10 @@ function marker(name: string) {
     };
 }
 
-function targets(over: { token?: string; appDir?: string; refuseLoopback?: boolean } = {}): RouteTargets {
+function targets(over: { token?: string; appDir?: string } = {}): RouteTargets {
     const kvmdSockets = new WebSocketServer({ noServer: true });
     const chatSockets = new WebSocketServer({ noServer: true });
     return {
-        ...(over.refuseLoopback ? { refuseLoopback: true } : {}),
         chat: {
             async handleRest(req: IncomingMessage, res: ServerResponse): Promise<void> {
                 res.writeHead(200, { "content-type": "text/plain", "x-target": "chat" });
@@ -632,25 +631,5 @@ test("the shared cursor stream is ours, ahead of the API, and behind the gate", 
         assert.equal(refused.status, 401);
     } finally {
         await gated.close();
-    }
-});
-
-test("behind an authenticating proxy, a loopback peer is refused, except for the public files", async () => {
-    const s = await run(targets({ refuseLoopback: true }));
-    try {
-        assert.equal((await call(s.origin, "/app/api/v1/state")).status, 403);
-        assert.equal((await call(s.origin, "/app/chat/api/conversations")).status, 403);
-        assert.equal((await call(s.origin, "/anything-kvmd-owns")).status, 403);
-        assert.equal((await call(s.origin, "/app/manifest.webmanifest")).status !== 403, true);
-        assert.equal(await socket(s.origin, "/app/chat/ws"), "error socket hang up");
-    } finally {
-        await s.close();
-    }
-    // The proxy itself arrives from another address.
-    const remote = await run(targets({ refuseLoopback: true }), true);
-    try {
-        assert.equal((await call(remote.origin, "/app/api/v1/state")).target, "api");
-    } finally {
-        await remote.close();
     }
 });

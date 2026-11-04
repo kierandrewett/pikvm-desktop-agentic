@@ -13,9 +13,14 @@ export function json(res: ServerResponse, status: number, body: unknown): void {
     res.end(JSON.stringify(body));
 }
 
-/** The request body as text. For the small form posts the sign-in uses. */
-export async function readBody(req: IncomingMessage): Promise<string> {
+/** The request body as text, at most `limit` bytes (a longer one throws). For the small form posts the sign-in uses. */
+export async function readBody(req: IncomingMessage, limit = 1 << 20): Promise<string> {
     const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
+    let size = 0;
+    for await (const chunk of req) {
+        size += (chunk as Buffer).length;
+        if (size > limit) throw new Error("Request body too large");
+        chunks.push(chunk as Buffer);
+    }
     return Buffer.concat(chunks).toString("utf-8");
 }

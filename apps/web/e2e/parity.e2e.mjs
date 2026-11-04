@@ -53,8 +53,8 @@ async function newPage(browser, tag, init) {
     });
     page.on("pageerror", (e) => logs.push(`pageerror: ${e.message}`));
     page.on("response", (r) => {
-        // The worker's own "can't reach the KVM" page is a 503 by design, and Settings' proxy check 404s on a host with no proxy.
-        if (r.status() >= 400 && !/\/oauth2\/userinfo$/.test(r.url()) && !(r.status() === 503 && r.fromServiceWorker())) logs.push(`error: ${r.status()} ${r.url()}`);
+        // The worker's own "can't reach the KVM" page is a 503 by design.
+        if (r.status() >= 400 && !(r.status() === 503 && r.fromServiceWorker())) logs.push(`error: ${r.status()} ${r.url()}`);
     });
     if (tag === "phone") await page.emulate(puppeteer.KnownDevices["iPhone 13"]);
     else await page.setViewport({ width: 1400, height: 900 });

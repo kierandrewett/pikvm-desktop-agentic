@@ -92,7 +92,7 @@ jobs:
       - name: The image starts read-only as an unprivileged user and answers its healthcheck
         run: |
           docker run -d --name kvm --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
-            -e PIKVM_URL=http://127.0.0.1:9 -e PIKVM_PASSWORD=x -e PIKVM_AUTH=proxy -p 127.0.0.1:8080:8080 pikvm-kvm:ci
+            -e PIKVM_URL=http://127.0.0.1:9 -e PIKVM_PASSWORD=x -e PIKVM_ACCESS_TOKEN=ci-smoke-token-0123456789abcdef -p 127.0.0.1:8080:8080 pikvm-kvm:ci
           for _ in $(seq 30); do
             curl -fsS -o /dev/null http://127.0.0.1:8080/app/login && exit 0
             sleep 1

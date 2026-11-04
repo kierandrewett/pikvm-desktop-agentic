@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
+import type { SessionView } from "@pikvm/contracts/api";
 import { createManualClock } from "@pikvm/kvm-engine";
 import { FakeHttp, FakeSocketHub } from "@pikvm/kvm-engine/testing";
 import { createAppRouter } from "../app/router";
@@ -67,8 +68,8 @@ export interface ServerState {
     pikvmWriteError: string;
     /** When set, PATCH /settings waits for it, so a test can look at the in-flight state. */
     patchGate: Promise<void> | undefined;
-    /** What HEAD /oauth2/userinfo answers: a status and content type, or a network failure. */
-    userinfo: { status: number; contentType: string } | "network-error";
+    /** What GET /app/api/v1/session answers: whether this host signs users in, and who is signed in. */
+    session: SessionView;
     /** Whether the chat server found its agent program, and why not. */
     agent: { found: boolean; reason?: string };
 }
@@ -101,7 +102,7 @@ export const defaultServer = (): ServerState => ({
     pikvmWriteStatus: 200,
     pikvmWriteError: "",
     patchGate: undefined,
-    userinfo: { status: 404, contentType: "text/plain" },
+    session: { signIn: false },
     agent: { found: true },
 });
 
@@ -130,13 +131,7 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
             const body = decodeBody(init?.body ?? (request ? await request.text() : undefined));
             requests.push({ method, path: url.pathname, body });
 
-            if (url.pathname === "/oauth2/userinfo") {
-                if (server.userinfo === "network-error") throw new TypeError("network");
-                return new Response(null, {
-                    status: server.userinfo.status,
-                    headers: { "content-type": server.userinfo.contentType },
-                });
-            }
+            if (url.pathname === "/app/api/v1/session") return json(200, server.session);
             if (url.pathname === "/app/api/v1/state") {
                 if (server.stateStatus !== 200) return json(server.stateStatus, { error: "state is down" });
                 return json(200, {

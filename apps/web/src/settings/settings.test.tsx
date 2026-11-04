@@ -20,8 +20,8 @@
  *
  * Read-only pages
  * 12. Link state shown as connected when the server says otherwise.
- * 13. Account appears on a host that is not behind the proxy (an HTML 200 for an unknown
- *     path counts as "no"), or the check failing the page.
+ * 13. Account appears only on a host that signs users in (session says signIn: true), and its sign-out link
+ *     follows canSignOut.
  * 14. (Macros are the KVM's own manager; its failure modes are in macros-page.test.tsx.)
  *
  * Navigation
@@ -939,38 +939,54 @@ describe("connection: the switch", () => {
 });
 
 describe("account", () => {
-    it("is absent from the list when the host is not behind the proxy", async () => {
+    it("is absent from the list when the host does not sign users in", async () => {
+        server.session = { signIn: false };
         renderApp("/settings", { compact: true });
         await screen.findByRole("link", { name: "About" });
+        await waitFor(() => expect(requests.some((r) => r.path === "/app/api/v1/session")).toBe(true));
         expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
     });
 
-    it("treats an HTML 200 for the unknown path as no proxy", async () => {
-        server.userinfo = { status: 200, contentType: "text/html; charset=utf-8" };
+    it.each([
+        ["token", "access token", "With the access token."],
+        ["password", "admin", "With your password."],
+        ["oidc", "sub-123", "Through your identity provider."],
+        ["bearer", "access token", "With a header credential."],
+        ["basic", "admin", "With a header credential."],
+    ] as const)("shows who is signed in and how, for %s", async (method, subject, wording) => {
+        server.session = { signIn: true, method, subject, canSignOut: method !== "bearer" && method !== "basic" };
+        const user = userEvent.setup();
         renderApp("/settings", { compact: true });
-        await screen.findByRole("link", { name: "About" });
-        await waitFor(() => expect(requests.some((r) => r.path === "/oauth2/userinfo")).toBe(true));
-        expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
+        await user.click(await screen.findByRole("link", { name: "Account" }));
+        expect(await screen.findByText(`Signed in as ${subject}`)).toBeInTheDocument();
+        expect(screen.getByText(wording)).toBeInTheDocument();
     });
 
-    it("treats a failed check as no proxy rather than an error", async () => {
-        server.userinfo = "network-error";
-        renderApp("/settings", { compact: true });
-        await screen.findByRole("link", { name: "About" });
-        await waitFor(() => expect(requests.some((r) => r.path === "/oauth2/userinfo")).toBe(true));
-        expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
-        expect(screen.queryByRole("alert")).toBeNull();
-    });
-
-    it("appears with a sign-out link when the proxy answers with JSON", async () => {
-        server.userinfo = { status: 200, contentType: "application/json" };
+    it("links Sign out to the app's logout when the session can end", async () => {
+        server.session = { signIn: true, method: "password", subject: "admin", canSignOut: true };
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
         await user.click(await screen.findByRole("link", { name: "Account" }));
         const signOut = await screen.findByRole("link", { name: "Sign out" });
-        expect(signOut).toHaveAttribute("href", "/oauth2/sign_out");
-        const probe = requests.find((request) => request.path === "/oauth2/userinfo");
-        expect(probe?.method).toBe("HEAD");
+        expect(signOut).toHaveAttribute("href", "/app/logout");
+    });
+
+    it("offers no sign-out when the sign-in has no session to end", async () => {
+        server.session = { signIn: true, method: "bearer", subject: "access token", canSignOut: false };
+        const user = userEvent.setup();
+        renderApp("/settings", { compact: true });
+        await user.click(await screen.findByRole("link", { name: "Account" }));
+        expect(await screen.findByText("This sign-in has no session to end.")).toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "Sign out" })).toBeNull();
+    });
+
+    it("never asks the proxy paths for anything", async () => {
+        server.session = { signIn: true, method: "token", subject: "access token", canSignOut: true };
+        const user = userEvent.setup();
+        renderApp("/settings", { compact: true });
+        await user.click(await screen.findByRole("link", { name: "Account" }));
+        await screen.findByRole("link", { name: "Sign out" });
+        expect(requests.some((r) => r.path.startsWith("/oauth2"))).toBe(false);
     });
 });
 

@@ -103,7 +103,7 @@ async function openPage(browser, tag, stack) {
     });
     page.on("response", async (r) => {
         const url = r.url();
-        if (r.status() >= 400 && !/\/oauth2\/userinfo$/.test(url)) seen.failed.push(`${r.status()} ${r.request().method()} ${url}`);
+        if (r.status() >= 400) seen.failed.push(`${r.status()} ${r.request().method()} ${url}`);
         const type = r.headers()["content-type"] ?? "";
         if (/event-stream|video|multipart/.test(type) || /\/streamer\/|\/janus\//.test(url)) return;
         try {
@@ -877,7 +877,7 @@ async function run(browser, label, tag, index) {
             ];
         });
 
-        await check("no page error, and no failed request except the login-proxy probe", async () => {
+        await check("no page error, and no failed request", async () => {
             const bad = [...seen.logs, ...seen.failed];
             return [bad.length === 0, bad.join(" | ") || "clean"];
         });

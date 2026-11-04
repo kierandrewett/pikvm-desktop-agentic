@@ -15,6 +15,7 @@ cd "$(dirname "$0")/../.."
 IMAGE=${KVM_IMAGE:-pikvm-kvm:local}
 export KVM_HOST_PORT=${KVM_HOST_PORT:-18080} FAKE_KVMD_PORT=${FAKE_KVMD_PORT:-14510} FAKE_MODEL_PORT=${FAKE_MODEL_PORT:-19090} FAKE_PUSH_PORT=${FAKE_PUSH_PORT:-14720} FAKE_OPENROUTER_PORT=${FAKE_OPENROUTER_PORT:-14730}
 UID_=${E2E_UID:-1000}
+TOKEN=${E2E_TOKEN:-e2e-access-token-0123456789abcdef}   # the host's sign-in: `Authorization: Bearer`, or the form (the https PIKVM_PUBLIC_URL lets it through this plain-http port)
 P=${E2E_PROJECT:-pikvm-e2e}   # a second run beside the first needs its own project, ports (KVM_HOST_PORT, FAKE_*_PORT) and E2E_DATA
 DATA=${E2E_DATA:-$HOME/.cache/pikvm-e2e/image-data}
 compose() { podman compose -p $P -f deploy/e2e/compose.yml "$@"; }
@@ -25,10 +26,11 @@ up)
     podman rm -f ${P}-kvm >/dev/null 2>&1 || true
     podman run -d --name ${P}-kvm --network ${P}_kvm-internal --network-alias kvm \
         --userns=keep-id:uid=$UID_,gid=$UID_ --user $UID_:$UID_ ${E2E_ENV_FILE:+--env-file $E2E_ENV_FILE} --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --security-opt label=disable \
-        -e PIKVM_URL=http://fake-kvmd:4510 -e PIKVM_USER=admin -e PIKVM_PASSWORD=anything -e PIKVM_AUTH=proxy -e PORT=8080 \
+        -e PIKVM_URL=http://fake-kvmd:4510 -e PIKVM_USER=admin -e PIKVM_PASSWORD=anything -e PIKVM_ACCESS_TOKEN=$TOKEN -e PIKVM_PUBLIC_URL=https://kvm.e2e.test -e PORT=8080 \
         -p "127.0.0.1:$KVM_HOST_PORT:8080" -v "$DATA:/data" "$IMAGE" >&2
     for _ in $(seq 60); do curl -fsS -o /dev/null "http://127.0.0.1:$KVM_HOST_PORT/app/manifest.webmanifest" 2>/dev/null && break; sleep 1; done
     echo "E2E_WEB=http://127.0.0.1:$KVM_HOST_PORT"
+    echo "E2E_TOKEN=$TOKEN"
     echo "E2E_KVMD=http://127.0.0.1:$FAKE_KVMD_PORT"
     echo "E2E_MODEL=http://127.0.0.1:$FAKE_MODEL_PORT"
     echo "E2E_MODEL_URL=http://fake-model:9000/v1"

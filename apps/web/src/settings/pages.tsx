@@ -95,14 +95,13 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
                 component: AudioPage,
                 available: audioDevicesSupported,
             },
-            // The Account page is added by the list itself once the host proves it sits behind
-            // the proxy; see SettingsList.
+            // The Account page is added by the list itself when the host signs users in; see SettingsList.
             { id: "about", title: "About", icon: Info, component: AboutPage },
         ],
     },
 ];
 
-/** Shown only behind oauth2-proxy, so it is not part of the static table. */
+/** Shown only when the host signs users in, so it is not part of the static table. */
 export const ACCOUNT_PAGE: SettingsPageDef = {
     id: "account",
     title: "Account",

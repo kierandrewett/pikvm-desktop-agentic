@@ -1,18 +1,27 @@
 import { Button, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
-import { OAUTH_SIGN_OUT_PATH } from "../../host/paths";
-import { useProxySession } from "../../api/queries";
+import type { SessionView } from "@pikvm/contracts/api";
+import { useSession } from "../../api/queries";
+
+/** How the request got in, in the words a person would use for it. */
+const METHOD_WORDING: Record<NonNullable<SessionView["method"]>, string> = {
+    token: "With the access token.",
+    password: "With your password.",
+    oidc: "Through your identity provider.",
+    bearer: "With a header credential.",
+    basic: "With a header credential.",
+};
 
 export function AccountPage() {
-    const session = useProxySession();
+    const session = useSession();
 
-    if (!session.data) {
+    if (session.data?.signIn !== true) {
         return (
             <SettingsPage title="Account">
                 <SettingsSection>
                     <SettingsCard>
                         <SettingRow
-                            label="Not signed in through a proxy"
-                            description="This host has no sign-in proxy. There is nothing to sign out of."
+                            label="No sign-in on this host"
+                            description="This host does not sign users in. There is nothing to sign out of."
                         />
                     </SettingsCard>
                 </SettingsSection>
@@ -20,19 +29,29 @@ export function AccountPage() {
         );
     }
 
+    const { subject, method, canSignOut } = session.data;
+
     return (
         <SettingsPage title="Account" description="The sign-in for this host.">
             <SettingsSection>
                 <SettingsCard>
                     <SettingRow
-                        label="Sign out"
-                        description="You must sign in again to use the app."
-                        control={
-                            <Button variant="danger" asChild>
-                                <a href={OAUTH_SIGN_OUT_PATH}>Sign out</a>
-                            </Button>
-                        }
+                        label={`Signed in as ${subject ?? "unknown"}`}
+                        description={method ? METHOD_WORDING[method] : undefined}
                     />
+                    {canSignOut ? (
+                        <SettingRow
+                            label="Sign out"
+                            description="You must sign in again to use the app."
+                            control={
+                                <Button variant="danger" asChild>
+                                    <a href="/app/logout">Sign out</a>
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <SettingRow label="This sign-in has no session to end." />
+                    )}
                 </SettingsCard>
             </SettingsSection>
         </SettingsPage>

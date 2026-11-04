@@ -19,16 +19,15 @@ export const SESSION_COOKIE = "__agent_session";
 
 /** Paths that never need a session, token or not.
  *
- *  The sign-in endpoints must be reachable to sign in. The PWA files are public
- *  because the sign-in page itself links its icon and manifest, and a browser
- *  fetches the manifest and the service worker without credentials: behind the
- *  gate they answered 401, so the installed app had no icon until it was already
- *  signed in. None of them carries anything private (icons, a manifest, a
- *  script that only caches). An authenticating reverse proxy in front must skip
- *  the same list; the README names it. */
+ *  The sign-in endpoints must be reachable to sign in (the web host's OpenID Connect callback included). The PWA
+ *  files are public because the sign-in page itself links its icon and manifest, and a browser fetches the manifest
+ *  and the service worker without credentials: behind the gate they answered 401, so the installed app had no icon
+ *  until it was already signed in. None of them carries anything private (icons, a manifest, a script that only
+ *  caches). */
 export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
     "/app/login": true,
     "/app/auth": true,
+    "/app/auth/callback": true,
     "/app/logout": true,
     "/app/manifest.webmanifest": true,
     "/app/sw.js": true,
@@ -41,14 +40,12 @@ export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
 };
 
 /** The launch-splash images (apps/web/startup-images.ts): iOS fetches them for a home-screen app without the
- *  session cookie, like the icon. A pattern, not a list, so a new screen size needs no change here. A proxy in front
- *  skips `^/app/splash/apple-splash-[a-z]+-[23]x-[0-9]+x[0-9]+\.png$`. */
+ *  session cookie, like the icon. A pattern, not a list, so a new screen size needs no change here. */
 const SPLASH_IMAGE = /^\/app\/splash\/apple-splash-(?:portrait|landscape)-[23]x-\d+x\d+\.png$/;
 
 /** The icon names iOS asks for at the site root when it has no page to read `<link rel="apple-touch-icon">` from:
- *  Firefox for iOS's Add to Home Screen hands iOS an empty web view, so iOS falls back to these (seen in the proxy log:
- *  `/apple-touch-icon-240x240-precomposed.png`, `/apple-touch-icon.png`, `/favicon.ico`, some without the session).
- *  A proxy in front skips `^/(apple-touch-icon(-[0-9]+x[0-9]+)?(-precomposed)?\.png|favicon\.ico)$`. */
+ *  Firefox for iOS's Add to Home Screen hands iOS an empty web view, so iOS falls back to these
+ *  (`/apple-touch-icon-240x240-precomposed.png`, `/apple-touch-icon.png`, `/favicon.ico`, some without the session). */
 export const ROOT_ICON = /^\/(?:apple-touch-icon(?:-\d+x\d+)?(?:-precomposed)?\.png|favicon\.ico)$/;
 
 export function isPublicPath(path: string): boolean {
@@ -66,11 +63,20 @@ export function isLoopback(req: IncomingMessage): boolean {
     return a === "127.0.0.1" || a === "::1" || a === "::ffff:127.0.0.1";
 }
 
-function parseCookies(header: string | undefined): Record<string, string> {
+/** The request's cookies by name. A value that is not valid percent-encoding is kept as sent, never thrown. */
+export function parseCookies(header: string | undefined): Record<string, string> {
     const out: Record<string, string> = {};
     for (const part of (header ?? "").split(";")) {
         const i = part.indexOf("=");
-        if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+        if (i <= 0) continue;
+        const raw = part.slice(i + 1).trim();
+        let value = raw;
+        try {
+            value = decodeURIComponent(raw);
+        } catch {
+            /* keep the raw text */
+        }
+        out[part.slice(0, i).trim()] = value;
     }
     return out;
 }
@@ -111,14 +117,14 @@ export type GateVerdict =
 /** The gate. `path` is the request's pathname, already parsed by the caller.
  *
  *  Loopback is exempt because the desktop app talks to itself over it. That is
- *  only safe against processes on the machine. It also means a reverse proxy on
- *  the same host defeats the gate; the web host therefore refuses a non-loopback
- *  bind unless an authenticating proxy is declared (src/web-server.ts). */
+ *  only safe against processes on the machine. The headless web host does not use this gate for its own sign-in:
+ *  it has none of this exemption (src/server/web-auth), and refuses to bind beyond loopback with no sign-in method
+ *  configured (src/web-server.ts). */
 export function gate(req: IncomingMessage, path: string, token: string): GateVerdict {
     if (!token || isPublicPath(path)) return "allow";
     // A bearer token that is presented is checked everywhere, loopback included: a TLS reverse proxy on this host makes
     // every remote request look like loopback, and the probe of a saved server relies on a wrong token being refused.
-    // Other schemes (a proxy's own Basic credentials) are not ours to judge and keep the loopback exemption below.
+    // Any other credential keeps the loopback exemption below.
     if (String(req.headers.authorization ?? "").startsWith("Bearer ")) return isAuthed(req, token) ? "allow" : "deny";
     if (isLoopback(req) || isAuthed(req, token)) return "allow";
     return String(req.headers.accept ?? "").includes("text/html") ? "login" : "deny";
@@ -129,12 +135,9 @@ export function gate(req: IncomingMessage, path: string, token: string): GateVer
 export interface SyncBearer {
     token: string;
     allowHttp: boolean;
-}
-
-/** Is this request presenting `Authorization: Bearer`? Only the bearer scheme is judged here; anything else is left to
- *  the gate (a proxy's own Basic credentials, for one). */
-export function presentsBearer(req: IncomingMessage): boolean {
-    return String(req.headers.authorization ?? "").startsWith("Bearer ");
+    /** Is this request on a connection a secret may cross: https as far as the host can tell (src/server/web-auth),
+     *  or a peer on this machine? Left out, only a loopback peer counts. */
+    secureTransport?: (req: IncomingMessage) => boolean;
 }
 
 /** The decision for a request that presents a bearer, on the web host. It is stricter than the desktop's gate:
@@ -143,13 +146,15 @@ export function presentsBearer(req: IncomingMessage): boolean {
  *  - no loopback exemption: a reverse proxy on this host makes every remote request look like loopback;
  *  - a request carrying an `Origin` that is not this host's own is a browser page and is refused, since a page on
  *    another site must never be able to ride a bearer the user holds;
- *  - the peer is not loopback and the request is plain http: refused unless `allowHttp`, so a token never crosses a network in clear;
+ *  - the connection is not one a secret may cross (plain http from a peer that is not this machine, see `secureTransport`):
+ *    refused unless `allowHttp`, so a token never crosses a network in clear;
  *  - with no token configured, every bearer is refused.
  *
  *  The token is never echoed: the caller answers with a status only. */
 export function bearerVerdict(req: IncomingMessage, bearer: SyncBearer): "allow" | "deny" {
     if (!bearer.token) return "deny";
-    if (!isLoopback(req) && !bearer.allowHttp) return "deny";
+    const secure = bearer.secureTransport ? bearer.secureTransport(req) : isLoopback(req);
+    if (!secure && !bearer.allowHttp) return "deny";
     if (req.headers.origin !== undefined && !sameOrigin(req)) return "deny";
     const presented = String(req.headers.authorization ?? "").slice("Bearer ".length);
     return tokenMatches(presented, bearer.token) ? "allow" : "deny";
@@ -177,13 +182,86 @@ export function sameOrigin(req: IncomingMessage): boolean {
     return seen.includes(host);
 }
 
+export interface LoginOptions {
+    /** Show the user name and password form. */
+    password?: boolean;
+    /** Show the access-token form. */
+    token?: boolean;
+    /** Show "Sign in with <host>", a link that starts the OpenID Connect flow; the value is the provider's host. */
+    oidcHost?: string;
+    /** The sentence shown when `error` is set. Default: the desktop's wrong-token notice. */
+    errorText?: string;
+    /** Where to go after signing in. A same-site path: the caller has already checked it. */
+    next?: string;
+}
+
+const HTML_ESCAPES: Readonly<Record<string, string>> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+};
+const esc = (text: string): string => text.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
+
 /**
  * Dark, mobile-first login page. Part of the installable PWA shell (theme +
  * apple-* meta + manifest), so a phone that launches the app to a logged-out
  * state still gets the themed, standalone, safe-area-aware screen. `error` shows
- * a wrong-token notice; `signedOut` confirms a logout.
+ * a failed-sign-in notice; `signedOut` confirms a logout.
+ *
+ * `opts` says which ways in the page offers. Left out, it is the desktop's page: one field for the access token.
+ * The web host passes the methods it has configured (src/server/web-auth). No script is needed.
  */
-export function loginPage(error = false, signedOut = false): string {
+export function loginPage(error = false, signedOut = false, opts: LoginOptions = { token: true }): string {
+    const password = opts.password === true;
+    const token = opts.token === true;
+    const oidcHost = opts.oidcHost;
+    // With one form and nothing else, the notice sits between its last field and its button, tied to that field.
+    const errorInForm = (password ? 1 : 0) + (token ? 1 : 0) === 1 && !oidcHost;
+    const notice = error
+        ? `<div class="note err" id="signin-error" role="alert">${esc(opts.errorText ?? "Wrong token. Try again.")}</div>`
+        : "";
+    const invalid = error && errorInForm ? ' aria-invalid="true" aria-describedby="signin-error"' : "";
+    const next = opts.next ? `<input type="hidden" name="next" value="${esc(opts.next)}">` : "";
+    let focus = " autofocus";
+    const takeFocus = (): string => {
+        const attr = focus;
+        focus = "";
+        return attr;
+    };
+
+    const sections: string[] = [];
+    if (oidcHost) {
+        const query = opts.next ? `?next=${encodeURIComponent(opts.next)}` : "";
+        sections.push(`<a class="btn" href="/app/auth${esc(query)}">Sign in with ${esc(oidcHost)}</a>`);
+    }
+    if (password) {
+        sections.push(`<form method="POST" action="/app/auth">
+    ${next}
+    <label for="u">User name</label>
+    <input id="u" name="user" type="text" autocomplete="username"
+      autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next"${takeFocus()}>
+    <label for="p">Password</label>
+    <input id="p" name="password" type="password" autocomplete="current-password"
+      autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go"${invalid}>
+    ${errorInForm ? notice : ""}
+    <button type="submit">Sign in</button>
+  </form>`);
+    }
+    if (token) {
+        sections.push(`<form method="POST" action="/app/auth">
+    ${next}
+    <label for="t">Access token</label>
+    <input id="t" name="token" type="password" autocomplete="current-password"
+      autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go"${takeFocus()}
+      ${invalid}>
+    ${errorInForm ? notice : ""}
+    <button type="submit">Sign in</button>
+  </form>`);
+    }
+    const intro = token && !password && !oidcHost ? "Enter the access token to use this server." : "Sign in to use this server.";
+
     return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -202,40 +280,38 @@ export function loginPage(error = false, signedOut = false): string {
   body{margin:0;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;
     padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
     background:#0b0d12;color:#e7e9ee;font-family:-apple-system,system-ui,"Segoe UI",sans-serif}
-  form{width:min(360px,100%);padding:28px;border:1px solid #232838;border-radius:16px;background:#11141c}
+  .card{width:min(360px,100%);padding:28px;border:1px solid #232838;border-radius:16px;background:#11141c}
   .logo{display:block;width:52px;height:52px;margin:0 auto 14px;border-radius:13px}
   h1{margin:0 0 4px;font-size:18px;text-align:center}
   p{margin:0 0 18px;font-size:13px;color:#8b90a0;text-align:center}
-  label{display:block;font-size:12px;color:#8b90a0;margin-bottom:6px}
+  label{display:block;font-size:12px;color:#8b90a0;margin:12px 0 6px}
+  form>label:first-of-type{margin-top:0}
   input{width:100%;padding:11px 12px;border-radius:10px;border:1px solid #2a3042;background:#0b0d12;
     color:#e7e9ee;font-size:16px;outline:none}
   input:focus{border-color:#3b6ef0}
-  button{margin-top:14px;width:100%;padding:12px;border:0;border-radius:10px;background:#3b6ef0;
+  button,.btn{margin-top:14px;width:100%;padding:12px;border:0;border-radius:10px;background:#3b6ef0;
     color:#fff;font-size:15px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .btn{display:block;margin-top:0;text-align:center;text-decoration:none}
+  hr{margin:20px 0;border:0;border-top:1px solid #232838}
   .note{margin-top:12px;font-size:13px;text-align:center}
   .err{color:#f97583}
   .ok{color:#56d364}
   /* The error sits between the field and the button, so the button's own
      margin would double up with the note's. Keep the rhythm the page had. */
   .err+button{margin-top:12px}
-  /* Say which field is wrong in more than words: the token input is the only
-     thing on the page, and a red sentence near it is worth nothing to anyone
-     who cannot see the colour or the proximity. */
+  /* Say which field is wrong in more than words: a red sentence near it is
+     worth nothing to anyone who cannot see the colour or the proximity. */
   input[aria-invalid="true"]{border-color:#f97583}
   input[aria-invalid="true"]:focus{border-color:#f97583}
 </style></head>
 <body>
-  <form method="POST" action="/app/auth">
+  <main class="card">
     <img class="logo" src="/app/icon.png" alt="" width="52" height="52">
     <h1>PiKVM Agent</h1>
-    <p>Enter the access token to use this server.</p>
-    <label for="t">Access token</label>
-    <input id="t" name="token" type="password" autocomplete="current-password"
-      autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" autofocus
-      ${error ? 'aria-invalid="true" aria-describedby="signin-error"' : ""}>
-    ${error ? '<div class="note err" id="signin-error" role="alert">Wrong token. Try again.</div>' : ""}
-    <button type="submit">Sign in</button>
+    <p>${intro}</p>
+    ${error && !errorInForm ? notice : ""}
+    ${sections.join("\n  <hr>\n  ")}
     ${signedOut && !error ? '<div class="note ok" role="status">Signed out.</div>' : ""}
-  </form>
+  </main>
 </body></html>`;
 }

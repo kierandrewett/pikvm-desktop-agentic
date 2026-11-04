@@ -16,11 +16,11 @@ yarn workspace @pikvm/web dev        # http://localhost:5173/app/
 
 The dev server forwards what it cannot serve itself to the host, so dev behaves like the real
 origin (same paths, same cookies, no CORS): `/app/api`, `/app/legacy`,
-`/app/chat/api`, `/app/chat/ws`, `/api` (WebSocket too), `/streamer`, `/janus` and `/oauth2`. Point it at a
+`/app/chat/api`, `/app/chat/ws`, `/api` (WebSocket too), `/streamer` and `/janus`. Point it at a
 different host with `PIKVM_WEB_HOST=http://127.0.0.1:9000 yarn workspace @pikvm/web dev`.
 
 Chat talks to the chat server inside the host at `/app/chat` and needs no frame. The KVM screen talks to kvmd
-through the host (`/api/ws`, `/streamer`, `/janus/ws`). Without a host behind the proxy the shell,
+through the host (`/api/ws`, `/streamer`, `/janus/ws`). Without a host the shell,
 navigation and Settings still load; their data shows its error state.
 
 ## Build and check
@@ -60,8 +60,8 @@ src/styles.css          tokens (the desktop app's palette) and component classes
 - **Audio** devices are listed through `navigator.mediaDevices` and stored under the console's
   `pikvm-console-mic-device` / `pikvm-console-speaker-device` keys. The page is absent in
   browsers that cannot enumerate devices.
-- **Account** appears only when `HEAD /oauth2/userinfo` answers with a non-HTML success, i.e. the
-  host sits behind oauth2-proxy. Its sign-out link is `/oauth2/sign_out`.
+- **Account** appears only when `GET /app/api/v1/session` says `signIn: true`. Its sign-out link is
+  `/app/logout`, shown only when the session says `canSignOut`.
 - **Phone layout** is chosen by `(pointer: coarse), (max-width: 719px)`. The bottom bar hides
   while the soft keyboard is up, judged from `visualViewport` the way the console does: more
   than 150px lost from the tallest height seen since the last orientation change.

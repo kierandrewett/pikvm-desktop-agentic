@@ -25,7 +25,7 @@ import {
     SettingsSection,
 } from "@pikvm/chat-web/settings";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useProxySession } from "../api/queries";
+import { useSession } from "../api/queries";
 import { COMPACT_QUERY, useMediaQuery } from "../app/viewport";
 import { useEdgeSwipeBack } from "./edge-swipe";
 import { ACCOUNT_PAGE, findPage, SETTINGS_GROUPS, type SettingsGroupDef } from "./pages";
@@ -78,8 +78,8 @@ function useSlide(compact: boolean) {
 }
 
 function SettingsList({ selected, compact }: { selected: string | undefined; compact: boolean }) {
-    const session = useProxySession();
-    const groups = visibleGroups(session.data === true);
+    const session = useSession();
+    const groups = visibleGroups(session.data?.signIn === true);
     const slide = useSlide(compact);
 
     return (

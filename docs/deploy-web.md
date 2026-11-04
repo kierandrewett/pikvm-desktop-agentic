@@ -7,9 +7,9 @@ reaches the PiKVM only through the host's own tools.
 
 ```mermaid
 flowchart LR
-    phone[Browser or PWA] --> caddy[Caddy, private route]
-    caddy --> proxy[kvm-oauth2-proxy]
-    proxy -->|kvm-internal network only| kvm[kvm: host + chat server + omp]
+    phone[Browser or PWA] --> caddy[Caddy, TLS]
+    caddy -->|reverse_proxy kvm:8080| kvm[kvm: sign-in + host + chat server + omp]
+    kvm -.->|OIDC, optional| pocket[Pocket ID]
     kvm --> pi[PiKVM]
     kvm -->|API keys set in Settings| models[Model providers]
 ```
@@ -49,9 +49,13 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_URL` | yes | The PiKVM, e.g. `https://pikvm.example.ts.net`. |
 | `PIKVM_USER` | no | kvmd user (default `admin`). |
 | `PIKVM_PASSWORD` | yes | kvmd password. Held by the host only; never in the agent's environment, files or prompt. |
-| `PIKVM_AUTH` | for `HOST=0.0.0.0` | `proxy`: an authenticating proxy is in front. The image sets `HOST=0.0.0.0`, so this is required in practice. |
-| `PIKVM_ACCESS_TOKEN` | no | Bearer token for a remote PiKVM Desktop or CLI using this host as its server. A request with `Authorization: Bearer <token>` is accepted only with this exact token, and a wrong one gets 401. Unset: every bearer is refused, browsers are unaffected. See "Using this host as a server" below. |
+| `PIKVM_ACCESS_TOKEN` | one method needed | Sign-in method 1, the access token: `Authorization: Bearer <token>` for a remote PiKVM Desktop or a script, and a token field on the sign-in page. A wrong bearer gets 401; unset, every bearer is refused. |
 | `PIKVM_SYNC_ALLOW_HTTP` | no | `1` accepts a bearer over plain http from a non-loopback peer. Default: refused, so a token never crosses a network in clear. |
+| `PIKVM_LOGIN_USER`, `PIKVM_LOGIN_PASSWORD_HASH` or `PIKVM_LOGIN_PASSWORD` | one method needed | Sign-in method 2, a password: the user name and an scrypt hash (`node dist/web-server.js --hash-password`) or the plain password. |
+| `PIKVM_OIDC_ISSUER`, `PIKVM_OIDC_CLIENT_ID`, `PIKVM_OIDC_CLIENT_SECRET`, `PIKVM_OIDC_SCOPES`, `PIKVM_OIDC_ALLOWED_GROUPS`, `PIKVM_OIDC_ALLOWED_EMAILS`, `PIKVM_OIDC_ALLOWED_SUBJECTS` | one method needed | Sign-in method 3, OpenID Connect, with `PIKVM_PUBLIC_URL`. Every variable is explained under "Running it". |
+| `PIKVM_PUBLIC_URL` | for OIDC | The https origin users see, e.g. `https://kvm.example.com`; the OIDC redirect URI is `<PIKVM_PUBLIC_URL>/app/auth/callback`. An https value also marks the session cookie `Secure` and lets the password and token forms through. |
+| `PIKVM_TRUST_PROXY` | no | `1`: believe `X-Forwarded-Proto` and the last `X-Forwarded-For` hop from the reverse proxy in front. Unset: those headers are ignored. |
+| `PIKVM_SESSION_SECRET` | no | At least 32 characters, the key that signs session cookies. Unset: a random one is kept in `<PIKVM_DATA_DIR>/session-secret`. |
 | `PORT` | no | Listen port (default `8080`). |
 | `PIKVM_DATA_DIR` | no | The data volume (image default `/data`). |
 | `PIKVM_KEYBOARD_LAYOUT`, `PIKVM_JIGGLER` | no | As before. |
@@ -162,8 +166,8 @@ Web Push works on iOS 16.4 and later **only for the app added to the Home Screen
 tab. Add it (Safari, Share, Add to Home Screen), open it from the icon, go to Settings, Notifications and switch it on: the
 permission prompt comes from that tap. An app added before this feature existed does not need adding again; open it once so the
 new worker (`/app/sw.js`) installs. If the page says notifications are blocked, turn them on in the iPhone's Settings,
-Notifications, PiKVM. Behind oauth2-proxy nothing new is public: the worker was already the one skipped route, and the push
-reaches it from Apple, not through the proxy. The host must be able to reach the push services (`web.push.apple.com`,
+Notifications, PiKVM. Nothing new is public: the worker was already a public path, and the push reaches it from Apple, not
+through the host's sign-in. The host must be able to reach the push services (`web.push.apple.com`,
 `fcm.googleapis.com`) over https.
 
 ### Switching it off
@@ -176,34 +180,115 @@ reaches it from Apple, not through the proxy. The host must be able to reach the
 
 ## Running it
 
-The host has no login of its own, so run it behind an authenticating reverse proxy (oauth2-proxy with your identity provider,
-Authelia, or similar) and make that proxy the only route to it. A layout that works:
+The host signs users in itself. There is no proxy or identity gateway to run in front of it, and none is needed for sign-in. A TLS
+reverse proxy (Caddy, below) is still how you get https, and the host needs https for passwords and tokens to travel (see
+"Where a secret may travel").
 
-- one Docker network (`kvm-internal` below) shared by the proxy and the host, with nothing else published: the host's port
-  is never mapped to the machine's own interfaces;
-- the proxy terminates TLS (or sits behind something that does) and forwards to `http://kvm:8080` with the original `Host`
-  header intact;
-- the proxy lets the few paths a browser fetches without a session through unauthenticated (the web manifest, the service
-  worker, the app icons and the iPhone launch images; the exact list is under "Public paths" in the README). Everything
-  else, Chat's API and sockets included, stays behind the sign-in;
-- `PIKVM_AUTH=proxy` tells the host that this is so. Without it the host binds only to loopback.
-- an authenticating proxy must let `Authorization` through to the host. A request presenting `Authorization: Bearer` is
-  judged by the host's own `PIKVM_ACCESS_TOKEN`, not by the proxy's sign-in (see "Using this host as a server" below).
+With no method configured the host binds only to loopback and refuses any other `HOST` with a message naming the three
+groups below. The image sets `HOST=0.0.0.0`, so a container needs at least one method to start. Configure any combination.
+
+### The three ways in
+
+**1. Access token.** Set `PIKVM_ACCESS_TOKEN` to a long random string (`openssl rand -hex 32`).
+
+- A remote PiKVM Desktop or a script sends `Authorization: Bearer <token>` on every route the console reaches. The host accepts
+  it only with that exact token and answers 401 otherwise. No `?token=` is read; a request carrying an `Origin` that is not this
+  host's own is refused (a browser page must never ride the token); plain http from a non-loopback peer is refused unless
+  `PIKVM_SYNC_ALLOW_HTTP=1` (or the request is https, see below).
+- The sign-in page also has a token field: type the same token and the host sets a session cookie.
+- A bearer is never turned into a cookie, and a cookie is never accepted as a bearer.
+
+**2. Password.** Set `PIKVM_LOGIN_USER` and a hash of the password:
+
+```sh
+docker run --rm -it pikvm-kvm:<tag> node dist/web-server.js --hash-password   # asks for the password without echoing it
+printf '%s' "$PASSWORD" | docker run --rm -i pikvm-kvm:<tag> node dist/web-server.js --hash-password
+```
+
+It prints one line, `scrypt$N$r$p$salt$hash`, and nothing else: that is `PIKVM_LOGIN_PASSWORD_HASH`. In a `.env` file wrap it in
+single quotes so compose leaves the `$` alone; written in the compose file itself, each `$` is `$$`. The host accepts N of 16384 or
+more. `PIKVM_LOGIN_PASSWORD` takes the password itself instead; it works, but a
+hash is better because the environment is easy to leak. Set one of the two.
+
+- The sign-in page has a user name and password form. Scripts can use `Authorization: Basic` with the same credential.
+- The user name and the password are each compared in constant time, and the password is always checked (against a dummy hash when
+  the user is unknown), so neither how long a refusal takes nor its wording says which half was wrong: the page says
+  "That did not work."
+- Basic is judged by these rules only. A bearer is not a password and a password is not a bearer.
+
+**3. OpenID Connect.** The host is the relying party of any OIDC provider (Pocket ID, Keycloak, Authentik, ...), directly. No
+oauth2-proxy.
+
+| Variable | Meaning |
+| --- | --- |
+| `PIKVM_OIDC_ISSUER` | The provider's issuer URL, e.g. `https://id.example.com`. https only (plain http is accepted only to loopback, for tests). The host reads `<issuer>/.well-known/openid-configuration`. |
+| `PIKVM_OIDC_CLIENT_ID` | The client id. |
+| `PIKVM_OIDC_CLIENT_SECRET` | The client secret. Unset: a public client, protected by PKCE alone. |
+| `PIKVM_OIDC_SCOPES` | Default `openid email profile groups`. |
+| `PIKVM_OIDC_ALLOWED_GROUPS` | Comma list. A user passes if their `groups` claim holds any of them. |
+| `PIKVM_OIDC_ALLOWED_EMAILS` | Comma list, compared case-insensitively. A user passes if their `email` is in it **and** the id_token says `email_verified: true`; a missing claim, `false` or the string `"true"` does not count. |
+| `PIKVM_OIDC_ALLOWED_SUBJECTS` | Comma list of `sub` values, exact and case-sensitive, for a provider that sends neither groups nor a verified email. |
+| `PIKVM_PUBLIC_URL` | The https origin users see, e.g. `https://kvm.example.com`. Required. The redirect URI is `<PIKVM_PUBLIC_URL>/app/auth/callback`. |
+
+A user passes with any one of the three rules. With all three lists empty **every user the provider signs in is refused**: the host says so at startup.
+
+The flow is authorization code with PKCE (S256), `state` and `nonce`, which a short-lived signed HttpOnly cookie ties to the browser
+that started it. The id_token is verified with `jose`: its signature against the issuer's JWKS (cached, fetched again for an unknown
+key id at most every 30 seconds), the algorithm (RS256, ES256 or EdDSA only; `none` and HS256 are refused), `iss`, `aud` (your
+client id), `exp` and `nbf` (60 seconds of skew), and the `nonce`. Only then do the allow rules run. Groups and email are read
+from the id_token, so the provider must put them there (Pocket ID does when the `groups` and `email` scopes are requested).
+
+In **Pocket ID**, create an OIDC client with the callback URL `<PIKVM_PUBLIC_URL>/app/auth/callback` (for example
+`https://kvm.example.com/app/auth/callback`), give the client to a user group, and name that group in
+`PIKVM_OIDC_ALLOWED_GROUPS`. The sign-in page then shows "Sign in with id.example.com".
+
+### Sessions
+
+The form methods and OIDC end in a signed cookie (`__pikvm_session`: HMAC-SHA256, HttpOnly, SameSite=Lax, Path=/). It holds the
+method, the subject and its expiry, never a secret. It lasts 30 days and is renewed when a request finds it more than a day old.
+It stops working when the token, the password, or the OIDC issuer, client or allow lists change. `GET /app/api/v1/session` tells the app who it is signed in as (`signIn`, `method`, `subject`, `canSignOut`; never a secret); only a cookie session can be signed out. `/app/logout` clears the cookie
+in the browser; the cookie itself is stateless, so a copy of it stays valid until its expiry unless you change the secret or the
+credential.
+
+The key is `PIKVM_SESSION_SECRET` (at least 32 characters). Unset, the host makes 32 random bytes once and keeps them in
+`<PIKVM_DATA_DIR>/session-secret` (mode 0600, written atomically), so sessions survive a restart and a new image on the same volume.
+Deleting that file signs everyone out.
+
+WebSocket upgrades use the same cookie and keep the chat socket's same-origin check. The sign-in form POST must come from a page of
+this host (a foreign `Origin`, or `Sec-Fetch-Site: cross-site`, is refused). The return path after sign-in (`next`) must be a
+relative path starting with a single `/`; anything else goes to `/app/`.
+
+### Where a secret may travel
+
+The password form, the token form and `Authorization: Basic` are refused with `403 Sign in over https.` over plain http from any
+peer that is not this machine. There is no setting that turns this off. The host reads a request as https when
+`PIKVM_PUBLIC_URL` is an https URL, or, only with `PIKVM_TRUST_PROXY=1`, when the proxy's last `X-Forwarded-Proto` says `https`
+(a trusted `X-Forwarded-Proto: http` is refused even from a local peer). A bearer follows the same test, and
+`PIKVM_SYNC_ALLOW_HTTP=1` is the one switch that lets a bearer through plain http from a remote peer.
+
+`PIKVM_TRUST_PROXY=1` also makes the host read `X-Forwarded-For` (its last entry, the hop the proxy appended) as the client
+address for the rate limit, and marks the cookie `Secure` from `X-Forwarded-Proto`. Leave it unset unless a proxy you control is the
+only thing that can reach the port: anyone who can reach the port directly could forge those headers. Unset, they are ignored and the
+socket's own address is used. The session cookie is also `Secure` whenever `PIKVM_PUBLIC_URL` is https.
+
+### Failed attempts
+
+Failed sign-ins (the form, Basic, a wrong bearer) are counted per client address. The first three are free; each one after that
+doubles the wait before that address may try again (1 s, 2 s, 4 s, up to 15 minutes). While it waits every attempt, the right
+password included, gets `429` with `Retry-After`. A success clears the address. Sixty failures from all addresses within a minute
+make every attempt wait for the minute to pass. A session already signed in is never slowed. The submitted password and token are
+never logged: a refusal logs its kind and the address only.
 
 ### Using this host as a server
 
-A remote PiKVM Desktop (or a CLI) can use this host as its server instead of signing in through a browser. Set
-`PIKVM_ACCESS_TOKEN` to a long random string and give the same string to the remote as its bearer token. The remote sends
-`Authorization: Bearer <token>`; the host accepts it only when it matches exactly, on every route the console reaches, and
-refuses a wrong one with 401.
-
-The bearer is the whole credential for that request: the session cookie and `?token=` are not read for it. A request whose
-`Origin` header is not this host's own is refused, since a browser page must never ride the token. Plain http from a
-non-loopback peer is refused unless `PIKVM_SYNC_ALLOW_HTTP=1`, so serve the host over https (through the proxy) and leave
-that setting off. Without a bearer a request is handled exactly as before: the proxy's sign-in still decides. With
-`PIKVM_ACCESS_TOKEN` unset every bearer is refused, and browsers are unaffected.
+A remote PiKVM Desktop (or a CLI) can use this host as its server: give it the host's URL and `PIKVM_ACCESS_TOKEN` as its bearer
+token. The remote sends `Authorization: Bearer <token>`, which the host judges by the bearer rules alone: valid, or refused 401. It
+does not fall back to a cookie or to Basic, and it never sets a cookie. Serve the host over https and leave `PIKVM_SYNC_ALLOW_HTTP`
+unset. With `PIKVM_ACCESS_TOKEN` unset every bearer is refused.
 
 ### A compose file for the host
+
+No proxy and no oauth2 service: the host and its data. Set whichever methods you want; this one uses a password and Pocket ID.
 
 ```yaml
 services:
@@ -215,13 +300,24 @@ services:
             PIKVM_URL: https://pikvm.example.ts.net
             PIKVM_USER: admin
             PIKVM_PASSWORD: ${PIKVM_PASSWORD:?set it in .env}
-            PIKVM_AUTH: proxy
+            PIKVM_PUBLIC_URL: https://kvm.example.com
+            PIKVM_TRUST_PROXY: "1"          # Caddy below is the only thing that reaches the port
+            # 1. the access token, for the desktop app's server link and scripts
+            PIKVM_ACCESS_TOKEN: ${KVM_ACCESS_TOKEN:?openssl rand -hex 32}
+            # 2. a password (use $$ for each $ of the hash in a compose file)
+            PIKVM_LOGIN_USER: kieran
+            PIKVM_LOGIN_PASSWORD_HASH: ${KVM_LOGIN_PASSWORD_HASH:?node dist/web-server.js --hash-password}
+            # 3. OpenID Connect (Pocket ID): redirect URI https://kvm.example.com/app/auth/callback
+            PIKVM_OIDC_ISSUER: https://id.example.com
+            PIKVM_OIDC_CLIENT_ID: ${KVM_OIDC_CLIENT_ID:?}
+            PIKVM_OIDC_CLIENT_SECRET: ${KVM_OIDC_CLIENT_SECRET:?}
+            PIKVM_OIDC_ALLOWED_GROUPS: kvm
             PIKVM_KEYBOARD_LAYOUT: us
             PORT: "8080"
         volumes:
             - /path/to/kvm-data:/data       # the only thing to back up
         networks:
-            - kvm-internal
+            - web                           # shared with Caddy; no port is published
         read_only: true
         tmpfs:
             - /tmp
@@ -230,14 +326,25 @@ services:
         security_opt:
             - no-new-privileges:true
 
-    # your authenticating proxy goes here, on the same network, and is the only service that publishes a port
-    # (for example kvm-oauth2-proxy, upstream http://kvm:8080, serving https://kvm.example.com)
-
 networks:
-    kvm-internal:
+    web:
+        external: true                      # the network your Caddy container is on
 ```
 
-The model provider is called from this container, so `kvm-internal` must have outbound internet: do not declare it `internal`.
+Caddy, on the same network, terminates TLS and needs one line for the site:
+
+```
+kvm.example.com {
+    reverse_proxy kvm:8080
+}
+```
+
+Caddy keeps the original `Host` and adds `X-Forwarded-For` and `X-Forwarded-Proto`, which is what `PIKVM_TRUST_PROXY=1` reads. Nothing
+needs to be skipped or let through for sign-in: the host answers its own public paths (`/app/login`, `/app/auth`,
+`/app/auth/callback`, the web manifest, the service worker, the icons and the iPhone launch images) without a session and
+everything else, Chat's API and sockets included, needs one.
+
+The model provider is called from this container, so the network it is on must have outbound internet: do not declare it `internal`.
 
 **Volume ownership.** The image runs as uid 10001 and writes `/data`, including the `chat/` directory it creates on first
 start. Either give that uid the volume (`chown -R 10001:10001 /path/to/kvm-data`), or add `user: "<uid>:<gid>"` to the service
@@ -310,7 +417,7 @@ processes and `/data` readable by the invoking user, which `apps/web/e2e/chat.e2
 ## The shared cursor
 
 `GET /app/api/v1/cursor` is a server-sent-events stream behind the same gate as the rest of `/app/api` (so nothing new is public
-behind oauth2-proxy). Each event is `{x, y, source, seq}`: where the target's pointer is, in kvmd's own units (a fraction of the
+behind the sign-in). Each event is `{x, y, source, seq}`: where the target's pointer is, in kvmd's own units (a fraction of the
 screen, so any resolution), who moved it (the page's client id, `agent` for the chat agent's tools, or `socket-N` for a client that
 named none) and a sequence number. The host learns positions from each page's `/api/ws` input socket (the page adds `?client=<id>`,
 which the host takes off before kvmd sees the URL) and from the agent's mouse tools; at most one event goes out per frame, and a new

@@ -281,7 +281,7 @@ try {
     await shot("1280x800-kvm");
     await openTab("chat");
     await shot("1280x800-chat-after");
-    await check("desktop 1280x800", "no page error, and no failed request except the login-proxy probe", async () => [logs.length === 0, logs.join(" | ") || "clean"]);
+    await check("desktop 1280x800", "no page error, and no failed request", async () => [logs.length === 0, logs.join(" | ") || "clean"]);
 
     // ---- the phone ------------------------------------------------------------------------------------------------------
 

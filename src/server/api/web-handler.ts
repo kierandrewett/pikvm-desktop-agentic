@@ -15,6 +15,10 @@ const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 export type WebHandler = (request: Request) => Promise<Response>;
 
+/** The header this server puts on a request it hands to the API to say who the sign-in let in (a JSON `SignedIn`). A
+ *  header of this name from the client is always dropped first, so only the server can set it. */
+export const SIGNED_IN_HEADER = "x-pikvm-signed-in";
+
 /** Read the request body, or null when it is over the cap. */
 async function readCapped(req: IncomingMessage): Promise<Buffer | null> {
     const chunks: Buffer[] = [];
@@ -53,7 +57,12 @@ function normaliseError(status: number, text: string): string {
 }
 
 /** Run one Node request through a web handler and write its response. */
-export async function serveWith(handler: WebHandler, req: IncomingMessage, res: ServerResponse): Promise<void> {
+export async function serveWith(
+    handler: WebHandler,
+    req: IncomingMessage,
+    res: ServerResponse,
+    signedIn?: string,
+): Promise<void> {
     const method = req.method ?? "GET";
     const hasBody = method !== "GET" && method !== "HEAD";
     const body = hasBody ? await readCapped(req) : null;
@@ -64,6 +73,8 @@ export async function serveWith(handler: WebHandler, req: IncomingMessage, res: 
         if (Array.isArray(value)) for (const v of value) headers.append(name, v);
         else if (value !== undefined) headers.set(name, value);
     }
+    headers.delete(SIGNED_IN_HEADER);
+    if (signedIn !== undefined) headers.set(SIGNED_IN_HEADER, signedIn);
     // Only the path and query matter to the router; the host is not trusted input.
     const request = new Request(new URL(req.url ?? "/", "http://localhost"), {
         method,

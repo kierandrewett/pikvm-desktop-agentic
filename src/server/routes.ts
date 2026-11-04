@@ -9,7 +9,7 @@
  *   remote server              while one is in use: what is not local-only, to it (sync/forward.ts); first
  *   /                          redirect to /app/ (kvmd's own page for ?native=1
  *                              and for the desktop shell)
- *   /app/login, /logout, /auth sign-in (public)
+ *   /app/login, /logout, /auth, /auth/callback   sign-in (public)
  *   /app/{manifest,sw.js,icons} PWA files (public, see auth.ts)
  *   /app/api/v1/servers*       this app's server switch (always local)
  *   /app/chat/api/*            the chat server's REST routes (its own request header on mutations)
@@ -23,26 +23,15 @@
  *   /app/<file>                the app's build (hashed /app/assets/*), then the console bundle
  *   anything else              kvmd (HTTP and WebSocket upgrades alike)
  *
- * The gate (auth.ts) runs before the table, once, for HTTP and for upgrades;
- * no route below checks a token itself.
+ * The gate runs before the table, once, for HTTP and for upgrades: auth.ts on the desktop, web-auth/ on the web host
+ * (`webAuth`, which also serves /app/login, /app/auth, /app/auth/callback and /app/logout); no route below checks a
+ * token itself.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import {
-    bearerVerdict,
-    gate,
-    isLoopback,
-    loginPage,
-    isPublicPath,
-    presentsBearer,
-    ROOT_ICON,
-    sameOrigin,
-    sessionValue,
-    SESSION_COOKIE,
-    tokenMatches,
-    type SyncBearer,
-} from "./auth";
+import { gate, loginPage, ROOT_ICON, sameOrigin, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
+import type { SignedIn, WebAuth } from "./web-auth";
 import type { AgentRoutes } from "./agent/routes";
 import { json, readBody } from "./http";
 import type { LiveConnections } from "./live";
@@ -81,13 +70,11 @@ export interface RouteTargets {
         handles(path: string): boolean;
         handle(req: IncomingMessage, res: ServerResponse, path: string): void | Promise<void>;
     };
-    /** Refuse a peer on loopback (except the public paths): the host sits behind an authenticating proxy that
-     *  connects over the network, so a loopback peer is another process in the same container, such as the agent. */
-    refuseLoopback?: boolean;
-    /** The web host's bearer for a remote desktop or CLI (env PIKVM_ACCESS_TOKEN). Judged by `bearerVerdict` in
-     *  auth.ts before the gate: a request that presents `Authorization: Bearer` is accepted only with this token. */
-    syncBearer?: SyncBearer;
-    api: { handle(req: IncomingMessage, res: ServerResponse): Promise<void> };
+    /** The web host's own sign-in (src/server/web-auth): its three methods, its session cookie, its sign-in routes.
+     *  Absent on the desktop, which has the single token gate in auth.ts. When present it judges every request and
+     *  every upgrade, with no loopback exemption, and the desktop gate is not consulted. */
+    webAuth?: WebAuth;
+    api: { handle(req: IncomingMessage, res: ServerResponse, signedIn?: SignedIn): Promise<void> };
     /** While a remote server is in use: everything that is not local-only goes to it (sync/forward.ts). */
     forward?: {
         handles(path: string, url: URL): boolean;
@@ -107,6 +94,8 @@ interface Hit {
     /** The pathname, e.g. `/app/api/v1/state`. */
     path: string;
     method: string;
+    /** Who the web host's sign-in says this is; absent on the desktop and for a public path. */
+    signedIn?: SignedIn;
 }
 
 interface Route {
@@ -179,7 +168,15 @@ export function createRoutes(t: RouteTargets): Route[] {
             },
         },
 
-        /* Sign-in. Public: auth.ts lets these three through the gate. */
+        {
+            // The web host's own sign-in: the page, the form post, the OpenID Connect start and callback, sign-out. It is
+            // ahead of the desktop's three routes below, which only run where there is no `webAuth`.
+            name: "web host sign-in",
+            match: ({ method, path }) => t.webAuth?.handles(method, path) === true,
+            run: ({ req, res, url }) => t.webAuth!.handle(req, res, url),
+        },
+
+        /* The desktop's sign-in: one access token. Public: auth.ts lets these three through the gate. */
         {
             name: "login page",
             match: ({ method, path }) => method === "GET" && path === "/app/login",
@@ -256,7 +253,7 @@ export function createRoutes(t: RouteTargets): Route[] {
         {
             name: "our API",
             match: ({ path }) => under(path, "/app/api"),
-            run: ({ req, res, method }) => {
+            run: ({ req, res, method, signedIn }) => {
                 // A cross-site page can send a text/plain POST without a preflight,
                 // and loopback skips the gate; requiring JSON forces the preflight,
                 // which this server never answers. So the API is same-origin only.
@@ -264,7 +261,7 @@ export function createRoutes(t: RouteTargets): Route[] {
                 if (mutating && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
                     return json(res, 415, { error: "Expected application/json" });
                 }
-                void t.api.handle(req, res);
+                void t.api.handle(req, res, signedIn);
             },
         },
 
@@ -334,74 +331,95 @@ export interface Router {
 
 export function createRouter(targets: RouteTargets): Router {
     const routes = createRoutes(targets);
-    const refused = (req: IncomingMessage, path: string): boolean =>
-        targets.refuseLoopback === true && isLoopback(req) && !isPublicPath(path);
+
+    const dispatch = (req: IncomingMessage, res: ServerResponse, url: URL, signedIn?: SignedIn): void => {
+        const hit: Hit = { req, res, url, path: url.pathname, method: req.method ?? "GET", ...(signedIn ? { signedIn } : {}) };
+        // The final route matches everything, so there is always one.
+        const route = routes.find((r) => r.match(hit))!;
+        void Promise.resolve(route.run(hit)).catch((err: unknown) => {
+            console.error(`[server] route "${route.name}" failed:`, err);
+            if (!res.headersSent) json(res, 500, { error: "Internal error" });
+            else res.end();
+        });
+    };
+
+    /* What an upgrade does once the gate has let it in: not from another site, whatever the gate let through (forwarding
+     * rewrites Origin, so this is checked first), then the server while one is connected (its chat socket and the
+     * kvmd HID/video/Janus sockets), otherwise chat, otherwise kvmd. An unknown `/app/*` upgrade is refused here; it
+     * used to be forwarded to the Pi as a path the Pi has never heard of. */
+    const upgrade = (req: IncomingMessage, socket: Duplex, head: Buffer, url: URL): void => {
+        const path = url.pathname;
+        if (path === CHAT_SOCKET && !sameOrigin(req)) {
+            socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
+            return;
+        }
+        if (targets.forward?.handles(path, url)) {
+            targets.forward.handleUpgrade(req, socket, head);
+            return;
+        }
+        if (path === CHAT_SOCKET) {
+            targets.live.track(socket);
+            if (!targets.chat.handleUpgrade(req, socket, head)) {
+                socket.end("HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\n");
+            }
+            return;
+        }
+        if (under(path, "/app")) {
+            socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
+            return;
+        }
+        targets.live.track(socket);
+        void targets.kvmd.handleUpgrade(req, socket, head);
+    };
 
     return {
         onRequest(req, res) {
             const url = new URL(req.url ?? "/", "http://localhost");
-            const path = url.pathname;
 
-            // A bearer presented to the web host is the whole credential for this request: judged here, on every route,
-            // and never mixed with the cookie or `?token=` gate. Absent a bearer, the gate decides as before.
-            const bearer = targets.syncBearer;
-            if (bearer && presentsBearer(req)) {
-                if (bearerVerdict(req, bearer) === "deny") return json(res, 401, { error: "Unauthorized" });
-            } else {
-                if (refused(req, path)) return json(res, 403, { error: "Not reachable from this address" });
-                const verdict = gate(req, path, targets.accessToken());
-                if (verdict === "login") return redirect(res, "/app/login");
-                if (verdict === "deny") return json(res, 401, { error: "Unauthorized" });
+            // The web host signs people in itself (web-auth/): bearer, Basic and the session cookie are told apart there.
+            const webAuth = targets.webAuth;
+            if (webAuth) {
+                webAuth.judge(req, url.pathname).then(
+                    (verdict) => {
+                        if (verdict.kind === "login") return redirect(res, webAuth.loginRedirect(url));
+                        if (verdict.kind === "deny") {
+                            res.setHeader("cache-control", "no-store");
+                            if (verdict.retryAfterSec !== undefined) res.setHeader("retry-after", String(verdict.retryAfterSec));
+                            return json(res, verdict.status, { error: verdict.error });
+                        }
+                        if (verdict.setCookie) res.setHeader("set-cookie", verdict.setCookie);
+                        dispatch(req, res, url, verdict.signedIn);
+                    },
+                    (err: unknown) => {
+                        console.error("[server] sign-in check failed:", err);
+                        json(res, 500, { error: "Internal error" });
+                    },
+                );
+                return;
             }
 
-            const hit: Hit = { req, res, url, path, method: req.method ?? "GET" };
-            // The final route matches everything, so there is always one.
-            const route = routes.find((r) => r.match(hit))!;
-            void Promise.resolve(route.run(hit)).catch((err: unknown) => {
-                console.error(`[server] route "${route.name}" failed:`, err);
-                if (!res.headersSent) json(res, 500, { error: "Internal error" });
-                else res.end();
-            });
+            const verdict = gate(req, url.pathname, targets.accessToken());
+            if (verdict === "login") return redirect(res, "/app/login");
+            if (verdict === "deny") return json(res, 401, { error: "Unauthorized" });
+            dispatch(req, res, url);
         },
 
-        /* WebSocket upgrades: the same gate, then the same-origin check on the chat socket, then the server while one is
-         * connected (its chat socket and the kvmd HID/video/Janus sockets), otherwise chat, otherwise kvmd. An unknown
-         * `/app/*` upgrade is refused here; it used to be forwarded to the Pi as a path the Pi has never heard of. */
+        /* WebSocket upgrades: the same gate (the session cookie, for the web host), then `upgrade` above. */
         onUpgrade(req, socket, head) {
             const url = new URL(req.url ?? "/", "http://localhost");
-            const path = url.pathname;
-            const bearer = targets.syncBearer;
-            if (bearer && presentsBearer(req)) {
-                if (bearerVerdict(req, bearer) === "deny") {
-                    socket.destroy();
-                    return;
-                }
-            } else if (refused(req, path) || gate(req, path, targets.accessToken()) !== "allow") {
+            const webAuth = targets.webAuth;
+            if (webAuth) {
+                webAuth.judge(req, url.pathname).then(
+                    (verdict) => (verdict.kind === "allow" ? upgrade(req, socket, head, url) : socket.destroy()),
+                    () => socket.destroy(),
+                );
+                return;
+            }
+            if (gate(req, url.pathname, targets.accessToken()) !== "allow") {
                 socket.destroy();
                 return;
             }
-            // Not from another site, whatever the gate let through. Forwarding rewrites Origin, so this is checked first.
-            if (path === CHAT_SOCKET && !sameOrigin(req)) {
-                socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
-                return;
-            }
-            if (targets.forward?.handles(path, url)) {
-                targets.forward.handleUpgrade(req, socket, head);
-                return;
-            }
-            if (path === CHAT_SOCKET) {
-                targets.live.track(socket);
-                if (!targets.chat.handleUpgrade(req, socket, head)) {
-                    socket.end("HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\n");
-                }
-                return;
-            }
-            if (under(path, "/app")) {
-                socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
-                return;
-            }
-            targets.live.track(socket);
-            void targets.kvmd.handleUpgrade(req, socket, head);
+            upgrade(req, socket, head, url);
         },
     };
 }

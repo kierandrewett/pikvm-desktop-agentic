@@ -108,18 +108,25 @@ make image    # podman build; use IMAGE_TOOL=docker for docker
 
 The environment is the whole configuration. The header of `src/web-server.ts` lists every variable. [docs/deploy-web.md](docs/deploy-web.md) covers deployment.
 
-The host has no login of its own. Put an authenticating proxy in front of it, make that proxy the only route in, and set `PIKVM_AUTH=proxy`. Without that setting, the host binds only to loopback. Never publish its port directly.
+The host signs users in itself, with up to three methods, each switched on by its environment variables and any combination allowed:
 
-A remote PiKVM Desktop can use the host as its server with a bearer token: set `PIKVM_ACCESS_TOKEN` on the host and the same string as the remote's token. A request presenting `Authorization: Bearer <token>` is accepted only with that exact token and refused (401) otherwise; no cookie or `?token=` is read for it, a request with a foreign browser `Origin` is refused, and plain http from a non-loopback peer is refused unless `PIKVM_SYNC_ALLOW_HTTP=1`. An authenticating proxy must pass `Authorization` through to the host. Requests without a bearer are unchanged. See [docs/deploy-web.md](docs/deploy-web.md).
+| Method | Variables | What it protects |
+| --- | --- | --- |
+| Access token | `PIKVM_ACCESS_TOKEN` | `Authorization: Bearer <token>` for a remote PiKVM Desktop or a script, on every route the console reaches; the same token typed into the sign-in page. |
+| Password | `PIKVM_LOGIN_USER` with `PIKVM_LOGIN_PASSWORD_HASH` (or `PIKVM_LOGIN_PASSWORD`) | The sign-in page, and `Authorization: Basic` for scripts. Make the hash with `node dist/web-server.js --hash-password`. |
+| OpenID Connect | `PIKVM_OIDC_ISSUER`, `PIKVM_OIDC_CLIENT_ID`, `PIKVM_OIDC_CLIENT_SECRET`, `PIKVM_OIDC_ALLOWED_GROUPS`, `PIKVM_OIDC_ALLOWED_EMAILS` or `PIKVM_OIDC_ALLOWED_SUBJECTS`, `PIKVM_PUBLIC_URL` | "Sign in with the provider" on the sign-in page: the host is the OIDC client itself, with no proxy. The redirect URI is `<PIKVM_PUBLIC_URL>/app/auth/callback`. An email passes only when the provider says `email_verified: true`. With all three allow lists empty every user is refused. |
 
-This layout is the reference deployment:
+The sign-in page and OIDC end in a signed session cookie (HttpOnly, SameSite=Lax, 30 days). A bearer and Basic are judged on their own and never become a cookie. Once any method is set there is no loopback exemption: a peer on the same machine signs in like anyone else. The password, the typed token and Basic are refused over plain http from any peer that is not this machine (`403 Sign in over https.`); the host counts a request as https when `PIKVM_PUBLIC_URL` is https, or, with `PIKVM_TRUST_PROXY=1`, when the proxy says so in `X-Forwarded-Proto`. Failed attempts are slowed per client address with `429` and `Retry-After`.
+
+With no method configured the host binds only to loopback, and refuses any other `HOST`. The host speaks plain http, so put a TLS terminator such as Caddy in front of it for https. See [docs/deploy-web.md](docs/deploy-web.md) for every variable, an example compose file and the Pocket ID client.
+
+The reference deployment:
 
 ```mermaid
 flowchart LR
-    phone[Browser] --> caddy[Caddy, private route]
-    caddy --> proxy[kvm-oauth2-proxy]
-    proxy -->|OIDC| pocket[Pocket ID]
-    proxy -->|kvm-internal network only| kvm[kvm: web-server.ts]
+    phone[Browser] --> caddy[Caddy, TLS]
+    caddy -->|reverse_proxy kvm:8080| kvm[kvm: web-server.ts]
+    kvm -.->|OIDC, optional| pocket[Pocket ID]
     kvm --> pi[PiKVM]
     kvm --> omp[omp, started by the chat server in the same container]
     omp -->|agent listener, bearer token| kvm
@@ -127,18 +134,7 @@ flowchart LR
 
 ### Public paths
 
-Browsers fetch these paths without cookies. Let them through the proxy without sign-in. In oauth2-proxy, use `--skip-auth-route` or `skip_auth_routes`.
-
-```
-GET=^/app/manifest\.webmanifest$
-GET=^/app/sw\.js$
-GET=^/app/(icon|icon-192|icon-512|apple-touch-icon)\.png$
-GET=^/app/splash/apple-splash-(portrait|landscape)-[23]x-[0-9]+x[0-9]+\.png$
-```
-
-The last rule serves the launch image of the installed iPhone app. Without it, the app starts on a blank screen.
-
-Everything else under `/app/` stays behind sign-in, as does everything the host proxies to the Pi.
+Browsers fetch these without a session, so the host answers them without sign-in: `/app/login`, `/app/auth`, `/app/auth/callback`, `/app/logout`, `/app/manifest.webmanifest`, `/app/sw.js`, the app icons (`/app/icon.png`, `/app/icon-192.png`, `/app/icon-512.png`, `/app/apple-touch-icon.png`) and the launch images of the installed iPhone app under `/app/splash/`. Without the last, the app starts on a blank screen. Nothing here needs configuring. Everything else under `/app/` needs a session, as does everything the host proxies to the Pi.
 
 ### Idle jiggler
 

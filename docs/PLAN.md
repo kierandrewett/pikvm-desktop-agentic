@@ -18,7 +18,7 @@ the same:
 | Host | Shell | Has |
 |---|---|---|
 | Desktop (Electron) | native window | the chat server and agent (omp, bundled), native menus, window focus |
-| Web host (container) | browser, an authenticating proxy in front | KVM; Chat and its agent in the same container |
+| Web host (container) | browser, signed in by the host itself | KVM; Chat and its agent in the same container |
 | Phone | installed PWA | touch, soft keyboard, dictation, background suspends |
 
 Today it is a set of parts bolted together: an 11k-line closure (`console.js`)
@@ -119,7 +119,7 @@ kvmd owns `/`, `/kvm/`, `/login/`, `/api/`, `/streamer/`, `/janus/`, `/share/`,
 | `/` | redirect to `/app/` |
 | anything else | kvmd passthrough |
 
-Clean cutover: the desktop, the web host, oauth2-proxy skip routes, the PWA
+Clean cutover: the desktop, the web host, the public-path list, the PWA
 manifest and the docs move in the same change. `/_agent/*` goes away.
 
 ## 6. The riskiest parts, and how they are made safe
@@ -142,7 +142,7 @@ manifest and the docs move in the same change. `/_agent/*` goes away.
   touching the real target, which is somebody's working machine.
 - Browser E2E (phone and desktop profiles) against the fake kvmd, recorded under
   `docs/e2e/`.
-- Each phase is deployed behind the authenticating proxy and checked there signed in.
+- Each phase is deployed and checked signed in through the host's own sign-in.
 
 ## 8. Phases
 

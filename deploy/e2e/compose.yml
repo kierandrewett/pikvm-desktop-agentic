@@ -9,9 +9,8 @@
 # KVM_HOST_PORT, FAKE_KVMD_PORT and FAKE_MODEL_PORT move the published ports (defaults 18080, 14510, 19090).
 #
 # In the chat's Settings, add a provider with base URL http://fake-model:9000/v1 and any key; the
-# gateway accepts any operator-configured base URL. The web host listens on 127.0.0.1 only here
-# (PIKVM_AUTH=proxy states that an authenticating proxy is in front, which on this machine is
-# "nobody can reach it").
+# gateway accepts any operator-configured base URL. The web host listens on 127.0.0.1 only here (the published ports
+# bind loopback), and signs in with PIKVM_ACCESS_TOKEN below.
 services:
     fake-kvmd:
         image: docker.io/library/node:22-bookworm-slim
@@ -75,7 +74,11 @@ services:
             PIKVM_URL: http://fake-kvmd:4510
             PIKVM_USER: admin
             PIKVM_PASSWORD: anything
-            PIKVM_AUTH: proxy
+            # The host signs in by itself and refuses to start with no method. The token also opens every route as
+            # `Authorization: Bearer`; the https PIKVM_PUBLIC_URL lets a browser sign in over this plain-http port (the
+            # form is refused over plain http from another machine otherwise).
+            PIKVM_ACCESS_TOKEN: ${E2E_TOKEN:-e2e-access-token-0123456789abcdef}
+            PIKVM_PUBLIC_URL: https://kvm.e2e.test
             PORT: "8080"
         ports:
             - "127.0.0.1:${KVM_HOST_PORT:-18080}:8080"

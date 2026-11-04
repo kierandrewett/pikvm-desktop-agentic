@@ -61,7 +61,7 @@ async function open(browser, tag) {
     });
     page.on("pageerror", (e) => logs.push(`pageerror: ${e.message}`));
     page.on("response", (r) => {
-        if (r.status() >= 400 && !/\/oauth2\/userinfo$|\/app\/api\/v1\/target$/.test(r.url())) logs.push(`error: ${r.status()} ${r.url()}`);
+        if (r.status() >= 400 && !/\/app\/api\/v1\/target$/.test(r.url())) logs.push(`error: ${r.status()} ${r.url()}`);
     });
     page.on("request", (r) => {
         if (/\/streamer\/stream|\/api\/streamer\/snapshot/.test(r.url())) streams.push(r.url());

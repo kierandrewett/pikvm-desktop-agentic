@@ -69,9 +69,8 @@ async function launchPage(browser, tag) {
         // A failed load is reported with its URL below; Chrome's own line for it has none.
         if (!/janus\/ws|Failed to load resource/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`);
     });
-    // Settings asks /oauth2/userinfo to learn whether a login proxy is in front; a host without one answers 404, by design.
     page.on("response", (r) => {
-        if (r.status() >= 400 && !/\/oauth2\/userinfo$/.test(r.url())) logs.push(`error: ${r.status()} ${r.url()}`);
+        if (r.status() >= 400) logs.push(`error: ${r.status()} ${r.url()}`);
     });
     page.on("pageerror", (e) => logs.push(`pageerror: ${e.message}`));
     // The phone's page slide is a view transition (and the desktop has none): keep each one's `finished`, so a case can wait it out.

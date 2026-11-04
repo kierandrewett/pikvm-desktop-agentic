@@ -10,6 +10,7 @@ import {
     type ServerAdd,
     type ServerEntry,
     type ServerList,
+    type SessionView,
     type Settings,
     type SettingsPatch,
     type State,
@@ -20,6 +21,7 @@ import {
     addPikvm,
     addServer,
     ApiFailure,
+    getSession,
     getState,
     listMacros,
     listPikvms,
@@ -34,17 +36,25 @@ import {
     switchToThisComputer,
     updatePikvm,
 } from "./client";
-import { OAUTH_USERINFO_PATH } from "../host/paths";
 
 export const stateKey = ["state"] as const;
+export const sessionKey = ["session"] as const;
 export const macrosKey = ["macros"] as const;
-export const accountKey = ["account"] as const;
 export const pikvmsKey = ["pikvms"] as const;
 
 export function useAppState() {
     return useQuery<State, ApiFailure>({
         queryKey: stateKey,
         queryFn: ({ signal }) => runApi(getState(), signal),
+    });
+}
+
+/** Whether this host signs users in, and who is signed in. Read once; a sign-in does not change within a page. */
+export function useSession() {
+    return useQuery<SessionView, ApiFailure>({
+        queryKey: sessionKey,
+        queryFn: ({ signal }) => runApi(getSession(), signal),
+        staleTime: Infinity,
     });
 }
 
@@ -80,31 +90,6 @@ export function useUpdateSettings() {
         onSuccess: (settings) => {
             queryClient.setQueryData<State>(stateKey, (previous) => (previous ? { ...previous, settings } : previous));
         },
-    });
-}
-
-/**
- * Whether the host sits behind oauth2-proxy, found with a HEAD to its userinfo endpoint.
- * A host without the proxy answers 404 (kvmd) or something that is not JSON, and the
- * Account page then does not exist. Redirects are not followed: a sign-in redirect means
- * there is no session to sign out of.
- */
-export async function detectProxySession(signal?: AbortSignal): Promise<boolean> {
-    try {
-        const reply = await fetch(OAUTH_USERINFO_PATH, { method: "HEAD", redirect: "manual", credentials: "same-origin", ...(signal ? { signal } : {}) });
-        if (!reply.ok) return false;
-        return !(reply.headers.get("content-type") ?? "").includes("text/html");
-    } catch {
-        return false;
-    }
-}
-
-export function useProxySession() {
-    return useQuery({
-        queryKey: accountKey,
-        queryFn: ({ signal }) => detectProxySession(signal),
-        staleTime: 5 * 60_000,
-        retry: false,
     });
 }
 

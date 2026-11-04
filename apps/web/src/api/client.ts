@@ -18,6 +18,7 @@ import {
     type ServerAdd,
     type ServerEntry,
     type ServerList,
+    type SessionView,
     type Settings,
     type SettingsPatch,
     type State,
@@ -104,6 +105,8 @@ const withClient = <A, E>(
     );
 
 export const getState = (): Effect.Effect<State, ApiFailure> => withClient((client) => client.state.get());
+
+export const getSession = (): Effect.Effect<SessionView, ApiFailure> => withClient((client) => client.session.get());
 
 export const patchSettings = (patch: SettingsPatch): Effect.Effect<Settings, ApiFailure> =>
     withClient((client) => client.settings.update({ payload: patch }));

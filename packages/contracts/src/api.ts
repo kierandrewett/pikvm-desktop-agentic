@@ -355,6 +355,24 @@ export const CURSOR_AGENT_SOURCE = "agent";
 
 export const StateGroup = HttpApiGroup.make("state").add(HttpApiEndpoint.get("get", "/state").addSuccess(State));
 
+/**
+ * `GET /session`: who the host thinks is asking, so the app can offer Sign out where there is something to sign out of.
+ *
+ * `signIn` is false on a host with no sign-in of its own (the desktop app, or a web host bound to loopback with no method
+ * configured): nothing else is set then. When true, `method` is how this request got in, `subject` is who (the user name,
+ * the OpenID subject, or `access token`), and `canSignOut` is true only for a session cookie (token, password, oidc):
+ * `GET /app/logout` clears it. A bearer or Basic header has no session to end. Never a token, cookie value, password or id_token.
+ */
+export const SessionView = Schema.Struct({
+    signIn: Schema.Boolean,
+    method: Schema.optional(Schema.Literal("token", "password", "oidc", "bearer", "basic")),
+    subject: Schema.optional(Schema.String),
+    canSignOut: Schema.optional(Schema.Boolean),
+});
+export type SessionView = typeof SessionView.Type;
+
+export const SessionGroup = HttpApiGroup.make("session").add(HttpApiEndpoint.get("get", "/session").addSuccess(SessionView));
+
 export const MacrosGroup = HttpApiGroup.make("macros")
     .add(HttpApiEndpoint.get("list", "/macros").addSuccess(MacrosResponse))
     .add(
@@ -452,6 +470,7 @@ export const ServersGroup = HttpApiGroup.make("servers")
 
 export const PikvmApi = HttpApi.make("pikvm")
     .add(StateGroup)
+    .add(SessionGroup)
     .add(MacrosGroup)
     .add(SettingsGroup)
     .add(TargetGroup)

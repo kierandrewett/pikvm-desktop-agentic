@@ -72,7 +72,6 @@ export default defineConfig({
             "/api": forward(true),
             "/streamer": forward(false),
             "/janus": forward(true),
-            "/oauth2": forward(false),
         },
     },
     test: {

@@ -35,7 +35,7 @@ import { createLiveConnections } from "./live";
 import type { PikvmEditor } from "./api";
 import { startChat, type ChatHost, type ChatHostOptions } from "./chat";
 import { createRouter } from "./routes";
-import type { SyncBearer } from "./auth";
+import type { WebAuth } from "./web-auth";
 import { limitsFromEnv } from "./watch/limits";
 import { createWatchRoutes } from "./watch/routes";
 import { createWatchService } from "./watch/service";
@@ -57,10 +57,8 @@ export interface ServerDeps {
     resourcesDir?: string;
     /** Test seam: how the chat server is created. */
     createChat?: ChatHostOptions["create"];
-    /** The web host behind an authenticating proxy: a loopback peer is not the proxy, so it is refused. */
-    refuseLoopback?: boolean;
-    /** The web host's bearer (PIKVM_ACCESS_TOKEN): a request presenting `Authorization: Bearer` is judged by it. */
-    syncBearer?: SyncBearer;
+    /** The web host's own sign-in (src/server/web-auth). Only the web host passes it; the desktop has the token gate. */
+    webAuth?: WebAuth;
     /** Lets Settings manage the PiKVMs. Only the desktop app passes it. */
     pikvms?: PikvmEditor;
 }
@@ -211,7 +209,7 @@ export function startControlServer(
         cursor: cursorRoutes,
         live,
         watch: watchRoutes,
-        ...(deps.syncBearer ? { syncBearer: deps.syncBearer } : {}),
+        ...(deps.webAuth ? { webAuth: deps.webAuth } : {}),
         api,
         ...(serverSync ? { forward: serverSync.forwarder } : {}),
         assets: webAssets,

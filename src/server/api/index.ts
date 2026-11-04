@@ -4,7 +4,7 @@
  * same one; this file only supplies what the server knows.
  */
 
-import { HttpApiBuilder, HttpServer } from "@effect/platform";
+import { HttpApiBuilder, HttpServer, HttpServerRequest } from "@effect/platform";
 import {
     BadRequest,
     Conflict,
@@ -18,6 +18,7 @@ import {
     type PikvmList,
     type PikvmPatch,
     type ServerList,
+    type SessionView,
     type Settings,
     type State,
     type TargetConfig,
@@ -32,7 +33,8 @@ import type { SettingsStore } from "../../settings";
 import { ServerAlreadySaved, ServerError, ServerNotFound } from "../../server-store";
 import { TargetNotFound } from "../../target-store";
 import type { ServerEditor } from "../sync";
-import { serveWith } from "./web-handler";
+import type { SignedIn } from "../web-auth";
+import { serveWith, SIGNED_IN_HEADER } from "./web-handler";
 
 /** What the desktop app offers for managing the PiKVMs it talks to. Absent on a host that pins it. */
 export interface PikvmEditor {
@@ -92,6 +94,15 @@ async function readState(deps: ApiDeps): Promise<State> {
 function apiLayer(deps: ApiDeps) {
     const state = HttpApiBuilder.group(PikvmApi, "state", (handlers) =>
         handlers.handle("get", () => Effect.promise(() => readState(deps))),
+    );
+
+    const session = HttpApiBuilder.group(PikvmApi, "session", (handlers) =>
+        handlers.handle("get", () =>
+            Effect.gen(function* () {
+                const request = yield* HttpServerRequest.HttpServerRequest;
+                return sessionView(request.headers[SIGNED_IN_HEADER]);
+            }),
+        ),
     );
 
     const macros = HttpApiBuilder.group(PikvmApi, "macros", (handlers) =>
@@ -278,6 +289,7 @@ function apiLayer(deps: ApiDeps) {
 
     return HttpApiBuilder.api(PikvmApi).pipe(
         Layer.provide(state),
+        Layer.provide(session),
         Layer.provide(macros),
         Layer.provide(settings),
         Layer.provide(target),
@@ -286,15 +298,33 @@ function apiLayer(deps: ApiDeps) {
     );
 }
 
+const SIGN_IN_METHODS: ReadonlySet<string> = new Set(["token", "password", "oidc", "bearer", "basic"]);
+
+/** `GET /session` from the header the server set (web-handler.ts): absent on a host with no sign-in of its own. A cookie
+ *  session can be ended with /app/logout; a bearer or Basic header has nothing to end. */
+function sessionView(header: string | undefined): SessionView {
+    if (header === undefined) return { signIn: false };
+    let who: Partial<SignedIn> | undefined;
+    try {
+        who = JSON.parse(header) as Partial<SignedIn>;
+    } catch {
+        who = undefined;
+    }
+    if (!who || typeof who.method !== "string" || !SIGN_IN_METHODS.has(who.method) || typeof who.subject !== "string") {
+        return { signIn: false };
+    }
+    return { signIn: true, method: who.method, subject: who.subject, canSignOut: who.method !== "bearer" && who.method !== "basic" };
+}
+
 export interface Api {
-    handle(req: IncomingMessage, res: ServerResponse): Promise<void>;
+    handle(req: IncomingMessage, res: ServerResponse, signedIn?: SignedIn): Promise<void>;
     dispose(): Promise<void>;
 }
 
 export function createApi(deps: ApiDeps): Api {
     const { handler, dispose } = HttpApiBuilder.toWebHandler(Layer.mergeAll(apiLayer(deps), HttpServer.layerContext));
     return {
-        handle: (req, res) => serveWith(handler, req, res),
+        handle: (req, res, signedIn) => serveWith(handler, req, res, signedIn ? JSON.stringify(signedIn) : undefined),
         dispose,
     };
 }
