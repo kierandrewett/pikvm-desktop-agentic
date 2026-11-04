@@ -335,7 +335,7 @@ never in the agent's environment, files, config or prompt.
 
 | Secret | Lives in | Reaches the agent? |
 |---|---|---|
-| kvmd user and password | `pikvm-credentials.json` (0600, desktop) or `PIKVM_PASSWORD` env (web host), held by the Desk | No. The agent calls MCP tools; the Desk talks to kvmd |
+| kvmd user and password | `pikvms-credentials.json` (0600, desktop, one per stored PiKVM) or `PIKVM_PASSWORD` env (web host), held by the Desk | No. The agent calls MCP tools; the Desk talks to kvmd |
 | Access token, oauth2-proxy session | server only | No |
 | Provider API keys | settings KV, redacted on read, sealed with `mcp/crypto.ts` | No. Every provider goes through `/gw/<id>` |
 | Remote MCP tokens | `mcp_credentials`, sealed | No. Same gateway pattern (`/mcp/s/<id>`) |
@@ -604,7 +604,7 @@ Existing files stay where `SettingsStore` and `target-store` put them. Chat adds
 
 ```
 <data>/                          PIKVM_DATA_DIR (web host) or the desktop's data dir
-  settings.json  macros.json  pikvm.json  pikvm-credentials.json     unchanged
+  settings.json  macros.json  pikvms.json  pikvms-credentials.json     (pikvm.json and pikvm-credentials.json of older installs are migrated on first change)
   chat/
     chat.db                      SQLite (node:sqlite), WAL
     secret.key                   0600: gateway tokens, key for sealed secrets

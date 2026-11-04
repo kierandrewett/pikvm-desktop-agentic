@@ -102,6 +102,85 @@ export const TargetPatch = Schema.Struct({
 }).annotations({ parseOptions: { onExcessProperty: "error" } });
 export type TargetPatch = typeof TargetPatch.Type;
 
+/** One stored PiKVM, as a client may see it. The password is never part of any reply: `passwordSet` is all a
+ *  client learns. `isDefault` is the one the list falls back to; `active` is the one the proxy, the agent and the
+ *  screen watch use right now. */
+export const PikvmEntry = Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    origin: Schema.String,
+    username: Schema.String,
+    passwordSet: Schema.Boolean,
+    isDefault: Schema.Boolean,
+    active: Schema.Boolean,
+});
+export type PikvmEntry = typeof PikvmEntry.Type;
+
+/** Every stored PiKVM. `editable` is false on a host that pins its PiKVM by environment: the list is then that one
+ *  entry and every change is refused. */
+export const PikvmList = Schema.Struct({
+    items: Schema.Array(PikvmEntry),
+    editable: Schema.Boolean,
+});
+export type PikvmList = typeof PikvmList.Type;
+
+/** A new PiKVM. The first one added becomes the default and the active one. Credentials typed into `origin`
+ *  (`https://user:pass@pikvm/`) count as the user name and password when those are not given. */
+export const PikvmAdd = Schema.Struct({
+    name: Schema.String,
+    origin: Schema.String,
+    username: Schema.optional(Schema.String),
+    password: Schema.optional(Schema.String),
+}).annotations({ parseOptions: { onExcessProperty: "error" } });
+export type PikvmAdd = typeof PikvmAdd.Type;
+
+/** A change to one PiKVM: any subset. `password` is write-only: omitted keeps it, "" removes it. */
+export const PikvmPatch = Schema.Struct({
+    name: Schema.optional(Schema.String),
+    origin: Schema.optional(Schema.String),
+    username: Schema.optional(Schema.String),
+    password: Schema.optional(Schema.String),
+}).annotations({ parseOptions: { onExcessProperty: "error" } });
+export type PikvmPatch = typeof PikvmPatch.Type;
+
+/* ------------------------------------------------------------------ */
+/* Servers                                                             */
+/* ------------------------------------------------------------------ */
+
+/** A saved remote server. This computer's own server is not an entry: it is always there, and `ServerList.localActive`
+ *  says whether it is the one in use. Each server holds its own settings, macros, PiKVMs and chats; nothing is merged
+ *  between them. `tokenSet` is all a client learns of the token. `state` is the last thing this app saw: `unchecked`
+ *  until the server is added or used, `ok` after a good request, `unreachable` after a failed one. */
+export const ServerEntry = Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    origin: Schema.String,
+    tokenSet: Schema.Boolean,
+    active: Schema.Boolean,
+    state: Schema.Literal("unchecked", "ok", "unreachable"),
+});
+export type ServerEntry = typeof ServerEntry.Type;
+
+/** `items` are the saved remote server: at most one, so the list holds one entry or none. `localActive`: this computer's
+ *  server is in use (then no entry is active). `editable` is false on a host that pins its state (a hosted build): the UI
+ *  hides the controls. */
+export const ServerList = Schema.Struct({
+    items: Schema.Array(ServerEntry),
+    localActive: Schema.Boolean,
+    editable: Schema.Boolean,
+});
+export type ServerList = typeof ServerList.Type;
+
+/** Save a server. `token` is write-only. `name` defaults to the origin's host. The address must be https, or http to a
+ *  loopback host, with no credentials in it. The server is probed with the token before it is saved; saving does not
+ *  make it the one in use. */
+export const ServerAdd = Schema.Struct({
+    name: Schema.optional(Schema.String),
+    origin: Schema.String,
+    token: Schema.String,
+}).annotations({ parseOptions: { onExcessProperty: "error" } });
+export type ServerAdd = typeof ServerAdd.Type;
+
 /** `GET /state`: everything the app needs to start. */
 export const State = Schema.Struct({
     settings: Settings,
@@ -196,6 +275,20 @@ export class Forbidden extends Schema.Class<Forbidden>("Forbidden")(
     HttpApiSchema.annotations({ status: 403 }),
 ) {}
 
+/** No PiKVM has that id. `notFound` is what makes this shape different from {@link BadRequest}, as `pinned` does for
+ *  {@link Forbidden}. */
+export class NotFound extends Schema.Class<NotFound>("NotFound")(
+    { error: Schema.String, notFound: Schema.Literal(true) },
+    HttpApiSchema.annotations({ status: 404 }),
+) {}
+
+/** A server is already saved: only one may be. Nothing is stored or changed. `alreadySaved` is what makes this shape
+ *  different from {@link BadRequest}, as the others do: with the same fields the encoder sends the first one's status. */
+export class Conflict extends Schema.Class<Conflict>("Conflict")(
+    { error: Schema.String, alreadySaved: Schema.Literal(true) },
+    HttpApiSchema.annotations({ status: 409 }),
+) {}
+
 /* ------------------------------------------------------------------ */
 /* The API                                                             */
 /* ------------------------------------------------------------------ */
@@ -285,9 +378,83 @@ export const TargetGroup = HttpApiGroup.make("target")
             .addError(Forbidden),
     );
 
+const PikvmId = Schema.Struct({ id: Schema.String });
+
+export const PikvmsGroup = HttpApiGroup.make("pikvms")
+    .add(HttpApiEndpoint.get("list", "/pikvms").addSuccess(PikvmList))
+    .add(
+        HttpApiEndpoint.post("add", "/pikvms")
+            .setPayload(PikvmAdd)
+            .addSuccess(PikvmEntry)
+            .addError(BadRequest)
+            .addError(Forbidden),
+    )
+    .add(
+        HttpApiEndpoint.put("update", "/pikvms/:id")
+            .setPath(PikvmId)
+            .setPayload(PikvmPatch)
+            .addSuccess(PikvmEntry)
+            .addError(BadRequest)
+            .addError(Forbidden)
+            .addError(NotFound),
+    )
+    .add(
+        HttpApiEndpoint.del("remove", "/pikvms/:id")
+            .setPath(PikvmId)
+            .addSuccess(PikvmList)
+            .addError(Forbidden)
+            .addError(NotFound),
+    )
+    .add(
+        HttpApiEndpoint.post("setDefault", "/pikvms/:id/default")
+            .setPath(PikvmId)
+            .addSuccess(PikvmList)
+            .addError(Forbidden)
+            .addError(NotFound),
+    )
+    .add(
+        HttpApiEndpoint.post("activate", "/pikvms/:id/activate")
+            .setPath(PikvmId)
+            .addSuccess(PikvmList)
+            .addError(Forbidden)
+            .addError(NotFound),
+    );
+
+const ServerId = Schema.Struct({ id: Schema.String });
+
+/** `local` is a reserved id: `POST /servers/local/use` switches to this computer's server, so no saved server may take it. */
+export const ServersGroup = HttpApiGroup.make("servers")
+    .add(HttpApiEndpoint.get("list", "/servers").addSuccess(ServerList))
+    .add(
+        HttpApiEndpoint.post("add", "/servers")
+            .setPayload(ServerAdd)
+            .addSuccess(ServerEntry)
+            .addError(BadRequest)
+            .addError(Forbidden)
+            .addError(Conflict),
+    )
+    .add(
+        HttpApiEndpoint.del("remove", "/servers/:id")
+            .setPath(ServerId)
+            .addSuccess(ServerList)
+            .addError(Forbidden)
+            .addError(NotFound),
+    )
+    .add(
+        HttpApiEndpoint.post("use", "/servers/:id/use")
+            .setPath(ServerId)
+            .addSuccess(ServerList)
+            .addError(Forbidden)
+            .addError(BadRequest)
+            .addError(NotFound),
+    )
+    .add(HttpApiEndpoint.post("useLocal", "/servers/local/use").addSuccess(ServerList).addError(Forbidden));
+
 export const PikvmApi = HttpApi.make("pikvm")
     .add(StateGroup)
     .add(MacrosGroup)
     .add(SettingsGroup)
     .add(TargetGroup)
+    .add(PikvmsGroup)
+    .add(ServersGroup)
     .prefix(API_PREFIX);

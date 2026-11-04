@@ -6,10 +6,12 @@
  * `/kvm/`, `/login/`, `/api/`, `/streamer/`, `/janus/`, `/share/` and `/extras/`
  * and everything else.
  *
+ *   remote server              while one is in use: what is not local-only, to it (sync/forward.ts); first
  *   /                          redirect to /app/ (kvmd's own page for ?native=1
  *                              and for the desktop shell)
  *   /app/login, /logout, /auth sign-in (public)
  *   /app/{manifest,sw.js,icons} PWA files (public, see auth.ts)
+ *   /app/api/v1/servers*       this app's server switch (always local)
  *   /app/chat/api/*            the chat server's REST routes (its own request header on mutations)
  *   /app/chat/ws (upgrade)     its socket: the gate, then a same-origin check
  *   /app/api/v1/agent/*        what the agent is doing (SSE), Stop, Hand back
@@ -28,18 +30,22 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import {
+    bearerVerdict,
     gate,
     isLoopback,
     loginPage,
     isPublicPath,
+    presentsBearer,
     ROOT_ICON,
     sameOrigin,
     sessionValue,
     SESSION_COOKIE,
     tokenMatches,
+    type SyncBearer,
 } from "./auth";
 import type { AgentRoutes } from "./agent/routes";
 import { json, readBody } from "./http";
+import type { LiveConnections } from "./live";
 import { RETIRE_WORKER } from "./legacy-prefix";
 
 /** A proxy that forwards a whole request to somewhere else. */
@@ -66,6 +72,8 @@ export interface RouteTargets {
         /** False when the chat server is not up (the upgrade is then refused). */
         handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
     };
+    /** The connections served here (sockets, event streams): ended when the server in use changes. */
+    live: LiveConnections;
     /** What the agent is doing with the PiKVM, Stop and Hand back. */
     agent: AgentRoutes;
     /** The screen watch's settings and notification routes. */
@@ -76,7 +84,16 @@ export interface RouteTargets {
     /** Refuse a peer on loopback (except the public paths): the host sits behind an authenticating proxy that
      *  connects over the network, so a loopback peer is another process in the same container, such as the agent. */
     refuseLoopback?: boolean;
+    /** The web host's bearer for a remote desktop or CLI (env PIKVM_ACCESS_TOKEN). Judged by `bearerVerdict` in
+     *  auth.ts before the gate: a request that presents `Authorization: Bearer` is accepted only with this token. */
+    syncBearer?: SyncBearer;
     api: { handle(req: IncomingMessage, res: ServerResponse): Promise<void> };
+    /** While a remote server is in use: everything that is not local-only goes to it (sync/forward.ts). */
+    forward?: {
+        handles(path: string, url: URL): boolean;
+        handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void>;
+        handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void;
+    };
     assets: { serve(path: string, res: ServerResponse): boolean };
     /** The built web app (apps/web/dist); `has` is false until it is built. */
     app: { has(path: string): boolean; serve(path: string, res: ServerResponse): boolean };
@@ -120,6 +137,20 @@ function isAppPage(path: string): boolean {
 
 export function createRoutes(t: RouteTargets): Route[] {
     return [
+        {
+            // First, so it wins over every route below while a remote server is in use. What is local-only never
+            // matches (sync/forward.ts): public paths, sign-in, the web app's own files, this app's server switch.
+            name: "remote server forward",
+            match: ({ path, url }) => t.forward?.handles(path, url) === true,
+            run: ({ req, res, url, method, path }) => {
+                // A JSON body on every write under /app forces a preflight this server never answers (as for our API).
+                const mutating = method !== "GET" && method !== "HEAD";
+                if (under(path, "/app") && mutating && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
+                    return json(res, 415, { error: "Expected application/json" });
+                }
+                return t.forward!.handle(req, res, url);
+            },
+        },
         {
             // `/?native=1` is the Full-UI frame, which loads the Pi's own page by
             // design; it is not ours to redirect.
@@ -195,6 +226,7 @@ export function createRoutes(t: RouteTargets): Route[] {
                 if (mutating && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
                     return json(res, 415, { error: "Expected application/json" });
                 }
+                t.live.track(res);
                 t.agent.handle(req, res, path);
             },
         },
@@ -216,7 +248,10 @@ export function createRoutes(t: RouteTargets): Route[] {
             // Read-only server-sent events: nothing to forge, no body to check.
             name: "shared cursor",
             match: ({ path }) => t.cursor.handles(path),
-            run: ({ req, res }) => t.cursor.handle(req, res),
+            run: ({ req, res }) => {
+                t.live.track(res);
+                t.cursor.handle(req, res);
+            },
         },
         {
             name: "our API",
@@ -307,10 +342,17 @@ export function createRouter(targets: RouteTargets): Router {
             const url = new URL(req.url ?? "/", "http://localhost");
             const path = url.pathname;
 
-            if (refused(req, path)) return json(res, 403, { error: "Not reachable from this address" });
-            const verdict = gate(req, path, targets.accessToken());
-            if (verdict === "login") return redirect(res, "/app/login");
-            if (verdict === "deny") return json(res, 401, { error: "Unauthorized" });
+            // A bearer presented to the web host is the whole credential for this request: judged here, on every route,
+            // and never mixed with the cookie or `?token=` gate. Absent a bearer, the gate decides as before.
+            const bearer = targets.syncBearer;
+            if (bearer && presentsBearer(req)) {
+                if (bearerVerdict(req, bearer) === "deny") return json(res, 401, { error: "Unauthorized" });
+            } else {
+                if (refused(req, path)) return json(res, 403, { error: "Not reachable from this address" });
+                const verdict = gate(req, path, targets.accessToken());
+                if (verdict === "login") return redirect(res, "/app/login");
+                if (verdict === "deny") return json(res, 401, { error: "Unauthorized" });
+            }
 
             const hit: Hit = { req, res, url, path, method: req.method ?? "GET" };
             // The final route matches everything, so there is always one.
@@ -322,22 +364,33 @@ export function createRouter(targets: RouteTargets): Router {
             });
         },
 
-        /* WebSocket upgrades. The same gate, then kvmd (the HID/event socket and
-         * Janus). An unknown `/app/*`
-         * upgrade is refused here; it used to be forwarded to the Pi as a path
-         * the Pi has never heard of. */
+        /* WebSocket upgrades: the same gate, then the same-origin check on the chat socket, then the server while one is
+         * connected (its chat socket and the kvmd HID/video/Janus sockets), otherwise chat, otherwise kvmd. An unknown
+         * `/app/*` upgrade is refused here; it used to be forwarded to the Pi as a path the Pi has never heard of. */
         onUpgrade(req, socket, head) {
-            const path = new URL(req.url ?? "/", "http://localhost").pathname;
-            if (refused(req, path) || gate(req, path, targets.accessToken()) !== "allow") {
+            const url = new URL(req.url ?? "/", "http://localhost");
+            const path = url.pathname;
+            const bearer = targets.syncBearer;
+            if (bearer && presentsBearer(req)) {
+                if (bearerVerdict(req, bearer) === "deny") {
+                    socket.destroy();
+                    return;
+                }
+            } else if (refused(req, path) || gate(req, path, targets.accessToken()) !== "allow") {
                 socket.destroy();
                 return;
             }
+            // Not from another site, whatever the gate let through. Forwarding rewrites Origin, so this is checked first.
+            if (path === CHAT_SOCKET && !sameOrigin(req)) {
+                socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
+                return;
+            }
+            if (targets.forward?.handles(path, url)) {
+                targets.forward.handleUpgrade(req, socket, head);
+                return;
+            }
             if (path === CHAT_SOCKET) {
-                // Not from another site, whatever the gate let through.
-                if (!sameOrigin(req)) {
-                    socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
-                    return;
-                }
+                targets.live.track(socket);
                 if (!targets.chat.handleUpgrade(req, socket, head)) {
                     socket.end("HTTP/1.1 503 Service Unavailable\r\nconnection: close\r\n\r\n");
                 }
@@ -347,6 +400,7 @@ export function createRouter(targets: RouteTargets): Router {
                 socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
                 return;
             }
+            targets.live.track(socket);
             void targets.kvmd.handleUpgrade(req, socket, head);
         },
     };

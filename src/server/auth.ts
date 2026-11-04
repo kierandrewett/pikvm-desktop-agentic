@@ -115,8 +115,44 @@ export type GateVerdict =
  *  the same host defeats the gate; the web host therefore refuses a non-loopback
  *  bind unless an authenticating proxy is declared (src/web-server.ts). */
 export function gate(req: IncomingMessage, path: string, token: string): GateVerdict {
-    if (!token || isPublicPath(path) || isLoopback(req) || isAuthed(req, token)) return "allow";
+    if (!token || isPublicPath(path)) return "allow";
+    // A bearer token that is presented is checked everywhere, loopback included: a TLS reverse proxy on this host makes
+    // every remote request look like loopback, and the probe of a saved server relies on a wrong token being refused.
+    // Other schemes (a proxy's own Basic credentials) are not ours to judge and keep the loopback exemption below.
+    if (String(req.headers.authorization ?? "").startsWith("Bearer ")) return isAuthed(req, token) ? "allow" : "deny";
+    if (isLoopback(req) || isAuthed(req, token)) return "allow";
     return String(req.headers.accept ?? "").includes("text/html") ? "login" : "deny";
+}
+
+/** The web host's bearer for a remote desktop or CLI: the token from PIKVM_ACCESS_TOKEN, and whether plain http from
+ *  a non-loopback peer is allowed (PIKVM_SYNC_ALLOW_HTTP=1). `token` empty = the host has no bearer, so none is accepted. */
+export interface SyncBearer {
+    token: string;
+    allowHttp: boolean;
+}
+
+/** Is this request presenting `Authorization: Bearer`? Only the bearer scheme is judged here; anything else is left to
+ *  the gate (a proxy's own Basic credentials, for one). */
+export function presentsBearer(req: IncomingMessage): boolean {
+    return String(req.headers.authorization ?? "").startsWith("Bearer ");
+}
+
+/** The decision for a request that presents a bearer, on the web host. It is stricter than the desktop's gate:
+ *
+ *  - the bearer is the only credential accepted here: no session cookie and no `?token=` (isAuthed is not consulted);
+ *  - no loopback exemption: a reverse proxy on this host makes every remote request look like loopback;
+ *  - a request carrying an `Origin` that is not this host's own is a browser page and is refused, since a page on
+ *    another site must never be able to ride a bearer the user holds;
+ *  - the peer is not loopback and the request is plain http: refused unless `allowHttp`, so a token never crosses a network in clear;
+ *  - with no token configured, every bearer is refused.
+ *
+ *  The token is never echoed: the caller answers with a status only. */
+export function bearerVerdict(req: IncomingMessage, bearer: SyncBearer): "allow" | "deny" {
+    if (!bearer.token) return "deny";
+    if (!isLoopback(req) && !bearer.allowHttp) return "deny";
+    if (req.headers.origin !== undefined && !sameOrigin(req)) return "deny";
+    const presented = String(req.headers.authorization ?? "").slice("Bearer ".length);
+    return tokenMatches(presented, bearer.token) ? "allow" : "deny";
 }
 
 /** Is this request, a WebSocket upgrade, from a page of this very host?

@@ -7,15 +7,20 @@
  * decode). Nothing outside this file needs to know about HttpClientError or ParseError.
  */
 
-import { FetchHttpClient, HttpApiClient, HttpClient, HttpClientError } from "@effect/platform";
+import { FetchHttpClient, HttpApiClient, HttpClient, HttpClientError, HttpClientRequest } from "@effect/platform";
 import {
     type Macro,
+    type PikvmAdd,
     PikvmApi,
+    type PikvmEntry,
+    type PikvmList,
+    type PikvmPatch,
+    type ServerAdd,
+    type ServerEntry,
+    type ServerList,
     type Settings,
     type SettingsPatch,
     type State,
-    type TargetConfig,
-    type TargetPatch,
 } from "@pikvm/contracts/api";
 import { Cause, Data, Effect, Exit, Option } from "effect";
 
@@ -68,6 +73,16 @@ const describe = (error: unknown): Effect.Effect<ApiFailure> => {
     return Effect.succeed(new ApiFailure({ message: "Something went wrong." }));
 };
 
+/* The server refuses a write that is not marked as JSON (a cross-site page can send a bodyless POST without a
+ * preflight, so the mark is what keeps it same-origin). The client marks a write that has a body by itself; the
+ * bodyless ones (activate, remove a PiKVM) it leaves unmarked, so mark them here. */
+const markWrites = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
+    HttpClient.mapRequest(client, (request) =>
+        request.body._tag === "Empty" && request.method !== "GET" && request.method !== "HEAD"
+            ? HttpClientRequest.setHeader(request, "content-type", "application/json")
+            : request,
+    );
+
 // Built per call: it is a few object allocations, and it reads the current global fetch,
 // which the tests replace.
 //
@@ -75,7 +90,9 @@ const describe = (error: unknown): Effect.Effect<ApiFailure> => {
 // the endpoint's declared errors. The server answers every failure with `{error: string}`,
 // which is what the user needs to read; letting the client decode a 400 against its own
 // framework error shape would turn "settings file is read-only" into a decode failure.
-const makeClient = HttpApiClient.make(PikvmApi, { transformClient: HttpClient.filterStatusOk });
+const makeClient = HttpApiClient.make(PikvmApi, {
+    transformClient: (client) => HttpClient.filterStatusOk(markWrites(client)),
+});
 
 const withClient = <A, E>(
     use: (client: Effect.Effect.Success<typeof makeClient>) => Effect.Effect<A, E>,
@@ -114,8 +131,37 @@ export const runApi = async <A>(effect: Effect.Effect<A, ApiFailure>, signal?: A
 export const replaceMacros = (macros: ReadonlyArray<unknown>): Effect.Effect<ReadonlyArray<Macro>, ApiFailure> =>
     withClient((client) => Effect.map(client.macros.replace({ payload: { macros: [...macros] } }), (reply) => reply.macros));
 
-export const getTarget = (): Effect.Effect<TargetConfig, ApiFailure> => withClient((client) => client.target.get());
+export const listPikvms = (): Effect.Effect<PikvmList, ApiFailure> => withClient((client) => client.pikvms.list());
 
-/** The password in the patch is write-only: nothing in any reply carries it back. */
-export const putTarget = (patch: TargetPatch): Effect.Effect<TargetConfig, ApiFailure> =>
-    withClient((client) => client.target.update({ payload: patch }));
+/** The password in an add or a patch is write-only: nothing in any reply carries it back. */
+export const addPikvm = (payload: PikvmAdd): Effect.Effect<PikvmEntry, ApiFailure> =>
+    withClient((client) => client.pikvms.add({ payload }));
+
+export const updatePikvm = (id: string, payload: PikvmPatch): Effect.Effect<PikvmEntry, ApiFailure> =>
+    withClient((client) => client.pikvms.update({ path: { id }, payload }));
+
+export const removePikvm = (id: string): Effect.Effect<PikvmList, ApiFailure> =>
+    withClient((client) => client.pikvms.remove({ path: { id } }));
+
+export const setDefaultPikvm = (id: string): Effect.Effect<PikvmList, ApiFailure> =>
+    withClient((client) => client.pikvms.setDefault({ path: { id } }));
+
+export const activatePikvm = (id: string): Effect.Effect<PikvmList, ApiFailure> =>
+    withClient((client) => client.pikvms.activate({ path: { id } }));
+
+export const listServers = (): Effect.Effect<ServerList, ApiFailure> => withClient((client) => client.servers.list());
+
+/** The token is write-only: no reply carries it back, only `tokenSet`. The server is probed before it is saved. */
+export const addServer = (payload: ServerAdd): Effect.Effect<ServerEntry, ApiFailure> =>
+    withClient((client) => client.servers.add({ payload }));
+
+export const removeServer = (id: string): Effect.Effect<ServerList, ApiFailure> =>
+    withClient((client) => client.servers.remove({ path: { id } }));
+
+/** Makes a saved server the one in use. Adding a server does not do this; the user presses Use. */
+export const switchServer = (id: string): Effect.Effect<ServerList, ApiFailure> =>
+    withClient((client) => client.servers.use({ path: { id } }));
+
+/** Makes This computer's server the one in use. */
+export const switchToThisComputer = (): Effect.Effect<ServerList, ApiFailure> =>
+    withClient((client) => client.servers.useLocal());

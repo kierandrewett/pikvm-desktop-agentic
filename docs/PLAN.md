@@ -98,6 +98,7 @@ src/server/               one Node server for desktop and web host
   proxy/                  kvmd passthrough (HTTP + WS)
   chat/                   the chat server and the PiKVM MCP on its agent listener
   agent/                  the Desk, presence and activity
+  sync/                   the state server: the probe client, the forwarder, `/servers` logic
   auth.ts                 the one gate
 src/desktop/              Electron main + one preload
 tools/fake-kvmd/          a kvmd simulator for end-to-end tests

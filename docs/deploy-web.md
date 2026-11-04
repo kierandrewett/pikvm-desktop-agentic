@@ -50,6 +50,8 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_USER` | no | kvmd user (default `admin`). |
 | `PIKVM_PASSWORD` | yes | kvmd password. Held by the host only; never in the agent's environment, files or prompt. |
 | `PIKVM_AUTH` | for `HOST=0.0.0.0` | `proxy`: an authenticating proxy is in front. The image sets `HOST=0.0.0.0`, so this is required in practice. |
+| `PIKVM_ACCESS_TOKEN` | no | Bearer token for a remote PiKVM Desktop or CLI using this host as its server. A request with `Authorization: Bearer <token>` is accepted only with this exact token, and a wrong one gets 401. Unset: every bearer is refused, browsers are unaffected. See "Using this host as a server" below. |
+| `PIKVM_SYNC_ALLOW_HTTP` | no | `1` accepts a bearer over plain http from a non-loopback peer. Default: refused, so a token never crosses a network in clear. |
 | `PORT` | no | Listen port (default `8080`). |
 | `PIKVM_DATA_DIR` | no | The data volume (image default `/data`). |
 | `PIKVM_KEYBOARD_LAYOUT`, `PIKVM_JIGGLER` | no | As before. |
@@ -185,6 +187,21 @@ Authelia, or similar) and make that proxy the only route to it. A layout that wo
   worker, the app icons and the iPhone launch images; the exact list is under "Public paths" in the README). Everything
   else, Chat's API and sockets included, stays behind the sign-in;
 - `PIKVM_AUTH=proxy` tells the host that this is so. Without it the host binds only to loopback.
+- an authenticating proxy must let `Authorization` through to the host. A request presenting `Authorization: Bearer` is
+  judged by the host's own `PIKVM_ACCESS_TOKEN`, not by the proxy's sign-in (see "Using this host as a server" below).
+
+### Using this host as a server
+
+A remote PiKVM Desktop (or a CLI) can use this host as its server instead of signing in through a browser. Set
+`PIKVM_ACCESS_TOKEN` to a long random string and give the same string to the remote as its bearer token. The remote sends
+`Authorization: Bearer <token>`; the host accepts it only when it matches exactly, on every route the console reaches, and
+refuses a wrong one with 401.
+
+The bearer is the whole credential for that request: the session cookie and `?token=` are not read for it. A request whose
+`Origin` header is not this host's own is refused, since a browser page must never ride the token. Plain http from a
+non-loopback peer is refused unless `PIKVM_SYNC_ALLOW_HTTP=1`, so serve the host over https (through the proxy) and leave
+that setting off. Without a bearer a request is handled exactly as before: the proxy's sign-in still decides. With
+`PIKVM_ACCESS_TOKEN` unset every bearer is refused, and browsers are unaffected.
 
 ### A compose file for the host
 

@@ -162,6 +162,8 @@ async function startServer(targetStore: TargetStore, settings: SettingsStore) {
         },
     );
 
+    targetStore.subscribe((target) => control.setTarget(target));
+
     // Bind to the LAN only when the user opts in (so a phone/browser can reach
     // the proxy); default to loopback.
     // PIKVM_BIND_HOST overrides the persisted setting (e.g. 0.0.0.0 to test from a
@@ -174,17 +176,11 @@ async function startServer(targetStore: TargetStore, settings: SettingsStore) {
         {
             control,
             settings,
-            /* Settings can change the PiKVM from the desktop app. The password goes to its own file and
-             * is never returned; the control core follows the new target without a restart, and the
-             * Desk (the agent's own link to the Pi) reads it from the control core on its next run. */
-            target: {
-                view: () => targetStore.view(),
-                save: (change) => {
-                    const saved = targetStore.save(change);
-                    control.setTarget(saved);
-                    return targetStore.view();
-                },
-            },
+            /* Settings manage the PiKVMs from the desktop app. Passwords go to their own file and are never
+             * returned. The store tells the control core whenever the active PiKVM, or a field of it, changes,
+             * so the proxy follows at once; the Desk (the agent's own link to the Pi) and the screen watch read
+             * it from the control core on their next run. */
+            pikvms: targetStore,
             images: electronImageOps,
             // A packaged app carries the agent binary in its resources; a dev run finds it by OMP_BIN or PATH.
             ...(app.isPackaged ? { resourcesDir: process.resourcesPath } : {}),

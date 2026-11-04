@@ -34,7 +34,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultServer, installFakeServer, renderApp, type RecordedRequest, type ServerState } from "../test/harness";
+import { defaultServer, type FakePikvm, type FakeServer, installFakeServer, renderApp, type RecordedRequest, type ServerState } from "../test/harness";
 
 // jsdom cannot reload; the form calls this after a successful save.
 const reload = vi.hoisted(() => vi.fn());
@@ -264,116 +264,646 @@ describe("connection", () => {
         renderApp("/settings/connection");
         await screen.findByText("https://pikvm.example");
         expect(screen.queryByRole("textbox")).toBeNull();
-        expect(screen.getByText(/sets the PiKVM at startup/)).toBeInTheDocument();
+        expect(screen.getByText("The PiKVM is set by the host. Change it in the host's settings.")).toBeInTheDocument();
     });
 });
 
-/* FAILURE MODES (editing the PiKVM, desktop app only)
- *  1. A pinned host shows a form, or sends a PUT.
+/* FAILURE MODES (the PiKVM list, desktop app only)
+ *  1. A pinned host shows a form or an action, or sends a write.
  *  2. The password field is ever filled from the server, or kept in the page after a save.
  *  3. Saving with the password field empty wipes the stored password; typing does not replace it.
  *  4. A bad address is sent to the server instead of being caught first.
  *  5. A refused save loses what the user typed, or says nothing.
- *  6. A save does not reload the app, so the video and the input socket stay on the old address.
+ *  6. A change to the active PiKVM does not reload the app, so the video and the input socket stay on the old
+ *     one; or a change that does not touch it reloads anyway.
  *  7. The password is sent as anything but the password field's own value.
+ *  8. A lone PiKVM offers a switcher, or an empty list offers no way to add the first one.
+ *  9. The wrong PiKVM is made active or removed, or a removal needs no confirmation.
+ * 10. A PiKVM that is not in use is shown with a live link.
  */
 /** A row is a labelled group, so a label's text names the group and the field; the field is what is wanted. */
 const INPUT = { selector: "input" };
 
-describe("connection: changing the PiKVM", () => {
-    const editable = () => {
-        server.target = { origin: "https://pikvm.example/", username: "admin", passwordSet: true, editable: true };
+const desk = (over: Partial<FakePikvm> = {}): FakePikvm => ({
+    id: "desk",
+    name: "Desk",
+    origin: "https://pikvm.example/",
+    username: "admin",
+    passwordSet: true,
+    isDefault: true,
+    active: true,
+    ...over,
+});
+const rack = (over: Partial<FakePikvm> = {}): FakePikvm => ({
+    id: "rack",
+    name: "Rack",
+    origin: "https://rack.lan/",
+    username: "root",
+    passwordSet: false,
+    isDefault: false,
+    active: false,
+    ...over,
+});
+const writes = () =>
+    requests.filter((r) => r.path.startsWith("/app/api/v1/pikvms") && r.method !== "GET");
+
+describe("connection: the PiKVM list", () => {
+    const editable = (...items: FakePikvm[]) => {
+        server.pikvms = { editable: true, items };
+        server.servers = { ...server.servers, editable: true, items: [], localActive: true };
     };
 
     beforeEach(() => {
         reload.mockClear();
     });
 
-    it("shows the current address and user, and a password field that is empty", async () => {
-        editable();
-        renderApp("/settings/connection");
-        expect(await screen.findByLabelText("Address", INPUT)).toHaveValue("https://pikvm.example/");
-        expect(screen.getByLabelText("User name", INPUT)).toHaveValue("admin");
-        const password = screen.getByLabelText("Password", INPUT);
-        expect(password).toHaveValue("");
-        expect(password).toHaveAttribute("type", "password");
-        expect(password).toHaveAttribute("placeholder", expect.stringMatching(/stored/));
+    describe("with one PiKVM", () => {
+        it("shows its name, address and link, with no make-active or default controls", async () => {
+            editable(desk());
+            renderApp("/settings/connection");
+            expect(await screen.findByText("Desk")).toBeInTheDocument();
+            expect(screen.getByText("https://pikvm.example/")).toBeInTheDocument();
+            expect(await screen.findByText("Connected")).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "Edit Desk" })).toBeInTheDocument();
+            expect(screen.getByRole("button", { name: "Remove Desk" })).toBeInTheDocument();
+            expect(screen.queryByRole("button", { name: /Make .* active/ })).toBeNull();
+            expect(screen.queryByText("Default")).toBeNull();
+            expect(screen.queryByRole("button", { name: /Make .* the default/ })).toBeNull();
+        });
+
+        it("shows the edit form with the current values and a password field that is empty", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            expect(await screen.findByLabelText("Name", INPUT)).toHaveValue("Desk");
+            expect(screen.getByLabelText("Address", INPUT)).toHaveValue("https://pikvm.example/");
+            expect(screen.getByLabelText("User name", INPUT)).toHaveValue("admin");
+            const password = screen.getByLabelText("Password", INPUT);
+            expect(password).toHaveValue("");
+            expect(password).toHaveAttribute("type", "password");
+            expect(password).toHaveAttribute("placeholder", expect.stringMatching(/stored/));
+            expect(document.body.textContent).not.toMatch(/only you can read/);
+            expect(screen.getByText(/Not shown again after you save it/)).toBeInTheDocument();
+        });
+
+        it("a save with the password left empty does not send one, so the stored one is kept", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            const address = await screen.findByLabelText("Address", INPUT);
+            await user.clear(address);
+            await user.type(address, "https://other.lan/");
+            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(writes()).toEqual([
+                {
+                    method: "PUT",
+                    path: "/app/api/v1/pikvms/desk",
+                    body: { name: "Desk", origin: "https://other.lan/", username: "admin" },
+                },
+            ]);
+            expect(server.pikvms.items[0]?.passwordSet).toBe(true);
+        });
+
+        it("a typed password is sent once, replaces the stored one, and is cleared from the page", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            const password = await screen.findByLabelText("Password", INPUT);
+            await user.type(password, "hunter2-typed");
+            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(writes()).toHaveLength(1);
+            expect(writes()[0]?.body).toMatchObject({ password: "hunter2-typed" });
+            await waitFor(() => expect(screen.queryByLabelText("Password", INPUT)).toBeNull());
+            expect(document.body.innerHTML).not.toContain("hunter2-typed");
+        });
+
+        it("removing the stored password sends an empty one", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(await screen.findByRole("switch", { name: "Remove the stored password" }));
+            expect(screen.getByLabelText("Password", INPUT)).toBeDisabled();
+            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(writes()[0]?.body).toMatchObject({ password: "" });
+            expect(server.pikvms.items[0]?.passwordSet).toBe(false);
+        });
+
+        it("offers no way to remove a password that is not set", async () => {
+            editable(desk({ passwordSet: false }));
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await screen.findByLabelText("Password", INPUT);
+            expect(screen.queryByRole("switch", { name: "Remove the stored password" })).toBeNull();
+        });
+
+        it("catches a bad address before any request, and clears the complaint when it is corrected", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            const address = await screen.findByLabelText("Address", INPUT);
+            await user.clear(address);
+            await user.type(address, "pikvm");
+            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            expect(await screen.findByRole("alert")).toHaveTextContent(/not a URL/);
+            expect(address).toHaveAttribute("aria-invalid", "true");
+            expect(writes()).toEqual([]);
+            await user.type(address, "://x");
+            expect(screen.queryByRole("alert")).toBeNull();
+        });
+
+        it("a refused save says why, keeps what was typed and does not reload", async () => {
+            editable(desk());
+            server.pikvmWriteStatus = 400;
+            server.pikvmWriteError = "The address must start with http:// or https://";
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            const name = await screen.findByLabelText("Name", INPUT);
+            const password = screen.getByLabelText("Password", INPUT);
+            await user.clear(name);
+            await user.type(name, "Bench");
+            await user.type(password, "keep-me");
+            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            expect(await screen.findByRole("alert")).toHaveTextContent(/must start with http/);
+            expect(name).toHaveValue("Bench");
+            expect(password).toHaveValue("keep-me");
+            expect(reload).not.toHaveBeenCalled();
+        });
+
+        it("renaming the active PiKVM does not reload the app", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            const name = await screen.findByLabelText("Name", INPUT);
+            await user.clear(name);
+            await user.type(name, "Bench");
+            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            expect(await screen.findByText("Bench")).toBeInTheDocument();
+            expect(writes()[0]?.body).toEqual({ name: "Bench", origin: "https://pikvm.example/", username: "admin" });
+            expect(reload).not.toHaveBeenCalled();
+        });
+
+        it("a name is required, and is caught before any request", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.clear(await screen.findByLabelText("Name", INPUT));
+            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            expect(await screen.findByRole("alert")).toHaveTextContent(/Give it a name/);
+            expect(writes()).toEqual([]);
+        });
+
+        it("Cancel closes the form and sends nothing", async () => {
+            editable(desk());
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(await screen.findByRole("button", { name: "Cancel" }));
+            expect(screen.queryByLabelText("Name", INPUT)).toBeNull();
+            expect(writes()).toEqual([]);
+        });
     });
 
-    it("a save with the password left empty does not send one, so the stored one is kept", async () => {
-        editable();
+    describe("with none", () => {
+        it("opens on the add form, with no list and no Cancel", async () => {
+            editable();
+            renderApp("/settings/connection");
+            expect(await screen.findByRole("heading", { name: "Add a PiKVM" })).toBeInTheDocument();
+            expect(screen.getByLabelText("Name", INPUT)).toHaveValue("");
+            expect(screen.getByLabelText("Address", INPUT)).toHaveValue("");
+            expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+            expect(screen.queryByRole("switch", { name: "Remove the stored password" })).toBeNull();
+        });
+
+        it("adds the first PiKVM with its sign-in and reloads, since it becomes the one in use", async () => {
+            editable();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.type(await screen.findByLabelText("Name", INPUT), "Desk");
+            await user.type(screen.getByLabelText("Address", INPUT), "https://pikvm.lan/");
+            await user.type(screen.getByLabelText("User name", INPUT), "admin");
+            await user.type(screen.getByLabelText("Password", INPUT), "s3cret");
+            await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(writes()).toEqual([
+                {
+                    method: "POST",
+                    path: "/app/api/v1/pikvms",
+                    body: { name: "Desk", origin: "https://pikvm.lan/", username: "admin", password: "s3cret" },
+                },
+            ]);
+        });
+
+        it("catches a bad address and a missing name before any request", async () => {
+            editable();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.type(await screen.findByLabelText("Address", INPUT), "ftp://pikvm/");
+            await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
+            expect((await screen.findAllByRole("alert")).map((a) => a.textContent).join(" ")).toMatch(
+                /Give it a name.*must start with http/,
+            );
+            expect(writes()).toEqual([]);
+        });
+
+        it("a refused add keeps what was typed", async () => {
+            editable();
+            server.pikvmWriteStatus = 400;
+            server.pikvmWriteError = "That address is already stored.";
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.type(await screen.findByLabelText("Name", INPUT), "Desk");
+            await user.type(screen.getByLabelText("Address", INPUT), "https://pikvm.lan/");
+            await user.type(screen.getByLabelText("Password", INPUT), "keep-me");
+            await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
+            expect(await screen.findByRole("alert")).toHaveTextContent(/already stored/);
+            expect(screen.getByLabelText("Name", INPUT)).toHaveValue("Desk");
+            expect(screen.getByLabelText("Password", INPUT)).toHaveValue("keep-me");
+            expect(reload).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("with several", () => {
+        const several = () => editable(desk(), rack());
+
+        it("marks the default, and shows a live link only on the active one", async () => {
+            several();
+            renderApp("/settings/connection");
+            expect(await screen.findByText("Rack")).toBeInTheDocument();
+            expect(screen.getAllByText("Default")).toHaveLength(1);
+            expect(screen.getByText("Connected")).toBeInTheDocument();
+            expect(screen.getByText("Not in use")).toBeInTheDocument();
+            expect(screen.queryByRole("button", { name: "Make Desk active" })).toBeNull();
+            expect(screen.getByRole("button", { name: "Make Rack active" })).toBeInTheDocument();
+        });
+
+        it("making one the default writes the default and moves the badge, without reloading", async () => {
+            several();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Make Rack the default" }));
+            await waitFor(() => expect(screen.queryByRole("button", { name: "Make Rack the default" })).toBeNull());
+            expect(writes()).toEqual([{ method: "POST", path: "/app/api/v1/pikvms/rack/default", body: undefined }]);
+            expect(screen.getByRole("button", { name: "Make Desk the default" })).toBeInTheDocument();
+            expect(reload).not.toHaveBeenCalled();
+        });
+
+        it("making one active activates that one and reloads", async () => {
+            several();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Make Rack active" }));
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(writes()).toEqual([{ method: "POST", path: "/app/api/v1/pikvms/rack/activate", body: undefined }]);
+        });
+
+        it("a refused activation says why and does not reload", async () => {
+            several();
+            server.pikvmWriteStatus = 404;
+            server.pikvmWriteError = "No such PiKVM.";
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Make Rack active" }));
+            expect(await screen.findByRole("alert")).toHaveTextContent(/No such PiKVM/);
+            expect(reload).not.toHaveBeenCalled();
+        });
+
+        it("removing asks first, Cancel keeps it, and removing one that is not in use does not reload", async () => {
+            several();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Remove Rack" }));
+            const ask = await screen.findByRole("dialog", { name: "Remove Rack?" });
+            await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+            expect(writes()).toEqual([]);
+            await user.click(screen.getByRole("button", { name: "Remove Rack" }));
+            await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove PiKVM" }));
+            await waitFor(() => expect(screen.queryByText("Rack")).toBeNull());
+            expect(writes()).toEqual([{ method: "DELETE", path: "/app/api/v1/pikvms/rack", body: undefined }]);
+            expect(reload).not.toHaveBeenCalled();
+            // One is left: it needs no switcher.
+            expect(screen.queryByRole("button", { name: /Make .* active/ })).toBeNull();
+        });
+
+        it("removing the active one reloads", async () => {
+            several();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Remove Desk" }));
+            await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove PiKVM" }));
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(writes()).toEqual([{ method: "DELETE", path: "/app/api/v1/pikvms/desk", body: undefined }]);
+        });
+
+        it("adds another PiKVM without reloading, since the new one is not in use", async () => {
+            several();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Add a PiKVM" }));
+            await user.type(await screen.findByLabelText("Name", INPUT), "Lab");
+            await user.type(screen.getByLabelText("Address", INPUT), "https://lab.lan/");
+            await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
+            expect(await screen.findByText("Lab")).toBeInTheDocument();
+            expect(writes()).toEqual([
+                { method: "POST", path: "/app/api/v1/pikvms", body: { name: "Lab", origin: "https://lab.lan/" } },
+            ]);
+            expect(reload).not.toHaveBeenCalled();
+            expect(screen.queryByLabelText("Name", INPUT)).toBeNull();
+        });
+
+        it("changing the address of the one that is not in use does not reload", async () => {
+            several();
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await user.click(await screen.findByRole("button", { name: "Edit Rack" }));
+            const address = await screen.findByLabelText("Address", INPUT);
+            await user.clear(address);
+            await user.type(address, "https://rack2.lan/");
+            await user.click(screen.getByRole("button", { name: "Save" }));
+            expect(await screen.findByText("https://rack2.lan/")).toBeInTheDocument();
+            expect(reload).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("on a host that pins its PiKVM", () => {
+        it("shows the one entry and no form, action or write", async () => {
+            renderApp("/settings/connection");
+            expect(await screen.findByText("PiKVM")).toBeInTheDocument();
+            expect(await screen.findByText("https://pikvm.example")).toBeInTheDocument();
+            expect(screen.queryByRole("textbox")).toBeNull();
+            expect(screen.queryByLabelText("Password", INPUT)).toBeNull();
+            expect(screen.queryByRole("button", { name: /Add|Edit|Remove|Make/ })).toBeNull();
+            expect(writes()).toEqual([]);
+        });
+    });
+});
+
+describe("connection: the switch", () => {
+    const serverWrites = () => requests.filter((r) => r.path.startsWith("/app/api/v1/servers") && r.method !== "GET");
+    const garage = (over: Partial<FakeServer> = {}): FakeServer => ({
+        id: "srv-a",
+        name: "Garage",
+        origin: "https://garage.lan/",
+        tokenSet: true,
+        active: false,
+        state: "ok",
+        ...over,
+    });
+    const open = (items: FakeServer[] = [], localActive = true) => {
+        server.pikvms = { editable: true, items: [desk()] };
+        server.servers = { ...server.servers, editable: true, items, localActive };
+    };
+    const SWITCH = { name: "Use a server" };
+    /** The sentence sits inside the password hint, after any other hint text, so match it as a fragment. */
+    const LINE = /The password is sent to the server and kept there\./;
+
+    beforeEach(() => {
+        reload.mockClear();
+    });
+
+    it("is absent on a host that pins its PiKVM, and sends no write", async () => {
+        renderApp("/settings/connection");
+        expect(await screen.findByText("https://pikvm.example")).toBeInTheDocument();
+        expect(screen.queryByRole("switch")).toBeNull();
+        expect(serverWrites()).toEqual([]);
+    });
+
+    it("pins on the host's own state, even when its PiKVM list is editable", async () => {
+        server.pikvms = { editable: true, items: [desk()] };
+        renderApp("/settings/connection");
+        expect(await screen.findByText("https://pikvm.example/")).toBeInTheDocument();
+        expect(screen.getByText("The PiKVM is set by the host. Change it in the host's settings.")).toBeInTheDocument();
+        expect(screen.queryByRole("switch")).toBeNull();
+        expect(screen.queryByRole("button", { name: /Add a PiKVM|Edit|Remove|Make/ })).toBeNull();
+        expect(serverWrites()).toEqual([]);
+    });
+
+    it("off shows this app's PiKVMs and nothing about servers", async () => {
+        open([]);
+        renderApp("/settings/connection");
+        expect(await screen.findByText("Desk")).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "false");
+        expect(screen.getByRole("button", { name: "Edit Desk" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Forget this server" })).toBeNull();
+        expect(screen.queryByText("On this server.")).toBeNull();
+        expect(screen.queryByLabelText("Access token", INPUT)).toBeNull();
+    });
+
+    it("on with a server in use shows its address, Forget, and the PiKVMs on it", async () => {
+        open([garage({ active: true })], false);
+        renderApp("/settings/connection");
+        expect(await screen.findByText("https://garage.lan/")).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
+        expect(screen.getByRole("button", { name: "Forget this server" })).toBeInTheDocument();
+        expect(screen.getByText("On this server.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Edit Desk" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Remove Desk" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Add a PiKVM" })).toBeInTheDocument();
+    });
+
+    it("keeps the switch, Forget and a read-only PiKVM when the server owns its PiKVM", async () => {
+        open([garage({ active: true })], false);
+        server.pikvms = { editable: false, items: [desk()] };
+        renderApp("/settings/connection");
+        expect(await screen.findByText("https://garage.lan/")).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
+        expect(screen.getByRole("button", { name: "Forget this server" })).toBeInTheDocument();
+        expect(screen.getByText("On this server.")).toBeInTheDocument();
+        expect(screen.getByText("Desk")).toBeInTheDocument();
+        expect(screen.getByText("https://pikvm.example/")).toBeInTheDocument();
+        expect(screen.getByText("This server sets its own PiKVM. Change it in the server's settings.")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /Add a PiKVM|Edit|Remove|Make/ })).toBeNull();
+        expect(screen.queryByLabelText("Password", INPUT)).toBeNull();
+        expect(serverWrites()).toEqual([]);
+    });
+
+    it("turning the switch off while the server owns its PiKVM sends local/use and reloads", async () => {
+        open([garage({ active: true })], false);
+        server.pikvms = { editable: false, items: [desk()] };
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const address = await screen.findByLabelText("Address", INPUT);
-        await user.clear(address);
-        await user.type(address, "https://other.lan/");
-        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+        await user.click(await screen.findByRole("switch", SWITCH));
         await waitFor(() => expect(reload).toHaveBeenCalled());
-        const put = requests.find((r) => r.method === "PUT" && r.path === "/app/api/v1/target");
-        expect(put?.body).toEqual({ origin: "https://other.lan/", username: "admin" });
-        expect(server.target.passwordSet).toBe(true);
+        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/local/use", body: undefined }]);
     });
 
-    it("a typed password is sent once, replaces the stored one, and is cleared from the page", async () => {
-        editable();
+    it("the password line is absent while off", async () => {
+        open([]);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const password = await screen.findByLabelText("Password", INPUT);
-        await user.type(password, "hunter2-typed");
-        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
-        await waitFor(() => expect(reload).toHaveBeenCalled());
-        const put = requests.find((r) => r.method === "PUT");
-        expect(put?.body).toMatchObject({ password: "hunter2-typed" });
-        expect(password).toHaveValue("");
-        expect(document.body.innerHTML).not.toContain("hunter2-typed");
+        await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+        expect(await screen.findByLabelText("Password", INPUT)).toBeInTheDocument();
+        expect(screen.queryByText(LINE)).toBeNull();
     });
 
-    it("removing the stored password sends an empty one", async () => {
-        editable();
+    it("the password line shows under the password field while on", async () => {
+        open([garage({ active: true })], false);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        await user.click(await screen.findByRole("switch", { name: "Remove the stored password" }));
-        expect(screen.getByLabelText("Password", INPUT)).toBeDisabled();
-        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
-        await waitFor(() => expect(reload).toHaveBeenCalled());
-        expect(requests.find((r) => r.method === "PUT")?.body).toMatchObject({ password: "" });
-        expect(server.target.passwordSet).toBe(false);
+        await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+        expect(await screen.findByText(LINE)).toBeInTheDocument();
     });
 
-    it("catches a bad address before any request, and clears the complaint when it is corrected", async () => {
-        editable();
+    it("turning on with none saved shows the form and sends nothing", async () => {
+        open([]);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const address = await screen.findByLabelText("Address", INPUT);
-        await user.clear(address);
-        await user.type(address, "pikvm");
-        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
-        expect(await screen.findByRole("alert")).toHaveTextContent(/not a URL/);
-        expect(address).toHaveAttribute("aria-invalid", "true");
-        expect(requests.some((r) => r.method === "PUT")).toBe(false);
-        await user.type(address, "://x");
-        expect(screen.queryByRole("alert")).toBeNull();
+        await user.click(await screen.findByRole("switch", SWITCH));
+        expect(await screen.findByLabelText("Address", INPUT)).toHaveValue("");
+        expect(screen.getByLabelText("Access token", INPUT)).toHaveValue("");
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
+        expect(screen.queryByText("Desk")).toBeNull();
+        expect(serverWrites()).toEqual([]);
     });
 
-    it("a refused save says why, keeps what was typed and does not reload", async () => {
-        editable();
-        server.targetPutStatus = 400;
-        server.targetPutError = "The address must start with http:// or https://";
+    it("turning the switch back off before connecting hides the form and sends nothing", async () => {
+        open([]);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        const password = await screen.findByLabelText("Password", INPUT);
-        await user.type(password, "keep-me");
-        await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
-        expect(await screen.findByRole("alert")).toHaveTextContent(/must start with http/);
-        expect(password).toHaveValue("keep-me");
+        await user.click(await screen.findByRole("switch", SWITCH));
+        await screen.findByLabelText("Address", INPUT);
+        await user.click(screen.getByRole("switch", SWITCH));
+        expect(await screen.findByText("Desk")).toBeInTheDocument();
+        expect(screen.queryByLabelText("Address", INPUT)).toBeNull();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "false");
+        expect(serverWrites()).toEqual([]);
         expect(reload).not.toHaveBeenCalled();
     });
 
-    it("a pinned host sends no PUT and draws no form", async () => {
+    it("a bad address is caught before any request", async () => {
+        open([]);
+        const user = userEvent.setup();
         renderApp("/settings/connection");
-        await screen.findByText("https://pikvm.example");
-        expect(screen.queryByLabelText("Password", INPUT)).toBeNull();
-        expect(requests.some((r) => r.method === "PUT")).toBe(false);
+        await user.click(await screen.findByRole("switch", SWITCH));
+        await user.type(await screen.findByLabelText("Address", INPUT), "ftp://garage/");
+        await user.type(screen.getByLabelText("Access token", INPUT), "tok-123");
+        await user.click(screen.getByRole("button", { name: "Connect" }));
+        expect((await screen.findAllByRole("alert")).map((a) => a.textContent).join(" ")).toMatch(/must start with http/);
+        expect(serverWrites()).toEqual([]);
+    });
+
+    it("Connect sends the address and token, makes the server the one in use, and reloads", async () => {
+        open([]);
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByRole("switch", SWITCH));
+        await user.type(await screen.findByLabelText("Address", INPUT), "https://garage.lan/");
+        await user.type(screen.getByLabelText("Access token", INPUT), "tok-123");
+        await user.click(screen.getByRole("button", { name: "Connect" }));
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        expect(serverWrites()).toEqual([
+            { method: "POST", path: "/app/api/v1/servers", body: { origin: "https://garage.lan/", token: "tok-123" } },
+            { method: "POST", path: "/app/api/v1/servers/srv-1/use", body: undefined },
+        ]);
+    });
+
+    it("a refused add shows the reason inline, keeps the form, and clears the token", async () => {
+        open([]);
+        server.servers.addStatus = 400;
+        server.servers.addError = "That address is already stored.";
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByRole("switch", SWITCH));
+        await user.type(await screen.findByLabelText("Address", INPUT), "https://garage.lan/");
+        await user.type(screen.getByLabelText("Access token", INPUT), "tok-123");
+        await user.click(screen.getByRole("button", { name: "Connect" }));
+        expect(await screen.findByText(/already stored/)).toBeInTheDocument();
+        expect(screen.getByLabelText("Address", INPUT)).toHaveValue("https://garage.lan/");
+        expect(screen.getByLabelText("Access token", INPUT)).toHaveValue("");
+        expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("on with one saved server, the switch uses it and reloads", async () => {
+        open([garage()], true);
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByRole("switch", SWITCH));
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/srv-a/use", body: undefined }]);
+    });
+
+    it("a refused turn-on says why and leaves the switch off", async () => {
+        open([garage()], true);
+        const base = fetch;
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+                const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+                if (url.endsWith("/servers/srv-a/use")) {
+                    return new Response(JSON.stringify({ error: "The server refused." }), {
+                        status: 503,
+                        headers: { "content-type": "application/json" },
+                    });
+                }
+                return base(input, init);
+            }),
+        );
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByRole("switch", SWITCH));
+        expect(await screen.findByText(/The server refused/)).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "false");
+        expect(reload).not.toHaveBeenCalled();
+    });
+
+    it("off while a server is in use sends local/use and reloads, and keeps the server saved", async () => {
+        open([garage({ active: true })], false);
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByRole("switch", SWITCH));
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/local/use", body: undefined }]);
+        expect(server.servers.items).toHaveLength(1);
+    });
+
+    it("forget asks first, Cancel keeps the server, and confirming deletes it and reloads", async () => {
+        open([garage({ active: true })], false);
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByRole("button", { name: "Forget this server" }));
+        const ask = await screen.findByRole("dialog", { name: "Forget this server?" });
+        await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+        expect(serverWrites()).toEqual([]);
+        await user.click(screen.getByRole("button", { name: "Forget this server" }));
+        await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Forget server" }));
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        expect(serverWrites()).toEqual([{ method: "DELETE", path: "/app/api/v1/servers/srv-a", body: undefined }]);
+    });
+
+    it("an unreachable server replaces the list with a notice, and the switch can still turn it off", async () => {
+        open([garage({ active: true, state: "unreachable" })], false);
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        expect(await screen.findByText("Cannot reach the server.")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Edit Desk" })).toBeNull();
+        const toggle = screen.getByRole("switch", SWITCH);
+        expect(toggle).toHaveAttribute("aria-checked", "true");
+        expect(toggle).not.toBeDisabled();
+        await user.click(toggle);
+        await waitFor(() => expect(reload).toHaveBeenCalled());
+        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/local/use", body: undefined }]);
+    });
+
+    it("making a PiKVM the default still works while on, without reloading", async () => {
+        open([garage({ active: true })], false);
+        server.pikvms = { editable: true, items: [desk(), rack()] };
+        const user = userEvent.setup();
+        renderApp("/settings/connection");
+        await user.click(await screen.findByRole("button", { name: "Make Rack the default" }));
+        await waitFor(() => expect(screen.queryByRole("button", { name: "Make Rack the default" })).toBeNull());
+        expect(writes()).toEqual([{ method: "POST", path: "/app/api/v1/pikvms/rack/default", body: undefined }]);
+        expect(reload).not.toHaveBeenCalled();
     });
 });
 

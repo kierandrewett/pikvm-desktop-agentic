@@ -20,6 +20,25 @@ export interface RecordedRequest {
     readonly body: unknown;
 }
 
+export interface FakeServer {
+    id: string;
+    name: string;
+    origin: string;
+    tokenSet: boolean;
+    active: boolean;
+    state: "unchecked" | "ok" | "unreachable";
+}
+
+export interface FakePikvm {
+    id: string;
+    name: string;
+    origin: string;
+    username: string;
+    passwordSet: boolean;
+    isDefault: boolean;
+    active: boolean;
+}
+
 export interface ServerState {
     keyboardLayout: "us" | "uk";
     jiggler: boolean;
@@ -32,11 +51,20 @@ export interface ServerState {
     patchStatus: number;
     patchError: string;
     stateStatus: number;
-    /** The PiKVM target: `editable` is what the desktop app's server says, and false for a hosted one. */
-    target: { origin: string; username: string; passwordSet: boolean; editable: boolean };
-    /** Status and error for PUT /target; anything but 200 fails the save. */
-    targetPutStatus: number;
-    targetPutError: string;
+    /** The stored PiKVMs: `editable` is what the desktop app's server says, and false for a hosted one. */
+    pikvms: { items: FakePikvm[]; editable: boolean };
+    /** The servers (Settings > Connection). This computer is always there; `localActive` says it is the one in use.
+     *  `editable` is false on a host that pins its state, which hides the section. `addStatus` / `addError` fail a POST. */
+    servers: {
+        items: FakeServer[];
+        localActive: boolean;
+        editable: boolean;
+        addStatus: number;
+        addError: string;
+    };
+    /** Status and error for any write to /pikvms; anything but 200 fails it. */
+    pikvmWriteStatus: number;
+    pikvmWriteError: string;
     /** When set, PATCH /settings waits for it, so a test can look at the in-flight state. */
     patchGate: Promise<void> | undefined;
     /** What HEAD /oauth2/userinfo answers: a status and content type, or a network failure. */
@@ -55,9 +83,23 @@ export const defaultServer = (): ServerState => ({
     patchStatus: 200,
     patchError: "",
     stateStatus: 200,
-    target: { origin: "https://pikvm.example/", username: "", passwordSet: false, editable: false },
-    targetPutStatus: 200,
-    targetPutError: "",
+    pikvms: {
+        items: [
+            {
+                id: "main",
+                name: "PiKVM",
+                origin: "https://pikvm.example",
+                username: "",
+                passwordSet: false,
+                isDefault: true,
+                active: true,
+            },
+        ],
+        editable: false,
+    },
+    servers: { items: [], localActive: true, editable: false, addStatus: 200, addError: "" },
+    pikvmWriteStatus: 200,
+    pikvmWriteError: "",
     patchGate: undefined,
     userinfo: { status: 404, contentType: "text/plain" },
     agent: { found: true },
@@ -71,6 +113,11 @@ const decodeBody = (body: unknown): unknown => {
     const text = typeof body === "string" ? body : new TextDecoder().decode(body as Uint8Array);
     return text === "" ? undefined : JSON.parse(text);
 };
+
+/** What GET /servers answers: the saved remote servers, and whether This computer is the one in use. */
+function serverList(server: ServerState) {
+    return { items: server.servers.items, localActive: server.servers.localActive, editable: server.servers.editable };
+}
 
 export function installFakeServer(server: ServerState): RecordedRequest[] {
     const requests: RecordedRequest[] = [];
@@ -100,15 +147,50 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                     version: "9.9.9",
                 });
             }
-            if (url.pathname === "/app/api/v1/target") {
-                if (method === "PUT") {
-                    if (server.targetPutStatus !== 200) return json(server.targetPutStatus, { error: server.targetPutError });
-                    const put = body as { origin?: string; username?: string; password?: string };
-                    if (put.origin !== undefined) server.target.origin = put.origin;
-                    if (put.username !== undefined) server.target.username = put.username;
-                    if (put.password !== undefined) server.target.passwordSet = put.password !== "";
+            const pikvm = /^\/app\/api\/v1\/pikvms(?:\/([^/]+)(?:\/(default|activate))?)?$/.exec(url.pathname);
+            if (pikvm) {
+                const [, id, action] = pikvm;
+                const { items } = server.pikvms;
+                const list = () => json(200, server.pikvms);
+                if (method === "GET") return list();
+                if (server.pikvmWriteStatus !== 200) return json(server.pikvmWriteStatus, { error: server.pikvmWriteError });
+                const entry = items.find((item) => item.id === id);
+                if (!id) {
+                    const add = body as { name: string; origin: string; username?: string; password?: string };
+                    const first = items.length === 0;
+                    const created: FakePikvm = {
+                        id: `added-${items.length + 1}`,
+                        name: add.name,
+                        origin: add.origin,
+                        username: add.username ?? "",
+                        passwordSet: (add.password ?? "") !== "",
+                        isDefault: first,
+                        active: first,
+                    };
+                    items.push(created);
+                    return json(200, created);
                 }
-                return json(200, server.target);
+                if (!entry) return json(404, { error: "No such PiKVM.", notFound: true });
+                if (action === "activate") {
+                    for (const item of items) item.active = item === entry;
+                    return list();
+                }
+                if (action === "default") {
+                    for (const item of items) item.isDefault = item === entry;
+                    return list();
+                }
+                if (method === "DELETE") {
+                    server.pikvms.items = items.filter((item) => item !== entry);
+                    if (entry.active && server.pikvms.items[0]) server.pikvms.items[0].active = true;
+                    if (entry.isDefault && server.pikvms.items[0]) server.pikvms.items[0].isDefault = true;
+                    return list();
+                }
+                const put = body as { name?: string; origin?: string; username?: string; password?: string };
+                if (put.name !== undefined) entry.name = put.name;
+                if (put.origin !== undefined) entry.origin = put.origin;
+                if (put.username !== undefined) entry.username = put.username;
+                if (put.password !== undefined) entry.passwordSet = put.password !== "";
+                return json(200, entry);
             }
             if (url.pathname === "/app/api/v1/macros") {
                 if (method === "PUT") {
@@ -125,6 +207,43 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                 if (patch.keyboardLayout) server.keyboardLayout = patch.keyboardLayout;
                 if (patch.jiggler !== undefined) server.jiggler = patch.jiggler;
                 return json(200, { keyboardLayout: server.keyboardLayout, jiggler: server.jiggler });
+            }
+            if (url.pathname === "/app/api/v1/servers" && method === "GET") return json(200, serverList(server));
+            if (url.pathname === "/app/api/v1/servers" && method === "POST") {
+                if (server.servers.addStatus !== 200) return json(server.servers.addStatus, { error: server.servers.addError });
+                const add = body as { name?: string; origin: string; token: string };
+                const entry: FakeServer = {
+                    id: `srv-${server.servers.items.length + 1}`,
+                    name: add.name ?? new URL(add.origin).host,
+                    origin: add.origin,
+                    tokenSet: true,
+                    active: false,
+                    state: "ok",
+                };
+                server.servers.items.push(entry);
+                return json(200, entry);
+            }
+            if (url.pathname === "/app/api/v1/servers/local/use" && method === "POST") {
+                for (const item of server.servers.items) item.active = false;
+                server.servers.localActive = true;
+                return json(200, serverList(server));
+            }
+            const serverPath = /^\/app\/api\/v1\/servers\/([^/]+)(\/use)?$/.exec(url.pathname);
+            if (serverPath) {
+                const found = server.servers.items.find((item) => item.id === serverPath[1]);
+                if (!found) return json(404, { error: "no such server" });
+                if (serverPath[2] && method === "POST") {
+                    for (const item of server.servers.items) item.active = false;
+                    found.active = true;
+                    found.state = "ok";
+                    server.servers.localActive = false;
+                    return json(200, serverList(server));
+                }
+                if (!serverPath[2] && method === "DELETE") {
+                    server.servers.items = server.servers.items.filter((item) => item !== found);
+                    if (found.active) server.servers.localActive = true;
+                    return json(200, serverList(server));
+                }
             }
             return json(404, { error: "not found" });
         }),

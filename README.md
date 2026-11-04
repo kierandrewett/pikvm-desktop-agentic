@@ -25,16 +25,29 @@ The chat server looks for the agent program in this order:
 
 Without it, Chat opens and says what is missing. `make package` and `make image` fetch it with `scripts/fetch-omp.mjs`, checked against `deploy/omp.lock`.
 
-## PiKVM address and credentials
+## PiKVMs and credentials
 
-In the desktop app, open Settings > Connection to edit the address, user name, and password. The change applies at once and the app reloads. A hosted web build shows these values read-only. Its environment sets them.
+In the desktop app, open Settings > Connection to add a PiKVM and edit its name, address, user name, and password. Several can be stored. The first one added is the default and the active one; the video, the keyboard and mouse, the agent and the screen watch follow the active one. A hosted web build shows its one PiKVM read-only. Its environment sets it.
 
-- `pikvm.json` in the app's user data folder holds the address and user name.
-- `pikvm-credentials.json` beside it holds the password, with mode 0600.
+- `pikvms.json` in the app's user data folder holds each PiKVM's name, address and user name, which one is the default and which one is active.
+- `pikvms-credentials.json` beside it holds the passwords, one per PiKVM, with mode 0600.
 - The password is write-only. No API reply or form shows it.
-- An older install may keep `user:pass` inside the address. The app still reads it and moves it to the credentials file the first time you save from Settings.
+- An older install has one PiKVM in `pikvm.json` and its password in `pikvm-credentials.json` (or `user:pass` inside the address). The app reads it as the first entry, and moves it to the new files the first time you change something in Settings.
 
 The API is `GET` and `PUT /app/api/v1/target`. A host that pins the PiKVM answers the `PUT` with `403`.
+
+## A state server
+
+The desktop app keeps its settings, macros and PiKVM list locally. In Settings you can add a **state server**, another PiKVM Desktop host that holds them instead. While one is in use, this app forwards every request except its own sign-in, PWA, web app files and server switch to that server. The server holds the settings, macros, PiKVM list, chat, agent, screen watch and cursor, and talks to its own PiKVM with its own credentials, so the video, keyboard and mouse run from the server to the PiKVM.
+
+- The server's address must be `https://`, or `http://` to this machine (`localhost`, `127.x`, `::1`). Anything else is refused, because the access token and the PiKVM passwords travel to it.
+- Adding one probes it with the access token (`GET /app/api/v1/state`) and saves it. **Use** probes it again and, when it answers, makes it the one in use. Nothing is copied between servers: while a server is in use, its settings, macros and PiKVM list are the ones this app shows, and this app's own copy is untouched.
+- While one is in use, this app serves its own sign-in, PWA, web app files and server switch, and forwards everything else: the API, chat, the agent, the screen watch, the cursor, `/target`, the PiKVM proxy, and the video and HID sockets.
+- Only the saved server is kept: at most one. Adding another is refused with 409 until the saved one is removed. Removing it forgets it and its token. This app's own settings, macros and PiKVM list are not changed.
+- `servers.json` holds the saved server's address and whether it is in use. Its access token is only in `server-tokens.json`, mode 0600. Neither is returned by the API: `GET /app/api/v1/servers` says `tokenSet`.
+- A PiKVM password goes only to the server in use, only over https (or http to loopback), and never comes back in any reply, log or error. The server answers a save with `passwordSet`, never the password.
+
+A host becomes a state server by having an access token: the desktop's `accessToken` setting. The forwarder drops the page's cookies and `Authorization` header and sends the server's own `Authorization: Bearer <token>` instead.
 
 ## Packaging
 
@@ -96,6 +109,8 @@ make image    # podman build; use IMAGE_TOOL=docker for docker
 The environment is the whole configuration. The header of `src/web-server.ts` lists every variable. [docs/deploy-web.md](docs/deploy-web.md) covers deployment.
 
 The host has no login of its own. Put an authenticating proxy in front of it, make that proxy the only route in, and set `PIKVM_AUTH=proxy`. Without that setting, the host binds only to loopback. Never publish its port directly.
+
+A remote PiKVM Desktop can use the host as its server with a bearer token: set `PIKVM_ACCESS_TOKEN` on the host and the same string as the remote's token. A request presenting `Authorization: Bearer <token>` is accepted only with that exact token and refused (401) otherwise; no cookie or `?token=` is read for it, a request with a foreign browser `Origin` is refused, and plain http from a non-loopback peer is refused unless `PIKVM_SYNC_ALLOW_HTTP=1`. An authenticating proxy must pass `Authorization` through to the host. Requests without a bearer are unchanged. See [docs/deploy-web.md](docs/deploy-web.md).
 
 This layout is the reference deployment:
 

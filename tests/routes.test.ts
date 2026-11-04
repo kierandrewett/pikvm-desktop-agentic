@@ -21,6 +21,7 @@ import test from "node:test";
 import { WebSocket, WebSocketServer } from "ws";
 import { sessionValue, SESSION_COOKIE } from "../src/server/auth";
 import { createRouter, type RouteTargets } from "../src/server/routes";
+import { createLiveConnections } from "../src/server/live";
 import { createWebAssets } from "../src/server/static";
 
 const TOKEN = "correct horse battery staple";
@@ -71,6 +72,7 @@ function targets(over: { token?: string; appDir?: string; refuseLoopback?: boole
                 res.end("cursor");
             },
         },
+        live: createLiveConnections(),
         accessToken: () => over.token ?? "",
         kvmd: {
             ...marker("kvmd"),

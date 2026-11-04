@@ -13,12 +13,26 @@
  * make that proxy the only route in. PIKVM_AUTH=proxy states that this is so;
  * without it the server only binds loopback.
  *
+ * A remote PiKVM Desktop (or a CLI) can use this host as a server with a bearer
+ * token: PIKVM_ACCESS_TOKEN. A request that presents `Authorization: Bearer <token>`
+ * is accepted only with that exact token, on every route the console reaches; a wrong
+ * token is refused (401). The bearer is the whole credential for that request: the
+ * session cookie and `?token=` are not read for it, a request carrying an `Origin`
+ * header that is not this host's own is refused (a browser page never holds the
+ * token), and plain http from a non-loopback peer is refused unless
+ * PIKVM_SYNC_ALLOW_HTTP=1. With no bearer the request is handled exactly as before:
+ * the proxy authenticates it. Unset PIKVM_ACCESS_TOKEN means every bearer is refused.
+ * An authenticating proxy in front must pass `Authorization` through to this host.
+ *
  * Configuration is environment-only, so a compose file and a machine `.env`
  * are the whole contract:
  *
  *   PIKVM_URL              PiKVM origin, e.g. https://pikvm.example.ts.net (required)
  *   PIKVM_USER             kvmd user (default "admin")
  *   PIKVM_PASSWORD         kvmd password (required)
+ *   PIKVM_ACCESS_TOKEN     bearer token a remote server or CLI sends as `Authorization: Bearer`. Unset: every bearer is
+ *                          refused; browsers are unaffected either way.
+ *   PIKVM_SYNC_ALLOW_HTTP  "1": accept a bearer over plain http from a non-loopback peer (default: refused)
  *   PIKVM_AUTH             "proxy": an authenticating reverse proxy is the only
  *                          way in, so bind any HOST. Unset: loopback only.
  *   PIKVM_KEYBOARD_LAYOUT  "us" | "uk" default before the Pi reports its keymap
@@ -151,6 +165,8 @@ const server = startControlServer(
         images,
         ...(migrationsDir ? { migrationsDir } : {}),
         ...(proxyAuth ? { refuseLoopback: true } : {}),
+        // A bearer is accepted only with PIKVM_ACCESS_TOKEN; unset, every bearer is refused (auth.ts bearerVerdict).
+        syncBearer: { token: env("PIKVM_ACCESS_TOKEN"), allowHttp: env("PIKVM_SYNC_ALLOW_HTTP") === "1" },
     },
     port,
     host,

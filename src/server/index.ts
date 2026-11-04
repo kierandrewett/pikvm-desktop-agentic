@@ -30,9 +30,12 @@ import { createDesk } from "./agent/desk";
 import { createPresence } from "./agent/presence";
 import { createAgentRoutes } from "./agent/routes";
 import { createApi } from "./api";
-import type { TargetEditor } from "./api";
+import { createServerSync } from "./sync";
+import { createLiveConnections } from "./live";
+import type { PikvmEditor } from "./api";
 import { startChat, type ChatHost, type ChatHostOptions } from "./chat";
 import { createRouter } from "./routes";
+import type { SyncBearer } from "./auth";
 import { limitsFromEnv } from "./watch/limits";
 import { createWatchRoutes } from "./watch/routes";
 import { createWatchService } from "./watch/service";
@@ -56,8 +59,10 @@ export interface ServerDeps {
     createChat?: ChatHostOptions["create"];
     /** The web host behind an authenticating proxy: a loopback peer is not the proxy, so it is refused. */
     refuseLoopback?: boolean;
-    /** Lets Settings change the PiKVM. Only the desktop app passes it. */
-    target?: TargetEditor;
+    /** The web host's bearer (PIKVM_ACCESS_TOKEN): a request presenting `Authorization: Bearer` is judged by it. */
+    syncBearer?: SyncBearer;
+    /** Lets Settings manage the PiKVMs. Only the desktop app passes it. */
+    pikvms?: PikvmEditor;
 }
 
 /** The app's version, from the package.json the build copies beside the bundle. */
@@ -125,9 +130,16 @@ export function startControlServer(
         },
     });
 
+    /* The sockets and event streams served here: ended when the server in use changes (see sync/index.ts). */
+    const live = createLiveConnections();
+    /* The state server this app may be connected to: only where the host owns its PiKVM list (the desktop). */
+    const serverSync = deps.pikvms
+        ? createServerSync({ dir: settings.dir(), live })
+        : undefined;
+
     const jiggler = new MouseJiggler({
         control,
-        enabled: () => settings.get().jiggler,
+        enabled: () => settings.get().jiggler && !serverSync?.connected(),
         isAgentBusy: () => desk.busy(),
         log: (line) => console.log(line),
     });
@@ -177,6 +189,7 @@ export function startControlServer(
         }
     });
 
+
     const api = createApi({
         control,
         settings,
@@ -186,7 +199,8 @@ export function startControlServer(
          * the agent program it starts was found, so the tab can say what is missing. */
         features: () => chat!.features(),
         version: readVersion(),
-        ...(deps.target ? { target: deps.target } : {}),
+        ...(deps.pikvms ? { pikvms: deps.pikvms } : {}),
+        ...(serverSync ? { servers: serverSync.editor } : {}),
     });
 
     const router = createRouter({
@@ -195,9 +209,11 @@ export function startControlServer(
         chat,
         agent,
         cursor: cursorRoutes,
+        live,
         watch: watchRoutes,
-        ...(deps.refuseLoopback ? { refuseLoopback: true } : {}),
+        ...(deps.syncBearer ? { syncBearer: deps.syncBearer } : {}),
         api,
+        ...(serverSync ? { forward: serverSync.forwarder } : {}),
         assets: webAssets,
         app: appAssets,
     });

@@ -230,7 +230,7 @@ export function createDesk(options: DeskOptions): AgentDesk {
     let target: DeskTarget | null = null;
     let link: TargetLink | null = null;
     let input: AgentInput | null = null;
-    let linkOrigin = "";
+    let linkIdentity = "";
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
     // ---- the link to the Pi ----------------------------------------------------------------
@@ -295,7 +295,10 @@ export function createDesk(options: DeskOptions): AgentDesk {
         target = next;
         clearTimeout(idleTimer);
         idleTimer = undefined;
-        if (!link || linkOrigin !== next.origin.href) {
+        /* A different PiKVM, or the same one with another sign-in, is a different link: the active PiKVM can change
+         * between runs and the open socket belongs to the old one. Held in memory only, never logged. */
+        const identity = `${next.origin.href}\n${JSON.stringify(next.headers)}`;
+        if (!link || linkIdentity !== identity) {
             await link?.stop();
             const wsUrl = `${next.origin.protocol === "https:" ? "wss:" : "ws:"}//${next.origin.host}/api/ws`;
             const created = createTargetLink({
@@ -305,7 +308,7 @@ export function createDesk(options: DeskOptions): AgentDesk {
                 clock,
             });
             link = created;
-            linkOrigin = next.origin.href;
+            linkIdentity = identity;
             input = createAgentInput({
                 link: created,
                 native: () => nativeNow() ?? { width: 1920, height: 1080 },
@@ -327,7 +330,7 @@ export function createDesk(options: DeskOptions): AgentDesk {
             const closing = link;
             link = null;
             input = null;
-            linkOrigin = "";
+            linkIdentity = "";
             void closing?.stop();
         }, linkIdleMs);
         idleTimer.unref();
