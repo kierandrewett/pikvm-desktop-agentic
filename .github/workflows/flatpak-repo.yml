@@ -6,7 +6,9 @@ name: flatpak-repo
 # packaging/flatpak-repo.gpg.b64 and goes into the .flatpakrepo file). scripts/flatpak-repo.sh does the work.
 #
 # package.yml calls this after it has published a release. Run it by hand for a release that already exists:
-#   gh workflow run flatpak-repo.yml -f tag=v1.14.0
+#   gh workflow run flatpak-repo.yml -f tag=v1.14.1 -f dry_run=true
+# A dry run builds everything and keeps the repository and the rebuilt bundles as a workflow artifact, but changes
+# neither the release nor the Pages site.
 
 on:
   workflow_call:
@@ -21,9 +23,14 @@ on:
         description: The release tag whose .flatpak files go into the repository
         required: true
         type: string
+      dry_run:
+        description: Build only; keep the result as an artifact, do not touch the release or Pages
+        required: false
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -47,7 +54,10 @@ jobs:
       - name: Install flatpak and ostree
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak ostree gnupg
+          sudo apt-get install -y --no-install-recommends flatpak ostree gnupg appstream
+          # Ubuntu ships the compose command in its own package; the build needs it, so check it is there.
+          sudo apt-get install -y --no-install-recommends appstream-compose || true
+          appstreamcli compose --help >/dev/null
       - name: Download the release's Flatpak bundles
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,12 +77,32 @@ jobs:
       - name: Build the repository
         env:
           FLATPAK_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID }}
+          TAG: ${{ inputs.tag }}
         run: |
+          export RELEASE_VERSION="${TAG#v}"
           scripts/flatpak-repo.sh bundles site "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
-          du -sh site
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+          du -sh site site-bundles
+      - name: Keep the result for inspection (dry run)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-repo-dry-run
+          path: |
+            site
+            site-bundles
+      # The release's .flatpak files are replaced by ones that carry the repository's address and key, so a file
+      # installed from the release page keeps updating through `flatpak update`.
+      - name: Replace the release's Flatpak bundles with ones that know their repository
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" site-bundles/*.flatpak --repo "$GITHUB_REPOSITORY" --clobber
+      - if: ${{ !inputs.dry_run }}
+        uses: actions/configure-pages@v5
+      - if: ${{ !inputs.dry_run }}
+        uses: actions/upload-pages-artifact@v3
         with:
           path: site
       - id: deploy
+        if: ${{ !inputs.dry_run }}
         uses: actions/deploy-pages@v4
