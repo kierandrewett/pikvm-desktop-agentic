@@ -230,7 +230,8 @@ async function run(browser, profile, tag) {
                     during.title === "\u25cf PiKVM" &&
                     during.notes.length >= 1 &&
                     during.notes[0].tag === "pikvm-screen" &&
-                    during.badges[0] === "set" &&
+                    // The app icon badge clears itself on load (notify/use-app-badge.ts), so a "clear" may come first; the change must set it.
+                    during.badges.at(-1) === "set" &&
                     after.title === "PiKVM" &&
                     after.badges.at(-1) === "clear";
                 return [pass, `switch ${before} -> stored ${stored}; window ${JSON.stringify(state)}; during: ${JSON.stringify(during.title)}, ${during.notes.length} notification(s) "${during.notes[0]?.title}: ${during.notes[0]?.body}", badge ${during.badges.join(",")}; after: ${JSON.stringify(after.title)}, badge ${after.badges.join(",")}`];
