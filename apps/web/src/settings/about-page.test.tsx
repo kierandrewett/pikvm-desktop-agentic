@@ -59,7 +59,12 @@ describe("about", () => {
     });
 
     it("the desktop app adds its own version and the operating system it runs on", async () => {
-        Reflect.set(window, DESKTOP_BRIDGE_KEY, { platform: "darwin", version: "2.4.1", nativeControls: true });
+        Reflect.set(window, DESKTOP_BRIDGE_KEY, {
+            platform: "darwin",
+            version: "2.4.1",
+            nativeControls: true,
+            checkForUpdate: () => Promise.resolve({ state: "unknown" }),
+        });
         renderApp("/settings/about");
         expect(await screen.findByText("2.4.1 on macOS")).toBeInTheDocument();
     });

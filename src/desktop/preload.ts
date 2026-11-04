@@ -39,6 +39,7 @@ const bridge: DesktopBridge = {
     requestAttention: () => ipcRenderer.send(CHANNELS.requestAttention),
     onDownloadDone: (listener) => subscribe<DesktopDownload>(CHANNELS.downloadDone, listener),
     openExternal: (url) => ipcRenderer.invoke(CHANNELS.openExternal, url),
+    checkForUpdate: () => ipcRenderer.invoke(CHANNELS.checkForUpdate),
 };
 
 contextBridge.exposeInMainWorld(DESKTOP_BRIDGE_KEY, bridge);

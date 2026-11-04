@@ -43,6 +43,12 @@ export interface DesktopDownload {
     readonly path: string;
 }
 
+/** Whether a newer release than this app exists. `unknown` means GitHub could not be reached or answered oddly. */
+export type DesktopUpdate =
+    | { readonly state: "current"; readonly latest: string }
+    | { readonly state: "available"; readonly latest: string; readonly url: string }
+    | { readonly state: "unknown" };
+
 export interface DesktopBridge {
     readonly platform: DesktopPlatform;
     /** The desktop app's version, from its package.json. */
@@ -73,4 +79,9 @@ export interface DesktopBridge {
     onDownloadDone(listener: (download: DesktopDownload) => void): () => void;
     /** Open http(s) and mailto links in the user's browser or mail client. Other schemes are refused. */
     openExternal(url: string): Promise<void>;
+    /**
+     * Look up the latest release on GitHub (kept for an hour, so asking often is cheap). The app does not
+     * install it: an update is a new download, or `flatpak update` for the Flatpak.
+     */
+    checkForUpdate(): Promise<DesktopUpdate>;
 }

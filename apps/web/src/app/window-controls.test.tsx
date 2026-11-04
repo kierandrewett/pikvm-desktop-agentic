@@ -52,6 +52,7 @@ function fakeBridge(platform: DesktopPlatform, maximised = false): FakeBridge {
         requestAttention: () => void calls.push("requestAttention"),
         onDownloadDone: () => () => {},
         openExternal: () => Promise.resolve(),
+        checkForUpdate: () => Promise.resolve({ state: "unknown" }),
     };
     return { bridge, calls, listeners, emitMaximise: (value) => listeners.forEach((listener) => listener(value)) };
 }

@@ -9,6 +9,7 @@ import { startControlServer, type ControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TargetStore } from "./target-store";
 import { createAppWindow, focusAppWindow } from "./desktop/window";
+import { startUpdateChecks } from "./desktop/updates";
 
 const appIconPath = resolve(__dirname, "assets/icon.png");
 
@@ -252,6 +253,7 @@ async function createWindow() {
     const CONSOLE_URL = `${CONSOLE_ORIGIN}/app/`;
 
     const win = createAppWindow({ url: CONSOLE_URL, icon: appIconPath, version: app.getVersion() });
+    startUpdateChecks(app.getVersion(), appIconPath);
     const wc = win.webContents;
 
     // Reveal the window only once the main content has loaded (or after a safety
