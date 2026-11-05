@@ -47,9 +47,19 @@ export interface VapidKeys {
     privateKey: string;
 }
 
+/** Web Push `Urgency` (RFC 8030): how soon a push service should deliver to a device that is asleep. */
+export type PushUrgency = "very-low" | "low" | "normal" | "high";
+
+/** What one send asks of the push service. Defaults: `high` and an hour, which is what the slow path has always sent. */
+export interface SendOptions {
+    urgency?: PushUrgency;
+    ttlSeconds?: number;
+}
+
 export interface PushSendOptions {
     vapid: VapidKeys & { subject: string };
     ttlSeconds: number;
+    urgency: PushUrgency;
 }
 
 /** What actually talks to a push service. Resolves the push service's status; rejects with `{ statusCode }` on a refusal. */
@@ -89,7 +99,7 @@ export interface Push {
     unsubscribe(userId: string, endpoint: string): boolean;
     list(userId: string): StoredSubscription[];
     /** Send to every subscription of the user. Throws `PushError("none")` when there are none. */
-    send(userId: string, payload: PushPayload): Promise<SendResult>;
+    send(userId: string, payload: PushPayload, options?: SendOptions): Promise<SendResult>;
 }
 
 /** The push services the browsers use: Chrome and Edge (FCM), Safari and iOS (Apple), Firefox, Windows. */
@@ -151,7 +161,7 @@ const defaultSender: PushSender = async (subscription, body, options) => {
     const request = webpush.generateRequestDetails(subscription, body, {
         vapidDetails: options.vapid,
         TTL: options.ttlSeconds,
-        urgency: "high",
+        urgency: options.urgency,
     });
     const { "Content-Length": _length, ...headers } = request.headers;
     const res = await fetch(request.endpoint, {
@@ -256,7 +266,7 @@ export function createPush(options: PushOptions): Push {
 
         list: read,
 
-        async send(userId, payload) {
+        async send(userId, payload, sendOptions = {}) {
             const subscriptions = read(userId);
             if (subscriptions.length === 0) throw new PushError("No device has subscribed to notifications yet.", "none");
             const { publicKey, privateKey } = vapid();
@@ -268,7 +278,11 @@ export function createPush(options: PushOptions): Push {
                     const subject = subscription.origin ?? options.subject ?? "https://localhost";
                     const host = new URL(subscription.endpoint).hostname;
                     try {
-                        await sender(subscription, body, { vapid: { publicKey, privateKey, subject }, ttlSeconds: 3600 });
+                        await sender(subscription, body, {
+                            vapid: { publicKey, privateKey, subject },
+                            ttlSeconds: sendOptions.ttlSeconds ?? 3600,
+                            urgency: sendOptions.urgency ?? "high",
+                        });
                         result.sent++;
                     } catch (error) {
                         const status = prop(error, "statusCode");

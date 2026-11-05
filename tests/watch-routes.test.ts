@@ -16,12 +16,13 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type { HostProvider } from "@pikvm/chat-server";
+import { ALERT_ZONES, DEFAULT_ALERT_ZONE } from "@pikvm/contracts/watch";
 import { GRID_CELLS } from "../src/server/watch/frame-diff";
 import { limitsFromEnv } from "../src/server/watch/limits";
 import { createPush } from "../src/server/watch/push";
 import { createWatchRoutes } from "../src/server/watch/routes";
 import { createWatchService } from "../src/server/watch/service";
-import { createWatchStore } from "../src/server/watch/store";
+import { createWatchStore, parseZone, SettingsError } from "../src/server/watch/store";
 import { startFakePush, type FakePushService } from "../tools/fake-push/server";
 import { fakeModels, PROVIDER, tempDir, tempStore } from "./support/watch-rig";
 
@@ -128,6 +129,58 @@ describe("reading and changing the settings", () => {
     });
 });
 
+describe("fast alerts settings", () => {
+    it("R7: fast alerts are off, in the bottom right, until asked; they cannot be switched on while the watch is off", async () => {
+        const view = (await call("")).json;
+        assert.equal(view["fastAlerts"], false);
+        assert.deepEqual(view["alertZone"], DEFAULT_ALERT_ZONE);
+        assert.deepEqual(view["limits"].fast, { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 0 });
+        const refused = await call("", { method: "PATCH", body: JSON.stringify({ fastAlerts: true }) });
+        assert.equal(refused.status, 409);
+        assert.match(refused.json["error"], /Switch the screen watch on first/);
+        assert.equal((await call("")).json["fastAlerts"], false);
+    });
+
+    it("R7: with the watch switched on in the same request they switch on, and the chosen corner is kept", async () => {
+        const topRight = ALERT_ZONES[1].zone;
+        const on = await call("", { method: "PATCH", body: JSON.stringify({ enabled: true, fastAlerts: true, alertZone: topRight }) });
+        assert.equal(on.status, 200);
+        assert.equal(on.json["fastAlerts"], true);
+        assert.deepEqual(on.json["alertZone"], topRight);
+        assert.equal(on.json["running"], true);
+        const kept = await call("", { method: "PATCH", body: JSON.stringify({ rule: "anything" }) });
+        assert.equal(kept.json["fastAlerts"], true, "saving something else leaves it as it was");
+        assert.deepEqual(kept.json["alertZone"], topRight);
+        const off = await call("", { method: "PATCH", body: JSON.stringify({ fastAlerts: false }) });
+        assert.equal(off.json["fastAlerts"], false);
+        assert.equal(off.json["running"], true, "fast alerts off leaves the watch on");
+    });
+
+    it("R7: a zone that is not four fractions of the frame, or too small to hold a pop-up, is a 400 and changes nothing", async () => {
+        const before = (await call("")).json["alertZone"];
+        const bodies = [
+            { alertZone: 5 },
+            { alertZone: null },
+            { alertZone: [0, 0, 1, 1] },
+            { alertZone: { x0: 0, y0: 0, x1: 1 } },
+            { alertZone: { x0: "0", y0: 0, x1: 1, y1: 1 } },
+            { alertZone: { x0: -0.1, y0: 0, x1: 1, y1: 1 } },
+            { alertZone: { x0: 0, y0: 0, x1: 1.5, y1: 1 } },
+            { alertZone: { x0: 0.6, y0: 0, x1: 0.5, y1: 1 } },
+            { alertZone: { x0: 0, y0: 0, x1: 0.02, y1: 1 } },
+            { fastAlerts: "yes" },
+            { fastAlerts: 1 },
+        ];
+        for (const body of bodies) {
+            const reply = await call("", { method: "PATCH", body: JSON.stringify(body) });
+            assert.equal(reply.status, 400, JSON.stringify(body));
+            assert.ok(typeof reply.json["error"] === "string");
+        }
+        assert.deepEqual((await call("")).json["alertZone"], before);
+        await call("", { method: "PATCH", body: JSON.stringify({ enabled: false, alertZone: DEFAULT_ALERT_ZONE }) });
+    });
+});
+
 describe("devices", () => {
     it("R4: a subscription from outside the push services is refused; one from a device is kept, naming the origin it came from", async () => {
         const bad = await call("/subscribe", { method: "POST", body: JSON.stringify({ subscription: { endpoint: "https://127.0.0.1:9/x", keys: { p256dh: "a", auth: "b" } } }) });
@@ -205,9 +258,39 @@ describe("the files", () => {
         store.write("u", { enabled: true });
         const file = join(root.path, "users", "u", "watch", "settings.json");
         writeFileSync(file, "{ nope");
-        assert.deepEqual(store.read("u"), { enabled: false, rule: "", visionModel: "google/gemma-3-12b-it" });
+        assert.deepEqual(store.read("u"), { enabled: false, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, alertZone: DEFAULT_ALERT_ZONE });
         writeFileSync(file, JSON.stringify({ enabled: true, rule: 5, visionModel: "bad model", extra: 1 }));
-        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it" });
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, alertZone: DEFAULT_ALERT_ZONE });
+    });
+
+    it("R8: fast alerts and their zone are stored, validated and read back; a damaged zone is the default", () => {
+        const root = tempDir();
+        after(() => root.remove());
+        const store = tempStore(root.path);
+        assert.equal(store.read("u").fastAlerts, false);
+        assert.deepEqual(store.write("u", { fastAlerts: true, alertZone: ALERT_ZONES[2].zone }), { ...store.read("u"), fastAlerts: true, alertZone: ALERT_ZONES[2].zone });
+        assert.deepEqual(store.read("u").alertZone, ALERT_ZONES[2].zone);
+        assert.throws(() => store.write("u", { alertZone: { x0: 0, y0: 0, x1: 0.01, y1: 1 } }), SettingsError);
+        assert.throws(() => store.write("u", { alertZone: { x0: 0, y0: 0, x1: Number.NaN, y1: 1 } }), SettingsError);
+        assert.deepEqual(store.read("u").alertZone, ALERT_ZONES[2].zone, "a refused zone changes nothing");
+        const file = join(root.path, "users", "u", "watch", "settings.json");
+        writeFileSync(file, JSON.stringify({ enabled: true, fastAlerts: "yes", alertZone: { x0: 2, y0: 0, x1: 3, y1: 1 } }));
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(parseZone({ x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 }), { x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 });
+        assert.equal(parseZone({ x0: 0.5, y0: 0.5, x1: 0.54, y1: 1 }), undefined);
+    });
+
+    it("R8: the daily count of the slow path and of the fast alerts are kept apart, and read both files", () => {
+        const root = tempDir();
+        after(() => root.remove());
+        const store = tempStore(root.path);
+        store.append("u", entry(1000));
+        store.append("u", { ...entry(2000), kind: "alert" });
+        store.append("u", { ...entry(3000), kind: "alert" });
+        store.append("u", { ...entry(4000), kind: "alert", asked: false, outcome: "skipped" });
+        assert.equal(store.askedSince("u", 0), 1);
+        assert.equal(store.askedSince("u", 0, "alert"), 2);
+        assert.equal(store.askedSince("u", 2500, "alert"), 1);
     });
 
     it("R6: the log is rotated at half a megabyte and the daily count reads both files", () => {

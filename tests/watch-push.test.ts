@@ -232,4 +232,34 @@ describe("sending", () => {
         assert.equal(result.removed, 1);
         assert.deepEqual(push.list("u"), []);
     });
+
+    it("W7: a send can ask for its own urgency and time to live, and without asking it is high for an hour as it always was", async () => {
+        const asked: { urgency: string; ttlSeconds: number }[] = [];
+        const sender: PushSender = async (_subscription, _body, options) => {
+            asked.push({ urgency: options.urgency, ttlSeconds: options.ttlSeconds });
+            return { statusCode: 201 };
+        };
+        const { push } = setup({ sender });
+        push.subscribe("u", deviceSubscription("https://fcm.googleapis.com/a"));
+        await push.send("u", payload);
+        await push.send("u", payload, { urgency: "normal", ttlSeconds: 300 });
+        await push.send("u", payload, { urgency: "high", ttlSeconds: 60 });
+        assert.deepEqual(asked, [
+            { urgency: "high", ttlSeconds: 3600 },
+            { urgency: "normal", ttlSeconds: 300 },
+            { urgency: "high", ttlSeconds: 60 },
+        ]);
+    });
+
+    it("W7: the push service gets them as the Urgency and TTL headers", async () => {
+        const service = await startFakePush();
+        after(() => service.close());
+        const { push } = setup({ allowLocal: true });
+        const device = service.subscribe();
+        push.subscribe("u", { endpoint: device.endpoint, keys: device.keys });
+        await push.send("u", { ...payload, tag: "pikvm-call" }, { urgency: "high", ttlSeconds: 60 });
+        await push.send("u", payload, { urgency: "normal", ttlSeconds: 300 });
+        assert.deepEqual(service.received.map((got) => [got.urgency, got.ttl]), [["high", 60], ["normal", 300]]);
+        assert.equal(service.received[0]!.payload && (service.received[0]!.payload as { tag: string }).tag, "pikvm-call");
+    });
 });

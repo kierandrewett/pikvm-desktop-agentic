@@ -114,7 +114,7 @@ export async function loadMeasure() {
     const { writeFileSync } = await import("node:fs");
     writeFileSync(
         entry,
-        `export { createSharpImageOps } from ${JSON.stringify(join(root, "src/image-ops-sharp.ts"))};\nexport { changedFraction } from ${JSON.stringify(join(root, "src/server/watch/frame-diff.ts"))};\nexport * as limits from ${JSON.stringify(join(root, "src/server/watch/limits.ts"))};\n`,
+        `export { createSharpImageOps } from ${JSON.stringify(join(root, "src/image-ops-sharp.ts"))};\nexport { changedFraction, zoneCells, zoneChangedFraction } from ${JSON.stringify(join(root, "src/server/watch/frame-diff.ts"))};\nexport * as limits from ${JSON.stringify(join(root, "src/server/watch/limits.ts"))};\n`,
     );
     const out = join(modules, "..", ".watch-measure.cjs");
     await build({ entryPoints: [entry], outfile: out, bundle: true, platform: "node", format: "cjs", external: ["sharp"], logLevel: "error" });

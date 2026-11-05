@@ -206,7 +206,14 @@ describe("settings", () => {
         const r = rig();
         const view = r.service.view("operator");
         assert.ok(!JSON.stringify(view).includes(SECRET));
-        assert.deepEqual(view.limits, { intervalSec: 3, settleSec: 6, minCheckGapSec: 60, dailyCap: 200, askedToday: 0 });
+        assert.deepEqual(view.limits, {
+            intervalSec: 3,
+            settleSec: 6,
+            minCheckGapSec: 60,
+            dailyCap: 200,
+            askedToday: 0,
+            fast: { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 0 },
+        });
         assert.equal(view.push.available, true);
         assert.equal(view.push.subscriptions, 0);
     });

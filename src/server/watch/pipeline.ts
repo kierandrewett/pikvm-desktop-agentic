@@ -1,7 +1,11 @@
-import { createSettler, type Grid, type Settler } from "./frame-diff";
-import type { WatchLimits } from "./limits";
+import { notificationBody } from "./alert-text";
+import { createFastAlerts, type FastAlerts } from "./fast-alerts";
+import { createSettler, maskZone, type Grid, type Settler, type ZoneCells } from "./frame-diff";
+import { SCREEN_OCR_TIMEOUT_MS, SCREEN_TEXT_CHARS, type WatchLimits } from "./limits";
 import type { ModelClient, ModelProvider } from "./models";
 import { ModelError } from "./models";
+import type { Ocr } from "./ocr";
+import { cleanLines } from "./toast-rules";
 import { PushError, type Push, type PushPayload } from "./push";
 import type { CheckEntry, WatchSettings } from "@pikvm/contracts/watch";
 import type { WatchStore } from "./store";
@@ -16,6 +20,10 @@ import type { WatchStore } from "./store";
  * Bounds that hold whatever the screen does: at most one check per `minCheckGapMs` (a change inside the gap waits,
  * the newest one only), at most `dailyCap` checks in any 24 hours (counted from the log, so a restart does not reset
  * it), one check at a time. Every change that reaches this far leaves a line in the log, with the reason when no model was asked.
+ *
+ * With the user's fast alerts on, `fast-alerts.ts` runs beside this on the same looks: it watches one corner for a pop-up.
+ * This path then ignores that corner (its cells are blanked in the grid it compares), so a toast is told once, by the fast
+ * path, and not again six seconds later by this one; everything outside the corner behaves as it does without fast alerts.
  */
 
 export const NO_SIGNAL_TEXT = "The PiKVM has no video signal: the target is off, restarting or disconnected.";
@@ -26,6 +34,8 @@ export interface Frame {
     grid: Grid;
     /** The snapshot as the PiKVM sent it. */
     jpeg: Buffer;
+    /** Epoch ms at which the snapshot was requested: the frame cannot be older than this look. Absent in tests that do not time it. */
+    capturedAt?: number;
 }
 
 export interface PipelineDeps {
@@ -40,15 +50,28 @@ export interface PipelineDeps {
     now(): number;
     /** Scale a frame for the model. */
     prepare(jpeg: Buffer): Promise<Buffer>;
+    /** The crop of a frame to a rectangle of grid cells, for the OCR (fast alerts). Throws when it cannot be cut. */
+    crop(jpeg: Buffer, cells: ZoneCells): Promise<Buffer>;
+    /** The OCR fast alerts read pop-ups with, on this host. */
+    ocr: Ocr;
+    /** The OCR the whole-screen path reads a frame with when there is no OpenRouter key (its own process: a whole frame takes seconds, a pop-up must not wait for it). */
+    screenOcr: Ocr;
+    /** Put a pop-up's words in the check log (`PIKVM_WATCH_LOG_TEXT=1`). */
+    logText?: boolean;
     log?(line: string): void;
 }
 
 export interface Pipeline {
     /**
      * One look at the screen, or `null` when there was none (no signal) so waiting work still gets its turn.
-     * Never waits for a model: a check runs behind it.
+     * Never waits for a model: a check runs behind it. `slow` says whether this look is one of the whole-screen looks
+     * (every `intervalMs`); a faster loop (fast alerts) makes the others, which only the fast path uses.
      */
-    look(frame: Frame | null, now: number): void;
+    look(frame: Frame | null, now: number, slow?: boolean): void;
+    /** The user's fast alerts are on: the shared poller looks at its faster pace while any pipeline says so. */
+    wantsFast(): boolean;
+    /** When a pending corner change will have held long enough, if one is pending: the shared poller makes a look then. */
+    wakeAt(): number | null;
     /**
      * The signal went away (`lost`: a change worth a check), came back, or was already gone when this watch began
      * (`absent`: remembered, not announced).
@@ -56,7 +79,7 @@ export interface Pipeline {
     signal(state: "lost" | "back" | "absent"): void;
     /** Resolves when no check is running and none is waiting to start. For tests and shutdown. */
     idle(): Promise<void>;
-    status(): { settling: boolean; waiting: boolean; checking: boolean };
+    status(): { settling: boolean; waiting: boolean; checking: boolean; alertPending: boolean; alertWaiting: boolean; alerting: boolean };
 }
 
 interface Change {
@@ -67,19 +90,6 @@ interface Change {
     before: Frame | null;
 }
 
-/**
- * A description as a notification's body: its first sentence, and the second as well while the two fit in 160 characters
- * (the prompt leads with what matters, and a lone short sentence such as "Installation failed." says little).
- */
-export function notificationBody(description: string): string {
-    const sentences = description.split(/(?<=[.!?])\s+/).filter((sentence) => sentence !== "");
-    let body = sentences[0] ?? description;
-    if (body.length > 160) return `${body.slice(0, 157).trimEnd()}...`;
-    const second = sentences[1];
-    if (second && body.length + 1 + second.length <= 160) body = `${body} ${second}`;
-    return body;
-}
-
 export function createPipeline(deps: PipelineDeps): Pipeline {
     const settler: Settler = createSettler({ settleMs: deps.limits.settleMs });
     let baseline: Frame | null = null;
@@ -88,6 +98,22 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     let lastCheckAt = Number.NEGATIVE_INFINITY;
     let running: Promise<void> | null = null;
     const log = deps.log ?? (() => undefined);
+    const fast: FastAlerts = createFastAlerts({
+        userId: deps.userId,
+        store: deps.store,
+        push: deps.push,
+        models: deps.models,
+        provider: deps.provider,
+        settings: deps.settings,
+        limits: deps.limits.fast,
+        now: deps.now,
+        ocr: deps.ocr,
+        crop: deps.crop,
+        ...(deps.logText ? { logText: true } : {}),
+        log,
+    });
+    /** What the whole-screen diff currently ignores: the fast alerts' zone, or nothing. A change of it starts that diff over. */
+    let maskKey = "";
 
     function record(entry: Omit<CheckEntry, "t" | "at">): void {
         const t = deps.now();
@@ -110,7 +136,7 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     /** Run, defer or drop a change, in that order of preference. */
     function admit(change: Change, now: number): void {
         const settings = deps.settings();
-        if (!deps.provider()) {
+        if (!deps.provider() && deps.screenOcr.unavailable?.() !== undefined) {
             record({ kind: change.kind, score: change.score, outcome: "skipped", reason: "no OpenRouter key in Settings, Providers", asked: false, rule: settings.rule });
             return;
         }
@@ -129,11 +155,49 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
         start(change, now);
     }
 
+    /**
+     * A check with no OpenRouter key: the frame is read by the local OCR and its text, in reading order, is the description. With no
+     * Jev there is nothing to judge a change by, so with no rule every settled change is reported (the minimum gap and the daily
+     * cap still bound it); a rule cannot be judged and is logged as such. Nothing leaves the host.
+     */
+    async function checkLocal(change: Change): Promise<void> {
+        const settings = deps.settings();
+        const base = { kind: change.kind, score: change.score, rule: settings.rule } as const;
+        if (settings.rule.trim() !== "") {
+            return record({ ...base, outcome: "error", reason: "Your rule needs the OpenRouter key (Settings, Providers) to be judged, and there is none, so nothing was sent.", asked: false });
+        }
+        let read: CheckEntry["read"];
+        try {
+            let text: string;
+            if (change.kind === "signal-lost" || !change.frame) {
+                text = NO_SIGNAL_TEXT;
+            } else {
+                const ocr = await deps.screenOcr.read(await deps.prepare(change.frame.jpeg), SCREEN_OCR_TIMEOUT_MS);
+                const lines = cleanLines(ocr.lines);
+                text = lines.join(" ").slice(0, SCREEN_TEXT_CHARS).trim() || "The screen changed, and no text could be read on it.";
+                read = { by: "ocr", ms: ocr.ms, chars: ocr.lines.join("\n").length, words: lines.join(" ").split(/\s+/).filter(Boolean).length, lines: ocr.lines.length };
+                description = text;
+            }
+            const common = { ...base, asked: true, ...(read ? { read } : {}), ...(deps.logText ? { description: text } : {}) };
+            const payload: PushPayload = { title: "PiKVM", body: notificationBody(text), tag: "pikvm-screen", url: "/app/", badge: 1 };
+            try {
+                const sent = await deps.push.send(deps.userId, payload);
+                const push = { sent: sent.sent, removed: sent.removed, failed: sent.failed.length };
+                if (sent.sent > 0) return record({ ...common, outcome: "pushed", push });
+                return record({ ...common, outcome: "error", reason: `The screen was read but no notification was delivered: ${sent.failed[0]?.message ?? "every subscription had expired"}`, push });
+            } catch (error) {
+                return record({ ...common, outcome: "error", reason: `The screen was read but no notification was delivered: ${error instanceof Error ? error.message : "the push failed"}` });
+            }
+        } catch (error) {
+            record({ ...base, outcome: "error", reason: error instanceof Error ? error.message : "the OCR failed", asked: true, ...(read ? { read } : {}) });
+        }
+    }
+
     async function check(change: Change): Promise<void> {
         const settings = deps.settings();
         const provider = deps.provider();
         const base = { kind: change.kind, score: change.score, rule: settings.rule, model: settings.visionModel } as const;
-        if (!provider) return;
+        if (!provider) return checkLocal(change);
         let asked = false;
         let costUsd = 0;
         let previous = description;
@@ -190,14 +254,23 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     }
 
     return {
-        look(frame, now) {
+        look(frame, now, slow = true) {
             if (frame) {
-                const seen = settler.look(frame.grid, now);
-                if (seen.state === "idle" && baseline === null) baseline = frame;
-                if (seen.state === "settled") {
-                    const before = baseline;
-                    baseline = frame;
-                    admit({ kind: "change", score: seen.score, frame, before }, now);
+                fast.look(frame, now);
+                const mask = fast.maskCells();
+                const key = mask ? `${mask.x0},${mask.y0},${mask.x1},${mask.y1}` : "";
+                if (key !== maskKey) {
+                    maskKey = key;
+                    settler.reset("adopt");
+                }
+                if (slow) {
+                    const seen = settler.look(mask ? maskZone(frame.grid, mask) : frame.grid, now);
+                    if (seen.state === "idle" && baseline === null) baseline = frame;
+                    if (seen.state === "settled") {
+                        const before = baseline;
+                        baseline = frame;
+                        admit({ kind: "change", score: seen.score, frame, before }, now);
+                    }
                 }
             }
             if (waiting && !running && now - lastCheckAt >= deps.limits.minCheckGapMs) {
@@ -219,10 +292,15 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
             admit({ kind: "signal-lost", score: null, frame: null, before: baseline }, deps.now());
         },
 
+        wantsFast: () => fast.on,
+
+        wakeAt: () => fast.wakeAt,
+
         async idle() {
             while (running) await running;
+            await fast.idle();
         },
 
-        status: () => ({ settling: settler.pending, waiting: waiting !== null, checking: running !== null }),
+        status: () => ({ settling: settler.pending, waiting: waiting !== null, checking: running !== null, ...fast.status() }),
     };
 }

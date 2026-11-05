@@ -49,6 +49,8 @@ export interface Decided {
 
 export interface ModelClient {
     describe(provider: ModelProvider, model: string, jpeg: Buffer, signal?: AbortSignal): Promise<Described>;
+    /** Read a crop of the screen's notification corner (fast alerts): the app, the sender or caller, the first line. */
+    describeAlert(provider: ModelProvider, model: string, jpeg: Buffer, signal?: AbortSignal): Promise<Described>;
     decide(
         provider: ModelProvider,
         input: { previous: string; current: string; rule: string },
@@ -72,6 +74,18 @@ export const DESCRIBE_PROMPT =
     "operating system if it is obvious), then the one or two most important other lines of text. If the screen is " +
     "blank, black or shows no signal, say exactly that. Do not describe colours or layout, and do not guess at what you " +
     "cannot read.";
+
+/** What `describeAlert` answers, word for word, when the crop shows no notification. */
+export const NO_NOTIFICATION_TEXT = "No notification.";
+
+export const ALERT_PROMPT =
+    "You read a cropped corner of a computer screen where a notification pop-up (a toast) may be showing: a new email, " +
+    "a chat message (such as Microsoft Teams), or an incoming call. Reply in plain text, at most three sentences, with " +
+    "no markdown and no preamble. If a notification is showing, say which application it is from (for example Outlook " +
+    "or Teams), who sent it or is calling, and the first line of the message or the email's subject, quoted as it " +
+    "reads. If it is a call, begin with \"Incoming call\", say who is calling, and say whether Accept and Decline " +
+    "buttons are shown. If the crop shows no notification pop-up (only a desktop, a taskbar, a clock or an ordinary " +
+    `window), reply exactly: ${NO_NOTIFICATION_TEXT} Do not guess at text you cannot read.`;
 
 const QUESTION_NO_RULE =
     "previous and current describe what a remote computer's screen showed a moment ago and now. Is the change from " +
@@ -196,42 +210,51 @@ export function createModelClient(options: ModelClientOptions = {}): ModelClient
         throw last ?? new ModelError("The model call failed.", "network");
     }
 
+    async function describeWith(
+        kind: "screen" | "alert",
+        provider: ModelProvider,
+        model: string,
+        jpeg: Buffer,
+        signal: AbortSignal | undefined,
+    ): Promise<Described> {
+        const key = `${kind}:${model}:${sha(jpeg)}`;
+        const hit = descriptions.get(key);
+        if (hit) return { ...hit, cached: true };
+        const body = await post(
+            provider,
+            `${provider.baseUrl}/chat/completions`,
+            {
+                model,
+                max_tokens: 300,
+                temperature: 0,
+                usage: { include: true },
+                messages: [
+                    { role: "system", content: kind === "alert" ? ALERT_PROMPT : DESCRIBE_PROMPT },
+                    {
+                        role: "user",
+                        content: [
+                            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpeg.toString("base64")}` } },
+                            { type: "text", text: kind === "alert" ? "Read this corner of the screen." : "Describe this screen." },
+                        ],
+                    },
+                ],
+            },
+            signal,
+        );
+        const content = dig(body, "choices", 0, "message", "content");
+        const raw = Array.isArray(content)
+            ? content.map((part: unknown) => dig(part, "text")).filter((t): t is string => typeof t === "string").join("")
+            : content;
+        const text = (typeof raw === "string" ? raw : "").replace(/\s+/g, " ").trim();
+        if (text === "") throw new ModelError(`The image model ${model} gave no description.`, "shape");
+        const result: Described = { text, ...(cost(body) !== undefined ? { costUsd: cost(body)! } : {}), cached: false };
+        descriptions.set(key, result);
+        return result;
+    }
+
     return {
-        async describe(provider, model, jpeg, signal) {
-            const key = `${model}:${sha(jpeg)}`;
-            const hit = descriptions.get(key);
-            if (hit) return { ...hit, cached: true };
-            const body = await post(
-                provider,
-                `${provider.baseUrl}/chat/completions`,
-                {
-                    model,
-                    max_tokens: 300,
-                    temperature: 0,
-                    usage: { include: true },
-                    messages: [
-                        { role: "system", content: DESCRIBE_PROMPT },
-                        {
-                            role: "user",
-                            content: [
-                                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpeg.toString("base64")}` } },
-                                { type: "text", text: "Describe this screen." },
-                            ],
-                        },
-                    ],
-                },
-                signal,
-            );
-            const content = dig(body, "choices", 0, "message", "content");
-            const raw = Array.isArray(content)
-                ? content.map((part: unknown) => dig(part, "text")).filter((t): t is string => typeof t === "string").join("")
-                : content;
-            const text = (typeof raw === "string" ? raw : "").replace(/\s+/g, " ").trim();
-            if (text === "") throw new ModelError(`The image model ${model} gave no description.`, "shape");
-            const result: Described = { text, ...(cost(body) !== undefined ? { costUsd: cost(body)! } : {}), cached: false };
-            descriptions.set(key, result);
-            return result;
-        },
+        describe: (provider, model, jpeg, signal) => describeWith("screen", provider, model, jpeg, signal),
+        describeAlert: (provider, model, jpeg, signal) => describeWith("alert", provider, model, jpeg, signal),
 
         async decide(provider, input, signal) {
             const request = decisionRequest(input);

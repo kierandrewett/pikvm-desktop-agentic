@@ -36,3 +36,7 @@ make package                        # build + installers for this platform -> bu
   dev run finds it by `OMP_BIN` or PATH (`packages/chat-server/src/agent/launch.ts`). There is no Python, no Bun and no
   agent sidecar. `src/pikvm-control.ts` is only the server's link to the PiKVM: the proxy target, the kvmd event
   socket and the idle jiggler's nudge.
+- The screen watch (`src/server/watch/`): `watcher.ts` the one poller, `pipeline.ts` the whole-screen path (image model, Jev), `fast-alerts.ts` the corner pop-up path
+  (zone diff in `frame-diff.ts`, local OCR in `ocr-engine.ts` / `ocr-worker.ts` / `ocr-paddle.ts`, text rules in `toast-rules.ts`), `limits.ts` every number with its measurement.
+  The OCR needs `dist/ocr-worker.js` (`yarn build` makes it), onnxruntime-node and the models pinned in `deploy/ocr.lock` (`node scripts/fetch-ocr.mjs`); `yarn test` needs
+  none of them (fake OCR; one real-engine test is skipped unless `PIKVM_OCR_NODE_MODULES` and `PIKVM_OCR_MODELS` are set). Docs: `docs/deploy-web.md` "Screen watch".

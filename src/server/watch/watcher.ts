@@ -6,7 +6,11 @@ import type { Pipeline } from "./pipeline";
  * The one poller for the PiKVM, shared by every user whose watch is on.
  *
  * It takes a snapshot every `intervalMs` (and only while somebody's watch is attached: the last one to leave stops it),
- * reduces it to a grey grid once, and hands the same frame to each user's pipeline. A look that finds no signal or no
+ * reduces it to a grey grid once, and hands the same frame to each user's pipeline. While any attached user has fast
+ * alerts on it looks every `fastIntervalMs` instead, and flags only every `intervalMs`-th of those looks as a whole-screen
+ * ("slow") look, so the slow path compares the screen no more often than it did; between those the look is the fast
+ * path's alone. When a pipeline has a corner change pending it also gets one extra look at the moment that change will have
+ * held long enough, so a pop-up is notified at the settle time and not at the next look after it. A look that finds no signal or no
  * PiKVM hands nothing on (so the screen going black is not mistaken for a change) but tells the pipelines when the signal
  * has really gone (two looks running) and when it is back.
  */
@@ -23,11 +27,16 @@ export interface WatcherDeps {
     /** The frame as a grey grid; null when it cannot be read. */
     grid(jpeg: Buffer): Promise<Grid | null>;
     intervalMs: number;
+    /** The pace while a pipeline has fast alerts on. */
+    fastIntervalMs: number;
     now(): number;
     /** Run `fn` after `ms`; returns a function that cancels it. Tests pass a manual one. */
     schedule?(fn: () => void, ms: number): () => void;
     log?(line: string): void;
 }
+
+/** The least wait before an extra look for a pending corner change: a change already due is looked at at once, but not in a tight loop. */
+const MIN_WAKE_MS = 50;
 
 export type SignalState = "unknown" | "signal" | "no-signal";
 
@@ -56,6 +65,23 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     let looping = false;
     let signal: SignalState = "unknown";
     let misses = 0;
+    let lastSlowAt = Number.NEGATIVE_INFINITY;
+
+    const anyFast = (): boolean => {
+        for (const pipeline of pipelines.values()) if (pipeline.wantsFast()) return true;
+        return false;
+    };
+
+    /** How long until the next look: the pace, or sooner when a pending corner change is about to have held long enough. */
+    function nextDelay(): number {
+        let delay = anyFast() ? deps.fastIntervalMs : deps.intervalMs;
+        const now = deps.now();
+        for (const pipeline of pipelines.values()) {
+            const wake = pipeline.wakeAt();
+            if (wake !== null) delay = Math.min(delay, Math.max(MIN_WAKE_MS, wake - now));
+        }
+        return delay;
+    }
 
     const each = (fn: (pipeline: Pipeline) => void): void => {
         for (const [userId, pipeline] of pipelines) {
@@ -70,6 +96,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     async function tick(): Promise<void> {
         const controller = new AbortController();
         inFlight = controller;
+        const requestedAt = deps.now();
         let result: Snapshot;
         try {
             result = await deps.snapshot(controller.signal);
@@ -91,7 +118,9 @@ export function createWatcher(deps: WatcherDeps): Watcher {
             misses = 0;
             if (signal === "no-signal") each((pipeline) => pipeline.signal("back"));
             signal = "signal";
-            each((pipeline) => pipeline.look({ grid, jpeg: result.jpeg }, now));
+            const slow = !anyFast() || now - lastSlowAt >= deps.intervalMs;
+            if (slow) lastSlowAt = now;
+            each((pipeline) => pipeline.look({ grid, jpeg: result.jpeg, capturedAt: requestedAt }, now, slow));
             return;
         }
 
@@ -109,7 +138,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     function loop(): void {
         if (!looping) return;
         void tick().finally(() => {
-            if (looping) cancelNext = schedule(loop, deps.intervalMs);
+            if (looping) cancelNext = schedule(loop, nextDelay());
         });
     }
 

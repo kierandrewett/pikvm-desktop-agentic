@@ -10,7 +10,7 @@
  * that switches it on (see device.ts and push-client.ts).
  */
 
-import type { CheckEntry, WatchView } from "@pikvm/contracts/watch";
+import { ALERT_ZONES, alertZoneId, type CheckEntry, type WatchView } from "@pikvm/contracts/watch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { describeDevice, readDeviceEnv, type DeviceState } from "../../notify/device";
@@ -27,6 +27,7 @@ import {
 import {
     Button,
     Notice,
+    Select,
     SettingRow,
     SettingsCard,
     SettingsPage,
@@ -49,6 +50,9 @@ const OUTCOME: Record<CheckEntry["outcome"], string> = {
     error: "Failed",
 };
 
+/** The choice a stored rectangle that is none of the presets shows as; it cannot be picked, only kept. */
+const CUSTOM_ZONE = "custom";
+
 const message = (error: unknown): string => (error instanceof Error ? error.message : "Something went wrong.");
 
 function formatTime(t: number): string {
@@ -57,8 +61,18 @@ function formatTime(t: number): string {
 
 export function checkSummary(entry: CheckEntry): string {
     const detail = entry.reason ?? entry.description ?? "";
-    const what = entry.kind === "test" ? "Test notification" : entry.kind === "signal-lost" ? "Video signal lost" : "Screen changed";
-    return `${what}${detail ? `: ${detail}` : ""}`;
+    const what =
+        entry.kind === "test"
+            ? "Test notification"
+            : entry.kind === "signal-lost"
+              ? "Video signal lost"
+              : entry.kind === "alert"
+                ? "Pop-up in the corner"
+                : "Screen changed";
+    // A fast alert's log never holds the pop-up's words, so say what kind of pop-up it was and how long it took instead.
+    const seconds = entry.latency?.totalMs !== undefined ? `${(entry.latency.totalMs / 1000).toFixed(1)} seconds to send` : "";
+    const facts = entry.kind === "alert" ? [entry.notified?.kind === "call" ? "a call" : entry.notified ? "a message" : "", seconds].filter(Boolean).join(", ") : "";
+    return `${what}${detail ? `: ${detail}` : facts ? `: ${facts}` : ""}`;
 }
 
 export function NotificationsPage() {
@@ -206,6 +220,10 @@ export function NotificationsPage() {
     };
 
     const limits = data?.limits;
+    const zoneChoice = data ? (alertZoneId(data.alertZone) ?? CUSTOM_ZONE) : ALERT_ZONES[0].id;
+    const fastDescription = limits
+        ? `The server looks at the corner every ${limits.fast.intervalSec === 1 ? "second" : `${limits.fast.intervalSec} seconds`} and reads the pop-up itself, on the server. If you set a rule below, the pop-up's text is also checked against it by an outside service. Limits: one check every ${limits.fast.minCheckGapSec} seconds and ${limits.fast.dailyCap} a day (${limits.fast.askedToday} used in the last 24 hours).`
+        : "Loading";
     return (
         <SettingsPage
             title="Notifications"
@@ -245,12 +263,57 @@ export function NotificationsPage() {
                             description={data.running ? "The server is looking at the screen now." : "The server is not running the watch. Switch it off and on again."}
                         />
                     ) : null}
+                    {on && data && !data.canJudge ? (
+                        <SettingRow
+                            label="No OpenRouter key"
+                            description="Without one the watch cannot tell what matters: it reports every change that settles, with the text it read on the screen. Add a key in Settings, Providers to be told only about what matters to you."
+                        />
+                    ) : null}
                     {busy && !on ? (
                         <SettingRow
                             label="Setting up this device"
                             description="Requesting a push subscription from this device. This can take a few seconds."
                         />
                     ) : null}
+                </SettingsCard>
+            </SettingsSection>
+
+            <SettingsSection title="Fast alerts" description={fastDescription}>
+                <SettingsCard>
+                    <SettingRow
+                        id="fast-alerts"
+                        label="Fast alerts"
+                        description="Notify within a few seconds of a pop-up in the corner of the screen, such as email, Teams messages and calls."
+                        status={save.isPending ? { state: "saving" } : { state: "idle" }}
+                        control={
+                            <Switch
+                                label="Fast alerts"
+                                checked={on && data?.fastAlerts === true}
+                                disabled={!data || !on || save.isPending}
+                                onChange={(next) => save.mutate({ fastAlerts: next })}
+                            />
+                        }
+                    />
+                    {data && !on ? (
+                        <SettingRow label="Needs the screen watch" description="Switch on “Notify me when the screen changes” above first. Fast alerts run inside it." />
+                    ) : null}
+                    <SettingRow
+                        id="alert-zone"
+                        label="Where pop-ups appear"
+                        description="The corner of the screen to watch. Windows shows them at the bottom right."
+                        control={
+                            <Select
+                                label="Where pop-ups appear"
+                                value={zoneChoice}
+                                disabled={!data || save.isPending}
+                                options={[...ALERT_ZONES.map((preset) => ({ value: preset.id, label: preset.label })), ...(zoneChoice === CUSTOM_ZONE ? [{ value: CUSTOM_ZONE, label: "Custom area" }] : [])]}
+                                onChange={(id) => {
+                                    const preset = ALERT_ZONES.find((each) => each.id === id);
+                                    if (preset) save.mutate({ alertZone: { ...preset.zone } });
+                                }}
+                            />
+                        }
+                    />
                 </SettingsCard>
             </SettingsSection>
 

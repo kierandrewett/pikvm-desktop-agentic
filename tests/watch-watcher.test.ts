@@ -9,6 +9,8 @@
  *  K5. A watch that starts while there is no signal announces it.
  *  K6. The PiKVM being unreachable is mistaken for no signal.
  *  K7. A pipeline that throws stops the other users' watches.
+ *  K8. Fast alerts on does not speed up the whole-screen path, or the poller stays slow while one user has them on.
+ *  K9. A pending corner change waits for the next look instead of the moment it will have held, or looks in a tight loop.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -25,12 +27,15 @@ interface Rig {
     /** What the next snapshots answer; the last one repeats. */
     next: (Snapshot | "hang")[];
     grid: Uint8Array | null;
+    /** The clock the watcher reads. */
+    now: number;
     /** Fire the pending timer and wait for the tick it runs. */
     step(): Promise<void>;
 }
 
 function rig(): Rig {
     const state: Rig = {
+        now: 42,
         timers: [],
         snapshots: 0,
         aborted: [],
@@ -49,7 +54,8 @@ function rig(): Rig {
     };
     state.watcher = createWatcher({
         intervalMs: 3000,
-        now: () => 42,
+        fastIntervalMs: 1000,
+        now: () => state.now,
         schedule(fn, ms) {
             const entry = { ms, cancelled: false, fn };
             state.timers.push(entry);
@@ -75,6 +81,8 @@ function rig(): Rig {
 
 interface Seen {
     looks: (Frame | null)[];
+    /** The `slow` flag of each look that had a frame. */
+    slow: (boolean | undefined)[];
     signals: string[];
     pipeline: Pipeline;
 }
@@ -82,12 +90,18 @@ interface Seen {
 function recorder(over: Partial<Pipeline> = {}): Seen {
     const seen: Seen = {
         looks: [],
+        slow: [],
         signals: [],
         pipeline: {
-            look: (frame) => void seen.looks.push(frame),
+            look: (frame, _now, slow) => {
+                seen.looks.push(frame);
+                if (frame) seen.slow.push(slow);
+            },
             signal: (state) => void seen.signals.push(state),
             idle: async () => undefined,
-            status: () => ({ settling: false, waiting: false, checking: false }),
+            wantsFast: () => false,
+            wakeAt: () => null,
+            status: () => ({ settling: false, waiting: false, checking: false, alertPending: false, alertWaiting: false, alerting: false }),
             ...over,
         },
     };
@@ -238,5 +252,87 @@ describe("the shared poller", () => {
         await r.step();
         await r.step();
         assert.equal(good.looks.length, 2);
+    });
+
+    it("K8: with a user who has fast alerts on it looks every second, and only every third look is a whole-screen one", async () => {
+        const r = rig();
+        const fast = recorder({ wantsFast: () => true });
+        r.watcher.attach("a", fast.pipeline);
+        for (let i = 0; i < 7; i++) {
+            await r.step();
+            assert.equal(r.timers.at(-1)!.ms, 1000);
+            r.now += 1000;
+        }
+        assert.deepEqual(fast.slow, [true, false, false, true, false, false, true]);
+    });
+
+    it("K8: one user's fast alerts do not change another's whole-screen looks: they are still every interval, never more", async () => {
+        const r = rig();
+        const fast = recorder({ wantsFast: () => true });
+        const slow = recorder();
+        r.watcher.attach("fast", fast.pipeline);
+        r.watcher.attach("slow", slow.pipeline);
+        for (let i = 0; i < 7; i++) {
+            await r.step();
+            r.now += 1000;
+        }
+        assert.equal(slow.looks.length, 7);
+        assert.deepEqual(slow.slow, fast.slow, "the flag is the poller's, the same for everyone");
+        assert.equal(slow.slow.filter(Boolean).length, 3, "three whole-screen looks in 7 seconds, one every 3");
+    });
+
+    it("K8: without fast alerts every look is a whole-screen look, at the interval, as before", async () => {
+        const r = rig();
+        const a = recorder();
+        r.watcher.attach("a", a.pipeline);
+        for (let i = 0; i < 4; i++) {
+            await r.step();
+            assert.equal(r.timers.at(-1)!.ms, 3000);
+            r.now += 3000;
+        }
+        assert.deepEqual(a.slow, [true, true, true, true]);
+    });
+
+    it("K8: the poller speeds up when a user turns fast alerts on and slows again when the last one turns them off", async () => {
+        const r = rig();
+        let on = false;
+        const a = recorder({ wantsFast: () => on });
+        r.watcher.attach("a", a.pipeline);
+        await r.step();
+        assert.equal(r.timers.at(-1)!.ms, 3000);
+        on = true;
+        await r.step();
+        assert.equal(r.timers.at(-1)!.ms, 1000);
+        on = false;
+        await r.step();
+        assert.equal(r.timers.at(-1)!.ms, 3000);
+    });
+
+    it("K9: a pending corner change brings the next look forward to the moment it has held long enough, and no earlier than 50 ms", async () => {
+        const r = rig();
+        let wake: number | null = null;
+        const a = recorder({ wantsFast: () => true, wakeAt: () => wake });
+        r.watcher.attach("a", a.pipeline);
+        wake = 42 + 200;
+        await r.step();
+        assert.equal(r.timers.at(-1)!.ms, 200, "200 ms from now, not a whole second");
+        wake = 42 + 1200;
+        await r.step();
+        assert.equal(r.timers.at(-1)!.ms, 1000, "the pace, when the wake is further off");
+        wake = 42 - 500;
+        await r.step();
+        assert.equal(r.timers.at(-1)!.ms, 50, "already due: at once, but not a tight loop");
+        wake = null;
+        await r.step();
+        assert.equal(r.timers.at(-1)!.ms, 1000);
+    });
+
+    it("hands the frame on with the time its snapshot was requested", async () => {
+        const r = rig();
+        const a = recorder();
+        r.watcher.attach("a", a.pipeline);
+        r.now = 5000;
+        await r.step();
+        assert.equal(a.looks[0]!.capturedAt, 5000);
     });
 });

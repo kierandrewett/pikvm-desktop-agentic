@@ -1,0 +1,19 @@
+{
+    "$comment": "The OCR the fast alerts read pop-ups with (src/server/watch/ocr-*.ts): PP-OCRv4 mobile detector and recogniser, from PaddleOCR (Apache-2.0) as ONNX, republished on npm as @gutenye/ocr-models (MIT). Fetched at image build time by scripts/fetch-ocr.mjs and checked against these hashes; the running image never fetches anything. onnxruntime-node (MIT) is the engine; the image installs exactly this version.",
+    "models": {
+        "package": "@gutenye/ocr-models",
+        "version": "1.4.2",
+        "tarball": "https://registry.npmjs.org/@gutenye/ocr-models/-/ocr-models-1.4.2.tgz",
+        "tarballSha256": "9b6666eae0b51936f186bcf4d581c403b63232c8d2d256308d2259dee3afd14e",
+        "files": {
+            "ch_PP-OCRv4_det_infer.onnx": "30a86f5731181461d08021402766601e4302a9b9b9666be8aff402696339cdff",
+            "ch_PP-OCRv4_rec_infer.onnx": "06b3e6af6c59a1ba5d53790ed8c2e4b2de389870b6cf5a97f349f3412cb269c0",
+            "ppocr_keys_v1.txt": "28b2362ad4ab2dc38769aa72feb535e3a9ddb3fd2a7585a05920e6393b1dc7f7"
+        }
+    },
+    "onnxruntime": {
+        "package": "onnxruntime-node",
+        "version": "1.31.1",
+        "integrity": "sha512-ijnSghbDHVWaQ2nDPmVccPlCHI8kH1Mx1aJ4a/qzRP16bBcVs4E3EqZQKZCkhWnbqN1tuQWxagimFtDpbPYYQw=="
+    }
+}

@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createModelClient, decisionRequest, decisionsUrl, ModelError, verdictOf, DESCRIBE_PROMPT } from "../src/server/watch/models";
+import { createModelClient, decisionRequest, decisionsUrl, ModelError, verdictOf, ALERT_PROMPT, DESCRIBE_PROMPT, NO_NOTIFICATION_TEXT } from "../src/server/watch/models";
 import { JEV_MODEL } from "../src/server/watch/limits";
 import { PROVIDER } from "./support/watch-rig";
 
@@ -197,6 +197,37 @@ describe("the image model", () => {
         await client.describe(PROVIDER, "m", Buffer.from("frame"));
         assert.equal((await client.describe(PROVIDER, "m", Buffer.from("frame"))).cached, true);
         await client.describe(PROVIDER, "other", Buffer.from("frame"));
+        assert.equal(net.calls.length, 2);
+    });
+});
+
+describe("the image model, reading a corner for fast alerts", () => {
+    const completion = (text: string) => ok({ choices: [{ message: { content: text } }], usage: { cost: 0.00003 } });
+
+    it("M7: sends the crop with the alert prompt, which asks for the app, who it is from, the first line, and says it may be a call", async () => {
+        const net = scripted([completion(" Microsoft Teams:  Ben Carter says hello. ")]);
+        const client = createModelClient({ fetch: net.fetch, sleep: net.sleep });
+        const crop = Buffer.from("a crop");
+        const described = await client.describeAlert(PROVIDER, "google/gemma-3-12b-it", crop);
+        assert.deepEqual(described, { text: "Microsoft Teams: Ben Carter says hello.", costUsd: 0.00003, cached: false });
+        const messages = net.calls[0]!.body["messages"] as { role: string; content: unknown }[];
+        assert.equal(messages[0]!.content, ALERT_PROMPT);
+        const parts = messages[1]!.content as { type: string; image_url?: { url: string } }[];
+        assert.equal(parts[0]!.image_url!.url, `data:image/jpeg;base64,${crop.toString("base64")}`);
+        assert.match(ALERT_PROMPT, /which application it is from/);
+        assert.match(ALERT_PROMPT, /who sent it or is calling/);
+        assert.match(ALERT_PROMPT, /first line of the message/);
+        assert.match(ALERT_PROMPT, /incoming call/i);
+        assert.match(ALERT_PROMPT, /Accept and Decline/);
+        assert.match(ALERT_PROMPT, new RegExp(`reply exactly: ${NO_NOTIFICATION_TEXT}`));
+    });
+
+    it("M7: the same crop is not read twice, and a crop is not mistaken for a whole-screen description of the same bytes", async () => {
+        const net = scripted([completion("A.")]);
+        const client = createModelClient({ fetch: net.fetch, sleep: net.sleep });
+        await client.describeAlert(PROVIDER, "m", Buffer.from("x"));
+        assert.equal((await client.describeAlert(PROVIDER, "m", Buffer.from("x"))).cached, true);
+        assert.equal((await client.describe(PROVIDER, "m", Buffer.from("x"))).cached, false);
         assert.equal(net.calls.length, 2);
     });
 });

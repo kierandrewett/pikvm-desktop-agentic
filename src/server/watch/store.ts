@@ -1,12 +1,12 @@
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { CheckEntry, WatchSettings } from "@pikvm/contracts/watch";
+import { DEFAULT_ALERT_ZONE, type CheckEntry, type WatchSettings, type WatchZone } from "@pikvm/contracts/watch";
 import { DEFAULT_VISION_MODEL, MAX_RULE_CHARS } from "./limits";
 
 /**
  * What a user's watch keeps on disk, under `users/<id>/watch/`:
  *
- *   settings.json               on or off, the plain-English rule, the image model
+ *   settings.json               on or off, the plain-English rule, the image model, fast alerts and their zone
  *   checks.jsonl                one line per check, so the person can see why a notification came or did not
  *   checks.jsonl.1              the previous log, kept when checks.jsonl passes `LOG_ROTATE_BYTES`
  *   push-subscriptions.json     the devices that asked for notifications (push.ts)
@@ -14,7 +14,32 @@ import { DEFAULT_VISION_MODEL, MAX_RULE_CHARS } from "./limits";
  * Files are 0600 in a 0700 directory: the log holds what was on the screen.
  */
 
-export const DEFAULT_SETTINGS: WatchSettings = { enabled: false, rule: "", visionModel: DEFAULT_VISION_MODEL };
+export const DEFAULT_SETTINGS: WatchSettings = {
+    enabled: false,
+    rule: "",
+    visionModel: DEFAULT_VISION_MODEL,
+    fastAlerts: false,
+    alertZone: DEFAULT_ALERT_ZONE,
+};
+
+/** A zone smaller than this (of the frame, either way) cannot hold a pop-up, and would be a few cells of noise. */
+const MIN_ZONE_SIDE = 0.05;
+
+/** The rectangle in `value` if it is a usable zone (fractions of the frame, inside it, not tiny); undefined otherwise. */
+export function parseZone(value: unknown): WatchZone | undefined {
+    if (value === null || typeof value !== "object") return undefined;
+    const side = (key: string): number | undefined => {
+        const number = Reflect.get(value, key);
+        return typeof number === "number" && Number.isFinite(number) && number >= 0 && number <= 1 ? number : undefined;
+    };
+    const x0 = side("x0");
+    const y0 = side("y0");
+    const x1 = side("x1");
+    const y1 = side("y1");
+    if (x0 === undefined || y0 === undefined || x1 === undefined || y1 === undefined) return undefined;
+    if (x1 - x0 < MIN_ZONE_SIDE || y1 - y0 < MIN_ZONE_SIDE) return undefined;
+    return { x0, y0, x1, y1 };
+}
 
 const LOG_ROTATE_BYTES = 512 * 1024;
 /** `provider/model`, optionally `~provider/model` or with a `:variant` suffix, as OpenRouter lists them. */
@@ -30,8 +55,11 @@ export interface WatchStore {
     append(userId: string, entry: CheckEntry): void;
     /** Newest first. */
     log(userId: string, limit: number): CheckEntry[];
-    /** Checks in which a model was called at or after `sinceMs`. */
-    askedSince(userId: string, sinceMs: number): number;
+    /**
+     * Checks in which a model was called at or after `sinceMs`. `kind: "alert"` counts the fast alerts and nothing else;
+     * without it everything but them is counted, so each path has a budget of its own.
+     */
+    askedSince(userId: string, sinceMs: number, kind?: "alert"): number;
     /** The file the push module keeps this user's subscriptions in. */
     subscriptionsFile(userId: string): string;
 }
@@ -97,6 +125,8 @@ export function createWatchStore(options: { userDir(userId: string): string; use
                     enabled: get("enabled") === true,
                     rule: typeof rule === "string" ? rule.slice(0, MAX_RULE_CHARS) : "",
                     visionModel: typeof visionModel === "string" && MODEL_ID.test(visionModel) ? visionModel : DEFAULT_SETTINGS.visionModel,
+                    fastAlerts: get("fastAlerts") === true,
+                    alertZone: parseZone(get("alertZone")) ?? DEFAULT_SETTINGS.alertZone,
                 };
             } catch {
                 return { ...DEFAULT_SETTINGS };
@@ -117,6 +147,12 @@ export function createWatchStore(options: { userDir(userId: string): string; use
                 if (model === "") next.visionModel = DEFAULT_SETTINGS.visionModel;
                 else if (!MODEL_ID.test(model)) throw new SettingsError("That is not an OpenRouter model id (for example google/gemma-3-12b-it).");
                 else next.visionModel = model;
+            }
+            if (patch.fastAlerts !== undefined) next.fastAlerts = patch.fastAlerts === true;
+            if (patch.alertZone !== undefined) {
+                const zone = parseZone(patch.alertZone);
+                if (!zone) throw new SettingsError("That is not a usable area of the screen: four fractions from 0 to 1, at least 5% wide and tall.");
+                next.alertZone = zone;
             }
             privateDir(dir(userId));
             const file = settingsFile(userId);
@@ -142,9 +178,11 @@ export function createWatchStore(options: { userDir(userId: string): string; use
             return all.slice(-limit).reverse();
         },
 
-        askedSince(userId, sinceMs) {
+        askedSince(userId, sinceMs, kind) {
             const file = logFile(userId);
-            return [...readLines(`${file}.1`), ...readLines(file)].filter((entry) => entry.asked && entry.t >= sinceMs).length;
+            return [...readLines(`${file}.1`), ...readLines(file)].filter(
+                (entry) => entry.asked && entry.t >= sinceMs && (kind === "alert") === (entry.kind === "alert"),
+            ).length;
         },
 
         subscriptionsFile: (userId) => join(dir(userId), "push-subscriptions.json"),

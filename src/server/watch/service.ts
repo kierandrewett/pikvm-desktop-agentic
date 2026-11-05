@@ -3,8 +3,11 @@ import type { HostProvider } from "@pikvm/chat-server";
 import type { CheckEntry, WatchSettings, WatchView } from "@pikvm/contracts/watch";
 import type { ImageOps } from "../../image-ops";
 import { jpegSize, kvmdRequest, type DeskTarget } from "../agent/desk";
+import type { ZoneCells } from "./frame-diff";
 import { GRID_HEIGHT, GRID_WIDTH, MODEL_FRAME_EDGE, DEFAULT_VISION_MODEL, type WatchLimits } from "./limits";
 import { createModelClient, type ModelClient } from "./models";
+import { createOcrEngine } from "./ocr-engine";
+import type { Ocr } from "./ocr";
 import { createPipeline, type Pipeline } from "./pipeline";
 import { createPush, PushError, type Push, type SendResult } from "./push";
 import { createWatchStore, SettingsError, type WatchStore } from "./store";
@@ -42,7 +45,13 @@ export interface WatchServiceDeps {
     /** Accept push endpoints that are not a browser vendor's (tests, local runs). */
     allowLocalPush?: boolean;
     subject?: string | undefined;
+    /** Put pop-up text in the check log (`PIKVM_WATCH_LOG_TEXT=1`); off by default, the log then says how much was read and not what. */
+    logText?: boolean;
     // Test seams.
+    /** The OCR fast alerts read pop-ups with. Default: the one in this host's image (ocr-engine.ts). */
+    ocr?: Ocr;
+    /** The OCR the whole-screen path reads frames with when there is no key. Default: `ocr` when given, else a second engine of its own (a whole frame must not hold up a pop-up). */
+    screenOcr?: Ocr;
     models?: ModelClient;
     push?: Push;
     store?: WatchStore;
@@ -86,6 +95,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             allowLocalEndpoints: deps.allowLocalPush === true,
         });
     const models = deps.models ?? createModelClient();
+    const ocr = deps.ocr ?? createOcrEngine({ log });
+    const screenOcr = deps.screenOcr ?? deps.ocr ?? createOcrEngine({ log });
     const pipelines = new Map<string, Pipeline>();
     const { images } = deps;
 
@@ -107,6 +118,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         snapshot,
         grid: async (jpeg) => (images.gray ? await images.gray(jpeg, GRID_WIDTH, GRID_HEIGHT).catch(() => null) : null),
         intervalMs: deps.limits.intervalMs,
+        fastIntervalMs: deps.limits.fast.intervalMs,
         now,
         ...(deps.schedule ? { schedule: deps.schedule } : {}),
         log,
@@ -121,10 +133,39 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         return resized ?? jpeg;
     }
 
+    /**
+     * The crop of a frame to a rectangle of grid cells, for the OCR (fast alerts): cut from the snapshot as the Pi encoded it, at its
+     * own size (a toast's text is small, so it is not scaled down), and scaled only if its long edge passes MODEL_FRAME_EDGE (a
+     * crop that large is the vision model's fallback). Throws when it cannot be cut.
+     */
+    async function cropCells(jpeg: Buffer, cells: ZoneCells): Promise<Buffer> {
+        const size = jpegSize(jpeg);
+        if (!size) throw new Error("The snapshot's size could not be read, so the corner could not be cut out of it.");
+        const x = Math.min(size.width - 1, Math.floor((cells.x0 * size.width) / GRID_WIDTH));
+        const y = Math.min(size.height - 1, Math.floor((cells.y0 * size.height) / GRID_HEIGHT));
+        const width = Math.max(1, Math.min(size.width, Math.ceil((cells.x1 * size.width) / GRID_WIDTH)) - x);
+        const height = Math.max(1, Math.min(size.height, Math.ceil((cells.y1 * size.height) / GRID_HEIGHT)) - y);
+        const cropped = await images.crop(jpeg, { x, y, width, height }, 90);
+        if (!cropped) throw new Error("The corner could not be cut out of the snapshot.");
+        const edge = Math.max(width, height);
+        if (edge <= MODEL_FRAME_EDGE) return cropped;
+        const scale = MODEL_FRAME_EDGE / edge;
+        return (await images.resize(cropped, Math.round(width * scale), Math.round(height * scale), 85)) ?? cropped;
+    }
+
+    function hasKey(userId: string): boolean {
+        try {
+            return deps.chat.openRouter(userId) !== undefined;
+        } catch {
+            return false;
+        }
+    }
+
     function canEnable(userId: string): WatchView["canEnable"] {
         if (!images.gray) return { ok: false, reason: "This host cannot read screenshots for comparing, so it cannot watch the screen." };
         try {
-            if (!deps.chat.openRouter(userId)) return { ok: false, reason: NEED_KEY };
+            // With no key the watch still works if this host can read the screen itself (it then cannot judge what matters).
+            if (!deps.chat.openRouter(userId) && screenOcr.unavailable?.() !== undefined) return { ok: false, reason: NEED_KEY };
         } catch {
             return { ok: false, reason: "Chat is not running, so the stored key cannot be read." };
         }
@@ -156,10 +197,15 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             limits: deps.limits,
             now,
             prepare,
+            ocr,
+            screenOcr,
+            crop: cropCells,
+            ...(deps.logText ? { logText: true } : {}),
             log,
         });
         pipelines.set(userId, pipeline);
         watcher.attach(userId, pipeline);
+        if (store.read(userId).fastAlerts) ocr.warm?.();
     }
 
     function pushState(userId: string): WatchView["push"] {
@@ -184,6 +230,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 ...settings,
                 defaultVisionModel: DEFAULT_VISION_MODEL,
                 canEnable: canEnable(userId),
+                canJudge: hasKey(userId),
                 running: pipelines.has(userId) && watcher.running,
                 signal: watcher.signal,
                 push: pushState(userId),
@@ -193,6 +240,13 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                     minCheckGapSec: deps.limits.minCheckGapMs / 1000,
                     dailyCap: deps.limits.dailyCap,
                     askedToday: store.askedSince(userId, now() - DAY_MS),
+                    fast: {
+                        intervalSec: deps.limits.fast.intervalMs / 1000,
+                        settleSec: deps.limits.fast.settleMs / 1000,
+                        minCheckGapSec: deps.limits.fast.minCheckGapMs / 1000,
+                        dailyCap: deps.limits.fast.dailyCap,
+                        askedToday: store.askedSince(userId, now() - DAY_MS, "alert"),
+                    },
                 },
             };
         },
@@ -202,6 +256,9 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 const can = canEnable(userId);
                 if (!can.ok) throw new WatchRefusal(can.reason, 409);
             }
+            if (patch.fastAlerts === true && !(patch.enabled ?? store.read(userId).enabled)) {
+                throw new WatchRefusal("Switch the screen watch on first: fast alerts run inside it.", 409);
+            }
             try {
                 store.write(userId, patch);
             } catch (error) {
@@ -209,6 +266,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 throw error;
             }
             reconcile(userId);
+            if (pipelines.has(userId) && store.read(userId).fastAlerts) ocr.warm?.();
             return this.view(userId);
         },
 
@@ -254,6 +312,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         stop() {
             pipelines.clear();
             watcher.stop();
+            ocr.close();
+            screenOcr.close();
         },
     };
 }

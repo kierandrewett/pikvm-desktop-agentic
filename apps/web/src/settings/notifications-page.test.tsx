@@ -10,9 +10,12 @@
  *  G6. Saving the rule sends more than it changed, or the Save button is live with nothing to save.
  *  G7. "Send test notification" is live with no device set up, or reports success when nothing was sent.
  *  G8. The log hides why a check did not notify.
+ *  G9. Fast alerts can be switched on while the watch is off, or the page does not say why not.
+ *  G10. The corner choice sends more than the rectangle, or shows another corner than the stored one.
+ *  G11. The fast alerts text promises what the server does not do, or talks about models.
  */
 
-import type { CheckEntry, WatchView } from "@pikvm/contracts/watch";
+import { ALERT_ZONES, type CheckEntry, type WatchView } from "@pikvm/contracts/watch";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -43,10 +46,20 @@ function watchServer(over: Partial<WatchView> = {}): WatchServer {
             visionModel: "google/gemma-3-12b-it",
             defaultVisionModel: "google/gemma-3-12b-it",
             canEnable: { ok: true },
+            canJudge: true,
             running: false,
             signal: "unknown",
             push: { available: true, publicKey: KEY, subscriptions: 0 },
-            limits: { intervalSec: 3, settleSec: 6, minCheckGapSec: 60, dailyCap: 200, askedToday: 4 },
+            fastAlerts: false,
+            alertZone: ALERT_ZONES[0].zone,
+            limits: {
+                intervalSec: 3,
+                settleSec: 6,
+                minCheckGapSec: 60,
+                dailyCap: 200,
+                askedToday: 4,
+                fast: { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 7 },
+            },
             ...over,
         },
         checks: [],
@@ -389,3 +402,136 @@ describe("the log", () => {
         expect(await screen.findByText(/every 3 seconds.*6 seconds.*one check a minute and 200 a day \(4 used/)).toBeInTheDocument();
     });
 });
+
+const FAST = "Fast alerts";
+
+describe("fast alerts", () => {
+    it("G9: off by default; with the watch off the switch is off and the page says to switch the watch on first", async () => {
+        const server = watchServer();
+        install(server);
+        device({ permission: "granted" });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: FAST });
+        expect(toggle).toHaveAttribute("aria-checked", "false");
+        expect(toggle).toBeDisabled();
+        expect(await screen.findByText("Needs the screen watch")).toBeInTheDocument();
+        expect(screen.getByText(/Switch on “Notify me when the screen changes” above first/)).toBeInTheDocument();
+        expect(server.requests.some((r) => r.method === "PATCH")).toBe(false);
+    });
+
+    it("G9: a stored fast alerts choice does not show as on while the watch is off (it does nothing then)", async () => {
+        install(watchServer({ enabled: false, fastAlerts: true }));
+        device({ permission: "granted" });
+        renderApp("/settings/notifications");
+        expect(await screen.findByRole("switch", { name: FAST })).toHaveAttribute("aria-checked", "false");
+    });
+
+    it("says what it does, in plain words", async () => {
+        install(watchServer({ enabled: true }));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        await screen.findByRole("switch", { name: FAST });
+        expect(screen.getByText("Notify within a few seconds of a pop-up in the corner of the screen, such as email, Teams messages and calls.")).toBeInTheDocument();
+        expect(screen.getByText("Where pop-ups appear")).toBeInTheDocument();
+    });
+
+    it("with the watch on it can be switched on and off, sending only that", async () => {
+        const server = watchServer({ enabled: true, running: true, signal: "signal", push: { available: true, publicKey: KEY, subscriptions: 1 } });
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: FAST });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        expect(screen.queryByText("Needs the screen watch")).not.toBeInTheDocument();
+        await userEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+        await userEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+        expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ fastAlerts: true }, { fastAlerts: false }]);
+    });
+
+    /** The Select's trigger names the row and the value ("Where pop-ups appear: Bottom right"); its menu lists the options. */
+    const trigger = () => screen.findByRole("button", { name: /^Where pop-ups appear/ });
+    /** The trigger is rebuilt when the page's data arrives (it is a plain button until the menu can open), so wait for the live one. */
+    const readyTrigger = () =>
+        waitFor(() => {
+            const found = screen.getByRole("button", { name: /^Where pop-ups appear/ });
+            expect(found).toBeEnabled();
+            return found;
+        });
+    const choices = () => [...document.querySelectorAll("[role^=menuitem]")].map((item) => item.textContent);
+
+    it("G10: the corner shows as stored, the four presets are offered, and picking one sends that rectangle and nothing else", async () => {
+        const server = watchServer({ enabled: true });
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const user = userEvent.setup();
+        const button = await readyTrigger();
+        expect(button).toHaveTextContent("Bottom right");
+        await user.click(button);
+        await waitFor(() => expect(choices()).not.toEqual([]));
+        expect(choices()).toEqual(["Bottom right", "Top right", "Bottom left", "Top left"]);
+        await user.click(screen.getByRole("menuitem", { name: "Top right" }));
+        await waitFor(() => expect(screen.getByRole("button", { name: /^Where pop-ups appear/ })).toHaveTextContent("Top right"));
+        expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ alertZone: ALERT_ZONES[1].zone }]);
+    });
+
+    it("G10: a stored rectangle that is none of the presets is shown as a custom area, not as another corner", async () => {
+        install(watchServer({ enabled: true, alertZone: { x0: 0.1, y0: 0.1, x1: 0.5, y1: 0.5 } }));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const button = await readyTrigger();
+        expect(button).toHaveTextContent("Custom area");
+    });
+
+    it("G11: the section states its limits and does not talk about models", async () => {
+        install(watchServer({ enabled: true }));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        await screen.findByText(/one check every 4 seconds and 500 a day \(7 used in the last 24 hours\)/);
+        const heading = screen.getByRole("heading", { name: FAST });
+        const section = heading.closest("section")!;
+        expect(section).toHaveTextContent(/reads the pop-up itself, on the server/);
+        expect(section.textContent).not.toMatch(/model|OpenRouter|Jev|OCR/i);
+    });
+
+    it("the log names a fast alert for what it is, with no screen text", async () => {
+        const server = watchServer({ enabled: true });
+        server.checks = [
+            {
+                t: Date.now(),
+                at: new Date().toISOString(),
+                kind: "alert",
+                score: 0.12,
+                outcome: "pushed",
+                asked: true,
+                latency: { firstSeenAt: 1, capturedAt: 2, detectedAt: 3, pushedAt: 2200, totalMs: 2200 },
+                notified: { kind: "call", tag: "pikvm-call-ab", urgency: "high", ttlSec: 60, titleChars: 25, bodyChars: 30 },
+            },
+        ];
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        expect(await screen.findByText("Pop-up in the corner: a call, 2.2 seconds to send")).toBeInTheDocument();
+    });
+});
+
+describe("with no OpenRouter key where the server can read the screen itself", () => {
+    it("the watch can be switched on and the page says it cannot tell what matters", async () => {
+        install(watchServer({ enabled: true, running: true, signal: "signal", canJudge: false, push: { available: true, publicKey: KEY, subscriptions: 1 } }));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        expect(await screen.findByText("No OpenRouter key")).toBeInTheDocument();
+        expect(screen.getByText(/it reports every change that settles/)).toBeInTheDocument();
+    });
+
+    it("with a key it says nothing of the kind", async () => {
+        install(watchServer({ enabled: true, running: true, signal: "signal", push: { available: true, publicKey: KEY, subscriptions: 1 } }));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        await screen.findByText("Watching the screen");
+        expect(screen.queryByText("No OpenRouter key")).not.toBeInTheDocument();
+    });
+});
+

@@ -64,6 +64,12 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_WATCH_SETTLE_MS` | no | How long the screen must stay still after it changed before the change counts (default `6000`). |
 | `PIKVM_WATCH_MIN_GAP_SEC` | no | At most one model check per watch in this many seconds (default `60`). |
 | `PIKVM_WATCH_DAILY_CAP` | no | At most this many model checks per watch in 24 hours (default `200`). |
+| `PIKVM_WATCH_FAST_INTERVAL_MS` | no | With fast alerts on, how often the screen is looked at (default `1000`; values under `1000` are raised to `1000`). |
+| `PIKVM_WATCH_FAST_SETTLE_MS` | no | How long a pop-up must hold before it counts (default `1200`). |
+| `PIKVM_WATCH_FAST_MIN_GAP_SEC` | no | At most one fast check per watch in this many seconds (default `4`). |
+| `PIKVM_WATCH_FAST_DAILY_CAP` | no | At most this many fast checks per watch in 24 hours (default `500`). Counted apart from `PIKVM_WATCH_DAILY_CAP`. |
+| `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR fast alerts read pop-ups with: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
+| `PIKVM_WATCH_LOG_TEXT` | no | `1` puts a fast alert's words (the notification's title and body) in `checks.jsonl`. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
 | `PIKVM_PUSH_ALLOW_LOCAL` | no | `1` accepts push subscriptions on any address, loopback and plain http included. For tests and local runs only: left off, only the push services browsers use are accepted. |
 
@@ -127,8 +133,11 @@ lost signal.
 ### What it costs, and the bounds
 
 It uses the key stored in Settings, Providers (the provider named `openrouter`, or any entry whose address is on
-openrouter.ai). **Without one the watch cannot be switched on** and the Settings page says why; a key removed later makes every
-change log "no OpenRouter key" and call nothing.
+openrouter.ai). **Without one the watch can still be switched on where the host has its OCR (the image does)**: it then reads each settled
+frame itself, cannot judge what matters, and reports every change that settles with the first 600 characters of the text it read (a
+rule cannot be judged: logged as an error, nothing sent; the 60 s gap and the daily cap still bound it). On a host with no OCR it
+cannot be switched on and the Settings page says why; a key removed later makes every change read by the OCR, or log "no OpenRouter
+key" where there is none, and call no model.
 
 - **Image model: `google/gemma-3-12b-it`**, $0.05 per million input tokens and $0.15 per million output tokens on OpenRouter
   (read 2026-11-03 from `/api/v1/models`, input modalities text and image). OpenRouter reported **$0.00003 to $0.00004 per
@@ -156,9 +165,96 @@ checks and at `GET /app/api/v1/watch/checks`:
  "noul":0.96,"costUsd":0.00009,"push":{"sent":1,"removed":0,"failed":0}}
 ```
 
-`kind` is `change`, `signal-lost` or `test`; `outcome` is `pushed`, `no`, `undecided`, `skipped` (no model was asked; `reason` says
+`kind` is `change`, `signal-lost`, `alert` (a fast alert, below) or `test`; `outcome` is `pushed`, `no`, `undecided`, `skipped` (no model was asked; `reason` says
 why: no key, daily cap, replaced by a newer change) or `error` (`reason` says what failed, including a yes that reached no device).
-`asked` is what the daily cap counts.
+`asked` is what the daily cap counts (the fast path's own cap counts its `alert` lines).
+
+### Fast alerts: a pop-up in a corner, read on the host
+
+Email, Teams messages and Teams calls arrive as a toast in a corner of the screen (Windows: bottom right; about 5 s, a Teams call
+until it is answered or about 30 s). The slow path above would never see one: it needs a change to hold still 6 s, looks every
+3 s, and allows one model check a minute. **Fast alerts** are a second path beside it, **off by default**, switched on in Settings,
+Notifications, Fast alerts (the watch itself must be on) with a choice of corner: bottom right (default), top right, bottom left,
+top left. It is stored as a rectangle of the frame in fractions (`alertZone`: bottom right is x 0.62 to 1, y 0.55 to 1), so a custom
+rectangle can be offered later.
+
+```mermaid
+flowchart LR
+    pi[PiKVM snapshot every 1 s] --> zone[zone diff on the 128x72 grid, held 1.2 s]
+    zone -->|a pop-up appeared| crop[crop of the cells that changed]
+    crop --> ocr[OCR on this host, own process]
+    ocr --> rules[text rules: call, Teams, email, other]
+    rules -->|no rule| push[Web Push]
+    rules -->|your rule| jev[Jev yes/no on the text]
+    jev -->|decisive yes| push
+    ocr -.->|timed out or too few words, and a key is set| vision[vision model on the crop]
+    vision --> rules
+```
+
+1. **The zone diff (free).** With fast alerts on the host looks every **1 s** (`PIKVM_WATCH_FAST_INTERVAL_MS`, never under 1 s;
+   the whole screen is still compared only every third look, so the slow path runs no faster). The same 128 x 72 grey grid is
+   compared inside the zone (49 x 33 = 1617 cells for the default). The zone has changed when **1.5 %** of its cells did (25 cells;
+   a cell has changed at a grey step of 10). Calibrated on 1920 x 1080 frames drawn for the run (`docs/e2e/2026-11-05-fast-alerts.md`):
+   a blinking caret is 0.12 %, the taskbar clock changing 0 %, the mouse pointer 0.19 to 0.25 %, a tray icon 0.31 %, a turning spinner
+   up to 0.43 %, JPEG re-encoding or codec noise 0 %; a Teams message toast is 8.5 to 12.7 %, an Outlook mail toast 10.3 to 17.2 %, a
+   Teams call toast 10.6 to 15.8 %, the weakest toast tried (one dark line on a near-identical dark desktop) 7.2 %. A change counts
+   as a pop-up once it has **held 1.2 s** (a toast slides in over about 0.3 s). Unlike the slow path it is **not dropped if it goes
+   away**: it is read from the look that confirmed it, or, if it had gone again by then, from the last look that saw it. More than
+   half the zone changing is a window or the desktop, not a pop-up: logged as skipped and not read. When a change is pending the
+   host makes one extra look at the moment it will have held long enough, so the wait is the settle time and not that plus a look.
+   **The whole-screen path blanks the zone** in the grid it compares, so a toast is told once (by this path) and not again 6 s later by
+   the slow one; everything outside the corner behaves as it did.
+2. **A crop of what changed.** The cells that changed, plus two cells of margin (about 30 px), inside the zone: usually about 420 x 200
+   px at 1080p. Text the OCR finds outside the changed cells is the window behind the pop-up and is left out.
+3. **OCR on this host.** PP-OCRv4 mobile (PaddleOCR's detector and recogniser as ONNX) through onnxruntime-node, in a forked
+   process of its own (`dist/ocr-worker.js`), warm once fast alerts are on, one read at a time, 4 s limit (then it is killed and
+   restarted). It opens no socket. Chosen by benchmark (`docs/e2e/2026-11-05-fast-alerts-ocr.md`): on the Xeon E5-2680 v4 the image
+   runs on, under load 14, **165 ms median (p95 245) for the crop, 771 ms (p95 981) if the whole zone were read**, every word found;
+   tesseract and tesseract.js were faster or equal on light cards but read dark ones badly.
+4. **Text rules** (`src/server/watch/toast-rules.ts`, deterministic). A **call** (incoming call, is calling, calling you, ringing, wants
+   to call, or Accept/Answer with Decline/Reject/Ignore) is pushed as **"Incoming call: <who>"** with Web Push `Urgency: high`, a
+   **60 s** TTL, and a tag per caller (the same caller ringing again updates the same notification). A Teams message or an Outlook
+   mail is "Teams" or "Outlook" with "sender: first line" (at most 160 characters), urgency normal, a 5 minute TTL and a tag of its
+   text. Any other pop-up shows its lines. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The
+   **same pop-up text inside 30 s is notified once**.
+5. **No rule: no network call at all.** Nothing from the screen leaves the host and no OpenRouter key is needed. **With a rule** (Settings,
+   "What to tell me about") the pop-up's text, `<app>: <lines>`, goes to Jev as `{previous: "(none)", current, rule}` exactly as in the slow
+   path (same cache, same 0.85 / 0.15 thresholds); only that text, no image.
+6. **When the OCR does not deliver.** It timed out or failed, or it read fewer than 3 words in a change of at least 5 % of the zone
+   (a dialog): if an OpenRouter key is set the vision model reads the same crop (the one case an image of the screen leaves the host,
+   named in the log as `read.by: "vision"` with its `fallback` reason); with no key the check is logged ("ocr timed out, and there is
+   no OpenRouter key") and nothing is sent.
+
+**Its own bounds**: at most one fast check per **4 s** (a pop-up inside it waits, newest wins, and is read from its own captured
+frame), at most **500 a day**, counted apart from the slow path's 60 s / 200, so two toasts 5 s apart both notify and fast alerts never
+spend the slow path's budget.
+
+**The log.** A fast alert is a line of kind `alert` in `checks.jsonl` with `latency` (epoch ms: `firstSeenAt`, `capturedAt` = when the snapshot
+that was read was requested, `detectedAt`, `readAt`, `decidedAt`, `pushedAt`, `totalMs` = capture to push, `sinceFirstSeenMs`), `read`
+(`by`, `ms`, characters, words, lines) and `notified` (kind, tag, urgency, TTL, title and body lengths). **It never holds the screen's words**
+unless the host runs with `PIKVM_WATCH_LOG_TEXT=1`.
+
+**What leaves the host, said plainly.** With no rule and a working OCR: nothing from the screen, and no network call except the push
+itself (to the push service of the device). With a rule: the OCR text of the pop-up to OpenRouter (Jev). Only on the two fallbacks
+above: the crop image. The slow path is as before: whole frames to OpenRouter, unless there is no key, in which case its text is read
+on the host.
+
+**Measured** (`docs/e2e/2026-11-05-fast-alerts.md`, 10 toasts, fake PiKVM, fake push service on loopback, the real host and OCR on a
+workstation): **toast to notification at the push service 1.8 s median (1.3 to 2.3 s)**; of that, waiting for the
+next look about 0.5 s (0 to 1 s), the 1.2 s hold, crop and OCR about 0.1 s (OCR read 90 ms median here), the push send 5 ms (loopback). The slow path would have taken 6 s
+of stillness and never seen a 5 s toast. **Not measured**: the push service on a real network (FCM or Apple add their own delay after
+the host's send), any vision model or Jev (none in the main path), a real Pi (one snapshot was measured by hand at 75 to 140 ms, a
+123 KB JPEG), the real Xeon without its other load.
+
+**Cost of looking every second.** A snapshot a second instead of one in 3 s: about 123 KB/s from the Pi, and the Pi serves the
+streamer's latest JPEG (it does not re-encode for each snapshot [not verified on a Pi here]); at 75 to 140 ms each that keeps the
+Pi's snapshot handler busy at most about 14 % of the time. On the host, decoding the 1080p JPEG to the grey grid is 3 ms (median, this workstation) and the
+host's CPU stayed at 0.5 % of a core (0.7 % with the watch alone) in the 30 s idle windows. The OCR worker holds the models (about 100 to 250 MB resident) once fast alerts are on, idle otherwise.
+
+**Image.** `deploy/Dockerfile` installs onnxruntime-node (pruned to this architecture's CPU library) and fetches the models, both
+pinned in `deploy/ocr.lock` (sha256 of the tarball and of each model, the npm integrity of onnxruntime-node); **+80 MB uncompressed**
+(349 MB against 269 MB, measured on the runtime stage's own lines). The image still starts read-only as uid 10001 and the OCR runs with
+`--network none` (checked).
 
 ### Notifications on the iPhone
 
@@ -431,6 +527,8 @@ buffer it (the response sends `x-accel-buffering: no`).
 - Sizes: see the e2e record. omp's binary is about 277 MB of the image.
 - The image is `linux/amd64` or `linux/arm64`; omp has no other Linux build pinned.
 - `docker compose` and `podman compose` both work.
+- Fast alerts: the OCR was benchmarked on drawn toasts (Open Sans, flat cards), not on a real Windows PC's Segoe UI toasts; push delivery on a
+  real network and a real Pi's snapshot cost under a look a second are not measured (see "Fast alerts").
 - Screen watch: delivery to a real iPhone is not verified (there is no iPhone here; headless Chrome in the iPhone 13 profile, with
   its own push service, stood in for the installed app). The diff compares grey levels on a 128 x 72 grid: a change that moves less
   than 10 of 255 on fewer than 0.3 % of the cells (a few characters of dim text) is not seen, and a screen that never stops

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { WATCH_PATH as WATCH_BASE } from "@pikvm/contracts/watch";
+import { WATCH_PATH as WATCH_BASE, type WatchZone } from "@pikvm/contracts/watch";
 import { json } from "../http";
 import { WatchRefusal, type WatchService } from "./service";
 
@@ -7,7 +7,7 @@ import { WatchRefusal, type WatchService } from "./service";
  * `/app/api/v1/watch/*`: the Settings page's side of the screen watch.
  *
  *   GET   /app/api/v1/watch              the settings, whether it can be switched on, push state, limits
- *   PATCH /app/api/v1/watch              { enabled?, rule?, visionModel? }
+ *   PATCH /app/api/v1/watch              { enabled?, rule?, visionModel?, fastAlerts?, alertZone? }
  *   POST  /app/api/v1/watch/subscribe    { subscription } from the browser's PushManager
  *   POST  /app/api/v1/watch/unsubscribe  { endpoint }
  *   POST  /app/api/v1/watch/test         send a test notification to every subscribed device
@@ -63,6 +63,12 @@ export function createWatchRoutes(service: WatchService, userId: string): WatchR
                 if (field("enabled") !== undefined && typeof field("enabled") !== "boolean") throw new WatchRefusal("enabled must be true or false.", 400);
                 if (field("rule") !== undefined && typeof field("rule") !== "string") throw new WatchRefusal("rule must be text.", 400);
                 if (field("visionModel") !== undefined && typeof field("visionModel") !== "string") throw new WatchRefusal("visionModel must be text.", 400);
+                if (field("fastAlerts") !== undefined && typeof field("fastAlerts") !== "boolean") throw new WatchRefusal("fastAlerts must be true or false.", 400);
+                const alertZone = field("alertZone");
+                if (alertZone !== undefined && (alertZone === null || typeof alertZone !== "object" || Array.isArray(alertZone))) {
+                    throw new WatchRefusal("alertZone must be an object with x0, y0, x1 and y1.", 400);
+                }
+                const fastAlerts = field("fastAlerts");
                 const enabled = field("enabled");
                 const rule = field("rule");
                 const visionModel = field("visionModel");
@@ -73,6 +79,8 @@ export function createWatchRoutes(service: WatchService, userId: string): WatchR
                         ...(typeof enabled === "boolean" ? { enabled } : {}),
                         ...(typeof rule === "string" ? { rule } : {}),
                         ...(typeof visionModel === "string" ? { visionModel } : {}),
+                        ...(typeof fastAlerts === "boolean" ? { fastAlerts } : {}),
+                        ...(alertZone !== undefined ? { alertZone: alertZone as WatchZone } : {}),
                     }),
                 );
             }
