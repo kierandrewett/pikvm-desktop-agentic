@@ -24,6 +24,7 @@ import { useIsMobile } from "../../lib/media";
 import { keys } from "../../lib/queries";
 import { animateEnter } from "../model-picker/motion";
 import { identityOf } from "../model-picker/models";
+import { useThemeLayer } from "../../lib/theme-scope";
 import { PickerContent } from "../model-picker/picker-content";
 import { ModelMark } from "../model-picker/provider-logo";
 import { Sheet } from "../ui/sheet";
@@ -62,6 +63,8 @@ export function ModelSelect({
     extraModels?: readonly ModelInfo[];
 }) {
     const t = useT();
+    // Chat's tokens live under the scope: a popover portalled into <body> loses its colours, borders and sizes.
+    const layer = useThemeLayer();
     const mobile = useIsMobile();
     const emptyLabel = emptyLabelProp ?? t("models-select-automatic");
     const emptyDescription = emptyDescriptionProp ?? t("models-select-automatic-description");
@@ -155,7 +158,7 @@ export function ModelSelect({
     return (
         <Popover.Root open={shown} onOpenChange={setOpen}>
             <Popover.Trigger asChild>{trigger}</Popover.Trigger>
-            <Popover.Portal>
+            <Popover.Portal container={layer}>
                 <Popover.Content
                     ref={(el) => {
                         if (el && !el.dataset.entered) {
