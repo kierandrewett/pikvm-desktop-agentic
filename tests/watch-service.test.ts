@@ -1,303 +1,276 @@
 /**
- * The screen watch as the host runs it: the service over the shared poller, the stored key, the settings and the push.
+ * The watch as the host runs it: the service over the shared poller, the crop, the chat model, the settings and the push.
  *
  * Failure modes, before behaviour:
- *  V1. The watch is switched on with no OpenRouter key (it would poll the PiKVM and never be able to ask a model).
- *  V2. The poller keeps running after the last user switched off, or stops while one is still on.
- *  V3. A restart forgets who had their watch on.
- *  V4. A rule or model setting is stored unvalidated (an unbounded rule makes every decision call dearer).
- *  V5. The whole chain (screen changes, settles, is described, judged, pushed) fires more or less than once.
- *  V6. The test notification reports success when nobody was reachable, or leaves an expired device stored.
- *  V7. The view hands out anything secret (the key, a subscription endpoint).
+ *  V1. The watch is switched on where this host cannot read the screen or the text on it (it would poll and never find anything).
+ *  V2. The poller keeps running after the last user switched off, or stops while one is still on; a restart forgets who had it on.
+ *  V3. The rule is stored unvalidated (an unbounded rule makes every request dearer).
+ *  V4. The OCR is sent the whole frame, or the wrong rectangle of it.
+ *  V5. The chain (a pop-up appears, is read, written up by the chat model, pushed) fires more or less than once.
+ *  V6. The view hands out anything secret (a subscription endpoint), or old settings fields come back.
+ *  V7. The look pace is not the interval, or goes under the floor.
+ *  V8. The test notification reports success when nobody was reachable.
  */
 import assert from "node:assert/strict";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
+import { ALERT_ZONES, DEFAULT_ALERT_ZONE } from "@pikvm/contracts/watch";
 import type { ImageOps } from "../src/image-ops";
 import { limitsFromEnv, MAX_RULE_CHARS } from "../src/server/watch/limits";
-import { createPush } from "../src/server/watch/push";
 import { createWatchService, WatchRefusal, type WatchService } from "../src/server/watch/service";
-import { startFakePush } from "../tools/fake-push/server";
-import { dialog, fakeModels, fakePush, flat, PROVIDER, tempDir, type FakeModels, type FakePush, type TempDir } from "./support/watch-rig";
+import { PushError } from "../src/server/watch/push";
 import type { Snapshot } from "../src/server/watch/watcher";
-import type { HostProvider } from "@pikvm/chat-server";
+import { fakeJpeg, fakeJpegLabel, fakeOcr, fakePush, flat, patched, tempDir, type FakeOcr, type FakePush, type TempDir } from "./support/watch-rig";
 
 const dirs: TempDir[] = [];
 after(() => dirs.forEach((dir) => dir.remove()));
 
-const STEP = 3000;
-const SECRET = PROVIDER.apiKey;
+const toast = patched(flat(60), 100, 45, 24, 9, 240);
+
+interface Asked {
+    userId: string;
+    system: string;
+    user: string;
+    timeoutMs: number;
+}
 
 interface Rig {
     dir: TempDir;
     service: WatchService;
-    models: FakeModels;
+    ocr: FakeOcr;
     push: FakePush;
-    /** Which users have a key. */
-    keys: Set<string>;
     clock: { t: number };
-    /** The screens by the label the fake snapshots carry. */
+    /** The delay each scheduled look was set with. */
+    delays: number[];
+    crops: { x: number; y: number; width: number; height: number }[];
+    screen: { label: string; width: number; height: number };
     screens: Record<string, Uint8Array>;
-    shows: { label: string };
-    snapshots: number;
+    /** The chat model: whether there is one, what it was asked, and what it answers. */
+    chat: { present: boolean; asked: Asked[]; answer: string };
+    cropFails: boolean;
+    hasGray: boolean;
     step(): Promise<void>;
-    /** Look at one screen for `looks` looks. */
-    stay(looks: number): Promise<void>;
+    log(): ReturnType<WatchService["checks"]>;
 }
 
-function rig(over: { dailyCap?: number; usePush?: ReturnType<typeof createPush>; reuse?: TempDir } = {}): Rig {
-    const dir = over.reuse ?? tempDir();
-    if (!over.reuse) dirs.push(dir);
-    const timers: { fn: () => void; cancelled: boolean }[] = [];
-    const screens: Record<string, Uint8Array> = { home: flat(60), dialog: dialog(flat(60)) };
+function rig(reuse?: TempDir): Rig {
+    const dir = reuse ?? tempDir();
+    if (!reuse) dirs.push(dir);
+    const timers: { fn: () => void; ms: number; cancelled: boolean }[] = [];
+    const screens: Record<string, Uint8Array> = { home: flat(60), toast };
     const state: Rig = {
         dir,
-        models: fakeModels(),
-        push: fakePush(),
-        keys: new Set(["operator"]),
-        clock: { t: 5_000_000 },
-        screens,
-        shows: { label: "home" },
-        snapshots: 0,
         service: undefined as unknown as WatchService,
+        ocr: fakeOcr(),
+        push: fakePush(),
+        clock: { t: 7_000_000 },
+        delays: [],
+        crops: [],
+        screen: { label: "home", width: 1920, height: 1080 },
+        screens,
+        chat: { present: true, asked: [], answer: "Anna Berg asks if you are free Thursday" },
+        cropFails: false,
+        hasGray: true,
         async step() {
             const timer = timers.find((entry) => !entry.cancelled);
             assert.ok(timer, "a look is scheduled");
             timer.cancelled = true;
-            state.clock.t += STEP;
+            state.clock.t += timer.ms;
             timer.fn();
-            for (let i = 0; i < 20; i++) await Promise.resolve();
+            for (let i = 0; i < 30; i++) await Promise.resolve();
             await new Promise((done) => setImmediate(done));
         },
-        async stay(looks) {
-            for (let i = 0; i < looks; i++) await state.step();
-        },
+        log: () => state.service.checks("operator", 50).reverse(),
     };
     const images: ImageOps = {
         resize: async () => null,
-        crop: async () => null,
-        gray: async (jpeg) => screens[jpeg.toString()] ?? null,
+        crop: async (jpeg, region) => {
+            state.crops.push(region);
+            return state.cropFails ? null : Buffer.from(`crop:${fakeJpegLabel(jpeg)}`);
+        },
+        gray: async (jpeg) => screens[fakeJpegLabel(jpeg)] ?? null,
     };
-    const limits = { ...limitsFromEnv({}), ...(over.dailyCap ? { dailyCap: over.dailyCap } : {}) };
+    if (!state.hasGray) delete images.gray;
     state.service = createWatchService({
         chat: {
-            openRouter: (userId): HostProvider | undefined => (state.keys.has(userId) ? { id: "openrouter", ...PROVIDER } : undefined),
+            hasSmallModel: () => state.chat.present,
+            smallText: async (userId, system, user, options) => {
+                state.chat.asked.push({ userId, system, user, timeoutMs: options.timeoutMs });
+                return state.chat.present ? state.chat.answer : undefined;
+            },
             userDir: (userId) => join(dir.path, "chat", "users", userId),
         },
         target: async () => {
-            throw new Error("the fake snapshot does not use the target");
+            throw new Error("unused");
         },
-        images,
+        images: new Proxy(images, { get: (target, key) => (key === "gray" && !state.hasGray ? undefined : Reflect.get(target, key)) }),
         dataDir: dir.path,
-        limits,
-        models: state.models,
-        push: over.usePush ?? state.push,
+        limits: limitsFromEnv({}),
+        ocr: state.ocr,
+        push: state.push,
         now: () => state.clock.t,
-        schedule: (fn) => {
-            const entry = { fn, cancelled: false };
+        schedule: (fn, ms) => {
+            const entry = { fn, ms, cancelled: false };
             timers.push(entry);
+            state.delays.push(ms);
             return () => void (entry.cancelled = true);
         },
-        snapshot: async (): Promise<Snapshot> => {
-            state.snapshots++;
-            return { kind: "frame", jpeg: Buffer.from(state.shows.label) };
-        },
+        snapshot: async (): Promise<Snapshot> => ({ kind: "frame", jpeg: fakeJpeg(state.screen.width, state.screen.height, state.screen.label) }),
         log: () => undefined,
     });
     return state;
 }
 
 describe("switching on", () => {
-    it("V1: without a stored key it is refused with the reason, and nothing starts", () => {
+    it("V1: needs a host that can compare screenshots and has its OCR; says why when it has not, and starts nothing", () => {
         const r = rig();
-        r.keys.clear();
+        r.ocr.unavailableReason = "The OCR models are not installed";
+        const view = r.service.view("operator");
+        assert.equal(view.canEnable.ok, false);
         assert.throws(
             () => r.service.update("operator", { enabled: true }),
-            (error: unknown) => error instanceof WatchRefusal && error.status === 409 && /Settings, Providers/.test(error.message),
+            (error: unknown) => error instanceof WatchRefusal && error.status === 409 && /cannot read pop-ups: The OCR models are not installed/.test(error.message),
         );
-        const view = r.service.view("operator");
-        assert.equal(view.enabled, false);
-        assert.equal(view.canEnable.ok, false);
         assert.equal(r.service.watcher.running, false);
-        assert.equal(r.service.watcher.size, 0);
-        assert.equal(r.snapshots, 0);
+        r.ocr.unavailableReason = undefined;
+        r.hasGray = false;
+        assert.match(JSON.stringify(r.service.view("operator").canEnable), /cannot read screenshots for comparing/);
     });
 
-    it("a host that cannot read screenshots for comparing says so instead of switching on", () => {
+    it("V1/V6: with a key or without, there is nothing else it needs: no key, no model, no provider", () => {
         const r = rig();
-        const service = createWatchService({
-            chat: { openRouter: () => ({ id: "openrouter", ...PROVIDER }), userDir: (id) => join(r.dir.path, "chat", "users", id) },
-            target: async () => {
-                throw new Error("unused");
-            },
-            images: { resize: async () => null, crop: async () => null },
-            dataDir: r.dir.path,
-            limits: limitsFromEnv({}),
-            models: r.models,
-            push: r.push,
-            log: () => undefined,
-        });
-        assert.throws(() => service.update("operator", { enabled: true }), /cannot read screenshots/);
+        r.chat.present = false;
+        const view = r.service.update("operator", { enabled: true });
+        assert.equal(view.enabled, true);
+        assert.equal(view.running, true);
+        assert.equal(view.chatModel, false);
+        r.chat.present = true;
+        assert.equal(r.service.view("operator").chatModel, true);
+        assert.deepEqual(Object.keys(view).sort(), ["alertZone", "canEnable", "chatModel", "enabled", "limits", "push", "rule", "running", "signal"]);
     });
 
-    it("V2: the poller runs while any user is on and stops when the last one switches off", async () => {
+    it("V2: the poller runs while someone has it on, and a restart resumes whoever had it on", () => {
         const r = rig();
-        r.keys.add("second");
-        r.service.update("operator", { enabled: true });
-        assert.equal(r.service.watcher.running, true);
-        r.service.update("second", { enabled: true });
-        assert.equal(r.service.watcher.size, 2);
-        assert.equal(r.service.view("second").running, true);
-
-        r.service.update("operator", { enabled: false });
-        assert.equal(r.service.watcher.size, 1);
-        assert.equal(r.service.watcher.running, true, "the second user still has it on");
-        assert.equal(r.service.view("operator").running, false);
-
-        await r.step();
-        const before = r.snapshots;
-        r.service.update("second", { enabled: false });
-        assert.equal(r.service.watcher.size, 0);
-        assert.equal(r.service.watcher.running, false);
-        assert.equal(r.snapshots, before);
-        // Nothing is scheduled any more: a step would find no look to run.
-        await assert.rejects(r.step(), /a look is scheduled/);
-    });
-
-    it("switching on twice does not start a second watch", () => {
-        const r = rig();
-        r.service.update("operator", { enabled: true });
         r.service.update("operator", { enabled: true });
         assert.equal(r.service.watcher.size, 1);
-    });
-
-    it("V3: a restart resumes whoever had it on and only them, and not a user whose key is gone", () => {
-        const first = rig();
-        first.keys.add("second").add("third");
-        for (const id of ["operator", "second", "third"]) first.service.update(id, { enabled: true });
-        first.service.update("third", { enabled: false });
-        first.service.stop();
-
-        const second = rig({ reuse: first.dir });
-        second.keys.delete("second");
-        second.service.start();
-        assert.equal(second.service.watcher.size, 1, "operator only: second has no key, third is off");
-        assert.equal(second.service.view("operator").running, true);
-        assert.equal(second.service.view("second").running, false);
-        assert.equal(second.service.view("second").enabled, true, "what the person chose is not lost");
+        r.service.stop();
+        const again = rig(r.dir);
+        assert.equal(again.service.view("operator").enabled, true);
+        assert.equal(again.service.watcher.running, false);
+        again.service.start();
+        assert.equal(again.service.watcher.running, true);
+        again.service.update("operator", { enabled: false });
+        assert.equal(again.service.watcher.running, false);
+        assert.equal(again.service.watcher.size, 0);
     });
 });
 
 describe("settings", () => {
-    it("V4: rule and model are stored, trimmed and bounded; an empty model is the default again", () => {
+    it("V3: the rule is trimmed and bounded; the zone is validated; nothing else can be set", () => {
         const r = rig();
-        const view = r.service.update("operator", { rule: "  tell me when the install finishes  ", visionModel: "qwen/qwen3.7-flash" });
-        assert.equal(view.rule, "tell me when the install finishes");
-        assert.equal(view.visionModel, "qwen/qwen3.7-flash");
-        assert.equal(r.service.update("operator", { visionModel: "" }).visionModel, view.defaultVisionModel);
+        assert.equal(r.service.update("operator", { rule: "  only mail from Anna  " }).rule, "only mail from Anna");
         assert.throws(() => r.service.update("operator", { rule: "x".repeat(MAX_RULE_CHARS + 1) }), (error: unknown) => error instanceof WatchRefusal && error.status === 400);
-        for (const bad of ["has spaces", "a;b", "x".repeat(200), "../../etc"]) {
-            assert.throws(() => r.service.update("operator", { visionModel: bad }), (error: unknown) => error instanceof WatchRefusal && error.status === 400, bad);
-        }
-        assert.equal(r.service.view("operator").rule, "tell me when the install finishes", "a refused change changes nothing");
+        assert.deepEqual(r.service.update("operator", { alertZone: ALERT_ZONES[1].zone }).alertZone, ALERT_ZONES[1].zone);
+        assert.throws(() => r.service.update("operator", { alertZone: { x0: 0, y0: 0, x1: 0.01, y1: 1 } }), (error: unknown) => error instanceof WatchRefusal && error.status === 400);
+        assert.deepEqual(r.service.view("operator").alertZone, ALERT_ZONES[1].zone);
     });
 
-    it("V7: the view carries no key and no endpoint, and states the limits that bound it", () => {
+    it("V6: a settings file from an older version is read for what is still in it: its removed fields are ignored and dropped on the next save", () => {
         const r = rig();
+        const dir = join(r.dir.path, "chat", "users", "operator", "watch");
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "settings.json"), JSON.stringify({ enabled: true, rule: "keep me", visionModel: "a/b", fastAlerts: true, fastSummary: true, summaryModel: "c/d", alertZone: ALERT_ZONES[2].zone }));
         const view = r.service.view("operator");
-        assert.ok(!JSON.stringify(view).includes(SECRET));
-        assert.deepEqual(view.limits, {
-            intervalSec: 3,
-            settleSec: 6,
-            minCheckGapSec: 60,
-            dailyCap: 200,
-            askedToday: 0,
-            fast: { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 0 },
-        });
-        assert.equal(view.push.available, true);
-        assert.equal(view.push.subscriptions, 0);
+        assert.equal(view.enabled, true);
+        assert.equal(view.rule, "keep me");
+        assert.deepEqual(view.alertZone, ALERT_ZONES[2].zone);
+        assert.ok(!("fastAlerts" in view) && !("visionModel" in view) && !("summaryModel" in view));
+        r.service.update("operator", { rule: "kept" });
+        const saved = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
+        assert.deepEqual(Object.keys(saved).sort(), ["alertZone", "enabled", "rule"]);
+        assert.deepEqual(DEFAULT_ALERT_ZONE, ALERT_ZONES[0].zone);
     });
 });
 
-describe("the whole chain", () => {
-    it("V5: a screen that changes and settles is checked once, judged once and pushed once; a quiet screen costs nothing", async () => {
+describe("the pace and the crop", () => {
+    it("V7: the poller looks every second, never faster than the floor", async () => {
         const r = rig();
-        r.models.answers = [0.95];
-        r.service.update("operator", { enabled: true, rule: "tell me when the install finishes" });
-        await r.stay(10);
-        assert.equal(r.models.described.length, 0, "a quiet screen asks nothing");
+        r.service.update("operator", { enabled: true });
+        await r.step();
+        await r.step();
+        assert.deepEqual(r.delays.slice(1), [1000, 1000]);
+        assert.equal(limitsFromEnv({ PIKVM_WATCH_INTERVAL_MS: "200" }).intervalMs, 1000);
+    });
 
-        r.shows.label = "dialog";
-        await r.stay(2);
-        assert.equal(r.models.decided.length, 0, "not settled yet");
-        await r.stay(2);
-        assert.deepEqual(r.models.described, ["home", "dialog"]);
-        assert.equal(r.models.decided.length, 1);
-        assert.equal(r.models.decided[0]!.rule, "tell me when the install finishes");
+    it("V4: the cells that changed, and a margin, cut from the frame the Pi sent, and nothing else", async () => {
+        const r = rig();
+        r.ocr.texts = { "crop:toast": ["Outlook", "Anna Berg", "Lunch on Thursday?"] };
+        r.service.update("operator", { enabled: true });
+        await r.step();
+        await r.step();
+        r.screen.label = "toast";
+        for (let i = 0; i < 6 && r.push.sent.length === 0; i++) await r.step();
+        // Cells x 98..126, y 43..56 of the 128 x 72 grid, at 15 px a cell.
+        assert.deepEqual(r.crops[0], { x: 1470, y: 645, width: 420, height: 195 });
+        assert.deepEqual(r.ocr.reads, ["crop:toast"]);
+    });
+
+    it("V4: a snapshot that cannot be cropped is logged as an error, not dropped", async () => {
+        const r = rig();
+        r.cropFails = true;
+        r.service.update("operator", { enabled: true });
+        await r.step();
+        r.screen.label = "toast";
+        for (let i = 0; i < 6 && r.log().length === 0; i++) await r.step();
+        await r.service.watcher.tick();
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        assert.equal(r.log()[0]!.outcome, "error");
+        assert.match(r.log()[0]!.reason ?? "", /could not be cut out/);
+        assert.equal(r.push.sent.length, 0);
+    });
+});
+
+describe("the chain", () => {
+    it("V5: a pop-up is read on the host, written up by the chat model from the text only, and pushed once", async () => {
+        const r = rig();
+        r.ocr.texts = { "crop:toast": ["Outlook", "Anna Berg", "Lunch on Thursday?", "Are you free at 12:30"] };
+        r.service.update("operator", { enabled: true });
+        await r.step();
+        r.screen.label = "toast";
+        for (let i = 0; i < 6 && r.push.sent.length === 0; i++) await r.step();
+        for (let i = 0; i < 4; i++) await r.step();
         assert.equal(r.push.sent.length, 1);
-        assert.equal(r.push.sent[0]!.payload.body, "Screen dialog. Something else.");
-
-        await r.stay(20);
-        assert.equal(r.push.sent.length, 1, "still the one notification");
-        const [entry] = r.service.checks("operator", 5);
-        assert.equal(entry!.outcome, "pushed");
+        assert.equal(r.push.sent[0]!.payload.body, "Anna Berg asks if you are free Thursday");
+        assert.equal(r.chat.asked.length, 1);
+        assert.equal(r.chat.asked[0]!.timeoutMs, 2500);
+        assert.ok(!/crop|jpe?g|base64/i.test(r.chat.asked[0]!.user + r.chat.asked[0]!.system), "text only");
         assert.equal(r.service.view("operator").limits.askedToday, 1);
     });
 
-    it("a watch switched off asks nothing even if the screen changes", async () => {
+    it("V5: with no chat model nothing is asked of anything and the notification is the text as read", async () => {
         const r = rig();
+        r.chat.present = false;
+        r.ocr.texts = { "crop:toast": ["Microsoft Teams", "Priya Shah is calling you", "Accept", "Decline"] };
         r.service.update("operator", { enabled: true });
-        await r.stay(2);
-        r.service.update("operator", { enabled: false });
-        r.shows.label = "dialog";
-        await assert.rejects(r.stay(5), /a look is scheduled/);
-        assert.deepEqual(r.models.decided, []);
+        await r.step();
+        r.screen.label = "toast";
+        for (let i = 0; i < 6 && r.push.sent.length === 0; i++) await r.step();
+        assert.equal(r.push.sent[0]!.payload.title, "Incoming call: Priya Shah");
+        assert.deepEqual(r.chat.asked, []);
     });
 });
 
-describe("notifications", () => {
-    it("V6: a test with no device subscribed is refused with the reason", async () => {
-        const r = rig({ usePush: createPush({ dataDir: join(tempDir().path), subscriptionsFile: () => "/nonexistent/none.json" }) });
-        await assert.rejects(r.service.test("operator"), (error: unknown) => error instanceof WatchRefusal && error.status === 409 && /No device has subscribed/.test(error.message));
-    });
-
-    it("V6: a test reaches a device, is logged, and an expired device is removed and reported", async () => {
-        const remote = await startFakePush();
-        after(() => remote.close());
-        const dir = tempDir();
-        dirs.push(dir);
-        const r = rig({
-            reuse: dir,
-            usePush: createPush({
-                dataDir: dir.path,
-                subscriptionsFile: (userId) => join(dir.path, "chat", "users", userId, "watch", "push-subscriptions.json"),
-                allowLocalEndpoints: true,
-                subject: "https://kvm.example.org",
-            }),
-        });
-        const live = remote.subscribe();
-        const expired = remote.subscribe();
-        r.service.subscribe("operator", { endpoint: live.endpoint, keys: live.keys }, {});
-        r.service.subscribe("operator", { endpoint: expired.endpoint, keys: expired.keys }, {});
-        assert.equal(r.service.view("operator").push.subscriptions, 2);
-        remote.setStatus(expired.id, 410);
-
+describe("devices and the test notification", () => {
+    it("V8: the test notification reports what was sent, and a service with no device refuses it", async () => {
+        const r = rig();
+        r.push.fail = new PushError("No device has subscribed to notifications yet.", "none");
+        await assert.rejects(r.service.test("operator"), (error: unknown) => error instanceof WatchRefusal);
+        r.push.fail = null;
+        r.push.subscriptions = [{ endpoint: "https://web.push.apple.com/x", keys: { p256dh: "p", auth: "a" }, addedAt: "now" }];
         const result = await r.service.test("operator");
-        assert.deepEqual({ sent: result.sent, removed: result.removed }, { sent: 1, removed: 1 });
-        assert.equal(remote.received.length, 1);
-        assert.equal((remote.received[0]!.payload as { tag: string }).tag, "pikvm-test");
-        assert.equal(r.service.view("operator").push.subscriptions, 1);
-        const [entry] = r.service.checks("operator", 1);
-        assert.equal(entry!.kind, "test");
-        assert.equal(entry!.outcome, "pushed");
-        assert.equal(entry!.asked, false);
-    });
-
-    it("refuses a subscription for an address it must not call", () => {
-        const r = rig({ usePush: createPush({ dataDir: tempDir().path, subscriptionsFile: () => "/nonexistent/x.json" }) });
-        assert.throws(
-            () => r.service.subscribe("operator", { endpoint: "https://127.0.0.1/x", keys: { p256dh: "a", auth: "b" } }, {}),
-            (error: unknown) => error instanceof WatchRefusal && error.status === 400,
-        );
+        assert.equal(result.sent, 1);
+        assert.equal(r.log().at(-1)!.kind, "test");
+        assert.equal(r.log().at(-1)!.outcome, "pushed");
     });
 });

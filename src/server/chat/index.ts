@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import { createChatServer, type BuiltinMcp, type ChatServer, type HostProvider } from "@pikvm/chat-server";
+import { createChatServer, type BuiltinMcp, type ChatServer } from "@pikvm/chat-server";
 import type { Features } from "@pikvm/contracts/api";
 import { createPikvmMcp, defaultPolicy, tools, type JsonRpcRequest, type PikvmMcp, type PikvmPolicy } from "@pikvm/mcp";
 import { DEFAULT_MAX_EDGE } from "@pikvm/kvm-engine/agent";
@@ -46,8 +46,10 @@ export interface ChatHost {
     readonly controls: AgentControls;
     /** The long edge of the screenshots the agent sees, from Settings. */
     maxEdge(): number;
-    /** The OpenRouter provider (address and key) a user stored in Settings. Undefined when none, or while chat is not up. */
-    openRouter(userId: string): HostProvider | undefined;
+    /** One small text request on the user's chat model. Undefined when there is no model to ask, or while chat is not up. */
+    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined>;
+    /** Whether a small text request has a model to ask right now. False while chat is not up. */
+    hasSmallModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`, where that user's files live. Throws while chat is not up. */
     userDir(userId: string): string;
     /** Resolves when the first start attempt has finished, whichever way. */
@@ -149,7 +151,8 @@ export function startChat(options: ChatHostOptions): ChatHost {
             handBack: () => desk.handBack(),
         },
         maxEdge: () => chat?.setting("agent.pikvm.maxEdge") ?? DEFAULT_MAX_EDGE,
-        openRouter: (userId) => chat?.openRouter(userId),
+        smallText: async (userId, system, user, options) => chat?.smallText(userId, system, user, options),
+        hasSmallModel: (userId) => chat?.hasSmallModel(userId) ?? false,
         userDir(userId) {
             if (!chat) throw new Error("Chat is not up");
             return chat.userDir(userId);

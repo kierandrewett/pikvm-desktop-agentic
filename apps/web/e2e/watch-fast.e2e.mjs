@@ -1,6 +1,6 @@
 // Fast alerts end to end, and how long they take: the real web host (node dist/web-server.js) with its own OCR worker, in front of
 // tools/fake-kvmd (whose picture the run changes), with tools/fake-push as the push service (it decrypts what it is sent and
-// records when it arrived) and tools/fake-openrouter as OpenRouter, which in a run with no rule must be called zero times.
+// records when it arrived) and tools/fake-chat-model as the chat model, which with none configured must be called zero times.
 //
 //   node apps/web/e2e/watch-fast.e2e.mjs [--runs 10] [--out docs/e2e/2026-11-05-fast-alerts.md]
 //
@@ -94,13 +94,12 @@ const jpegBytes = frames.dark.idle.length;
 
 // ---- the stack -----------------------------------------------------------------------------------------------------------
 const stack = await startWatchStack({
-    openrouter: "fake",
     env: {
-        // The production pace: the slow path every 3 s with a 6 s settle, the fast path at its defaults (1 s, 1.2 s, 4 s, 500 a day).
-        PIKVM_WATCH_INTERVAL_MS: "3000",
-        PIKVM_WATCH_SETTLE_MS: "6000",
-        PIKVM_WATCH_MIN_GAP_SEC: "60",
-        PIKVM_WATCH_DAILY_CAP: "200",
+        // The production pace is the default (1 s, 1.2 s, 4 s, 500 a day); these say so.
+        PIKVM_WATCH_INTERVAL_MS: "1000",
+        PIKVM_WATCH_SETTLE_MS: "1200",
+        PIKVM_WATCH_MIN_GAP_SEC: "4",
+        PIKVM_WATCH_DAILY_CAP: "500",
         NODE_PATH: `${sharpModules}:${ocrModules}`,
         PIKVM_OCR_MODELS: ocrModels,
         PIKVM_OCR_WORKER: join(import.meta.dirname, "../../../dist/ocr-worker.js"),
@@ -128,23 +127,13 @@ const summaryRows = [];
 let report = "";
 try {
     await stack.show(frames.dark.idle);
-    await stack.setProvider();
     const device = await stack.pushSubscribe();
     await fetch(`${stack.web}/app/api/v1/watch/subscribe`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: { endpoint: device.endpoint, keys: device.keys } }) });
     const hostPid = stack.host().child.pid;
 
-    // The watch alone: how often the PiKVM is asked, and what the host spends on it.
-    let reply = await stack.patchWatch({ enabled: true });
-    check("the watch alone (fast alerts off) looks every 3 s", reply.status === 200, `status ${reply.status}`);
-    await sleep(3500);
-    const slowBefore = await stack.snapshots();
-    const slowCpu0 = cpuSeconds(hostPid);
-    await sleep(30_000);
-    const slowSnapshots = (await stack.snapshots()) - slowBefore;
-    const slowCpu = cpuSeconds(hostPid) - slowCpu0;
-
-    reply = await stack.patchWatch({ fastAlerts: true });
-    check("fast alerts switch on with the watch on", reply.status === 200 && (await reply.json()).fastAlerts === true, `status ${reply.status}`);
+    // The watch with no chat model configured: how often the PiKVM is asked, and what the host spends on it.
+    const reply = await stack.patchWatch({ enabled: true });
+    check("the watch switches on with no chat model and no key", reply.status === 200 && (await reply.json()).chatModel === false, `status ${reply.status}`);
     await sleep(4000);
     const fastBefore = await stack.snapshots();
     const fastCpu0 = cpuSeconds(hostPid);
@@ -152,7 +141,7 @@ try {
     await sleep(30_000);
     const fastSnapshots = (await stack.snapshots()) - fastBefore;
     const fastCpu = cpuSeconds(hostPid) - fastCpu0;
-    check("fast alerts look every second; the whole screen is still compared every third look", fastSnapshots >= 27 && fastSnapshots <= 33, `${fastSnapshots} snapshots in 30 s with fast alerts on, ${slowSnapshots} with them off; host CPU ${(slowCpu / 30 * 100).toFixed(1)}% off, ${(fastCpu / 30 * 100).toFixed(1)}% on (one core = 100%, this machine)`);
+    check("it looks every second", fastSnapshots >= 27 && fastSnapshots <= 33, `${fastSnapshots} snapshots in 30 s; host CPU ${(fastCpu / 30 * 100).toFixed(1)}% (one core = 100%, this machine)`);
     check("the OCR worker is a process of its own and is warm before the first toast", workers0.length >= 1, `host pid ${hostPid}, child processes ${workers0.join(", ") || "none"}`);
 
     // ---- the toasts ------------------------------------------------------------------------------------------------------
@@ -166,12 +155,12 @@ try {
         if (kind === "teams") return { kind, name, def: { ...TOAST_DEFS.teams, lines: [name, `Can you look at ticket ${4000 + i} when you are back?`] } };
         return { kind, name, def: { ...TOAST_DEFS.call, lines: [`${name} is calling you`] } };
     };
-    let openrouterCalls = 0;
+    let chatRequests = 0;
     let i = 0;
     for (const background of ["dark", "bright"]) {
         const count = background === "dark" ? Math.ceil(runs / 2) : Math.floor(runs / 2);
         if (count === 0) continue;
-        // Changing the whole desktop is the whole-screen path's business (it may ask OpenRouter about it): let it finish before the toasts.
+        // Changing the whole desktop is the whole-screen path's business (the corner changing as a whole is not a pop-up): let it settle before the toasts.
         await stack.show(frames[background].idle);
         await sleep(background === "dark" ? 2000 : 14_000);
         const orBefore = (await stack.orCalls()).length;
@@ -201,8 +190,7 @@ try {
                 settle: l.detectedAt - l.firstSeenAt,
                 ocrAndCrop: l.readAt - l.detectedAt,
                 ocr: entry.read.ms,
-                decide: l.decidedAt - l.readAt,
-                push: l.pushedAt - l.decidedAt,
+                    push: l.pushedAt - l.readAt,
                 payload: got.payload,
                 urgency: got.urgency,
                 ttl: got.ttl,
@@ -213,7 +201,7 @@ try {
             await stack.show(frames[background].idle);
             await sleep(6000);
         }
-        openrouterCalls += (await stack.orCalls()).length - orBefore;
+        chatRequests += (await stack.orCalls()).length - orBefore;
     }
     function call(kind) {
         return kind === "call";
@@ -227,12 +215,12 @@ try {
         return !(payload.title === title && String(payload.body).includes(row.name) && row.urgency === "normal" && row.ttl === 300);
     });
     check("each notification says what the toast said: a call is 'Incoming call: <who>' with urgency high and a 60 s TTL, mail and chat carry the sender and the message with urgency normal", wrong.length === 0, wrong.length === 0 ? `${rows.length} of ${rows.length} as expected` : `wrong: ${wrong.map((row) => `${row.i} ${JSON.stringify(row.payload)} ${row.urgency}/${row.ttl}`).join("; ")}`);
-    check("no network call for the screen: with no rule nothing went to OpenRouter", openrouterCalls === 0, `${openrouterCalls} calls to the fake OpenRouter while ${rows.length} toasts were shown (the two changes of the whole desktop between them are the whole-screen path's and are not counted)`);
+    check("with no chat model configured nothing is asked of any model", chatRequests === 0, `${chatRequests} requests to the fake chat model while ${rows.length} toasts were shown`);
     const entries = log();
     const words = ["Berg", "Carter", "Shah", "Lunch", "Invoice", "ticket", "calling"];
     const loud = words.filter((word) => JSON.stringify(entries).includes(word) || stack.logs().includes(word));
     check("the screen's words are in neither the check log nor the host's output", loud.length === 0, loud.length === 0 ? `none of ${words.join(", ")} found in ${entries.length} log lines or ${stack.logs().split("\n").length} output lines` : `found: ${loud.join(", ")}`);
-    check("every toast was noticed once: no second notification from the slow path, no repeat", (await stack.pushReceived()).length === rows.length && entries.filter((entry) => entry.kind === "alert" && entry.outcome === "pushed").length === rows.length && !entries.some((entry) => entry.kind === "change" && entry.outcome === "pushed"), `${(await stack.pushReceived()).length} notifications for ${rows.length} toasts; ${entries.filter((entry) => entry.kind === "alert").length} fast checks, ${entries.filter((entry) => entry.kind === "change").length} whole-screen checks (none pushed)`);
+    check("every toast was noticed once: no repeat", (await stack.pushReceived()).length === rows.length && entries.filter((entry) => entry.kind === "alert" && entry.outcome === "pushed").length === rows.length, `${(await stack.pushReceived()).length} notifications for ${rows.length} toasts`);
 
     // ---- a toast that is gone before the confirming look -------------------------------------------------------------------
     {
@@ -250,13 +238,14 @@ try {
         await sleep(6000);
     }
 
-    // ---- with the optional summary on (the fake OpenRouter answers after a scripted delay) ----------------------------------------------------
+    // ---- with a chat model configured (the fake answers after a scripted delay) ---------------------------------------------------------
     {
         const SENTENCES = ["Zed Quinn asks if you can review ticket 5001", "Mara Lund asks you to look at ticket 5002 when you are back"];
         const DELAY = 350;
-        await stack.orScript({ summary: SENTENCES, delayMs: DELAY });
-        const enabled = await stack.patchWatch({ fastSummary: true });
-        check("the summary switches on with a key and fast alerts on", enabled.status === 200 && (await enabled.json()).fastSummary === true, `status ${enabled.status}`);
+        await stack.setChatModel();
+        await stack.orScript({ answers: SENTENCES, delayMs: DELAY });
+        const view = await stack.watch();
+        check("with a chat model set the page's view says so", view.chatModel === true, `chatModel ${view.chatModel}`);
         await stack.show(frames.bright.idle);
         await sleep(6000);
         const callsBefore = (await stack.orCalls()).length;
@@ -275,21 +264,19 @@ try {
             const got = await until(async () => {
                 const list = await stack.pushReceived();
                 return list.length > receivedBefore ? list[receivedBefore] : null;
-            }, `the notification for summary toast ${k + 1}`, 15_000, 20);
+            }, `the notification for toast ${k + 1} with a chat model`, 15_000, 20);
             const entry = await until(() => log().slice(logBefore).find((each) => each.kind === "alert" && each.outcome === "pushed"), "the log line", 5000, 50);
             summaryRows.push({ kind: item.kind, name: item.name, appearToPush: got.at - shownAt, captureToPush: entry.latency.totalMs, summaryMs: entry.summary?.ms, payload: got.payload, entry });
-            console.log(`  summary toast ${k + 1} (${item.kind}): ${ms(got.at - shownAt)} from the toast to the notification; summary ${entry.summary ? ms(entry.summary.ms) : "none"}`);
+            console.log(`  toast with a chat model ${k + 1} (${item.kind}): ${ms(got.at - shownAt)} from the toast to the notification; model ${entry.summary ? ms(entry.summary.ms) : "not asked"}`);
             await sleep(item.kind === "call" ? 4000 : 2500);
             await stack.show(frames.bright.idle);
             await sleep(6000);
         }
         const asked = (await stack.orCalls()).slice(callsBefore);
-        const summaries = asked.filter((call) => call.kind === "summarise");
         const [first, second, third] = summaryRows;
-        check("with the summary on, each pop-up's body is the model's sentence and the call's is not summarised", first.payload.body === SENTENCES[0] && second.payload.body === SENTENCES[1] && third.payload.title === "Incoming call: Kit Moreno" && !SENTENCES.includes(third.payload.body) && third.entry.summary === undefined, `bodies ${JSON.stringify(summaryRows.map((row) => row.payload.body.length))} characters; call title ${third.payload.title}`);
-        check("the summary request carries the text and no image, and is made for two pop-ups out of three", summaries.length === 2 && asked.every((call) => call.kind === "summarise" && call.image === undefined) && summaries.every((call) => !/data:image|image_url/.test(JSON.stringify(call))), `${asked.length} OpenRouter calls: ${asked.map((call) => call.kind).join(", ")}; image field on none`);
-        check("the log says the summary was used, with its time, and holds no text", summaryRows.slice(0, 2).every((row) => row.entry.summary?.used === true && row.entry.summary.ms >= DELAY - 20) && !JSON.stringify(log()).includes("Zed Quinn"), `summary ms ${summaryRows.slice(0, 2).map((row) => row.summaryMs).join(", ")} (the fake answers after ${DELAY} ms)`);
-        await stack.patchWatch({ fastSummary: false });
+        check("with a chat model, each pop-up's body is the model's sentence and a call's is not asked about", first.payload.body === SENTENCES[0] && second.payload.body === SENTENCES[1] && third.payload.title === "Incoming call: Kit Moreno" && third.entry.summary === undefined, `bodies ${JSON.stringify(summaryRows.map((row) => row.payload.body.length))} characters; call title ${third.payload.title}`);
+        check("the request carries the text and no image, and is made for two pop-ups out of three", asked.length === 2 && asked.every((request) => request.hasImage === false && request.model === "small" && request.authorization !== null), `${asked.length} requests to the fake chat model, image in ${asked.filter((request) => request.hasImage).length}; model ${asked[0]?.model}`);
+        check("the log says the model's sentence was used, with its time, and holds no text", summaryRows.slice(0, 2).every((row) => row.entry.summary?.used === true && row.entry.summary.ms >= DELAY - 20) && !JSON.stringify(log()).includes("Zed Quinn"), `model ms ${summaryRows.slice(0, 2).map((row) => row.summaryMs).join(", ")} (the fake answers after ${DELAY} ms)`);
     }
 
     // ---- the report ------------------------------------------------------------------------------------------------------------
@@ -298,9 +285,9 @@ try {
     const cpu = os.cpus();
     const gitHead = execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
     report = [
-        `# E2E run: fast alerts (${new Date().toISOString().slice(0, 10)})`,
+        `# E2E run: the pop-up watch (${new Date().toISOString().slice(0, 10)})`,
         "",
-        "A pop-up in the corner of the screen, from the moment it appears on the (fake) PiKVM to the notification arriving at the (fake) push service. The stack is the real web host with its own local OCR; the PiKVM, the push service and OpenRouter are the fakes in `tools/`.",
+        "A pop-up in the corner of the screen, from the moment it appears on the (fake) PiKVM to the notification arriving at the (fake) push service. The stack is the real web host with its own local OCR; the PiKVM, the push service and the chat model are the fakes in `tools/`.",
         "",
         "## Command and environment",
         "",
@@ -313,13 +300,13 @@ try {
         "",
         `- Machine: ${cpu[0].model} x${cpu.length}, load average at the start ${os.loadavg().map((n) => n.toFixed(2)).join(" ")}; Node ${process.version}; commit ${gitHead} plus the working tree; onnxruntime-node ${JSON.parse(readFileSync(join(ocrModules, "onnxruntime-node/package.json"), "utf8")).version}, 2 threads in the OCR worker.`,
         `- Frames: 1920 x 1080 JPEG (quality 85, ${(jpegBytes / 1024).toFixed(0)} KB for the idle desktop) drawn with sharp: a Windows-like desktop, a taskbar with a clock, and Outlook, Teams and Teams-call toasts at 100% scale in Open Sans (dark and white desktops alternating). Each toast has its own name and text.`,
-        "- Pace: the production defaults. The whole screen every 3 s with a 6 s settle and a 60 s gap; fast alerts every 1 s, held 1.2 s, a 4 s gap, 500 a day. The toast is shown at a random moment against the 1 s look cycle, stays 2.5 s (a call 4 s), then the desktop is back for 6 s.",
-        "- Rule: none. So the fast path makes no network call at all.",
+        "- Pace: the production defaults: a look every 1 s, a pop-up held 1.2 s, a 4 s gap between checks, 500 a day. The toast is shown at a random moment against the 1 s look cycle, stays 2.5 s (a call 4 s), then the desktop is back for 6 s.",
+        "- Rule: none; chat model: none for the main run (so no request is made to any model), the fake one for the last three toasts.",
         "",
         "## What was NOT measured",
         "",
         "- The push service on a real network. The fake push service is on loopback; a real FCM or Apple push adds its own delay (tens to hundreds of ms, sometimes seconds for a device that is asleep) after the host's send. Nothing here says how long a phone takes to show the notification.",
-        "- A vision model or Jev. The fast path with no rule uses neither, so there is no model latency to measure. The fallback (OCR timed out, or too few words, with PIKVM_WATCH_FAST_CLOUD_FALLBACK=1 and a key) and a user's rule do call OpenRouter; their latency is not measured.",
+        "- A real chat model. With none configured (the main run) nothing is asked of any model; with the fake one the model's time is the fake's. A real model on the real network answered in 0.1 to 3 s when tried by hand (docs/deploy-web.md, \"The notification's words\"), and the host gives up on it after 2.5 s.",
         "- A real Pi. The fake kvmd answers a snapshot from memory; a real Pi's snapshot was measured by hand at 75 to 140 ms for a 123 KB JPEG (reported by the main agent, not by this run). The time to capture and encode is inside it and is not part of these numbers beyond the fake's.",
         "- The Xeon the image runs on: this is a workstation. The OCR benchmark on that Xeon is in `2026-11-05-fast-alerts-ocr.md`.",
         "",
@@ -336,25 +323,24 @@ try {
         `| First look to notification sent | ${summary("firstSeenToPush")} |`,
         `| Crop and OCR (confirming look to text ready) | ${summary("ocrAndCrop")} |`,
         `| of which the OCR read itself | ${summary("ocr")} |`,
-        `| Decision (no rule: none) | ${summary("decide")} |`,
-        `| Push send (the host's request to the fake push service answering) | ${summary("push")} |`,
+        `| Push send (text ready to the fake push service answering; no chat model) | ${summary("push")} |`,
         "",
         "| # | kind | desktop | toast to push | first look to push | capture to push | wait for look | hold | crop + OCR | OCR | push | urgency / TTL |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ...rows.map((row) => `| ${row.i} | ${row.kind} | ${row.background} | ${row.appearToPush} ms | ${row.firstSeenToPush} ms | ${row.captureToPush} ms | ${row.wait} ms | ${row.settle} ms | ${row.ocrAndCrop} ms | ${row.ocr} ms | ${row.push} ms | ${row.urgency} / ${row.ttl} s |`),
         "",
-        "## With the optional summary on",
+        "## With a chat model configured",
         "",
-        "Two pop-ups are summarised by the fake OpenRouter (it answers after a scripted 350 ms) and a call is not. **The fake model's latency is not a real model's**: a real model on the real network answered in 0.1 to 3 s when tried by hand (see docs/deploy-web.md, \"Summaries\"), and the host gives up on it after 2.5 s. The number to read is how much the summary adds to the host's own path.",
+        "Two pop-ups are written up by the fake chat model (it answers after a scripted 350 ms) and a call is not asked about. **The fake model's latency is not a real model's**: the number to read is how much the model step adds to the host's own path.",
         "",
-        "| kind | toast to push | capture to push | summary |",
+        "| kind | toast to push | capture to push | model |",
         "| --- | --- | --- | --- |",
-        ...summaryRows.map((row) => `| ${row.kind} | ${row.appearToPush} ms | ${row.captureToPush} ms | ${row.summaryMs === undefined ? "none (calls are never summarised)" : `${row.summaryMs} ms`} |`),
+        ...summaryRows.map((row) => `| ${row.kind} | ${row.appearToPush} ms | ${row.captureToPush} ms | ${row.summaryMs === undefined ? "not asked (calls never wait)" : `${row.summaryMs} ms`} |`),
         "",
         "## Cost of looking every second",
         "",
-        `- Snapshots in 30 s: ${slowSnapshots} with the watch alone (every 3 s), ${fastSnapshots} with fast alerts on (every 1 s, plus one extra look per pending pop-up).`,
-        `- The host's CPU over those 30 s idle windows (utime + stime of the host process, one core = 100%): ${(slowCpu / 30 * 100).toFixed(1)}% with the watch alone, ${(fastCpu / 30 * 100).toFixed(1)}% with fast alerts on, on this workstation. The whole of a look on the host is the fake kvmd round trip, decoding the 1920 x 1080 JPEG and reducing it to the 128 x 72 grey grid.`,
+        `- Snapshots in 30 s: ${fastSnapshots} (every 1 s, plus one extra look per pending pop-up).`,
+        `- The host's CPU over that 30 s idle window (utime + stime of the host process, one core = 100%): ${(fastCpu / 30 * 100).toFixed(1)}%, on this workstation. The whole of a look on the host is the fake kvmd round trip, decoding the 1920 x 1080 JPEG and reducing it to the 128 x 72 grey grid.`,
         `- The grey grid alone, sharp on this machine, 40 reads of a 1920 x 1080 JPEG: median ${median(lookCost).toFixed(1)} ms, max ${Math.max(...lookCost).toFixed(1)} ms.`,
         `- Bytes: one snapshot of this frame is ${(jpegBytes / 1024).toFixed(0)} KB, so a look a second is about ${((jpegBytes / 1024) * 1).toFixed(0)} KB/s from the Pi to the host (the real Pi's frame is 123 KB).`,
         "- What the Pi spends serving a snapshot a second was not measured here (see above); the main agent measured 75 to 140 ms per snapshot on the real one, which a look a second keeps busy for at most about 14% of a core.",

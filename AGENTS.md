@@ -36,7 +36,12 @@ make package                        # build + installers for this platform -> bu
   dev run finds it by `OMP_BIN` or PATH (`packages/chat-server/src/agent/launch.ts`). There is no Python, no Bun and no
   agent sidecar. `src/pikvm-control.ts` is only the server's link to the PiKVM: the proxy target, the kvmd event
   socket and the idle jiggler's nudge.
-- The screen watch (`src/server/watch/`): `watcher.ts` the one poller, `pipeline.ts` the whole-screen path (image model, Jev), `fast-alerts.ts` the corner pop-up path
-  (zone diff in `frame-diff.ts`, local OCR in `ocr-engine.ts` / `ocr-worker.ts` / `ocr-paddle.ts`, text rules in `toast-rules.ts`), `limits.ts` every number with its measurement.
-  The OCR needs `dist/ocr-worker.js` (`yarn build` makes it), onnxruntime-node and the models pinned in `deploy/ocr.lock` (`node scripts/fetch-ocr.mjs`); `yarn test` needs
-  none of them (fake OCR; one real-engine test is skipped unless `PIKVM_OCR_NODE_MODULES` and `PIKVM_OCR_MODELS` are set). The fast path sends nothing to a model service unless the user sets a rule (OCR text to Jev), switches on `fastSummary` ("Summarise with AI": the OCR text of each alert, never the image, to `summaryModel`; never for a call) or the operator sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`; with those off there is no network call for the screen. Keep it so. Copy rule: user-facing text (Settings, notifications, docs prose) names no app and no use case; only toast-rules.ts matches app names in what the OCR read. `ORT_DISABLE_TELEMETRY=1` is forced in the OCR worker. Docs: `docs/deploy-web.md` "Screen watch".
+- The screen watch (`src/server/watch/`) is one mode: on or off, a rule, where pop-ups appear. `watcher.ts` is the one poller, `alerts.ts` the pipeline (zone diff in
+  `frame-diff.ts`, local OCR in `ocr-engine.ts` / `ocr-worker.ts` / `ocr-paddle.ts`, text rules in `toast-rules.ts`, the chat model's sentence in `summary.ts`), `limits.ts` every
+  number with its measurement. The OCR needs `dist/ocr-worker.js` (`yarn build` makes it), onnxruntime-node and the models pinned in `deploy/ocr.lock`
+  (`node scripts/fetch-ocr.mjs`); `yarn test` needs none of them (fake OCR; one real-engine test is skipped unless `PIKVM_OCR_NODE_MODULES` and `PIKVM_OCR_MODELS` are set).
+  The watch reads a pop-up on the host and sends nothing to any model service except the OCR **text** of a pop-up, never the picture, to the chat model the app already has
+  configured (`smallText` in `packages/chat-server/src/models/small-text.ts`: the Small tasks role, else the default model, through the chat's own provider path and
+  stored credential); with no chat model there is no network call. No provider is named anywhere in the watch: do not add one. `ORT_DISABLE_TELEMETRY=1` is forced in the OCR
+  worker. Copy rule: user-facing text (Settings, notifications, docs prose) names no app and no use case; only `toast-rules.ts` matches app names in what the OCR read.
+  Docs: `docs/deploy-web.md` "Screen watch".

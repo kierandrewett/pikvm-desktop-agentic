@@ -1,10 +1,10 @@
 /**
- * Settings -> Notifications: the server-side screen watch.
+ * Settings -> Notifications: the server-side watch for pop-ups.
  *
- * The server looks at the PiKVM's screen on its own, with no browser open; when it changes and settles, an image model
- * reads it, a decision model judges it against the rule typed here, and a yes becomes a Web Push to the devices that
- * subscribed. This page switches that on, holds the rule and the model, subscribes THIS device, sends a test, and shows
- * the check log so a notification that did not come can be explained.
+ * The server looks at one corner of the PiKVM's screen on its own, with no browser open; when a pop-up appears it reads it on the
+ * server and sends a Web Push to the devices that subscribed, written as a sentence by the user's chat model when there is one. This
+ * page switches that on, says where pop-ups appear, holds the rule, subscribes THIS device, sends a test, and shows the check log so a
+ * notification that did not come can be explained.
  *
  * On an iPhone it only works from the app added to the Home Screen, and the permission prompt must come from the tap
  * that switches it on (see device.ts and push-client.ts).
@@ -34,7 +34,6 @@ import {
     SettingsSection,
     Switch,
     TextArea,
-    TextField,
 } from "@pikvm/chat-web/settings";
 import { LoadError } from "./load-error";
 
@@ -44,9 +43,8 @@ const checksKey = ["watch", "checks"] as const;
 /** How the log names what happened. */
 const OUTCOME: Record<CheckEntry["outcome"], string> = {
     pushed: "Notified you",
-    no: "Not important",
-    undecided: "Not sure, nothing sent",
-    skipped: "Not checked",
+    no: "Not what you asked for",
+    skipped: "Nothing sent",
     error: "Failed",
 };
 
@@ -61,15 +59,8 @@ function formatTime(t: number): string {
 
 export function checkSummary(entry: CheckEntry): string {
     const detail = entry.reason ?? entry.description ?? "";
-    const what =
-        entry.kind === "test"
-            ? "Test notification"
-            : entry.kind === "signal-lost"
-              ? "Video signal lost"
-              : entry.kind === "alert"
-                ? "Pop-up in the corner"
-                : "Screen changed";
-    // A fast alert's log never holds the pop-up's words, so say what kind of pop-up it was and how long it took instead.
+    const what = entry.kind === "test" ? "Test notification" : "Pop-up in the corner";
+    // The log never holds the pop-up's words, so say what kind of notification it was and how long it took instead.
     const seconds = entry.latency?.totalMs !== undefined ? `${(entry.latency.totalMs / 1000).toFixed(1)} seconds to send` : "";
     const facts = entry.kind === "alert" ? [entry.notified?.urgency === "high" ? "urgent" : entry.notified ? "a pop-up" : "", seconds].filter(Boolean).join(", ") : "";
     return `${what}${detail ? `: ${detail}` : facts ? `: ${facts}` : ""}`;
@@ -131,8 +122,6 @@ export function NotificationsPage() {
     }, [wanted, publicKey, device]);
 
     const [rule, setRule] = useState<string | undefined>(undefined);
-    const [model, setModel] = useState<string | undefined>(undefined);
-    const [summaryModel, setSummaryModel] = useState<string | undefined>(undefined);
 
     if (view.isError) {
         return (
@@ -144,15 +133,12 @@ export function NotificationsPage() {
     const data = view.data;
 
     const shownRule = rule ?? data?.rule ?? "";
-    const shownModel = model ?? data?.visionModel ?? "";
-    const shownSummaryModel = summaryModel ?? data?.summaryModel ?? "";
-    const dirty = data !== undefined && (shownRule.trim() !== data.rule || shownModel.trim() !== data.visionModel || shownSummaryModel.trim() !== data.summaryModel);
+    const dirty = data !== undefined && shownRule.trim() !== data.rule;
     const cannotEnable = data !== undefined && !data.canEnable.ok ? data.canEnable.reason : "";
     const deviceBlocked = device.kind === "ready" ? "" : device.message;
     const on = data?.enabled === true;
 
-    /** Switch the watch on or off; `withFast` switches fast alerts on in the same request (with no key that is the only way the watch can run). */
-    const toggle = async (next: boolean, withFast = false) => {
+    const toggle = async (next: boolean) => {
         setProblem("");
         setNote("");
         if (!data) return;
@@ -172,7 +158,7 @@ export function NotificationsPage() {
             if (!data.push.available || !data.push.publicKey) throw new Error(data.push.reason ?? "The server cannot send notifications.");
             const sub = await subscribeThisDevice(data.push.publicKey);
             await subscribeDevice(sub.toJSON());
-            save.mutate({ enabled: true, ...(withFast ? { fastAlerts: true } : {}) });
+            save.mutate({ enabled: true });
             await refreshDevice();
         } catch (error) {
             setProblem(message(error));
@@ -183,10 +169,7 @@ export function NotificationsPage() {
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
-        save.mutate(
-            { rule: shownRule, visionModel: shownModel, ...(data && shownSummaryModel.trim() !== data.summaryModel ? { summaryModel: shownSummaryModel } : {}) },
-            { onSuccess: () => { setRule(undefined); setModel(undefined); setSummaryModel(undefined); } },
-        );
+        save.mutate({ rule: shownRule }, { onSuccess: () => setRule(undefined) });
     };
 
     const test = async () => {
@@ -227,32 +210,29 @@ export function NotificationsPage() {
 
     const limits = data?.limits;
     const zoneChoice = data ? (alertZoneId(data.alertZone) ?? CUSTOM_ZONE) : ALERT_ZONES[0].id;
-    const fastDescription = limits
-        ? `The server looks at the corner every ${limits.fast.intervalSec === 1 ? "second" : `${limits.fast.intervalSec} seconds`} and reads the pop-up itself, on the server. If you set a rule below, the pop-up's text is also checked against it by an outside service. Limits: one check every ${limits.fast.minCheckGapSec} seconds and ${limits.fast.dailyCap} a day (${limits.fast.askedToday} used in the last 24 hours).`
-        : "Loading";
     return (
         <SettingsPage
             title="Notifications"
-            description="Hear about changes on the target's screen, even while the app is closed."
+            description="Get a notification when a pop-up appears on the target's screen, even while the app is closed."
         >
             <SettingsSection
-                title="Screen watch"
+                title="Pop-ups"
                 description={
                     limits && data
-                        ? `The server checks the screen every ${limits.intervalSec} seconds, even when no app is open. When the screen changes and stays still for ${limits.settleSec} seconds, an image model describes it. A decision model then judges the description against your rule. Only a clear yes sends a notification. Limits: one check ${limits.minCheckGapSec === 60 ? "a minute" : `every ${limits.minCheckGapSec} seconds`} and ${limits.dailyCap} a day (${limits.askedToday} used in the last 24 hours). Checks use your OpenRouter key and cost a fraction of a cent each.`
+                        ? `The server looks at the corner you choose every ${limits.intervalSec === 1 ? "second" : `${limits.intervalSec} seconds`}, even when no app is open, and reads a pop-up on the server as soon as it has stayed for ${limits.settleSec} seconds. Limits: one check every ${limits.minCheckGapSec} seconds and ${limits.dailyCap} a day (${limits.askedToday} used in the last 24 hours).`
                         : "Loading"
                 }
             >
                 <SettingsCard>
                     <SettingRow
                         id="screen-watch"
-                        label="Notify me when the screen changes"
+                        label="Notify me about pop-ups"
                         description="Also while the app is closed."
                         status={busy || save.isPending ? { state: "saving" } : { state: "idle" }}
                         error={problem || (save.error ? `Could not save: ${save.error.message}` : null)}
                         control={
                             <Switch
-                                label="Notify me when the screen changes"
+                                label="Notify me about pop-ups"
                                 checked={on}
                                 disabled={!data || busy || save.isPending || (!on && (cannotEnable !== "" || deviceBlocked !== ""))}
                                 onChange={(next) => void toggle(next)}
@@ -275,58 +255,10 @@ export function NotificationsPage() {
                             description="Requesting a push subscription from this device. This can take a few seconds."
                         />
                     ) : null}
-                </SettingsCard>
-            </SettingsSection>
-
-            <SettingsSection title="Fast alerts" description={fastDescription}>
-                <SettingsCard>
-                    <SettingRow
-                        id="fast-alerts"
-                        label="Fast alerts"
-                        description="Get a notification within a few seconds of a pop-up appearing in the corner of the screen."
-                        status={save.isPending ? { state: "saving" } : { state: "idle" }}
-                        control={
-                            <Switch
-                                label="Fast alerts"
-                                checked={on && data?.fastAlerts === true}
-                                disabled={!data || save.isPending || busy || (!on && (data.canJudge || deviceBlocked !== ""))}
-                                onChange={(next) => {
-                                    // With no key the watch can only run for fast alerts: switching them on switches the watch on with them.
-                                    if (!on && next) void toggle(true, true);
-                                    else save.mutate({ fastAlerts: next });
-                                }}
-                            />
-                        }
-                    />
-                    {data && !on && data.canJudge ? (
-                        <SettingRow label="Needs the screen watch" description="Switch on “Notify me when the screen changes” above first. Fast alerts run inside it." />
-                    ) : null}
-                    {data && !data.canJudge ? (
-                        <SettingRow label="No OpenRouter key" description="Fast alerts work without a key. The whole-screen watch needs an OpenRouter key." />
-                    ) : null}
-                    <SettingRow
-                        id="fast-summary"
-                        label="Summarise with AI"
-                        description="Write the notification as a short sentence. The text read from the pop-up (not the picture) is sent to an AI model through your OpenRouter key."
-                        status={save.isPending ? { state: "saving" } : { state: "idle" }}
-                        control={
-                            <Switch
-                                label="Summarise with AI"
-                                checked={on && data?.fastAlerts === true && data?.fastSummary === true}
-                                disabled={!data || save.isPending || !data.canJudge || !on || data.fastAlerts !== true}
-                                onChange={(next) => save.mutate({ fastSummary: next })}
-                            />
-                        }
-                    />
-                    {data && !data.canJudge ? (
-                        <SettingRow label="Summaries need an OpenRouter key" description="Add a key in Settings, Providers to turn on Summarise with AI." />
-                    ) : data && (!on || data.fastAlerts !== true) ? (
-                        <SettingRow label="Summaries need fast alerts" description="Switch on Fast alerts above first: the summary is for their notifications." />
-                    ) : null}
                     <SettingRow
                         id="alert-zone"
                         label="Where pop-ups appear"
-                        description="The corner of the screen to watch. Windows shows them at the bottom right."
+                        description="The corner of the screen to watch."
                         control={
                             <Select
                                 label="Where pop-ups appear"
@@ -340,13 +272,27 @@ export function NotificationsPage() {
                             />
                         }
                     />
+                    {data ? (
+                        <SettingRow
+                            label="How notifications are written"
+                            description={
+                                data.chatModel
+                                    ? "The text read from the pop-up (not the picture) is sent to your chat model to write the notification."
+                                    : "No chat model is configured, so notifications show the text as read."
+                            }
+                        />
+                    ) : null}
                 </SettingsCard>
             </SettingsSection>
 
             <form onSubmit={submit} className="contents">
                 <SettingsSection
                     title="What to tell me about"
-                    description="Describe what matters in your own words. For example: tell me when the install finishes or an error shows. Leave it empty to hear about anything important, such as a dialog, an error, a finished or failed task, or a restart."
+                    description={
+                        data?.chatModel === false
+                            ? "Describe what matters in your own words. Leave it empty to hear about every pop-up. Without a chat model a rule cannot be applied, so every pop-up is sent."
+                            : "Describe what matters in your own words. Leave it empty to hear about every pop-up."
+                    }
                 >
                     <SettingsCard>
                         <SettingRow id="watch-rule" label="Rule" stack control={
@@ -359,36 +305,6 @@ export function NotificationsPage() {
                                 onChange={setRule}
                             />
                         } />
-                        <SettingRow
-                            id="summary-model"
-                            label="Summary model"
-                            description={`Writes the summary sentence from the pop-up's text. Any OpenRouter text model works. Leave it empty to use ${data?.defaultSummaryModel ?? "the default"}.`}
-                            stack
-                            control={
-                                <TextField
-                                    label="Summary model"
-                                    value={shownSummaryModel}
-                                    placeholder={data?.defaultSummaryModel ?? ""}
-                                    disabled={!data}
-                                    onChange={setSummaryModel}
-                                />
-                            }
-                        />
-                        <SettingRow
-                            id="watch-model"
-                            label="Image model"
-                            description={`Describes each settled screen in a sentence or two. Any OpenRouter model that accepts images works. Leave it empty to use ${data?.defaultVisionModel ?? "the default"}.`}
-                            stack
-                            control={
-                                <TextField
-                                    label="Image model"
-                                    value={shownModel}
-                                    placeholder={data?.defaultVisionModel ?? ""}
-                                    disabled={!data}
-                                    onChange={setModel}
-                                />
-                            }
-                        />
                     </SettingsCard>
                     <div className="flex justify-end">
                         <Button type="submit" variant="primary" disabled={!dirty || save.isPending}>
@@ -436,7 +352,7 @@ export function NotificationsPage() {
 
             <SettingsSection
                 title="Recent checks"
-                description="Newest first. The server log also keeps each description and decision."
+                description="Newest first. The log says what happened and how long it took, not what the pop-up said."
             >
                 <SettingsCard>
                     {checks.data && checks.data.checks.length > 0 ? (
@@ -448,7 +364,7 @@ export function NotificationsPage() {
                             />
                         ))
                     ) : (
-                        <SettingRow label="Nothing yet" description="A check is made when the screen changes and settles." />
+                        <SettingRow label="Nothing yet" description="A check is made when a pop-up appears and stays." />
                     )}
                 </SettingsCard>
             </SettingsSection>

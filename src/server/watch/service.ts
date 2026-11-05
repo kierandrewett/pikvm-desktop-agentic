@@ -1,22 +1,20 @@
 import { dirname } from "node:path";
-import type { HostProvider } from "@pikvm/chat-server";
 import type { CheckEntry, WatchSettings, WatchView } from "@pikvm/contracts/watch";
 import type { ImageOps } from "../../image-ops";
 import { jpegSize, kvmdRequest, type DeskTarget } from "../agent/desk";
+import { createAlerts, type Alerts } from "./alerts";
 import type { ZoneCells } from "./frame-diff";
-import { GRID_HEIGHT, GRID_WIDTH, MODEL_FRAME_EDGE, DEFAULT_SUMMARY_MODEL, DEFAULT_VISION_MODEL, type WatchLimits } from "./limits";
-import { createModelClient, type ModelClient } from "./models";
+import { GRID_HEIGHT, GRID_WIDTH, type WatchLimits } from "./limits";
 import { createOcrEngine } from "./ocr-engine";
 import type { Ocr } from "./ocr";
-import { createPipeline, type Pipeline } from "./pipeline";
 import { createPush, PushError, type Push, type SendResult } from "./push";
 import { createWatchStore, SettingsError, type WatchStore } from "./store";
 import { createWatcher, type Snapshot, type Watcher } from "./watcher";
 
 /**
- * The screen watch as the host uses it: one poller on the PiKVM shared by every user who switched theirs on, a pipeline
- * per user, the user's settings and log, and the push subscriptions. It starts when the chat server is up (the key lives
- * in its settings) and resumes whoever had it on.
+ * The screen watch as the host uses it: one poller on the PiKVM shared by every user who switched theirs on, a pipeline per user
+ * (alerts.ts), the user's settings and log, and the push subscriptions. It starts when the chat server is up (the chat model the
+ * notification is written with lives in its settings) and resumes whoever had it on.
  */
 
 export class WatchRefusal extends Error {
@@ -32,7 +30,10 @@ export class WatchRefusal extends Error {
 
 /** The chat host's part the watch needs. */
 export interface WatchChat {
-    openRouter(userId: string): HostProvider | undefined;
+    /** One small text request on the user's chat model. Undefined when there is no model to ask. Rejects on failure or after `timeoutMs`. */
+    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined>;
+    /** Whether `smallText` has a model to ask right now. */
+    hasSmallModel(userId: string): boolean;
     userDir(userId: string): string;
 }
 
@@ -47,12 +48,9 @@ export interface WatchServiceDeps {
     subject?: string | undefined;
     /** Put pop-up text in the check log (`PIKVM_WATCH_LOG_TEXT=1`); off by default, the log then says how much was read and not what. */
     logText?: boolean;
-    /** `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`: fast alerts may send a crop to the vision model when the OCR fails. Off by default. */
-    cloudFallback?: boolean;
     // Test seams.
-    /** The OCR fast alerts read pop-ups with. Default: the one in this host's image (ocr-engine.ts). */
+    /** The OCR pop-ups are read with. Default: the one in this host's image (ocr-engine.ts). */
     ocr?: Ocr;
-    models?: ModelClient;
     push?: Push;
     store?: WatchStore;
     snapshot?: (signal: AbortSignal) => Promise<Snapshot>;
@@ -77,8 +75,6 @@ export interface WatchService {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const NEED_KEY =
-    "Add an OpenRouter key in Settings, Providers first. The watch asks an image model what the screen shows, and a decision model whether that matters, and both go through that key.";
 
 export function createWatchService(deps: WatchServiceDeps): WatchService {
     const now = deps.now ?? Date.now;
@@ -94,9 +90,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             subject: deps.subject,
             allowLocalEndpoints: deps.allowLocalPush === true,
         });
-    const models = deps.models ?? createModelClient();
     const ocr = deps.ocr ?? createOcrEngine({ log });
-    const pipelines = new Map<string, Pipeline>();
+    const pipelines = new Map<string, Alerts>();
     const { images } = deps;
 
     const snapshot =
@@ -117,25 +112,14 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         snapshot,
         grid: async (jpeg) => (images.gray ? await images.gray(jpeg, GRID_WIDTH, GRID_HEIGHT).catch(() => null) : null),
         intervalMs: deps.limits.intervalMs,
-        fastIntervalMs: deps.limits.fast.intervalMs,
         now,
         ...(deps.schedule ? { schedule: deps.schedule } : {}),
         log,
     });
 
-    /** Scale a frame for the model so its long edge is at most MODEL_FRAME_EDGE. */
-    async function prepare(jpeg: Buffer): Promise<Buffer> {
-        const size = jpegSize(jpeg);
-        if (!size || Math.max(size.width, size.height) <= MODEL_FRAME_EDGE) return jpeg;
-        const scale = MODEL_FRAME_EDGE / Math.max(size.width, size.height);
-        const resized = await images.resize(jpeg, Math.round(size.width * scale), Math.round(size.height * scale), 80);
-        return resized ?? jpeg;
-    }
-
     /**
-     * The crop of a frame to a rectangle of grid cells, for the OCR (fast alerts): cut from the snapshot as the Pi encoded it, at its
-     * own size (a toast's text is small, so it is not scaled down), and scaled only if its long edge passes MODEL_FRAME_EDGE (a
-     * crop that large is the vision model's fallback). Throws when it cannot be cut.
+     * The crop of a frame to a rectangle of grid cells, for the OCR: cut from the snapshot as the Pi encoded it, at its own size (a toast's
+     * text is small, so it is not scaled down). Throws when it cannot be cut.
      */
     async function cropCells(jpeg: Buffer, cells: ZoneCells): Promise<Buffer> {
         const size = jpegSize(jpeg);
@@ -146,73 +130,53 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         const height = Math.max(1, Math.min(size.height, Math.ceil((cells.y1 * size.height) / GRID_HEIGHT)) - y);
         const cropped = await images.crop(jpeg, { x, y, width, height }, 90);
         if (!cropped) throw new Error("The corner could not be cut out of the snapshot.");
-        const edge = Math.max(width, height);
-        if (edge <= MODEL_FRAME_EDGE) return cropped;
-        const scale = MODEL_FRAME_EDGE / edge;
-        return (await images.resize(cropped, Math.round(width * scale), Math.round(height * scale), 85)) ?? cropped;
+        return cropped;
     }
 
-    function hasKey(userId: string): boolean {
+    /** Whether the watch can run now: this host must be able to compare screenshots and read text from them. */
+    function canEnable(): WatchView["canEnable"] {
+        if (!images.gray) return { ok: false, reason: "This host cannot read screenshots for comparing, so it cannot watch the screen." };
+        const why = ocr.unavailable?.();
+        if (why !== undefined) return { ok: false, reason: `This host cannot read pop-ups: ${why}` };
+        return { ok: true };
+    }
+
+    function hasModel(userId: string): boolean {
         try {
-            return deps.chat.openRouter(userId) !== undefined;
+            return deps.chat.hasSmallModel(userId);
         } catch {
             return false;
         }
     }
 
-    /**
-     * Whether the watch can run now. The whole-screen path needs the OpenRouter key (an image model and Jev); fast alerts do not, so
-     * with no key the watch can run only with fast alerts on (the whole-screen path then stays idle) and only where this host's OCR works.
-     */
-    function canEnable(userId: string, fast: boolean): WatchView["canEnable"] {
-        if (!images.gray) return { ok: false, reason: "This host cannot read screenshots for comparing, so it cannot watch the screen." };
-        try {
-            if (!deps.chat.openRouter(userId)) {
-                if (!fast) return { ok: false, reason: NEED_KEY };
-                const why = ocr.unavailable?.();
-                if (why !== undefined) return { ok: false, reason: `${NEED_KEY} (Fast alerts could run without one, but this host's OCR is not available: ${why})` };
-            }
-        } catch {
-            return { ok: false, reason: "Chat is not running, so the stored key cannot be read." };
-        }
-        return { ok: true };
-    }
-
     /** Make the poller match the user's setting: attached when on and able, detached otherwise. */
     function reconcile(userId: string): void {
-        const settings = store.read(userId);
-        const wanted = settings.enabled && canEnable(userId, settings.fastAlerts).ok;
+        const wanted = store.read(userId).enabled && canEnable().ok;
         if (!wanted) {
             pipelines.delete(userId);
             watcher.detach(userId);
             return;
         }
         if (pipelines.has(userId)) return;
-        const pipeline = createPipeline({
+        const alerts = createAlerts({
             userId,
             store,
             push,
-            models,
-            provider: () => {
-                try {
-                    return deps.chat.openRouter(userId);
-                } catch {
-                    return undefined;
-                }
-            },
             settings: () => store.read(userId),
             limits: deps.limits,
             now,
-            prepare,
             ocr,
+            model: {
+                available: () => hasModel(userId),
+                ask: (system, user, timeoutMs) => deps.chat.smallText(userId, system, user, { maxTokens: 80, timeoutMs }),
+            },
             crop: cropCells,
             ...(deps.logText ? { logText: true } : {}),
-            ...(deps.cloudFallback ? { cloudFallback: true } : {}),
             log,
         });
-        pipelines.set(userId, pipeline);
-        watcher.attach(userId, pipeline);
-        if (store.read(userId).fastAlerts) ocr.warm?.();
+        pipelines.set(userId, alerts);
+        watcher.attach(userId, alerts);
+        ocr.warm?.();
     }
 
     function pushState(userId: string): WatchView["push"] {
@@ -235,10 +199,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             const settings = store.read(userId);
             return {
                 ...settings,
-                defaultVisionModel: DEFAULT_VISION_MODEL,
-                defaultSummaryModel: DEFAULT_SUMMARY_MODEL,
-                canEnable: canEnable(userId, settings.fastAlerts),
-                canJudge: hasKey(userId),
+                canEnable: canEnable(),
+                chatModel: hasModel(userId),
                 running: pipelines.has(userId) && watcher.running,
                 signal: watcher.signal,
                 push: pushState(userId),
@@ -248,28 +210,14 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                     minCheckGapSec: deps.limits.minCheckGapMs / 1000,
                     dailyCap: deps.limits.dailyCap,
                     askedToday: store.askedSince(userId, now() - DAY_MS),
-                    fast: {
-                        intervalSec: deps.limits.fast.intervalMs / 1000,
-                        settleSec: deps.limits.fast.settleMs / 1000,
-                        minCheckGapSec: deps.limits.fast.minCheckGapMs / 1000,
-                        dailyCap: deps.limits.fast.dailyCap,
-                        askedToday: store.askedSince(userId, now() - DAY_MS, "alert"),
-                    },
                 },
             };
         },
 
         update(userId, patch) {
             if (patch.enabled === true) {
-                const can = canEnable(userId, patch.fastAlerts ?? store.read(userId).fastAlerts);
+                const can = canEnable();
                 if (!can.ok) throw new WatchRefusal(can.reason, 409);
-            }
-            if (patch.fastAlerts === true && !(patch.enabled ?? store.read(userId).enabled)) {
-                throw new WatchRefusal("Switch the screen watch on first: fast alerts run inside it.", 409);
-            }
-            if (patch.fastSummary === true) {
-                if (!hasKey(userId)) throw new WatchRefusal("Summaries need an OpenRouter key: add one in Settings, Providers first.", 409);
-                if (!(patch.fastAlerts ?? store.read(userId).fastAlerts)) throw new WatchRefusal("Switch fast alerts on first: the summary is for their notifications.", 409);
             }
             try {
                 store.write(userId, patch);
@@ -277,10 +225,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 if (error instanceof SettingsError) throw new WatchRefusal(error.message, 400);
                 throw error;
             }
-            // With no key only fast alerts keep the watch running: turning them off turns the watch off.
-            if (!hasKey(userId) && store.read(userId).enabled && !store.read(userId).fastAlerts) store.write(userId, { enabled: false });
             reconcile(userId);
-            if (pipelines.has(userId) && store.read(userId).fastAlerts) ocr.warm?.();
             return this.view(userId);
         },
 
@@ -300,7 +245,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             try {
                 const result = await push.send(userId, {
                     title: "PiKVM",
-                    body: "Test notification. This is how a change on the screen will show up.",
+                    body: "Test notification. This is how a pop-up on the screen will show up.",
                     tag: "pikvm-test",
                     url: "/app/",
                 });

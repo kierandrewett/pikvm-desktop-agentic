@@ -2,7 +2,7 @@
  * Settings -> Notifications: the screen watch's switch, rule, test button and log, as a person meets them.
  *
  * Failure modes, before behaviour:
- *  G1. The switch is offered with no OpenRouter key and the person finds out later, with nothing sent.
+ *  G1. The switch is offered where the host cannot read pop-ups and the person finds out later, with nothing sent.
  *  G2. On an iPhone in a Safari tab the page says nothing about the Home Screen, or offers a switch that cannot work.
  *  G3. The permission prompt is asked after an await (Safari refuses it), or asked when it is already decided.
  *  G4. A refused permission still switches the watch on server-side, so it runs and costs for nobody.
@@ -43,26 +43,13 @@ function watchServer(over: Partial<WatchView> = {}): WatchServer {
         view: {
             enabled: false,
             rule: "",
-            visionModel: "google/gemma-3-12b-it",
-            defaultVisionModel: "google/gemma-3-12b-it",
             canEnable: { ok: true },
-            canJudge: true,
+            chatModel: false,
             running: false,
             signal: "unknown",
             push: { available: true, publicKey: KEY, subscriptions: 0 },
-            fastAlerts: false,
-            fastSummary: false,
-            summaryModel: "google/gemma-3-4b-it",
-            defaultSummaryModel: "google/gemma-3-4b-it",
             alertZone: ALERT_ZONES[0].zone,
-            limits: {
-                intervalSec: 3,
-                settleSec: 6,
-                minCheckGapSec: 60,
-                dailyCap: 200,
-                askedToday: 4,
-                fast: { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 7 },
-            },
+            limits: { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 7 },
             ...over,
         },
         checks: [],
@@ -169,16 +156,16 @@ afterEach(() => {
     Reflect.deleteProperty(navigator, "serviceWorker");
 });
 
-const NOTIFY = "Notify me when the screen changes";
+const NOTIFY = "Notify me about pop-ups";
 
 describe("when it cannot be switched on", () => {
-    it("G1: without an OpenRouter key the switch is off and the page says what to add", async () => {
-        const server = watchServer({ canEnable: { ok: false, reason: "Add an OpenRouter key in Settings, Providers first." } });
+    it("G1: where the host cannot read pop-ups the switch is off and the page says why", async () => {
+        const server = watchServer({ canEnable: { ok: false, reason: "This host cannot read pop-ups: The OCR models are not installed." } });
         install(server);
         device();
         renderApp("/settings/notifications");
         const toggle = await screen.findByRole("switch", { name: NOTIFY });
-        expect(await screen.findByText(/Add an OpenRouter key in Settings, Providers first/)).toBeInTheDocument();
+        expect(await screen.findByText(/This host cannot read pop-ups: The OCR models are not installed/)).toBeInTheDocument();
         expect(toggle).toBeDisabled();
         expect(server.requests.some((r) => r.method === "PATCH")).toBe(false);
     });
@@ -248,16 +235,16 @@ describe("switching on", () => {
         expect(toggle).toHaveAttribute("aria-checked", "false");
     });
 
-    it("a refusal from the server (the key was removed meanwhile) is shown and the switch stays off", async () => {
+    it("a refusal from the server is shown and the switch stays off", async () => {
         const server = watchServer();
-        server.patchError = { status: 409, error: "Add an OpenRouter key in Settings, Providers first." };
+        server.patchError = { status: 409, error: "This host cannot read pop-ups: no OCR." };
         install(server);
         device({ permission: "granted" });
         renderApp("/settings/notifications");
         const toggle = await screen.findByRole("switch", { name: NOTIFY });
         await waitFor(() => expect(toggle).toBeEnabled());
         await userEvent.click(toggle);
-        expect(await screen.findByText(/Could not save: Add an OpenRouter key/)).toBeInTheDocument();
+        expect(await screen.findByText(/Could not save: This host cannot read pop-ups/)).toBeInTheDocument();
         expect(toggle).toHaveAttribute("aria-checked", "false");
     });
 
@@ -283,8 +270,8 @@ describe("switching on", () => {
     });
 });
 
-describe("the rule and the model", () => {
-    it("G6: Save is off until something changes, then sends exactly the two fields and goes quiet", async () => {
+describe("the rule", () => {
+    it("G6: Save is off until something changes, then sends exactly the rule and goes quiet", async () => {
         const server = watchServer({ rule: "old rule" });
         install(server);
         device({ permission: "granted" });
@@ -298,17 +285,10 @@ describe("the rule and the model", () => {
         expect(save).toBeEnabled();
         await userEvent.click(save);
         await waitFor(() => expect(save).toBeDisabled());
-        expect(server.requests.find((r) => r.method === "PATCH")!.body).toEqual({ rule: "tell me when the install finishes", visionModel: "google/gemma-3-12b-it" });
+        expect(server.requests.find((r) => r.method === "PATCH")!.body).toEqual({ rule: "tell me when the install finishes" });
         expect(rule).toHaveValue("tell me when the install finishes");
     });
 
-    it("shows the model in use, and says what an empty one means", async () => {
-        install(watchServer());
-        device();
-        renderApp("/settings/notifications");
-        await waitFor(() => expect(screen.getByLabelText("Image model", { selector: "input" })).toHaveValue("google/gemma-3-12b-it"));
-        expect(screen.getByText(/Leave it empty to use google\/gemma-3-12b-it/)).toBeInTheDocument();
-    });
 });
 
 describe("the test notification", () => {
@@ -372,23 +352,23 @@ describe("this device", () => {
 });
 
 describe("the log", () => {
-    it("G8: each check says what happened and why, newest first", async () => {
+    it("G8: each check says what happened and why, newest first, and never shows the pop-up's words", async () => {
         const server = watchServer();
         const at = (t: number) => ({ t, at: new Date(t).toISOString() });
         server.checks = [
-            { ...at(3000), kind: "change", score: 0.2, outcome: "pushed", asked: true, description: "A dialog says Install complete." },
-            { ...at(2000), kind: "change", score: 0.1, outcome: "skipped", asked: false, reason: "daily cap of 200 checks reached" },
-            { ...at(1000), kind: "signal-lost", score: null, outcome: "error", asked: true, reason: "OpenRouter answered 500." },
+            { ...at(3000), kind: "alert", score: 0.2, outcome: "pushed", asked: true, latency: { firstSeenAt: 1, capturedAt: 2, detectedAt: 3, pushedAt: 2200, totalMs: 2200 }, notified: { kind: "call", tag: "t", urgency: "high", ttlSec: 60, titleChars: 25, bodyChars: 30 } },
+            { ...at(2000), kind: "alert", score: 0.1, outcome: "skipped", asked: false, reason: "daily cap of 500 checks reached" },
+            { ...at(1000), kind: "alert", score: 0.1, outcome: "error", asked: true, reason: "ocr timed out, so nothing was sent" },
         ];
         install(server);
         device();
         renderApp("/settings/notifications");
         const log = (await screen.findByText("Recent checks")).closest("section")!;
-        await waitFor(() => expect(within(log).getByText("Screen changed: A dialog says Install complete.")).toBeInTheDocument());
-        expect(within(log).getByText("Screen changed: daily cap of 200 checks reached")).toBeInTheDocument();
-        expect(within(log).getByText("Video signal lost: OpenRouter answered 500.")).toBeInTheDocument();
-        const labels = within(log).getAllByText(/Notified you|Not checked|Failed/).map((node) => node.textContent?.split(",")[0]);
-        expect(labels).toEqual(["Notified you", "Not checked", "Failed"]);
+        await waitFor(() => expect(within(log).getByText("Pop-up in the corner: urgent, 2.2 seconds to send")).toBeInTheDocument());
+        expect(within(log).getByText("Pop-up in the corner: daily cap of 500 checks reached")).toBeInTheDocument();
+        expect(within(log).getByText("Pop-up in the corner: ocr timed out, so nothing was sent")).toBeInTheDocument();
+        const labels = within(log).getAllByText(/Notified you|Nothing sent|Failed/).map((node) => node.textContent?.split(",")[0]);
+        expect(labels).toEqual(["Notified you", "Nothing sent", "Failed"]);
     });
 
     it("says there is nothing yet when there is nothing", async () => {
@@ -402,59 +382,13 @@ describe("the log", () => {
         install(watchServer());
         device();
         renderApp("/settings/notifications");
-        expect(await screen.findByText(/every 3 seconds.*6 seconds.*one check a minute and 200 a day \(4 used/)).toBeInTheDocument();
+        expect(await screen.findByText(/every second.*1.2 seconds.*one check every 4 seconds and 500 a day \(7 used/)).toBeInTheDocument();
     });
 });
 
-const FAST = "Fast alerts";
-
-describe("fast alerts", () => {
-    it("G9: off by default; with the watch off the switch is off and the page says to switch the watch on first", async () => {
-        const server = watchServer();
-        install(server);
-        device({ permission: "granted" });
-        renderApp("/settings/notifications");
-        const toggle = await screen.findByRole("switch", { name: FAST });
-        expect(toggle).toHaveAttribute("aria-checked", "false");
-        expect(toggle).toBeDisabled();
-        expect(await screen.findByText("Needs the screen watch")).toBeInTheDocument();
-        expect(screen.getByText(/Switch on “Notify me when the screen changes” above first/)).toBeInTheDocument();
-        expect(server.requests.some((r) => r.method === "PATCH")).toBe(false);
-    });
-
-    it("G9: a stored fast alerts choice does not show as on while the watch is off (it does nothing then)", async () => {
-        install(watchServer({ enabled: false, fastAlerts: true }));
-        device({ permission: "granted" });
-        renderApp("/settings/notifications");
-        expect(await screen.findByRole("switch", { name: FAST })).toHaveAttribute("aria-checked", "false");
-    });
-
-    it("says what it does, in plain words", async () => {
-        install(watchServer({ enabled: true }));
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        await screen.findByRole("switch", { name: FAST });
-        expect(screen.getByText("Get a notification within a few seconds of a pop-up appearing in the corner of the screen.")).toBeInTheDocument();
-        expect(screen.getByText("Where pop-ups appear")).toBeInTheDocument();
-    });
-
-    it("with the watch on it can be switched on and off, sending only that", async () => {
-        const server = watchServer({ enabled: true, running: true, signal: "signal", push: { available: true, publicKey: KEY, subscriptions: 1 } });
-        install(server);
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        const toggle = await screen.findByRole("switch", { name: FAST });
-        await waitFor(() => expect(toggle).toBeEnabled());
-        expect(screen.queryByText("Needs the screen watch")).not.toBeInTheDocument();
-        await userEvent.click(toggle);
-        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-        await userEvent.click(toggle);
-        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
-        expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ fastAlerts: true }, { fastAlerts: false }]);
-    });
-
+describe("where pop-ups appear", () => {
     /** The Select's trigger names the row and the value ("Where pop-ups appear: Bottom right"); its menu lists the options. */
-    const trigger = () => screen.findByRole("button", { name: /^Where pop-ups appear/ });
+    const choices = () => [...document.querySelectorAll("[role^=menuitem]")].map((item) => item.textContent);
     /** The trigger is rebuilt when the page's data arrives (it is a plain button until the menu can open), so wait for the live one. */
     const readyTrigger = () =>
         waitFor(() => {
@@ -462,7 +396,6 @@ describe("fast alerts", () => {
             expect(found).toBeEnabled();
             return found;
         });
-    const choices = () => [...document.querySelectorAll("[role^=menuitem]")].map((item) => item.textContent);
 
     it("G10: the corner shows as stored, the four presets are offered, and picking one sends that rectangle and nothing else", async () => {
         const server = watchServer({ enabled: true });
@@ -484,163 +417,46 @@ describe("fast alerts", () => {
         install(watchServer({ enabled: true, alertZone: { x0: 0.1, y0: 0.1, x1: 0.5, y1: 0.5 } }));
         device({ permission: "granted", subscribed: true });
         renderApp("/settings/notifications");
-        const button = await readyTrigger();
-        expect(button).toHaveTextContent("Custom area");
-    });
-
-    it("G11: the section states its limits and does not talk about models", async () => {
-        install(watchServer({ enabled: true }));
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        await screen.findByText(/one check every 4 seconds and 500 a day \(7 used in the last 24 hours\)/);
-        const limitsText = screen.getByText(/one check every 4 seconds and 500 a day/);
-        expect(limitsText).toHaveTextContent(/reads the pop-up itself, on the server/);
-        expect(limitsText.textContent).not.toMatch(/model|OpenRouter|Jev|OCR/i);
-    });
-
-    it("the log names a fast alert for what it is, with no screen text", async () => {
-        const server = watchServer({ enabled: true });
-        server.checks = [
-            {
-                t: Date.now(),
-                at: new Date().toISOString(),
-                kind: "alert",
-                score: 0.12,
-                outcome: "pushed",
-                asked: true,
-                latency: { firstSeenAt: 1, capturedAt: 2, detectedAt: 3, pushedAt: 2200, totalMs: 2200 },
-                notified: { kind: "call", tag: "pikvm-call-ab", urgency: "high", ttlSec: 60, titleChars: 25, bodyChars: 30 },
-            },
-        ];
-        install(server);
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        expect(await screen.findByText("Pop-up in the corner: urgent, 2.2 seconds to send")).toBeInTheDocument();
+        expect(await readyTrigger()).toHaveTextContent("Custom area");
     });
 });
 
-describe("summarise with AI", () => {
-    const SUMMARISE = "Summarise with AI";
-    const ON = { enabled: true, running: true, signal: "signal" as const, fastAlerts: true, push: { available: true, publicKey: KEY, subscriptions: 1 } };
+describe("how notifications are written", () => {
+    const HONEST = "The text read from the pop-up (not the picture) is sent to your chat model to write the notification.";
+    const NONE = "No chat model is configured, so notifications show the text as read.";
 
-    it("S1: off by default, says in plain words what leaves (the text, not the picture), and sends nothing until switched on", async () => {
-        const server = watchServer(ON);
-        install(server);
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        const toggle = await screen.findByRole("switch", { name: SUMMARISE });
-        expect(toggle).toHaveAttribute("aria-checked", "false");
-        expect(screen.getByText("Write the notification as a short sentence. The text read from the pop-up (not the picture) is sent to an AI model through your OpenRouter key.")).toBeInTheDocument();
-        expect(server.requests.some((r) => r.method === "PATCH")).toBe(false);
-    });
-
-    it("S2: switching it on and off sends only that", async () => {
-        const server = watchServer(ON);
-        install(server);
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        const toggle = await screen.findByRole("switch", { name: SUMMARISE });
-        await waitFor(() => expect(toggle).toBeEnabled());
-        await userEvent.click(toggle);
-        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-        await userEvent.click(toggle);
-        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
-        expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ fastSummary: true }, { fastSummary: false }]);
-    });
-
-    it("S3: with no key it is disabled and the page says why", async () => {
-        install(watchServer({ ...ON, canJudge: false }));
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        expect(await screen.findByRole("switch", { name: SUMMARISE })).toBeDisabled();
-        expect(await screen.findByText("Summaries need an OpenRouter key")).toBeInTheDocument();
-    });
-
-    it("S4: with fast alerts off it is disabled and says to switch them on first", async () => {
-        install(watchServer({ ...ON, fastAlerts: false }));
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        expect(await screen.findByRole("switch", { name: SUMMARISE })).toBeDisabled();
-        expect(await screen.findByText("Summaries need fast alerts")).toBeInTheDocument();
-    });
-
-    it("S5: the summary model is a setting like the image model: saved on its own, and only when it changed", async () => {
-        const server = watchServer(ON);
-        install(server);
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        const field = await screen.findByRole("textbox", { name: "Summary model" });
-        await waitFor(() => expect(field).toBeEnabled());
-        await userEvent.clear(field);
-        await userEvent.type(field, "meta-llama/llama-3.1-8b-instruct");
-        await userEvent.click(screen.getByRole("button", { name: "Save" }));
-        await waitFor(() => expect(server.requests.find((r) => r.method === "PATCH")).toBeDefined());
-        expect(server.requests.find((r) => r.method === "PATCH")!.body).toEqual({ rule: "", visionModel: "google/gemma-3-12b-it", summaryModel: "meta-llama/llama-3.1-8b-instruct" });
-    });
-
-    it("S6: the Fast alerts section's words name no app and no use", async () => {
-        install(watchServer(ON));
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        const heading = await screen.findByRole("heading", { name: "Fast alerts" });
-        expect(heading.closest("section")!.textContent).not.toMatch(/e-?mail|teams|outlook|meeting|calls?\b|messages?\b|work/i);
-    });
-});
-
-describe("with no OpenRouter key: fast alerts only", () => {
-    const NO_KEY = { canJudge: false, canEnable: { ok: false as const, reason: "Add an OpenRouter key in Settings, Providers first." } };
-
-    it("says in plain words what works without a key, and the watch switch itself stays off", async () => {
-        install(watchServer(NO_KEY));
+    it("S1: with a chat model configured it says what leaves: the text, not the picture", async () => {
+        install(watchServer({ chatModel: true }));
         device({ permission: "granted" });
         renderApp("/settings/notifications");
-        expect(await screen.findByText("Fast alerts work without a key. The whole-screen watch needs an OpenRouter key.")).toBeInTheDocument();
-        expect(screen.getByRole("switch", { name: NOTIFY })).toBeDisabled();
+        expect(await screen.findByText(HONEST)).toBeInTheDocument();
+        expect(screen.queryByText(NONE)).not.toBeInTheDocument();
     });
 
-    it("switching fast alerts on sets up this device and switches the watch on in the same request", async () => {
-        const server = watchServer(NO_KEY);
-        install(server);
-        const spies = device({ permission: "default", answer: "granted", ios: true, standalone: true });
-        renderApp("/settings/notifications");
-        const toggle = await screen.findByRole("switch", { name: FAST });
-        await waitFor(() => expect(toggle).toBeEnabled());
-        await userEvent.click(toggle);
-        await waitFor(() => expect(server.requests.some((r) => r.method === "PATCH")).toBe(true));
-        expect(spies.requestPermission).toHaveBeenCalledTimes(1);
-        expect(server.requests.find((r) => r.method === "PATCH")!.body).toEqual({ enabled: true, fastAlerts: true });
-        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-    });
-
-    it("a server that refuses (this host has no OCR) shows its reason and leaves it off", async () => {
-        const server = watchServer(NO_KEY);
-        server.patchError = { status: 409, error: "Add an OpenRouter key in Settings, Providers first. (Fast alerts could run without one, but this host's OCR is not available: models missing)" };
-        install(server);
+    it("S2: with none it says the notifications show the text as read, and that a rule cannot be applied", async () => {
+        install(watchServer({ chatModel: false }));
         device({ permission: "granted" });
         renderApp("/settings/notifications");
-        const toggle = await screen.findByRole("switch", { name: FAST });
-        await waitFor(() => expect(toggle).toBeEnabled());
-        await userEvent.click(toggle);
-        expect(await screen.findByText(/this host's OCR is not available/)).toBeInTheDocument();
-        expect(toggle).toHaveAttribute("aria-checked", "false");
+        expect(await screen.findByText(NONE)).toBeInTheDocument();
+        expect(screen.queryByText(HONEST)).not.toBeInTheDocument();
+        expect(screen.getByText(/Without a chat model a rule cannot be applied, so every pop-up is sent/)).toBeInTheDocument();
     });
 
-    it("running that way, turning fast alerts off is one request (the server then switches the watch off)", async () => {
-        const server = watchServer({ ...NO_KEY, enabled: true, fastAlerts: true, running: true, signal: "signal", push: { available: true, publicKey: KEY, subscriptions: 1 } });
-        install(server);
-        device({ permission: "granted", subscribed: true });
-        renderApp("/settings/notifications");
-        const toggle = await screen.findByRole("switch", { name: FAST });
-        await waitFor(() => expect(toggle).toBeEnabled());
-        await userEvent.click(toggle);
-        await waitFor(() => expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ fastAlerts: false }]));
-    });
-
-    it("with a key it says nothing of the kind, and fast alerts still need the watch on first", async () => {
-        install(watchServer());
+    it("S3: there is one watch switch and nothing about modes, summaries or providers", async () => {
+        install(watchServer({ chatModel: true }));
         device({ permission: "granted" });
         renderApp("/settings/notifications");
-        expect(await screen.findByText("Needs the screen watch")).toBeInTheDocument();
-        expect(screen.queryByText(/Fast alerts work without a key/)).not.toBeInTheDocument();
+        await screen.findByRole("switch", { name: NOTIFY });
+        expect(screen.getAllByRole("switch").map((each) => each.getAttribute("aria-label"))).toEqual([NOTIFY]);
+        expect(screen.queryByText(/fast alerts|summar|OpenRouter|image model|Jev/i)).not.toBeInTheDocument();
+    });
+
+    it("S4: the page's words name no app and no use", async () => {
+        install(watchServer({ chatModel: true }));
+        device({ permission: "granted" });
+        renderApp("/settings/notifications");
+        await screen.findByRole("switch", { name: NOTIFY });
+        const page = screen.getByRole("heading", { name: "Notifications" }).closest("main") ?? document.body;
+        expect(page.textContent).not.toMatch(/e-?mail|teams|outlook|meeting|\bcalls?\b|work pc/i);
     });
 });

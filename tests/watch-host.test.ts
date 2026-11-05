@@ -1,5 +1,5 @@
 /**
- * The screen watch inside the real control server: routed, behind the JSON-only rule, and harmless when no key is stored.
+ * The screen watch inside the real control server: routed, behind the JSON-only rule, and harmless where the host has no OCR.
  */
 
 import assert from "node:assert/strict";
@@ -34,13 +34,13 @@ async function run(body: (origin: string) => Promise<void>): Promise<void> {
     }
 }
 
-test("the watch is mounted: without a stored key it reports why it cannot be switched on, and refuses to be", async () => {
+test("the watch is mounted: where the host has no OCR it reports why it cannot be switched on, and refuses to be", async () => {
     await run(async (origin) => {
         const view = (await (await fetch(`${origin}/app/api/v1/watch`)).json()) as Record<string, any>;
         assert.equal(view["enabled"], false);
         assert.equal(view["running"], false);
         assert.equal(view["canEnable"].ok, false);
-        assert.match(view["canEnable"].reason, /OpenRouter key/);
+        assert.match(view["canEnable"].reason, /cannot read pop-ups/);
 
         const refused = await fetch(`${origin}/app/api/v1/watch`, {
             method: "PATCH",
@@ -48,7 +48,7 @@ test("the watch is mounted: without a stored key it reports why it cannot be swi
             body: JSON.stringify({ enabled: true }),
         });
         assert.equal(refused.status, 409);
-        assert.match(((await refused.json()) as { error: string }).error, /OpenRouter key/);
+        assert.match(((await refused.json()) as { error: string }).error, /cannot read pop-ups/);
 
         const form = await fetch(`${origin}/app/api/v1/watch`, { method: "PATCH", headers: { "content-type": "text/plain" }, body: "{}" });
         assert.equal(form.status, 415, "a write must be JSON");

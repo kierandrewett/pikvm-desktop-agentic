@@ -1,5 +1,5 @@
 {
-  "name": "fake-openrouter",
+  "name": "fake-chat-model",
   "private": true,
   "type": "module"
 }

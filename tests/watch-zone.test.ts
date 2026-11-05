@@ -7,14 +7,12 @@
  *  Z3. A toast that goes away after it held is forgotten, or its going away is read as a second pop-up.
  *  Z4. A second toast over the first one is missed, or the first one fires again.
  *  Z5. The zone's cells are wrong (an off-by-one makes a toast at the edge invisible).
- *  Z6. A call is told like a message, or a message like a call.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ALERT_ZONES, alertZoneId } from "@pikvm/contracts/watch";
-import { alertNotification, callerOf, descriptionHash, isNoNotification, looksLikeCall, notificationBody } from "../src/server/watch/alert-text";
-import { changedBox, createZoneSettler, maskZone, zoneCells, zoneChangedFraction } from "../src/server/watch/frame-diff";
-import { CELL_DELTA, DEFAULT_FAST_SETTLE_MS, ZONE_CHANGE_FRACTION } from "../src/server/watch/limits";
+import { changedBox, createZoneSettler, zoneCells, zoneChangedFraction } from "../src/server/watch/frame-diff";
+import { CELL_DELTA, DEFAULT_SETTLE_MS, ZONE_CHANGE_FRACTION } from "../src/server/watch/limits";
 import { cursor, flat, patched } from "./support/watch-rig";
 
 const BOTTOM_RIGHT = ALERT_ZONES[0].zone;
@@ -49,19 +47,10 @@ describe("the zone's cells", () => {
         assert.equal(zoneChangedFraction(base, flat(60 + CELL_DELTA - 1), cells), 0);
         assert.equal(zoneChangedFraction(new Uint8Array(10), new Uint8Array(20), cells), 1);
     });
-
-    it("maskZone blanks the zone and nothing else, without touching the original", () => {
-        const base = patched(flat(60), 100, 45, 4, 4, 200);
-        const masked = maskZone(base, cells);
-        assert.equal(masked[45 * 128 + 100], 0);
-        assert.equal(masked[10 * 128 + 10], 60);
-        assert.equal(base[45 * 128 + 100], 200);
-        assert.equal(maskZone(patched(flat(60), 100, 45, 4, 4, 255), cells).join(), masked.join(), "what is in the zone no longer matters");
-    });
 });
 
 describe("the zone settler", () => {
-    const make = () => createZoneSettler({ settleMs: DEFAULT_FAST_SETTLE_MS, changeFraction: ZONE_CHANGE_FRACTION });
+    const make = () => createZoneSettler({ settleMs: DEFAULT_SETTLE_MS, changeFraction: ZONE_CHANGE_FRACTION });
 
     it("Z1: a caret, a clock digit and a pointer in the zone never leave idle, however long they go on", () => {
         const settler = make();
@@ -80,9 +69,9 @@ describe("the zone settler", () => {
         const base = flat(60);
         settler.look(base, cells, 0);
         assert.equal(settler.look(toast(base), cells, 1000).state, "changing");
-        assert.equal(settler.wakeAt, 1000 + DEFAULT_FAST_SETTLE_MS, "an extra look is due when it will have held long enough");
-        assert.equal(settler.look(toast(base), cells, 1000 + DEFAULT_FAST_SETTLE_MS - 1).state, "changing");
-        const seen = settler.look(toast(base), cells, 1000 + DEFAULT_FAST_SETTLE_MS);
+        assert.equal(settler.wakeAt, 1000 + DEFAULT_SETTLE_MS, "an extra look is due when it will have held long enough");
+        assert.equal(settler.look(toast(base), cells, 1000 + DEFAULT_SETTLE_MS - 1).state, "changing");
+        const seen = settler.look(toast(base), cells, 1000 + DEFAULT_SETTLE_MS);
         assert.equal(seen.state, "appeared");
         if (seen.state !== "appeared") return;
         assert.equal(seen.firstSeenAt, 1000);
@@ -98,8 +87,8 @@ describe("the zone settler", () => {
         settler.look(base, cells, 0);
         settler.look(patched(base, 100, 45, 24, 4, 240), cells, 1000); // half way in
         assert.equal(settler.look(toast(base), cells, 2000).state, "changing");
-        assert.equal(settler.wakeAt, 2000 + DEFAULT_FAST_SETTLE_MS);
-        assert.equal(settler.look(toast(base), cells, 2000 + DEFAULT_FAST_SETTLE_MS).state, "appeared");
+        assert.equal(settler.wakeAt, 2000 + DEFAULT_SETTLE_MS);
+        assert.equal(settler.look(toast(base), cells, 2000 + DEFAULT_SETTLE_MS).state, "appeared");
     });
 
     it("a flash that is gone before it held is not a pop-up", () => {
@@ -117,7 +106,7 @@ describe("the zone settler", () => {
         const base = flat(60);
         settler.look(base, cells, 0);
         settler.look(toast(base), cells, 1000);
-        const seen = settler.look(base, cells, 1000 + DEFAULT_FAST_SETTLE_MS);
+        const seen = settler.look(base, cells, 1000 + DEFAULT_SETTLE_MS);
         assert.equal(seen.state, "appeared");
         if (seen.state !== "appeared") return;
         assert.equal(seen.source, "detected");
@@ -134,7 +123,7 @@ describe("the zone settler", () => {
         const base = flat(60);
         settler.look(base, cells, 0);
         settler.look(toast(base), cells, 1000);
-        assert.equal(settler.look(base, cells, 1000 + DEFAULT_FAST_SETTLE_MS - 200).state, "reverted");
+        assert.equal(settler.look(base, cells, 1000 + DEFAULT_SETTLE_MS - 200).state, "reverted");
     });
 
     it("the changed box is the changed cells and a margin, inside the zone, and the whole zone when nothing changed", () => {
@@ -202,48 +191,5 @@ describe("the zone settler", () => {
         settler.reset();
         assert.equal(settler.wakeAt, null);
         assert.equal(settler.look(toast(base), cells, 2000).state, "idle");
-    });
-});
-
-describe("what a fast alert says", () => {
-    it("Z6: a call is told apart by what the description says, a message with 'call' in it is not", () => {
-        assert.equal(looksLikeCall("Incoming call from Priya Shah on Microsoft Teams, with Accept and Decline."), true);
-        assert.equal(looksLikeCall("Priya Shah is calling."), true);
-        assert.equal(looksLikeCall("Teams is ringing."), true);
-        assert.equal(looksLikeCall("A toast with the buttons Accept and Decline."), true);
-        assert.equal(looksLikeCall("Teams: Ben Carter says call me when you are free."), false);
-        assert.equal(looksLikeCall("Outlook: new email from Anna Berg, Lunch on Thursday?"), false);
-    });
-
-    it("names the caller when the description does", () => {
-        assert.equal(callerOf("Incoming call from Priya Shah on Microsoft Teams."), "Priya Shah");
-        assert.equal(callerOf("Microsoft Teams: Incoming video call from Priya Shah, with Accept and Decline buttons."), "Priya Shah");
-        assert.equal(callerOf("Priya Shah is calling on Teams."), "Priya Shah");
-        assert.equal(callerOf("Incoming call."), undefined);
-    });
-
-    it("builds a call's title, urgency and tag, and a message's", () => {
-        const call = alertNotification("Incoming call from Priya Shah on Microsoft Teams. Accept and Decline are shown.");
-        assert.deepEqual({ ...call }, { title: "Incoming call: Priya Shah", body: call.body, tag: "pikvm-call", urgency: "high", isCall: true });
-        const nameless = alertNotification("Incoming call. Accept Decline.");
-        assert.equal(nameless.title, "Incoming call");
-        const email = alertNotification("Outlook: new email from Anna Berg, subject Lunch on Thursday?");
-        assert.equal(email.title, "PiKVM");
-        assert.equal(email.urgency, "normal");
-        assert.equal(email.isCall, false);
-        assert.match(email.tag, /^pikvm-alert-[0-9a-f]{8}$/);
-        assert.notEqual(email.tag, alertNotification("Teams: Ben Carter: standup now?").tag);
-    });
-
-    it("the same text is the same hash however it is spaced, capitalised or punctuated", () => {
-        assert.equal(descriptionHash("Outlook: New email from Anna Berg."), descriptionHash("outlook  new email from anna berg"));
-        assert.notEqual(descriptionHash("Outlook: New email from Anna Berg."), descriptionHash("Outlook: New email from Ben Carter."));
-    });
-
-    it("knows the model's 'nothing there' answer, and the body is the first one or two sentences", () => {
-        assert.equal(isNoNotification("No notification."), true);
-        assert.equal(isNoNotification("no notification"), true);
-        assert.equal(isNoNotification("Notification from Teams: hello."), false);
-        assert.equal(notificationBody("Teams: Ben says hi. Second line. Third one that is long enough to matter."), "Teams: Ben says hi. Second line.");
     });
 });

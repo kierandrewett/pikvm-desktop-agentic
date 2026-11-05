@@ -1,12 +1,12 @@
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_ALERT_ZONE, type CheckEntry, type WatchSettings, type WatchZone } from "@pikvm/contracts/watch";
-import { DEFAULT_SUMMARY_MODEL, DEFAULT_VISION_MODEL, MAX_RULE_CHARS } from "./limits";
+import { MAX_RULE_CHARS } from "./limits";
 
 /**
  * What a user's watch keeps on disk, under `users/<id>/watch/`:
  *
- *   settings.json               on or off, the plain-English rule, the image model, fast alerts and their zone
+ *   settings.json               on or off, the plain-English rule, the corner to watch (older files may hold fields that are no longer used: they are ignored)
  *   checks.jsonl                one line per check, so the person can see why a notification came or did not
  *   checks.jsonl.1              the previous log, kept when checks.jsonl passes `LOG_ROTATE_BYTES`
  *   push-subscriptions.json     the devices that asked for notifications (push.ts)
@@ -14,15 +14,7 @@ import { DEFAULT_SUMMARY_MODEL, DEFAULT_VISION_MODEL, MAX_RULE_CHARS } from "./l
  * Files are 0600 in a 0700 directory: the log holds what was on the screen.
  */
 
-export const DEFAULT_SETTINGS: WatchSettings = {
-    enabled: false,
-    rule: "",
-    visionModel: DEFAULT_VISION_MODEL,
-    fastAlerts: false,
-    fastSummary: false,
-    summaryModel: DEFAULT_SUMMARY_MODEL,
-    alertZone: DEFAULT_ALERT_ZONE,
-};
+export const DEFAULT_SETTINGS: WatchSettings = { enabled: false, rule: "", alertZone: DEFAULT_ALERT_ZONE };
 
 /** A zone smaller than this (of the frame, either way) cannot hold a pop-up, and would be a few cells of noise. */
 const MIN_ZONE_SIDE = 0.05;
@@ -44,9 +36,6 @@ export function parseZone(value: unknown): WatchZone | undefined {
 }
 
 const LOG_ROTATE_BYTES = 512 * 1024;
-/** `provider/model`, optionally `~provider/model` or with a `:variant` suffix, as OpenRouter lists them. */
-const MODEL_ID = /^(?=.{3,120}$)[A-Za-z0-9~][\w.~-]*\/[\w.~+-]+(?::[\w.-]+)?$/;
-
 export class SettingsError extends Error {}
 
 export interface WatchStore {
@@ -57,11 +46,8 @@ export interface WatchStore {
     append(userId: string, entry: CheckEntry): void;
     /** Newest first. */
     log(userId: string, limit: number): CheckEntry[];
-    /**
-     * Checks in which a model was called at or after `sinceMs`. `kind: "alert"` counts the fast alerts and nothing else;
-     * without it everything but them is counted, so each path has a budget of its own.
-     */
-    askedSince(userId: string, sinceMs: number, kind?: "alert"): number;
+    /** Checks in which a pop-up was read at or after `sinceMs`: what the daily cap counts. */
+    askedSince(userId: string, sinceMs: number): number;
     /** The file the push module keeps this user's subscriptions in. */
     subscriptionsFile(userId: string): string;
 }
@@ -122,14 +108,9 @@ export function createWatchStore(options: { userDir(userId: string): string; use
                 const parsed: unknown = JSON.parse(readFileSync(settingsFile(userId), "utf8"));
                 const get = (key: string): unknown => (parsed !== null && typeof parsed === "object" ? Reflect.get(parsed, key) : undefined);
                 const rule = get("rule");
-                const visionModel = get("visionModel");
                 return {
                     enabled: get("enabled") === true,
                     rule: typeof rule === "string" ? rule.slice(0, MAX_RULE_CHARS) : "",
-                    visionModel: typeof visionModel === "string" && MODEL_ID.test(visionModel) ? visionModel : DEFAULT_SETTINGS.visionModel,
-                    fastAlerts: get("fastAlerts") === true,
-                    fastSummary: get("fastSummary") === true,
-                    summaryModel: ((model: unknown) => (typeof model === "string" && MODEL_ID.test(model) ? model : DEFAULT_SETTINGS.summaryModel))(get("summaryModel")),
                     alertZone: parseZone(get("alertZone")) ?? DEFAULT_SETTINGS.alertZone,
                 };
             } catch {
@@ -145,20 +126,6 @@ export function createWatchStore(options: { userDir(userId: string): string; use
                 const rule = String(patch.rule).trim();
                 if (rule.length > MAX_RULE_CHARS) throw new SettingsError(`The rule is too long: ${MAX_RULE_CHARS} characters at most.`);
                 next.rule = rule;
-            }
-            if (patch.visionModel !== undefined) {
-                const model = String(patch.visionModel).trim();
-                if (model === "") next.visionModel = DEFAULT_SETTINGS.visionModel;
-                else if (!MODEL_ID.test(model)) throw new SettingsError("That is not an OpenRouter model id (for example google/gemma-3-12b-it).");
-                else next.visionModel = model;
-            }
-            if (patch.fastAlerts !== undefined) next.fastAlerts = patch.fastAlerts === true;
-            if (patch.fastSummary !== undefined) next.fastSummary = patch.fastSummary === true;
-            if (patch.summaryModel !== undefined) {
-                const model = String(patch.summaryModel).trim();
-                if (model === "") next.summaryModel = DEFAULT_SETTINGS.summaryModel;
-                else if (!MODEL_ID.test(model)) throw new SettingsError("That is not an OpenRouter model id (for example google/gemma-3-4b-it).");
-                else next.summaryModel = model;
             }
             if (patch.alertZone !== undefined) {
                 const zone = parseZone(patch.alertZone);
@@ -189,11 +156,9 @@ export function createWatchStore(options: { userDir(userId: string): string; use
             return all.slice(-limit).reverse();
         },
 
-        askedSince(userId, sinceMs, kind) {
+        askedSince(userId, sinceMs) {
             const file = logFile(userId);
-            return [...readLines(`${file}.1`), ...readLines(file)].filter(
-                (entry) => entry.asked && entry.t >= sinceMs && (kind === "alert") === (entry.kind === "alert"),
-            ).length;
+            return [...readLines(`${file}.1`), ...readLines(file)].filter((entry) => entry.asked && entry.t >= sinceMs).length;
         },
 
         subscriptionsFile: (userId) => join(dir(userId), "push-subscriptions.json"),

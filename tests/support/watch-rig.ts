@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GRID_CELLS, type Grid } from "../../src/server/watch/frame-diff";
 import { GRID_WIDTH } from "../../src/server/watch/limits";
-import type { Decided, Described, ModelClient, ModelProvider, Verdict } from "../../src/server/watch/models";
-import { ModelError, verdictOf } from "../../src/server/watch/models";
+import type { AlertModel } from "../../src/server/watch/alerts";
 import type { Ocr } from "../../src/server/watch/ocr";
 import type { Push, PushPayload, SendOptions, SendResult, StoredSubscription } from "../../src/server/watch/push";
 import { PushError } from "../../src/server/watch/push";
@@ -55,84 +54,40 @@ export function tempStore(root: string): WatchStore {
     return createWatchStore({ userDir: (id) => join(root, "users", id), usersRoot: () => join(root, "users") });
 }
 
-export const PROVIDER: ModelProvider = { baseUrl: "https://openrouter.test/api/v1", apiKey: "sk-test-key-not-real" };
-
-export interface FakeModels extends ModelClient {
-    /** The frames described, in order, as their labels (the test's JPEGs are labels). */
-    described: string[];
-    /** The corner crops described for fast alerts, as their labels. */
-    alerted: string[];
-    /** What a crop's description is, by its label; the default is "Alert <label>. Something else." */
-    alertText: Record<string, string>;
-    /** Called once a fast description is made, so a test can let time pass while a model is "thinking". */
-    afterAlert: (() => void) | null;
-    /** While set, a fast description waits for it: a model that has not answered yet. */
-    alertGate: Promise<void> | null;
-    /** The summaries asked for: the model and the lines (text only: a summary request has no image). */
-    summarised: { model: string; lines: string[] }[];
-    /** What a summary answers; a function can make it depend on the lines. */
-    summaryText: string | ((lines: readonly string[]) => string);
-    summaryError: ModelError | null;
-    /** While set, a summary never answers: a model that is too slow. */
-    summaryHang: boolean;
-    decided: { previous: string; current: string; rule: string }[];
-    /** The verdict probability for the next decisions; the last one repeats. */
-    answers: number[];
-    describeError: ModelError | null;
-    decideError: ModelError | null;
-    costPerCall: number;
-    /** Decisions asked again with the same request are answered from the cache, as the real client does. */
-    cache: boolean;
+export interface FakeModel extends AlertModel {
+    /** A chat model is configured. */
+    present: boolean;
+    /** The requests made: the instructions, the message and the time limit. */
+    asks: { system: string; user: string; timeoutMs: number }[];
+    /** What the model answers; a function can make it depend on the message. */
+    answer: string | undefined | ((user: string) => string | undefined);
+    /** Make every request fail with this. */
+    error: Error | null;
+    /** While set, a request never answers: a model that is too slow. */
+    hang: boolean;
+    /** Called when a request is made, so a test can let time pass while the model "thinks". */
+    onAsk: (() => void) | null;
 }
 
-export function fakeModels(): FakeModels {
-    const models: FakeModels = {
-        described: [],
-        alerted: [],
-        alertText: {},
-        afterAlert: null,
-        alertGate: null,
-        summarised: [],
-        summaryText: "Anna Berg asks if you are free Thursday at 12:30",
-        summaryError: null,
-        summaryHang: false,
-        decided: [],
-        answers: [0.02],
-        describeError: null,
-        decideError: null,
-        costPerCall: 0.0001,
-        cache: false,
-        async describe(_provider, _model, jpeg): Promise<Described> {
-            if (models.describeError) throw models.describeError;
-            const label = jpeg.toString();
-            models.described.push(label);
-            return { text: `Screen ${label}. Something else.`, costUsd: models.costPerCall, cached: false };
-        },
-        async describeAlert(_provider, _model, jpeg): Promise<Described> {
-            if (models.describeError) throw models.describeError;
-            const label = jpeg.toString();
-            models.alerted.push(label);
-            if (models.alertGate) await models.alertGate;
-            models.afterAlert?.();
-            return { text: models.alertText[label] ?? `Alert ${label}. Something else.`, costUsd: models.costPerCall, cached: false };
-        },
-        async summarise(_provider, model, lines, signal): Promise<Described> {
-            models.summarised.push({ model, lines: [...lines] });
-            if (models.summaryHang) await new Promise<never>((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
-            if (models.summaryError) throw models.summaryError;
-            const text = typeof models.summaryText === "function" ? models.summaryText(lines) : models.summaryText;
-            return { text, costUsd: models.costPerCall, cached: false };
-        },
-        async decide(_provider, input): Promise<Decided> {
-            if (models.decideError) throw models.decideError;
-            models.decided.push(input);
-            const noul = models.answers.length > 1 ? models.answers.shift()! : models.answers[0]!;
-            const verdict: Verdict = verdictOf(noul);
-            const repeat = models.cache && models.decided.slice(0, -1).some((seen) => JSON.stringify(seen) === JSON.stringify(input));
-            return repeat ? { noul, verdict, cached: true } : { noul, verdict, costUsd: models.costPerCall, cached: false };
+export function fakeModel(): FakeModel {
+    const model: FakeModel = {
+        present: true,
+        asks: [],
+        answer: "Anna Berg asks if you are free Thursday at 12:30 for the quarterly review",
+        error: null,
+        hang: false,
+        onAsk: null,
+        available: () => model.present,
+        async ask(system, user, timeoutMs) {
+            model.asks.push({ system, user, timeoutMs });
+            model.onAsk?.();
+            if (!model.present) return undefined;
+            if (model.hang) return new Promise<never>(() => undefined);
+            if (model.error) throw model.error;
+            return typeof model.answer === "function" ? model.answer(user) : model.answer;
         },
     };
-    return models;
+    return model;
 }
 
 export interface FakePush extends Push {

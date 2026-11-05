@@ -13,7 +13,7 @@
 set -eu
 cd "$(dirname "$0")/../.."
 IMAGE=${KVM_IMAGE:-pikvm-kvm:local}
-export KVM_HOST_PORT=${KVM_HOST_PORT:-18080} FAKE_KVMD_PORT=${FAKE_KVMD_PORT:-14510} FAKE_MODEL_PORT=${FAKE_MODEL_PORT:-19090} FAKE_PUSH_PORT=${FAKE_PUSH_PORT:-14720} FAKE_OPENROUTER_PORT=${FAKE_OPENROUTER_PORT:-14730}
+export KVM_HOST_PORT=${KVM_HOST_PORT:-18080} FAKE_KVMD_PORT=${FAKE_KVMD_PORT:-14510} FAKE_MODEL_PORT=${FAKE_MODEL_PORT:-19090} FAKE_PUSH_PORT=${FAKE_PUSH_PORT:-14720} FAKE_CHAT_MODEL_PORT=${FAKE_CHAT_MODEL_PORT:-14730}
 UID_=${E2E_UID:-1000}
 TOKEN=${E2E_TOKEN:-e2e-access-token-0123456789abcdef}   # the host's sign-in: `Authorization: Bearer`, or the form (the https PIKVM_PUBLIC_URL lets it through this plain-http port)
 P=${E2E_PROJECT:-pikvm-e2e}   # a second run beside the first needs its own project, ports (KVM_HOST_PORT, FAKE_*_PORT) and E2E_DATA
@@ -22,7 +22,7 @@ compose() { podman compose -p $P -f deploy/e2e/compose.yml "$@"; }
 case "${1:-up}" in
 up)
     rm -rf "$DATA"; mkdir -p "$DATA"
-    compose up -d fake-kvmd fake-model fake-push fake-openrouter >&2
+    compose up -d fake-kvmd fake-model fake-push fake-chat-model >&2
     podman rm -f ${P}-kvm >/dev/null 2>&1 || true
     podman run -d --name ${P}-kvm --network ${P}_kvm-internal --network-alias kvm \
         --userns=keep-id:uid=$UID_,gid=$UID_ --user $UID_:$UID_ ${E2E_ENV_FILE:+--env-file $E2E_ENV_FILE} --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --security-opt label=disable \
@@ -39,8 +39,8 @@ up)
     echo "E2E_CONTAINER=${P}-kvm"
     echo "E2E_PUSH=http://127.0.0.1:$FAKE_PUSH_PORT"
     echo "E2E_PUSH_AUDIENCE=http://fake-push:14720"
-    echo "E2E_OR=http://127.0.0.1:$FAKE_OPENROUTER_PORT"
-    echo "E2E_OR_URL=http://fake-openrouter:14730/api/v1"
+    echo "E2E_OR=http://127.0.0.1:$FAKE_CHAT_MODEL_PORT"
+    echo "E2E_OR_URL=http://fake-chat-model:14730/v1"
     ;;
 down)
     podman rm -f ${P}-kvm >/dev/null 2>&1 || true

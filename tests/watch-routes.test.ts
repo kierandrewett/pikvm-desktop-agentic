@@ -4,7 +4,7 @@
  * Failure modes, before behaviour:
  *  R1. A malformed, oversized or mistyped body is a 500, or is half applied.
  *  R2. The reply to any read carries the key or a subscription endpoint.
- *  R3. Switching on without a key answers 200.
+ *  R3. Switching on where the host cannot read pop-ups answers 200.
  *  R4. The subscribe route trusts the browser's endpoint, or names the wrong sender to the push service.
  *  R5. The check log or settings are readable by other users of the machine, or a half-written line breaks reading it.
  *  R6. The log grows without end.
@@ -15,7 +15,6 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import type { HostProvider } from "@pikvm/chat-server";
 import { ALERT_ZONES, DEFAULT_ALERT_ZONE } from "@pikvm/contracts/watch";
 import { GRID_CELLS } from "../src/server/watch/frame-diff";
 import { limitsFromEnv } from "../src/server/watch/limits";
@@ -24,7 +23,7 @@ import { createWatchRoutes } from "../src/server/watch/routes";
 import { createWatchService } from "../src/server/watch/service";
 import { createWatchStore, parseZone, SettingsError } from "../src/server/watch/store";
 import { startFakePush, type FakePushService } from "../tools/fake-push/server";
-import { fakeModels, PROVIDER, tempDir, tempStore } from "./support/watch-rig";
+import { fakeOcr, tempDir, tempStore } from "./support/watch-rig";
 
 const dir = tempDir();
 after(() => dir.remove());
@@ -32,12 +31,15 @@ after(() => dir.remove());
 let remote: FakePushService;
 let server: Server;
 let origin = "";
-let hasKey = true;
+let canRead = true;
+const ocr = fakeOcr();
 
 before(async () => {
     remote = await startFakePush();
+    ocr.unavailable = () => (canRead ? undefined : "no OCR here");
     const chat = {
-        openRouter: (): HostProvider | undefined => (hasKey ? { id: "openrouter", ...PROVIDER } : undefined),
+        smallText: async (): Promise<string | undefined> => undefined,
+        hasSmallModel: (): boolean => false,
         userDir: (userId: string) => join(dir.path, "chat", "users", userId),
     };
     const store = createWatchStore({ userDir: chat.userDir, usersRoot: () => join(dir.path, "chat", "users") });
@@ -49,7 +51,7 @@ before(async () => {
         images: { resize: async () => null, crop: async () => null, gray: async () => new Uint8Array(GRID_CELLS) },
         dataDir: dir.path,
         limits: limitsFromEnv({}),
-        models: fakeModels(),
+        ocr: ocr,
         store,
         push: createPush({ dataDir: dir.path, subscriptionsFile: (id) => store.subscriptionsFile(id), allowLocalEndpoints: true }),
         snapshot: async () => ({ kind: "no-signal" }),
@@ -94,21 +96,21 @@ describe("reading and changing the settings", () => {
         assert.equal(json["enabled"], false);
         assert.equal(json["canEnable"].ok, true);
         assert.equal(json["push"].subscriptions, 1);
-        assert.ok(!text.includes(PROVIDER.apiKey));
         assert.ok(!text.includes(subscription.endpoint));
         assert.ok(!text.includes(subscription.keys.auth));
     });
 
-    it("R3: PATCH without a key is a 409 with the reason; with one it switches on and reports it", async () => {
-        hasKey = false;
+    it("R3: PATCH where the host cannot read pop-ups is a 409 with the reason; where it can it switches on and reports it", async () => {
+        canRead = false;
         const refused = await call("", { method: "PATCH", body: JSON.stringify({ enabled: true }) });
         assert.equal(refused.status, 409);
-        assert.match(refused.json["error"], /OpenRouter key/);
-        hasKey = true;
+        assert.match(refused.json["error"], /cannot read pop-ups: no OCR here/);
+        canRead = true;
         const on = await call("", { method: "PATCH", body: JSON.stringify({ enabled: true, rule: "tell me about errors" }) });
         assert.equal(on.status, 200);
         assert.equal(on.json["enabled"], true);
         assert.equal(on.json["running"], true);
+        assert.equal(on.json["chatModel"], false);
         assert.equal(on.json["rule"], "tell me about errors");
         const off = await call("", { method: "PATCH", body: JSON.stringify({ enabled: false }) });
         assert.equal(off.json["enabled"], false);
@@ -117,7 +119,7 @@ describe("reading and changing the settings", () => {
     });
 
     it("R1: a body that is not a JSON object, has the wrong types, or is too large is a 400 and changes nothing", async () => {
-        for (const body of ["not json", "[1]", "null", JSON.stringify({ enabled: "yes" }), JSON.stringify({ rule: 5 }), JSON.stringify({ visionModel: {} }), JSON.stringify({ rule: "x".repeat(40_000) })]) {
+        for (const body of ["not json", "[1]", "null", JSON.stringify({ enabled: "yes" }), JSON.stringify({ rule: 5 }), JSON.stringify({ alertZone: 5 }), JSON.stringify({ rule: "x".repeat(40_000) })]) {
             const reply = await call("", { method: "PATCH", body });
             assert.equal(reply.status, 400, body.slice(0, 40));
             assert.ok(typeof reply.json["error"] === "string");
@@ -129,37 +131,16 @@ describe("reading and changing the settings", () => {
     });
 });
 
-describe("fast alerts settings", () => {
-    it("R7: fast alerts are off, in the bottom right, until asked; they cannot be switched on while the watch is off", async () => {
+describe("the corner", () => {
+    it("R7: bottom right until asked; a chosen corner is kept; a zone that is not four fractions of the frame, or too small, is a 400", async () => {
         const view = (await call("")).json;
-        assert.equal(view["fastAlerts"], false);
         assert.deepEqual(view["alertZone"], DEFAULT_ALERT_ZONE);
-        assert.deepEqual(view["limits"].fast, { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 0 });
-        const refused = await call("", { method: "PATCH", body: JSON.stringify({ fastAlerts: true }) });
-        assert.equal(refused.status, 409);
-        assert.match(refused.json["error"], /Switch the screen watch on first/);
-        assert.equal((await call("")).json["fastAlerts"], false);
-    });
-
-    it("R7: with the watch switched on in the same request they switch on, and the chosen corner is kept", async () => {
+        assert.deepEqual(view["limits"], { intervalSec: 1, settleSec: 1.2, minCheckGapSec: 4, dailyCap: 500, askedToday: 0 });
         const topRight = ALERT_ZONES[1].zone;
-        const on = await call("", { method: "PATCH", body: JSON.stringify({ enabled: true, fastAlerts: true, alertZone: topRight }) });
-        assert.equal(on.status, 200);
-        assert.equal(on.json["fastAlerts"], true);
-        assert.deepEqual(on.json["alertZone"], topRight);
-        assert.equal(on.json["running"], true);
-        const kept = await call("", { method: "PATCH", body: JSON.stringify({ rule: "anything" }) });
-        assert.equal(kept.json["fastAlerts"], true, "saving something else leaves it as it was");
-        assert.deepEqual(kept.json["alertZone"], topRight);
-        const off = await call("", { method: "PATCH", body: JSON.stringify({ fastAlerts: false }) });
-        assert.equal(off.json["fastAlerts"], false);
-        assert.equal(off.json["running"], true, "fast alerts off leaves the watch on");
-    });
-
-    it("R7: a zone that is not four fractions of the frame, or too small to hold a pop-up, is a 400 and changes nothing", async () => {
-        const before = (await call("")).json["alertZone"];
+        const set = await call("", { method: "PATCH", body: JSON.stringify({ alertZone: topRight }) });
+        assert.deepEqual(set.json["alertZone"], topRight);
+        assert.deepEqual((await call("", { method: "PATCH", body: JSON.stringify({ rule: "anything" }) })).json["alertZone"], topRight, "saving something else leaves it");
         const bodies = [
-            { alertZone: 5 },
             { alertZone: null },
             { alertZone: [0, 0, 1, 1] },
             { alertZone: { x0: 0, y0: 0, x1: 1 } },
@@ -168,48 +149,16 @@ describe("fast alerts settings", () => {
             { alertZone: { x0: 0, y0: 0, x1: 1.5, y1: 1 } },
             { alertZone: { x0: 0.6, y0: 0, x1: 0.5, y1: 1 } },
             { alertZone: { x0: 0, y0: 0, x1: 0.02, y1: 1 } },
-            { fastAlerts: "yes" },
-            { fastAlerts: 1 },
         ];
-        for (const body of bodies) {
-            const reply = await call("", { method: "PATCH", body: JSON.stringify(body) });
-            assert.equal(reply.status, 400, JSON.stringify(body));
-            assert.ok(typeof reply.json["error"] === "string");
-        }
-        assert.deepEqual((await call("")).json["alertZone"], before);
-        await call("", { method: "PATCH", body: JSON.stringify({ enabled: false, alertZone: DEFAULT_ALERT_ZONE }) });
-    });
-});
-
-describe("summary setting", () => {
-    it("R9: off by default with the default model; refused without fast alerts on; a model id is validated", async () => {
-        await call("", { method: "PATCH", body: JSON.stringify({ enabled: false }) });
-        const view = (await call("")).json;
-        assert.equal(view["fastSummary"], false);
-        assert.equal(view["summaryModel"], "google/gemma-3-4b-it");
-        assert.equal(view["defaultSummaryModel"], "google/gemma-3-4b-it");
-        const early = await call("", { method: "PATCH", body: JSON.stringify({ fastSummary: true }) });
-        assert.equal(early.status, 409);
-        assert.match(early.json["error"], /Switch fast alerts on first/);
-        for (const body of [{ fastSummary: "yes" }, { summaryModel: 5 }, { summaryModel: "bad model" }]) {
-            assert.equal((await call("", { method: "PATCH", body: JSON.stringify(body) })).status, 400, JSON.stringify(body));
-        }
+        for (const body of bodies) assert.equal((await call("", { method: "PATCH", body: JSON.stringify(body) })).status, 400, JSON.stringify(body));
+        assert.deepEqual((await call("")).json["alertZone"], topRight);
+        await call("", { method: "PATCH", body: JSON.stringify({ alertZone: DEFAULT_ALERT_ZONE }) });
     });
 
-    it("R9: with the watch and fast alerts on and a key it switches on and the model is kept; without a key it is refused", async () => {
-        const on = await call("", { method: "PATCH", body: JSON.stringify({ enabled: true, fastAlerts: true, fastSummary: true, summaryModel: "meta-llama/llama-3.1-8b-instruct" }) });
-        assert.equal(on.status, 200);
-        assert.equal(on.json["fastSummary"], true);
-        assert.equal(on.json["summaryModel"], "meta-llama/llama-3.1-8b-instruct");
-        assert.equal((await call("", { method: "PATCH", body: JSON.stringify({ summaryModel: "" }) })).json["summaryModel"], "google/gemma-3-4b-it", "empty is the default");
-        await call("", { method: "PATCH", body: JSON.stringify({ fastSummary: false }) });
-        hasKey = false;
-        const refused = await call("", { method: "PATCH", body: JSON.stringify({ fastSummary: true }) });
-        assert.equal(refused.status, 409);
-        assert.match(refused.json["error"], /Summaries need an OpenRouter key/);
-        assert.equal((await call("")).json["fastSummary"], false);
-        hasKey = true;
-        await call("", { method: "PATCH", body: JSON.stringify({ enabled: false, fastAlerts: false }) });
+    it("the removed settings are not settings any more: they are ignored, not stored", async () => {
+        const reply = await call("", { method: "PATCH", body: JSON.stringify({ fastAlerts: true, fastSummary: true, visionModel: "a/b", summaryModel: "c/d" }) });
+        assert.equal(reply.status, 200);
+        for (const key of ["fastAlerts", "fastSummary", "visionModel", "summaryModel"]) assert.ok(!(key in reply.json), key);
     });
 });
 
@@ -283,46 +232,41 @@ describe("the files", () => {
         assert.deepEqual(store.userIds(), ["u"]);
     });
 
-    it("reads a settings file that is damaged or from the future as the defaults it can make sense of", () => {
+    it("reads a settings file that is damaged or from an older version as the settings it can make sense of", () => {
         const root = tempDir();
         after(() => root.remove());
         const store = tempStore(root.path);
         store.write("u", { enabled: true });
         const file = join(root.path, "users", "u", "watch", "settings.json");
         writeFileSync(file, "{ nope");
-        assert.deepEqual(store.read("u"), { enabled: false, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, fastSummary: false, summaryModel: "google/gemma-3-4b-it", alertZone: DEFAULT_ALERT_ZONE });
-        writeFileSync(file, JSON.stringify({ enabled: true, rule: 5, visionModel: "bad model", extra: 1 }));
-        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, fastSummary: false, summaryModel: "google/gemma-3-4b-it", alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(store.read("u"), { enabled: false, rule: "", alertZone: DEFAULT_ALERT_ZONE });
+        writeFileSync(file, JSON.stringify({ enabled: true, rule: 5, visionModel: "bad model", fastAlerts: true, extra: 1 }));
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", alertZone: DEFAULT_ALERT_ZONE });
     });
 
-    it("R8: fast alerts and their zone are stored, validated and read back; a damaged zone is the default", () => {
+    it("R8: the zone is stored, validated and read back; a damaged zone is the default", () => {
         const root = tempDir();
         after(() => root.remove());
         const store = tempStore(root.path);
-        assert.equal(store.read("u").fastAlerts, false);
-        assert.deepEqual(store.write("u", { fastAlerts: true, alertZone: ALERT_ZONES[2].zone }), { ...store.read("u"), fastAlerts: true, alertZone: ALERT_ZONES[2].zone });
-        assert.deepEqual(store.read("u").alertZone, ALERT_ZONES[2].zone);
+        assert.deepEqual(store.write("u", { alertZone: ALERT_ZONES[2].zone }).alertZone, ALERT_ZONES[2].zone);
         assert.throws(() => store.write("u", { alertZone: { x0: 0, y0: 0, x1: 0.01, y1: 1 } }), SettingsError);
         assert.throws(() => store.write("u", { alertZone: { x0: 0, y0: 0, x1: Number.NaN, y1: 1 } }), SettingsError);
         assert.deepEqual(store.read("u").alertZone, ALERT_ZONES[2].zone, "a refused zone changes nothing");
-        const file = join(root.path, "users", "u", "watch", "settings.json");
-        writeFileSync(file, JSON.stringify({ enabled: true, fastAlerts: "yes", alertZone: { x0: 2, y0: 0, x1: 3, y1: 1 } }));
-        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, fastSummary: false, summaryModel: "google/gemma-3-4b-it", alertZone: DEFAULT_ALERT_ZONE });
+        writeFileSync(join(root.path, "users", "u", "watch", "settings.json"), JSON.stringify({ enabled: true, alertZone: { x0: 2, y0: 0, x1: 3, y1: 1 } }));
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", alertZone: DEFAULT_ALERT_ZONE });
         assert.deepEqual(parseZone({ x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 }), { x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 });
         assert.equal(parseZone({ x0: 0.5, y0: 0.5, x1: 0.54, y1: 1 }), undefined);
     });
 
-    it("R8: the daily count of the slow path and of the fast alerts are kept apart, and read both files", () => {
+    it("R8: the daily count reads both files and counts only what was read", () => {
         const root = tempDir();
         after(() => root.remove());
         const store = tempStore(root.path);
-        store.append("u", entry(1000));
         store.append("u", { ...entry(2000), kind: "alert" });
         store.append("u", { ...entry(3000), kind: "alert" });
         store.append("u", { ...entry(4000), kind: "alert", asked: false, outcome: "skipped" });
-        assert.equal(store.askedSince("u", 0), 1);
-        assert.equal(store.askedSince("u", 0, "alert"), 2);
-        assert.equal(store.askedSince("u", 2500, "alert"), 1);
+        assert.equal(store.askedSince("u", 0), 2);
+        assert.equal(store.askedSince("u", 2500), 1);
     });
 
     it("R6: the log is rotated at half a megabyte and the daily count reads both files", () => {

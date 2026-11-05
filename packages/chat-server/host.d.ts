@@ -29,13 +29,6 @@ export interface BuiltinMcp {
     handle(req: Request, ctx: BuiltinMcpContext): Promise<Response>;
 }
 
-/** A model provider (address and key) the host itself calls, never the agent. */
-export interface HostProvider {
-    id: string;
-    baseUrl: string;
-    apiKey: string;
-}
-
 /** The one user's id. */
 export const OPERATOR_ID: string;
 
@@ -86,8 +79,13 @@ export interface ChatServer {
     setting(key: "agent.pikvm.approval"): "risky" | "always" | "never";
     setting(key: "agent.pikvm.allowPower"): boolean;
     setting(key: "agent.pikvm.maxEdge"): number;
-    /** The OpenRouter provider the user stored in Settings, for the host's own calls. Undefined when none. */
-    openRouter(userId: string): HostProvider | undefined;
+    /**
+     * One small text request on the user's own chat model (the Small tasks role, else the default model), through the provider and
+     * the credential the chat already has. Undefined when there is no model that can be called. Rejects on failure or after `timeoutMs`.
+     */
+    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined>;
+    /** Whether `smallText` has a model to ask right now. */
+    hasSmallModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`. Not created. */
     userDir(userId: string): string;
     status(): ChatServerStatus;

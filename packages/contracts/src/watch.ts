@@ -34,32 +34,22 @@ export function alertZoneId(zone: WatchZone): AlertZoneId | undefined {
     return ALERT_ZONES.find((preset) => preset.zone.x0 === zone.x0 && preset.zone.y0 === zone.y0 && preset.zone.x1 === zone.x1 && preset.zone.y1 === zone.y1)?.id;
 }
 
-/** What a person sets: on or off, what to be told about in their own words, which image model reads the screen, and fast alerts. */
+/** What a person sets: on or off, what to be told about in their own words (empty: every pop-up), and where on the screen pop-ups appear. */
 export interface WatchSettings {
     enabled: boolean;
-    /** Empty means: anything important. */
+    /** Empty means: every pop-up. With a chat model configured the rule is applied by it; without one it cannot be, and every pop-up is notified. */
     rule: string;
-    /** An OpenRouter model id. */
-    visionModel: string;
-    /** Also watch one corner for pop-ups and notify within seconds. Needs `enabled`. */
-    fastAlerts: boolean;
-    /** Write a fast alert's notification as one short sentence: the OCR text of the pop-up (never the picture) goes to `summaryModel` through the OpenRouter key. Needs a key and `fastAlerts`. */
-    fastSummary: boolean;
-    /** An OpenRouter text model id, for the summary. */
-    summaryModel: string;
-    /** The corner fast alerts watch. */
+    /** The corner to watch. */
     alertZone: WatchZone;
 }
 
 export type WatchSettingsPatch = Partial<WatchSettings>;
 
 export interface WatchView extends WatchSettings {
-    defaultVisionModel: string;
-    defaultSummaryModel: string;
     /** Whether the watch can be switched on now, and if not, why. */
     canEnable: { ok: true } | { ok: false; reason: string };
-    /** An OpenRouter key is stored, so a change can be judged against the rule. Without one the watch (if this host can read the screen itself) tells about every change that settles. */
-    canJudge: boolean;
+    /** A chat model is configured, so a notification is written as a sentence (and a rule can be applied). Without one it shows the text as read. */
+    chatModel: boolean;
     /** Looking at the screen right now. */
     running: boolean;
     /** What the last looks found: the picture, no signal, or not looked yet. */
@@ -73,27 +63,18 @@ export interface WatchView extends WatchSettings {
         /** Devices that asked for notifications. */
         subscriptions: number;
     };
-    limits: {
-        intervalSec: number;
-        settleSec: number;
-        minCheckGapSec: number;
-        dailyCap: number;
-        askedToday: number;
-        /** Fast alerts: how often the corner is looked at, how long a pop-up must hold, the gap between checks, the cap. */
-        fast: { intervalSec: number; settleSec: number; minCheckGapSec: number; dailyCap: number; askedToday: number };
-    };
+    /** How often the corner is looked at, how long a pop-up must hold, the gap between checks, the daily cap and how much of it is used. */
+    limits: { intervalSec: number; settleSec: number; minCheckGapSec: number; dailyCap: number; askedToday: number };
 }
 
 export type CheckOutcome =
-    /** Jev said yes and a notification went out. */
+    /** A notification went out. */
     | "pushed"
-    /** Jev said no. */
+    /** The rule said this pop-up is not what the person asked about. */
     | "no"
-    /** Jev's answer was in between; nothing was sent. */
-    | "undecided"
-    /** A change was seen but nothing was sent and no yes/no was asked for, for the reason in `reason`. */
+    /** Something was seen but nothing was sent, for the reason in `reason`. */
     | "skipped"
-    /** A model call or the push failed, for the reason in `reason`. */
+    /** Reading, the chat model or the push failed, for the reason in `reason`. */
     | "error";
 
 /** One line of the check log (`users/<id>/watch/checks.jsonl`). */
@@ -101,30 +82,23 @@ export interface CheckEntry {
     /** Epoch ms. */
     t: number;
     at: string;
-    /** `alert` is a fast alert: a pop-up in the corner zone. */
-    kind: "change" | "signal-lost" | "test" | "alert";
-    /** The fraction of the screen's cells that changed, for a change. */
+    kind: "alert" | "test";
+    /** The fraction of the zone's cells that changed. */
     score: number | null;
     outcome: CheckOutcome;
     reason?: string;
-    /** True when a model was called, which is what the daily cap counts. */
+    /** True when the pop-up was read, which is what the daily cap counts. */
     asked: boolean;
-    model?: string;
-    previous?: string;
+    /** The words of the pop-up, only when the host runs with `PIKVM_WATCH_LOG_TEXT=1`. */
     description?: string;
     rule?: string;
-    /** Jev's probability of yes. */
-    noul?: number;
-    /** Jev's answer was the cached one for this exact request (the same two descriptions and rule), so it cost nothing. */
-    fromCache?: boolean;
-    costUsd?: number;
     push?: { sent: number; removed: number; failed: number };
-    /** The summary of a fast alert: whether it became the body, how long it took, and why not when it did not (a reason, never text). */
+    /** How the notification was written: whether a chat model's sentence became the body, how long it took, and why not when it did not (a reason, never text). */
     summary?: { used: boolean; ms: number; skipped?: string };
-    /** A fast alert's timestamps (epoch ms), so the delay from the screen to the phone can be read off the log. */
+    /** The timestamps (epoch ms), so the delay from the screen to the phone can be read off the log. */
     latency?: CheckLatency;
-    /** How a fast alert's text was read, and how much. Never the text itself: see `notified`. */
-    read?: { by: "ocr" | "vision"; ms: number; chars: number; words: number; lines: number; fallback?: string };
+    /** How the text was read, and how much. Never the text itself: see `notified`. */
+    read?: { ms: number; chars: number; words: number; lines: number };
     /**
      * What the person was shown, for a notification that went out. The title and body are the screen's own words, so they are
      * logged only when the host runs with `PIKVM_WATCH_LOG_TEXT=1`; otherwise how long they were and what kind of pop-up it was.
@@ -142,10 +116,10 @@ export interface CheckEntry {
 }
 
 /**
- * One fast alert's path. `capturedAt` is when the snapshot of the frame that was read was requested (the Pi's own capture
+ * One pop-up's path. `capturedAt` is when the snapshot of the frame that was read was requested (the Pi's own capture
  * and JPEG encode are inside it); `firstSeenAt` is the look that first saw the zone change, `detectedAt` the look at which it
- * had held long enough. `readAt` is when the text was ready (the OCR, or the vision model on the fallback), `decidedAt` when it
- * was settled that it is sent (the same moment with no rule: there is nothing to decide). `totalMs` is `pushedAt - capturedAt`;
+ * had held long enough. `readAt` is when the OCR had the text, `summarisedAt` when the chat model's sentence was ready or given up on.
+ * `totalMs` is `pushedAt - capturedAt`;
  * `sinceFirstSeenMs` is `pushedAt - firstSeenAt`, which is the one that includes the wait to be sure the pop-up has settled.
  */
 export interface CheckLatency {
@@ -153,9 +127,8 @@ export interface CheckLatency {
     capturedAt: number;
     detectedAt: number;
     readAt?: number;
-    /** When the summary was ready (or was given up on), if one was asked for. */
+    /** When the chat model's sentence was ready (or was given up on), if one was asked for. */
     summarisedAt?: number;
-    decidedAt?: number;
     pushedAt?: number;
     totalMs?: number;
     sinceFirstSeenMs?: number;

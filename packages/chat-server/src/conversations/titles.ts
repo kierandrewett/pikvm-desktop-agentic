@@ -113,14 +113,14 @@ export async function complete(
     system: string,
     user: string,
     maxTokens = 64,
-    options: { disableReasoning?: boolean } = {},
+    options: { disableReasoning?: boolean; timeoutMs?: number } = {},
 ): Promise<string | undefined> {
     const target = chatTarget(userId, t.provider);
     if (!target) return undefined;
     const { api } = target;
     // Provider reply shapes differ by API family; read defensively below.
     const post = async (path: string, body: unknown, extra: Record<string, string> = {}) =>
-        (await postJson(target, path, body, AbortSignal.timeout(CALL_TIMEOUT_MS), extra)) as any;
+        (await postJson(target, path, body, AbortSignal.timeout(options.timeoutMs ?? CALL_TIMEOUT_MS), extra)) as any;
     switch (api) {
         case "openai-completions": {
             const r = await post("/chat/completions", {

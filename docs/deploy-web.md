@@ -60,17 +60,12 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_DATA_DIR` | no | The data volume (image default `/data`). |
 | `PIKVM_KEYBOARD_LAYOUT`, `PIKVM_JIGGLER` | no | As before. |
 | `OMP_BIN` | no | The agent binary (image default `/opt/omp/omp`). |
-| `PIKVM_WATCH_INTERVAL_MS` | no | How often the screen watch looks at the screen (default `3000`; values under `2000` are raised to `2000`). |
-| `PIKVM_WATCH_SETTLE_MS` | no | How long the screen must stay still after it changed before the change counts (default `6000`). |
-| `PIKVM_WATCH_MIN_GAP_SEC` | no | At most one model check per watch in this many seconds (default `60`). |
-| `PIKVM_WATCH_DAILY_CAP` | no | At most this many model checks per watch in 24 hours (default `200`). |
-| `PIKVM_WATCH_FAST_INTERVAL_MS` | no | With fast alerts on, how often the screen is looked at (default `1000`; values under `1000` are raised to `1000`). |
-| `PIKVM_WATCH_FAST_SETTLE_MS` | no | How long a pop-up must hold before it counts (default `1200`). |
-| `PIKVM_WATCH_FAST_MIN_GAP_SEC` | no | At most one fast check per watch in this many seconds (default `4`). |
-| `PIKVM_WATCH_FAST_DAILY_CAP` | no | At most this many fast checks per watch in 24 hours (default `500`). Counted apart from `PIKVM_WATCH_DAILY_CAP`. |
-| `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR fast alerts read pop-ups with: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
-| `PIKVM_WATCH_FAST_CLOUD_FALLBACK` | no | `1` lets fast alerts send the pop-up's crop to the OpenRouter vision model (the user's key) when the OCR times out, fails or reads too few words. **Off by default**: then those cases are logged and nothing is sent. The whole-screen path is not affected. |
-| `PIKVM_WATCH_LOG_TEXT` | no | `1` puts a fast alert's words (the notification's title and body) in `checks.jsonl`. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
+| `PIKVM_WATCH_INTERVAL_MS` | no | How often the watch looks at the screen (default `1000`; values under `1000` are raised to `1000`). |
+| `PIKVM_WATCH_SETTLE_MS` | no | How long a pop-up must stay before it counts (default `1200`). |
+| `PIKVM_WATCH_MIN_GAP_SEC` | no | At most one check per watch in this many seconds (default `4`). |
+| `PIKVM_WATCH_DAILY_CAP` | no | At most this many checks per watch in 24 hours (default `500`). |
+| `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR that reads pop-ups: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
+| `PIKVM_WATCH_LOG_TEXT` | no | `1` puts a notification's words (title and body) in `checks.jsonl`. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
 | `PIKVM_PUSH_ALLOW_LOCAL` | no | `1` accepts push subscriptions on any address, loopback and plain http included. For tests and local runs only: left off, only the push services browsers use are accepted. |
 
@@ -84,205 +79,123 @@ The data volume holds, and is the only thing that needs backing up:
 | `settings.json` | The host's settings. |
 | `chat/` | The chat database, per-conversation files, the agent's `HOME`, and provider keys entered in Settings (mode 0600, write-only from the browser). |
 | `push-vapid.json` | The server's Web Push key pair, made once on first use (mode 0600). **Back it up with the volume and never delete it**: a new pair orphans every device's subscription. |
-| `chat/users/<id>/watch/` | One user's screen watch (directory 0700, files 0600): `settings.json` (on or off, the rule, the image model), `checks.jsonl` (one line per check, rotated at 512 KB to `checks.jsonl.1`) and `push-subscriptions.json` (the devices). Today there is one user, `operator`. |
+| `chat/users/<id>/watch/` | One user's screen watch (directory 0700, files 0600): `settings.json` (on or off, the rule, the corner; fields of older versions are ignored), `checks.jsonl` (one line per check, rotated at 512 KB to `checks.jsonl.1`) and `push-subscriptions.json` (the devices). Today there is one user, `operator`. |
 
 Model providers are set in the app: Settings, then Providers, then add a base URL and key. Sign-in with a provider
 account (the old Claude and Codex CLI flows) is not part of this image.
 
 ## Screen watch (notifications to the installed app)
 
-The server can watch the PiKVM's screen by itself, with no browser open, and send a notification to the installed home-screen
-app when the screen changes in a way you asked to hear about. It is per user and off until switched on in Settings,
-Notifications. The watch is one poller on the PiKVM, shared by everyone who has theirs on, and it runs only while at least one
-person does.
+The server can watch one corner of the PiKVM's screen by itself, with no browser open, and send a notification to the installed
+home-screen app when a pop-up appears there (a toast: Windows shows them at the bottom right and keeps them about 5 s). It is per user
+and off until switched on in Settings, Notifications. It is one poller on the PiKVM, shared by everyone who has theirs on, and it runs
+only while at least one person does. There is one mode: the settings are on or off, **Where pop-ups appear** (bottom right, top right,
+bottom left, top left; stored as a rectangle of the frame in fractions, `alertZone`, default x 0.62 to 1, y 0.55 to 1, so a custom rectangle
+can be offered later) and an optional rule in the person's own words.
 
 ```mermaid
 flowchart LR
-    pi[PiKVM snapshot] -->|every 3 s| diff[128x72 grey grid, diff and settle]
-    diff -->|only a settled change| img[Image model: describe the frame]
-    img --> jev[Jev: previous vs current vs your rule]
-    jev -->|decisive yes| push[Web Push to the app]
-```
-
-1. **The local diff (free).** Every `PIKVM_WATCH_INTERVAL_MS` (3 s) the host takes `/api/streamer/snapshot`, reduces it to a
-   128 x 72 grey grid (a cell is 10 px of a 1280 px frame, about half a character of terminal text) and compares it with the last
-   settled frame. A cell has changed when its grey level moved by at least 10 of 255; the screen has changed when at least
-   **0.3 %** of the cells did (28 of 9216). Measured on the frames of the E2E run: a blinking caret is 0.11 %, a progress bar
-   ticking 0.05 %, JPEG re-encoding or codec-sized noise 0 %; a new line of terminal output is 0.4 %, a dialog's text changing
-   0.5 %, a dialog opening 14 %. A change counts only once it has **settled**: no further change of that size between two looks
-   for `PIKVM_WATCH_SETTLE_MS` (6 s). A window sliding open, a spinner, a scrolling log or a video never settles and so never
-   fires until it stops; a flash that returns to what was there is dropped. Nothing else runs unless this fires. There are no
-   masked regions: a clock large enough to pass the threshold would need one, and the grid is shared by every user's watch, so it
-   is not offered.
-2. **The image model.** A settled change is one *check*. The new frame (scaled to 1280 px on its long edge) is described by an
-   OpenRouter image model in one to three factual sentences: which application, any dialog or error and its text. The first
-   check also describes the frame before it, once; afterwards the previous description is the last one.
-3. **Jev.** `typesafe/jev-1.14` (the decisions model at `/api/alpha/decisions`, not the router) is asked one yes/no question with
-   state `{previous, current, rule}`; `rule` is your sentence from Settings, or `(none)`. Only a probability of **0.85 or more**
-   is a yes and **0.15 or less** a no; anything between sends nothing and is logged as undecided. Answers are cached by request
-   hash (the same two descriptions and rule cost nothing the second time; the log says `fromCache`); 429 and 5xx are retried
-   with backoff.
-4. **The push.** A yes sends a Web Push (VAPID, encrypted) to every device of that user. The notification text is built by the
-   host from the image model's description (its first sentence, and the second while both fit in 160 characters; the model is told to lead with the dialog, error or status line and its text), never by Jev; a tap opens `/app/`.
-   A push service that answers 404 or 410 says the device is gone and its subscription is removed.
-
-Signal: while kvmd reports no video source (its snapshot answers 503), nothing is compared: a black screen is not a change. Two
-looks in a row with no signal count as one *signal lost* check (the same Jev question, with the description "no video signal" and
-no image call); when the signal returns, the first settled picture is checked against that. The PiKVM being unreachable is not a
-lost signal.
-
-### What it costs, and the bounds
-
-It uses the key stored in Settings, Providers (the provider named `openrouter`, or any entry whose address is on
-openrouter.ai). **The whole-screen watch needs it** (an image model and Jev): without one it cannot be switched on alone, and
-the Settings page says why. **Fast alerts need no key** (below), so with no key the watch can still be switched on when fast alerts are
-switched on in the same request (or already are): a "fast alerts only" mode where the whole-screen path stays idle and logs
-"slow watch needs an OpenRouter key" for each change it would have checked, and the zone is still blanked from it. Switching the
-watch on with no key and fast alerts off is refused (409, the same message); turning fast alerts off with no key switches the watch
-off. A key removed later makes every whole-screen change log the same line and call no model.
-
-- **Image model: `google/gemma-3-12b-it`**, $0.05 per million input tokens and $0.15 per million output tokens on OpenRouter
-  (read 2026-11-03 from `/api/v1/models`, input modalities text and image). OpenRouter reported **$0.00003 to $0.00004 per
-  described 1280 x 720 frame**. It is a setting (Settings, Notifications, Image model): any OpenRouter model that accepts
-  images. Tried on the same two frames and not chosen: `amazon/nova-lite-v1` ($0.00014 a frame, terse), `mistralai/mistral-small-3.2-24b-instruct`
-  ($0.00011), `z-ai/glm-5.3-flash` ($0.00035), `google/gemma-3-4b-it` ($0.00002, but it missed the error text) and
-  `qwen/qwen3.7-flash` (it spent its output on reasoning and returned no text).
-- **Jev:** $0.042 per million input tokens, output free: about $0.00002 per question.
-- **A check** is about $0.0001 the first time (two descriptions) and about $0.00006 after that.
-- **Bounds** (per watch, whatever the screen does): at most **one check per 60 s**; a change inside that gap waits, and only the
-  newest one is checked when it ends (the ones it replaced are logged as skipped); at most **200 checks in any 24 hours**,
-  counted from the log so a restart does not reset it (worst case about 1.2 cents a day); one check at a time.
-- The frames leave the host: a screenshot of the target goes to OpenRouter and the model provider behind it. Do not switch the
-  watch on for a target whose screen must not leave the building.
-
-### The log: why it fired or did not
-
-`chat/users/<id>/watch/checks.jsonl`, one JSON object per line, also shown (newest first) under Settings, Notifications, Recent
-checks and at `GET /app/api/v1/watch/checks`:
-
-```json
-{"t":1762171234567,"at":"2026-11-03T12:00:34.567Z","kind":"change","score":0.056,"outcome":"pushed","asked":true,
- "model":"google/gemma-3-12b-it","rule":"tell me when the install finishes or an error shows",
- "previous":"A terminal runs apt install ... 68%.","description":"A dialog titled Installation failed ...",
- "noul":0.96,"costUsd":0.00009,"push":{"sent":1,"removed":0,"failed":0}}
-```
-
-`kind` is `change`, `signal-lost`, `alert` (a fast alert, below) or `test`; `outcome` is `pushed`, `no`, `undecided`, `skipped` (no model was asked; `reason` says
-why: no key, daily cap, replaced by a newer change) or `error` (`reason` says what failed, including a yes that reached no device).
-`asked` is what the daily cap counts (the fast path's own cap counts its `alert` lines).
-
-### Fast alerts: a pop-up in a corner, read on the host
-
-A pop-up (a toast) appears in a corner of the screen and stays a few seconds (Windows: bottom right, about 5 s; one that waits for
-an answer, about 30 s). The slow path above would never see one: it needs a change to hold still 6 s, looks every
-3 s, and allows one model check a minute. **Fast alerts** are a second path beside it, **off by default**, switched on in Settings,
-Notifications, Fast alerts (the watch itself must be on) with a choice of corner: bottom right (default), top right, bottom left,
-top left. It is stored as a rectangle of the frame in fractions (`alertZone`: bottom right is x 0.62 to 1, y 0.55 to 1), so a custom
-rectangle can be offered later.
-
-```mermaid
-flowchart LR
-    pi[PiKVM snapshot every 1 s] --> zone[zone diff on the 128x72 grid, held 1.2 s]
+    pi[PiKVM snapshot every 1 s] --> zone[zone diff on the 128x72 grey grid, held 1.2 s]
     zone -->|a pop-up appeared| crop[crop of the cells that changed]
     crop --> ocr[OCR on this host, own process]
     ocr --> rules[text rules: urgent or ordinary]
-    rules -->|no rule| push[Web Push]
-    rules -->|your rule| jev[Jev yes/no on the text]
-    jev -->|decisive yes| push
-    ocr -.->|timed out or too few words, only with PIKVM_WATCH_FAST_CLOUD_FALLBACK=1 and a key| vision[vision model on the crop]
-    vision --> rules
+    rules -->|a chat model is set, not for an urgent one| chat[your chat model: the text only]
+    rules -->|no chat model| push[Web Push]
+    chat --> push
 ```
 
-1. **The zone diff (free).** With fast alerts on the host looks every **1 s** (`PIKVM_WATCH_FAST_INTERVAL_MS`, never under 1 s;
-   the whole screen is still compared only every third look, so the slow path runs no faster). The same 128 x 72 grey grid is
-   compared inside the zone (49 x 33 = 1617 cells for the default). The zone has changed when **1.5 %** of its cells did (25 cells;
-   a cell has changed at a grey step of 10). Calibrated on 1920 x 1080 frames drawn for the run (`docs/e2e/2026-11-05-fast-alerts.md`):
-   a blinking caret is 0.12 %, the taskbar clock changing 0 %, the mouse pointer 0.19 to 0.25 %, a tray icon 0.31 %, a turning spinner
-   up to 0.43 %, JPEG re-encoding or codec noise 0 %; a dark-card toast is 8.5 to 12.7 %, a light-card toast 10.3 to 17.2 %, a
-   toast with two buttons 10.6 to 15.8 %, the weakest toast tried (one dark line on a near-identical dark desktop) 7.2 %. A change counts
-   as a pop-up once it has **held 1.2 s** (a toast slides in over about 0.3 s). Unlike the slow path it is **not dropped if it goes
-   away**: it is read from the look that confirmed it, or, if it had gone again by then, from the last look that saw it. More than
-   half the zone changing is a window or the desktop, not a pop-up: logged as skipped and not read. When a change is pending the
-   host makes one extra look at the moment it will have held long enough, so the wait is the settle time and not that plus a look.
-   **The whole-screen path blanks the zone** in the grid it compares, so a toast is told once (by this path) and not again 6 s later by
-   the slow one; everything outside the corner behaves as it did.
-2. **A crop of what changed.** The cells that changed, plus two cells of margin (about 30 px), inside the zone: usually about 420 x 200
-   px at 1080p. Text the OCR finds outside the changed cells is the window behind the pop-up and is left out.
-3. **OCR on this host.** PP-OCRv4 mobile (PaddleOCR's detector and recogniser as ONNX) through onnxruntime-node, in a forked
-   process of its own (`dist/ocr-worker.js`), warm once fast alerts are on, one read at a time, 4 s limit (then it is killed and
-   restarted). It opens no socket. Chosen by benchmark (`docs/e2e/2026-11-05-fast-alerts-ocr.md`): on the Xeon E5-2680 v4 the image
-   runs on, under load 14, **165 ms median (p95 245) for the crop, 771 ms (p95 981) if the whole zone were read**, every word found;
-   tesseract and tesseract.js were faster or equal on light cards but read dark ones badly.
-4. **Text rules** (`src/server/watch/toast-rules.ts`, deterministic). A pop-up that says someone is calling (incoming call, is calling, calling you,
-   ringing, wants to call, or Accept/Answer with Decline/Reject/Ignore) is pushed as **"Incoming call: <who>"** with Web Push
-   `Urgency: high`, a **60 s** TTL, and a tag per caller (the same caller again updates the same notification). A pop-up that names its
-   app is pushed under that name, as "sender: first line" (at most 300 characters; the phone cuts it to what fits), urgency normal, a 5 minute TTL and a tag of its
-   text. Any other pop-up shows its lines. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The
-   **same pop-up text inside 30 s is notified once**.
-5. **No rule: no network call at all.** No OpenRouter key is needed, and with none the watch runs for fast alerts alone (see above). **With a rule** (Settings,
-   "What to tell me about") the pop-up's text, `<app>: <lines>`, goes to Jev as `{previous: "(none)", current, rule}` exactly as in the slow
-   path (same cache, same 0.85 / 0.15 thresholds); only that text, no image.
-6. **When the OCR does not deliver.** It timed out or failed, or it read fewer than 3 words in a change of at least 5 % of the zone
-   (a dialog). By default the check is logged with the reason ("ocr timed out, and the cloud fallback is off") and **nothing is
-   sent**, not even with a key set. Only if the operator sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`, and a key is set, does the vision
-   model read the same crop (the one case an image of the screen leaves the host for the fast path; the log says `read.by: "vision"`
-   with its `fallback` reason).
+1. **The zone diff (free).** Every `PIKVM_WATCH_INTERVAL_MS` (**1 s**) the host takes `/api/streamer/snapshot`, reduces it to a 128 x 72
+   grey grid (a cell is 15 px of a 1920 px frame) and compares the zone's cells with the zone as it was: 49 x 33 = 1617 cells for the
+   default. A cell has changed when its grey level moved by at least 10 of 255; the zone has changed when **1.5 %** of its cells did (25
+   cells). Calibrated on 1920 x 1080 frames drawn for the run (`docs/e2e/2026-11-05-fast-alerts.md`): a blinking caret is 0.12 %, the
+   taskbar clock changing 0 %, the mouse pointer 0.19 to 0.25 %, a tray icon 0.31 %, a turning spinner up to 0.43 %, JPEG re-encoding or
+   codec noise 0 %; a dark-card toast is 8.5 to 12.7 %, a light-card toast 10.3 to 17.2 %, a toast with two buttons 10.6 to 15.8 %, the
+   weakest toast tried (one dark line on a near-identical dark desktop) 7.2 %. A change counts as a pop-up once it has **held 1.2 s**
+   (`PIKVM_WATCH_SETTLE_MS`; a toast slides in over about 0.3 s). It is **not dropped if it goes away**: it is read from the look that
+   confirmed it, or, if it had gone again by then, from the last look that saw it. More than half the zone changing is a window or the
+   desktop, not a pop-up: logged as skipped and not read. When a change is pending the host makes one extra look at the moment it will
+   have held long enough, so the wait is the settle time and not that plus a look. Nothing else runs unless this fires.
+2. **A crop of what changed.** The cells that changed, plus two cells of margin (about 30 px), inside the zone: usually about 420 x 200 px
+   at 1080p. Text the OCR finds outside the changed cells is the window behind the pop-up and is left out.
+3. **OCR on this host.** PP-OCRv4 mobile (PaddleOCR's detector and recogniser as ONNX) through onnxruntime-node, in a forked process of its
+   own (`dist/ocr-worker.js`), warm once the watch is on, one read at a time, 4 s limit (then it is killed and restarted). It opens no
+   socket. Chosen by benchmark (`docs/e2e/2026-11-05-fast-alerts-ocr.md`): on the Xeon E5-2680 v4 the image runs on, under load 14,
+   **165 ms median (p95 245) for the crop, 771 ms (p95 981) if the whole zone were read**, every word found; tesseract and tesseract.js were
+   no faster on the crop and read dark cards badly. **onnxruntime's telemetry is switched off.** The Linux build of onnxruntime-node
+   includes Microsoft's 1DS telemetry (endpoint `mobile.events.data.microsoft.com`). The host forces `ORT_DISABLE_TELEMETRY=1` in the OCR
+   worker's environment (`ocr-engine.ts` sets it after the host's own environment, so a value in it cannot turn it back on;
+   `ocr-worker.ts` sets it again; the image's `ENV` has it too), and a unit test holds this. If the OCR times out, fails or reads fewer than 3
+   words, the check is logged with the reason and nothing is sent.
+4. **Text rules** (`src/server/watch/toast-rules.ts`, deterministic). A pop-up that says someone is calling (incoming call, is calling,
+   calling you, ringing, wants to call, or Accept/Answer with Decline/Reject/Ignore) is pushed as **"Incoming call: <who>"** with Web Push
+   `Urgency: high`, a **60 s** TTL, and a tag per caller. A pop-up that names its app is pushed under that name, as "sender: first line"
+   (at most 300 characters; the phone cuts it to what fits); any other shows its lines. Urgency normal, a 5 minute TTL and a tag of its
+   text. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The **same pop-up text inside 30 s is notified
+   once**.
+5. **The notification's words, from your chat model (optional).** If the app has a chat model configured (Settings, Models: the Small
+   tasks role, else Fast, else the default model, on whatever provider it names, through the chat server's own stored credential and
+   API type; no provider is built in here), the OCR **text** (never the picture) goes to it in **one small request** with a tight prompt:
+   one sentence, at most 140 characters, who and what and what is asked, fix words the OCR ran together, never add what the text does
+   not say. The sentence becomes the body; the title stays the rules' title. **With a rule** (Settings, "What to tell me about") the rule
+   goes in the same request and the model answers either the sentence or the exact word `SKIP`, which means no notification. **Without
+   a rule** every pop-up is notified. A hard **2.5 s** timeout (the request is aborted); on a timeout, an error, an empty answer or one over
+   140 characters the rules' own text is sent (with a rule too: a rule that could not be applied is not a reason to miss a pop-up) and the
+   log says `summary skipped: <reason>` (a reason, never text). **A call never waits for the model** and is never asked about. With **no chat
+   model configured there is no network call at all**: the notification is the text as read, and a rule cannot be applied (the page says
+   so). A model that cannot be called (no key, an API type the chat server has no client for) counts as none.
+6. **The push.** A Web Push (VAPID, encrypted) to every device of that user; a tap opens `/app/`. A push service that answers 404 or 410
+   says the device is gone and its subscription is removed.
 
-**Its own bounds**: at most one fast check per **4 s** (a pop-up inside it waits, newest wins, and is read from its own captured
-frame), at most **500 a day**, counted apart from the slow path's 60 s / 200, so two toasts 5 s apart both notify and fast alerts never
-spend the slow path's budget.
+Signal: while kvmd reports no video source (its snapshot answers 503), nothing is compared: a black screen is not a pop-up. The PiKVM
+being unreachable is not a lost signal.
 
-**The log.** A fast alert is a line of kind `alert` in `checks.jsonl` with `latency` (epoch ms: `firstSeenAt`, `capturedAt` = when the snapshot
-that was read was requested, `detectedAt`, `readAt`, `decidedAt`, `pushedAt`, `totalMs` = capture to push, `sinceFirstSeenMs`), `read`
-(`by`, `ms`, characters, words, lines) and `notified` (kind, tag, urgency, TTL, title and body lengths). **It never holds the screen's words**
-unless the host runs with `PIKVM_WATCH_LOG_TEXT=1`.
+**What leaves the host, said plainly.** The pop-up is read on the host. Only the OCR **text** of a pop-up goes to the chat model the
+app already has configured, and only when there is one: the picture never does. With no chat model nothing from the screen goes to any
+model service. The notification itself goes to the device's push service, as always.
 
-**What leaves the host, said plainly.** The fast path reads the pop-up on the host and sends nothing to any model service unless the user
-sets a rule (then only the OCR text goes to Jev), switches on "Summarise with AI" (then only the OCR text of each alert goes to the
-summary model; the image never does), or the operator sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1` (then a crop can go to the vision model
-when the OCR fails). With "Summarise with AI" off, which is the default, and no rule, the fast path makes no network call for the screen at all. The notification itself goes to the device's push service, as always. The slow path is as before: whole frames to OpenRouter
-with the user's key, and it does not run without one.
+### What it costs, and the bounds
 
-**onnxruntime's telemetry is switched off.** The Linux build of onnxruntime-node includes Microsoft's 1DS telemetry (endpoint
-`mobile.events.data.microsoft.com`). The host forces `ORT_DISABLE_TELEMETRY=1` in the OCR worker's environment (`ocr-engine.ts` sets it
-after the host's own environment, so a value in it cannot turn it back on; `ocr-worker.ts` sets it again; the image's `ENV` has it too).
-A unit test holds this.
-
-### Summaries (optional)
-
-Settings, Notifications, Fast alerts, **Summarise with AI** (off by default; needs an OpenRouter key and fast alerts on, otherwise the
-switch is disabled with the reason and the server answers 409). When on, after the OCR, the rules and any rule decision, **only the OCR
-lines** (never the image) go to a small text model through the user's key with a tight prompt: one sentence, at most 140 characters,
-who and what and what is asked, fix words the OCR ran together, never add what the text does not say. The sentence becomes the
-notification's body; the title stays the rules' title. A **hard 2.5 s timeout** (the request is aborted); on a timeout, an error, an
-empty answer or one over 140 characters the rules' body is sent and the log says `summary skipped: <reason>` (a reason, never text). An
-alert that says someone is calling is **never** summarised, so it goes as fast as it does without. The log has `summary` (`used`, `ms`,
-`skipped`) and `latency.summarisedAt`.
-
-**The model** is a setting (Settings, Notifications, Summary model; `summaryModel`), default **`google/gemma-3-4b-it`**, chosen on
-2026-11-05 from OpenRouter's `/api/v1/models` (pricing as listed: $0.05 per million input tokens, $0.10 per million output) and a real try
-with the user's key of the three cheapest non-reasoning candidates on three sample pop-ups: gemma-3-4b-it answered in 0.40 to 0.76 s,
-llama-3.1-8b-instruct in 0.14 to 1.3 s, mistral-nemo in 1.4 to 2.9 s (too close to the 2.5 s limit, though the cheapest per token at
-$0.029 / $0.03). All three wrote the right sentence and none returns reasoning tokens. OpenRouter reported **$0.000008 to $0.00001 per
-summary** for gemma-3-4b-it (about 100 tokens in, 20 out): a thousand summarised alerts cost about one cent. Not measured: latency
-from the real host (these were tried from a workstation), and other models.
+- **Per check:** the host's CPU (one snapshot a second, 3 ms to turn it into the grey grid on a workstation, and the OCR when a pop-up
+  appears) and, with a chat model, one request of about 100 tokens in and 20 out. Tried with three small models on 2026-11-05: about
+  $0.00001 per notification, 0.14 to 2.9 s a request (so the 2.5 s limit is real); the cost is on whatever provider the chat model is.
+- **Bounds** (per watch, whatever the screen does): at most **one check per 4 s**; a pop-up inside that gap waits, and only the newest one
+  is checked when it ends (the ones it replaced are logged as skipped); at most **500 checks in any 24 hours**, counted from the log so a
+  restart does not reset it; one check at a time. Two pop-ups 5 s apart both notify.
+- **Looking every second:** about 123 KB a second from the Pi (the real Pi's snapshot, measured by hand at 75 to 140 ms each, which
+  keeps its snapshot handler busy at most about 14 % of the time; that the Pi serves the streamer's latest JPEG without re-encoding is not
+  verified here). The host's CPU stayed at about 1 % of a core in the 30 s idle window measured. The OCR worker holds the models (about
+  100 to 250 MB resident) while the watch is on.
+- **Image:** `deploy/Dockerfile` installs onnxruntime-node (pruned to this architecture's CPU library) and fetches the models, both pinned in
+  `deploy/ocr.lock` (sha256 of the tarball and of each model, the npm integrity of onnxruntime-node); **+80 MB uncompressed** (349 MB
+  against 269 MB, measured on the runtime stage's own lines). The image still starts read-only as uid 10001 and the OCR runs with
+  `--network none` (checked).
 
 **Measured** (`docs/e2e/2026-11-05-fast-alerts.md`, 10 toasts, fake PiKVM, fake push service on loopback, the real host and OCR on a
-workstation): **toast to notification at the push service 1.8 s median (1.3 to 2.3 s)**; of that, waiting for the
-next look about 0.5 s (0 to 1 s), the 1.2 s hold, crop and OCR about 0.1 s (OCR read 90 ms median here), the push send 5 ms (loopback). The slow path would have taken 6 s
-of stillness and never seen a 5 s toast. **Not measured**: the push service on a real network (FCM or Apple add their own delay after
-the host's send), any vision model or Jev (none in the main path), a real Pi (one snapshot was measured by hand at 75 to 140 ms, a
-123 KB JPEG), the real Xeon without its other load.
+workstation, no chat model): **toast to notification at the push service 1.8 s median (1.4 to 1.9 s)**; of that, waiting for the next
+look about 0.45 s (0.1 to 0.5 s here, up to 1 s in general), the 1.2 s hold, crop and OCR about 0.1 s (the OCR read itself 90 ms median here), the push send a few ms (loopback). **Not measured**: the push service on a
+real network (FCM or Apple add their own delay after the host's send), a real chat model (the fake answers after a scripted delay), a real
+Pi, the real Xeon without its other load.
 
-**Cost of looking every second.** A snapshot a second instead of one in 3 s: about 123 KB/s from the Pi, and the Pi serves the
-streamer's latest JPEG (it does not re-encode for each snapshot [not verified on a Pi here]); at 75 to 140 ms each that keeps the
-Pi's snapshot handler busy at most about 14 % of the time. On the host, decoding the 1080p JPEG to the grey grid is 3 ms (median, this workstation) and the
-host's CPU stayed at 0.5 % of a core (0.7 % with the watch alone) in the 30 s idle windows. The OCR worker holds the models (about 100 to 250 MB resident) once fast alerts are on, idle otherwise.
+### The log: why it fired or did not
 
-**Image.** `deploy/Dockerfile` installs onnxruntime-node (pruned to this architecture's CPU library) and fetches the models, both
-pinned in `deploy/ocr.lock` (sha256 of the tarball and of each model, the npm integrity of onnxruntime-node); **+80 MB uncompressed**
-(349 MB against 269 MB, measured on the runtime stage's own lines). The image still starts read-only as uid 10001 and the OCR runs with
-`--network none` (checked).
+`chat/users/<id>/watch/checks.jsonl`, one JSON object per line, also shown (newest first) under Settings, Notifications, Recent checks and
+at `GET /app/api/v1/watch/checks`:
+
+```json
+{"t":1793841911885,"at":"2026-11-05T01:25:11.885Z","kind":"alert","score":0.17,"rule":"","asked":true,"outcome":"pushed",
+ "latency":{"firstSeenAt":1793841909159,"capturedAt":1793841910360,"detectedAt":1793841910361,"readAt":1793841910460,
+            "summarisedAt":1793841910810,"pushedAt":1793841910815,"totalMs":455,"sinceFirstSeenMs":1656},
+ "read":{"ms":124,"chars":76,"words":13,"lines":4},"summary":{"used":true,"ms":350},
+ "push":{"sent":1,"removed":0,"failed":0},
+ "notified":{"kind":"email","tag":"pikvm-alert-6c58e9e4","urgency":"normal","ttlSec":300,"titleChars":7,"bodyChars":59}}
+```
+
+`kind` is `alert` (a pop-up) or `test`; `outcome` is `pushed`, `no` (the rule said it is not what was asked about), `skipped` (nothing was
+sent, `reason` says why: replaced by a newer pop-up, daily cap, the same text a moment ago, too little text, a whole-corner change) or
+`error` (`reason` says what failed: the OCR, the push). `asked` is what the daily cap counts: a pop-up that was read. `latency` is epoch ms:
+`capturedAt` is when the snapshot that was read was requested (the Pi's own capture is inside it), `totalMs` is capture to push and
+`sinceFirstSeenMs` is first sight to push. **The log never holds the screen's words**, only lengths and a kind, unless the host runs
+with `PIKVM_WATCH_LOG_TEXT=1`.
 
 ### Notifications on the iPhone
 
@@ -300,7 +213,7 @@ through the host's sign-in. The host must be able to reach the push services (`w
   snapshots. Remove this device (same page) forgets a device.
 - Without a browser: set `"enabled": false` in `chat/users/<id>/watch/settings.json` and restart the container, or delete
   `push-subscriptions.json` to stop the notifications and keep the watch's log.
-- To stop all spending: remove the OpenRouter provider in Settings, Providers. Nothing is asked of a model without it.
+- To stop sending pop-up text to a model: remove the chat model (Settings, Models). Nothing is asked of any model without one.
 
 ## Running it
 
@@ -555,9 +468,7 @@ buffer it (the response sends `x-accel-buffering: no`).
 - Sizes: see the e2e record. omp's binary is about 277 MB of the image.
 - The image is `linux/amd64` or `linux/arm64`; omp has no other Linux build pinned.
 - `docker compose` and `podman compose` both work.
-- Fast alerts: the OCR was benchmarked on drawn toasts (Open Sans, flat cards), not on a real Windows PC's Segoe UI toasts; push delivery on a
-  real network and a real Pi's snapshot cost under a look a second are not measured (see "Fast alerts").
-- Screen watch: delivery to a real iPhone is not verified (there is no iPhone here; headless Chrome in the iPhone 13 profile, with
-  its own push service, stood in for the installed app). The diff compares grey levels on a 128 x 72 grid: a change that moves less
-  than 10 of 255 on fewer than 0.3 % of the cells (a few characters of dim text) is not seen, and a screen that never stops
-  changing (a video, a scrolling log) never settles and so is never checked.
+- Pop-up watch: the OCR was benchmarked on drawn toasts (Open Sans, flat cards), not on a real Windows PC's Segoe UI toasts; push delivery on a
+  real network and a real Pi's snapshot cost under a look a second are not measured (see "Screen watch").
+- Screen watch: delivery to a real iPhone is not verified (there is no iPhone here; headless Chrome in the iPhone 13 profile, with its own
+  push service, stood in for the installed app in the earlier runs). A pop-up that never stays (a flash under 1.2 s) or keeps changing (a video) is not noticed.

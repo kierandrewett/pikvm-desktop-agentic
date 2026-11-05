@@ -1,13 +1,12 @@
 // The stack the screen-watch runs drive: the real web host (node dist/web-server.js) with the chat server in it, in front of
-// tools/fake-kvmd, with tools/fake-push as the push service and, unless the run is the real smoke, tools/fake-openrouter as
-// OpenRouter. Nothing here touches a real PiKVM. Scratch lives under ~/.cache (the machine's /tmp cleaner deletes files mid-run).
+// tools/fake-kvmd, with tools/fake-push as the push service and tools/fake-chat-model as the chat model the notification is written with. Nothing here touches a real PiKVM. Scratch lives under ~/.cache (the machine's /tmp cleaner deletes files mid-run).
 //
 // sharp is not a dependency of the repo (the image installs it): SHARP_MODULES names a node_modules that has it. It draws the
 // two frames the fake kvmd serves, and the host needs it too (NODE_PATH).
 //
 // With E2E_WEB set the host is the IMAGE, started by deploy/e2e/up-inspectable.sh (E2E_ENV_FILE carries the watch's pacing and
 // PIKVM_PUSH_ALLOW_LOCAL): nothing is started here. E2E_WEB, E2E_KVMD, E2E_PUSH, E2E_OR are the published origins of the fakes,
-// E2E_PUSH_AUDIENCE is the push service as the host names it, E2E_OR_URL the OpenRouter base URL as the host sees it, E2E_DATA the
+// E2E_PUSH_AUDIENCE is the push service as the host names it, E2E_OR_URL the fake chat model's base URL as the host sees it, E2E_DATA the
 // host directory mounted at /data and E2E_CONTAINER the container (restarted and logged through podman).
 
 import { spawn, spawnSync } from "node:child_process";
@@ -125,7 +124,7 @@ export async function loadMeasure() {
 }
 
 /** The image's own watch stack: see the header. */
-async function externalWatchStack({ openrouter }) {
+async function externalWatchStack() {
     const need = (name) => process.env[name] ?? (() => { throw new Error(`${name} is required with E2E_WEB`); })();
     const sh = (args) => spawnSync("podman", args, { encoding: "utf8" });
     const container = need("E2E_CONTAINER");
@@ -135,7 +134,7 @@ async function externalWatchStack({ openrouter }) {
         fakeUrl: need("E2E_KVMD"),
         pushUrl: need("E2E_PUSH"),
         orControl: need("E2E_OR"),
-        orUrl: openrouter === "fake" ? need("E2E_OR_URL") : "https://openrouter.ai/api/v1",
+        orUrl: need("E2E_OR_URL"),
         data: need("E2E_DATA"),
         logs: () => { const r = sh(["logs", container]); return `${r.stdout}${r.stderr}`; },
         async restartHost() {
@@ -149,12 +148,12 @@ async function externalWatchStack({ openrouter }) {
 }
 
 /**
- * Bring the stack up. `openrouter: "fake"` starts tools/fake-openrouter; "real" starts none (the run adds the real provider).
+ * Bring the stack up, with tools/fake-chat-model as the model a run can make the chat's default (`setChatModel`).
  * Ports default to a range of their own so a run does not collide with the other suites' servers.
  */
-export async function startWatchStack({ openrouter = "fake", ports = {}, env = {}, dataDir } = {}) {
-    if (process.env.E2E_WEB) return externalWatchStack({ openrouter });
-    const p = { web: 18290, kvmd: 14710, push: 14720, openrouter: 14730, ...ports };
+export async function startWatchStack({ ports = {}, env = {}, dataDir } = {}) {
+    if (process.env.E2E_WEB) return externalWatchStack();
+    const p = { web: 18290, kvmd: 14710, push: 14720, chatModel: 14730, ...ports };
     const data = dataDir ?? mkdtempSync(join(scratch, "data-"));
     const sharp = process.env.SHARP_MODULES ?? join(home, ".cache/pikvm-e2e/sharp/node_modules");
     const omp = process.env.OMP_BIN ?? join(root, "builds/omp/18.14.2/linux-x64/omp");
@@ -164,13 +163,10 @@ export async function startWatchStack({ openrouter = "fake", ports = {}, env = {
     const procs = [fake, push];
     await until(async () => (await fetch(`http://127.0.0.1:${p.kvmd}/__fake/hid`)).ok, "fake-kvmd");
     await until(async () => (await fetch(`http://127.0.0.1:${p.push}/__fake/received`)).ok, "fake-push");
-    let orUrl = "https://openrouter.ai/api/v1";
-    if (openrouter === "fake") {
-        const or = start("fake-openrouter", [...strip, "tools/fake-openrouter/server.ts", "--port", String(p.openrouter)], {});
-        procs.push(or);
-        await until(async () => (await fetch(`http://127.0.0.1:${p.openrouter}/__fake/requests`)).ok, "fake-openrouter");
-        orUrl = `http://127.0.0.1:${p.openrouter}/api/v1`;
-    }
+    const or = start("fake-chat-model", [...strip, "tools/fake-chat-model/server.ts", "--port", String(p.chatModel)], {});
+    procs.push(or);
+    await until(async () => (await fetch(`http://127.0.0.1:${p.chatModel}/__fake/requests`)).ok, "fake-chat-model");
+    const orUrl = `http://127.0.0.1:${p.chatModel}/v1`;
 
     const hostEnv = {
         PIKVM_URL: `http://127.0.0.1:${p.kvmd}`,
@@ -179,11 +175,6 @@ export async function startWatchStack({ openrouter = "fake", ports = {}, env = {
         PIKVM_DATA_DIR: data,
         NODE_PATH: sharp,
         HOME: join(data, "home"),
-        // The watch's pace for a run that cannot wait a minute between checks. The host floors the interval at 2 s whatever is set.
-        PIKVM_WATCH_INTERVAL_MS: "2000",
-        PIKVM_WATCH_SETTLE_MS: "3000",
-        PIKVM_WATCH_MIN_GAP_SEC: "20",
-        PIKVM_WATCH_DAILY_CAP: "4",
         // A subscription on a push service of ours, not a browser vendor's.
         PIKVM_PUSH_ALLOW_LOCAL: "1",
         ...(existsSync(omp) ? { OMP_BIN: omp } : {}),
@@ -203,7 +194,7 @@ export async function startWatchStack({ openrouter = "fake", ports = {}, env = {
         web: `http://127.0.0.1:${p.web}`,
         fakeUrl: `http://127.0.0.1:${p.kvmd}`,
         pushUrl: `http://127.0.0.1:${p.push}`,
-        orControl: `http://127.0.0.1:${p.openrouter}`,
+        orControl: `http://127.0.0.1:${p.chatModel}`,
         orUrl,
         data,
         host: () => host,
@@ -233,18 +224,23 @@ function watchStackCommon({ web, fakeUrl, pushUrl, orControl, orUrl, data, host,
         data,
         host,
         logs,
-        /** Store the OpenRouter provider the way Settings, Providers does (the chat server's own route and request header). */
-        async setProvider(apiKey = CANARY.key, baseUrl = orUrl) {
-            const res = await fetch(`${web}/app/chat/api/settings/agent.providers`, {
-                method: "PUT",
-                headers: { "content-type": "application/json", "x-chat-request": "1" },
-                body: JSON.stringify({ value: { openrouter: { enabled: true, baseUrl, api: "openai-completions", apiKey, models: [] } } }),
-            });
-            if (!res.ok) throw new Error(`storing the provider: ${res.status} ${await res.text()}`);
+        /**
+         * Make the fake chat model the chat's default model the way Settings, Providers and Models do (the chat server's own route and
+         * request header): a provider on `baseUrl`, and `fakechat/small` as the default model.
+         */
+        async setChatModel(baseUrl = orUrl) {
+            const put = async (key, value) => {
+                const res = await fetch(`${web}/app/chat/api/settings/${key}`, { method: "PUT", headers: { "content-type": "application/json", "x-chat-request": "1" }, body: JSON.stringify({ value }) });
+                if (!res.ok) throw new Error(`storing ${key}: ${res.status} ${await res.text()}`);
+            };
+            await put("agent.providers", { fakechat: { enabled: true, baseUrl, api: "openai-completions", apiKey: CANARY.key, models: [] } });
+            await put("agent.defaultModel", "fakechat/small");
         },
-        async removeProvider() {
-            const res = await fetch(`${web}/app/chat/api/settings/agent.providers`, { method: "DELETE", headers: { "x-chat-request": "1" } });
-            if (!res.ok) throw new Error(`removing the provider: ${res.status}`);
+        async removeChatModel() {
+            for (const key of ["agent.providers", "agent.defaultModel"]) {
+                const res = await fetch(`${web}/app/chat/api/settings/${key}`, { method: "DELETE", headers: { "x-chat-request": "1" } });
+                if (!res.ok) throw new Error(`removing ${key}: ${res.status}`);
+            }
         },
         watch: () => json(`${web}/app/api/v1/watch`),
         patchWatch: (body) => fetch(`${web}/app/api/v1/watch`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
@@ -265,7 +261,7 @@ function watchStackCommon({ web, fakeUrl, pushUrl, orControl, orUrl, data, host,
         pushSubscribe: () => post(`${pushUrl}/__fake/subscription`).then((r) => r.json()),
         pushStatus: (id, status) => post(`${pushUrl}/__fake/status?id=${id}${status ? `&status=${status}` : ""}`),
         orScript: (body) => post(`${orControl}/__fake/script`, body),
-        orCalls: async () => (await json(`${orControl}/__fake/requests`)).calls,
+        orCalls: async () => (await json(`${orControl}/__fake/requests`)).requests,
         restartHost,
         stop,
     };
