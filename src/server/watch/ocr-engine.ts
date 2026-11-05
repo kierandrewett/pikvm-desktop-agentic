@@ -60,7 +60,7 @@ export function createOcrEngine(options: OcrEngineOptions = {}): Ocr {
             serialization: "advanced",
             execArgv: [],
             stdio: ["ignore", "inherit", "inherit", "ipc"],
-            env: { ...process.env, PIKVM_OCR_MODELS: modelsDir, PIKVM_OCR_THREADS: String(threads) },
+            env: { ...process.env, PIKVM_OCR_MODELS: modelsDir, PIKVM_OCR_THREADS: String(threads), ORT_DISABLE_TELEMETRY: "1" },
         });
         const { promise, resolve, reject } = Promise.withResolvers<void>();
         // A rejection nobody awaits yet (a warm-up that failed) is not an unhandled one.

@@ -39,4 +39,4 @@ make package                        # build + installers for this platform -> bu
 - The screen watch (`src/server/watch/`): `watcher.ts` the one poller, `pipeline.ts` the whole-screen path (image model, Jev), `fast-alerts.ts` the corner pop-up path
   (zone diff in `frame-diff.ts`, local OCR in `ocr-engine.ts` / `ocr-worker.ts` / `ocr-paddle.ts`, text rules in `toast-rules.ts`), `limits.ts` every number with its measurement.
   The OCR needs `dist/ocr-worker.js` (`yarn build` makes it), onnxruntime-node and the models pinned in `deploy/ocr.lock` (`node scripts/fetch-ocr.mjs`); `yarn test` needs
-  none of them (fake OCR; one real-engine test is skipped unless `PIKVM_OCR_NODE_MODULES` and `PIKVM_OCR_MODELS` are set). Docs: `docs/deploy-web.md` "Screen watch".
+  none of them (fake OCR; one real-engine test is skipped unless `PIKVM_OCR_NODE_MODULES` and `PIKVM_OCR_MODELS` are set). The fast path sends nothing to a model service unless the user sets a rule (OCR text to Jev) or the operator sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`; keep it so. `ORT_DISABLE_TELEMETRY=1` is forced in the OCR worker. Docs: `docs/deploy-web.md` "Screen watch".

@@ -91,7 +91,8 @@ ENV NODE_ENV=production \
     PORT=8080 \
     PIKVM_DATA_DIR=/data \
     OMP_BIN=/opt/omp/omp \
-    PIKVM_OCR_MODELS=/opt/ocr/models
+    PIKVM_OCR_MODELS=/opt/ocr/models \
+    ORT_DISABLE_TELEMETRY=1
 
 # One fixed unprivileged user that owns /data. Nothing but /data (and tmpfs /tmp) is ever written,
 # so the root filesystem can be read-only and every capability dropped.

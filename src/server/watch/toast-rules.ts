@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 /**
  * The words of a fast alert, made from what the local OCR read off a pop-up in the corner of the screen. Deterministic: no
- * model, nothing leaves the host. `readToast` classifies the lines (a call, a Teams message, an email, anything else), strips the
+ * model; this file sends nothing anywhere. `readToast` classifies the lines (a call, a Teams message, an email, anything else), strips the
  * toast's own furniture (Dismiss, Reply, a close glyph, a clock time) and builds the notification's title, body, tag and urgency.
  *
  * What it does not do is understand the screen: it knows the three kinds of pop-up the feature is for, and shows any other pop-up

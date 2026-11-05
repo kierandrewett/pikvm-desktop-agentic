@@ -11,6 +11,11 @@
  *                     { fatal: string }                        the models cannot be loaded; the process then exits
  * It opens no socket and makes no request.
  */
+// ONNX Runtime's Linux builds carry Microsoft's 1DS telemetry client, which posts to mobile.events.data.microsoft.com.
+// Nothing from a screen may leave the host, so it is switched off before the library loads. This is a second line of defence:
+// ocr-engine.ts and the image set the same variable.
+process.env["ORT_DISABLE_TELEMETRY"] = "1";
+
 import { join } from "node:path";
 import { createPaddleReader, type OrtLike, type SharpLike } from "./ocr-paddle";
 

@@ -226,3 +226,29 @@ describe("the real engine", () => {
         assert.match(mail?.body ?? "", /Lunch on Thursday/);
     });
 });
+
+describe("onnxruntime's telemetry", () => {
+    it("O6: the forked worker's environment always has ORT_DISABLE_TELEMETRY=1, and nothing in the host's own environment can turn it back on", async () => {
+        const seen: (string | undefined)[] = [];
+        const before = process.env["ORT_DISABLE_TELEMETRY"];
+        for (const user of [undefined, "0", "false", ""]) {
+            if (user === undefined) delete process.env["ORT_DISABLE_TELEMETRY"];
+            else process.env["ORT_DISABLE_TELEMETRY"] = user;
+            const ocr = createOcrEngine({
+                workerPath: worker,
+                modelsDir: models,
+                fork: ((_path: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+                    seen.push(options.env["ORT_DISABLE_TELEMETRY"]);
+                    const child = new FakeChild();
+                    setImmediate(() => child.emit("message", { ready: true }));
+                    return child;
+                }) as never,
+            });
+            await ocr.read(Buffer.from("x"), 1000);
+            ocr.close();
+        }
+        if (before === undefined) delete process.env["ORT_DISABLE_TELEMETRY"];
+        else process.env["ORT_DISABLE_TELEMETRY"] = before;
+        assert.deepEqual(seen, ["1", "1", "1", "1"]);
+    });
+});

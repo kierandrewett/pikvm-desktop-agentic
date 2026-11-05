@@ -69,7 +69,7 @@ interface Rig {
 const rigs: Rig[] = [];
 after(() => rigs.forEach((rig) => rig.dir.remove()));
 
-function rig(over: { fastCap?: number; rule?: string; fastAlerts?: boolean; dailyCap?: number; logText?: boolean } = {}): Rig {
+function rig(over: { fastCap?: number; rule?: string; fastAlerts?: boolean; dailyCap?: number; logText?: boolean; cloudFallback?: boolean } = {}): Rig {
     const dir = tempDir();
     const store = tempStore(dir.path);
     let looks = 0;
@@ -135,6 +135,7 @@ function rig(over: { fastCap?: number; rule?: string; fastAlerts?: boolean; dail
             return Buffer.from(`crop:${jpeg.toString()}`);
         },
         ...(over.logText ? { logText: true } : {}),
+        ...(over.cloudFallback ? { cloudFallback: true } : {}),
     });
     rigs.push(result);
     return result;
@@ -725,7 +726,40 @@ describe("text that is the window behind the pop-up", () => {
     });
 });
 
-describe("when the OCR does not deliver", () => {
+describe("when the OCR does not deliver and the cloud fallback is off (the default)", () => {
+    it("F16: a timed-out OCR with a key configured sends nothing anywhere: no vision model, no Jev, and the log says why", async () => {
+        r.ocr.error = new OcrTimeoutError(OCR_TIMEOUT_MS);
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        assert.equal(r.push.sent.length, 0);
+        assert.deepEqual(r.models.alerted, []);
+        assert.deepEqual(r.models.described, []);
+        assert.deepEqual(r.models.decided, []);
+        const entry = r.entries()[0]!;
+        assert.equal(entry.outcome, "error");
+        assert.match(entry.reason ?? "", /^ocr timed out, and the cloud fallback is off \(PIKVM_WATCH_FAST_CLOUD_FALLBACK\), so nothing was sent/);
+        assert.equal(entry.model, undefined);
+        assert.equal(entry.description, undefined);
+    });
+
+    it("F16: so does too few words in a dialog-sized change", async () => {
+        r.ocr.texts = { "crop:toast-a": ["Ping"] };
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        assert.equal(r.push.sent.length, 0);
+        assert.deepEqual(r.models.alerted, []);
+        assert.equal(r.entries()[0]!.outcome, "skipped");
+        assert.match(r.entries()[0]!.reason ?? "", /cloud fallback is off/);
+    });
+});
+
+describe("when the OCR does not deliver and the operator turned the cloud fallback on", () => {
+    beforeEach(() => {
+        r = rig({ cloudFallback: true });
+        r.ocr.texts = { "crop:toast-a": EMAIL, "crop:toast-b": TEAMS, "crop:toast-c": CALL };
+        r.hold(flat(60), "home", 3000);
+    });
+
     it("F13: an OCR that passes its time is logged as 'ocr timed out'; with no key nothing is sent", async () => {
         r.provider = undefined;
         r.ocr.error = new OcrTimeoutError(OCR_TIMEOUT_MS);

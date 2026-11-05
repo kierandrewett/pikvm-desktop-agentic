@@ -23,8 +23,9 @@ import { cleanLines, MIN_TOAST_WORDS, readToast, toastForRule, toastHash, type T
  * FAST ALERTS: one user's second path, for a pop-up in one corner of the screen (an email, a Teams message, a Teams call).
  * docs/deploy-web.md ("Fast alerts") has the flow and the numbers.
  *
- * Zone diff, then a crop, then OCR on this host, then text rules, then the push. No model is involved and nothing leaves the host,
- * except in the two cases below that need a user's key and that the log names. It differs from the slow path (pipeline.ts) in
+ * Zone diff, then a crop, then OCR on this host, then text rules, then the push. No model is involved and nothing from the screen
+ * leaves the host, except in two cases the log names: the user set a rule (only the OCR text goes to Jev), or the host operator set
+ * `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1` (the vision fallback below, which sends the crop). It differs from the slow path (pipeline.ts) in
  * what it is for, and so in each rule:
  *  - it watches one rectangle (the zone) of the same grey grid, not the whole screen;
  *  - a change counts as an APPEARANCE once it has held `fast.settleMs` (1.2 s, not 6 s), and is not dropped if it goes away
@@ -35,8 +36,9 @@ import { cleanLines, MIN_TOAST_WORDS, readToast, toastForRule, toastHash, type T
  *  - with no rule there is nothing to decide, so no Jev call and no network call at all: the notification follows the text;
  *    with a rule, Jev is asked about the text, exactly as the slow path asks it;
  *  - the same pop-up text inside `FAST_DUPLICATE_MS` is told once.
- * The two cases that ask a vision model (OpenRouter, the user's key) instead: the OCR timed out or failed, or it read fewer than
- * `MIN_TOAST_WORDS` words in a change big enough to be a dialog. Without a key they log and send nothing.
+ * The two cases that could ask a vision model (OpenRouter, the user's key) instead: the OCR timed out or failed, or it read fewer than
+ * `MIN_TOAST_WORDS` words in a change big enough to be a dialog. They do so ONLY when the host sets `cloudFallback`
+ * (`PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`) and there is a key; otherwise they log why and send nothing.
  * Every check logs the timestamps of its path (frame captured, seen, held, read, decided, pushed) and never the screen's words
  * (unless the host runs with `PIKVM_WATCH_LOG_TEXT=1`).
  */
@@ -61,6 +63,8 @@ export interface FastAlertDeps {
     crop(jpeg: Buffer, cells: ZoneCells): Promise<Buffer>;
     /** Put the pop-up's words in the check log. Off unless the operator asks (`PIKVM_WATCH_LOG_TEXT=1`). */
     logText?: boolean;
+    /** Let the OCR's failures fall back to the vision model, which sends the crop to OpenRouter. Off unless the operator sets it. */
+    cloudFallback?: boolean;
     log?(line: string): void;
 }
 
@@ -217,9 +221,10 @@ export function createFastAlerts(deps: FastAlertDeps): FastAlerts {
             const doubtful = !toast && change.score >= VISION_FALLBACK_SCORE;
             if (ocrFailure !== undefined || doubtful) {
                 const why = ocrFailure ?? `the OCR read ${words} words (fewer than ${MIN_TOAST_WORDS}) in a change big enough to be a dialog`;
-                const provider = deps.provider();
+                const provider = deps.cloudFallback === true ? deps.provider() : undefined;
                 if (!provider) {
-                    return record({ ...common(), outcome: ocrFailure !== undefined ? "error" : "skipped", reason: `${why}, and there is no OpenRouter key for the vision model, so nothing was sent` });
+                    const because = deps.cloudFallback === true ? "there is no OpenRouter key for the vision model" : "the cloud fallback is off (PIKVM_WATCH_FAST_CLOUD_FALLBACK)";
+                    return record({ ...common(), outcome: ocrFailure !== undefined ? "error" : "skipped", reason: `${why}, and ${because}, so nothing was sent` });
                 }
                 const described = await deps.models.describeAlert(provider, settings.visionModel, crop);
                 costUsd += described.costUsd ?? 0;

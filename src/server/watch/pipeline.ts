@@ -58,6 +58,8 @@ export interface PipelineDeps {
     screenOcr: Ocr;
     /** Put a pop-up's words in the check log (`PIKVM_WATCH_LOG_TEXT=1`). */
     logText?: boolean;
+    /** Fast alerts may send a crop to the vision model when the OCR fails (`PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`). The slow path is not affected. */
+    cloudFallback?: boolean;
     log?(line: string): void;
 }
 
@@ -110,6 +112,7 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
         ocr: deps.ocr,
         crop: deps.crop,
         ...(deps.logText ? { logText: true } : {}),
+        ...(deps.cloudFallback ? { cloudFallback: true } : {}),
         log,
     });
     /** What the whole-screen diff currently ignores: the fast alerts' zone, or nothing. A change of it starts that diff over. */

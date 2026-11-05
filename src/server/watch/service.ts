@@ -47,6 +47,8 @@ export interface WatchServiceDeps {
     subject?: string | undefined;
     /** Put pop-up text in the check log (`PIKVM_WATCH_LOG_TEXT=1`); off by default, the log then says how much was read and not what. */
     logText?: boolean;
+    /** `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`: fast alerts may send a crop to the vision model when the OCR fails. Off by default. */
+    cloudFallback?: boolean;
     // Test seams.
     /** The OCR fast alerts read pop-ups with. Default: the one in this host's image (ocr-engine.ts). */
     ocr?: Ocr;
@@ -201,6 +203,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             screenOcr,
             crop: cropCells,
             ...(deps.logText ? { logText: true } : {}),
+            ...(deps.cloudFallback ? { cloudFallback: true } : {}),
             log,
         });
         pipelines.set(userId, pipeline);

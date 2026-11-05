@@ -176,6 +176,7 @@ export function startControlServer(
         limits: limitsFromEnv(),
         allowLocalPush: process.env["PIKVM_PUSH_ALLOW_LOCAL"] === "1",
         logText: process.env["PIKVM_WATCH_LOG_TEXT"] === "1",
+        cloudFallback: process.env["PIKVM_WATCH_FAST_CLOUD_FALLBACK"] === "1",
         subject: process.env["PIKVM_PUSH_SUBJECT"] || undefined,
         log: (line) => console.log(line),
     });

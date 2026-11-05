@@ -69,6 +69,7 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_WATCH_FAST_MIN_GAP_SEC` | no | At most one fast check per watch in this many seconds (default `4`). |
 | `PIKVM_WATCH_FAST_DAILY_CAP` | no | At most this many fast checks per watch in 24 hours (default `500`). Counted apart from `PIKVM_WATCH_DAILY_CAP`. |
 | `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR fast alerts read pop-ups with: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
+| `PIKVM_WATCH_FAST_CLOUD_FALLBACK` | no | `1` lets fast alerts send the pop-up's crop to the OpenRouter vision model (the user's key) when the OCR times out, fails or reads too few words. **Off by default**: then those cases are logged and nothing is sent. The whole-screen path is not affected. |
 | `PIKVM_WATCH_LOG_TEXT` | no | `1` puts a fast alert's words (the notification's title and body) in `checks.jsonl`. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
 | `PIKVM_PUSH_ALLOW_LOCAL` | no | `1` accepts push subscriptions on any address, loopback and plain http included. For tests and local runs only: left off, only the push services browsers use are accepted. |
@@ -187,7 +188,7 @@ flowchart LR
     rules -->|no rule| push[Web Push]
     rules -->|your rule| jev[Jev yes/no on the text]
     jev -->|decisive yes| push
-    ocr -.->|timed out or too few words, and a key is set| vision[vision model on the crop]
+    ocr -.->|timed out or too few words, only with PIKVM_WATCH_FAST_CLOUD_FALLBACK=1 and a key| vision[vision model on the crop]
     vision --> rules
 ```
 
@@ -217,13 +218,14 @@ flowchart LR
    mail is "Teams" or "Outlook" with "sender: first line" (at most 160 characters), urgency normal, a 5 minute TTL and a tag of its
    text. Any other pop-up shows its lines. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The
    **same pop-up text inside 30 s is notified once**.
-5. **No rule: no network call at all.** Nothing from the screen leaves the host and no OpenRouter key is needed. **With a rule** (Settings,
+5. **No rule: no network call at all.** No OpenRouter key is needed. **With a rule** (Settings,
    "What to tell me about") the pop-up's text, `<app>: <lines>`, goes to Jev as `{previous: "(none)", current, rule}` exactly as in the slow
    path (same cache, same 0.85 / 0.15 thresholds); only that text, no image.
 6. **When the OCR does not deliver.** It timed out or failed, or it read fewer than 3 words in a change of at least 5 % of the zone
-   (a dialog): if an OpenRouter key is set the vision model reads the same crop (the one case an image of the screen leaves the host,
-   named in the log as `read.by: "vision"` with its `fallback` reason); with no key the check is logged ("ocr timed out, and there is
-   no OpenRouter key") and nothing is sent.
+   (a dialog). By default the check is logged with the reason ("ocr timed out, and the cloud fallback is off") and **nothing is
+   sent**, not even with a key set. Only if the operator sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`, and a key is set, does the vision
+   model read the same crop (the one case an image of the screen leaves the host for the fast path; the log says `read.by: "vision"`
+   with its `fallback` reason).
 
 **Its own bounds**: at most one fast check per **4 s** (a pop-up inside it waits, newest wins, and is read from its own captured
 frame), at most **500 a day**, counted apart from the slow path's 60 s / 200, so two toasts 5 s apart both notify and fast alerts never
@@ -234,10 +236,15 @@ that was read was requested, `detectedAt`, `readAt`, `decidedAt`, `pushedAt`, `t
 (`by`, `ms`, characters, words, lines) and `notified` (kind, tag, urgency, TTL, title and body lengths). **It never holds the screen's words**
 unless the host runs with `PIKVM_WATCH_LOG_TEXT=1`.
 
-**What leaves the host, said plainly.** With no rule and a working OCR: nothing from the screen, and no network call except the push
-itself (to the push service of the device). With a rule: the OCR text of the pop-up to OpenRouter (Jev). Only on the two fallbacks
-above: the crop image. The slow path is as before: whole frames to OpenRouter, unless there is no key, in which case its text is read
-on the host.
+**What leaves the host, said plainly.** The fast path reads the pop-up on the host and sends nothing to any model service unless the user
+sets a rule (then only the OCR text goes to Jev) or sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1` (then a crop can go to the vision model when
+the OCR fails). The notification itself goes to the device's push service, as always. The slow path is as before: whole frames to OpenRouter
+with the user's key, or, with no key, read on the host.
+
+**onnxruntime's telemetry is switched off.** The Linux build of onnxruntime-node includes Microsoft's 1DS telemetry (endpoint
+`mobile.events.data.microsoft.com`). The host forces `ORT_DISABLE_TELEMETRY=1` in the OCR worker's environment (`ocr-engine.ts` sets it
+after the host's own environment, so a value in it cannot turn it back on; `ocr-worker.ts` sets it again; the image's `ENV` has it too).
+A unit test holds this.
 
 **Measured** (`docs/e2e/2026-11-05-fast-alerts.md`, 10 toasts, fake PiKVM, fake push service on loopback, the real host and OCR on a
 workstation): **toast to notification at the push service 1.8 s median (1.3 to 2.3 s)**; of that, waiting for the

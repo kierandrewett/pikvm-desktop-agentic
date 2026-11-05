@@ -19,7 +19,7 @@ SHARP_MODULES=~/.cache/pikvm-e2e/sharp/node_modules OCR_NODE_MODULES=~/.cache/pi
 ## What was NOT measured
 
 - The push service on a real network. The fake push service is on loopback; a real FCM or Apple push adds its own delay (tens to hundreds of ms, sometimes seconds for a device that is asleep) after the host's send. Nothing here says how long a phone takes to show the notification.
-- A vision model or Jev. The fast path with no rule uses neither, so there is no model latency to measure. The fallback (OCR timed out, or too few words, and a key is set) and a user's rule do call OpenRouter; their latency is not measured.
+- A vision model or Jev. The fast path with no rule uses neither, so there is no model latency to measure. The fallback (OCR timed out, or too few words, with PIKVM_WATCH_FAST_CLOUD_FALLBACK=1 and a key) and a user's rule do call OpenRouter; their latency is not measured.
 - A real Pi. The fake kvmd answers a snapshot from memory; a real Pi's snapshot was measured by hand at 75 to 140 ms for a 123 KB JPEG (reported by the main agent, not by this run). The time to capture and encode is inside it and is not part of these numbers beyond the fake's.
 - The Xeon the image runs on: this is a workstation. The OCR benchmark on that Xeon is in `2026-11-05-fast-alerts-ocr.md`.
 
