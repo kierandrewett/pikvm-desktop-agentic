@@ -112,8 +112,15 @@ export class DeviceStore {
                     this.devices.push({ id: d.id, name: d.name, hash: d.hash, method: d.method, subject: d.subject, binding: d.binding, createdAt: d.createdAt, lastUsedAt: d.lastUsedAt });
                 }
             }
-        } catch {
-            /* none yet, or unreadable: start empty */
+        } catch (error) {
+            // No file yet is normal. A file that exists but cannot be read is kept aside, so the next save cannot overwrite it.
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+                try {
+                    renameSync(path, `${path}.corrupt`);
+                } catch {
+                    /* nothing more to do: the registry starts empty and fails closed */
+                }
+            }
         }
     }
 

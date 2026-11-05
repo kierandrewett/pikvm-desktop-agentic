@@ -173,8 +173,11 @@ export function createBrowserSignIn(deps: SignInDeps): BrowserSignIn {
             const entry = await deps.save({ origin: attempt.origin, token, ...(attempt.name ? { name: attempt.name } : {}) });
             // Cancelled or timed out while the server was being saved: it must not stay saved, and its token must not stay valid.
             if (attempt.status.state !== "waiting") {
-                deps.forget(entry.id);
-                await revokeDeviceToken({ origin: attempt.origin, token }, fetchFn);
+                try {
+                    deps.forget(entry.id);
+                } finally {
+                    await revokeDeviceToken({ origin: attempt.origin, token }, fetchFn);
+                }
                 return respond(res, 200, "That sign-in was cancelled. You can close this tab.");
             }
             finish(attempt, { state: "done", entry });
