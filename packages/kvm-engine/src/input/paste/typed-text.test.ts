@@ -3,7 +3,7 @@ import { FakeHttp } from "../../testing/fake-socket";
 import type { Notice } from "../notice";
 import { createTypingGate } from "../typing-gate";
 import { createPaster } from "./paster";
-import { MAX_TYPED_CHARS, prepareTypedText } from "./typed-text";
+import { MAX_RAW_CHARS, MAX_TYPED_CHARS, prepareTypedText } from "./typed-text";
 
 // A clipboard holds whatever was copied. What is typed on the target is what a keyboard can type.
 
@@ -114,10 +114,22 @@ describe("typing it", () => {
     it("what kvmd is sent is the cleaned text, and the result says how much was left out", async () => {
         const { http, notices, paster } = setup();
         const result = await paster.paste("a\r\n\u201cb\u201d \u{1f600}\u200b");
-        expect(result).toEqual({ kind: "typed", chars: 6, dropped: 1 });
+        expect(result).toEqual({ kind: "typed", chars: 6, dropped: 1, adjusted: 2 });
         expect(http.requests).toHaveLength(1);
         expect(http.requests[0]?.body).toBe('a\n"b" ');
-        expect(notices[notices.length - 1]?.text).toBe("Typed 6 characters on the target (1 character the keyboard cannot type was left out)");
+        expect(notices[notices.length - 1]?.text).toBe(
+            "Typed 6 characters on the target (2 characters were typed as plain ones; 1 character the keyboard cannot type was left out)",
+        );
+    });
+
+    it("characters that were only adjusted (curly quotes, an em dash) are said too, so a pasted password or line of code that came out different is not a surprise", async () => {
+        const { notices, paster } = setup();
+        const result = await paster.paste("it\u2019s \u2014 ok");
+        expect(result).toEqual({ kind: "typed", chars: 9, adjusted: 2 });
+        expect(notices[notices.length - 1]?.text).toBe("Typed 9 characters on the target (2 characters were typed as plain ones)");
+        notices.length = 0;
+        await paster.paste("\u201cx");
+        expect(notices[notices.length - 1]?.text).toBe("Typed 2 characters on the target (1 character was typed as a plain one)");
     });
 
     it("plain text is sent exactly as it is", async () => {
@@ -148,5 +160,13 @@ describe("typing it", () => {
         const noisy = "\u200b".repeat(500_000) + "ok";
         expect(await paster.paste(noisy)).toEqual({ kind: "typed", chars: 2 });
         expect(http.requests[0]?.body).toBe("ok");
+    });
+
+    it("a clipboard past MAX_RAW_CHARS is refused as it is, before it is scanned or copied", async () => {
+        const { http, notices, paster } = setup();
+        const huge = "a".repeat(MAX_RAW_CHARS + 1);
+        expect(await paster.paste(huge)).toEqual({ kind: "too-long", chars: MAX_RAW_CHARS + 1 });
+        expect(http.requests).toEqual([]);
+        expect(notices).toEqual([{ text: "That is 2,000,001 characters, far more than can be typed at once (100,000).", error: true }]);
     });
 });

@@ -180,6 +180,59 @@ describe("blocked input (failure mode 14)", () => {
     });
 });
 
+describe("this machine's clipboard is never typed by the field", () => {
+    it("a paste, a drop and every paste-like input are refused, and nothing reaches the target or the field", () => {
+        const { clock, el, downs, target } = setup();
+        for (const type of ["paste", "drop"]) {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            el.dispatchEvent(event);
+            expect(event.defaultPrevented, type).toBe(true);
+        }
+        for (const inputType of ["insertFromPaste", "insertFromPasteAsQuotation", "insertFromDrop", "insertFromYank"]) {
+            const event = new InputEvent("beforeinput", { inputType, data: "pasted", bubbles: true, cancelable: true });
+            el.dispatchEvent(event);
+            expect(event.defaultPrevented, inputType).toBe(true);
+        }
+        clock.advance(1000);
+        expect(downs()).toEqual([]);
+        expect(target.events).toEqual([]);
+        expect(el.value).toBe(KB_PAD);
+    });
+
+    it("ordinary typing is still allowed through beforeinput", () => {
+        const { el } = setup();
+        const event = new InputEvent("beforeinput", { inputType: "insertText", data: "a", bubbles: true, cancelable: true });
+        el.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+    });
+
+    it("Ctrl+V is the target's: sent as a chord, the browser's own paste stopped, and Ctrl is let go", () => {
+        const { clock, key, target } = setup();
+        const down = key("keydown", { key: "v", code: "KeyV", ctrlKey: true });
+        expect(down.defaultPrevented).toBe(true);
+        key("keyup", { key: "v", code: "KeyV", ctrlKey: true });
+        clock.advance(1000);
+        expect(target.events).toContain("KeyV:down");
+        expect(target.events).toContain("KeyV:up");
+        const control = target.events.filter((event) => event.startsWith("ControlLeft"));
+        expect(control.length).toBeGreaterThan(0);
+        expect(control[control.length - 1], "a missing keyup would leave Ctrl held on the target").toBe("ControlLeft:up");
+    });
+
+    it("the paste and drop refusals are removed on unbind, like every other listener", () => {
+        const { el, binding } = setup();
+        binding.unbind();
+        for (const type of ["paste", "drop"]) {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            el.dispatchEvent(event);
+            expect(event.defaultPrevented, type).toBe(false);
+        }
+        const event = new InputEvent("beforeinput", { inputType: "insertFromPaste", bubbles: true, cancelable: true });
+        el.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+    });
+});
+
 describe("unbind", () => {
     it("stops forwarding", () => {
         const { clock, el, binding, input, downs } = setup();

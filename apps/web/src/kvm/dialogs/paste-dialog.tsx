@@ -12,7 +12,7 @@
  * the dialog does not stop it, so while it types the dialog says so and shows an estimate.
  */
 
-import { humanCount, humanDuration, keymapChoice, MAX_TYPED_CHARS, PASTE_DELAY_S, pasteDuration, prepareTypedText } from "@pikvm/kvm-engine";
+import { humanCount, humanDuration, keymapChoice, MAX_RAW_CHARS, MAX_TYPED_CHARS, PASTE_DELAY_S, pasteDuration, prepareTypedText } from "@pikvm/kvm-engine";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DialogProps } from "../dialog-seam";
 import { useTarget } from "../session";
@@ -28,8 +28,10 @@ export function typingProgress(elapsedMs: number, chars: number): number | null 
 
 export function PasteDialog({ session, onClose }: DialogProps) {
     const [text, setText] = useState("");
-    const prepared = useMemo(() => prepareTypedText(text), [text]);
-    const tooLong = prepared.text.length > MAX_TYPED_CHARS;
+    // A clipboard of millions of characters is refused before it is scanned (MAX_RAW_CHARS), not cleaned first.
+    const rawTooLong = text.length > MAX_RAW_CHARS;
+    const prepared = useMemo(() => (rawTooLong ? { text: "", folded: 0, dropped: 0, invisible: 0 } : prepareTypedText(text)), [text, rawTooLong]);
+    const tooLong = rawTooLong || prepared.text.length > MAX_TYPED_CHARS;
     const [typing, setTyping] = useState<{ chars: number; startedAt: number } | null>(null);
     const [now, setNow] = useState(() => session.clock.now());
     const mounted = useRef(true);
@@ -163,14 +165,21 @@ export function PasteDialog({ session, onClose }: DialogProps) {
                     out.
                 </p>
             ) : null}
-            {text !== "" && prepared.text === "" ? (
+            {prepared.folded > 0 ? (
+                <p className="dlg-note" role="status" data-testid="paste-adjusted">
+                    {humanCount(prepared.folded)} {prepared.folded === 1 ? "character" : "characters"} (curly quotes, long dashes, ligatures and the like) will be typed as{" "}
+                    {prepared.folded === 1 ? "its plain equivalent" : "their plain equivalents"}.
+                </p>
+            ) : null}
+            {text !== "" && !rawTooLong && prepared.text === "" ? (
                 <p className="dlg-note is-warn" role="status" data-testid="paste-nothing">
                     Nothing in this text can be typed on the target.
                 </p>
             ) : null}
             {tooLong ? (
                 <p className="dlg-note is-warn" role="status" data-testid="paste-too-long">
-                    That is more than the {humanCount(MAX_TYPED_CHARS)} characters that can be typed at once ({humanDuration(prepared.text.length * PASTE_DELAY_S * 1000)}). Cut it down.
+                    That is more than the {humanCount(MAX_TYPED_CHARS)} characters that can be typed at once
+                    {rawTooLong ? "" : ` (${humanDuration(prepared.text.length * PASTE_DELAY_S * 1000)})`}. Cut it down.
                 </p>
             ) : null}
             {gate.macro !== null && !typing ? (

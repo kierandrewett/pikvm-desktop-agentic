@@ -282,15 +282,16 @@ describe("paste (9-12)", () => {
         expect(screen.getByLabelText("Text to type on the target")).toHaveValue("");
     });
 
-    it("a clipboard of curly quotes, CRLF, a zero-width mark and an emoji: the count is what will be typed, what is left out is said, and the clean text is sent", async () => {
+    it("a clipboard of curly quotes, CRLF, a zero-width mark and an emoji: the count is what will be typed, what is adjusted and what is left out are both said before and after, and the clean text is sent", async () => {
         const { rig, view } = await mountPaste();
         fireEvent.change(screen.getByLabelText("Text to type on the target"), { target: { value: "say \u201chi\u201d \u{1f600}\r\nbye\u200b" } });
         expect(screen.getByTestId("paste-count")).toHaveTextContent("13 characters");
         expect(screen.getByTestId("paste-dropped")).toHaveTextContent("1 character the keyboard cannot type (emoji, arrows and the like) will be left out.");
+        expect(screen.getByTestId("paste-adjusted")).toHaveTextContent("2 characters (curly quotes, long dashes, ligatures and the like) will be typed as their plain equivalents.");
         fireEvent.click(screen.getByRole("button", { name: "Type on target" }));
         await waitFor(() => expect(view.closed.count).toBe(1));
         expect(rig.http.requests[0]?.body).toBe('say "hi" \nbye');
-        expect(rig.session.notices.store.getState().text).toBe("Typed 13 characters on the target (1 character the keyboard cannot type was left out)");
+        expect(rig.session.notices.store.getState().text).toBe("Typed 13 characters on the target (2 characters were typed as plain ones; 1 character the keyboard cannot type was left out)");
     });
 
     it("text with nothing a keyboard can type is not sendable, and the dialog says so", async () => {
@@ -298,6 +299,15 @@ describe("paste (9-12)", () => {
         fireEvent.change(screen.getByLabelText("Text to type on the target"), { target: { value: "\u{1f600}\u{1f680}" } });
         expect(screen.getByRole("button", { name: "Type on target" })).toBeDisabled();
         expect(screen.getByTestId("paste-nothing")).toHaveTextContent("Nothing in this text can be typed on the target.");
+        expect(rig.http.requests).toEqual([]);
+    });
+
+    it("a clipboard of millions of characters is refused as it is: no scan, not sendable, and the dialog says it is too much", async () => {
+        const { rig } = await mountPaste();
+        fireEvent.change(screen.getByLabelText("Text to type on the target"), { target: { value: "a".repeat(2_000_001) } });
+        expect(screen.getByRole("button", { name: "Type on target" })).toBeDisabled();
+        expect(screen.getByTestId("paste-too-long")).toHaveTextContent("more than the 100,000 characters that can be typed at once");
+        expect(screen.queryByTestId("paste-nothing")).toBeNull();
         expect(rig.http.requests).toEqual([]);
     });
 

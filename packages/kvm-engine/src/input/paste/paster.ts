@@ -2,7 +2,7 @@ import type { HttpPort } from "../../http";
 import { errorMessage, type Notify } from "../notice";
 import type { TypingGate } from "../typing-gate";
 import { humanCount, humanDuration, pasteDuration, PASTE_DELAY_S, printPath } from "./print-query";
-import { MAX_TYPED_CHARS, prepareTypedText } from "./typed-text";
+import { MAX_RAW_CHARS, MAX_TYPED_CHARS, prepareTypedText } from "./typed-text";
 
 /**
  * Type text on the target: kvmd types the text itself (`POST /api/hid/print`), faster than sending keys
@@ -16,10 +16,11 @@ export type PasteResult =
     | { readonly kind: "empty" }
     /** A macro (or another paste) already holds the target; nothing was sent. */
     | { readonly kind: "refused"; readonly reason: "macro-running" | "paste-busy" }
-    | { readonly kind: "typed"; readonly chars: number; readonly dropped?: number }
+    /** `dropped`: characters the keyboard has no key for, left out. `adjusted`: characters typed as their plain equivalent (a curly quote as a straight one). */
+    | { readonly kind: "typed"; readonly chars: number; readonly dropped?: number; readonly adjusted?: number }
     /** Nothing in the text can be typed by a keyboard (it was all emoji, say); nothing was sent. */
     | { readonly kind: "nothing-typable" }
-    /** More than `MAX_TYPED_CHARS` once prepared; nothing was sent. */
+    /** More than `MAX_TYPED_CHARS` once prepared, or more than `MAX_RAW_CHARS` to begin with; nothing was sent. */
     | { readonly kind: "too-long"; readonly chars: number }
     /** kvmd answered 413: too much text for one request. */
     | { readonly kind: "too-large" }
@@ -46,6 +47,13 @@ export function createPaster(options: PasterOptions): Paster {
     return {
         async paste(text) {
             if (!text) return { kind: "empty" };
+            if (text.length > MAX_RAW_CHARS) {
+                notify({
+                    text: `That is ${humanCount(text.length, options.locale)} characters, far more than can be typed at once (${humanCount(MAX_TYPED_CHARS, options.locale)}).`,
+                    error: true,
+                });
+                return { kind: "too-long", chars: text.length };
+            }
             const prepared = prepareTypedText(text);
             const typed = prepared.text;
             if (typed === "") {
@@ -74,10 +82,18 @@ export function createPaster(options: PasterOptions): Paster {
                 return { kind: "refused", reason: "paste-busy" };
             }
             const count = `${humanCount(typed.length, options.locale)} ${typed.length === 1 ? "character" : "characters"}`;
-            const leftOut =
-                prepared.dropped > 0
-                    ? ` (${humanCount(prepared.dropped, options.locale)} ${prepared.dropped === 1 ? "character the keyboard cannot type was" : "characters the keyboard cannot type were"} left out)`
-                    : "";
+            // What was changed on the way, said when it is done: a pasted password or a line of source that came out different is
+            // something the person should be told, not find out.
+            const notes: string[] = [];
+            if (prepared.folded > 0) {
+                notes.push(`${humanCount(prepared.folded, options.locale)} ${prepared.folded === 1 ? "character was typed as a plain one" : "characters were typed as plain ones"}`);
+            }
+            if (prepared.dropped > 0) {
+                notes.push(
+                    `${humanCount(prepared.dropped, options.locale)} ${prepared.dropped === 1 ? "character the keyboard cannot type was" : "characters the keyboard cannot type were"} left out`,
+                );
+            }
+            const leftOut = notes.length > 0 ? ` (${notes.join("; ")})` : "";
             // A paste is a LONG operation (kvmd answers when it is done), and closing the
             // dialog does not stop it, so say that it is happening for as long as it takes.
             const typingFor = pasteDuration(typed.length);
@@ -101,7 +117,12 @@ export function createPaster(options: PasterOptions): Paster {
                     return { kind: "failed", status: res.status };
                 }
                 notify({ text: `Typed ${count} on the target${leftOut}` });
-                return { kind: "typed", chars: typed.length, ...(prepared.dropped > 0 ? { dropped: prepared.dropped } : {}) };
+                return {
+                    kind: "typed",
+                    chars: typed.length,
+                    ...(prepared.dropped > 0 ? { dropped: prepared.dropped } : {}),
+                    ...(prepared.folded > 0 ? { adjusted: prepared.folded } : {}),
+                };
             } catch (e) {
                 const message = errorMessage(e);
                 notify({ text: `Paste failed: ${message}`, error: true });

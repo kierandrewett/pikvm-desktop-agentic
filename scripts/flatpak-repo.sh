@@ -91,9 +91,12 @@ while read -r ref name; do
     ) &
     pids+=("$!")
 done <"$refs_file"
+# Every worker is waited for, so a failed one cannot leave another still writing when the script exits; then the failure is reported.
+failed=0
 for pid in "${pids[@]}"; do
-    wait "$pid"
+    wait "$pid" || failed=1
 done
+[ "$failed" -eq 0 ] || { echo "[flatpak-repo] a bundle failed" >&2; exit 1; }
 
 cat >"$site/pikvm-desktop.flatpakrepo" <<EOF
 [Flatpak Repo]

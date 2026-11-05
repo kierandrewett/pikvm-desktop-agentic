@@ -255,7 +255,9 @@ describe("copy and paste belong to the target", () => {
         const sent = rig.sent();
         expect(sent).toContain("key KeyV:down");
         expect(sent).toContain("key KeyC:down");
-        expect(sent.filter((each) => each.includes("ControlLeft"))).not.toEqual([]);
+        const control = sent.filter((each) => each.includes("ControlLeft"));
+        expect(control.length).toBeGreaterThan(0);
+        expect(control[control.length - 1], "a missing keyup would leave Ctrl held on the target").toBe("key ControlLeft:up");
         expect(readText).not.toHaveBeenCalled();
         expect(rig.http.requests).toHaveLength(0);
     });

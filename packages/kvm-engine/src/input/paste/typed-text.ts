@@ -28,6 +28,13 @@
  */
 export const MAX_TYPED_CHARS = 100_000;
 
+/**
+ * The most that is even looked at. A clipboard of more than this many characters is not text someone means to type (a file, an
+ * image's data), and scanning and copying it would only cost memory, so it is refused before `prepareTypedText` runs. Much more than
+ * `MAX_TYPED_CHARS`, because zero-width and control characters are removed and do not count towards that limit.
+ */
+export const MAX_RAW_CHARS = 2_000_000;
+
 export interface TypedText {
     /** What kvmd is sent. */
     readonly text: string;

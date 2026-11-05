@@ -12,7 +12,8 @@
 //
 // How to bring the two servers up and set PUPPETEER_CORE / CHROME: docs/e2e/README.md.
 
-import { writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { WEB, FAKE, Report, describe, fakeReset, launch, recorder, sleep } from "./harness.mjs";
 
 const args = process.argv.slice(2);
@@ -173,19 +174,21 @@ async function typeFromClipboard(text) {
     await openTypeText();
     await page.waitForFunction(() => (document.querySelector('textarea[aria-label="Text to type on the target"]')?.value ?? "") !== "", { timeout: 5000 });
     const note = await page.evaluate(() => document.querySelector('[data-testid="paste-dropped"]')?.textContent ?? "");
+    const adjusted = await page.evaluate(() => document.querySelector('[data-testid="paste-adjusted"]')?.textContent ?? "");
     const count = await page.evaluate(() => document.querySelector('[data-testid="paste-count"]')?.textContent ?? "");
     await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Type on target")?.click());
     const { prints } = await rec.events(1800);
     // The dialog closes when kvmd has answered.
     await page.waitForFunction(() => !document.querySelector('[data-testid="paste-dialog"]'), { timeout: 5000 }).catch(() => undefined);
-    return { prints, note, count };
+    return { prints, note, adjusted, count };
 }
 
 const ODD = "\u201cHi\u201d \u2014 it\u2019s\u2026\r\n\u{1f600}\u200bend";
-await check("a clipboard of curly quotes, an em dash, an ellipsis, CRLF, an emoji and a zero-width mark types the plain text, and the dialog says one character was left out", async () => {
-    const { prints, note, count } = await typeFromClipboard(ODD);
+await check("a clipboard of curly quotes, an em dash, an ellipsis, CRLF, an emoji and a zero-width mark types the plain text, and the dialog says what was adjusted and what was left out", async () => {
+    const { prints, note, adjusted, count } = await typeFromClipboard(ODD);
     const expected = "\"Hi\" - it's...\nend";
-    return [prints.length === 1 && prints[0].text === expected && /1 character/.test(note), `typed ${JSON.stringify(prints[0]?.text)}; dialog: ${JSON.stringify(note)}, ${JSON.stringify(count)}`];
+    const pass = prints.length === 1 && prints[0].text === expected && /1 character/.test(note) && /^5 characters .*plain equivalents/.test(adjusted);
+    return [pass, `typed ${JSON.stringify(prints[0]?.text)}; dialog: ${JSON.stringify(adjusted)} ${JSON.stringify(note)}, ${JSON.stringify(count)}`];
 });
 
 await check("plain text, tabs and a trailing newline are typed exactly", async () => {
@@ -224,7 +227,20 @@ await check("a clipboard that is only emoji sends nothing, and the dialog says w
 
 await check("no page errors", async () => [logs.filter((l) => l.startsWith("pageerror") || l.startsWith("error")).length === 0, logs.join(" | ") || "clean"]);
 
+const chromeVersion = await browser.version();
 await browser.close();
+
+const puppeteerCore = (process.env.PUPPETEER_CORE ?? `${process.env.HOME}/dev/sidekick/node_modules/`).replace(/\/$/, "");
+const puppeteerVersion = JSON.parse(readFileSync(`${puppeteerCore}/puppeteer-core/package.json`, "utf8")).version;
+let commit = "unknown";
+let dirty = "";
+try {
+    commit = execFileSync("git", ["rev-parse", "--short=8", "HEAD"], { encoding: "utf8" }).trim();
+    const changed = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim();
+    dirty = changed === "" ? "" : " plus uncommitted changes to the tracked files";
+} catch {
+    // not a git checkout: the report says so
+}
 
 const today = new Date().toISOString().slice(0, 10);
 const md = [
@@ -239,6 +255,18 @@ const md = [
     ...report.rows.map((r) => `| ${r.name} | ${r.observed.replace(/\|/g, "\\|")} | ${r.pass ? "pass" : "FAIL"} |`),
     "",
     `${report.rows.length - report.failed.length} of ${report.rows.length} passed.`,
+    "",
+    "## How this run was made",
+    "",
+    "```sh",
+    `PUPPETEER_CORE=${process.env.PUPPETEER_CORE ?? "(default)"} CHROME=${process.env.CHROME ?? "(default)"} KVM_WEB=${WEB} KVM_FAKE=${FAKE} \\`,
+    `    node apps/web/e2e/clipboard.e2e.mjs ${args.join(" ")}`.trimEnd(),
+    "```",
+    "",
+    `- Repository commit: \`${commit}\`${dirty} (the host was built from this tree with \`yarn workspace @pikvm/web build && yarn build\`).`,
+    `- Browser: ${chromeVersion}, headless, through puppeteer-core ${puppeteerVersion}; Node ${process.version} on ${process.platform} ${process.arch}.`,
+    "- The web host ran with its own empty data directory and home, with `OMP_BIN` pointing at nothing, so no chat agent or user configuration was reachable; the fake kvmd was started fresh and reset at the start of the run.",
+    "- Chrome's paste and copy commands were attached to the key events (see the control case), because a bare CDP key press does not run them.",
     "",
 ];
 writeFileSync(`${outDir}/${today}-clipboard.md`, md.join("\n"));
