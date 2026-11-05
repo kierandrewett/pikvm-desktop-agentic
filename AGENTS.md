@@ -16,7 +16,7 @@ make package                        # build + installers for this platform -> bu
   `packages/contracts/src/desktop.ts`; add to the contract, the preload and `window.ts` together.
   There is no other preload and no settings window.
 - Packaging: `scripts/package.mjs` has electron-packager write the Electron tree, then Linux goes through pkgsmith
-  (`pkgsmith.star`, Linux only; built from source, `PKGSMITH=/path/to/pkgsmith`) and macOS and Windows through
+  (`pkgsmith.star`, Linux only; CI downloads a pinned pkgsmith release, locally set `PKGSMITH=/path/to/pkgsmith`) and macOS and Windows through
   `electron-builder --prepackaged` (`packaging/electron-builder.yml`: dmg+zip, nsis+msi+zip). Never put macOS or
   Windows back into pkgsmith. `packaging/` also holds the desktop entries, launcher, metainfo and icons. CI:
   `.github/workflows/package.yml`. electron-builder's dmg needs macOS (`sips`) and its msi needs WiX (wine cannot

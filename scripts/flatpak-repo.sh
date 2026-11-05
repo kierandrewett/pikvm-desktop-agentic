@@ -75,16 +75,25 @@ flatpak build-update-repo --gpg-homedir="$gpghome" --gpg-sign="$key" --prune --t
 # A bundle installed from a file has no remote, so `flatpak update` has nothing to ask. Rebuilt with the
 # repository's address and key inside, installing the file adds that remote and the app updates from it.
 # The names stay the same, so the release's files can be replaced one for one.
+# Each bundle is a single-threaded compression of a few hundred MB and they read the repository without writing to
+# it, so the architectures run side by side; the wait fails the script if either one failed.
 mkdir -p "$site-bundles"
 printf '%s' "$pub" | base64 -d >"$work/repo.gpg"
+pids=()
 while read -r ref name; do
     arch="$(cut -d/ -f3 <<<"$ref")"
     branch="$(cut -d/ -f4 <<<"$ref")"
-    flatpak build-bundle --arch="$arch" --repo-url="$base/repo/" --gpg-keys="$work/repo.gpg" \
-        --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
-        "$site/repo" "$site-bundles/$name" "$app" "$branch"
-    echo "[flatpak-repo] bundle with origin: $name"
+    (
+        flatpak build-bundle --arch="$arch" --repo-url="$base/repo/" --gpg-keys="$work/repo.gpg" \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            "$site/repo" "$site-bundles/$name" "$app" "$branch"
+        echo "[flatpak-repo] bundle with origin: $name"
+    ) &
+    pids+=("$!")
 done <"$refs_file"
+for pid in "${pids[@]}"; do
+    wait "$pid"
+done
 
 cat >"$site/pikvm-desktop.flatpakrepo" <<EOF
 [Flatpak Repo]

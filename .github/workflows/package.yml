@@ -8,78 +8,107 @@ name: package
 #   macos   electron-builder (packaging/electron-builder.yml): dmg, zip   (arm64 and x64)
 #   windows electron-builder (packaging/electron-builder.yml): nsis, msi, zip (x64)
 #
-# Each package carries omp's standalone binary for its target (scripts/fetch-omp.mjs, pinned and
-# sha256-checked by deploy/omp.lock): that is the agent, with no Python and no Bun. The image job
-# builds deploy/Dockerfile, the one image of the headless host and its agent.
+# pkgsmith comes from its GitHub release, pinned by version and sha256 below. Each package carries omp's
+# standalone binary for its target (scripts/fetch-omp.mjs, pinned and sha256-checked by deploy/omp.lock): that is
+# the agent, with no Python and no Bun. The image job builds deploy/Dockerfile, the one image of the headless
+# host and its agent.
 #
 # The installers are unsigned: no Apple notarisation, no Authenticode. The Flatpak repository is the one
 # exception: flatpak-repo.yml signs it with its own key, because Flatpak clients verify what they update from.
 #
-# A pushed tag v* also publishes them: the release job attaches every platform's packages to a GitHub
-# Release named after the tag, and flatpak-repo then updates the Flatpak repository on GitHub Pages. Branch
-# pushes and pull requests only keep the packages as Actions artifacts.
+# A pushed tag v* also publishes. There is no release job to wait for: each build attaches its own packages to the
+# GitHub Release as soon as it has them (scripts/ci-publish.sh), the first one to finish creating the release, so a
+# slow runner holds nothing back. The Flatpak repository on GitHub Pages follows as soon as both Linux builds are
+# on the release. The image job does not gate the release. Branch pushes and pull requests only keep the packages
+# as Actions artifacts; a newer push replaces the run still going for the same branch.
+#
+# Test the publishing without a tag: run this workflow by hand with `test_release` set to a throwaway name. Every
+# build then publishes to a pre-release of that tag (made on the spot) and the Flatpak repository is
+# skipped. Delete the release and its tag afterwards.
 
 on:
   push:
-    branches: [main, feat/app-rebuild]
+    branches: [main]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      test_release:
+        description: Publish every build to a pre-release of this throwaway tag (a test; delete the release and tag afterwards)
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
 
+env:
+  # The release this run publishes to: the pushed tag, or a test run's throwaway tag. Empty for a branch or pull request.
+  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.test_release }}
+  RELEASE_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.test_release != '' }}
+
 jobs:
-  package:
+  linux:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 60
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-x64, runner: ubuntu-24.04, platform: linux, arch: x64 }
-          - { name: linux-arm64, runner: ubuntu-24.04-arm, platform: linux, arch: arm64 }
-          - { name: macos-arm64, runner: macos-15, platform: darwin, arch: arm64 }
-          - { name: macos-x64, runner: macos-15-intel, platform: darwin, arch: x64 }
-          - { name: windows-x64, runner: windows-2025, platform: win32, arch: x64 }
-    defaults:
-      run:
-        shell: bash
+          - name: linux-x64
+            runner: ubuntu-24.04
+            arch: x64
+            pkgsmith-target: x86_64-unknown-linux-gnu
+            pkgsmith-sha256: 0b483e723741e0d2445cf24514902da0b57c2840a69957a2194729ed6b3924c4
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            pkgsmith-target: aarch64-unknown-linux-gnu
+            pkgsmith-sha256: dbe1cde0e6ce6ba92edc7a1d603991981acd9dc94fbd28e8326f0a2263a44e38
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # the package release is the commit count
-
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/package
         with:
-          node-version: 22
-      - run: corepack enable
-      - run: yarn install --immutable
+          platform: linux
+          arch: ${{ matrix.arch }}
+          name: ${{ matrix.name }}
+          pkgsmith-version: v0.1.1
+          pkgsmith-target: ${{ matrix.pkgsmith-target }}
+          pkgsmith-sha256: ${{ matrix.pkgsmith-sha256 }}
+          token: ${{ github.token }}
 
-      # Linux packages only: pkgsmith has no release yet, so it is built from source (its plugins sit
-      # next to the binary), and flatpak writes the Flatpak bundle. macOS and Windows installers need
-      # neither: electron-builder (a devDependency) brings its own dmg, NSIS and WiX tooling.
-      - uses: dtolnay/rust-toolchain@stable
-        if: matrix.platform == 'linux'
-      - name: Build pkgsmith
-        if: matrix.platform == 'linux'
-        run: |
-          git clone --depth 1 https://github.com/kierandrewett/pkgsmith "$RUNNER_TEMP/pkgsmith"
-          cargo build --release --workspace --manifest-path "$RUNNER_TEMP/pkgsmith/Cargo.toml"
-          echo "PKGSMITH=$RUNNER_TEMP/pkgsmith/target/release/pkgsmith" >> "$GITHUB_ENV"
-      - name: Install flatpak
-        if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y flatpak
-
-      - name: Package
-        run: node scripts/package.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
-
-      - uses: actions/upload-artifact@v4
+  other:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64, runner: macos-15, platform: darwin, arch: arm64 }
+          - { name: macos-x64, runner: macos-15-intel, platform: darwin, arch: x64 }
+          - { name: windows-x64, runner: windows-2025, platform: win32, arch: x64 }
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: pikvm-desktop-${{ matrix.name }}
-          path: builds/packages/${{ matrix.platform }}-${{ matrix.arch }}/*
-          if-no-files-found: error
+          fetch-depth: 0 # the package release is the commit count
+      - uses: ./.github/actions/package
+        with:
+          platform: ${{ matrix.platform }}
+          arch: ${{ matrix.arch }}
+          name: ${{ matrix.name }}
+          token: ${{ github.token }}
 
   image:
     name: image
@@ -100,48 +129,12 @@ jobs:
           docker logs kvm
           exit 1
 
-  release:
-    name: release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package, image]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      # One directory per build (pikvm-desktop-linux-x64, ...): two builds may name a file the same (a
-      # Flatpak bundle, say), and a release cannot hold two assets of one name.
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: pikvm-desktop-*
-          path: packages
-      - name: Publish the GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir assets
-          # A name that more than one build produced gets its build in front, on every copy.
-          dupes="$(find packages -mindepth 2 -maxdepth 2 -type f -printf '%f\n' | sort | uniq -d)"
-          for dir in packages/pikvm-desktop-*; do
-            build="${dir#packages/pikvm-desktop-}"
-            for file in "$dir"/*; do
-              name="$(basename "$file")"
-              if grep -qxF "$name" <<<"$dupes"; then name="$build-$name"; fi
-              cp "$file" "assets/$name"
-            done
-          done
-          ls -la assets
-          gh release create "$GITHUB_REF_NAME" assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            --verify-tag
-
-  # The Flatpak repository on GitHub Pages, so `flatpak update` finds this release (flatpak-repo.yml).
+  # The Flatpak repository on GitHub Pages, so `flatpak update` finds this release (flatpak-repo.yml). It reads the
+  # two Flatpak bundles off the release, so it starts as soon as both Linux builds have attached them.
   flatpak-repo:
     name: flatpak repository
-    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: linux
     permissions:
       contents: write
       pages: write

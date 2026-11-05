@@ -1,0 +1,92 @@
+name: package
+description: >-
+  Build one platform's packages. On a release run, attach them to the release as soon as they exist,
+  so a slow runner never holds back a fast one.
+
+inputs:
+  platform:
+    description: linux, darwin or win32 (electron-packager's names)
+    required: true
+  arch:
+    description: x64 or arm64
+    required: true
+  name:
+    description: The build's name, for example linux-x64
+    required: true
+  pkgsmith-version:
+    description: The pkgsmith release to use (Linux only)
+    required: false
+    default: ""
+  pkgsmith-target:
+    description: The pkgsmith release asset's target triple, for example x86_64-unknown-linux-gnu (Linux only)
+    required: false
+    default: ""
+  pkgsmith-sha256:
+    description: The sha256 of that release asset, pinned here so a changed asset stops the build (Linux only)
+    required: false
+    default: ""
+  token:
+    description: A token that may create and edit releases
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - run: corepack enable
+      shell: bash
+    # corepack fetches Yarn from repo.yarnpkg.com, which times out now and then on a runner; a retry is cheaper
+    # than a red build.
+    - name: Install dependencies
+      shell: bash
+      run: |
+        for attempt in 1 2 3; do
+          yarn install --immutable && exit 0
+          echo "yarn install failed (attempt $attempt of 3)" >&2
+          sleep 10
+        done
+        exit 1
+
+    # Linux packages only: pkgsmith comes from its GitHub release (the binary with its plugins beside it), and
+    # flatpak writes the Flatpak bundle. macOS and Windows installers need neither: electron-builder (a
+    # devDependency) brings its own dmg, NSIS and WiX tooling.
+    - name: Install pkgsmith
+      if: inputs.platform == 'linux'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.pkgsmith-version }}
+        TARGET: ${{ inputs.pkgsmith-target }}
+        SHA256: ${{ inputs.pkgsmith-sha256 }}
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/pkgsmith.tar.gz"
+        curl -fsSL --retry 3 --retry-delay 5 -o "$archive" \
+          "https://github.com/kierandrewett/pkgsmith/releases/download/$VERSION/pkgsmith-$TARGET.tar.gz"
+        echo "$SHA256  $archive" | sha256sum -c -
+        tar -xzf "$archive" -C "$RUNNER_TEMP"
+        echo "PKGSMITH=$RUNNER_TEMP/pkgsmith-$TARGET/pkgsmith" >> "$GITHUB_ENV"
+    - name: Install flatpak
+      if: inputs.platform == 'linux'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends flatpak
+
+    - name: Package
+      shell: bash
+      run: node scripts/package.mjs --platform ${{ inputs.platform }} --arch ${{ inputs.arch }}
+
+    # A release run: this build's files go onto the release now. The first build to finish creates the release,
+    # the rest add to it (scripts/ci-publish.sh). Every other run keeps the files as an Actions artifact.
+    - name: Publish to the release
+      if: env.RELEASE_TAG != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: scripts/ci-publish.sh "builds/packages/${{ inputs.platform }}-${{ inputs.arch }}"
+    - uses: actions/upload-artifact@v4
+      if: env.RELEASE_TAG == ''
+      with:
+        name: pikvm-desktop-${{ inputs.name }}
+        path: builds/packages/${{ inputs.platform }}-${{ inputs.arch }}/*
+        if-no-files-found: error
