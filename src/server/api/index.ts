@@ -18,6 +18,7 @@ import {
     type PikvmList,
     type PikvmPatch,
     type ServerList,
+    type ServerSignInStatus,
     type SessionView,
     type Settings,
     type State,
@@ -284,6 +285,23 @@ function apiLayer(deps: ApiDeps) {
             .handle("useLocal", () => {
                 const editor = deps.servers;
                 return editor ? Effect.sync((): ServerList => editor.useLocal()) : Effect.fail(serverPinned());
+            })
+            .handle("signIn", ({ payload }) => {
+                const editor = deps.servers;
+                return editor ? refused(() => editor.signIn(payload)) : Effect.fail(serverPinned());
+            })
+            .handle("signInStatus", ({ path }) => {
+                const editor = deps.servers;
+                return editor ? missing((): ServerSignInStatus => editor.signInStatus(path.id)) : Effect.fail(serverPinned());
+            })
+            .handle("signInCancel", ({ path }) => {
+                const editor = deps.servers;
+                return editor
+                    ? Effect.sync(() => {
+                          editor.signInCancel(path.id);
+                          return { ok: true };
+                      })
+                    : Effect.fail(serverPinned());
             }),
     );
 
@@ -298,7 +316,7 @@ function apiLayer(deps: ApiDeps) {
     );
 }
 
-const SIGN_IN_METHODS: ReadonlySet<string> = new Set(["token", "password", "oidc", "bearer", "basic"]);
+const SIGN_IN_METHODS: ReadonlySet<string> = new Set(["token", "password", "oidc", "bearer", "basic", "device"]);
 
 /** `GET /session` from the header the server set (web-handler.ts): absent on a host with no sign-in of its own. A cookie
  *  session can be ended with /app/logout; a bearer or Basic header has nothing to end. */
@@ -313,7 +331,7 @@ function sessionView(header: string | undefined): SessionView {
     if (!who || typeof who.method !== "string" || !SIGN_IN_METHODS.has(who.method) || typeof who.subject !== "string") {
         return { signIn: false };
     }
-    return { signIn: true, method: who.method, subject: who.subject, canSignOut: who.method !== "bearer" && who.method !== "basic" };
+    return { signIn: true, method: who.method, subject: who.subject, canSignOut: who.method !== "bearer" && who.method !== "basic" && who.method !== "device" };
 }
 
 export interface Api {

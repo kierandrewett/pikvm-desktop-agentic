@@ -173,7 +173,7 @@ export function createRoutes(t: RouteTargets): Route[] {
             // ahead of the desktop's three routes below, which only run where there is no `webAuth`.
             name: "web host sign-in",
             match: ({ method, path }) => t.webAuth?.handles(method, path) === true,
-            run: ({ req, res, url }) => t.webAuth!.handle(req, res, url),
+            run: ({ req, res, url, signedIn }) => t.webAuth!.handle(req, res, url, signedIn),
         },
 
         /* The desktop's sign-in: one access token. Public: auth.ts lets these three through the gate. */

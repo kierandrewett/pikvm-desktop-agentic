@@ -28,6 +28,9 @@ export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
     "/app/login": true,
     "/app/auth": true,
     "/app/auth/callback": true,
+    // A desktop app asks what the host offers, and trades its one-time code for a token, before it has any credential.
+    "/app/auth/info": true,
+    "/app/auth/device/token": true,
     "/app/logout": true,
     "/app/manifest.webmanifest": true,
     "/app/sw.js": true,

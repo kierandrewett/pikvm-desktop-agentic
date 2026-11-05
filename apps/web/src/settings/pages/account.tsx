@@ -1,11 +1,58 @@
-import { Button, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
+import {
+    Button,
+    SettingRow,
+    SettingsCard,
+    SettingsPage,
+    SettingsSection,
+} from "@pikvm/chat-web/settings";
 import type { SessionView } from "@pikvm/contracts/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "../../api/queries";
+
+interface DeviceRow {
+    readonly id: string;
+    readonly name: string;
+    readonly createdAt: number;
+    readonly lastUsedAt: number;
+}
+
+const devicesKey = ["devices"] as const;
+
+/** The desktop apps signed in to this host. Plain requests: the host answers them itself, they are not part of the app API. */
+function useDevices(enabled: boolean) {
+    return useQuery<readonly DeviceRow[]>({
+        queryKey: devicesKey,
+        enabled,
+        queryFn: async ({ signal }) => {
+            const response = await fetch("/app/api/v1/devices", { signal });
+            if (!response.ok)
+                throw new Error(`The host answered ${response.status}.`);
+            return ((await response.json()) as { devices: DeviceRow[] })
+                .devices;
+        },
+    });
+}
+
+function useRevokeDevice() {
+    const queryClient = useQueryClient();
+    return useMutation<void, Error, string>({
+        mutationFn: async (id) => {
+            const response = await fetch(`/app/api/v1/devices/${id}`, {
+                method: "DELETE",
+            });
+            if (!response.ok)
+                throw new Error(`The host answered ${response.status}.`);
+        },
+        onSuccess: () =>
+            queryClient.invalidateQueries({ queryKey: devicesKey }),
+    });
+}
 
 /** How the request got in, in the words a person would use for it. */
 const METHOD_WORDING: Record<NonNullable<SessionView["method"]>, string> = {
     token: "With the access token.",
     password: "With your password.",
+    device: "From a signed-in desktop app.",
     oidc: "Through your identity provider.",
     bearer: "With a header credential.",
     basic: "With a header credential.",
@@ -13,6 +60,11 @@ const METHOD_WORDING: Record<NonNullable<SessionView["method"]>, string> = {
 
 export function AccountPage() {
     const session = useSession();
+    // A device cannot list the others, so the list is for a person signed in some other way.
+    const listed =
+        session.data?.signIn === true && session.data.method !== "device";
+    const devices = useDevices(listed);
+    const revoke = useRevokeDevice();
 
     if (session.data?.signIn !== true) {
         return (
@@ -37,7 +89,9 @@ export function AccountPage() {
                 <SettingsCard>
                     <SettingRow
                         label={`Signed in as ${subject ?? "unknown"}`}
-                        description={method ? METHOD_WORDING[method] : undefined}
+                        description={
+                            method ? METHOD_WORDING[method] : undefined
+                        }
                     />
                     {canSignOut ? (
                         <SettingRow
@@ -54,6 +108,28 @@ export function AccountPage() {
                     )}
                 </SettingsCard>
             </SettingsSection>
+            {listed && devices.data && devices.data.length > 0 ? (
+                <SettingsSection title="Signed-in desktop apps">
+                    <SettingsCard>
+                        {devices.data.map((device) => (
+                            <SettingRow
+                                key={device.id}
+                                label={device.name}
+                                description={`Signed in ${new Date(device.createdAt).toLocaleDateString()}, last used ${new Date(device.lastUsedAt).toLocaleDateString()}.`}
+                                control={
+                                    <Button
+                                        variant="danger"
+                                        disabled={revoke.isPending}
+                                        onClick={() => revoke.mutate(device.id)}
+                                    >
+                                        Revoke
+                                    </Button>
+                                }
+                            />
+                        ))}
+                    </SettingsCard>
+                </SettingsSection>
+            ) : null}
         </SettingsPage>
     );
 }

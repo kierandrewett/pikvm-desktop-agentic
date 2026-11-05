@@ -34,3 +34,46 @@ export async function probeServer(server: RemoteServer): Promise<void> {
     if (response.status === 404) throw new ServerError("That address is not a PiKVM Desktop server.");
     if (!response.ok) throw new ServerError(`The server answered with an error (${response.status}).`);
 }
+
+/**
+ * Does the server at this address offer browser sign-in? Asked before anything is opened, so a server that only has an
+ * access token says so at once instead of sending the person to a page that does not exist. A fixed sentence for each
+ * way it can go wrong.
+ */
+export async function discoverBrowserSignIn(origin: string, fetchFn: typeof fetch = fetch): Promise<void> {
+    const checked = checkServerOrigin(origin);
+    let response: Response;
+    try {
+        response = await fetchFn(`${checked}/app/auth/info`, { method: "GET", redirect: "error", signal: AbortSignal.timeout(TIMEOUT_MS), headers: { accept: "application/json" } });
+    } catch {
+        throw new ServerError(`Could not reach the server at ${checked}.`);
+    }
+    let offered = false;
+    if (response.ok) {
+        try {
+            const body: unknown = await response.json();
+            offered = typeof body === "object" && body !== null && "device" in body && body.device === true;
+        } catch {
+            offered = false;
+        }
+    } else {
+        await response.body?.cancel().catch(() => undefined);
+    }
+    if (!offered) throw new ServerError("This server does not offer browser sign-in. Use its access token instead.");
+}
+
+/** Best effort: tells the server this app is done with its device token, so it stops working there too. Never throws. */
+export async function revokeDeviceToken(server: RemoteServer, fetchFn: typeof fetch = fetch): Promise<void> {
+    try {
+        const origin = checkServerOrigin(server.origin);
+        const response = await fetchFn(`${origin}/app/api/v1/devices/self`, {
+            method: "DELETE",
+            redirect: "error",
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+            headers: { authorization: `Bearer ${server.token}`, accept: "application/json" },
+        });
+        await response.body?.cancel().catch(() => undefined);
+    } catch {
+        /* the server is gone or refused: the token is still forgotten here */
+    }
+}

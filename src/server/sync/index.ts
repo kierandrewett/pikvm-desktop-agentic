@@ -13,9 +13,11 @@
  */
 
 import type { ServerAdd, ServerEntry, ServerList } from "@pikvm/contracts/api";
-import { ServerStore } from "../../server-store";
+import { hostname } from "node:os";
+import { ServerAlreadySaved, ServerStore } from "../../server-store";
 import { createForwarder, type Forwarder } from "./forward";
-import { probeServer } from "./remote";
+import { probeServer, revokeDeviceToken } from "./remote";
+import { createBrowserSignIn, type SignInStatus } from "./sign-in";
 import type { LiveConnections } from "../live";
 import type { Probe } from "../../server-store";
 
@@ -27,6 +29,11 @@ export interface ServerEditor {
     use(id: string): Promise<ServerList>;
     useLocal(): ServerList;
     remove(id: string): ServerList;
+    /** Starts signing in to a server with the browser: the address to open, and an id to ask about. Throws a ServerError whose message is fit to show. */
+    signIn(input: { origin: string; name?: string | undefined }): Promise<{ id: string; url: string }>;
+    /** Where a sign-in is. Throws ServerNotFound for an id that is not one. */
+    signInStatus(id: string): SignInStatus;
+    signInCancel(id: string): void;
 }
 
 export interface ServerSyncDeps {
@@ -47,6 +54,16 @@ export interface ServerSync {
 
 export function createServerSync(deps: ServerSyncDeps): ServerSync {
     const store = new ServerStore(deps.dir);
+    const browserSignIn = createBrowserSignIn({
+        save: (input) => store.add(input, deps.probe ?? probeServer),
+        ensureRoom: () => {
+            if (store.list().items.length > 0) throw new ServerAlreadySaved();
+        },
+        forget: (id) => {
+            store.remove(id);
+        },
+        deviceName: () => `${hostname()} (PiKVM Desktop)`,
+    });
     const probe = deps.probe ?? probeServer;
     const forwarder = createForwarder({
         connection: () => store.connection(),
@@ -82,12 +99,18 @@ export function createServerSync(deps: ServerSyncDeps): ServerSync {
         },
         remove: (id) => {
             const before = currentId();
+            const credentials = store.credentials(id);
             try {
                 return { ...store.remove(id), editable: true };
             } finally {
                 retarget(before);
+                // A device token made by a browser sign-in is told to the server to stop, so forgetting is more than deleting a file.
+                if (credentials?.token.startsWith("pkd_")) void revokeDeviceToken(credentials);
             }
         },
+        signIn: (input) => browserSignIn.start(input),
+        signInStatus: (id) => browserSignIn.status(id),
+        signInCancel: (id) => browserSignIn.cancel(id),
     };
     return {
         editor,

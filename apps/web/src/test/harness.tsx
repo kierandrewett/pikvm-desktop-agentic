@@ -13,7 +13,11 @@ import { createManualClock } from "@pikvm/kvm-engine";
 import { FakeHttp, FakeSocketHub } from "@pikvm/kvm-engine/testing";
 import { createAppRouter } from "../app/router";
 import { COMPACT_QUERY } from "../app/viewport";
-import { createKvmSession, KvmSessionProvider, type KvmSession } from "../kvm/session";
+import {
+    createKvmSession,
+    KvmSessionProvider,
+    type KvmSession,
+} from "../kvm/session";
 
 export interface RecordedRequest {
     readonly method: string;
@@ -62,6 +66,8 @@ export interface ServerState {
         editable: boolean;
         addStatus: number;
         addError: string;
+        /** How a browser sign-in ends: the status GET answers this, and `done` saves the server the first time it is asked. */
+        signIn: { state: "waiting" | "done" | "failed"; error: string };
     };
     /** Status and error for any write to /pikvms; anything but 200 fails it. */
     pikvmWriteStatus: number;
@@ -98,7 +104,14 @@ export const defaultServer = (): ServerState => ({
         ],
         editable: false,
     },
-    servers: { items: [], localActive: true, editable: false, addStatus: 200, addError: "" },
+    servers: {
+        items: [],
+        localActive: true,
+        editable: false,
+        addStatus: 200,
+        addError: "",
+        signIn: { state: "waiting", error: "" },
+    },
     pikvmWriteStatus: 200,
     pikvmWriteError: "",
     patchGate: undefined,
@@ -107,17 +120,27 @@ export const defaultServer = (): ServerState => ({
 });
 
 const json = (status: number, body: unknown): Response =>
-    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+    });
 
 const decodeBody = (body: unknown): unknown => {
     if (body === undefined || body === null) return undefined;
-    const text = typeof body === "string" ? body : new TextDecoder().decode(body as Uint8Array);
+    const text =
+        typeof body === "string"
+            ? body
+            : new TextDecoder().decode(body as Uint8Array);
     return text === "" ? undefined : JSON.parse(text);
 };
 
 /** What GET /servers answers: the saved remote servers, and whether This computer is the one in use. */
 function serverList(server: ServerState) {
-    return { items: server.servers.items, localActive: server.servers.localActive, editable: server.servers.editable };
+    return {
+        items: server.servers.items,
+        localActive: server.servers.localActive,
+        editable: server.servers.editable,
+    };
 }
 
 export function installFakeServer(server: ServerState): RecordedRequest[] {
@@ -126,32 +149,67 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
         "fetch",
         vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
             const request = input instanceof Request ? input : undefined;
-            const url = new URL(request?.url ?? String(input), "http://localhost");
-            const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
-            const body = decodeBody(init?.body ?? (request ? await request.text() : undefined));
+            const url = new URL(
+                request?.url ?? String(input),
+                "http://localhost",
+            );
+            const method = (
+                init?.method ??
+                request?.method ??
+                "GET"
+            ).toUpperCase();
+            const body = decodeBody(
+                init?.body ?? (request ? await request.text() : undefined),
+            );
             requests.push({ method, path: url.pathname, body });
 
-            if (url.pathname === "/app/api/v1/session") return json(200, server.session);
+            if (url.pathname === "/app/api/v1/session")
+                return json(200, server.session);
             if (url.pathname === "/app/api/v1/state") {
-                if (server.stateStatus !== 200) return json(server.stateStatus, { error: "state is down" });
+                if (server.stateStatus !== 200)
+                    return json(server.stateStatus, { error: "state is down" });
                 return json(200, {
-                    settings: { keyboardLayout: server.keyboardLayout, jiggler: server.jiggler },
+                    settings: {
+                        keyboardLayout: server.keyboardLayout,
+                        jiggler: server.jiggler,
+                    },
                     features: { chat: server.chat, agent: server.agent },
-                    jigglerStatus: { enabled: server.jiggler, mode: "local", nativeSwitchOns: 0, lastNudgeAt: 0, nudges: 0, failures: 0 },
-                    pikvm: { origin: "https://pikvm.example", link: server.link },
+                    jigglerStatus: {
+                        enabled: server.jiggler,
+                        mode: "local",
+                        nativeSwitchOns: 0,
+                        lastNudgeAt: 0,
+                        nudges: 0,
+                        failures: 0,
+                    },
+                    pikvm: {
+                        origin: "https://pikvm.example",
+                        link: server.link,
+                    },
                     version: "9.9.9",
                 });
             }
-            const pikvm = /^\/app\/api\/v1\/pikvms(?:\/([^/]+)(?:\/(default|activate))?)?$/.exec(url.pathname);
+            const pikvm =
+                /^\/app\/api\/v1\/pikvms(?:\/([^/]+)(?:\/(default|activate))?)?$/.exec(
+                    url.pathname,
+                );
             if (pikvm) {
                 const [, id, action] = pikvm;
                 const { items } = server.pikvms;
                 const list = () => json(200, server.pikvms);
                 if (method === "GET") return list();
-                if (server.pikvmWriteStatus !== 200) return json(server.pikvmWriteStatus, { error: server.pikvmWriteError });
+                if (server.pikvmWriteStatus !== 200)
+                    return json(server.pikvmWriteStatus, {
+                        error: server.pikvmWriteError,
+                    });
                 const entry = items.find((item) => item.id === id);
                 if (!id) {
-                    const add = body as { name: string; origin: string; username?: string; password?: string };
+                    const add = body as {
+                        name: string;
+                        origin: string;
+                        username?: string;
+                        password?: string;
+                    };
                     const first = items.length === 0;
                     const created: FakePikvm = {
                         id: `added-${items.length + 1}`,
@@ -165,7 +223,11 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                     items.push(created);
                     return json(200, created);
                 }
-                if (!entry) return json(404, { error: "No such PiKVM.", notFound: true });
+                if (!entry)
+                    return json(404, {
+                        error: "No such PiKVM.",
+                        notFound: true,
+                    });
                 if (action === "activate") {
                     for (const item of items) item.active = item === entry;
                     return list();
@@ -175,38 +237,69 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                     return list();
                 }
                 if (method === "DELETE") {
-                    server.pikvms.items = items.filter((item) => item !== entry);
-                    if (entry.active && server.pikvms.items[0]) server.pikvms.items[0].active = true;
-                    if (entry.isDefault && server.pikvms.items[0]) server.pikvms.items[0].isDefault = true;
+                    server.pikvms.items = items.filter(
+                        (item) => item !== entry,
+                    );
+                    if (entry.active && server.pikvms.items[0])
+                        server.pikvms.items[0].active = true;
+                    if (entry.isDefault && server.pikvms.items[0])
+                        server.pikvms.items[0].isDefault = true;
                     return list();
                 }
-                const put = body as { name?: string; origin?: string; username?: string; password?: string };
+                const put = body as {
+                    name?: string;
+                    origin?: string;
+                    username?: string;
+                    password?: string;
+                };
                 if (put.name !== undefined) entry.name = put.name;
                 if (put.origin !== undefined) entry.origin = put.origin;
                 if (put.username !== undefined) entry.username = put.username;
-                if (put.password !== undefined) entry.passwordSet = put.password !== "";
+                if (put.password !== undefined)
+                    entry.passwordSet = put.password !== "";
                 return json(200, entry);
             }
             if (url.pathname === "/app/api/v1/macros") {
                 if (method === "PUT") {
-                    if (server.macrosPutStatus !== 200) return json(server.macrosPutStatus, { error: "macro store is read-only" });
-                    const put = body as { macros?: ReadonlyArray<unknown> } | undefined;
+                    if (server.macrosPutStatus !== 200)
+                        return json(server.macrosPutStatus, {
+                            error: "macro store is read-only",
+                        });
+                    const put = body as
+                        { macros?: ReadonlyArray<unknown> } | undefined;
                     server.macros = put?.macros ?? [];
                 }
                 return json(200, { macros: server.macros });
             }
             if (url.pathname === "/app/api/v1/settings" && method === "PATCH") {
                 await server.patchGate;
-                if (server.patchStatus !== 200) return json(server.patchStatus, { error: server.patchError });
-                const patch = body as Partial<Pick<ServerState, "keyboardLayout" | "jiggler">>;
-                if (patch.keyboardLayout) server.keyboardLayout = patch.keyboardLayout;
+                if (server.patchStatus !== 200)
+                    return json(server.patchStatus, {
+                        error: server.patchError,
+                    });
+                const patch = body as Partial<
+                    Pick<ServerState, "keyboardLayout" | "jiggler">
+                >;
+                if (patch.keyboardLayout)
+                    server.keyboardLayout = patch.keyboardLayout;
                 if (patch.jiggler !== undefined) server.jiggler = patch.jiggler;
-                return json(200, { keyboardLayout: server.keyboardLayout, jiggler: server.jiggler });
+                return json(200, {
+                    keyboardLayout: server.keyboardLayout,
+                    jiggler: server.jiggler,
+                });
             }
-            if (url.pathname === "/app/api/v1/servers" && method === "GET") return json(200, serverList(server));
+            if (url.pathname === "/app/api/v1/servers" && method === "GET")
+                return json(200, serverList(server));
             if (url.pathname === "/app/api/v1/servers" && method === "POST") {
-                if (server.servers.addStatus !== 200) return json(server.servers.addStatus, { error: server.servers.addError });
-                const add = body as { name?: string; origin: string; token: string };
+                if (server.servers.addStatus !== 200)
+                    return json(server.servers.addStatus, {
+                        error: server.servers.addError,
+                    });
+                const add = body as {
+                    name?: string;
+                    origin: string;
+                    token: string;
+                };
                 const entry: FakeServer = {
                     id: `srv-${server.servers.items.length + 1}`,
                     name: add.name ?? new URL(add.origin).host,
@@ -218,24 +311,62 @@ export function installFakeServer(server: ServerState): RecordedRequest[] {
                 server.servers.items.push(entry);
                 return json(200, entry);
             }
-            if (url.pathname === "/app/api/v1/servers/local/use" && method === "POST") {
+            if (
+                url.pathname === "/app/api/v1/servers/sign-in" &&
+                method === "POST"
+            ) {
+                const begin = body as { origin: string };
+                return json(200, {
+                    id: "si-1",
+                    url: `${begin.origin}app/auth/device?fake=1`,
+                });
+            }
+            if (url.pathname === "/app/api/v1/servers/sign-in/si-1") {
+                if (method === "DELETE") return json(200, { ok: true });
+                const { state, error } = server.servers.signIn;
+                if (state === "failed") return json(200, { state, error });
+                if (state === "waiting") return json(200, { state });
+                let entry = server.servers.items[0];
+                if (!entry) {
+                    entry = {
+                        id: "srv-1",
+                        name: "garage.lan",
+                        origin: "https://garage.lan/",
+                        tokenSet: true,
+                        active: false,
+                        state: "ok",
+                    };
+                    server.servers.items.push(entry);
+                }
+                return json(200, { state, entry });
+            }
+            if (
+                url.pathname === "/app/api/v1/servers/local/use" &&
+                method === "POST"
+            ) {
                 for (const item of server.servers.items) item.active = false;
                 server.servers.localActive = true;
                 return json(200, serverList(server));
             }
-            const serverPath = /^\/app\/api\/v1\/servers\/([^/]+)(\/use)?$/.exec(url.pathname);
+            const serverPath =
+                /^\/app\/api\/v1\/servers\/([^/]+)(\/use)?$/.exec(url.pathname);
             if (serverPath) {
-                const found = server.servers.items.find((item) => item.id === serverPath[1]);
+                const found = server.servers.items.find(
+                    (item) => item.id === serverPath[1],
+                );
                 if (!found) return json(404, { error: "no such server" });
                 if (serverPath[2] && method === "POST") {
-                    for (const item of server.servers.items) item.active = false;
+                    for (const item of server.servers.items)
+                        item.active = false;
                     found.active = true;
                     found.state = "ok";
                     server.servers.localActive = false;
                     return json(200, serverList(server));
                 }
                 if (!serverPath[2] && method === "DELETE") {
-                    server.servers.items = server.servers.items.filter((item) => item !== found);
+                    server.servers.items = server.servers.items.filter(
+                        (item) => item !== found,
+                    );
                     if (found.active) server.servers.localActive = true;
                     return json(200, serverList(server));
                 }
@@ -254,11 +385,19 @@ export interface Env {
     session?: KvmSession;
 }
 
-export function installMatchMedia({ compact = false, coarse = false }: Env): void {
+export function installMatchMedia({
+    compact = false,
+    coarse = false,
+}: Env): void {
     vi.stubGlobal(
         "matchMedia",
         vi.fn((query: string) => ({
-            matches: query === COMPACT_QUERY ? compact : query === "(pointer: coarse)" ? coarse : false,
+            matches:
+                query === COMPACT_QUERY
+                    ? compact
+                    : query === "(pointer: coarse)"
+                      ? coarse
+                      : false,
             media: query,
             addEventListener: () => {},
             removeEventListener: () => {},
@@ -286,13 +425,18 @@ export class FakeViewport extends EventTarget {
 
 export function installViewport(height = 800): FakeViewport {
     const viewport = new FakeViewport(height);
-    Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
+    Object.defineProperty(window, "visualViewport", {
+        value: viewport,
+        configurable: true,
+    });
     // Frames as timers: deterministic, and (unlike an immediate callback) they keep the
     // component's "a frame is pending" bookkeeping honest.
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
         window.setTimeout(() => callback(0), 0),
     );
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
+    vi.stubGlobal("cancelAnimationFrame", (id: number) =>
+        window.clearTimeout(id),
+    );
     return viewport;
 }
 
@@ -313,7 +457,12 @@ export function quietSession(): KvmSession {
 
 export function renderApp(path: string, env: Env = {}) {
     installMatchMedia(env);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const queryClient = new QueryClient({
+        defaultOptions: {
+            queries: { retry: false },
+            mutations: { retry: false },
+        },
+    });
     const history = createMemoryHistory({ initialEntries: [`/app${path}`] });
     const router = createAppRouter({ history, basepath: "/app" });
     const view = render(
@@ -334,13 +483,20 @@ export class FakeEventSource {
     onerror: (() => void) | null = null;
     closed = false;
     constructor(readonly url: string) {
-        (url.endsWith("/cursor") ? FakeEventSource.cursors : FakeEventSource.sources).push(this);
+        (url.endsWith("/cursor")
+            ? FakeEventSource.cursors
+            : FakeEventSource.sources
+        ).push(this);
     }
     close(): void {
         this.closed = true;
     }
     emit(data: unknown): void {
-        this.onmessage?.(new MessageEvent("message", { data: typeof data === "string" ? data : JSON.stringify(data) }));
+        this.onmessage?.(
+            new MessageEvent("message", {
+                data: typeof data === "string" ? data : JSON.stringify(data),
+            }),
+        );
     }
     fail(): void {
         this.onerror?.();

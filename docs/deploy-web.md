@@ -410,6 +410,22 @@ token. The remote sends `Authorization: Bearer <token>`, which the host judges b
 does not fall back to a cookie or to Basic, and it never sets a cookie. Serve the host over https and leave `PIKVM_SYNC_ALLOW_HTTP`
 unset. With `PIKVM_ACCESS_TOKEN` unset every bearer is refused.
 
+### Signing a desktop app in with the browser
+
+The desktop app asks for an address, then opens the host's own sign-in in the browser. The person signs in the way they always do
+(password, identity provider or access token) and sees a page that names the app and says what it gets. They press Allow, the
+browser goes back to the app, and the app saves a device token. No access token is typed or copied.
+
+* `GET /app/auth/info` (public) says the host offers it. `GET`/`POST /app/auth/device` is the consent page and needs a normal
+  browser session. `POST /app/auth/device/token` (public) trades the code for the device token.
+* The app listens on `127.0.0.1` on a random port for five minutes, once. It sends a random `state` and a PKCE `S256` challenge.
+  The host checks the loopback address, the state and the verifier. A code lasts 60 seconds and works once.
+* A device token is `pkd_<id>_<secret>`. The host keeps only a hash, in `<data dir>/devices.json` (0600). It is judged by the
+  bearer rules: it never sets a cookie, and a cookie is never accepted for it. It cannot list or revoke other devices.
+* Revoke one in Settings > Account > Signed-in desktop apps (`DELETE /app/api/v1/devices/:id`). Forgetting the server in the app
+  revokes its own token (`DELETE /app/api/v1/devices/self`).
+* The access token field stays in the app, behind "Use an access token instead".
+
 ### A compose file for the host
 
 No proxy and no oauth2 service: the host and its data. Set whichever methods you want; this one uses a password and Pocket ID.

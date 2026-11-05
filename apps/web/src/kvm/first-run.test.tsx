@@ -64,19 +64,32 @@ const garage = (): FakeServer => ({
 /** The desktop app's server: it lets the app keep its own PiKVMs and servers. */
 const editable = (...items: FakePikvm[]) => {
     server.pikvms = { editable: true, items };
-    server.servers = { ...server.servers, editable: true, items: [], localActive: true };
+    server.servers = {
+        ...server.servers,
+        editable: true,
+        items: [],
+        localActive: true,
+    };
 };
 
 /** The url a fetch was made to, whether it was given a string, a URL or a Request. */
-const urlOf = (input: string | URL | Request): string => (input instanceof Request ? input.url : String(input));
+const urlOf = (input: string | URL | Request): string =>
+    input instanceof Request ? input.url : String(input);
 
 /** Answers for the PiKVM list come from `answer` instead of the fake server; everything else is untouched. */
-function interceptPikvmList(answer: (real: () => Promise<Response>) => Promise<Response>): void {
+function interceptPikvmList(
+    answer: (real: () => Promise<Response>) => Promise<Response>,
+): void {
     const real = globalThis.fetch;
-    vi.stubGlobal("fetch", (input: string | URL | Request, init?: RequestInit) => {
-        const isList = new URL(urlOf(input), "http://localhost").pathname === "/app/api/v1/pikvms" && (init?.method ?? "GET") === "GET";
-        return isList ? answer(() => real(input, init)) : real(input, init);
-    });
+    vi.stubGlobal(
+        "fetch",
+        (input: string | URL | Request, init?: RequestInit) => {
+            const isList =
+                new URL(urlOf(input), "http://localhost").pathname ===
+                    "/app/api/v1/pikvms" && (init?.method ?? "GET") === "GET";
+            return isList ? answer(() => real(input, init)) : real(input, init);
+        },
+    );
 }
 
 async function mount() {
@@ -88,14 +101,22 @@ async function mount() {
     return view;
 }
 
-const welcome = () => screen.queryByRole("heading", { name: "Welcome to PiKVM" });
-const writes = (path: string) => requests.filter((r) => r.path === path && r.method !== "GET");
+const welcome = () =>
+    screen.queryByRole("heading", { name: "Welcome to PiKVM" });
+const writes = (path: string) =>
+    requests.filter((r) => r.path === path && r.method !== "GET");
 
 /** Both lists have answered, so what the screen decided is final. */
-async function listsLoaded(queryClient: Awaited<ReturnType<typeof mount>>["queryClient"]) {
+async function listsLoaded(
+    queryClient: Awaited<ReturnType<typeof mount>>["queryClient"],
+) {
     await waitFor(() => {
-        expect(queryClient.getQueryState(["pikvms"])?.status).not.toBe("pending");
-        expect(queryClient.getQueryState(["servers"])?.status).not.toBe("pending");
+        expect(queryClient.getQueryState(["pikvms"])?.status).not.toBe(
+            "pending",
+        );
+        expect(queryClient.getQueryState(["servers"])?.status).not.toBe(
+            "pending",
+        );
     });
 }
 
@@ -103,9 +124,13 @@ describe("when it shows", () => {
     it("is the stage with no PiKVM saved, in place of the picture, and the chip says so", async () => {
         editable();
         await mount();
-        expect(await screen.findByRole("heading", { name: "Welcome to PiKVM" })).toBeInTheDocument();
+        expect(
+            await screen.findByRole("heading", { name: "Welcome to PiKVM" }),
+        ).toBeInTheDocument();
         expect(screen.queryByTestId("kvm-pane")).toBeNull();
-        expect(screen.getByRole("img", { name: "No PiKVM yet" })).toBeInTheDocument();
+        expect(
+            screen.getByRole("img", { name: "No PiKVM yet" }),
+        ).toBeInTheDocument();
         expect(screen.getByText("No PiKVM yet")).toBeInTheDocument();
         expect(screen.queryByText(/Screen unavailable/)).toBeNull();
         // The cursor is already in the first field.
@@ -118,7 +143,9 @@ describe("when it shows", () => {
         await mount();
         expect(screen.getByTestId("kvm-pane")).toBeInTheDocument();
         expect(welcome()).toBeNull();
-        expect(screen.getByRole("img", { name: "Connecting" })).toBeInTheDocument();
+        expect(
+            screen.getByRole("img", { name: "Connecting" }),
+        ).toBeInTheDocument();
     });
 
     it("is not shown when the lists fail to load: the error says so and Try again asks again", async () => {
@@ -126,18 +153,31 @@ describe("when it shows", () => {
         let failing = true;
         interceptPikvmList((real) =>
             failing
-                ? Promise.resolve(new Response(JSON.stringify({ error: "The app is not answering." }), { status: 500 }))
+                ? Promise.resolve(
+                      new Response(
+                          JSON.stringify({
+                              error: "The app is not answering.",
+                          }),
+                          { status: 500 },
+                      ),
+                  )
                 : real(),
         );
         const user = userEvent.setup();
         await mount();
-        expect(await screen.findByText(/Could not load: The app is not answering\./)).toBeInTheDocument();
+        expect(
+            await screen.findByText(
+                /Could not load: The app is not answering\./,
+            ),
+        ).toBeInTheDocument();
         expect(welcome()).toBeNull();
         expect(screen.getByTestId("kvm-pane")).toBeInTheDocument();
 
         failing = false;
         await user.click(screen.getByRole("button", { name: "Try again" }));
-        expect(await screen.findByRole("heading", { name: "Welcome to PiKVM" })).toBeInTheDocument();
+        expect(
+            await screen.findByRole("heading", { name: "Welcome to PiKVM" }),
+        ).toBeInTheDocument();
         expect(screen.queryByText(/Could not load/)).toBeNull();
     });
 
@@ -160,7 +200,11 @@ describe("when it shows", () => {
             "a server is in use",
             () => {
                 editable();
-                server.servers = { ...server.servers, items: [garage()], localActive: false };
+                server.servers = {
+                    ...server.servers,
+                    items: [garage()],
+                    localActive: false,
+                };
             },
         ],
     ])("is not shown when %s", async (_name, setup) => {
@@ -176,7 +220,10 @@ describe("when it shows", () => {
 describe("saving a PiKVM", () => {
     const fill = async (user: ReturnType<typeof userEvent.setup>) => {
         await user.type(await screen.findByLabelText("Name", INPUT), "Desk");
-        await user.type(screen.getByLabelText("Address", INPUT), "https://pikvm.lan/");
+        await user.type(
+            screen.getByLabelText("Address", INPUT),
+            "https://pikvm.lan/",
+        );
         await user.type(screen.getByLabelText("User name", INPUT), "admin");
         await user.type(screen.getByLabelText("Password", INPUT), "s3cret");
     };
@@ -192,10 +239,17 @@ describe("saving a PiKVM", () => {
             {
                 method: "POST",
                 path: "/app/api/v1/pikvms",
-                body: { name: "Desk", origin: "https://pikvm.lan/", username: "admin", password: "s3cret" },
+                body: {
+                    name: "Desk",
+                    origin: "https://pikvm.lan/",
+                    username: "admin",
+                    password: "s3cret",
+                },
             },
         ]);
-        expect(server.pikvms.items.map((item) => [item.name, item.active])).toEqual([["Desk", true]]);
+        expect(
+            server.pikvms.items.map((item) => [item.name, item.active]),
+        ).toEqual([["Desk", true]]);
     });
 
     it("locks the form while it saves", async () => {
@@ -203,20 +257,27 @@ describe("saving a PiKVM", () => {
         let release: () => void = () => {};
         const gate = new Promise<void>((resolve) => (release = resolve));
         const real = globalThis.fetch;
-        vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-            if ((init?.method ?? "GET") === "POST") await gate;
-            return real(input, init);
-        });
+        vi.stubGlobal(
+            "fetch",
+            async (input: string | URL | Request, init?: RequestInit) => {
+                if ((init?.method ?? "GET") === "POST") await gate;
+                return real(input, init);
+            },
+        );
         const user = userEvent.setup();
         await mount();
         await fill(user);
         await user.click(screen.getByRole("button", { name: "Connect" }));
-        await waitFor(() => expect(screen.getByLabelText("Name", INPUT)).toBeDisabled());
+        await waitFor(() =>
+            expect(screen.getByLabelText("Name", INPUT)).toBeDisabled(),
+        );
         expect(screen.getByLabelText("Address", INPUT)).toBeDisabled();
         expect(screen.getByLabelText("Password", INPUT)).toBeDisabled();
         expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
         // Switching to the server form now would drop this save's answer, and with it the reload.
-        expect(screen.getByRole("button", { name: "Use a server instead" })).toBeDisabled();
+        expect(
+            screen.getByRole("button", { name: "Use a server instead" }),
+        ).toBeDisabled();
         release();
         await waitFor(() => expect(reload).toHaveBeenCalled());
     });
@@ -229,9 +290,13 @@ describe("saving a PiKVM", () => {
         await mount();
         await fill(user);
         await user.click(screen.getByRole("button", { name: "Connect" }));
-        expect(await screen.findByRole("alert")).toHaveTextContent("Could not save: Nothing answered at that address.");
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+            "Could not save: Nothing answered at that address.",
+        );
         expect(screen.getByLabelText("Name", INPUT)).toHaveValue("Desk");
-        expect(screen.getByLabelText("Address", INPUT)).toHaveValue("https://pikvm.lan/");
+        expect(screen.getByLabelText("Address", INPUT)).toHaveValue(
+            "https://pikvm.lan/",
+        );
         expect(screen.getByLabelText("User name", INPUT)).toHaveValue("admin");
         expect(screen.getByLabelText("Password", INPUT)).toHaveValue("s3cret");
         expect(screen.getByLabelText("Name", INPUT)).toBeEnabled();
@@ -249,16 +314,31 @@ describe("using a server instead", () => {
         editable();
         const user = userEvent.setup();
         await mount();
-        await user.click(await screen.findByRole("button", { name: "Use a server instead" }));
+        await user.click(
+            await screen.findByRole("button", { name: "Use a server instead" }),
+        );
         expect(screen.queryByLabelText("User name", INPUT)).toBeNull();
         expect(screen.getByLabelText("Address", INPUT)).toHaveFocus();
 
-        await user.type(screen.getByLabelText("Address", INPUT), "https://garage.lan/");
-        await user.type(screen.getByLabelText("Access token", INPUT), "tok-123");
+        await user.type(
+            screen.getByLabelText("Address", INPUT),
+            "https://garage.lan/",
+        );
+        await user.click(
+            screen.getByRole("button", { name: "Use an access token instead" }),
+        );
+        await user.type(
+            screen.getByLabelText("Access token", INPUT),
+            "tok-123",
+        );
         await user.click(screen.getByRole("button", { name: "Connect" }));
         await waitFor(() => expect(reload).toHaveBeenCalled());
         expect(writes("/app/api/v1/servers")).toEqual([
-            { method: "POST", path: "/app/api/v1/servers", body: { origin: "https://garage.lan/", token: "tok-123" } },
+            {
+                method: "POST",
+                path: "/app/api/v1/servers",
+                body: { origin: "https://garage.lan/", token: "tok-123" },
+            },
         ]);
         expect(writes("/app/api/v1/servers/srv-1/use")).toHaveLength(1);
         expect(server.servers.localActive).toBe(false);
@@ -268,8 +348,16 @@ describe("using a server instead", () => {
         editable();
         const user = userEvent.setup();
         await mount();
-        await user.click(await screen.findByRole("button", { name: "Use a server instead" }));
-        await user.click(screen.getByRole("button", { name: "Use a PiKVM instead" }));
-        expect(within(screen.getByRole("region", { name: "Welcome to PiKVM" })).getByLabelText("Name", INPUT)).toHaveFocus();
+        await user.click(
+            await screen.findByRole("button", { name: "Use a server instead" }),
+        );
+        await user.click(
+            screen.getByRole("button", { name: "Use a PiKVM instead" }),
+        );
+        expect(
+            within(
+                screen.getByRole("region", { name: "Welcome to PiKVM" }),
+            ).getByLabelText("Name", INPUT),
+        ).toHaveFocus();
     });
 });

@@ -165,6 +165,14 @@ export class ServerStore {
         return item && token ? { id: item.id, origin: item.origin, token } : null;
     }
 
+    /** A saved server's address and token, for the one thing besides the forwarder that needs them: telling it to forget this app
+     *  when the server is removed. Never sent to a client. */
+    credentials(id: string): RemoteServer | null {
+        const item = this.find(id);
+        const token = item ? this.tokens[item.id] : undefined;
+        return item && token ? { origin: item.origin, token } : null;
+    }
+
     /** Probe a new server with its token, then save it. Saving does not make it the one in use. */
     async add(input: { readonly name?: string | undefined; readonly origin: string; readonly token: string }, probe: Probe): Promise<ServerView> {
         if (this.items.length > 0) throw new ServerAlreadySaved();

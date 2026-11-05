@@ -11,6 +11,7 @@
  *   every method   PIKVM_PUBLIC_URL, PIKVM_TRUST_PROXY, PIKVM_SESSION_SECRET
  */
 
+import { resolve } from "node:path";
 import { createWebAuth, type WebAuth, type WebAuthOptions } from "./index";
 import { acceptableUrl, type OidcConfig } from "./oidc";
 import { parseHash } from "./password";
@@ -115,6 +116,7 @@ export function webAuthFromEnv(env: (name: string) => string, dataDir: string, s
         ...(publicOrigin ? { publicOrigin } : {}),
         trustProxy: env("PIKVM_TRUST_PROXY") === "1",
         sessionKey: loadSessionKey(env("PIKVM_SESSION_SECRET"), dataDir),
+        devicesPath: resolve(dataDir, "devices.json"),
         ...seams,
     });
     return { auth, warnings };

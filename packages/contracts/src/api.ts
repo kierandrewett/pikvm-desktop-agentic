@@ -181,6 +181,25 @@ export const ServerAdd = Schema.Struct({
 }).annotations({ parseOptions: { onExcessProperty: "error" } });
 export type ServerAdd = typeof ServerAdd.Type;
 
+/** Start signing in to a server with the browser, instead of typing its access token. The server must offer it (it says so at
+ *  `/app/auth/info`). Answers the address to open in the person's browser, and an id to ask about. */
+export const ServerSignIn = Schema.Struct({
+    name: Schema.optional(Schema.String),
+    origin: Schema.String,
+}).annotations({ parseOptions: { onExcessProperty: "error" } });
+export type ServerSignIn = typeof ServerSignIn.Type;
+
+export const ServerSignInBegun = Schema.Struct({ id: Schema.String, url: Schema.String });
+export type ServerSignInBegun = typeof ServerSignInBegun.Type;
+
+/** Where a browser sign-in is: waiting for the person, done (the server is saved, not yet in use), or failed with a sentence fit to show. */
+export const ServerSignInStatus = Schema.Struct({
+    state: Schema.Literal("waiting", "done", "failed"),
+    entry: Schema.optional(ServerEntry),
+    error: Schema.optional(Schema.String),
+});
+export type ServerSignInStatus = typeof ServerSignInStatus.Type;
+
 /** `GET /state`: everything the app needs to start. */
 export const State = Schema.Struct({
     settings: Settings,
@@ -365,7 +384,7 @@ export const StateGroup = HttpApiGroup.make("state").add(HttpApiEndpoint.get("ge
  */
 export const SessionView = Schema.Struct({
     signIn: Schema.Boolean,
-    method: Schema.optional(Schema.Literal("token", "password", "oidc", "bearer", "basic")),
+    method: Schema.optional(Schema.Literal("token", "password", "oidc", "bearer", "basic", "device")),
     subject: Schema.optional(Schema.String),
     canSignOut: Schema.optional(Schema.Boolean),
 });
@@ -466,7 +485,17 @@ export const ServersGroup = HttpApiGroup.make("servers")
             .addError(BadRequest)
             .addError(NotFound),
     )
-    .add(HttpApiEndpoint.post("useLocal", "/servers/local/use").addSuccess(ServerList).addError(Forbidden));
+    .add(HttpApiEndpoint.post("useLocal", "/servers/local/use").addSuccess(ServerList).addError(Forbidden))
+    .add(
+        HttpApiEndpoint.post("signIn", "/servers/sign-in")
+            .setPayload(ServerSignIn)
+            .addSuccess(ServerSignInBegun)
+            .addError(BadRequest)
+            .addError(Forbidden)
+            .addError(Conflict),
+    )
+    .add(HttpApiEndpoint.get("signInStatus", "/servers/sign-in/:id").setPath(ServerId).addSuccess(ServerSignInStatus).addError(Forbidden).addError(NotFound))
+    .add(HttpApiEndpoint.del("signInCancel", "/servers/sign-in/:id").setPath(ServerId).addSuccess(Schema.Struct({ ok: Schema.Boolean })).addError(Forbidden));
 
 export const PikvmApi = HttpApi.make("pikvm")
     .add(StateGroup)

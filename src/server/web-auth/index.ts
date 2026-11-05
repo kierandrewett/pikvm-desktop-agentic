@@ -26,6 +26,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import { bearerVerdict, isPublicPath, isLoopback, loginPage, parseCookies, sameOrigin, tokenMatches, type LoginOptions } from "../auth";
 import { json, readBody } from "../http";
+import { AuthCodes, CHALLENGE, DEVICE_TOKEN_PREFIX, DeviceStore, STATE, cleanDeviceName, consentPage, devicePageError } from "./devices";
 import { AttemptLimiter, type LimiterOptions } from "./limiter";
 import { OidcClient, OidcError, type OidcConfig } from "./oidc";
 import { createPasswordLogin, parseBasic, type PasswordConfig, type PasswordLogin, type Scrypt } from "./password";
@@ -41,10 +42,11 @@ const DEFAULT_NEXT = "/app/";
 const MAX_FORM = 8192;
 
 /** Who a request is, once let in: how it got in and who it is. Never a secret. Only a cookie session (token, password,
- *  oidc) can be signed out of; a bearer or Basic header has no session. */
+ *  oidc) can be signed out of; a bearer, a Basic header or a device token has no session. `deviceId` is set for a device. */
 export interface SignedIn {
-    method: Method | "bearer" | "basic";
+    method: Method | "bearer" | "basic" | "device";
     subject: string;
+    deviceId?: string;
 }
 
 export type Verdict =
@@ -62,6 +64,8 @@ export interface WebAuthOptions {
     oidc?: OidcConfig;
     /** The origin users see (PIKVM_PUBLIC_URL), no trailing slash. */
     publicOrigin?: string;
+    /** Where the signed-in desktop apps are kept (<data dir>/devices.json). Without it they are kept in memory only. */
+    devicesPath?: string;
     /** PIKVM_TRUST_PROXY=1: believe X-Forwarded-Proto and X-Forwarded-For (their last hop). */
     trustProxy: boolean;
     sessionKey: Buffer;
@@ -82,7 +86,7 @@ export interface WebAuth {
     loginRedirect(url: URL): string;
     /** The sign-in routes: the page, the form post, the OpenID start and callback, sign-out. */
     handles(method: string, path: string): boolean;
-    handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void>;
+    handle(req: IncomingMessage, res: ServerResponse, url: URL, signedIn?: SignedIn): Promise<void>;
 }
 
 /** A return path that stays on this site: one `/`, then not another `/` or a `\` (browsers read both as a host),
@@ -132,6 +136,11 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         materials.oidc = [o.oidc.issuer, o.oidc.clientId, o.oidc.allowedGroups.join(","), o.oidc.allowedEmails.join(","), o.oidc.allowedSubjects.join(",")].join("\0");
     }
 
+    /** What a device made under `method` must still match: that method's configuration now, or nothing when it is off. */
+    const bindingOf = (method: Method): string | undefined => (materials[method] === undefined ? undefined : sessions.binding(method, materials[method]));
+    const devices = new DeviceStore(o.devicesPath, now);
+    const codes = new AuthCodes(now);
+
     const methods = [o.token ? "access token" : "", password ? "password" : "", oidc ? `OIDC (${oidc.host})` : ""].filter(Boolean);
 
     /** The proxy's X-Forwarded-Proto, when it is believed and present. */
@@ -179,15 +188,29 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
     async function bearer(req: IncomingMessage): Promise<Verdict> {
         const wait = limiter.wait(clientAddress(req));
         if (wait > 0) return tooMany(wait);
+        const presented = String(req.headers.authorization ?? "").slice("Bearer ".length);
+        if (presented.startsWith(DEVICE_TOKEN_PREFIX)) return deviceBearer(req, presented);
         const verdict = bearerVerdict(req, { token: o.token, allowHttp: o.allowHttpBearer, secureTransport: transportOk });
         if (verdict === "allow") {
             limiter.succeed(clientAddress(req));
             return { kind: "allow", signedIn: { method: "bearer", subject: "access token" } };
         }
         // Only a wrong token counts as a failed guess; a refusal for the Origin or the transport says nothing about it.
-        const presented = String(req.headers.authorization ?? "").slice("Bearer ".length);
         if (o.token && !tokenMatches(presented, o.token)) refuse("bearer", req);
         return unauthorized;
+    }
+
+    /** A device token: a bearer under the access token's rules (a connection a secret may cross, no foreign Origin), that can be revoked. */
+    function deviceBearer(req: IncomingMessage, presented: string): Verdict {
+        if (!(transportOk(req) || o.allowHttpBearer)) return unauthorized;
+        if (req.headers.origin !== undefined && !sameOrigin(req)) return unauthorized;
+        const found = devices.verify(presented, bindingOf);
+        if (!found) {
+            refuse("device token", req);
+            return unauthorized;
+        }
+        limiter.succeed(clientAddress(req));
+        return { kind: "allow", signedIn: { method: "device", subject: found.name, deviceId: found.id } };
     }
 
     async function basic(req: IncomingMessage): Promise<Verdict> {
@@ -312,6 +335,103 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         }
     }
 
+    const noStoreJson = (res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void => {
+        res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
+        res.end(JSON.stringify(body));
+    };
+    const cookieMethod = (m: SignedIn["method"] | undefined): m is Method => m === "token" || m === "password" || m === "oidc";
+
+    /** `GET /app/auth/info`, public: what a desktop app asks before it offers browser sign-in. Nothing secret. */
+    const authInfo = (res: ServerResponse): void =>
+        noStoreJson(res, 200, { app: "pikvm-desktop", device: true, methods: [o.token ? "token" : "", password ? "password" : "", oidc ? "oidc" : ""].filter(Boolean) });
+
+    /** The request a desktop app made, checked: a loopback port it can listen on, a state, a PKCE challenge and a name. */
+    function deviceRequest(params: URLSearchParams): { port: number; state: string; challenge: string; name: string } | undefined {
+        const port = Number(params.get("port"));
+        const state = params.get("state") ?? "";
+        const challenge = params.get("challenge") ?? "";
+        if (!Number.isInteger(port) || port < 1024 || port > 65535 || !STATE.test(state) || !CHALLENGE.test(challenge)) return undefined;
+        return { port, state, challenge, name: cleanDeviceName(params.get("name")) };
+    }
+    /** Where the browser goes back to: the app's own listener, on this machine only. */
+    const loopbackCallback = (port: number, query: Record<string, string>): string => `http://127.0.0.1:${port}/callback?${new URLSearchParams(query).toString()}`;
+
+    /** `GET /app/auth/device`: the question. Only a browser signed in by a cookie can be asked: a header credential has no one in front of it. */
+    function askDevice(res: ServerResponse, url: URL, signedIn: SignedIn | undefined): void {
+        const request = deviceRequest(url.searchParams);
+        if (!request) return page(res, 400, devicePageError("This sign-in link is not valid."));
+        if (!signedIn || !cookieMethod(signedIn.method)) return page(res, 403, devicePageError("Open this link in a browser where you are signed in."));
+        const grant = sessions.seal("device-grant", { ...request, subject: signedIn.subject, method: signedIn.method, exp: now() + FLOW_TTL_MS });
+        page(res, 200, consentPage({ name: request.name, subject: signedIn.subject, grant }));
+    }
+
+    /** `POST /app/auth/device`: the answer. What is being allowed comes from the sealed grant, never from a form field. */
+    async function answerDevice(req: IncomingMessage, res: ServerResponse, signedIn: SignedIn | undefined): Promise<void> {
+        if (!fromOurPage(req)) return json(res, 403, { error: "Cross-site request refused." });
+        if (!signedIn || !cookieMethod(signedIn.method)) return page(res, 403, devicePageError("Open this link in a browser where you are signed in."));
+        let form: URLSearchParams;
+        try {
+            form = new URLSearchParams(await readBody(req, MAX_FORM));
+        } catch {
+            return json(res, 413, { error: "Request too large" });
+        }
+        const grant = sessions.open("device-grant", form.get("grant") ?? "") as
+            | { port?: number; state?: string; challenge?: string; name?: string; subject?: string; method?: string; exp?: number }
+            | undefined;
+        const valid =
+            grant !== undefined && typeof grant === "object" && typeof grant.port === "number" && typeof grant.state === "string" && typeof grant.challenge === "string" &&
+            typeof grant.name === "string" && typeof grant.subject === "string" && typeof grant.method === "string" && typeof grant.exp === "number" && grant.exp > now();
+        if (!valid) return page(res, 400, devicePageError("That sign-in expired. Start again from PiKVM Desktop."));
+        // The page was shown to this person; only they may answer it.
+        if (grant.subject !== signedIn.subject || grant.method !== signedIn.method) return page(res, 403, devicePageError("That sign-in was started by someone else."));
+        const { port, state, challenge, name, subject, method } = grant as { port: number; state: string; challenge: string; name: string; subject: string; method: Method };
+        if (form.get("decision") !== "allow") return see(res, loopbackCallback(port, { error: "access_denied", state }));
+        const code = codes.issue({ challenge, name, method, subject });
+        see(res, loopbackCallback(port, { code, state }));
+    }
+
+    /** `POST /app/auth/device/token`, public: the code and the verifier for a device token. The token is shown here and nowhere else. */
+    async function deviceToken(req: IncomingMessage, res: ServerResponse): Promise<void> {
+        if (!transportOk(req)) return noStoreJson(res, 403, { error: OVER_HTTPS });
+        const wait = limiter.wait(clientAddress(req));
+        if (wait > 0) return noStoreJson(res, 429, { error: "Too many attempts. Try again later." }, { "retry-after": String(Math.max(1, Math.ceil(wait / 1000))) });
+        let body: { code?: unknown; verifier?: unknown };
+        try {
+            body = JSON.parse(await readBody(req, MAX_FORM)) as { code?: unknown; verifier?: unknown };
+        } catch {
+            return noStoreJson(res, 400, { error: "That code is not valid." });
+        }
+        const grant = typeof body.code === "string" && typeof body.verifier === "string" ? codes.redeem(body.code, body.verifier) : undefined;
+        const binding = grant ? bindingOf(grant.method) : undefined;
+        if (!grant || binding === undefined) {
+            refuse("device code", req);
+            return noStoreJson(res, 400, { error: "That code is not valid." });
+        }
+        limiter.succeed(clientAddress(req));
+        const issued = devices.issue(grant.name, grant.method, grant.subject, binding);
+        log(`[web] device "${issued.device.name}" signed in as ${grant.subject} (${grant.method})`);
+        noStoreJson(res, 200, { token: issued.token, id: issued.device.id, name: issued.device.name, subject: issued.device.subject });
+    }
+
+    /** `GET /app/api/v1/devices`: the signed-in apps, for Settings, Account. A device cannot list the others. */
+    function listDevices(res: ServerResponse, signedIn: SignedIn | undefined): void {
+        if (!signedIn || signedIn.method === "device") return noStoreJson(res, 403, { error: "Not allowed." });
+        noStoreJson(res, 200, { devices: devices.list() });
+    }
+
+    /** `DELETE /app/api/v1/devices/:id`: remove one. `self` is the device removing its own token (it was forgotten in the app). */
+    function revokeDevice(res: ServerResponse, id: string, signedIn: SignedIn | undefined): void {
+        if (!signedIn) return noStoreJson(res, 401, { error: "Unauthorized" });
+        if (id === "self") {
+            if (signedIn.method !== "device" || !signedIn.deviceId) return noStoreJson(res, 404, { error: "Not found" });
+            devices.revoke(signedIn.deviceId);
+            return noStoreJson(res, 200, { ok: true });
+        }
+        if (signedIn.method === "device") return noStoreJson(res, 403, { error: "Not allowed." });
+        const removed = devices.revoke(id);
+        noStoreJson(res, removed ? 200 : 404, removed ? { ok: true } : { error: "Not found" });
+    }
+
     return {
         methods,
 
@@ -330,11 +450,15 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
 
         handles(method, path) {
             if (path === "/app/logout") return true;
-            if (path === "/app/login" || path === "/app/auth/callback") return method === "GET";
+            if (path === "/app/login" || path === "/app/auth/callback" || path === "/app/auth/info") return method === "GET";
+            if (path === "/app/auth/device") return method === "GET" || method === "POST";
+            if (path === "/app/auth/device/token") return method === "POST";
+            if (path === "/app/api/v1/devices") return method === "GET";
+            if (/^\/app\/api\/v1\/devices\/(?:self|[0-9a-f]{12})$/.test(path)) return method === "DELETE";
             return path === "/app/auth" && (method === "GET" || method === "POST");
         },
 
-        async handle(req, res, url) {
+        async handle(req, res, url, signedIn) {
             const path = url.pathname;
             if (path === "/app/login") {
                 const next = safeNext(url.searchParams.get("next"));
@@ -344,6 +468,11 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
                 return see(res, "/app/login?bye=1", { "set-cookie": cookieHeader(SESSION_COOKIE, "", { secure: secure(req), maxAgeSec: 0 }) });
             }
             if (path === "/app/auth/callback") return finishOidc(req, res, url);
+            if (path === "/app/auth/info") return authInfo(res);
+            if (path === "/app/auth/device") return req.method === "POST" ? answerDevice(req, res, signedIn) : askDevice(res, url, signedIn);
+            if (path === "/app/auth/device/token") return deviceToken(req, res);
+            if (path === "/app/api/v1/devices") return listDevices(res, signedIn);
+            if (path.startsWith("/app/api/v1/devices/")) return revokeDevice(res, path.slice("/app/api/v1/devices/".length), signedIn);
             if (req.method === "POST") return signInForm(req, res);
             return startOidc(req, res, url);
         },

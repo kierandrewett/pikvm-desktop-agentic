@@ -18,6 +18,9 @@ import {
     type ServerAdd,
     type ServerEntry,
     type ServerList,
+    type ServerSignIn,
+    type ServerSignInBegun,
+    type ServerSignInStatus,
     type SessionView,
     type Settings,
     type SettingsPatch,
@@ -157,6 +160,16 @@ export const listServers = (): Effect.Effect<ServerList, ApiFailure> => withClie
 /** The token is write-only: no reply carries it back, only `tokenSet`. The server is probed before it is saved. */
 export const addServer = (payload: ServerAdd): Effect.Effect<ServerEntry, ApiFailure> =>
     withClient((client) => client.servers.add({ payload }));
+
+/** Starts signing in with the browser: answers the address to open, and an id to ask about. */
+export const beginSignIn = (payload: ServerSignIn): Effect.Effect<ServerSignInBegun, ApiFailure> =>
+    withClient((client) => client.servers.signIn({ payload }));
+
+export const signInStatus = (id: string): Effect.Effect<ServerSignInStatus, ApiFailure> =>
+    withClient((client) => client.servers.signInStatus({ path: { id } }));
+
+export const cancelSignIn = (id: string): Effect.Effect<{ readonly ok: boolean }, ApiFailure> =>
+    withClient((client) => client.servers.signInCancel({ path: { id } }));
 
 export const removeServer = (id: string): Effect.Effect<ServerList, ApiFailure> =>
     withClient((client) => client.servers.remove({ path: { id } }));

@@ -10,6 +10,9 @@ import {
     type ServerAdd,
     type ServerEntry,
     type ServerList,
+    type ServerSignIn,
+    type ServerSignInBegun,
+    type ServerSignInStatus,
     type SessionView,
     type Settings,
     type SettingsPatch,
@@ -21,6 +24,9 @@ import {
     addPikvm,
     addServer,
     ApiFailure,
+    beginSignIn,
+    cancelSignIn,
+    signInStatus,
     getSession,
     getState,
     listMacros,
@@ -192,3 +198,31 @@ function useServerWrite<V>(call: (variables: V) => Effect.Effect<ServerList, Api
 export const useRemoveServer = () => useServerWrite<string>(removeServer);
 export const useUseServer = () => useServerWrite<string>(switchServer);
 export const useUseLocalServer = () => useServerWrite<void>(() => switchToThisComputer());
+
+/** Starts a browser sign-in. The caller opens the address it answers and then follows `useSignInStatus`. */
+export function useBeginSignIn() {
+    return useMutation<ServerSignInBegun, ApiFailure, ServerSignIn>({
+        mutationFn: (payload) => runApi(beginSignIn(payload)),
+    });
+}
+
+export function useCancelSignIn() {
+    return useMutation<{ readonly ok: boolean }, ApiFailure, string>({
+        mutationFn: (id) => runApi(cancelSignIn(id)),
+    });
+}
+
+/** Asks how a browser sign-in is going once a second, until it is done or failed. Saving a server makes the list stale. */
+export function useSignInStatus(id: string | undefined) {
+    const queryClient = useQueryClient();
+    return useQuery<ServerSignInStatus, ApiFailure>({
+        queryKey: ["server-sign-in", id],
+        enabled: id !== undefined,
+        refetchInterval: (query) => (query.state.data && query.state.data.state !== "waiting" ? false : 1000),
+        queryFn: async ({ signal }) => {
+            const status = await runApi(signInStatus(id as string), signal);
+            if (status.state === "done") void queryClient.invalidateQueries({ queryKey: serversKey });
+            return status;
+        },
+    });
+}

@@ -32,9 +32,18 @@
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
+import { DESKTOP_BRIDGE_KEY } from "@pikvm/contracts/desktop";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultServer, type FakePikvm, type FakeServer, installFakeServer, renderApp, type RecordedRequest, type ServerState } from "../test/harness";
+import {
+    defaultServer,
+    type FakePikvm,
+    type FakeServer,
+    installFakeServer,
+    renderApp,
+    type RecordedRequest,
+    type ServerState,
+} from "../test/harness";
 
 // jsdom cannot reload; the form calls this after a successful save.
 const reload = vi.hoisted(() => vi.fn());
@@ -55,26 +64,37 @@ afterEach(() => {
 });
 
 const patches = () => requests.filter((request) => request.method === "PATCH");
-const apiRequests = () => requests.filter((request) => request.path.startsWith("/app/api/"));
+const apiRequests = () =>
+    requests.filter((request) => request.path.startsWith("/app/api/"));
 
 describe("keyboard layout", () => {
     it("shows the layout the server holds", async () => {
         server.keyboardLayout = "uk";
         renderApp("/settings/keyboard");
-        await waitFor(() => expect(screen.getByRole("radio", { name: "UK" })).toBeChecked());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "UK" })).toBeChecked(),
+        );
         expect(screen.getByRole("radio", { name: "US" })).not.toBeChecked();
     });
 
     it("sends only the changed field", async () => {
         const user = userEvent.setup();
         renderApp("/settings/keyboard");
-        await waitFor(() => expect(screen.getByRole("radio", { name: "US" })).toBeChecked());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "US" })).toBeChecked(),
+        );
 
         await user.click(screen.getByRole("radio", { name: "UK" }));
 
         await waitFor(() => expect(patches()).toHaveLength(1));
-        expect(patches()[0]).toEqual({ method: "PATCH", path: "/app/api/v1/settings", body: { keyboardLayout: "uk" } });
-        await waitFor(() => expect(screen.getByRole("radio", { name: "UK" })).toBeChecked());
+        expect(patches()[0]).toEqual({
+            method: "PATCH",
+            path: "/app/api/v1/settings",
+            body: { keyboardLayout: "uk" },
+        });
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "UK" })).toBeChecked(),
+        );
     });
 
     it("shows the server's reason and returns to the held value when the save is refused", async () => {
@@ -82,7 +102,9 @@ describe("keyboard layout", () => {
         server.patchStatus = 400;
         server.patchError = "settings file is read-only";
         renderApp("/settings/keyboard");
-        await waitFor(() => expect(screen.getByRole("radio", { name: "US" })).toBeChecked());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "US" })).toBeChecked(),
+        );
 
         await user.click(screen.getByRole("radio", { name: "UK" }));
 
@@ -95,16 +117,24 @@ describe("keyboard layout", () => {
     it("says the server cannot be reached when the request fails outright", async () => {
         const user = userEvent.setup();
         renderApp("/settings/keyboard");
-        await waitFor(() => expect(screen.getByRole("radio", { name: "US" })).toBeChecked());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "US" })).toBeChecked(),
+        );
         const real = globalThis.fetch;
-        vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-            if (init?.method === "PATCH") throw new TypeError("network down");
-            return real(input, init);
-        });
+        vi.stubGlobal(
+            "fetch",
+            async (input: string | URL | Request, init?: RequestInit) => {
+                if (init?.method === "PATCH")
+                    throw new TypeError("network down");
+                return real(input, init);
+            },
+        );
 
         await user.click(screen.getByRole("radio", { name: "UK" }));
 
-        expect(await screen.findByRole("alert")).toHaveTextContent("Cannot reach the app server");
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+            "Cannot reach the app server",
+        );
     });
 
     it("does not send a second PATCH while one is in flight", async () => {
@@ -112,28 +142,38 @@ describe("keyboard layout", () => {
         const gate = Promise.withResolvers<void>();
         server.patchGate = gate.promise;
         renderApp("/settings/keyboard");
-        await waitFor(() => expect(screen.getByRole("radio", { name: "US" })).toBeChecked());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "US" })).toBeChecked(),
+        );
 
         await user.click(screen.getByRole("radio", { name: "UK" }));
-        await waitFor(() => expect(screen.getByRole("radio", { name: "US" })).toBeDisabled());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "US" })).toBeDisabled(),
+        );
         // The value being saved is what the control shows meanwhile.
         expect(screen.getByRole("radio", { name: "UK" })).toBeChecked();
         await user.click(screen.getByRole("radio", { name: "US" }));
         expect(patches()).toHaveLength(1);
 
         gate.resolve();
-        await waitFor(() => expect(screen.getByRole("radio", { name: "US" })).toBeEnabled());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "US" })).toBeEnabled(),
+        );
     });
 
     it("offers a way back when the state cannot be loaded", async () => {
         const user = userEvent.setup();
         server.stateStatus = 500;
         renderApp("/settings/keyboard");
-        expect(await screen.findByRole("alert")).toHaveTextContent("state is down");
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+            "state is down",
+        );
 
         server.stateStatus = 200;
         await user.click(screen.getByRole("button", { name: "Try again" }));
-        await waitFor(() => expect(screen.getByRole("radio", { name: "US" })).toBeChecked());
+        await waitFor(() =>
+            expect(screen.getByRole("radio", { name: "US" })).toBeChecked(),
+        );
         expect(screen.queryByRole("alert")).toBeNull();
     });
 });
@@ -143,23 +183,32 @@ describe("keep awake", () => {
         server.jiggler = true;
         renderApp("/settings/keep-awake");
         await waitFor(() =>
-            expect(screen.getByRole("switch", { name: "Keep the target awake" })).toHaveAttribute("aria-checked", "true"),
+            expect(
+                screen.getByRole("switch", { name: "Keep the target awake" }),
+            ).toHaveAttribute("aria-checked", "true"),
         );
     });
 
     it("sends jiggler true then false, and nothing else", async () => {
         const user = userEvent.setup();
         renderApp("/settings/keep-awake");
-        const toggle = await screen.findByRole("switch", { name: "Keep the target awake" });
+        const toggle = await screen.findByRole("switch", {
+            name: "Keep the target awake",
+        });
         await waitFor(() => expect(toggle).toBeEnabled());
 
         await user.click(toggle);
-        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+        await waitFor(() =>
+            expect(toggle).toHaveAttribute("aria-checked", "true"),
+        );
         await waitFor(() => expect(toggle).toBeEnabled());
         await user.click(toggle);
         await waitFor(() => expect(patches()).toHaveLength(2));
 
-        expect(patches().map((request) => request.body)).toEqual([{ jiggler: true }, { jiggler: false }]);
+        expect(patches().map((request) => request.body)).toEqual([
+            { jiggler: true },
+            { jiggler: false },
+        ]);
     });
 
     it("shows the error and snaps back when the save fails", async () => {
@@ -167,7 +216,9 @@ describe("keep awake", () => {
         server.patchStatus = 500;
         server.patchError = "disk full";
         renderApp("/settings/keep-awake");
-        const toggle = await screen.findByRole("switch", { name: "Keep the target awake" });
+        const toggle = await screen.findByRole("switch", {
+            name: "Keep the target awake",
+        });
         await waitFor(() => expect(toggle).toBeEnabled());
 
         await user.click(toggle);
@@ -180,7 +231,9 @@ describe("keep awake", () => {
 describe("touch and mouse", () => {
     it("defaults to trackpad and absolute, as the console does", async () => {
         renderApp("/settings/input");
-        expect(await screen.findByRole("radio", { name: "Trackpad" })).toBeChecked();
+        expect(
+            await screen.findByRole("radio", { name: "Trackpad" }),
+        ).toBeChecked();
         expect(screen.getByRole("radio", { name: "Absolute" })).toBeChecked();
     });
 
@@ -188,7 +241,9 @@ describe("touch and mouse", () => {
         localStorage.setItem("pikvm-touch-mode", "direct");
         localStorage.setItem("pikvm-touch-hid", "rel");
         renderApp("/settings/input");
-        expect(await screen.findByRole("radio", { name: "Touch" })).toBeChecked();
+        expect(
+            await screen.findByRole("radio", { name: "Touch" }),
+        ).toBeChecked();
         expect(screen.getByRole("radio", { name: "Relative" })).toBeChecked();
     });
 
@@ -217,7 +272,9 @@ describe("display", () => {
         await user.click(await screen.findByRole("radio", { name: "Light" }));
 
         expect(localStorage.getItem("pikvm-console-theme")).toBe("light");
-        expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+        expect(document.documentElement.getAttribute("data-theme")).toBe(
+            "light",
+        );
         expect(document.documentElement.classList.contains("dark")).toBe(false);
 
         await user.click(screen.getByRole("radio", { name: "Dark" }));
@@ -229,7 +286,9 @@ describe("display", () => {
         const user = userEvent.setup();
         localStorage.setItem("pikvm-console-theme", "light");
         renderApp("/settings/display");
-        expect(await screen.findByRole("radio", { name: "Light" })).toBeChecked();
+        expect(
+            await screen.findByRole("radio", { name: "Light" }),
+        ).toBeChecked();
 
         await user.click(screen.getByRole("radio", { name: "System" }));
         expect(localStorage.getItem("pikvm-console-theme")).toBeNull();
@@ -238,14 +297,18 @@ describe("display", () => {
 
     it("shows System when nothing is stored", async () => {
         renderApp("/settings/display");
-        expect(await screen.findByRole("radio", { name: "System" })).toBeChecked();
+        expect(
+            await screen.findByRole("radio", { name: "System" }),
+        ).toBeChecked();
     });
 });
 
 describe("connection", () => {
     it("shows the PiKVM address and a connected link", async () => {
         renderApp("/settings/connection");
-        expect(await screen.findByText("https://pikvm.example")).toBeInTheDocument();
+        expect(
+            await screen.findByText("https://pikvm.example"),
+        ).toBeInTheDocument();
         expect(screen.getByText("Connected")).toBeInTheDocument();
     });
 
@@ -264,7 +327,11 @@ describe("connection", () => {
         renderApp("/settings/connection");
         await screen.findByText("https://pikvm.example");
         expect(screen.queryByRole("textbox")).toBeNull();
-        expect(screen.getByText("The PiKVM is set by the host. Change it in the host's settings.")).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                "The PiKVM is set by the host. Change it in the host's settings.",
+            ),
+        ).toBeInTheDocument();
     });
 });
 
@@ -305,12 +372,19 @@ const rack = (over: Partial<FakePikvm> = {}): FakePikvm => ({
     ...over,
 });
 const writes = () =>
-    requests.filter((r) => r.path.startsWith("/app/api/v1/pikvms") && r.method !== "GET");
+    requests.filter(
+        (r) => r.path.startsWith("/app/api/v1/pikvms") && r.method !== "GET",
+    );
 
 describe("connection: the PiKVM list", () => {
     const editable = (...items: FakePikvm[]) => {
         server.pikvms = { editable: true, items };
-        server.servers = { ...server.servers, editable: true, items: [], localActive: true };
+        server.servers = {
+            ...server.servers,
+            editable: true,
+            items: [],
+            localActive: true,
+        };
     };
 
     beforeEach(() => {
@@ -322,46 +396,77 @@ describe("connection: the PiKVM list", () => {
             editable(desk());
             renderApp("/settings/connection");
             expect(await screen.findByText("Desk")).toBeInTheDocument();
-            expect(screen.getByText("https://pikvm.example/")).toBeInTheDocument();
+            expect(
+                screen.getByText("https://pikvm.example/"),
+            ).toBeInTheDocument();
             expect(await screen.findByText("Connected")).toBeInTheDocument();
-            expect(screen.getByRole("button", { name: "Edit Desk" })).toBeInTheDocument();
-            expect(screen.getByRole("button", { name: "Remove Desk" })).toBeInTheDocument();
-            expect(screen.queryByRole("button", { name: /Make .* active/ })).toBeNull();
+            expect(
+                screen.getByRole("button", { name: "Edit Desk" }),
+            ).toBeInTheDocument();
+            expect(
+                screen.getByRole("button", { name: "Remove Desk" }),
+            ).toBeInTheDocument();
+            expect(
+                screen.queryByRole("button", { name: /Make .* active/ }),
+            ).toBeNull();
             expect(screen.queryByText("Default")).toBeNull();
-            expect(screen.queryByRole("button", { name: /Make .* the default/ })).toBeNull();
+            expect(
+                screen.queryByRole("button", { name: /Make .* the default/ }),
+            ).toBeNull();
         });
 
         it("shows the edit form with the current values and a password field that is empty", async () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
-            expect(await screen.findByLabelText("Name", INPUT)).toHaveValue("Desk");
-            expect(screen.getByLabelText("Address", INPUT)).toHaveValue("https://pikvm.example/");
-            expect(screen.getByLabelText("User name", INPUT)).toHaveValue("admin");
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
+            expect(await screen.findByLabelText("Name", INPUT)).toHaveValue(
+                "Desk",
+            );
+            expect(screen.getByLabelText("Address", INPUT)).toHaveValue(
+                "https://pikvm.example/",
+            );
+            expect(screen.getByLabelText("User name", INPUT)).toHaveValue(
+                "admin",
+            );
             const password = screen.getByLabelText("Password", INPUT);
             expect(password).toHaveValue("");
             expect(password).toHaveAttribute("type", "password");
-            expect(password).toHaveAttribute("placeholder", expect.stringMatching(/stored/));
+            expect(password).toHaveAttribute(
+                "placeholder",
+                expect.stringMatching(/stored/),
+            );
             expect(document.body.textContent).not.toMatch(/only you can read/);
-            expect(screen.getByText(/Not shown again after you save it/)).toBeInTheDocument();
+            expect(
+                screen.getByText(/Not shown again after you save it/),
+            ).toBeInTheDocument();
         });
 
         it("a save with the password left empty does not send one, so the stored one is kept", async () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
             const address = await screen.findByLabelText("Address", INPUT);
             await user.clear(address);
             await user.type(address, "https://other.lan/");
-            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            await user.click(
+                screen.getByRole("button", { name: "Save and reconnect" }),
+            );
             await waitFor(() => expect(reload).toHaveBeenCalled());
             expect(writes()).toEqual([
                 {
                     method: "PUT",
                     path: "/app/api/v1/pikvms/desk",
-                    body: { name: "Desk", origin: "https://other.lan/", username: "admin" },
+                    body: {
+                        name: "Desk",
+                        origin: "https://other.lan/",
+                        username: "admin",
+                    },
                 },
             ]);
             expect(server.pikvms.items[0]?.passwordSet).toBe(true);
@@ -371,14 +476,22 @@ describe("connection: the PiKVM list", () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
             const password = await screen.findByLabelText("Password", INPUT);
             await user.type(password, "hunter2-typed");
-            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            await user.click(
+                screen.getByRole("button", { name: "Save and reconnect" }),
+            );
             await waitFor(() => expect(reload).toHaveBeenCalled());
             expect(writes()).toHaveLength(1);
-            expect(writes()[0]?.body).toMatchObject({ password: "hunter2-typed" });
-            await waitFor(() => expect(screen.queryByLabelText("Password", INPUT)).toBeNull());
+            expect(writes()[0]?.body).toMatchObject({
+                password: "hunter2-typed",
+            });
+            await waitFor(() =>
+                expect(screen.queryByLabelText("Password", INPUT)).toBeNull(),
+            );
             expect(document.body.innerHTML).not.toContain("hunter2-typed");
         });
 
@@ -386,10 +499,18 @@ describe("connection: the PiKVM list", () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
-            await user.click(await screen.findByRole("switch", { name: "Remove the stored password" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
+            await user.click(
+                await screen.findByRole("switch", {
+                    name: "Remove the stored password",
+                }),
+            );
             expect(screen.getByLabelText("Password", INPUT)).toBeDisabled();
-            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            await user.click(
+                screen.getByRole("button", { name: "Save and reconnect" }),
+            );
             await waitFor(() => expect(reload).toHaveBeenCalled());
             expect(writes()[0]?.body).toMatchObject({ password: "" });
             expect(server.pikvms.items[0]?.passwordSet).toBe(false);
@@ -399,21 +520,33 @@ describe("connection: the PiKVM list", () => {
             editable(desk({ passwordSet: false }));
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
             await screen.findByLabelText("Password", INPUT);
-            expect(screen.queryByRole("switch", { name: "Remove the stored password" })).toBeNull();
+            expect(
+                screen.queryByRole("switch", {
+                    name: "Remove the stored password",
+                }),
+            ).toBeNull();
         });
 
         it("catches a bad address before any request, and clears the complaint when it is corrected", async () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
             const address = await screen.findByLabelText("Address", INPUT);
             await user.clear(address);
             await user.type(address, "pikvm");
-            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
-            expect(await screen.findByRole("alert")).toHaveTextContent(/not a URL/);
+            await user.click(
+                screen.getByRole("button", { name: "Save and reconnect" }),
+            );
+            expect(await screen.findByRole("alert")).toHaveTextContent(
+                /not a URL/,
+            );
             expect(address).toHaveAttribute("aria-invalid", "true");
             expect(writes()).toEqual([]);
             await user.type(address, "://x");
@@ -423,17 +556,24 @@ describe("connection: the PiKVM list", () => {
         it("a refused save says why, keeps what was typed and does not reload", async () => {
             editable(desk());
             server.pikvmWriteStatus = 400;
-            server.pikvmWriteError = "The address must start with http:// or https://";
+            server.pikvmWriteError =
+                "The address must start with http:// or https://";
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
             const name = await screen.findByLabelText("Name", INPUT);
             const password = screen.getByLabelText("Password", INPUT);
             await user.clear(name);
             await user.type(name, "Bench");
             await user.type(password, "keep-me");
-            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
-            expect(await screen.findByRole("alert")).toHaveTextContent(/must start with http/);
+            await user.click(
+                screen.getByRole("button", { name: "Save and reconnect" }),
+            );
+            expect(await screen.findByRole("alert")).toHaveTextContent(
+                /must start with http/,
+            );
             expect(name).toHaveValue("Bench");
             expect(password).toHaveValue("keep-me");
             expect(reload).not.toHaveBeenCalled();
@@ -443,13 +583,21 @@ describe("connection: the PiKVM list", () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
             const name = await screen.findByLabelText("Name", INPUT);
             await user.clear(name);
             await user.type(name, "Bench");
-            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
+            await user.click(
+                screen.getByRole("button", { name: "Save and reconnect" }),
+            );
             expect(await screen.findByText("Bench")).toBeInTheDocument();
-            expect(writes()[0]?.body).toEqual({ name: "Bench", origin: "https://pikvm.example/", username: "admin" });
+            expect(writes()[0]?.body).toEqual({
+                name: "Bench",
+                origin: "https://pikvm.example/",
+                username: "admin",
+            });
             expect(reload).not.toHaveBeenCalled();
         });
 
@@ -457,10 +605,16 @@ describe("connection: the PiKVM list", () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
             await user.clear(await screen.findByLabelText("Name", INPUT));
-            await user.click(screen.getByRole("button", { name: "Save and reconnect" }));
-            expect(await screen.findByRole("alert")).toHaveTextContent(/Give it a name/);
+            await user.click(
+                screen.getByRole("button", { name: "Save and reconnect" }),
+            );
+            expect(await screen.findByRole("alert")).toHaveTextContent(
+                /Give it a name/,
+            );
             expect(writes()).toEqual([]);
         });
 
@@ -468,8 +622,12 @@ describe("connection: the PiKVM list", () => {
             editable(desk());
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
-            await user.click(await screen.findByRole("button", { name: "Cancel" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Desk" }),
+            );
+            await user.click(
+                await screen.findByRole("button", { name: "Cancel" }),
+            );
             expect(screen.queryByLabelText("Name", INPUT)).toBeNull();
             expect(writes()).toEqual([]);
         });
@@ -480,11 +638,17 @@ describe("connection: the PiKVM list", () => {
             editable();
             renderApp("/settings/connection");
             const page = within(await screen.findByRole("tabpanel"));
-            expect(await page.findByRole("heading", { name: "Add a PiKVM" })).toBeInTheDocument();
+            expect(
+                await page.findByRole("heading", { name: "Add a PiKVM" }),
+            ).toBeInTheDocument();
             expect(page.getByLabelText("Name", INPUT)).toHaveValue("");
             expect(page.getByLabelText("Address", INPUT)).toHaveValue("");
             expect(page.queryByRole("button", { name: "Cancel" })).toBeNull();
-            expect(page.queryByRole("switch", { name: "Remove the stored password" })).toBeNull();
+            expect(
+                page.queryByRole("switch", {
+                    name: "Remove the stored password",
+                }),
+            ).toBeNull();
         });
 
         it("adds the first PiKVM with its sign-in and reloads, since it becomes the one in use", async () => {
@@ -493,7 +657,10 @@ describe("connection: the PiKVM list", () => {
             renderApp("/settings/connection");
             const page = within(await screen.findByRole("tabpanel"));
             await user.type(await page.findByLabelText("Name", INPUT), "Desk");
-            await user.type(page.getByLabelText("Address", INPUT), "https://pikvm.lan/");
+            await user.type(
+                page.getByLabelText("Address", INPUT),
+                "https://pikvm.lan/",
+            );
             await user.type(page.getByLabelText("User name", INPUT), "admin");
             await user.type(page.getByLabelText("Password", INPUT), "s3cret");
             await user.click(page.getByRole("button", { name: "Add PiKVM" }));
@@ -502,7 +669,12 @@ describe("connection: the PiKVM list", () => {
                 {
                     method: "POST",
                     path: "/app/api/v1/pikvms",
-                    body: { name: "Desk", origin: "https://pikvm.lan/", username: "admin", password: "s3cret" },
+                    body: {
+                        name: "Desk",
+                        origin: "https://pikvm.lan/",
+                        username: "admin",
+                        password: "s3cret",
+                    },
                 },
             ]);
         });
@@ -512,11 +684,16 @@ describe("connection: the PiKVM list", () => {
             const user = userEvent.setup();
             renderApp("/settings/connection");
             const page = within(await screen.findByRole("tabpanel"));
-            await user.type(await page.findByLabelText("Address", INPUT), "ftp://pikvm/");
-            await user.click(page.getByRole("button", { name: "Add PiKVM" }));
-            expect((await page.findAllByRole("alert")).map((a) => a.textContent).join(" ")).toMatch(
-                /Give it a name.*must start with http/,
+            await user.type(
+                await page.findByLabelText("Address", INPUT),
+                "ftp://pikvm/",
             );
+            await user.click(page.getByRole("button", { name: "Add PiKVM" }));
+            expect(
+                (await page.findAllByRole("alert"))
+                    .map((a) => a.textContent)
+                    .join(" "),
+            ).toMatch(/Give it a name.*must start with http/);
             expect(writes()).toEqual([]);
         });
 
@@ -528,12 +705,19 @@ describe("connection: the PiKVM list", () => {
             renderApp("/settings/connection");
             const page = within(await screen.findByRole("tabpanel"));
             await user.type(await page.findByLabelText("Name", INPUT), "Desk");
-            await user.type(page.getByLabelText("Address", INPUT), "https://pikvm.lan/");
+            await user.type(
+                page.getByLabelText("Address", INPUT),
+                "https://pikvm.lan/",
+            );
             await user.type(page.getByLabelText("Password", INPUT), "keep-me");
             await user.click(page.getByRole("button", { name: "Add PiKVM" }));
-            expect(await page.findByRole("alert")).toHaveTextContent(/already stored/);
+            expect(await page.findByRole("alert")).toHaveTextContent(
+                /already stored/,
+            );
             expect(page.getByLabelText("Name", INPUT)).toHaveValue("Desk");
-            expect(page.getByLabelText("Password", INPUT)).toHaveValue("keep-me");
+            expect(page.getByLabelText("Password", INPUT)).toHaveValue(
+                "keep-me",
+            );
             expect(reload).not.toHaveBeenCalled();
         });
     });
@@ -548,18 +732,40 @@ describe("connection: the PiKVM list", () => {
             expect(screen.getAllByText("Default")).toHaveLength(1);
             expect(screen.getByText("Connected")).toBeInTheDocument();
             expect(screen.getByText("Not in use")).toBeInTheDocument();
-            expect(screen.queryByRole("button", { name: "Make Desk active" })).toBeNull();
-            expect(screen.getByRole("button", { name: "Make Rack active" })).toBeInTheDocument();
+            expect(
+                screen.queryByRole("button", { name: "Make Desk active" }),
+            ).toBeNull();
+            expect(
+                screen.getByRole("button", { name: "Make Rack active" }),
+            ).toBeInTheDocument();
         });
 
         it("making one the default writes the default and moves the badge, without reloading", async () => {
             several();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Make Rack the default" }));
-            await waitFor(() => expect(screen.queryByRole("button", { name: "Make Rack the default" })).toBeNull());
-            expect(writes()).toEqual([{ method: "POST", path: "/app/api/v1/pikvms/rack/default", body: undefined }]);
-            expect(screen.getByRole("button", { name: "Make Desk the default" })).toBeInTheDocument();
+            await user.click(
+                await screen.findByRole("button", {
+                    name: "Make Rack the default",
+                }),
+            );
+            await waitFor(() =>
+                expect(
+                    screen.queryByRole("button", {
+                        name: "Make Rack the default",
+                    }),
+                ).toBeNull(),
+            );
+            expect(writes()).toEqual([
+                {
+                    method: "POST",
+                    path: "/app/api/v1/pikvms/rack/default",
+                    body: undefined,
+                },
+            ]);
+            expect(
+                screen.getByRole("button", { name: "Make Desk the default" }),
+            ).toBeInTheDocument();
             expect(reload).not.toHaveBeenCalled();
         });
 
@@ -567,9 +773,17 @@ describe("connection: the PiKVM list", () => {
             several();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Make Rack active" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Make Rack active" }),
+            );
             await waitFor(() => expect(reload).toHaveBeenCalled());
-            expect(writes()).toEqual([{ method: "POST", path: "/app/api/v1/pikvms/rack/activate", body: undefined }]);
+            expect(writes()).toEqual([
+                {
+                    method: "POST",
+                    path: "/app/api/v1/pikvms/rack/activate",
+                    body: undefined,
+                },
+            ]);
         });
 
         it("a refused activation says why and does not reload", async () => {
@@ -578,8 +792,12 @@ describe("connection: the PiKVM list", () => {
             server.pikvmWriteError = "No such PiKVM.";
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Make Rack active" }));
-            expect(await screen.findByRole("alert")).toHaveTextContent(/No such PiKVM/);
+            await user.click(
+                await screen.findByRole("button", { name: "Make Rack active" }),
+            );
+            expect(await screen.findByRole("alert")).toHaveTextContent(
+                /No such PiKVM/,
+            );
             expect(reload).not.toHaveBeenCalled();
         });
 
@@ -587,40 +805,81 @@ describe("connection: the PiKVM list", () => {
             several();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Remove Rack" }));
-            const ask = await screen.findByRole("dialog", { name: "Remove Rack?" });
-            await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Remove Rack" }),
+            );
+            const ask = await screen.findByRole("dialog", {
+                name: "Remove Rack?",
+            });
+            await user.click(
+                within(ask).getByRole("button", { name: "Cancel" }),
+            );
             expect(writes()).toEqual([]);
-            await user.click(screen.getByRole("button", { name: "Remove Rack" }));
-            await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove PiKVM" }));
+            await user.click(
+                screen.getByRole("button", { name: "Remove Rack" }),
+            );
+            await user.click(
+                within(await screen.findByRole("dialog")).getByRole("button", {
+                    name: "Remove PiKVM",
+                }),
+            );
             await waitFor(() => expect(screen.queryByText("Rack")).toBeNull());
-            expect(writes()).toEqual([{ method: "DELETE", path: "/app/api/v1/pikvms/rack", body: undefined }]);
+            expect(writes()).toEqual([
+                {
+                    method: "DELETE",
+                    path: "/app/api/v1/pikvms/rack",
+                    body: undefined,
+                },
+            ]);
             expect(reload).not.toHaveBeenCalled();
             // One is left: it needs no switcher.
-            expect(screen.queryByRole("button", { name: /Make .* active/ })).toBeNull();
+            expect(
+                screen.queryByRole("button", { name: /Make .* active/ }),
+            ).toBeNull();
         });
 
         it("removing the active one reloads", async () => {
             several();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Remove Desk" }));
-            await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove PiKVM" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Remove Desk" }),
+            );
+            await user.click(
+                within(await screen.findByRole("dialog")).getByRole("button", {
+                    name: "Remove PiKVM",
+                }),
+            );
             await waitFor(() => expect(reload).toHaveBeenCalled());
-            expect(writes()).toEqual([{ method: "DELETE", path: "/app/api/v1/pikvms/desk", body: undefined }]);
+            expect(writes()).toEqual([
+                {
+                    method: "DELETE",
+                    path: "/app/api/v1/pikvms/desk",
+                    body: undefined,
+                },
+            ]);
         });
 
         it("adds another PiKVM without reloading, since the new one is not in use", async () => {
             several();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Add a PiKVM" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Add a PiKVM" }),
+            );
             await user.type(await screen.findByLabelText("Name", INPUT), "Lab");
-            await user.type(screen.getByLabelText("Address", INPUT), "https://lab.lan/");
+            await user.type(
+                screen.getByLabelText("Address", INPUT),
+                "https://lab.lan/",
+            );
             await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
             expect(await screen.findByText("Lab")).toBeInTheDocument();
             expect(writes()).toEqual([
-                { method: "POST", path: "/app/api/v1/pikvms", body: { name: "Lab", origin: "https://lab.lan/" } },
+                {
+                    method: "POST",
+                    path: "/app/api/v1/pikvms",
+                    body: { name: "Lab", origin: "https://lab.lan/" },
+                },
             ]);
             expect(reload).not.toHaveBeenCalled();
             expect(screen.queryByLabelText("Name", INPUT)).toBeNull();
@@ -630,12 +889,16 @@ describe("connection: the PiKVM list", () => {
             several();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.click(await screen.findByRole("button", { name: "Edit Rack" }));
+            await user.click(
+                await screen.findByRole("button", { name: "Edit Rack" }),
+            );
             const address = await screen.findByLabelText("Address", INPUT);
             await user.clear(address);
             await user.type(address, "https://rack2.lan/");
             await user.click(screen.getByRole("button", { name: "Save" }));
-            expect(await screen.findByText("https://rack2.lan/")).toBeInTheDocument();
+            expect(
+                await screen.findByText("https://rack2.lan/"),
+            ).toBeInTheDocument();
             expect(reload).not.toHaveBeenCalled();
         });
     });
@@ -644,18 +907,29 @@ describe("connection: the PiKVM list", () => {
         it("shows the one entry and no form, action or write", async () => {
             renderApp("/settings/connection");
             expect(await screen.findByText("PiKVM")).toBeInTheDocument();
-            expect(await screen.findByText("https://pikvm.example")).toBeInTheDocument();
+            expect(
+                await screen.findByText("https://pikvm.example"),
+            ).toBeInTheDocument();
             expect(screen.queryByRole("textbox")).toBeNull();
             expect(screen.queryByLabelText("Password", INPUT)).toBeNull();
-            expect(screen.queryByRole("button", { name: /Add|Edit|Remove|Make/ })).toBeNull();
+            expect(
+                screen.queryByRole("button", { name: /Add|Edit|Remove|Make/ }),
+            ).toBeNull();
             expect(writes()).toEqual([]);
         });
     });
 });
 
 describe("connection: the switch", () => {
-    const serverWrites = () => requests.filter((r) => r.path.startsWith("/app/api/v1/servers") && r.method !== "GET");
-    const serverGets = () => requests.filter((r) => r.method === "GET" && r.path === "/app/api/v1/servers").length;
+    const serverWrites = () =>
+        requests.filter(
+            (r) =>
+                r.path.startsWith("/app/api/v1/servers") && r.method !== "GET",
+        );
+    const serverGets = () =>
+        requests.filter(
+            (r) => r.method === "GET" && r.path === "/app/api/v1/servers",
+        ).length;
     const garage = (over: Partial<FakeServer> = {}): FakeServer => ({
         id: "srv-a",
         name: "Garage",
@@ -667,7 +941,12 @@ describe("connection: the switch", () => {
     });
     const open = (items: FakeServer[] = [], localActive = true) => {
         server.pikvms = { editable: true, items: [desk()] };
-        server.servers = { ...server.servers, editable: true, items, localActive };
+        server.servers = {
+            ...server.servers,
+            editable: true,
+            items,
+            localActive,
+        };
     };
     const SWITCH = { name: "Use a server" };
     /** The sentence sits inside the password hint, after any other hint text, so match it as a fragment. */
@@ -679,7 +958,9 @@ describe("connection: the switch", () => {
 
     it("is absent on a host that pins its PiKVM, and sends no write", async () => {
         renderApp("/settings/connection");
-        expect(await screen.findByText("https://pikvm.example")).toBeInTheDocument();
+        expect(
+            await screen.findByText("https://pikvm.example"),
+        ).toBeInTheDocument();
         expect(screen.queryByRole("switch")).toBeNull();
         expect(serverWrites()).toEqual([]);
     });
@@ -687,10 +968,20 @@ describe("connection: the switch", () => {
     it("pins on the host's own state, even when its PiKVM list is editable", async () => {
         server.pikvms = { editable: true, items: [desk()] };
         renderApp("/settings/connection");
-        expect(await screen.findByText("https://pikvm.example/")).toBeInTheDocument();
-        expect(screen.getByText("The PiKVM is set by the host. Change it in the host's settings.")).toBeInTheDocument();
+        expect(
+            await screen.findByText("https://pikvm.example/"),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                "The PiKVM is set by the host. Change it in the host's settings.",
+            ),
+        ).toBeInTheDocument();
         expect(screen.queryByRole("switch")).toBeNull();
-        expect(screen.queryByRole("button", { name: /Add a PiKVM|Edit|Remove|Make/ })).toBeNull();
+        expect(
+            screen.queryByRole("button", {
+                name: /Add a PiKVM|Edit|Remove|Make/,
+            }),
+        ).toBeNull();
         expect(serverWrites()).toEqual([]);
     });
 
@@ -698,9 +989,16 @@ describe("connection: the switch", () => {
         open([]);
         renderApp("/settings/connection");
         expect(await screen.findByText("Desk")).toBeInTheDocument();
-        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "false");
-        expect(screen.getByRole("button", { name: "Edit Desk" })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Forget this server" })).toBeNull();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute(
+            "aria-checked",
+            "false",
+        );
+        expect(
+            screen.getByRole("button", { name: "Edit Desk" }),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByRole("button", { name: "Forget this server" }),
+        ).toBeNull();
         expect(screen.queryByText("On this server.")).toBeNull();
         expect(screen.queryByLabelText("Access token", INPUT)).toBeNull();
     });
@@ -708,27 +1006,55 @@ describe("connection: the switch", () => {
     it("on with a server in use shows its address, Forget, and the PiKVMs on it", async () => {
         open([garage({ active: true })], false);
         renderApp("/settings/connection");
-        expect(await screen.findByText("https://garage.lan/")).toBeInTheDocument();
-        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
-        expect(screen.getByRole("button", { name: "Forget this server" })).toBeInTheDocument();
+        expect(
+            await screen.findByText("https://garage.lan/"),
+        ).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute(
+            "aria-checked",
+            "true",
+        );
+        expect(
+            screen.getByRole("button", { name: "Forget this server" }),
+        ).toBeInTheDocument();
         expect(screen.getByText("On this server.")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Edit Desk" })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Remove Desk" })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Add a PiKVM" })).toBeInTheDocument();
+        expect(
+            screen.getByRole("button", { name: "Edit Desk" }),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByRole("button", { name: "Remove Desk" }),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByRole("button", { name: "Add a PiKVM" }),
+        ).toBeInTheDocument();
     });
 
     it("keeps the switch, Forget and a read-only PiKVM when the server owns its PiKVM", async () => {
         open([garage({ active: true })], false);
         server.pikvms = { editable: false, items: [desk()] };
         renderApp("/settings/connection");
-        expect(await screen.findByText("https://garage.lan/")).toBeInTheDocument();
-        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
-        expect(screen.getByRole("button", { name: "Forget this server" })).toBeInTheDocument();
+        expect(
+            await screen.findByText("https://garage.lan/"),
+        ).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute(
+            "aria-checked",
+            "true",
+        );
+        expect(
+            screen.getByRole("button", { name: "Forget this server" }),
+        ).toBeInTheDocument();
         expect(screen.getByText("On this server.")).toBeInTheDocument();
         expect(screen.getByText("Desk")).toBeInTheDocument();
         expect(screen.getByText("https://pikvm.example/")).toBeInTheDocument();
-        expect(screen.getByText("This server sets its own PiKVM. Change it in the server's settings.")).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: /Add a PiKVM|Edit|Remove|Make/ })).toBeNull();
+        expect(
+            screen.getByText(
+                "This server sets its own PiKVM. Change it in the server's settings.",
+            ),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByRole("button", {
+                name: /Add a PiKVM|Edit|Remove|Make/,
+            }),
+        ).toBeNull();
         expect(screen.queryByLabelText("Password", INPUT)).toBeNull();
         expect(serverWrites()).toEqual([]);
     });
@@ -740,15 +1066,25 @@ describe("connection: the switch", () => {
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
         await waitFor(() => expect(reload).toHaveBeenCalled());
-        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/local/use", body: undefined }]);
+        expect(serverWrites()).toEqual([
+            {
+                method: "POST",
+                path: "/app/api/v1/servers/local/use",
+                body: undefined,
+            },
+        ]);
     });
 
     it("the password line is absent while off", async () => {
         open([]);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
-        expect(await screen.findByLabelText("Password", INPUT)).toBeInTheDocument();
+        await user.click(
+            await screen.findByRole("button", { name: "Edit Desk" }),
+        );
+        expect(
+            await screen.findByLabelText("Password", INPUT),
+        ).toBeInTheDocument();
         expect(screen.queryByText(LINE)).toBeNull();
     });
 
@@ -756,7 +1092,9 @@ describe("connection: the switch", () => {
         open([garage({ active: true })], false);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        await user.click(await screen.findByRole("button", { name: "Edit Desk" }));
+        await user.click(
+            await screen.findByRole("button", { name: "Edit Desk" }),
+        );
         expect(await screen.findByText(LINE)).toBeInTheDocument();
     });
 
@@ -766,8 +1104,11 @@ describe("connection: the switch", () => {
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
         expect(await screen.findByLabelText("Address", INPUT)).toHaveValue("");
-        expect(screen.getByLabelText("Access token", INPUT)).toHaveValue("");
-        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
+        expect(screen.queryByLabelText("Access token", INPUT)).toBeNull();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute(
+            "aria-checked",
+            "true",
+        );
         expect(screen.queryByText("Desk")).toBeNull();
         expect(serverWrites()).toEqual([]);
     });
@@ -781,9 +1122,112 @@ describe("connection: the switch", () => {
         await user.click(screen.getByRole("switch", SWITCH));
         expect(await screen.findByText("Desk")).toBeInTheDocument();
         expect(screen.queryByLabelText("Address", INPUT)).toBeNull();
-        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "false");
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute(
+            "aria-checked",
+            "false",
+        );
         expect(serverWrites()).toEqual([]);
         expect(reload).not.toHaveBeenCalled();
+    });
+
+    describe("signing in with the browser", () => {
+        const openExternal = vi.fn(async (_url: string) => {});
+        beforeEach(() => {
+            openExternal.mockClear();
+            Reflect.set(window, DESKTOP_BRIDGE_KEY, { openExternal });
+        });
+        afterEach(() => {
+            Reflect.deleteProperty(window, DESKTOP_BRIDGE_KEY);
+        });
+        const begin = async (user: ReturnType<typeof userEvent.setup>) => {
+            await user.click(await screen.findByRole("switch", SWITCH));
+            await user.type(
+                await screen.findByLabelText("Address", INPUT),
+                "https://garage.lan/",
+            );
+            await user.click(
+                screen.getByRole("button", {
+                    name: "Sign in with your browser",
+                }),
+            );
+        };
+
+        it("asks for an address, not a token, and opens the server's page in the browser", async () => {
+            open([]);
+            server.servers.signIn.state = "waiting";
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await begin(user);
+            await waitFor(() =>
+                expect(openExternal).toHaveBeenCalledWith(
+                    "https://garage.lan/app/auth/device?fake=1",
+                ),
+            );
+            expect(screen.queryByLabelText("Access token", INPUT)).toBeNull();
+            expect(
+                await screen.findByText(/Finish signing in in your browser/),
+            ).toBeInTheDocument();
+            expect(serverWrites()).toEqual([
+                {
+                    method: "POST",
+                    path: "/app/api/v1/servers/sign-in",
+                    body: { origin: "https://garage.lan/" },
+                },
+            ]);
+            expect(reload).not.toHaveBeenCalled();
+        });
+
+        it("when the browser finishes, the saved server is made the one in use and the page reloads", async () => {
+            open([]);
+            server.servers.signIn.state = "done";
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await begin(user);
+            await waitFor(() => expect(reload).toHaveBeenCalled());
+            expect(serverWrites().map((r) => `${r.method} ${r.path}`)).toEqual([
+                "POST /app/api/v1/servers/sign-in",
+                "POST /app/api/v1/servers/srv-1/use",
+            ]);
+        });
+
+        it("a failed sign-in says why and keeps the form", async () => {
+            open([]);
+            server.servers.signIn = {
+                state: "failed",
+                error: "The sign-in took too long. Start again.",
+            };
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await begin(user);
+            expect(
+                await screen.findByText(
+                    "The sign-in took too long. Start again.",
+                ),
+            ).toBeInTheDocument();
+            expect(screen.getByLabelText("Address", INPUT)).toHaveValue(
+                "https://garage.lan/",
+            );
+            expect(reload).not.toHaveBeenCalled();
+        });
+
+        it("Cancel stops the attempt on the app's server and brings back the buttons", async () => {
+            open([]);
+            server.servers.signIn.state = "waiting";
+            const user = userEvent.setup();
+            renderApp("/settings/connection");
+            await begin(user);
+            await user.click(
+                await screen.findByRole("button", { name: "Cancel" }),
+            );
+            expect(
+                await screen.findByRole("button", {
+                    name: "Sign in with your browser",
+                }),
+            ).toBeInTheDocument();
+            expect(
+                serverWrites().map((r) => `${r.method} ${r.path}`),
+            ).toContain("DELETE /app/api/v1/servers/sign-in/si-1");
+        });
     });
 
     it("a bad address is caught before any request", async () => {
@@ -791,10 +1235,23 @@ describe("connection: the switch", () => {
         const user = userEvent.setup();
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
-        await user.type(await screen.findByLabelText("Address", INPUT), "ftp://garage/");
-        await user.type(screen.getByLabelText("Access token", INPUT), "tok-123");
+        await user.type(
+            await screen.findByLabelText("Address", INPUT),
+            "ftp://garage/",
+        );
+        await user.click(
+            screen.getByRole("button", { name: "Use an access token instead" }),
+        );
+        await user.type(
+            screen.getByLabelText("Access token", INPUT),
+            "tok-123",
+        );
         await user.click(screen.getByRole("button", { name: "Connect" }));
-        expect((await screen.findAllByRole("alert")).map((a) => a.textContent).join(" ")).toMatch(/must start with http/);
+        expect(
+            (await screen.findAllByRole("alert"))
+                .map((a) => a.textContent)
+                .join(" "),
+        ).toMatch(/must start with http/);
         expect(serverWrites()).toEqual([]);
     });
 
@@ -803,13 +1260,30 @@ describe("connection: the switch", () => {
         const user = userEvent.setup();
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
-        await user.type(await screen.findByLabelText("Address", INPUT), "https://garage.lan/");
-        await user.type(screen.getByLabelText("Access token", INPUT), "tok-123");
+        await user.type(
+            await screen.findByLabelText("Address", INPUT),
+            "https://garage.lan/",
+        );
+        await user.click(
+            screen.getByRole("button", { name: "Use an access token instead" }),
+        );
+        await user.type(
+            screen.getByLabelText("Access token", INPUT),
+            "tok-123",
+        );
         await user.click(screen.getByRole("button", { name: "Connect" }));
         await waitFor(() => expect(reload).toHaveBeenCalled());
         expect(serverWrites()).toEqual([
-            { method: "POST", path: "/app/api/v1/servers", body: { origin: "https://garage.lan/", token: "tok-123" } },
-            { method: "POST", path: "/app/api/v1/servers/srv-1/use", body: undefined },
+            {
+                method: "POST",
+                path: "/app/api/v1/servers",
+                body: { origin: "https://garage.lan/", token: "tok-123" },
+            },
+            {
+                method: "POST",
+                path: "/app/api/v1/servers/srv-1/use",
+                body: undefined,
+            },
         ]);
     });
 
@@ -820,11 +1294,22 @@ describe("connection: the switch", () => {
         const user = userEvent.setup();
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
-        await user.type(await screen.findByLabelText("Address", INPUT), "https://garage.lan/");
-        await user.type(screen.getByLabelText("Access token", INPUT), "tok-123");
+        await user.type(
+            await screen.findByLabelText("Address", INPUT),
+            "https://garage.lan/",
+        );
+        await user.click(
+            screen.getByRole("button", { name: "Use an access token instead" }),
+        );
+        await user.type(
+            screen.getByLabelText("Access token", INPUT),
+            "tok-123",
+        );
         await user.click(screen.getByRole("button", { name: "Connect" }));
         expect(await screen.findByText(/already stored/)).toBeInTheDocument();
-        expect(screen.getByLabelText("Address", INPUT)).toHaveValue("https://garage.lan/");
+        expect(screen.getByLabelText("Address", INPUT)).toHaveValue(
+            "https://garage.lan/",
+        );
         expect(screen.getByLabelText("Access token", INPUT)).toHaveValue("");
         expect(reload).not.toHaveBeenCalled();
     });
@@ -835,7 +1320,13 @@ describe("connection: the switch", () => {
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
         await waitFor(() => expect(reload).toHaveBeenCalled());
-        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/srv-a/use", body: undefined }]);
+        expect(serverWrites()).toEqual([
+            {
+                method: "POST",
+                path: "/app/api/v1/servers/srv-a/use",
+                body: undefined,
+            },
+        ]);
     });
 
     it("a refused turn-on says why and leaves the switch off", async () => {
@@ -844,12 +1335,20 @@ describe("connection: the switch", () => {
         vi.stubGlobal(
             "fetch",
             vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-                const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+                const url =
+                    typeof input === "string"
+                        ? input
+                        : input instanceof URL
+                          ? input.href
+                          : input.url;
                 if (url.endsWith("/servers/srv-a/use")) {
-                    return new Response(JSON.stringify({ error: "The server refused." }), {
-                        status: 503,
-                        headers: { "content-type": "application/json" },
-                    });
+                    return new Response(
+                        JSON.stringify({ error: "The server refused." }),
+                        {
+                            status: 503,
+                            headers: { "content-type": "application/json" },
+                        },
+                    );
                 }
                 return base(input, init);
             }),
@@ -857,8 +1356,13 @@ describe("connection: the switch", () => {
         const user = userEvent.setup();
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
-        expect(await screen.findByText(/The server refused/)).toBeInTheDocument();
-        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "false");
+        expect(
+            await screen.findByText(/The server refused/),
+        ).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute(
+            "aria-checked",
+            "false",
+        );
         expect(reload).not.toHaveBeenCalled();
     });
 
@@ -868,7 +1372,13 @@ describe("connection: the switch", () => {
         renderApp("/settings/connection");
         await user.click(await screen.findByRole("switch", SWITCH));
         await waitFor(() => expect(reload).toHaveBeenCalled());
-        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/local/use", body: undefined }]);
+        expect(serverWrites()).toEqual([
+            {
+                method: "POST",
+                path: "/app/api/v1/servers/local/use",
+                body: undefined,
+            },
+        ]);
         expect(server.servers.items).toHaveLength(1);
     });
 
@@ -878,14 +1388,24 @@ describe("connection: the switch", () => {
         vi.stubGlobal(
             "fetch",
             vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-                const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+                const url =
+                    typeof input === "string"
+                        ? input
+                        : input instanceof URL
+                          ? input.href
+                          : input.url;
                 if (url.endsWith("/servers/srv-a/use")) {
                     // Forgotten in another window: the server answers not found, and its list no longer has the server.
                     server.servers = { ...server.servers, items: [] };
-                    return new Response(JSON.stringify({ error: "There is no server with that id." }), {
-                        status: 404,
-                        headers: { "content-type": "application/json" },
-                    });
+                    return new Response(
+                        JSON.stringify({
+                            error: "There is no server with that id.",
+                        }),
+                        {
+                            status: 404,
+                            headers: { "content-type": "application/json" },
+                        },
+                    );
                 }
                 return base(input, init);
             }),
@@ -894,8 +1414,13 @@ describe("connection: the switch", () => {
         renderApp("/settings/connection");
         const before = serverGets();
         await user.click(await screen.findByRole("switch", SWITCH));
-        expect(await screen.findByLabelText("Address", INPUT)).toBeInTheDocument();
-        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute("aria-checked", "true");
+        expect(
+            await screen.findByLabelText("Address", INPUT),
+        ).toBeInTheDocument();
+        expect(screen.getByRole("switch", SWITCH)).toHaveAttribute(
+            "aria-checked",
+            "true",
+        );
         expect(screen.queryByText(/no server with that id/)).toBeNull();
         expect(screen.queryByRole("alert")).toBeNull();
         expect(reload).not.toHaveBeenCalled();
@@ -906,28 +1431,52 @@ describe("connection: the switch", () => {
         open([garage({ active: true })], false);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        await user.click(await screen.findByRole("button", { name: "Forget this server" }));
-        const ask = await screen.findByRole("dialog", { name: "Forget this server?" });
+        await user.click(
+            await screen.findByRole("button", { name: "Forget this server" }),
+        );
+        const ask = await screen.findByRole("dialog", {
+            name: "Forget this server?",
+        });
         await user.click(within(ask).getByRole("button", { name: "Cancel" }));
         expect(serverWrites()).toEqual([]);
-        await user.click(screen.getByRole("button", { name: "Forget this server" }));
-        await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Forget server" }));
+        await user.click(
+            screen.getByRole("button", { name: "Forget this server" }),
+        );
+        await user.click(
+            within(await screen.findByRole("dialog")).getByRole("button", {
+                name: "Forget server",
+            }),
+        );
         await waitFor(() => expect(reload).toHaveBeenCalled());
-        expect(serverWrites()).toEqual([{ method: "DELETE", path: "/app/api/v1/servers/srv-a", body: undefined }]);
+        expect(serverWrites()).toEqual([
+            {
+                method: "DELETE",
+                path: "/app/api/v1/servers/srv-a",
+                body: undefined,
+            },
+        ]);
     });
 
     it("an unreachable server replaces the list with a notice, and the switch can still turn it off", async () => {
         open([garage({ active: true, state: "unreachable" })], false);
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        expect(await screen.findByText("Cannot reach the server.")).toBeInTheDocument();
+        expect(
+            await screen.findByText("Cannot reach the server."),
+        ).toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Edit Desk" })).toBeNull();
         const toggle = screen.getByRole("switch", SWITCH);
         expect(toggle).toHaveAttribute("aria-checked", "true");
         expect(toggle).not.toBeDisabled();
         await user.click(toggle);
         await waitFor(() => expect(reload).toHaveBeenCalled());
-        expect(serverWrites()).toEqual([{ method: "POST", path: "/app/api/v1/servers/local/use", body: undefined }]);
+        expect(serverWrites()).toEqual([
+            {
+                method: "POST",
+                path: "/app/api/v1/servers/local/use",
+                body: undefined,
+            },
+        ]);
     });
 
     it("making a PiKVM the default still works while on, without reloading", async () => {
@@ -935,9 +1484,23 @@ describe("connection: the switch", () => {
         server.pikvms = { editable: true, items: [desk(), rack()] };
         const user = userEvent.setup();
         renderApp("/settings/connection");
-        await user.click(await screen.findByRole("button", { name: "Make Rack the default" }));
-        await waitFor(() => expect(screen.queryByRole("button", { name: "Make Rack the default" })).toBeNull());
-        expect(writes()).toEqual([{ method: "POST", path: "/app/api/v1/pikvms/rack/default", body: undefined }]);
+        await user.click(
+            await screen.findByRole("button", {
+                name: "Make Rack the default",
+            }),
+        );
+        await waitFor(() =>
+            expect(
+                screen.queryByRole("button", { name: "Make Rack the default" }),
+            ).toBeNull(),
+        );
+        expect(writes()).toEqual([
+            {
+                method: "POST",
+                path: "/app/api/v1/pikvms/rack/default",
+                body: undefined,
+            },
+        ]);
         expect(reload).not.toHaveBeenCalled();
     });
 });
@@ -947,7 +1510,11 @@ describe("account", () => {
         server.session = { signIn: false };
         renderApp("/settings", { compact: true });
         await screen.findByRole("link", { name: "About" });
-        await waitFor(() => expect(requests.some((r) => r.path === "/app/api/v1/session")).toBe(true));
+        await waitFor(() =>
+            expect(requests.some((r) => r.path === "/app/api/v1/session")).toBe(
+                true,
+            ),
+        );
         expect(screen.queryByRole("link", { name: "Account" })).toBeNull();
     });
 
@@ -957,17 +1524,34 @@ describe("account", () => {
         ["oidc", "sub-123", "Through your identity provider."],
         ["bearer", "access token", "With a header credential."],
         ["basic", "admin", "With a header credential."],
-    ] as const)("shows who is signed in and how, for %s", async (method, subject, wording) => {
-        server.session = { signIn: true, method, subject, canSignOut: method !== "bearer" && method !== "basic" };
-        const user = userEvent.setup();
-        renderApp("/settings", { compact: true });
-        await user.click(await screen.findByRole("link", { name: "Account" }));
-        expect(await screen.findByText(`Signed in as ${subject}`)).toBeInTheDocument();
-        expect(screen.getByText(wording)).toBeInTheDocument();
-    });
+    ] as const)(
+        "shows who is signed in and how, for %s",
+        async (method, subject, wording) => {
+            server.session = {
+                signIn: true,
+                method,
+                subject,
+                canSignOut: method !== "bearer" && method !== "basic",
+            };
+            const user = userEvent.setup();
+            renderApp("/settings", { compact: true });
+            await user.click(
+                await screen.findByRole("link", { name: "Account" }),
+            );
+            expect(
+                await screen.findByText(`Signed in as ${subject}`),
+            ).toBeInTheDocument();
+            expect(screen.getByText(wording)).toBeInTheDocument();
+        },
+    );
 
     it("links Sign out to the app's logout when the session can end", async () => {
-        server.session = { signIn: true, method: "password", subject: "admin", canSignOut: true };
+        server.session = {
+            signIn: true,
+            method: "password",
+            subject: "admin",
+            canSignOut: true,
+        };
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
         await user.click(await screen.findByRole("link", { name: "Account" }));
@@ -976,16 +1560,28 @@ describe("account", () => {
     });
 
     it("offers no sign-out when the sign-in has no session to end", async () => {
-        server.session = { signIn: true, method: "bearer", subject: "access token", canSignOut: false };
+        server.session = {
+            signIn: true,
+            method: "bearer",
+            subject: "access token",
+            canSignOut: false,
+        };
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
         await user.click(await screen.findByRole("link", { name: "Account" }));
-        expect(await screen.findByText("This sign-in has no session to end.")).toBeInTheDocument();
+        expect(
+            await screen.findByText("This sign-in has no session to end."),
+        ).toBeInTheDocument();
         expect(screen.queryByRole("link", { name: "Sign out" })).toBeNull();
     });
 
     it("never asks the proxy paths for anything", async () => {
-        server.session = { signIn: true, method: "token", subject: "access token", canSignOut: true };
+        server.session = {
+            signIn: true,
+            method: "token",
+            subject: "access token",
+            canSignOut: true,
+        };
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
         await user.click(await screen.findByRole("link", { name: "Account" }));
@@ -1003,7 +1599,11 @@ describe("about", () => {
 });
 
 describe("audio", () => {
-    const device = (kind: MediaDeviceKind, deviceId: string, label: string): MediaDeviceInfo => ({
+    const device = (
+        kind: MediaDeviceKind,
+        deviceId: string,
+        label: string,
+    ): MediaDeviceInfo => ({
         kind,
         deviceId,
         label,
@@ -1033,8 +1633,12 @@ describe("audio", () => {
     });
 
     /** The Select's trigger names the row and the value ("Microphone: USB microphone"); its menu lists the options. */
-    const trigger = (name: string) => screen.findByRole("button", { name: new RegExp(`^${name}:`) });
-    const choices = () => [...document.querySelectorAll("[role^=menuitem]")].map((item) => item.textContent);
+    const trigger = (name: string) =>
+        screen.findByRole("button", { name: new RegExp(`^${name}:`) });
+    const choices = () =>
+        [...document.querySelectorAll("[role^=menuitem]")].map(
+            (item) => item.textContent,
+        );
 
     it("lists real devices, drops the OS aliases and stores the choice with its label", async () => {
         const user = userEvent.setup();
@@ -1046,27 +1650,49 @@ describe("audio", () => {
         ]);
         renderApp("/settings/audio");
         const mic = await trigger("Microphone");
-        expect(mic).toHaveAccessibleName("Microphone: Follow the system default");
+        expect(mic).toHaveAccessibleName(
+            "Microphone: Follow the system default",
+        );
         await user.click(mic);
         await screen.findByRole("menuitem", { name: "USB microphone" });
-        expect(choices()).toEqual(["Follow the system default", "USB microphone"]);
+        expect(choices()).toEqual([
+            "Follow the system default",
+            "USB microphone",
+        ]);
 
-        await user.click(screen.getByRole("menuitem", { name: "USB microphone" }));
-        expect(JSON.parse(localStorage.getItem("pikvm-console-mic-device") ?? "null")).toEqual({
+        await user.click(
+            screen.getByRole("menuitem", { name: "USB microphone" }),
+        );
+        expect(
+            JSON.parse(
+                localStorage.getItem("pikvm-console-mic-device") ?? "null",
+            ),
+        ).toEqual({
             id: "mic-1",
             label: "USB microphone",
         });
-        expect(await trigger("Microphone")).toHaveAccessibleName("Microphone: USB microphone");
+        expect(await trigger("Microphone")).toHaveAccessibleName(
+            "Microphone: USB microphone",
+        );
 
         await user.click(await trigger("Microphone"));
-        await user.click(await screen.findByRole("menuitem", { name: "Follow the system default" }));
+        await user.click(
+            await screen.findByRole("menuitem", {
+                name: "Follow the system default",
+            }),
+        );
         expect(localStorage.getItem("pikvm-console-mic-device")).toBeNull();
-        expect(apiRequests().filter((request) => request.method !== "GET")).toHaveLength(0);
+        expect(
+            apiRequests().filter((request) => request.method !== "GET"),
+        ).toHaveLength(0);
     });
 
     it("names a chosen device that is no longer connected instead of showing another", async () => {
         const user = userEvent.setup();
-        localStorage.setItem("pikvm-console-mic-device", JSON.stringify({ id: "gone", label: "Headset" }));
+        localStorage.setItem(
+            "pikvm-console-mic-device",
+            JSON.stringify({ id: "gone", label: "Headset" }),
+        );
         fakeMedia([device("audioinput", "mic-1", "USB microphone")]);
         renderApp("/settings/audio");
         const mic = await trigger("Microphone");
@@ -1079,7 +1705,9 @@ describe("audio", () => {
     it("asks for access when the browser hides device names", async () => {
         fakeMedia([device("audioinput", "mic-1", "")]);
         renderApp("/settings/audio");
-        expect(await screen.findByRole("button", { name: "Allow access" })).toBeInTheDocument();
+        expect(
+            await screen.findByRole("button", { name: "Allow access" }),
+        ).toBeInTheDocument();
     });
 });
 
@@ -1088,20 +1716,41 @@ describe("settings navigation", () => {
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
         await user.click(await screen.findByRole("link", { name: "Keyboard" }));
-        expect(await screen.findByRole("heading", { level: 1, name: "Keyboard" })).toBeInTheDocument();
-        expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeNull();
+        expect(
+            await screen.findByRole("heading", { level: 1, name: "Keyboard" }),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByRole("heading", { level: 1, name: "Settings" }),
+        ).toBeNull();
 
-        await user.click(screen.getByRole("button", { name: "Back to settings" }));
-        expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Back to settings" })).toBeNull();
+        await user.click(
+            screen.getByRole("button", { name: "Back to settings" }),
+        );
+        expect(
+            await screen.findByRole("heading", { level: 1, name: "Settings" }),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByRole("button", { name: "Back to settings" }),
+        ).toBeNull();
     });
 
     it("opens the first page beside the list on a wide screen", async () => {
         const { router } = renderApp("/settings", { compact: false });
-        await waitFor(() => expect(router.state.location.pathname).toBe("/settings/connection"));
-        expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-        expect(await screen.findByRole("heading", { level: 1, name: "Connection" })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Back to settings" })).toBeNull();
+        await waitFor(() =>
+            expect(router.state.location.pathname).toBe("/settings/connection"),
+        );
+        expect(
+            screen.getByRole("heading", { level: 1, name: "Settings" }),
+        ).toBeInTheDocument();
+        expect(
+            await screen.findByRole("heading", {
+                level: 1,
+                name: "Connection",
+            }),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByRole("button", { name: "Back to settings" }),
+        ).toBeNull();
     });
 
     it("says so for an unknown settings page", async () => {
@@ -1114,14 +1763,37 @@ describe("settings navigation", () => {
         const transition = (update?: () => void) => {
             update?.();
             const done = Promise.resolve();
-            return { finished: done, ready: done, updateCallbackDone: done, skipTransition: () => undefined };
+            return {
+                finished: done,
+                ready: done,
+                updateCallbackDone: done,
+                skipTransition: () => undefined,
+            };
         };
-        Object.defineProperty(document, "startViewTransition", { configurable: true, value: transition });
+        Object.defineProperty(document, "startViewTransition", {
+            configurable: true,
+            value: transition,
+        });
         try {
             renderApp("/settings", { compact: true });
-            await user.click(await screen.findByRole("link", { name: "Keyboard" }));
-            expect(await screen.findByRole("heading", { level: 1, name: "Keyboard" })).toBeInTheDocument();
-            await waitFor(() => expect(document.documentElement.hasAttribute("data-settings-nav")).toBe(false), { timeout: 2000 });
+            await user.click(
+                await screen.findByRole("link", { name: "Keyboard" }),
+            );
+            expect(
+                await screen.findByRole("heading", {
+                    level: 1,
+                    name: "Keyboard",
+                }),
+            ).toBeInTheDocument();
+            await waitFor(
+                () =>
+                    expect(
+                        document.documentElement.hasAttribute(
+                            "data-settings-nav",
+                        ),
+                    ).toBe(false),
+                { timeout: 2000 },
+            );
         } finally {
             Reflect.deleteProperty(document, "startViewTransition");
             document.documentElement.removeAttribute("data-settings-nav");
