@@ -52,8 +52,6 @@ export interface WatchServiceDeps {
     // Test seams.
     /** The OCR fast alerts read pop-ups with. Default: the one in this host's image (ocr-engine.ts). */
     ocr?: Ocr;
-    /** The OCR the whole-screen path reads frames with when there is no key. Default: `ocr` when given, else a second engine of its own (a whole frame must not hold up a pop-up). */
-    screenOcr?: Ocr;
     models?: ModelClient;
     push?: Push;
     store?: WatchStore;
@@ -98,7 +96,6 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         });
     const models = deps.models ?? createModelClient();
     const ocr = deps.ocr ?? createOcrEngine({ log });
-    const screenOcr = deps.screenOcr ?? deps.ocr ?? createOcrEngine({ log });
     const pipelines = new Map<string, Pipeline>();
     const { images } = deps;
 
@@ -163,11 +160,18 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         }
     }
 
-    function canEnable(userId: string): WatchView["canEnable"] {
+    /**
+     * Whether the watch can run now. The whole-screen path needs the OpenRouter key (an image model and Jev); fast alerts do not, so
+     * with no key the watch can run only with fast alerts on (the whole-screen path then stays idle) and only where this host's OCR works.
+     */
+    function canEnable(userId: string, fast: boolean): WatchView["canEnable"] {
         if (!images.gray) return { ok: false, reason: "This host cannot read screenshots for comparing, so it cannot watch the screen." };
         try {
-            // With no key the watch still works if this host can read the screen itself (it then cannot judge what matters).
-            if (!deps.chat.openRouter(userId) && screenOcr.unavailable?.() !== undefined) return { ok: false, reason: NEED_KEY };
+            if (!deps.chat.openRouter(userId)) {
+                if (!fast) return { ok: false, reason: NEED_KEY };
+                const why = ocr.unavailable?.();
+                if (why !== undefined) return { ok: false, reason: `${NEED_KEY} (Fast alerts could run without one, but this host's OCR is not available: ${why})` };
+            }
         } catch {
             return { ok: false, reason: "Chat is not running, so the stored key cannot be read." };
         }
@@ -176,7 +180,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
 
     /** Make the poller match the user's setting: attached when on and able, detached otherwise. */
     function reconcile(userId: string): void {
-        const wanted = store.read(userId).enabled && canEnable(userId).ok;
+        const settings = store.read(userId);
+        const wanted = settings.enabled && canEnable(userId, settings.fastAlerts).ok;
         if (!wanted) {
             pipelines.delete(userId);
             watcher.detach(userId);
@@ -200,7 +205,6 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             now,
             prepare,
             ocr,
-            screenOcr,
             crop: cropCells,
             ...(deps.logText ? { logText: true } : {}),
             ...(deps.cloudFallback ? { cloudFallback: true } : {}),
@@ -232,7 +236,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             return {
                 ...settings,
                 defaultVisionModel: DEFAULT_VISION_MODEL,
-                canEnable: canEnable(userId),
+                canEnable: canEnable(userId, settings.fastAlerts),
                 canJudge: hasKey(userId),
                 running: pipelines.has(userId) && watcher.running,
                 signal: watcher.signal,
@@ -256,7 +260,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
 
         update(userId, patch) {
             if (patch.enabled === true) {
-                const can = canEnable(userId);
+                const can = canEnable(userId, patch.fastAlerts ?? store.read(userId).fastAlerts);
                 if (!can.ok) throw new WatchRefusal(can.reason, 409);
             }
             if (patch.fastAlerts === true && !(patch.enabled ?? store.read(userId).enabled)) {
@@ -268,6 +272,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 if (error instanceof SettingsError) throw new WatchRefusal(error.message, 400);
                 throw error;
             }
+            // With no key only fast alerts keep the watch running: turning them off turns the watch off.
+            if (!hasKey(userId) && store.read(userId).enabled && !store.read(userId).fastAlerts) store.write(userId, { enabled: false });
             reconcile(userId);
             if (pipelines.has(userId) && store.read(userId).fastAlerts) ocr.warm?.();
             return this.view(userId);
@@ -316,7 +322,6 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             pipelines.clear();
             watcher.stop();
             ocr.close();
-            screenOcr.close();
         },
     };
 }

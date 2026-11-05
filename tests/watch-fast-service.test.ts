@@ -212,32 +212,63 @@ describe("what the model is sent", () => {
     });
 });
 
-describe("no OpenRouter key", () => {
-    it("S5: where this host can read the screen itself the watch can be switched on, and says it cannot judge what matters", () => {
+describe("no OpenRouter key: fast alerts only", () => {
+    it("S5: no key and fast alerts switched on in the same request: the watch runs, the whole-screen path is idle, and the view says so", () => {
         const r = rig();
         r.hasKey = false;
-        const view = r.service.view("operator");
-        assert.deepEqual(view.canEnable, { ok: true });
+        const view = r.service.update("operator", { enabled: true, fastAlerts: true });
+        assert.equal(view.enabled, true);
+        assert.equal(view.fastAlerts, true);
+        assert.equal(view.running, true);
         assert.equal(view.canJudge, false);
-        const on = r.service.update("operator", { enabled: true, fastAlerts: true });
-        assert.equal(on.running, true);
-        assert.equal(on.canJudge, false);
         r.hasKey = true;
         assert.equal(r.service.view("operator").canJudge, true);
     });
 
-    it("S5: where it cannot (no OCR installed) the watch still needs the key, as before", () => {
+    it("S5: no key and fast alerts off: refused as before, with the existing message, and nothing starts", () => {
+        const r = rig();
+        r.hasKey = false;
+        assert.deepEqual(r.service.view("operator").canEnable.ok, false);
+        for (const patch of [{ enabled: true }, { enabled: true, fastAlerts: false }]) {
+            assert.throws(
+                () => r.service.update("operator", patch),
+                (error: unknown) => error instanceof WatchRefusal && error.status === 409 && /Add an OpenRouter key in Settings, Providers first/.test(error.message),
+            );
+        }
+        assert.equal(r.service.view("operator").running, false);
+        assert.equal(r.service.watcher.size, 0);
+    });
+
+    it("S5: no key: turning fast alerts off switches the watch off", () => {
+        const r = rig();
+        r.hasKey = false;
+        r.service.update("operator", { enabled: true, fastAlerts: true });
+        const off = r.service.update("operator", { fastAlerts: false });
+        assert.equal(off.enabled, false);
+        assert.equal(off.running, false);
+        assert.equal(r.service.watcher.size, 0);
+    });
+
+    it("S5: no key and no OCR on this host: fast alerts alone cannot start it either, and the reason says why", () => {
         const r = rig();
         r.hasKey = false;
         r.ocr.unavailableReason = "The OCR models are not installed";
-        assert.equal(r.service.view("operator").canEnable.ok, false);
         assert.throws(
-            () => r.service.update("operator", { enabled: true }),
-            (error: unknown) => error instanceof WatchRefusal && error.status === 409 && /OpenRouter key/.test(error.message),
+            () => r.service.update("operator", { enabled: true, fastAlerts: true }),
+            (error: unknown) => error instanceof WatchRefusal && error.status === 409 && /OCR is not available: The OCR models are not installed/.test(error.message),
         );
     });
 
-    it("S5: fast alerts notify with no key at all: the toast is read and pushed on this host", async () => {
+    it("S5: with a key both work as before: the watch alone, then fast alerts on top, and turning them off leaves the watch on", () => {
+        const r = rig();
+        assert.equal(r.service.update("operator", { enabled: true }).running, true);
+        assert.equal(r.service.update("operator", { fastAlerts: true }).fastAlerts, true);
+        const off = r.service.update("operator", { fastAlerts: false });
+        assert.equal(off.enabled, true);
+        assert.equal(off.running, true);
+    });
+
+    it("S5: no key, fast alerts only: a toast is read and pushed on this host; a change of the rest of the screen is logged as needing a key and nothing is asked", async () => {
         const r = rig();
         r.hasKey = false;
         r.ocr.texts = { "crop:toast": ["Microsoft Teams", "Priya Shah is calling you", "Accept", "Decline"] };
@@ -248,6 +279,15 @@ describe("no OpenRouter key", () => {
         assert.equal(r.push.sent.length, 1);
         assert.equal(r.push.sent[0]!.payload.title, "Incoming call: Priya Shah");
         assert.deepEqual(r.models.decided, []);
-        assert.deepEqual(r.models.alerted, []);
+        assert.deepEqual(r.models.described, []);
+        // The rest of the screen changes (outside the zone): the whole-screen path would need the key.
+        r.screens["rest"] = patched(flat(60), 20, 10, 16, 8, 240);
+        r.screen.label = "rest";
+        for (let i = 0; i < 12; i++) await r.step();
+        const slow = r.log().filter((entry) => entry.kind === "change");
+        assert.ok(slow.length >= 1);
+        assert.match(slow[0]!.reason ?? "", /slow watch needs an OpenRouter key/);
+        assert.equal(r.push.sent.length, 1);
+        assert.deepEqual(r.models.described, []);
     });
 });

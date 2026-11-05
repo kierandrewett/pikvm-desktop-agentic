@@ -149,7 +149,8 @@ export function NotificationsPage() {
     const deviceBlocked = device.kind === "ready" ? "" : device.message;
     const on = data?.enabled === true;
 
-    const toggle = async (next: boolean) => {
+    /** Switch the watch on or off; `withFast` switches fast alerts on in the same request (with no key that is the only way the watch can run). */
+    const toggle = async (next: boolean, withFast = false) => {
         setProblem("");
         setNote("");
         if (!data) return;
@@ -169,7 +170,7 @@ export function NotificationsPage() {
             if (!data.push.available || !data.push.publicKey) throw new Error(data.push.reason ?? "The server cannot send notifications.");
             const sub = await subscribeThisDevice(data.push.publicKey);
             await subscribeDevice(sub.toJSON());
-            save.mutate({ enabled: true });
+            save.mutate({ enabled: true, ...(withFast ? { fastAlerts: true } : {}) });
             await refreshDevice();
         } catch (error) {
             setProblem(message(error));
@@ -263,12 +264,6 @@ export function NotificationsPage() {
                             description={data.running ? "The server is looking at the screen now." : "The server is not running the watch. Switch it off and on again."}
                         />
                     ) : null}
-                    {on && data && !data.canJudge ? (
-                        <SettingRow
-                            label="No OpenRouter key"
-                            description="Without one the watch cannot tell what matters: it reports every change that settles, with the text it read on the screen. Add a key in Settings, Providers to be told only about what matters to you."
-                        />
-                    ) : null}
                     {busy && !on ? (
                         <SettingRow
                             label="Setting up this device"
@@ -289,13 +284,20 @@ export function NotificationsPage() {
                             <Switch
                                 label="Fast alerts"
                                 checked={on && data?.fastAlerts === true}
-                                disabled={!data || !on || save.isPending}
-                                onChange={(next) => save.mutate({ fastAlerts: next })}
+                                disabled={!data || save.isPending || busy || (!on && (data.canJudge || deviceBlocked !== ""))}
+                                onChange={(next) => {
+                                    // With no key the watch can only run for fast alerts: switching them on switches the watch on with them.
+                                    if (!on && next) void toggle(true, true);
+                                    else save.mutate({ fastAlerts: next });
+                                }}
                             />
                         }
                     />
-                    {data && !on ? (
+                    {data && !on && data.canJudge ? (
                         <SettingRow label="Needs the screen watch" description="Switch on “Notify me when the screen changes” above first. Fast alerts run inside it." />
+                    ) : null}
+                    {data && !data.canJudge ? (
+                        <SettingRow label="No OpenRouter key" description="Fast alerts work without a key. The whole-screen watch needs an OpenRouter key." />
                     ) : null}
                     <SettingRow
                         id="alert-zone"

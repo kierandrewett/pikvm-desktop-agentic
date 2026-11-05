@@ -121,13 +121,6 @@ export const ZONE_MAX_FRACTION = 0.5;
 /** The OCR reads the cells that changed, widened by this many cells (about 30 px at 1080p) so a pop-up's edge text is not cut. */
 export const OCR_PAD_CELLS = 2;
 
-/**
- * With no OpenRouter key the whole-screen path reads a settled frame with the local OCR (a 1280 px frame takes seconds, not the
- * pop-up's few hundred ms) and the first `SCREEN_TEXT_CHARS` characters of its text, in reading order, are the description.
- */
-export const SCREEN_OCR_TIMEOUT_MS = 20_000;
-export const SCREEN_TEXT_CHARS = 600;
-
 /** Two consecutive looks with no signal before "signal lost" counts; one miss is a hiccup. */
 export const NO_SIGNAL_LOOKS = 2;
 

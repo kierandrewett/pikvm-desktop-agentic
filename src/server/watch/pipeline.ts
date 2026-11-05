@@ -1,11 +1,10 @@
 import { notificationBody } from "./alert-text";
 import { createFastAlerts, type FastAlerts } from "./fast-alerts";
 import { createSettler, maskZone, type Grid, type Settler, type ZoneCells } from "./frame-diff";
-import { SCREEN_OCR_TIMEOUT_MS, SCREEN_TEXT_CHARS, type WatchLimits } from "./limits";
+import type { WatchLimits } from "./limits";
 import type { ModelClient, ModelProvider } from "./models";
 import { ModelError } from "./models";
 import type { Ocr } from "./ocr";
-import { cleanLines } from "./toast-rules";
 import { PushError, type Push, type PushPayload } from "./push";
 import type { CheckEntry, WatchSettings } from "@pikvm/contracts/watch";
 import type { WatchStore } from "./store";
@@ -54,8 +53,6 @@ export interface PipelineDeps {
     crop(jpeg: Buffer, cells: ZoneCells): Promise<Buffer>;
     /** The OCR fast alerts read pop-ups with, on this host. */
     ocr: Ocr;
-    /** The OCR the whole-screen path reads a frame with when there is no OpenRouter key (its own process: a whole frame takes seconds, a pop-up must not wait for it). */
-    screenOcr: Ocr;
     /** Put a pop-up's words in the check log (`PIKVM_WATCH_LOG_TEXT=1`). */
     logText?: boolean;
     /** Fast alerts may send a crop to the vision model when the OCR fails (`PIKVM_WATCH_FAST_CLOUD_FALLBACK=1`). The slow path is not affected. */
@@ -139,8 +136,9 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
     /** Run, defer or drop a change, in that order of preference. */
     function admit(change: Change, now: number): void {
         const settings = deps.settings();
-        if (!deps.provider() && deps.screenOcr.unavailable?.() !== undefined) {
-            record({ kind: change.kind, score: change.score, outcome: "skipped", reason: "no OpenRouter key in Settings, Providers", asked: false, rule: settings.rule });
+        if (!deps.provider()) {
+            // Fast alerts need no key; this whole-screen path asks an image model and Jev, so without one it stays idle and says so.
+            record({ kind: change.kind, score: change.score, outcome: "skipped", reason: "slow watch needs an OpenRouter key (Settings, Providers)", asked: false, rule: settings.rule });
             return;
         }
         if (running || now - lastCheckAt < deps.limits.minCheckGapMs) {
@@ -158,49 +156,11 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
         start(change, now);
     }
 
-    /**
-     * A check with no OpenRouter key: the frame is read by the local OCR and its text, in reading order, is the description. With no
-     * Jev there is nothing to judge a change by, so with no rule every settled change is reported (the minimum gap and the daily
-     * cap still bound it); a rule cannot be judged and is logged as such. Nothing leaves the host.
-     */
-    async function checkLocal(change: Change): Promise<void> {
-        const settings = deps.settings();
-        const base = { kind: change.kind, score: change.score, rule: settings.rule } as const;
-        if (settings.rule.trim() !== "") {
-            return record({ ...base, outcome: "error", reason: "Your rule needs the OpenRouter key (Settings, Providers) to be judged, and there is none, so nothing was sent.", asked: false });
-        }
-        let read: CheckEntry["read"];
-        try {
-            let text: string;
-            if (change.kind === "signal-lost" || !change.frame) {
-                text = NO_SIGNAL_TEXT;
-            } else {
-                const ocr = await deps.screenOcr.read(await deps.prepare(change.frame.jpeg), SCREEN_OCR_TIMEOUT_MS);
-                const lines = cleanLines(ocr.lines);
-                text = lines.join(" ").slice(0, SCREEN_TEXT_CHARS).trim() || "The screen changed, and no text could be read on it.";
-                read = { by: "ocr", ms: ocr.ms, chars: ocr.lines.join("\n").length, words: lines.join(" ").split(/\s+/).filter(Boolean).length, lines: ocr.lines.length };
-                description = text;
-            }
-            const common = { ...base, asked: true, ...(read ? { read } : {}), ...(deps.logText ? { description: text } : {}) };
-            const payload: PushPayload = { title: "PiKVM", body: notificationBody(text), tag: "pikvm-screen", url: "/app/", badge: 1 };
-            try {
-                const sent = await deps.push.send(deps.userId, payload);
-                const push = { sent: sent.sent, removed: sent.removed, failed: sent.failed.length };
-                if (sent.sent > 0) return record({ ...common, outcome: "pushed", push });
-                return record({ ...common, outcome: "error", reason: `The screen was read but no notification was delivered: ${sent.failed[0]?.message ?? "every subscription had expired"}`, push });
-            } catch (error) {
-                return record({ ...common, outcome: "error", reason: `The screen was read but no notification was delivered: ${error instanceof Error ? error.message : "the push failed"}` });
-            }
-        } catch (error) {
-            record({ ...base, outcome: "error", reason: error instanceof Error ? error.message : "the OCR failed", asked: true, ...(read ? { read } : {}) });
-        }
-    }
-
     async function check(change: Change): Promise<void> {
         const settings = deps.settings();
         const provider = deps.provider();
         const base = { kind: change.kind, score: change.score, rule: settings.rule, model: settings.visionModel } as const;
-        if (!provider) return checkLocal(change);
+        if (!provider) return;
         let asked = false;
         let costUsd = 0;
         let previous = description;

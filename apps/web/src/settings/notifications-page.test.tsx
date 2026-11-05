@@ -517,21 +517,60 @@ describe("fast alerts", () => {
     });
 });
 
-describe("with no OpenRouter key where the server can read the screen itself", () => {
-    it("the watch can be switched on and the page says it cannot tell what matters", async () => {
-        install(watchServer({ enabled: true, running: true, signal: "signal", canJudge: false, push: { available: true, publicKey: KEY, subscriptions: 1 } }));
-        device({ permission: "granted", subscribed: true });
+describe("with no OpenRouter key: fast alerts only", () => {
+    const NO_KEY = { canJudge: false, canEnable: { ok: false as const, reason: "Add an OpenRouter key in Settings, Providers first." } };
+
+    it("says in plain words what works without a key, and the watch switch itself stays off", async () => {
+        install(watchServer(NO_KEY));
+        device({ permission: "granted" });
         renderApp("/settings/notifications");
-        expect(await screen.findByText("No OpenRouter key")).toBeInTheDocument();
-        expect(screen.getByText(/it reports every change that settles/)).toBeInTheDocument();
+        expect(await screen.findByText("Fast alerts work without a key. The whole-screen watch needs an OpenRouter key.")).toBeInTheDocument();
+        expect(screen.getByRole("switch", { name: NOTIFY })).toBeDisabled();
     });
 
-    it("with a key it says nothing of the kind", async () => {
-        install(watchServer({ enabled: true, running: true, signal: "signal", push: { available: true, publicKey: KEY, subscriptions: 1 } }));
+    it("switching fast alerts on sets up this device and switches the watch on in the same request", async () => {
+        const server = watchServer(NO_KEY);
+        install(server);
+        const spies = device({ permission: "default", answer: "granted", ios: true, standalone: true });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: FAST });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        await userEvent.click(toggle);
+        await waitFor(() => expect(server.requests.some((r) => r.method === "PATCH")).toBe(true));
+        expect(spies.requestPermission).toHaveBeenCalledTimes(1);
+        expect(server.requests.find((r) => r.method === "PATCH")!.body).toEqual({ enabled: true, fastAlerts: true });
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+    });
+
+    it("a server that refuses (this host has no OCR) shows its reason and leaves it off", async () => {
+        const server = watchServer(NO_KEY);
+        server.patchError = { status: 409, error: "Add an OpenRouter key in Settings, Providers first. (Fast alerts could run without one, but this host's OCR is not available: models missing)" };
+        install(server);
+        device({ permission: "granted" });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: FAST });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        await userEvent.click(toggle);
+        expect(await screen.findByText(/this host's OCR is not available/)).toBeInTheDocument();
+        expect(toggle).toHaveAttribute("aria-checked", "false");
+    });
+
+    it("running that way, turning fast alerts off is one request (the server then switches the watch off)", async () => {
+        const server = watchServer({ ...NO_KEY, enabled: true, fastAlerts: true, running: true, signal: "signal", push: { available: true, publicKey: KEY, subscriptions: 1 } });
+        install(server);
         device({ permission: "granted", subscribed: true });
         renderApp("/settings/notifications");
-        await screen.findByText("Watching the screen");
-        expect(screen.queryByText("No OpenRouter key")).not.toBeInTheDocument();
+        const toggle = await screen.findByRole("switch", { name: FAST });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        await userEvent.click(toggle);
+        await waitFor(() => expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ fastAlerts: false }]));
+    });
+
+    it("with a key it says nothing of the kind, and fast alerts still need the watch on first", async () => {
+        install(watchServer());
+        device({ permission: "granted" });
+        renderApp("/settings/notifications");
+        expect(await screen.findByText("Needs the screen watch")).toBeInTheDocument();
+        expect(screen.queryByText(/Fast alerts work without a key/)).not.toBeInTheDocument();
     });
 });
-

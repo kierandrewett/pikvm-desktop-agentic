@@ -129,7 +129,6 @@ function rig(over: { fastCap?: number; rule?: string; fastAlerts?: boolean; dail
         now: () => result.clock.t,
         prepare: async (jpeg) => jpeg,
         ocr: result.ocr,
-        screenOcr: result.ocr,
         crop: async (jpeg, cells) => {
             result.crops.push({ label: jpeg.toString(), cells });
             return Buffer.from(`crop:${jpeg.toString()}`);

@@ -134,11 +134,12 @@ lost signal.
 ### What it costs, and the bounds
 
 It uses the key stored in Settings, Providers (the provider named `openrouter`, or any entry whose address is on
-openrouter.ai). **Without one the watch can still be switched on where the host has its OCR (the image does)**: it then reads each settled
-frame itself, cannot judge what matters, and reports every change that settles with the first 600 characters of the text it read (a
-rule cannot be judged: logged as an error, nothing sent; the 60 s gap and the daily cap still bound it). On a host with no OCR it
-cannot be switched on and the Settings page says why; a key removed later makes every change read by the OCR, or log "no OpenRouter
-key" where there is none, and call no model.
+openrouter.ai). **The whole-screen watch needs it** (an image model and Jev): without one it cannot be switched on alone, and
+the Settings page says why. **Fast alerts need no key** (below), so with no key the watch can still be switched on when fast alerts are
+switched on in the same request (or already are): a "fast alerts only" mode where the whole-screen path stays idle and logs
+"slow watch needs an OpenRouter key" for each change it would have checked, and the zone is still blanked from it. Switching the
+watch on with no key and fast alerts off is refused (409, the same message); turning fast alerts off with no key switches the watch
+off. A key removed later makes every whole-screen change log the same line and call no model.
 
 - **Image model: `google/gemma-3-12b-it`**, $0.05 per million input tokens and $0.15 per million output tokens on OpenRouter
   (read 2026-11-03 from `/api/v1/models`, input modalities text and image). OpenRouter reported **$0.00003 to $0.00004 per
@@ -218,7 +219,7 @@ flowchart LR
    mail is "Teams" or "Outlook" with "sender: first line" (at most 160 characters), urgency normal, a 5 minute TTL and a tag of its
    text. Any other pop-up shows its lines. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The
    **same pop-up text inside 30 s is notified once**.
-5. **No rule: no network call at all.** No OpenRouter key is needed. **With a rule** (Settings,
+5. **No rule: no network call at all.** No OpenRouter key is needed, and with none the watch runs for fast alerts alone (see above). **With a rule** (Settings,
    "What to tell me about") the pop-up's text, `<app>: <lines>`, goes to Jev as `{previous: "(none)", current, rule}` exactly as in the slow
    path (same cache, same 0.85 / 0.15 thresholds); only that text, no image.
 6. **When the OCR does not deliver.** It timed out or failed, or it read fewer than 3 words in a change of at least 5 % of the zone
@@ -239,7 +240,7 @@ unless the host runs with `PIKVM_WATCH_LOG_TEXT=1`.
 **What leaves the host, said plainly.** The fast path reads the pop-up on the host and sends nothing to any model service unless the user
 sets a rule (then only the OCR text goes to Jev) or sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1` (then a crop can go to the vision model when
 the OCR fails). The notification itself goes to the device's push service, as always. The slow path is as before: whole frames to OpenRouter
-with the user's key, or, with no key, read on the host.
+with the user's key, and it does not run without one.
 
 **onnxruntime's telemetry is switched off.** The Linux build of onnxruntime-node includes Microsoft's 1DS telemetry (endpoint
 `mobile.events.data.microsoft.com`). The host forces `ORT_DISABLE_TELEMETRY=1` in the OCR worker's environment (`ocr-engine.ts` sets it
