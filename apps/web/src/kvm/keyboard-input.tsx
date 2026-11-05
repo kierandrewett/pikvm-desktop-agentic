@@ -18,6 +18,7 @@
 import { bindHiddenField } from "@pikvm/kvm-engine";
 import { useEffect, useRef } from "react";
 import { useKvmActive } from "./active";
+import { useKvmLocked } from "./locked";
 import type { FieldFocus } from "./field-focus";
 import type { KvmSession } from "./session";
 
@@ -41,13 +42,16 @@ export function KeyboardInput({ session, focus, desktop }: KeyboardInputProps) {
     const active = useKvmActive();
     const activeRef = useRef(active);
     activeRef.current = active;
+    // The agent has the keyboard: the same, and the server would drop the keys anyway.
+    const lockedRef = useRef(useKvmLocked());
+    lockedRef.current = useKvmLocked();
 
     useEffect(() => {
         const el = field.current;
         if (!el) return;
         const { keyboard, dialogs } = session;
         // Another tab in front, or a dialog open: either way the keys are not the target's.
-        const blocked = (): boolean => !activeRef.current || dialogs.store.getState().open !== null;
+        const blocked = (): boolean => !activeRef.current || lockedRef.current || dialogs.store.getState().open !== null;
         const binding = bindHiddenField(el, { keyboard, isBlocked: blocked });
         const detachFocus = focus.attach(el);
         const offs: Array<() => void> = [];

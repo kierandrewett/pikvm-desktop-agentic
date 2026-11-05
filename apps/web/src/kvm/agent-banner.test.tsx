@@ -90,6 +90,20 @@ describe("the agent on the KVM tab", () => {
         expect(posts[0]?.headers["content-type"]).toBe("application/json");
     });
 
+    it("marks the screen as the agent's while it works, and not while it waits for an answer or has let go", async () => {
+        renderApp("/kvm");
+        const source = await stream();
+        const screen = () => document.querySelector(".kvm-screen");
+        expect(screen()).not.toHaveAttribute("data-agent-lock");
+        await push(source, { state: "working", tool: "click" });
+        expect(screen()).toHaveAttribute("data-agent-lock");
+        await push(source, { state: "waiting_approval", tool: "key" });
+        expect(screen()).not.toHaveAttribute("data-agent-lock");
+        await push(source, { state: "working", tool: "click" });
+        await push(source, { state: "released", reason: "stopped" });
+        expect(screen()).not.toHaveAttribute("data-agent-lock");
+    });
+
     it("says a person has control after their input, and Hand back gives it again", async () => {
         const user = userEvent.setup();
         renderApp("/kvm");

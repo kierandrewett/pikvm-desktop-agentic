@@ -92,6 +92,8 @@ export interface PicturePrefs {
     readonly touchHid: TouchHid;
     readonly dragLock: boolean;
     readonly modalOpen: boolean;
+    /** The agent holds the target's keyboard and mouse: no gesture reaches it. */
+    readonly locked: boolean;
     readonly windowFocused: boolean;
     /** The window is in the background and the screen should be watched: its taskbar entry (desktop app) or tab (browser) is flagged when the picture changes. */
     readonly watching: boolean;
@@ -135,8 +137,8 @@ type EnvPatch = { -readonly [K in keyof PointerEnv]?: PointerEnv[K] };
 
 const initialAudio: AudioState = { available: false, audioOn: true, micOn: false, micLabel: "Off", micWarn: false };
 
-/** The pointer machine treats "a dialog is open" and "another tab is in front" the same way: it lets go of what it holds and takes no gestures. */
-const pointerBlocked = (p: Pick<PicturePrefs, "modalOpen" | "active">): boolean => p.modalOpen || !p.active;
+/** The pointer machine treats "a dialog is open" and "another tab is in front" the same way: it lets go of what it holds and takes no gestures; so does the agent holding the target. */
+const pointerBlocked = (p: Pick<PicturePrefs, "modalOpen" | "active" | "locked">): boolean => p.modalOpen || !p.active || p.locked;
 
 function randomKey(): string {
     return Math.random().toString(36).slice(2, 12);

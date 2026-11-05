@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { desktopBridge } from "../host/desktop";
 import { useAgentActivity } from "../agent/activity";
+import { agentHoldsInput } from "@pikvm/contracts/api";
 import { useMediaQuery } from "../app/viewport";
 import { LoadError } from "../settings/pages/load-error";
 import { TOUCH_HID_KEY, TOUCH_MODE_KEY, readTouchHid, readTouchMode, useStoredValue } from "../settings/local-prefs";
@@ -34,6 +35,7 @@ import { KvmSessionProvider, useAppKvmSession, useKvmSession, useSessionReady } 
 import { Toolbar } from "./toolbar";
 import { Welcome } from "./welcome";
 import { KvmActiveProvider, useKvmActive } from "./active";
+import { KvmLockedProvider } from "./locked";
 import { useStore } from "./use-store";
 import "./kvm.css";
 
@@ -41,6 +43,7 @@ export function KvmScreen() {
     const active = useKvmActive();
     const session = useKvmSession();
     const agent = useAgentActivity();
+    const locked = agentHoldsInput(agent);
     const desktop = isDesktopApp();
     const touchLayout = useMediaQuery(DOCK_QUERY);
     const dock = touchLayout && !desktop;
@@ -125,6 +128,11 @@ export function KvmScreen() {
         if (modalOpen) session.keyboard.releaseAll();
     }, [session, modalOpen]);
 
+    useEffect(() => {
+        // The agent taking the target: let go of every key and gesture held, as for a dialog.
+        if (locked) session.keyboard.releaseAll();
+    }, [session, locked]);
+
     useEffect(() => onAudioDevicesChanged(() => controller?.micDeviceChanged()), [controller]);
 
     const [windowFocused, setWindowFocused] = useState(true);
@@ -148,10 +156,11 @@ export function KvmScreen() {
             touchHid,
             dragLock,
             modalOpen,
+            locked,
             windowFocused,
             watching: watchingForChange(alertsAvailable, alerts === "on", background),
         }),
-        [active, touchMode, touchHid, dragLock, modalOpen, windowFocused, alerts, alertsAvailable, background],
+        [active, touchMode, touchHid, dragLock, modalOpen, locked, windowFocused, alerts, alertsAvailable, background],
     );
 
     const openDialog = useCallback((name: DialogName) => session.dialogs.open(name), [session]);
@@ -188,9 +197,10 @@ export function KvmScreen() {
     });
 
     return (
+        <KvmLockedProvider value={locked}>
         <OcrPickerProvider controller={controller}>
             <FirstRunProvider value={welcome}>
-                <div className="kvm-screen" data-layout={dock ? "dock" : "wide"} data-desktop-app={desktop}>
+                <div className="kvm-screen" data-layout={dock ? "dock" : "wide"} data-desktop-app={desktop} data-agent-lock={locked || undefined}>
                     {dock ? null : (
                         <Toolbar
                             controller={controller}
@@ -240,6 +250,7 @@ export function KvmScreen() {
                 </div>
             </FirstRunProvider>
         </OcrPickerProvider>
+        </KvmLockedProvider>
     );
 }
 

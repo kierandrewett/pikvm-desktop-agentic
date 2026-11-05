@@ -11,11 +11,13 @@
  *  A4. The tab changing with a key down leaves it down on the target.
  *  A5. The hidden field keeps focus (and with it the soft keyboard) when another tab comes up.
  *  A6. The host paste shortcut typed on another tab pastes the clipboard at the target.
+ *  A7. The agent holds the keyboard and a key typed in the front window is still sent to the target.
  */
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KvmActiveProvider } from "./active";
+import { KvmLockedProvider } from "./locked";
 import { createFieldFocus } from "./field-focus";
 import { KeyboardInput } from "./keyboard-input";
 import { openRig } from "./test-support";
@@ -27,12 +29,14 @@ afterEach(() => {
 const keydown = (code: string, key: string, init: KeyboardEventInit = {}) =>
     new KeyboardEvent("keydown", { code, key, bubbles: true, cancelable: true, ...init });
 
-async function mount(active: boolean) {
+async function mount(active: boolean, locked = false) {
     const rig = await openRig();
     const focus = createFieldFocus(rig.clock);
     const view = (isActive: boolean) => (
         <KvmActiveProvider value={isActive}>
-            <KeyboardInput session={rig.session} focus={focus} desktop />
+            <KvmLockedProvider value={locked}>
+                <KeyboardInput session={rig.session} focus={focus} desktop />
+            </KvmLockedProvider>
         </KvmActiveProvider>
     );
     const rendered = render(view(active));
@@ -55,6 +59,13 @@ describe("the desktop app's window-level forwarding", () => {
 
     it("A1: ignores the same key while another tab is in front", async () => {
         const { rig, settle } = await mount(false);
+        document.body.dispatchEvent(keydown("F5", "F5"));
+        await settle();
+        expect(rig.sent()).toEqual([]);
+    });
+
+    it("A7: sends nothing while the agent holds the keyboard", async () => {
+        const { rig, settle } = await mount(true, true);
         document.body.dispatchEvent(keydown("F5", "F5"));
         await settle();
         expect(rig.sent()).toEqual([]);

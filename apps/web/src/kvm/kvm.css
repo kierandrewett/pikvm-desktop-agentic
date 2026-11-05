@@ -1182,3 +1182,14 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
         transition: none;
     }
 }
+
+/* The agent holds the keyboard and mouse: what would send input to the target is shown as unavailable. The server refuses
+ * the input as well; this is only so nothing offers what will not work. The banner (Stop) stays usable. */
+.kvm-screen[data-agent-lock] .kvm-keys,
+.kvm-screen[data-agent-lock] .kvm-bar-main {
+    opacity: 0.45;
+    pointer-events: none;
+}
+.kvm-screen[data-agent-lock] .kvm-pane {
+    cursor: not-allowed;
+}

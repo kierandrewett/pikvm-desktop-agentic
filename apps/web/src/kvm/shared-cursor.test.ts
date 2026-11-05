@@ -253,7 +253,7 @@ async function mount(init: { coarse?: boolean; known?: { x: number; y: number; s
         elements: { pane, img, video, freeze, cursor, remote, lens },
         focus: createFieldFocus(rig.clock),
         desktop: !(init.coarse ?? true),
-        prefs: { active: true, touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, windowFocused: true, watching: false },
+        prefs: { active: true, touchMode: "trackpad", touchHid: "abs", dragLock: false, modalOpen: false, locked: false, windowFocused: true, watching: false },
     });
     made.push(controller);
     // A real pane has a size; jsdom has none.
