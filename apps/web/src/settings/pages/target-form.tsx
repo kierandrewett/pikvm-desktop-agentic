@@ -10,7 +10,7 @@
 
 import { Button, Notice, SettingRow, Switch, TextField } from "@pikvm/chat-web/settings";
 import type { PikvmAdd, PikvmEntry, PikvmPatch } from "@pikvm/contracts/api";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { useAddPikvm, useUpdatePikvm } from "../../api/queries";
 import { reloadApp } from "../../host/reload";
 
@@ -56,15 +56,18 @@ export function PikvmForm({
     onDone,
     onCancel,
     sentTo,
+    submitLabel: submitWords,
 }: {
     /** The PiKVM being edited; absent when adding one. */
     readonly entry?: PikvmEntry;
-    /** Called after a successful save; the parent closes the form. */
-    readonly onDone: () => void;
+    /** Called after a successful save; the parent closes the form. Absent where the page goes on its own (first run). */
+    readonly onDone?: (() => void) | undefined;
     /** Shown when there is something to go back to. */
     readonly onCancel?: (() => void) | undefined;
     /** The server in use when it is not this computer. The password is sent to it and kept there. */
     readonly sentTo?: string | undefined;
+    /** The submit button's words, in place of "Add PiKVM" / "Save". */
+    readonly submitLabel?: string | undefined;
 }) {
     const add = useAddPikvm();
     const update = useUpdatePikvm();
@@ -77,6 +80,14 @@ export function PikvmForm({
 
     const saving = add.isPending || update.isPending;
     const failure = entry ? update.error : add.error;
+
+    // The fields lock while a save is in flight, which drops the keyboard's place. Put it back when the save ends.
+    const focused = useRef<Element | null>(null);
+    useEffect(() => {
+        if (saving || !focused.current) return;
+        if (focused.current instanceof HTMLElement) focused.current.focus();
+        focused.current = null;
+    }, [saving]);
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
@@ -99,12 +110,13 @@ export function PikvmForm({
                 ...(passwordSent ? { password: remove ? "" : password } : {}),
             };
             const inUse = entry.active && (trimmedOrigin !== entry.origin || trimmedUser !== entry.username || passwordSent);
+            focused.current = document.activeElement;
             update.mutate(
                 { id: entry.id, patch },
                 {
                     onSuccess: () => {
                         if (inUse) reloadApp();
-                        onDone();
+                        onDone?.();
                     },
                 },
             );
@@ -117,11 +129,12 @@ export function PikvmForm({
             ...(trimmedUser !== "" ? { username: trimmedUser } : {}),
             ...(password !== "" ? { password } : {}),
         };
+        focused.current = document.activeElement;
         add.mutate(payload, {
             onSuccess: (created) => {
                 // The first PiKVM added becomes the one in use; any other waits its turn.
                 if (created.active) reloadApp();
-                onDone();
+                onDone?.();
             },
         });
     };
@@ -138,7 +151,7 @@ export function PikvmForm({
     ]
         .filter((line) => line !== "")
         .join(" ");
-    const submitLabel = entry ? (entry.active ? "Save and reconnect" : "Save") : "Add PiKVM";
+    const submitLabel = submitWords ?? (entry ? (entry.active ? "Save and reconnect" : "Save") : "Add PiKVM");
 
     return (
         <form onSubmit={submit} noValidate>
@@ -150,6 +163,7 @@ export function PikvmForm({
                         <TextField
                             label="Name"
                             value={name}
+                            disabled={saving}
                             invalid={!!problems.name}
                             onChange={(value) => {
                                 setName(value);
@@ -169,6 +183,7 @@ export function PikvmForm({
                             label="Address"
                             value={origin}
                             inputMode="url"
+                            disabled={saving}
                             invalid={!!problems.origin}
                             onChange={(value) => {
                                 setOrigin(value);
@@ -181,7 +196,7 @@ export function PikvmForm({
             <SettingRow
                 label="User name"
                 stack
-                control={<TextField label="User name" value={username} onChange={setUsername} />}
+                control={<TextField label="User name" value={username} disabled={saving} onChange={setUsername} />}
             />
             <SettingRow
                 label="Password"
@@ -194,7 +209,7 @@ export function PikvmForm({
                         autoComplete="new-password"
                         value={password}
                         placeholder={passwordPlaceholder}
-                        disabled={remove}
+                        disabled={remove || saving}
                         onChange={setPassword}
                     />
                 }
@@ -203,7 +218,7 @@ export function PikvmForm({
                 <SettingRow
                     label="Remove the stored password"
                     description="The PiKVM is then reached without a password."
-                    control={<Switch checked={remove} onChange={setRemove} label="Remove the stored password" />}
+                    control={<Switch checked={remove} disabled={saving} onChange={setRemove} label="Remove the stored password" />}
                 />
             )}
             {failure && <Notice tone="danger">Could not save: {failure.message}</Notice>}
@@ -213,7 +228,7 @@ export function PikvmForm({
                         Cancel
                     </Button>
                 )}
-                <Button type="submit" variant="primary" disabled={saving}>
+                <Button type="submit" variant="primary" busy={saving}>
                     {submitLabel}
                 </Button>
             </div>

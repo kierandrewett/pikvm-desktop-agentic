@@ -479,22 +479,24 @@ describe("connection: the PiKVM list", () => {
         it("opens on the add form, with no list and no Cancel", async () => {
             editable();
             renderApp("/settings/connection");
-            expect(await screen.findByRole("heading", { name: "Add a PiKVM" })).toBeInTheDocument();
-            expect(screen.getByLabelText("Name", INPUT)).toHaveValue("");
-            expect(screen.getByLabelText("Address", INPUT)).toHaveValue("");
-            expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
-            expect(screen.queryByRole("switch", { name: "Remove the stored password" })).toBeNull();
+            const page = within(await screen.findByRole("tabpanel"));
+            expect(await page.findByRole("heading", { name: "Add a PiKVM" })).toBeInTheDocument();
+            expect(page.getByLabelText("Name", INPUT)).toHaveValue("");
+            expect(page.getByLabelText("Address", INPUT)).toHaveValue("");
+            expect(page.queryByRole("button", { name: "Cancel" })).toBeNull();
+            expect(page.queryByRole("switch", { name: "Remove the stored password" })).toBeNull();
         });
 
         it("adds the first PiKVM with its sign-in and reloads, since it becomes the one in use", async () => {
             editable();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.type(await screen.findByLabelText("Name", INPUT), "Desk");
-            await user.type(screen.getByLabelText("Address", INPUT), "https://pikvm.lan/");
-            await user.type(screen.getByLabelText("User name", INPUT), "admin");
-            await user.type(screen.getByLabelText("Password", INPUT), "s3cret");
-            await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
+            const page = within(await screen.findByRole("tabpanel"));
+            await user.type(await page.findByLabelText("Name", INPUT), "Desk");
+            await user.type(page.getByLabelText("Address", INPUT), "https://pikvm.lan/");
+            await user.type(page.getByLabelText("User name", INPUT), "admin");
+            await user.type(page.getByLabelText("Password", INPUT), "s3cret");
+            await user.click(page.getByRole("button", { name: "Add PiKVM" }));
             await waitFor(() => expect(reload).toHaveBeenCalled());
             expect(writes()).toEqual([
                 {
@@ -509,9 +511,10 @@ describe("connection: the PiKVM list", () => {
             editable();
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.type(await screen.findByLabelText("Address", INPUT), "ftp://pikvm/");
-            await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
-            expect((await screen.findAllByRole("alert")).map((a) => a.textContent).join(" ")).toMatch(
+            const page = within(await screen.findByRole("tabpanel"));
+            await user.type(await page.findByLabelText("Address", INPUT), "ftp://pikvm/");
+            await user.click(page.getByRole("button", { name: "Add PiKVM" }));
+            expect((await page.findAllByRole("alert")).map((a) => a.textContent).join(" ")).toMatch(
                 /Give it a name.*must start with http/,
             );
             expect(writes()).toEqual([]);
@@ -523,13 +526,14 @@ describe("connection: the PiKVM list", () => {
             server.pikvmWriteError = "That address is already stored.";
             const user = userEvent.setup();
             renderApp("/settings/connection");
-            await user.type(await screen.findByLabelText("Name", INPUT), "Desk");
-            await user.type(screen.getByLabelText("Address", INPUT), "https://pikvm.lan/");
-            await user.type(screen.getByLabelText("Password", INPUT), "keep-me");
-            await user.click(screen.getByRole("button", { name: "Add PiKVM" }));
-            expect(await screen.findByRole("alert")).toHaveTextContent(/already stored/);
-            expect(screen.getByLabelText("Name", INPUT)).toHaveValue("Desk");
-            expect(screen.getByLabelText("Password", INPUT)).toHaveValue("keep-me");
+            const page = within(await screen.findByRole("tabpanel"));
+            await user.type(await page.findByLabelText("Name", INPUT), "Desk");
+            await user.type(page.getByLabelText("Address", INPUT), "https://pikvm.lan/");
+            await user.type(page.getByLabelText("Password", INPUT), "keep-me");
+            await user.click(page.getByRole("button", { name: "Add PiKVM" }));
+            expect(await page.findByRole("alert")).toHaveTextContent(/already stored/);
+            expect(page.getByLabelText("Name", INPUT)).toHaveValue("Desk");
+            expect(page.getByLabelText("Password", INPUT)).toHaveValue("keep-me");
             expect(reload).not.toHaveBeenCalled();
         });
     });

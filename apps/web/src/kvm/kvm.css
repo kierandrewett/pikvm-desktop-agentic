@@ -46,6 +46,79 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     background: #000;
 }
 
+/* ---- first run ------------------------------------------------------------- */
+
+/* With no PiKVM there is no picture to cover, so the stage takes the settings kit's surface and ink, which follow the
+   theme, not the picture's black. The panel hangs from the top, so switching forms does not move the heading, and
+   scrolls when it does not fit (a phone with its keyboard up). */
+.kvm-welcome {
+    display: flex;
+    height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--surface);
+    color: var(--text);
+}
+.kvm-welcome-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: min(100%, 440px);
+    margin: 0 auto;
+    /* As tall as its content, not stretched to the stage: a stretched column would squash the card to fit. */
+    align-self: flex-start;
+    padding: clamp(16px, 3vh, 32px) 16px 16px;
+}
+/* The kit's field style turns the outline off and then asks for a focus outline that inherits "off", so no ring would
+   draw. A field being typed in must show where it is. */
+.kvm-welcome .kvm-welcome-panel input:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+}
+.kvm-welcome-head {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.kvm-welcome-head h1 {
+    margin: 0;
+    font-size: var(--type-page-title);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+}
+.kvm-welcome-head p {
+    margin: 0;
+    max-width: 72ch;
+    text-wrap: pretty;
+    font-size: var(--type-body);
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+.kvm-welcome-other {
+    display: flex;
+    justify-content: center;
+}
+/* A ghost button is tertiary ink, under 4.5:1 on the light surface. This one is the way forward for someone who has no
+   PiKVM, so it reads as text. */
+.kvm-welcome .kvm-welcome-other button {
+    color: var(--text-secondary);
+}
+
+/* A failed load, over the empty stage: the same notice Settings shows, with its Try again. */
+.kvm-stage-notice {
+    position: absolute;
+    inset: 0 0 auto 0;
+    z-index: 6;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+}
+.kvm-stage-notice > * {
+    width: min(100%, 520px);
+}
+
 /* ---- the picture ---------------------------------------------------------- */
 
 .kvm-pane {

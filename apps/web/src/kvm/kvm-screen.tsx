@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { desktopBridge } from "../host/desktop";
 import { useAgentActivity } from "../agent/activity";
 import { useMediaQuery } from "../app/viewport";
+import { LoadError } from "../settings/pages/load-error";
 import { TOUCH_HID_KEY, TOUCH_MODE_KEY, readTouchHid, readTouchMode, useStoredValue } from "../settings/local-prefs";
 import { useActions } from "./actions";
 import { AgentBanner, AgentPointer } from "./agent-banner";
@@ -20,6 +21,7 @@ import { onAudioDevicesChanged } from "./audio-devices-event";
 import { DialogHost } from "./dialog-host";
 import type { DialogName } from "./dialog-seam";
 import { Dock } from "./dock";
+import { FirstRunProvider, useFirstRun } from "./first-run";
 import { createFieldFocus } from "./field-focus";
 import { KeyStrip } from "./key-rows";
 import { KeyboardInput } from "./keyboard-input";
@@ -30,6 +32,7 @@ import type { PictureController, PicturePrefs } from "./picture-controller";
 import { DOCK_QUERY, isDesktopApp, useInBackground, useIsFullscreen, useWakeLock } from "./platform";
 import { KvmSessionProvider, useAppKvmSession, useKvmSession, useSessionReady } from "./session";
 import { Toolbar } from "./toolbar";
+import { Welcome } from "./welcome";
 import { KvmActiveProvider, useKvmActive } from "./active";
 import { useStore } from "./use-store";
 import "./kvm.css";
@@ -50,6 +53,9 @@ export function KvmScreen() {
     const [keysOpen, setKeysOpen] = useState(false);
     const { open } = useStore(session.dialogs.store);
     const picture = usePictureState(controller);
+    const firstRun = useFirstRun();
+    // No PiKVM yet: the stage is the welcome, and there is no target for the keyboard or the picture to belong to.
+    const welcome = firstRun.phase === "needed";
     const stageRef = useRef<HTMLDivElement>(null);
     // Everything in the window that is not the picture's box (nav, toolbar, titlebar) is fixed-pixel, so the
     // shell adds back exactly this leftover around the native size.
@@ -183,42 +189,56 @@ export function KvmScreen() {
 
     return (
         <OcrPickerProvider controller={controller}>
-            <div className="kvm-screen" data-layout={dock ? "dock" : "wide"} data-desktop-app={desktop}>
-                {dock ? null : (
-                    <Toolbar
-                        controller={controller}
-                        actions={actions}
-                        openDialog={openDialog}
-                        keysOpen={keysOpen}
-                        onKeys={setKeysOpen}
-                        onFit={desktop && picture.width > 16 ? () => fitWindow(true) : null}
-                    />
-                )}
-                {!dock && keysOpen ? <KeyStrip keyboard={session.keyboard} focus={focus} dragLock={dragLock} onDragLock={setDragLock} /> : null}
-                <div className="kvm-stage" ref={stageRef} data-agent={agent?.state}>
-                    <Picture session={session} focus={focus} desktop={desktop} prefs={prefs} onController={setController} />
-                    <AgentPointer width={picture.width} height={picture.height} scale={picture.scale} />
-                    <AgentBanner />
-                    {fullUiOn ? <FullUiFrame onBack={() => toggleFullUi?.()} /> : null}
+            <FirstRunProvider value={welcome}>
+                <div className="kvm-screen" data-layout={dock ? "dock" : "wide"} data-desktop-app={desktop}>
+                    {dock ? null : (
+                        <Toolbar
+                            controller={controller}
+                            actions={actions}
+                            openDialog={openDialog}
+                            keysOpen={keysOpen}
+                            onKeys={setKeysOpen}
+                            onFit={desktop && picture.width > 16 ? () => fitWindow(true) : null}
+                        />
+                    )}
+                    {!dock && keysOpen ? <KeyStrip keyboard={session.keyboard} focus={focus} dragLock={dragLock} onDragLock={setDragLock} /> : null}
+                    <div className="kvm-stage" ref={stageRef} data-agent={agent?.state}>
+                        {firstRun.phase === "needed" ? (
+                            <Welcome saved={firstRun.saved} />
+                        ) : (
+                            <>
+                                <Picture session={session} focus={focus} desktop={desktop} prefs={prefs} onController={setController} />
+                                <AgentPointer width={picture.width} height={picture.height} scale={picture.scale} />
+                                <AgentBanner />
+                                {fullUiOn ? <FullUiFrame onBack={() => toggleFullUi?.()} /> : null}
+                                {/* Never over a live picture: the lists failing is then not what the user is looking at. */}
+                                {firstRun.phase === "failed" && !picture.hasFrame ? (
+                                    <div className="kvm-stage-notice">
+                                        <LoadError message={firstRun.message} onRetry={firstRun.retry} />
+                                    </div>
+                                ) : null}
+                            </>
+                        )}
+                    </div>
+                    {dock ? (
+                        <Dock
+                            controller={controller}
+                            focus={focus}
+                            actions={actions}
+                            touchMode={touchMode}
+                            touchHid={touchHid}
+                            onTouchMode={setTouchMode}
+                            onTouchHid={setTouchHid}
+                            dragLock={dragLock}
+                            onDragLock={setDragLock}
+                            openDialog={openDialog}
+                        />
+                    ) : null}
+                    {welcome ? null : <KeyboardInput session={session} focus={focus} desktop={desktop} />}
+                    <Toast session={session} />
+                    <DialogHost session={session} />
                 </div>
-                {dock ? (
-                    <Dock
-                        controller={controller}
-                        focus={focus}
-                        actions={actions}
-                        touchMode={touchMode}
-                        touchHid={touchHid}
-                        onTouchMode={setTouchMode}
-                        onTouchHid={setTouchHid}
-                        dragLock={dragLock}
-                        onDragLock={setDragLock}
-                        openDialog={openDialog}
-                    />
-                ) : null}
-                <KeyboardInput session={session} focus={focus} desktop={desktop} />
-                <Toast session={session} />
-                <DialogHost session={session} />
-            </div>
+            </FirstRunProvider>
         </OcrPickerProvider>
     );
 }

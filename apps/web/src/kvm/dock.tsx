@@ -9,11 +9,11 @@
  * that follows it) and the focus is handed straight back if the keyboard was up.
  */
 
-import { STATUS, statusLabel } from "@pikvm/kvm-engine";
 import { useEffect, useRef, useState } from "react";
 import type { ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
 import type { FieldFocus } from "./field-focus";
+import { useStatusChip } from "./first-run";
 import {
     ClipboardText,
     DotsThree,
@@ -101,8 +101,7 @@ export function Dock(props: DockProps) {
         };
     }, [controller, picture.audio.available]);
 
-    const tone = STATUS[picture.signal].tone;
-    const label = statusLabel(picture.signal, inputOpen);
+    const { tone, label } = useStatusChip(picture.signal, inputOpen);
     const { audio } = picture;
 
     return (

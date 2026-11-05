@@ -27,6 +27,8 @@ Without it, Chat opens and says what is missing. `make package` and `make image`
 
 ## PiKVMs and credentials
 
+On a first run with no PiKVM saved and no server in use, the KVM tab shows a "Welcome to PiKVM" screen in place of the picture. It asks for the PiKVM's name, address, user name and password, and "Use a server instead" asks for a server's address and access token. A save makes the new PiKVM the one in use and reloads the app onto it. A hosted web build, which pins its PiKVM, never shows it.
+
 In the desktop app, open Settings > Connection to add a PiKVM and edit its name, address, user name, and password. Several can be stored. The first one added is the default and the active one; the video, the keyboard and mouse, the agent and the screen watch follow the active one. A hosted web build shows its one PiKVM read-only. Its environment sets it.
 
 - `pikvms.json` in the app's user data folder holds each PiKVM's name, address and user name, which one is the default and which one is active.

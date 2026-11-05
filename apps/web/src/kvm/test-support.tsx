@@ -59,9 +59,10 @@ export const hidFrame = (event: Record<string, unknown>) => ({ event_type: "hid"
 
 export function renderWithSession(rig: Rig, ui: ReactElement) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    return render(
+    const view = render(
         <QueryClientProvider client={queryClient}>
             <KvmSessionProvider session={rig.session}>{ui}</KvmSessionProvider>
         </QueryClientProvider>,
     );
+    return { ...view, queryClient };
 }

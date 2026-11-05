@@ -5,11 +5,11 @@
  * zoom-out and the ⋯ menu.
  */
 
-import { STATUS, statusLabel } from "@pikvm/kvm-engine";
 import { useEffect, useRef } from "react";
 import { useMacros } from "../api/queries";
 import { SHORTCUTS, type ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
+import { useStatusChip } from "./first-run";
 import {
     ArrowsIn,
     CaretDown,
@@ -93,7 +93,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
         };
     }, [controller, audio.available]);
 
-    const label = statusLabel(picture.signal, inputOpen);
+    const { tone, label } = useStatusChip(picture.signal, inputOpen);
 
     const sendKeys: MenuEntry[] = [
         { id: "keys", label: "Show on-screen keys", checked: keysOpen, run: () => onKeys(!keysOpen) },
@@ -137,7 +137,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
     return (
         <div className="kvm-toolbar" data-desktop-app={isDesktopApp()}>
             <div className="kvm-tb-left">
-                <span className={`kvm-dot ${STATUS[picture.signal].tone}`} title={label} role="img" aria-label={label} />
+                <span className={`kvm-dot ${tone}`} title={label} role="img" aria-label={label} />
                 <span className="kvm-status">{label}</span>
             </div>
             <div className="kvm-tb-right">
