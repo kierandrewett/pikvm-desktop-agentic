@@ -181,6 +181,38 @@ describe("fast alerts settings", () => {
     });
 });
 
+describe("summary setting", () => {
+    it("R9: off by default with the default model; refused without fast alerts on; a model id is validated", async () => {
+        await call("", { method: "PATCH", body: JSON.stringify({ enabled: false }) });
+        const view = (await call("")).json;
+        assert.equal(view["fastSummary"], false);
+        assert.equal(view["summaryModel"], "google/gemma-3-4b-it");
+        assert.equal(view["defaultSummaryModel"], "google/gemma-3-4b-it");
+        const early = await call("", { method: "PATCH", body: JSON.stringify({ fastSummary: true }) });
+        assert.equal(early.status, 409);
+        assert.match(early.json["error"], /Switch fast alerts on first/);
+        for (const body of [{ fastSummary: "yes" }, { summaryModel: 5 }, { summaryModel: "bad model" }]) {
+            assert.equal((await call("", { method: "PATCH", body: JSON.stringify(body) })).status, 400, JSON.stringify(body));
+        }
+    });
+
+    it("R9: with the watch and fast alerts on and a key it switches on and the model is kept; without a key it is refused", async () => {
+        const on = await call("", { method: "PATCH", body: JSON.stringify({ enabled: true, fastAlerts: true, fastSummary: true, summaryModel: "meta-llama/llama-3.1-8b-instruct" }) });
+        assert.equal(on.status, 200);
+        assert.equal(on.json["fastSummary"], true);
+        assert.equal(on.json["summaryModel"], "meta-llama/llama-3.1-8b-instruct");
+        assert.equal((await call("", { method: "PATCH", body: JSON.stringify({ summaryModel: "" }) })).json["summaryModel"], "google/gemma-3-4b-it", "empty is the default");
+        await call("", { method: "PATCH", body: JSON.stringify({ fastSummary: false }) });
+        hasKey = false;
+        const refused = await call("", { method: "PATCH", body: JSON.stringify({ fastSummary: true }) });
+        assert.equal(refused.status, 409);
+        assert.match(refused.json["error"], /Summaries need an OpenRouter key/);
+        assert.equal((await call("")).json["fastSummary"], false);
+        hasKey = true;
+        await call("", { method: "PATCH", body: JSON.stringify({ enabled: false, fastAlerts: false }) });
+    });
+});
+
 describe("devices", () => {
     it("R4: a subscription from outside the push services is refused; one from a device is kept, naming the origin it came from", async () => {
         const bad = await call("/subscribe", { method: "POST", body: JSON.stringify({ subscription: { endpoint: "https://127.0.0.1:9/x", keys: { p256dh: "a", auth: "b" } } }) });
@@ -258,9 +290,9 @@ describe("the files", () => {
         store.write("u", { enabled: true });
         const file = join(root.path, "users", "u", "watch", "settings.json");
         writeFileSync(file, "{ nope");
-        assert.deepEqual(store.read("u"), { enabled: false, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(store.read("u"), { enabled: false, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, fastSummary: false, summaryModel: "google/gemma-3-4b-it", alertZone: DEFAULT_ALERT_ZONE });
         writeFileSync(file, JSON.stringify({ enabled: true, rule: 5, visionModel: "bad model", extra: 1 }));
-        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, fastSummary: false, summaryModel: "google/gemma-3-4b-it", alertZone: DEFAULT_ALERT_ZONE });
     });
 
     it("R8: fast alerts and their zone are stored, validated and read back; a damaged zone is the default", () => {
@@ -275,7 +307,7 @@ describe("the files", () => {
         assert.deepEqual(store.read("u").alertZone, ALERT_ZONES[2].zone, "a refused zone changes nothing");
         const file = join(root.path, "users", "u", "watch", "settings.json");
         writeFileSync(file, JSON.stringify({ enabled: true, fastAlerts: "yes", alertZone: { x0: 2, y0: 0, x1: 3, y1: 1 } }));
-        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", visionModel: "google/gemma-3-12b-it", fastAlerts: false, fastSummary: false, summaryModel: "google/gemma-3-4b-it", alertZone: DEFAULT_ALERT_ZONE });
         assert.deepEqual(parseZone({ x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 }), { x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 });
         assert.equal(parseZone({ x0: 0.5, y0: 0.5, x1: 0.54, y1: 1 }), undefined);
     });

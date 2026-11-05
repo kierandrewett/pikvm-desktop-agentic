@@ -7,6 +7,8 @@ import {
     FAST_DUPLICATE_MS,
     OCR_PAD_CELLS,
     OCR_TIMEOUT_MS,
+    SUMMARY_MAX_CHARS,
+    SUMMARY_TIMEOUT_MS,
     VISION_FALLBACK_SCORE,
     ZONE_CHANGE_FRACTION,
     ZONE_MAX_FRACTION,
@@ -180,6 +182,26 @@ export function createFastAlerts(deps: FastAlertDeps): FastAlerts {
         start(change, now);
     }
 
+    /** The summary of a pop-up's lines, or why there is none. The timeout is hard: the request is aborted and not waited for. */
+    async function summarise(provider: ModelProvider, model: string, lines: readonly string[]): Promise<{ text?: string; why?: string; costUsd: number }> {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), SUMMARY_TIMEOUT_MS);
+        const timedOut = new Promise<"timed out">((resolve) => controller.signal.addEventListener("abort", () => resolve("timed out")));
+        try {
+            const answer = await Promise.race([deps.models.summarise(provider, model, lines, controller.signal), timedOut]);
+            if (answer === "timed out") return { why: "timed out", costUsd: 0 };
+            const text = answer.text.replace(/^["'“”]+|["'“”]+$/g, "").trim();
+            const costUsd = answer.costUsd ?? 0;
+            if (text === "") return { why: "empty", costUsd };
+            if (text.length > SUMMARY_MAX_CHARS) return { why: `too long (${text.length} characters)`, costUsd };
+            return { text, costUsd };
+        } catch (error) {
+            return { why: controller.signal.aborted ? "timed out" : error instanceof ModelError ? `model error (${error.kind}${error.status ? ` ${error.status}` : ""})` : "model error", costUsd: 0 };
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
     async function check(change: Appearance): Promise<void> {
         const settings = deps.settings();
         const latency = latencyOf(change);
@@ -285,6 +307,23 @@ export function createFastAlerts(deps: FastAlertDeps): FastAlerts {
                 latency.decidedAt = latency.readAt;
             }
 
+            // The optional summary: the OCR lines (text only, never the crop) to a text model, as the body. Never for a call (it must
+            // go as fast as it does without), and on any failure the rules' body stays and the log says why, with no text.
+            let summary: CheckEntry["summary"];
+            if (settings.fastSummary && built.kind !== "call" && toast && read?.by === "ocr") {
+                const provider = deps.provider();
+                if (!provider) {
+                    summary = { used: false, ms: 0, skipped: "summary skipped: no OpenRouter key" };
+                } else {
+                    const started = deps.now();
+                    const outcome = await summarise(provider, settings.summaryModel, toast.lines);
+                    latency.summarisedAt = deps.now();
+                    costUsd += outcome.costUsd;
+                    summary = outcome.text !== undefined ? { used: true, ms: latency.summarisedAt - started } : { used: false, ms: latency.summarisedAt - started, skipped: `summary skipped: ${outcome.why}` };
+                    if (outcome.text !== undefined) built = { ...built, body: outcome.text };
+                }
+            }
+
             const ttlSec = built.kind === "call" ? FAST_CALL_TTL_SEC : FAST_ALERT_TTL_SEC;
             const payload: PushPayload = { title: built.title, body: built.body, tag: built.tag, url: "/app/", badge: 1 };
             const sentFacts = {
@@ -296,7 +335,7 @@ export function createFastAlerts(deps: FastAlertDeps): FastAlerts {
                 bodyChars: built.body.length,
                 ...(deps.logText ? { title: built.title, body: built.body } : {}),
             };
-            const done = { ...common(), ...used, ...(noul !== undefined ? { noul } : {}), ...(fromCache ? { fromCache: true } : {}) };
+            const done = { ...common(), ...used, ...(summary ? { summary } : {}), ...(noul !== undefined ? { noul } : {}), ...(fromCache ? { fromCache: true } : {}) };
             try {
                 const sent = await deps.push.send(deps.userId, payload, { urgency: built.urgency, ttlSeconds: ttlSec });
                 latency.pushedAt = deps.now();

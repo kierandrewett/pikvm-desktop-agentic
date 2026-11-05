@@ -51,6 +51,11 @@ export interface ModelClient {
     describe(provider: ModelProvider, model: string, jpeg: Buffer, signal?: AbortSignal): Promise<Described>;
     /** Read a crop of the screen's notification corner (fast alerts): the app, the sender or caller, the first line. */
     describeAlert(provider: ModelProvider, model: string, jpeg: Buffer, signal?: AbortSignal): Promise<Described>;
+    /**
+     * One short sentence for a notification, from the text read off a pop-up (fast alerts' optional summary). TEXT ONLY: the lines are the
+     * whole request; no image goes with them. Rejects like the other calls; the caller decides what to do without it.
+     */
+    summarise(provider: ModelProvider, model: string, lines: readonly string[], signal?: AbortSignal): Promise<Described>;
     decide(
         provider: ModelProvider,
         input: { previous: string; current: string; rule: string },
@@ -74,6 +79,13 @@ export const DESCRIBE_PROMPT =
     "operating system if it is obvious), then the one or two most important other lines of text. If the screen is " +
     "blank, black or shows no signal, say exactly that. Do not describe colours or layout, and do not guess at what you " +
     "cannot read.";
+
+export const SUMMARY_PROMPT =
+    "You turn the text read off a notification pop-up on a screen into one short sentence for a phone notification. Say who it is " +
+    "from, what it is about and what is asked, using only what the text says. Fix words the reader ran together or misread when the " +
+    "text makes the right word clear. Never add anything the text does not say, and never guess a name. Reply with that one sentence " +
+    "only: plain text, at most 140 characters, no quotes, no preamble. Example: the text \"Ana Silva | Lunch Thursday? | Are you free " +
+    "at 12:30 for thereview\" becomes: Ana Silva asks if you are free Thursday at 12:30 for the review";
 
 /** What `describeAlert` answers, word for word, when the crop shows no notification. */
 export const NO_NOTIFICATION_TEXT = "No notification.";
@@ -255,6 +267,27 @@ export function createModelClient(options: ModelClientOptions = {}): ModelClient
     return {
         describe: (provider, model, jpeg, signal) => describeWith("screen", provider, model, jpeg, signal),
         describeAlert: (provider, model, jpeg, signal) => describeWith("alert", provider, model, jpeg, signal),
+
+        async summarise(provider, model, lines, signal) {
+            const body = await post(
+                provider,
+                `${provider.baseUrl}/chat/completions`,
+                {
+                    model,
+                    max_tokens: 80,
+                    temperature: 0,
+                    usage: { include: true },
+                    messages: [
+                        { role: "system", content: SUMMARY_PROMPT },
+                        { role: "user", content: lines.join(" | ") },
+                    ],
+                },
+                signal,
+            );
+            const content = dig(body, "choices", 0, "message", "content");
+            const text = (typeof content === "string" ? content : "").replace(/\s+/g, " ").trim();
+            return { text, ...(cost(body) !== undefined ? { costUsd: cost(body)! } : {}), cached: false };
+        },
 
         async decide(provider, input, signal) {
             const request = decisionRequest(input);

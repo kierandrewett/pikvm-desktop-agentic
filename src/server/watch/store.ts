@@ -1,7 +1,7 @@
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_ALERT_ZONE, type CheckEntry, type WatchSettings, type WatchZone } from "@pikvm/contracts/watch";
-import { DEFAULT_VISION_MODEL, MAX_RULE_CHARS } from "./limits";
+import { DEFAULT_SUMMARY_MODEL, DEFAULT_VISION_MODEL, MAX_RULE_CHARS } from "./limits";
 
 /**
  * What a user's watch keeps on disk, under `users/<id>/watch/`:
@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS: WatchSettings = {
     rule: "",
     visionModel: DEFAULT_VISION_MODEL,
     fastAlerts: false,
+    fastSummary: false,
+    summaryModel: DEFAULT_SUMMARY_MODEL,
     alertZone: DEFAULT_ALERT_ZONE,
 };
 
@@ -126,6 +128,8 @@ export function createWatchStore(options: { userDir(userId: string): string; use
                     rule: typeof rule === "string" ? rule.slice(0, MAX_RULE_CHARS) : "",
                     visionModel: typeof visionModel === "string" && MODEL_ID.test(visionModel) ? visionModel : DEFAULT_SETTINGS.visionModel,
                     fastAlerts: get("fastAlerts") === true,
+                    fastSummary: get("fastSummary") === true,
+                    summaryModel: ((model: unknown) => (typeof model === "string" && MODEL_ID.test(model) ? model : DEFAULT_SETTINGS.summaryModel))(get("summaryModel")),
                     alertZone: parseZone(get("alertZone")) ?? DEFAULT_SETTINGS.alertZone,
                 };
             } catch {
@@ -149,6 +153,13 @@ export function createWatchStore(options: { userDir(userId: string): string; use
                 else next.visionModel = model;
             }
             if (patch.fastAlerts !== undefined) next.fastAlerts = patch.fastAlerts === true;
+            if (patch.fastSummary !== undefined) next.fastSummary = patch.fastSummary === true;
+            if (patch.summaryModel !== undefined) {
+                const model = String(patch.summaryModel).trim();
+                if (model === "") next.summaryModel = DEFAULT_SETTINGS.summaryModel;
+                else if (!MODEL_ID.test(model)) throw new SettingsError("That is not an OpenRouter model id (for example google/gemma-3-4b-it).");
+                else next.summaryModel = model;
+            }
             if (patch.alertZone !== undefined) {
                 const zone = parseZone(patch.alertZone);
                 if (!zone) throw new SettingsError("That is not a usable area of the screen: four fractions from 0 to 1, at least 5% wide and tall.");

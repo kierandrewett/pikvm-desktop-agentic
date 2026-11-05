@@ -68,6 +68,13 @@ export interface FakeModels extends ModelClient {
     afterAlert: (() => void) | null;
     /** While set, a fast description waits for it: a model that has not answered yet. */
     alertGate: Promise<void> | null;
+    /** The summaries asked for: the model and the lines (text only: a summary request has no image). */
+    summarised: { model: string; lines: string[] }[];
+    /** What a summary answers; a function can make it depend on the lines. */
+    summaryText: string | ((lines: readonly string[]) => string);
+    summaryError: ModelError | null;
+    /** While set, a summary never answers: a model that is too slow. */
+    summaryHang: boolean;
     decided: { previous: string; current: string; rule: string }[];
     /** The verdict probability for the next decisions; the last one repeats. */
     answers: number[];
@@ -85,6 +92,10 @@ export function fakeModels(): FakeModels {
         alertText: {},
         afterAlert: null,
         alertGate: null,
+        summarised: [],
+        summaryText: "Anna Berg asks if you are free Thursday at 12:30",
+        summaryError: null,
+        summaryHang: false,
         decided: [],
         answers: [0.02],
         describeError: null,
@@ -104,6 +115,13 @@ export function fakeModels(): FakeModels {
             if (models.alertGate) await models.alertGate;
             models.afterAlert?.();
             return { text: models.alertText[label] ?? `Alert ${label}. Something else.`, costUsd: models.costPerCall, cached: false };
+        },
+        async summarise(_provider, model, lines, signal): Promise<Described> {
+            models.summarised.push({ model, lines: [...lines] });
+            if (models.summaryHang) await new Promise<never>((_resolve, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+            if (models.summaryError) throw models.summaryError;
+            const text = typeof models.summaryText === "function" ? models.summaryText(lines) : models.summaryText;
+            return { text, costUsd: models.costPerCall, cached: false };
         },
         async decide(_provider, input): Promise<Decided> {
             if (models.decideError) throw models.decideError;

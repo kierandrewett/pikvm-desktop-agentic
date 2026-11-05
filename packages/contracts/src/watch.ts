@@ -41,8 +41,12 @@ export interface WatchSettings {
     rule: string;
     /** An OpenRouter model id. */
     visionModel: string;
-    /** Also watch one corner for pop-ups (email, Teams) and notify within seconds. Needs `enabled`. */
+    /** Also watch one corner for pop-ups and notify within seconds. Needs `enabled`. */
     fastAlerts: boolean;
+    /** Write a fast alert's notification as one short sentence: the OCR text of the pop-up (never the picture) goes to `summaryModel` through the OpenRouter key. Needs a key and `fastAlerts`. */
+    fastSummary: boolean;
+    /** An OpenRouter text model id, for the summary. */
+    summaryModel: string;
     /** The corner fast alerts watch. */
     alertZone: WatchZone;
 }
@@ -51,6 +55,7 @@ export type WatchSettingsPatch = Partial<WatchSettings>;
 
 export interface WatchView extends WatchSettings {
     defaultVisionModel: string;
+    defaultSummaryModel: string;
     /** Whether the watch can be switched on now, and if not, why. */
     canEnable: { ok: true } | { ok: false; reason: string };
     /** An OpenRouter key is stored, so a change can be judged against the rule. Without one the watch (if this host can read the screen itself) tells about every change that settles. */
@@ -114,6 +119,8 @@ export interface CheckEntry {
     fromCache?: boolean;
     costUsd?: number;
     push?: { sent: number; removed: number; failed: number };
+    /** The summary of a fast alert: whether it became the body, how long it took, and why not when it did not (a reason, never text). */
+    summary?: { used: boolean; ms: number; skipped?: string };
     /** A fast alert's timestamps (epoch ms), so the delay from the screen to the phone can be read off the log. */
     latency?: CheckLatency;
     /** How a fast alert's text was read, and how much. Never the text itself: see `notified`. */
@@ -146,6 +153,8 @@ export interface CheckLatency {
     capturedAt: number;
     detectedAt: number;
     readAt?: number;
+    /** When the summary was ready (or was given up on), if one was asked for. */
+    summarisedAt?: number;
     decidedAt?: number;
     pushedAt?: number;
     totalMs?: number;

@@ -7,7 +7,7 @@ import { WatchRefusal, type WatchService } from "./service";
  * `/app/api/v1/watch/*`: the Settings page's side of the screen watch.
  *
  *   GET   /app/api/v1/watch              the settings, whether it can be switched on, push state, limits
- *   PATCH /app/api/v1/watch              { enabled?, rule?, visionModel?, fastAlerts?, alertZone? }
+ *   PATCH /app/api/v1/watch              { enabled?, rule?, visionModel?, fastAlerts?, fastSummary?, summaryModel?, alertZone? }
  *   POST  /app/api/v1/watch/subscribe    { subscription } from the browser's PushManager
  *   POST  /app/api/v1/watch/unsubscribe  { endpoint }
  *   POST  /app/api/v1/watch/test         send a test notification to every subscribed device
@@ -68,6 +68,10 @@ export function createWatchRoutes(service: WatchService, userId: string): WatchR
                 if (alertZone !== undefined && (alertZone === null || typeof alertZone !== "object" || Array.isArray(alertZone))) {
                     throw new WatchRefusal("alertZone must be an object with x0, y0, x1 and y1.", 400);
                 }
+                if (field("fastSummary") !== undefined && typeof field("fastSummary") !== "boolean") throw new WatchRefusal("fastSummary must be true or false.", 400);
+                if (field("summaryModel") !== undefined && typeof field("summaryModel") !== "string") throw new WatchRefusal("summaryModel must be text.", 400);
+                const fastSummary = field("fastSummary");
+                const summaryModel = field("summaryModel");
                 const fastAlerts = field("fastAlerts");
                 const enabled = field("enabled");
                 const rule = field("rule");
@@ -80,6 +84,8 @@ export function createWatchRoutes(service: WatchService, userId: string): WatchR
                         ...(typeof rule === "string" ? { rule } : {}),
                         ...(typeof visionModel === "string" ? { visionModel } : {}),
                         ...(typeof fastAlerts === "boolean" ? { fastAlerts } : {}),
+                        ...(typeof fastSummary === "boolean" ? { fastSummary } : {}),
+                        ...(typeof summaryModel === "string" ? { summaryModel } : {}),
                         ...(alertZone !== undefined ? { alertZone: alertZone as WatchZone } : {}),
                     }),
                 );

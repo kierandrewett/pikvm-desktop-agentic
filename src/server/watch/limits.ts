@@ -130,6 +130,18 @@ export const DECISIVE = 0.85;
 /** The default image model. See docs/deploy-web.md for why this one and what it costs. */
 export const DEFAULT_VISION_MODEL = "google/gemma-3-12b-it";
 
+/**
+ * The default text model for fast alerts' optional summary (Settings, Notifications, Summarise with AI): one sentence from the pop-up's OCR
+ * text. docs/deploy-web.md ("Summaries") has the choice and the cost.
+ */
+export const DEFAULT_SUMMARY_MODEL = "google/gemma-3-4b-it";
+
+/** A summary gets this long; past it the notification is the rules' own text and the log says "timed out". */
+export const SUMMARY_TIMEOUT_MS = 2500;
+
+/** The most a summary may be; a longer answer is not used. */
+export const SUMMARY_MAX_CHARS = 140;
+
 export const JEV_MODEL = "typesafe/jev-1.14";
 
 /** The rule text is for a sentence or two; a larger one only makes every decision call dearer. */

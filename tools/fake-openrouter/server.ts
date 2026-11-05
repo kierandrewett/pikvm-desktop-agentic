@@ -10,6 +10,8 @@
 //                         describe: the descriptions the next image calls answer, in order (the last repeats);
 //                         noul: Jev's probability of yes for the next decisions, in order (the last repeats; default 0.02);
 //                         failFirst: answer the next `count` calls of either kind with `status` (to see retries).
+//   POST /__fake/script   also { summary?: string[], delayMs?: number }: the sentences the next text-only (summary) calls answer, and a wait before
+//                         every answer, so a run can put a number on "a model that takes this long" (the delay is the fake's, not a real model's).
 //   GET  /__fake/requests -> every call: { kind, at, authorization, model, ... }
 //   POST /__fake/reset
 //
@@ -20,7 +22,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { resolve } from "node:path";
 
 export interface RecordedCall {
-    kind: "describe" | "decide";
+    kind: "describe" | "decide" | "summarise";
     at: number;
     authorization: string | null;
     model: string | null;
@@ -28,6 +30,8 @@ export interface RecordedCall {
     system?: string;
     text?: string;
     image?: { sha256: string; bytes: number; mime: string };
+    /** summarise: the text the model was given (a summary request carries no image). */
+    summaryInput?: string;
     /** decide: what Jev was given. */
     state?: Record<string, unknown>;
     questions?: Record<string, unknown>;
@@ -70,6 +74,9 @@ export async function startFakeOpenRouter(options: { port?: number; host?: strin
     let describe: string[] = [];
     let noul: number[] = [];
     let failFirst: { status: number; count: number } | null = null;
+    let summaries: string[] = [];
+    let summarised = 0;
+    let delayMs = 0;
     let described = 0;
     let decided = 0;
 
@@ -88,6 +95,11 @@ export async function startFakeOpenRouter(options: { port?: number; host?: strin
                     noul = prop(body, "noul") as number[];
                     decided = 0;
                 }
+                if (Array.isArray(prop(body, "summary"))) {
+                    summaries = prop(body, "summary") as string[];
+                    summarised = 0;
+                }
+                if (typeof prop(body, "delayMs") === "number") delayMs = prop(body, "delayMs") as number;
                 if ("failFirst" in (body as object)) failFirst = (prop(body, "failFirst") as typeof failFirst) ?? null;
                 return send(res, 200, { ok: true });
             }
@@ -131,8 +143,16 @@ export async function startFakeOpenRouter(options: { port?: number; host?: strin
                     call.text = String(prop(parts.find((part) => prop(part, "type") === "text"), "text") ?? "");
                 }
                 if (!call.image) {
-                    call.answered = 400;
-                    return send(res, 400, { error: { message: "no image" } });
+                    const given = prop(messages, 1, "content");
+                    if (typeof given !== "string") {
+                        call.answered = 400;
+                        return send(res, 400, { error: { message: "no image" } });
+                    }
+                    call.kind = "summarise";
+                    call.summaryInput = given;
+                    if (delayMs > 0) await new Promise((done) => setTimeout(done, delayMs));
+                    const sentence = next(summaries, `A short sentence about: ${given.slice(0, 60)}`, summarised++);
+                    return send(res, 200, { id: "gen-fake", model, choices: [{ message: { role: "assistant", content: sentence } }], usage: { prompt_tokens: 120, completion_tokens: 20, cost: 0.00001 } });
                 }
                 const text = next(describe, `A screen (${call.image.sha256.slice(0, 8)}).`, described++);
                 return send(res, 200, { id: "gen-fake", model, choices: [{ message: { role: "assistant", content: text } }], usage: { prompt_tokens: 900, completion_tokens: 40, cost: 0.00005 } });

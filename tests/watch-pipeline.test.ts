@@ -64,7 +64,7 @@ function rig(over: { dailyCap?: number; prepare?: (jpeg: Buffer) => Promise<Buff
         store,
         models: fakeModels(),
         push: fakePush(),
-        settings: { enabled: true, rule: "", visionModel: "vision/test", fastAlerts: false, alertZone: DEFAULT_ALERT_ZONE },
+        settings: { enabled: true, rule: "", visionModel: "vision/test", fastAlerts: false, fastSummary: false, summaryModel: "summary/test", alertZone: DEFAULT_ALERT_ZONE },
         provider: PROVIDER,
         clock: { t: 1_000_000 },
         get pipeline(): Pipeline {

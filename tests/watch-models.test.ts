@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createModelClient, decisionRequest, decisionsUrl, ModelError, verdictOf, ALERT_PROMPT, DESCRIBE_PROMPT, NO_NOTIFICATION_TEXT } from "../src/server/watch/models";
+import { createModelClient, decisionRequest, decisionsUrl, ModelError, verdictOf, SUMMARY_PROMPT, ALERT_PROMPT, DESCRIBE_PROMPT, NO_NOTIFICATION_TEXT } from "../src/server/watch/models";
 import { JEV_MODEL } from "../src/server/watch/limits";
 import { PROVIDER } from "./support/watch-rig";
 
@@ -198,6 +198,37 @@ describe("the image model", () => {
         assert.equal((await client.describe(PROVIDER, "m", Buffer.from("frame"))).cached, true);
         await client.describe(PROVIDER, "other", Buffer.from("frame"));
         assert.equal(net.calls.length, 2);
+    });
+});
+
+describe("the summary", () => {
+    it("M8: the request is the text lines and the prompt, a text model, and nothing else: no image", async () => {
+        const net = scripted([ok({ choices: [{ message: { content: " Ana Silva asks if you are free Thursday. " } }], usage: { cost: 0.00001 } })]);
+        const client = createModelClient({ fetch: net.fetch, sleep: net.sleep });
+        const answer = await client.summarise(PROVIDER, "google/gemma-3-4b-it", ["Notes", "Ana Silva", "Lunch Thursday?"]);
+        assert.deepEqual(answer, { text: "Ana Silva asks if you are free Thursday.", costUsd: 0.00001, cached: false });
+        const request = net.calls[0]!;
+        assert.equal(request.url, "https://openrouter.test/api/v1/chat/completions");
+        assert.equal(request.body["model"], "google/gemma-3-4b-it");
+        assert.deepEqual(request.body["messages"], [
+            { role: "system", content: SUMMARY_PROMPT },
+            { role: "user", content: "Notes | Ana Silva | Lunch Thursday?" },
+        ]);
+        assert.ok(!JSON.stringify(request.body).includes("image"), "no image in the request");
+        assert.ok(!JSON.stringify(request.body).includes("data:"), "and no data URL");
+        assert.equal(request.body["max_tokens"], 80);
+        assert.match(SUMMARY_PROMPT, /140 characters/);
+        assert.match(SUMMARY_PROMPT, /Never add anything the text does not say/);
+    });
+
+    it("M8: an empty answer comes back empty (the caller falls back); an aborted request is not retried", async () => {
+        const empty = scripted([ok({ choices: [{ message: { content: null } }] })]);
+        assert.equal((await createModelClient({ fetch: empty.fetch, sleep: empty.sleep }).summarise(PROVIDER, "m", ["x"])).text, "");
+        const controller = new AbortController();
+        controller.abort();
+        const net = scripted([Object.assign(new Error("aborted"), { name: "AbortError" })]);
+        await assert.rejects(createModelClient({ fetch: net.fetch, sleep: net.sleep }).summarise(PROVIDER, "m", ["x"], controller.signal), /aborted/);
+        assert.equal(net.calls.length, 1);
     });
 });
 

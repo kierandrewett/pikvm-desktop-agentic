@@ -69,7 +69,7 @@ interface Rig {
 const rigs: Rig[] = [];
 after(() => rigs.forEach((rig) => rig.dir.remove()));
 
-function rig(over: { fastCap?: number; rule?: string; fastAlerts?: boolean; dailyCap?: number; logText?: boolean; cloudFallback?: boolean } = {}): Rig {
+function rig(over: { fastCap?: number; rule?: string; fastAlerts?: boolean; dailyCap?: number; logText?: boolean; cloudFallback?: boolean; fastSummary?: boolean } = {}): Rig {
     const dir = tempDir();
     const store = tempStore(dir.path);
     let looks = 0;
@@ -84,6 +84,8 @@ function rig(over: { fastCap?: number; rule?: string; fastAlerts?: boolean; dail
             rule: over.rule ?? "",
             visionModel: "vision/test",
             fastAlerts: over.fastAlerts ?? true,
+            fastSummary: over.fastSummary ?? false,
+            summaryModel: "summary/test",
             alertZone: DEFAULT_ALERT_ZONE,
         },
         provider: PROVIDER,
@@ -724,6 +726,125 @@ describe("text that is the window behind the pop-up", () => {
         assert.match(r.push.sent[0]!.payload.body, /Anna Berg/);
     });
 });
+
+describe("the optional summary", () => {
+    const SENTENCE = "Anna Berg asks if you are free Thursday at 12:30 for the quarterly review";
+    const on = () => {
+        r.settings = { ...r.settings, fastSummary: true };
+    };
+
+    it("F17: off by default, nothing is sent to any model for a pop-up, with a key configured", async () => {
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        assert.equal(r.push.sent.length, 1);
+        assert.deepEqual(r.models.summarised, []);
+        assert.deepEqual(r.models.described, []);
+        assert.deepEqual(r.models.alerted, []);
+        assert.deepEqual(r.models.decided, []);
+        assert.equal(r.entries()[0]!.summary, undefined);
+    });
+
+    it("F17: on, the body is the summary, the title stays the rules', and only the OCR lines went to the model", async () => {
+        on();
+        r.models.summaryText = SENTENCE;
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        assert.deepEqual(r.push.sent[0]!.payload, { title: "Outlook", body: SENTENCE, tag: r.push.sent[0]!.payload.tag, url: "/app/", badge: 1 });
+        assert.deepEqual(r.models.summarised, [{ model: "summary/test", lines: EMAIL }]);
+        assert.deepEqual(r.models.alerted, [], "no image call");
+        assert.deepEqual(r.models.described, []);
+        const entry = r.entries()[0]!;
+        assert.deepEqual(entry.summary, { used: true, ms: 0 });
+        assert.equal(entry.notified?.bodyChars, SENTENCE.length);
+        assert.ok(!JSON.stringify(entry).includes("Anna"), "no text in the log");
+        assert.ok(entry.latency!.summarisedAt !== undefined);
+    });
+
+    it("F17: the summary's time is in the latency fields", async () => {
+        on();
+        r.models.summarise = async (...args) => {
+            r.wait(600);
+            return fakeSummary(args);
+        };
+        const firstSeen = r.clock.t;
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        const entry = r.entries()[0]!;
+        assert.equal(entry.summary?.ms, 600);
+        assert.equal(entry.latency?.summarisedAt, firstSeen + SETTLE + 600);
+        assert.equal(entry.latency?.totalMs, 600);
+    });
+
+    for (const [name, arrange, why] of [
+        ["a model error", () => void (r.models.summaryError = new ModelError("OpenRouter answered 503.", "http", 503)), /^summary skipped: model error \(http 503\)$/],
+        ["an empty answer", () => void (r.models.summaryText = "   "), /^summary skipped: empty$/],
+        ["an answer over 140 characters", () => void (r.models.summaryText = "x".repeat(141)), /^summary skipped: too long \(141 characters\)$/],
+    ] as const) {
+        it(`F18: ${name} falls back to the rules' body and says why, without text`, async () => {
+            on();
+            arrange();
+            r.toast(toastA(flat(60)), "toast-a");
+            await r.pipeline.idle();
+            assert.equal(r.push.sent[0]!.payload.body, "Anna Berg: Lunch on Thursday? - Are you free at 12:30 for the quarterly review");
+            assert.match(r.entries()[0]!.summary?.skipped ?? "", why);
+            assert.equal(r.entries()[0]!.summary?.used, false);
+        });
+    }
+
+    it("F18: a model that does not answer in 2.5 s is given up on: the rules' body goes, the request is aborted", async () => {
+        on();
+        r.models.summaryHang = true;
+        r.toast(toastA(flat(60)), "toast-a");
+        // The hard timeout is the thing under test, so this one waits for the real timer.
+        await r.pipeline.idle();
+        assert.equal(r.push.sent.length, 1);
+        assert.match(r.push.sent[0]!.payload.body, /^Anna Berg: Lunch/);
+        assert.equal(r.entries()[0]!.summary?.skipped, "summary skipped: timed out");
+    });
+
+    it("F19: a call is never summarised: it goes as fast as it does without", async () => {
+        on();
+        r.toast(toastA(flat(60)), "toast-c");
+        await r.pipeline.idle();
+        assert.equal(r.push.sent[0]!.payload.title, "Incoming call: Priya Shah");
+        assert.deepEqual(r.models.summarised, []);
+        assert.equal(r.entries()[0]!.summary, undefined);
+    });
+
+    it("F20: with no key the summary is skipped (and says so), the notification still goes", async () => {
+        on();
+        r.provider = undefined;
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        assert.equal(r.push.sent.length, 1);
+        assert.deepEqual(r.models.summarised, []);
+        assert.equal(r.entries()[0]!.summary?.skipped, "summary skipped: no OpenRouter key");
+    });
+
+    it("F21: with a rule Jev still judges the OCR text, not the summary; the summary is only the body", async () => {
+        on();
+        r.settings = { ...r.settings, rule: "anything from Anna" };
+        r.models.answers = [0.95];
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        assert.equal(r.models.decided[0]!.current, "Outlook: Outlook | Anna Berg | Lunch on Thursday? | Are you free at 12:30 for the quarterly review");
+        assert.equal(r.push.sent[0]!.payload.body, r.models.summaryText);
+    });
+
+    it("F21: a pop-up Jev said no to is not summarised", async () => {
+        on();
+        r.settings = { ...r.settings, rule: "anything from Anna" };
+        r.models.answers = [0.02];
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.pipeline.idle();
+        assert.deepEqual(r.models.summarised, []);
+    });
+});
+
+function fakeSummary(args: unknown[]): { text: string; costUsd: number; cached: boolean } {
+    void args;
+    return { text: "Anna Berg asks if you are free Thursday", costUsd: 0.0001, cached: false };
+}
 
 describe("when the OCR does not deliver and the cloud fallback is off (the default)", () => {
     it("F16: a timed-out OCR with a key configured sends nothing anywhere: no vision model, no Jev, and the log says why", async () => {

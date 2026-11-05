@@ -71,7 +71,7 @@ export function checkSummary(entry: CheckEntry): string {
                 : "Screen changed";
     // A fast alert's log never holds the pop-up's words, so say what kind of pop-up it was and how long it took instead.
     const seconds = entry.latency?.totalMs !== undefined ? `${(entry.latency.totalMs / 1000).toFixed(1)} seconds to send` : "";
-    const facts = entry.kind === "alert" ? [entry.notified?.kind === "call" ? "a call" : entry.notified ? "a message" : "", seconds].filter(Boolean).join(", ") : "";
+    const facts = entry.kind === "alert" ? [entry.notified?.urgency === "high" ? "urgent" : entry.notified ? "a pop-up" : "", seconds].filter(Boolean).join(", ") : "";
     return `${what}${detail ? `: ${detail}` : facts ? `: ${facts}` : ""}`;
 }
 
@@ -132,6 +132,7 @@ export function NotificationsPage() {
 
     const [rule, setRule] = useState<string | undefined>(undefined);
     const [model, setModel] = useState<string | undefined>(undefined);
+    const [summaryModel, setSummaryModel] = useState<string | undefined>(undefined);
 
     if (view.isError) {
         return (
@@ -144,7 +145,8 @@ export function NotificationsPage() {
 
     const shownRule = rule ?? data?.rule ?? "";
     const shownModel = model ?? data?.visionModel ?? "";
-    const dirty = data !== undefined && (shownRule.trim() !== data.rule || shownModel.trim() !== data.visionModel);
+    const shownSummaryModel = summaryModel ?? data?.summaryModel ?? "";
+    const dirty = data !== undefined && (shownRule.trim() !== data.rule || shownModel.trim() !== data.visionModel || shownSummaryModel.trim() !== data.summaryModel);
     const cannotEnable = data !== undefined && !data.canEnable.ok ? data.canEnable.reason : "";
     const deviceBlocked = device.kind === "ready" ? "" : device.message;
     const on = data?.enabled === true;
@@ -181,7 +183,10 @@ export function NotificationsPage() {
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
-        save.mutate({ rule: shownRule, visionModel: shownModel }, { onSuccess: () => { setRule(undefined); setModel(undefined); } });
+        save.mutate(
+            { rule: shownRule, visionModel: shownModel, ...(data && shownSummaryModel.trim() !== data.summaryModel ? { summaryModel: shownSummaryModel } : {}) },
+            { onSuccess: () => { setRule(undefined); setModel(undefined); setSummaryModel(undefined); } },
+        );
     };
 
     const test = async () => {
@@ -278,7 +283,7 @@ export function NotificationsPage() {
                     <SettingRow
                         id="fast-alerts"
                         label="Fast alerts"
-                        description="Notify within a few seconds of a pop-up in the corner of the screen, such as email, Teams messages and calls."
+                        description="Get a notification within a few seconds of a pop-up appearing in the corner of the screen."
                         status={save.isPending ? { state: "saving" } : { state: "idle" }}
                         control={
                             <Switch
@@ -298,6 +303,25 @@ export function NotificationsPage() {
                     ) : null}
                     {data && !data.canJudge ? (
                         <SettingRow label="No OpenRouter key" description="Fast alerts work without a key. The whole-screen watch needs an OpenRouter key." />
+                    ) : null}
+                    <SettingRow
+                        id="fast-summary"
+                        label="Summarise with AI"
+                        description="Write the notification as a short sentence. The text read from the pop-up (not the picture) is sent to an AI model through your OpenRouter key."
+                        status={save.isPending ? { state: "saving" } : { state: "idle" }}
+                        control={
+                            <Switch
+                                label="Summarise with AI"
+                                checked={on && data?.fastAlerts === true && data?.fastSummary === true}
+                                disabled={!data || save.isPending || !data.canJudge || !on || data.fastAlerts !== true}
+                                onChange={(next) => save.mutate({ fastSummary: next })}
+                            />
+                        }
+                    />
+                    {data && !data.canJudge ? (
+                        <SettingRow label="Summaries need an OpenRouter key" description="Add a key in Settings, Providers to turn on Summarise with AI." />
+                    ) : data && (!on || data.fastAlerts !== true) ? (
+                        <SettingRow label="Summaries need fast alerts" description="Switch on Fast alerts above first: the summary is for their notifications." />
                     ) : null}
                     <SettingRow
                         id="alert-zone"
@@ -335,6 +359,21 @@ export function NotificationsPage() {
                                 onChange={setRule}
                             />
                         } />
+                        <SettingRow
+                            id="summary-model"
+                            label="Summary model"
+                            description={`Writes the summary sentence from the pop-up's text. Any OpenRouter text model works. Leave it empty to use ${data?.defaultSummaryModel ?? "the default"}.`}
+                            stack
+                            control={
+                                <TextField
+                                    label="Summary model"
+                                    value={shownSummaryModel}
+                                    placeholder={data?.defaultSummaryModel ?? ""}
+                                    disabled={!data}
+                                    onChange={setSummaryModel}
+                                />
+                            }
+                        />
                         <SettingRow
                             id="watch-model"
                             label="Image model"

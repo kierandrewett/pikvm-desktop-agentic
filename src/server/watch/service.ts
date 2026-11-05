@@ -4,7 +4,7 @@ import type { CheckEntry, WatchSettings, WatchView } from "@pikvm/contracts/watc
 import type { ImageOps } from "../../image-ops";
 import { jpegSize, kvmdRequest, type DeskTarget } from "../agent/desk";
 import type { ZoneCells } from "./frame-diff";
-import { GRID_HEIGHT, GRID_WIDTH, MODEL_FRAME_EDGE, DEFAULT_VISION_MODEL, type WatchLimits } from "./limits";
+import { GRID_HEIGHT, GRID_WIDTH, MODEL_FRAME_EDGE, DEFAULT_SUMMARY_MODEL, DEFAULT_VISION_MODEL, type WatchLimits } from "./limits";
 import { createModelClient, type ModelClient } from "./models";
 import { createOcrEngine } from "./ocr-engine";
 import type { Ocr } from "./ocr";
@@ -236,6 +236,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             return {
                 ...settings,
                 defaultVisionModel: DEFAULT_VISION_MODEL,
+                defaultSummaryModel: DEFAULT_SUMMARY_MODEL,
                 canEnable: canEnable(userId, settings.fastAlerts),
                 canJudge: hasKey(userId),
                 running: pipelines.has(userId) && watcher.running,
@@ -265,6 +266,10 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             }
             if (patch.fastAlerts === true && !(patch.enabled ?? store.read(userId).enabled)) {
                 throw new WatchRefusal("Switch the screen watch on first: fast alerts run inside it.", 409);
+            }
+            if (patch.fastSummary === true) {
+                if (!hasKey(userId)) throw new WatchRefusal("Summaries need an OpenRouter key: add one in Settings, Providers first.", 409);
+                if (!(patch.fastAlerts ?? store.read(userId).fastAlerts)) throw new WatchRefusal("Switch fast alerts on first: the summary is for their notifications.", 409);
             }
             try {
                 store.write(userId, patch);

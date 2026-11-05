@@ -51,6 +51,9 @@ function watchServer(over: Partial<WatchView> = {}): WatchServer {
             signal: "unknown",
             push: { available: true, publicKey: KEY, subscriptions: 0 },
             fastAlerts: false,
+            fastSummary: false,
+            summaryModel: "google/gemma-3-4b-it",
+            defaultSummaryModel: "google/gemma-3-4b-it",
             alertZone: ALERT_ZONES[0].zone,
             limits: {
                 intervalSec: 3,
@@ -431,7 +434,7 @@ describe("fast alerts", () => {
         device({ permission: "granted", subscribed: true });
         renderApp("/settings/notifications");
         await screen.findByRole("switch", { name: FAST });
-        expect(screen.getByText("Notify within a few seconds of a pop-up in the corner of the screen, such as email, Teams messages and calls.")).toBeInTheDocument();
+        expect(screen.getByText("Get a notification within a few seconds of a pop-up appearing in the corner of the screen.")).toBeInTheDocument();
         expect(screen.getByText("Where pop-ups appear")).toBeInTheDocument();
     });
 
@@ -490,10 +493,9 @@ describe("fast alerts", () => {
         device({ permission: "granted", subscribed: true });
         renderApp("/settings/notifications");
         await screen.findByText(/one check every 4 seconds and 500 a day \(7 used in the last 24 hours\)/);
-        const heading = screen.getByRole("heading", { name: FAST });
-        const section = heading.closest("section")!;
-        expect(section).toHaveTextContent(/reads the pop-up itself, on the server/);
-        expect(section.textContent).not.toMatch(/model|OpenRouter|Jev|OCR/i);
+        const limitsText = screen.getByText(/one check every 4 seconds and 500 a day/);
+        expect(limitsText).toHaveTextContent(/reads the pop-up itself, on the server/);
+        expect(limitsText.textContent).not.toMatch(/model|OpenRouter|Jev|OCR/i);
     });
 
     it("the log names a fast alert for what it is, with no screen text", async () => {
@@ -513,7 +515,75 @@ describe("fast alerts", () => {
         install(server);
         device({ permission: "granted", subscribed: true });
         renderApp("/settings/notifications");
-        expect(await screen.findByText("Pop-up in the corner: a call, 2.2 seconds to send")).toBeInTheDocument();
+        expect(await screen.findByText("Pop-up in the corner: urgent, 2.2 seconds to send")).toBeInTheDocument();
+    });
+});
+
+describe("summarise with AI", () => {
+    const SUMMARISE = "Summarise with AI";
+    const ON = { enabled: true, running: true, signal: "signal" as const, fastAlerts: true, push: { available: true, publicKey: KEY, subscriptions: 1 } };
+
+    it("S1: off by default, says in plain words what leaves (the text, not the picture), and sends nothing until switched on", async () => {
+        const server = watchServer(ON);
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: SUMMARISE });
+        expect(toggle).toHaveAttribute("aria-checked", "false");
+        expect(screen.getByText("Write the notification as a short sentence. The text read from the pop-up (not the picture) is sent to an AI model through your OpenRouter key.")).toBeInTheDocument();
+        expect(server.requests.some((r) => r.method === "PATCH")).toBe(false);
+    });
+
+    it("S2: switching it on and off sends only that", async () => {
+        const server = watchServer(ON);
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: SUMMARISE });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        await userEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+        await userEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+        expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ fastSummary: true }, { fastSummary: false }]);
+    });
+
+    it("S3: with no key it is disabled and the page says why", async () => {
+        install(watchServer({ ...ON, canJudge: false }));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        expect(await screen.findByRole("switch", { name: SUMMARISE })).toBeDisabled();
+        expect(await screen.findByText("Summaries need an OpenRouter key")).toBeInTheDocument();
+    });
+
+    it("S4: with fast alerts off it is disabled and says to switch them on first", async () => {
+        install(watchServer({ ...ON, fastAlerts: false }));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        expect(await screen.findByRole("switch", { name: SUMMARISE })).toBeDisabled();
+        expect(await screen.findByText("Summaries need fast alerts")).toBeInTheDocument();
+    });
+
+    it("S5: the summary model is a setting like the image model: saved on its own, and only when it changed", async () => {
+        const server = watchServer(ON);
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const field = await screen.findByRole("textbox", { name: "Summary model" });
+        await waitFor(() => expect(field).toBeEnabled());
+        await userEvent.clear(field);
+        await userEvent.type(field, "meta-llama/llama-3.1-8b-instruct");
+        await userEvent.click(screen.getByRole("button", { name: "Save" }));
+        await waitFor(() => expect(server.requests.find((r) => r.method === "PATCH")).toBeDefined());
+        expect(server.requests.find((r) => r.method === "PATCH")!.body).toEqual({ rule: "", visionModel: "google/gemma-3-12b-it", summaryModel: "meta-llama/llama-3.1-8b-instruct" });
+    });
+
+    it("S6: the Fast alerts section's words name no app and no use", async () => {
+        install(watchServer(ON));
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const heading = await screen.findByRole("heading", { name: "Fast alerts" });
+        expect(heading.closest("section")!.textContent).not.toMatch(/e-?mail|teams|outlook|meeting|calls?\b|messages?\b|work/i);
     });
 });
 

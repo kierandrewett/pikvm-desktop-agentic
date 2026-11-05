@@ -173,8 +173,8 @@ why: no key, daily cap, replaced by a newer change) or `error` (`reason` says wh
 
 ### Fast alerts: a pop-up in a corner, read on the host
 
-Email, Teams messages and Teams calls arrive as a toast in a corner of the screen (Windows: bottom right; about 5 s, a Teams call
-until it is answered or about 30 s). The slow path above would never see one: it needs a change to hold still 6 s, looks every
+A pop-up (a toast) appears in a corner of the screen and stays a few seconds (Windows: bottom right, about 5 s; one that waits for
+an answer, about 30 s). The slow path above would never see one: it needs a change to hold still 6 s, looks every
 3 s, and allows one model check a minute. **Fast alerts** are a second path beside it, **off by default**, switched on in Settings,
 Notifications, Fast alerts (the watch itself must be on) with a choice of corner: bottom right (default), top right, bottom left,
 top left. It is stored as a rectangle of the frame in fractions (`alertZone`: bottom right is x 0.62 to 1, y 0.55 to 1), so a custom
@@ -185,7 +185,7 @@ flowchart LR
     pi[PiKVM snapshot every 1 s] --> zone[zone diff on the 128x72 grid, held 1.2 s]
     zone -->|a pop-up appeared| crop[crop of the cells that changed]
     crop --> ocr[OCR on this host, own process]
-    ocr --> rules[text rules: call, Teams, email, other]
+    ocr --> rules[text rules: urgent or ordinary]
     rules -->|no rule| push[Web Push]
     rules -->|your rule| jev[Jev yes/no on the text]
     jev -->|decisive yes| push
@@ -198,8 +198,8 @@ flowchart LR
    compared inside the zone (49 x 33 = 1617 cells for the default). The zone has changed when **1.5 %** of its cells did (25 cells;
    a cell has changed at a grey step of 10). Calibrated on 1920 x 1080 frames drawn for the run (`docs/e2e/2026-11-05-fast-alerts.md`):
    a blinking caret is 0.12 %, the taskbar clock changing 0 %, the mouse pointer 0.19 to 0.25 %, a tray icon 0.31 %, a turning spinner
-   up to 0.43 %, JPEG re-encoding or codec noise 0 %; a Teams message toast is 8.5 to 12.7 %, an Outlook mail toast 10.3 to 17.2 %, a
-   Teams call toast 10.6 to 15.8 %, the weakest toast tried (one dark line on a near-identical dark desktop) 7.2 %. A change counts
+   up to 0.43 %, JPEG re-encoding or codec noise 0 %; a dark-card toast is 8.5 to 12.7 %, a light-card toast 10.3 to 17.2 %, a
+   toast with two buttons 10.6 to 15.8 %, the weakest toast tried (one dark line on a near-identical dark desktop) 7.2 %. A change counts
    as a pop-up once it has **held 1.2 s** (a toast slides in over about 0.3 s). Unlike the slow path it is **not dropped if it goes
    away**: it is read from the look that confirmed it, or, if it had gone again by then, from the last look that saw it. More than
    half the zone changing is a window or the desktop, not a pop-up: logged as skipped and not read. When a change is pending the
@@ -213,10 +213,10 @@ flowchart LR
    restarted). It opens no socket. Chosen by benchmark (`docs/e2e/2026-11-05-fast-alerts-ocr.md`): on the Xeon E5-2680 v4 the image
    runs on, under load 14, **165 ms median (p95 245) for the crop, 771 ms (p95 981) if the whole zone were read**, every word found;
    tesseract and tesseract.js were faster or equal on light cards but read dark ones badly.
-4. **Text rules** (`src/server/watch/toast-rules.ts`, deterministic). A **call** (incoming call, is calling, calling you, ringing, wants
-   to call, or Accept/Answer with Decline/Reject/Ignore) is pushed as **"Incoming call: <who>"** with Web Push `Urgency: high`, a
-   **60 s** TTL, and a tag per caller (the same caller ringing again updates the same notification). A Teams message or an Outlook
-   mail is "Teams" or "Outlook" with "sender: first line" (at most 300 characters; the phone cuts it to what fits), urgency normal, a 5 minute TTL and a tag of its
+4. **Text rules** (`src/server/watch/toast-rules.ts`, deterministic). A pop-up that says someone is calling (incoming call, is calling, calling you,
+   ringing, wants to call, or Accept/Answer with Decline/Reject/Ignore) is pushed as **"Incoming call: <who>"** with Web Push
+   `Urgency: high`, a **60 s** TTL, and a tag per caller (the same caller again updates the same notification). A pop-up that names its
+   app is pushed under that name, as "sender: first line" (at most 300 characters; the phone cuts it to what fits), urgency normal, a 5 minute TTL and a tag of its
    text. Any other pop-up shows its lines. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The
    **same pop-up text inside 30 s is notified once**.
 5. **No rule: no network call at all.** No OpenRouter key is needed, and with none the watch runs for fast alerts alone (see above). **With a rule** (Settings,
@@ -238,14 +238,34 @@ that was read was requested, `detectedAt`, `readAt`, `decidedAt`, `pushedAt`, `t
 unless the host runs with `PIKVM_WATCH_LOG_TEXT=1`.
 
 **What leaves the host, said plainly.** The fast path reads the pop-up on the host and sends nothing to any model service unless the user
-sets a rule (then only the OCR text goes to Jev) or sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1` (then a crop can go to the vision model when
-the OCR fails). The notification itself goes to the device's push service, as always. The slow path is as before: whole frames to OpenRouter
+sets a rule (then only the OCR text goes to Jev), switches on "Summarise with AI" (then only the OCR text of each alert goes to the
+summary model; the image never does), or the operator sets `PIKVM_WATCH_FAST_CLOUD_FALLBACK=1` (then a crop can go to the vision model
+when the OCR fails). With "Summarise with AI" off, which is the default, and no rule, the fast path makes no network call for the screen at all. The notification itself goes to the device's push service, as always. The slow path is as before: whole frames to OpenRouter
 with the user's key, and it does not run without one.
 
 **onnxruntime's telemetry is switched off.** The Linux build of onnxruntime-node includes Microsoft's 1DS telemetry (endpoint
 `mobile.events.data.microsoft.com`). The host forces `ORT_DISABLE_TELEMETRY=1` in the OCR worker's environment (`ocr-engine.ts` sets it
 after the host's own environment, so a value in it cannot turn it back on; `ocr-worker.ts` sets it again; the image's `ENV` has it too).
 A unit test holds this.
+
+### Summaries (optional)
+
+Settings, Notifications, Fast alerts, **Summarise with AI** (off by default; needs an OpenRouter key and fast alerts on, otherwise the
+switch is disabled with the reason and the server answers 409). When on, after the OCR, the rules and any rule decision, **only the OCR
+lines** (never the image) go to a small text model through the user's key with a tight prompt: one sentence, at most 140 characters,
+who and what and what is asked, fix words the OCR ran together, never add what the text does not say. The sentence becomes the
+notification's body; the title stays the rules' title. A **hard 2.5 s timeout** (the request is aborted); on a timeout, an error, an
+empty answer or one over 140 characters the rules' body is sent and the log says `summary skipped: <reason>` (a reason, never text). An
+alert that says someone is calling is **never** summarised, so it goes as fast as it does without. The log has `summary` (`used`, `ms`,
+`skipped`) and `latency.summarisedAt`.
+
+**The model** is a setting (Settings, Notifications, Summary model; `summaryModel`), default **`google/gemma-3-4b-it`**, chosen on
+2026-11-05 from OpenRouter's `/api/v1/models` (pricing as listed: $0.05 per million input tokens, $0.10 per million output) and a real try
+with the user's key of the three cheapest non-reasoning candidates on three sample pop-ups: gemma-3-4b-it answered in 0.40 to 0.76 s,
+llama-3.1-8b-instruct in 0.14 to 1.3 s, mistral-nemo in 1.4 to 2.9 s (too close to the 2.5 s limit, though the cheapest per token at
+$0.029 / $0.03). All three wrote the right sentence and none returns reasoning tokens. OpenRouter reported **$0.000008 to $0.00001 per
+summary** for gemma-3-4b-it (about 100 tokens in, 20 out): a thousand summarised alerts cost about one cent. Not measured: latency
+from the real host (these were tried from a workstation), and other models.
 
 **Measured** (`docs/e2e/2026-11-05-fast-alerts.md`, 10 toasts, fake PiKVM, fake push service on loopback, the real host and OCR on a
 workstation): **toast to notification at the push service 1.8 s median (1.3 to 2.3 s)**; of that, waiting for the

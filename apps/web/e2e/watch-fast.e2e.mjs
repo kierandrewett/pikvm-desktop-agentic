@@ -124,6 +124,7 @@ const childrenOf = (pid) => {
 };
 
 const rows = [];
+const summaryRows = [];
 let report = "";
 try {
     await stack.show(frames.dark.idle);
@@ -249,6 +250,48 @@ try {
         await sleep(6000);
     }
 
+    // ---- with the optional summary on (the fake OpenRouter answers after a scripted delay) ----------------------------------------------------
+    {
+        const SENTENCES = ["Zed Quinn asks if you can review ticket 5001", "Mara Lund asks you to look at ticket 5002 when you are back"];
+        const DELAY = 350;
+        await stack.orScript({ summary: SENTENCES, delayMs: DELAY });
+        const enabled = await stack.patchWatch({ fastSummary: true });
+        check("the summary switches on with a key and fast alerts on", enabled.status === 200 && (await enabled.json()).fastSummary === true, `status ${enabled.status}`);
+        await stack.show(frames.bright.idle);
+        await sleep(6000);
+        const callsBefore = (await stack.orCalls()).length;
+        const plan = [
+            { kind: "email", name: "Zed Quinn", def: { ...TOAST_DEFS.email, lines: ["Zed Quinn", "Ticket 5001", "Could you review it today"] } },
+            { kind: "teams", name: "Mara Lund", def: { ...TOAST_DEFS.teams, lines: ["Mara Lund", "Can you look at ticket 5002 when you are back?"] } },
+            { kind: "call", name: "Kit Moreno", def: { ...TOAST_DEFS.call, lines: ["Kit Moreno is calling you"] } },
+        ];
+        for (const [k, item] of plan.entries()) {
+            const toast = await drawToastFrame(sharp, "bright", item.def);
+            await sleep(2500 + Math.random() * 1000);
+            const receivedBefore = (await stack.pushReceived()).length;
+            const logBefore = log().length;
+            const shownAt = Date.now();
+            await stack.show(toast);
+            const got = await until(async () => {
+                const list = await stack.pushReceived();
+                return list.length > receivedBefore ? list[receivedBefore] : null;
+            }, `the notification for summary toast ${k + 1}`, 15_000, 20);
+            const entry = await until(() => log().slice(logBefore).find((each) => each.kind === "alert" && each.outcome === "pushed"), "the log line", 5000, 50);
+            summaryRows.push({ kind: item.kind, name: item.name, appearToPush: got.at - shownAt, captureToPush: entry.latency.totalMs, summaryMs: entry.summary?.ms, payload: got.payload, entry });
+            console.log(`  summary toast ${k + 1} (${item.kind}): ${ms(got.at - shownAt)} from the toast to the notification; summary ${entry.summary ? ms(entry.summary.ms) : "none"}`);
+            await sleep(item.kind === "call" ? 4000 : 2500);
+            await stack.show(frames.bright.idle);
+            await sleep(6000);
+        }
+        const asked = (await stack.orCalls()).slice(callsBefore);
+        const summaries = asked.filter((call) => call.kind === "summarise");
+        const [first, second, third] = summaryRows;
+        check("with the summary on, each pop-up's body is the model's sentence and the call's is not summarised", first.payload.body === SENTENCES[0] && second.payload.body === SENTENCES[1] && third.payload.title === "Incoming call: Kit Moreno" && !SENTENCES.includes(third.payload.body) && third.entry.summary === undefined, `bodies ${JSON.stringify(summaryRows.map((row) => row.payload.body.length))} characters; call title ${third.payload.title}`);
+        check("the summary request carries the text and no image, and is made for two pop-ups out of three", summaries.length === 2 && asked.every((call) => call.kind === "summarise" && call.image === undefined) && summaries.every((call) => !/data:image|image_url/.test(JSON.stringify(call))), `${asked.length} OpenRouter calls: ${asked.map((call) => call.kind).join(", ")}; image field on none`);
+        check("the log says the summary was used, with its time, and holds no text", summaryRows.slice(0, 2).every((row) => row.entry.summary?.used === true && row.entry.summary.ms >= DELAY - 20) && !JSON.stringify(log()).includes("Zed Quinn"), `summary ms ${summaryRows.slice(0, 2).map((row) => row.summaryMs).join(", ")} (the fake answers after ${DELAY} ms)`);
+        await stack.patchWatch({ fastSummary: false });
+    }
+
     // ---- the report ------------------------------------------------------------------------------------------------------------
     const stat = (key) => rows.map((row) => row[key]);
     const summary = (key) => `${ms(Math.min(...stat(key)))} | ${ms(median(stat(key)))} | ${ms(Math.max(...stat(key)))}`;
@@ -299,6 +342,14 @@ try {
         "| # | kind | desktop | toast to push | first look to push | capture to push | wait for look | hold | crop + OCR | OCR | push | urgency / TTL |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ...rows.map((row) => `| ${row.i} | ${row.kind} | ${row.background} | ${row.appearToPush} ms | ${row.firstSeenToPush} ms | ${row.captureToPush} ms | ${row.wait} ms | ${row.settle} ms | ${row.ocrAndCrop} ms | ${row.ocr} ms | ${row.push} ms | ${row.urgency} / ${row.ttl} s |`),
+        "",
+        "## With the optional summary on",
+        "",
+        "Two pop-ups are summarised by the fake OpenRouter (it answers after a scripted 350 ms) and a call is not. **The fake model's latency is not a real model's**: a real model on the real network answered in 0.1 to 3 s when tried by hand (see docs/deploy-web.md, \"Summaries\"), and the host gives up on it after 2.5 s. The number to read is how much the summary adds to the host's own path.",
+        "",
+        "| kind | toast to push | capture to push | summary |",
+        "| --- | --- | --- | --- |",
+        ...summaryRows.map((row) => `| ${row.kind} | ${row.appearToPush} ms | ${row.captureToPush} ms | ${row.summaryMs === undefined ? "none (calls are never summarised)" : `${row.summaryMs} ms`} |`),
         "",
         "## Cost of looking every second",
         "",
