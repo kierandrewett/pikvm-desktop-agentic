@@ -10,6 +10,7 @@ import { WatchRefusal, type WatchService } from "./service";
  *   PATCH /app/api/v1/watch              { enabled?, rule?, alertZone? }
  *   POST  /app/api/v1/watch/subscribe    { subscription } from the browser's PushManager
  *   POST  /app/api/v1/watch/unsubscribe  { endpoint }
+ *   POST  /app/api/v1/watch/presence     { clientId, focused, keyboardAgoMs, pointerAgoMs }: whether the person is at this page
  *   POST  /app/api/v1/watch/test         send a test notification to every subscribed device
  *   GET   /app/api/v1/watch/checks       the check log, newest first (?limit=, at most 100)
  *
@@ -102,6 +103,21 @@ export function createWatchRoutes(service: WatchService, userId: string): WatchR
             const endpoint = Reflect.get(body, "endpoint");
             if (typeof endpoint !== "string") throw new WatchRefusal("endpoint must be text.", 400);
             return json(res, 200, { removed: service.unsubscribe(userId, endpoint) });
+        }
+        if (rest === "/presence") {
+            const body = await readJson(req);
+            const clientId = Reflect.get(body, "clientId");
+            const focused = Reflect.get(body, "focused");
+            const age = (key: string): number | null => {
+                const value = Reflect.get(body, key);
+                if (value === null) return null;
+                if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new WatchRefusal(`${key} must be a number of milliseconds or null.`, 400);
+                return value;
+            };
+            if (typeof clientId !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(clientId)) throw new WatchRefusal("clientId must be 8 to 64 letters, digits, - or _.", 400);
+            if (typeof focused !== "boolean") throw new WatchRefusal("focused must be true or false.", 400);
+            service.presence(userId, clientId, { focused, keyboardAgoMs: age("keyboardAgoMs"), pointerAgoMs: age("pointerAgoMs") });
+            return json(res, 200, { ok: true });
         }
         if (rest === "/test") {
             const result = await service.test(userId);

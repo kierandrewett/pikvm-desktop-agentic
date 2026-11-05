@@ -44,4 +44,5 @@ make package                        # build + installers for this platform -> bu
   configured (`smallText` in `packages/chat-server/src/models/small-text.ts`: the Small tasks role, else the default model, through the chat's own provider path and
   stored credential); with no chat model there is no network call. No provider is named anywhere in the watch: do not add one. `ORT_DISABLE_TELEMETRY=1` is forced in the OCR
   worker. Copy rule: user-facing text (Settings, notifications, docs prose) names no app and no use case; only `toast-rules.ts` matches app names in what the OCR read.
+  A notification is held back while the person is at the screen (`presence.ts` on the host, `apps/web/src/notify/presence.ts` in the page): focus plus REAL input (trusted DOM events, never the HID the app sends: the jiggler, the agent and macros must not count) within 20 s; checked before the OCR, before the model and before the push. Keep it so.
   Docs: `docs/deploy-web.md` "Screen watch".

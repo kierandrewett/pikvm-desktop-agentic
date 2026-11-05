@@ -6,6 +6,7 @@ import { createAlerts, type Alerts } from "./alerts";
 import type { ZoneCells } from "./frame-diff";
 import { GRID_HEIGHT, GRID_WIDTH, type WatchLimits } from "./limits";
 import { createOcrEngine } from "./ocr-engine";
+import { createPresence, type PresenceReport } from "./presence";
 import type { Ocr } from "./ocr";
 import { createPush, PushError, type Push, type SendResult } from "./push";
 import { createWatchStore, SettingsError, type WatchStore } from "./store";
@@ -69,6 +70,8 @@ export interface WatchService {
     /** Send a test notification now. Throws `WatchRefusal` when no device is subscribed or the push key is unusable. */
     test(userId: string): Promise<SendResult>;
     checks(userId: string, limit: number): CheckEntry[];
+    /** A page of the app says whether the person is at it (see presence.ts). */
+    presence(userId: string, clientId: string, report: PresenceReport): void;
     /** The shared poller, for tests and status. */
     readonly watcher: Watcher;
     stop(): void;
@@ -92,6 +95,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         });
     const ocr = deps.ocr ?? createOcrEngine({ log });
     const pipelines = new Map<string, Alerts>();
+    const presence = createPresence(now);
     const { images } = deps;
 
     const snapshot =
@@ -171,6 +175,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 ask: (system, user, timeoutMs) => deps.chat.smallText(userId, system, user, { maxTokens: 80, timeoutMs }),
             },
             crop: cropCells,
+            userActive: () => presence.active(userId),
             ...(deps.logText ? { logText: true } : {}),
             log,
         });
@@ -267,6 +272,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         },
 
         checks: (userId, limit) => store.log(userId, limit),
+
+        presence: (userId, clientId, report) => presence.report(userId, clientId, report),
 
         stop() {
             pipelines.clear();

@@ -67,11 +67,25 @@ export interface WatchView extends WatchSettings {
     limits: { intervalSec: number; settleSec: number; minCheckGapSec: number; dailyCap: number; askedToday: number };
 }
 
+/**
+ * What a page of the app tells the host about the person: whether this page has focus and how long ago it last saw a real key press and a
+ * significant pointer movement (ages in ms, never timestamps, so the clocks of the page and the host need not agree). `clientId` is a
+ * random id per page. Nothing else: no key, no coordinate, no text. `POST /app/api/v1/watch/presence`.
+ */
+export interface WatchPresence {
+    clientId: string;
+    focused: boolean;
+    keyboardAgoMs: number | null;
+    pointerAgoMs: number | null;
+}
+
 export type CheckOutcome =
     /** A notification went out. */
     | "pushed"
     /** The rule said this pop-up is not what the person asked about. */
     | "no"
+    /** The person was using the app's window, so nothing was asked of any model and nothing was sent. */
+    | "held"
     /** Something was seen but nothing was sent, for the reason in `reason`. */
     | "skipped"
     /** Reading, the chat model or the push failed, for the reason in `reason`. */

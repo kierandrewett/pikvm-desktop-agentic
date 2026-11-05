@@ -162,6 +162,32 @@ describe("the corner", () => {
     });
 });
 
+describe("presence", () => {
+    const post = (body: unknown) => call("/presence", { method: "POST", body: JSON.stringify(body) });
+    const ok = { clientId: "page-1234567890", focused: true, keyboardAgoMs: 1200, pointerAgoMs: null };
+
+    it("H6: a report of ages is taken; a missing, oversized or odd one is a 400", async () => {
+        assert.equal((await post(ok)).status, 200);
+        assert.equal((await post({ ...ok, focused: false, keyboardAgoMs: null })).status, 200);
+        for (const bad of [
+            { ...ok, clientId: "short" },
+            { ...ok, clientId: "x".repeat(65) },
+            { ...ok, clientId: "has spaces in it" },
+            { ...ok, focused: "yes" },
+            { ...ok, keyboardAgoMs: -1 },
+            { ...ok, pointerAgoMs: "5" },
+            { clientId: ok.clientId },
+        ]) assert.equal((await post(bad)).status, 400, JSON.stringify(bad));
+        assert.equal((await call("/presence", { method: "GET" })).status, 405);
+    });
+
+    it("H6: nothing but ages and an id is kept or reflected: the reply and the view carry no trace of it", async () => {
+        const reply = await post({ ...ok, key: "a", x: 10, y: 20, text: "secret" });
+        assert.deepEqual(reply.json, { ok: true });
+        assert.ok(!JSON.stringify((await call("")).json).includes("secret"));
+    });
+});
+
 describe("devices", () => {
     it("R4: a subscription from outside the push services is refused; one from a device is kept, naming the origin it came from", async () => {
         const bad = await call("/subscribe", { method: "POST", body: JSON.stringify({ subscription: { endpoint: "https://127.0.0.1:9/x", keys: { p256dh: "a", auth: "b" } } }) });

@@ -3,7 +3,7 @@
  * Every failure is a `WatchApiError` whose message is fit to show: the server's own `error` text when it sent one.
  */
 
-import { WATCH_PATH, type CheckEntry, type WatchSettingsPatch, type WatchTestResult, type WatchView } from "@pikvm/contracts/watch";
+import { WATCH_PATH, type CheckEntry, type WatchPresence, type WatchSettingsPatch, type WatchTestResult, type WatchView } from "@pikvm/contracts/watch";
 
 export class WatchApiError extends Error {
     constructor(
@@ -48,3 +48,6 @@ export const unsubscribeDevice = (endpoint: string): Promise<{ removed: boolean 
     call("/unsubscribe", { method: "POST", body: { endpoint } });
 
 export const sendTestNotification = (): Promise<WatchTestResult> => call("/test", { method: "POST", body: {} });
+
+/** Tell the host whether the person is at this page (presence.ts). Ages only, never a key or a position. */
+export const sendPresence = (report: WatchPresence): Promise<{ ok: true }> => call("/presence", { method: "POST", body: report });

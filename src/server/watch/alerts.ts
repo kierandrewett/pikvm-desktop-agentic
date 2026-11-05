@@ -58,6 +58,8 @@ export interface AlertsDeps {
     model: AlertModel;
     /** The crop of a frame to a rectangle of grid cells, as a JPEG. Throws when it cannot be cut. */
     crop(jpeg: Buffer, cells: ZoneCells): Promise<Buffer>;
+    /** The person is at the screen right now (see presence.ts): nothing is asked of a model or pushed while this is true. Default: never. */
+    userActive?(): boolean;
     /** Put a pop-up's words in the check log. Off unless the operator asks (`PIKVM_WATCH_LOG_TEXT=1`). */
     logText?: boolean;
     log?(line: string): void;
@@ -164,7 +166,14 @@ export function createAlerts(deps: AlertsDeps): Alerts {
         const base = { score: change.score, rule: settings.rule, latency } as const;
         let read: CheckEntry["read"];
         let text: string[] = [];
+        /** Held back: the person is using the app's window. Logged as its own outcome, with no pop-up text, and nothing more is done. */
+        const held = (): void =>
+            record({ ...base, asked: read !== undefined, ...(read ? { read } : {}), outcome: "held", reason: "you are using this window" });
+        const present = (): boolean => deps.userActive?.() === true;
         try {
+            // Checked first: a pop-up that appears while the person is at the screen is not read at all. Again before the model is asked and
+            // again just before the push, because a pop-up can wait in the gap, and reading and asking take time.
+            if (present()) return held();
             const crop = await deps.crop(change.frame.jpeg, change.region);
 
             let ocr: OcrResult | undefined;
@@ -213,6 +222,7 @@ export function createAlerts(deps: AlertsDeps): Alerts {
             // not ask about. A call never waits for it. Any failure leaves the rules' own text, and the log says why (a reason, never text).
             let body = toast.body;
             let summary: CheckEntry["summary"];
+            if (present()) return held();
             if (toast.kind !== "call" && deps.model.available()) {
                 const started = deps.now();
                 const answer = await ask(settings.rule, toast.lines);
@@ -229,6 +239,7 @@ export function createAlerts(deps: AlertsDeps): Alerts {
                 }
             }
 
+            if (present()) return held();
             const ttlSec = toast.kind === "call" ? CALL_TTL_SEC : ALERT_TTL_SEC;
             const payload: PushPayload = { title: toast.title, body, tag: toast.tag, url: "/app/", badge: 1 };
             const done = { ...common(), ...(summary ? { summary } : {}) };

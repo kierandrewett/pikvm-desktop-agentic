@@ -460,3 +460,23 @@ describe("how notifications are written", () => {
         expect(page.textContent).not.toMatch(/e-?mail|teams|outlook|meeting|\bcalls?\b|work pc/i);
     });
 });
+
+describe("while you are using the window", () => {
+    it("one generic line near the watch switch says notifications are held back", async () => {
+        install(watchServer());
+        device({ permission: "granted" });
+        renderApp("/settings/notifications");
+        expect(await screen.findByText(/Notifications are held back while you are using this window\./)).toBeInTheDocument();
+    });
+
+    it("a held check is named for what it is in the log", async () => {
+        const server = watchServer({ enabled: true });
+        server.checks = [{ t: 1000, at: new Date(1000).toISOString(), kind: "alert", score: 0.1, outcome: "held", asked: false, reason: "you are using this window" }];
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const log = (await screen.findByText("Recent checks")).closest("section")!;
+        await waitFor(() => expect(within(log).getByText("Pop-up in the corner: you are using this window")).toBeInTheDocument());
+        expect(within(log).getByText(/Held back/)).toBeInTheDocument();
+    });
+});

@@ -279,6 +279,46 @@ try {
         check("the log says the model's sentence was used, with its time, and holds no text", summaryRows.slice(0, 2).every((row) => row.entry.summary?.used === true && row.entry.summary.ms >= DELAY - 20) && !JSON.stringify(log()).includes("Zed Quinn"), `model ms ${summaryRows.slice(0, 2).map((row) => row.summaryMs).join(", ")} (the fake answers after ${DELAY} ms)`);
     }
 
+    // ---- the person is at the screen (a page reports real input, as the app's page does): nothing is asked or sent -----------------------
+    {
+        const clientId = `e2e-page-${Math.random().toString(16).slice(2, 12)}`;
+        const report = (focused, keyboardAgoMs) =>
+            fetch(`${stack.web}/app/api/v1/watch/presence`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientId, focused, keyboardAgoMs, pointerAgoMs: null }) });
+        await stack.orScript({ answers: ["Held Person asks you to look at ticket 7001"], delayMs: 0 });
+        const toast = await drawToastFrame(sharp, "bright", { ...TOAST_DEFS.email, lines: ["Held Person", "Ticket 7001", "Could you look at it today"] });
+        await stack.show(frames.bright.idle);
+        await sleep(3000);
+        const pushesBefore = (await stack.pushReceived()).length;
+        const requestsBefore = (await stack.orCalls()).length;
+        const logBefore = log().length;
+        // The page: a key press now, then a refresh every 5 s with the age growing, as the reporter does while the person is active.
+        const inputAt = Date.now();
+        check("a page reports a key press just now", (await report(true, 0)).status === 200, "status 200");
+        const refresh = setInterval(() => void report(true, Date.now() - inputAt), 5000);
+        await stack.show(toast);
+        await sleep(9000);
+        const held = log().slice(logBefore).filter((each) => each.kind === "alert");
+        check("a pop-up while the person is using the window: no push, no request to the model, logged as held", (await stack.pushReceived()).length === pushesBefore && (await stack.orCalls()).length === requestsBefore && held.length === 1 && held[0].outcome === "held" && held[0].reason === "you are using this window" && held[0].asked === false, `pushes ${(await stack.pushReceived()).length - pushesBefore}, model requests ${(await stack.orCalls()).length - requestsBefore}, log: ${held.map((each) => `${each.outcome} (${each.reason})`).join("; ")}`);
+        check("the held line holds no pop-up text", !JSON.stringify(held).includes("Held Person") && !JSON.stringify(held).includes("7001"), `${JSON.stringify(held).length} characters of log`);
+        // The person stops: the page keeps refreshing until 20 s have passed since the last input, then goes quiet.
+        await stack.show(frames.bright.idle);
+        await sleep(Math.max(0, 21_000 - (Date.now() - inputAt)));
+        clearInterval(refresh);
+        await report(true, Date.now() - inputAt);
+        const quietAt = Date.now();
+        await sleep(2500);
+        const receivedBefore = (await stack.pushReceived()).length;
+        const shownAt = Date.now();
+        await stack.show(toast);
+        const got = await until(async () => {
+            const list = await stack.pushReceived();
+            return list.length > receivedBefore ? list[receivedBefore] : null;
+        }, "the notification for the same pop-up after 20 s of quiet", 15_000, 20);
+        check("the same pop-up after 20 s of quiet is pushed", /Held Person/.test(String(got.payload?.body)), `notification ${got.at - shownAt} ms after the pop-up appeared, ${Math.round((shownAt - inputAt) / 1000)} s after the last input`);
+        await sleep(1000);
+        void quietAt;
+    }
+
     // ---- the report ------------------------------------------------------------------------------------------------------------
     const stat = (key) => rows.map((row) => row[key]);
     const summary = (key) => `${ms(Math.min(...stat(key)))} | ${ms(median(stat(key)))} | ${ms(Math.max(...stat(key)))}`;

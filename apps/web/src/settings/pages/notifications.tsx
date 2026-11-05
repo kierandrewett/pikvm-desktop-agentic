@@ -44,6 +44,7 @@ const checksKey = ["watch", "checks"] as const;
 const OUTCOME: Record<CheckEntry["outcome"], string> = {
     pushed: "Notified you",
     no: "Not what you asked for",
+    held: "Held back",
     skipped: "Nothing sent",
     error: "Failed",
 };
@@ -227,7 +228,7 @@ export function NotificationsPage() {
                     <SettingRow
                         id="screen-watch"
                         label="Notify me about pop-ups"
-                        description="Also while the app is closed."
+                        description="Also while the app is closed. Notifications are held back while you are using this window."
                         status={busy || save.isPending ? { state: "saving" } : { state: "idle" }}
                         error={problem || (save.error ? `Could not save: ${save.error.message}` : null)}
                         control={

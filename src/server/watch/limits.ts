@@ -86,6 +86,15 @@ export const SUMMARY_TIMEOUT_MS = 2500;
 /** The most a written notification may be; a longer answer is not used. */
 export const SUMMARY_MAX_CHARS = 140;
 
+/**
+ * A notification is held back while the person is already at the screen: the app window has focus AND there was real keyboard input or a
+ * significant pointer movement within this long. (docs/deploy-web.md, "Screen watch".)
+ */
+export const USER_ACTIVE_WINDOW_MS = 20_000;
+
+/** A page that has not reported for this long is gone (a closed tab, a crashed app): it can no longer hold a notification back. About two missed refreshes (they come every 5 s). */
+export const PRESENCE_EXPIRY_MS = 12_000;
+
 /** Two consecutive looks with no signal before "no signal" counts; one miss is a hiccup. */
 export const NO_SIGNAL_LOOKS = 2;
 

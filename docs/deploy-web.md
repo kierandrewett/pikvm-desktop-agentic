@@ -96,7 +96,9 @@ can be offered later) and an optional rule in the person's own words.
 ```mermaid
 flowchart LR
     pi[PiKVM snapshot every 1 s] --> zone[zone diff on the 128x72 grey grid, held 1.2 s]
-    zone -->|a pop-up appeared| crop[crop of the cells that changed]
+    zone -->|a pop-up appeared| here{you are using this window?}
+    here -->|yes| held[held back, logged]
+    here -->|no| crop[crop of the cells that changed]
     crop --> ocr[OCR on this host, own process]
     ocr --> rules[text rules: urgent or ordinary]
     rules -->|a chat model is set, not for an urgent one| chat[your chat model: the text only]
@@ -143,7 +145,23 @@ flowchart LR
    log says `summary skipped: <reason>` (a reason, never text). **A call never waits for the model** and is never asked about. With **no chat
    model configured there is no network call at all**: the notification is the text as read, and a rule cannot be applied (the page says
    so). A model that cannot be called (no key, an API type the chat server has no client for) counts as none.
-6. **The push.** A Web Push (VAPID, encrypted) to every device of that user; a tap opens `/app/`. A push service that answers 404 or 410
+6. **Held back while you are using the window.** Every notification, a call too, is suppressed while the person is already at the screen: a page of
+   the app has **focus** (visible and `document.hasFocus()`, the existing `useInBackground`) **and** saw **real** input within the last
+   **20 s** (`USER_ACTIVE_WINDOW_MS`): any real key press, or a significant pointer movement (about **40 CSS px** of path, forgotten after 1 s
+   without movement, so a nudge, a bump or drift does not count; a finger on the screen counts at once, since touch is how a phone is used; a mouse
+   click without movement does not). Only **real** input counts: trusted DOM events (`isTrusted`) on the page. The HID the app itself sends
+   (the jiggler's nudges, the computer-use agent, macros, replays) never counts, and the host infers nothing from HID traffic. The check is made
+   **first** (a pop-up that appears while you are at the screen is not even read), **again before the chat model is asked** and **again just
+   before the push**, so no model request, no push and no cost when it holds. The check log gets its own outcome, `held`, "you are using
+   this window", with no pop-up text, and a held pop-up is not marked as notified, so the same one is sent when you have left. The page
+   (`apps/web/src/notify/presence.ts`, mounted in the shell for the hosted app, the phone app and the desktop shell alike) reports to
+   `POST /app/api/v1/watch/presence` (the same sign-in as the other watch routes) a body of `{clientId, focused, keyboardAgoMs,
+   pointerAgoMs}`: a random id per page, a focus flag and two **ages** in ms (null for none; ages, not timestamps, so the clocks of the page
+   and the host never meet). It reports when the person becomes active, then every **5 s** while the page is focused and the person active, once when focus is lost or
+   the person goes idle, and otherwise not at all. The host keeps one record per client and forgets a client after **12 s**
+   (`PRESENCE_EXPIRY_MS`) without a report, so a closed tab or a crashed app cannot hold notifications back; it holds a notification back if
+   ANY client is focused with input inside the 20 s window. Nothing else leaves the page: no key, no coordinate, no text.
+7. **The push.** A Web Push (VAPID, encrypted) to every device of that user; a tap opens `/app/`. A push service that answers 404 or 410
    says the device is gone and its subscription is removed.
 
 Signal: while kvmd reports no video source (its snapshot answers 503), nothing is compared: a black screen is not a pop-up. The PiKVM
@@ -190,7 +208,7 @@ at `GET /app/api/v1/watch/checks`:
  "notified":{"kind":"email","tag":"pikvm-alert-6c58e9e4","urgency":"normal","ttlSec":300,"titleChars":7,"bodyChars":59}}
 ```
 
-`kind` is `alert` (a pop-up) or `test`; `outcome` is `pushed`, `no` (the rule said it is not what was asked about), `skipped` (nothing was
+`kind` is `alert` (a pop-up) or `test`; `outcome` is `pushed`, `held` (you were using the window), `no` (the rule said it is not what was asked about), `skipped` (nothing was
 sent, `reason` says why: replaced by a newer pop-up, daily cap, the same text a moment ago, too little text, a whole-corner change) or
 `error` (`reason` says what failed: the OCR, the push). `asked` is what the daily cap counts: a pop-up that was read. `latency` is epoch ms:
 `capturedAt` is when the snapshot that was read was requested (the Pi's own capture is inside it), `totalMs` is capture to push and
