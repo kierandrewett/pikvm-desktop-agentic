@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { CHANNELS } from "../src/desktop/channels";
 import { setDisplayBlocker } from "../src/desktop/display-blocker";
-import { externalUrl, navigationVerdict } from "../src/desktop/policy";
+import { externalUrl, fitContentSize, navigationVerdict, trustedFrame } from "../src/desktop/policy";
 
 const root = process.cwd();
 const APP = "http://127.0.0.1:25650/app/";
@@ -62,11 +62,30 @@ test("every channel exists once, and the preload and the main process both use a
     const names = Object.values(CHANNELS);
     assert.equal(new Set(names).size, names.length, "a channel name is used twice");
     const preload = readFileSync(resolve(root, "src/desktop/preload.ts"), "utf8");
-    const window = readFileSync(resolve(root, "src/desktop/window.ts"), "utf8");
+    // The handlers live in window.ts, except the update check, which updates.ts owns.
+    const window =
+        readFileSync(resolve(root, "src/desktop/window.ts"), "utf8") + readFileSync(resolve(root, "src/desktop/updates.ts"), "utf8");
     for (const key of Object.keys(CHANNELS)) {
         assert.match(preload, new RegExp(`CHANNELS\\.${key}\\b`), `the preload never uses ${key}`);
         assert.match(window, new RegExp(`CHANNELS\\.${key}\\b`), `the main process never uses ${key}`);
     }
+});
+
+test("every handler that reaches the OS or the window checks who is asking", () => {
+    const window = readFileSync(resolve(root, "src/desktop/window.ts"), "utf8");
+    const updates = readFileSync(resolve(root, "src/desktop/updates.ts"), "utf8");
+    // windowOf() is the gate for every window action; the rest check isTrustedSender directly.
+    assert.match(window, /function windowOf[^}]*isTrustedSender/s);
+    for (const channel of ["openExternal"]) {
+        const at = window.indexOf(`CHANNELS.${channel}`);
+        assert.ok(at > 0 && window.slice(at, at + 220).includes("isTrustedSender"), `${channel} is not gated`);
+    }
+    assert.match(updates, /checkForUpdate, \(e\) => \(isTrustedSender/);
+});
+
+test("a tiny work area wins over the window minimum, so the picture is never cropped", () => {
+    const size = fitContentSize({ width: 1920, height: 1080, chromeWidth: 64, chromeHeight: 80 }, { width: 800, height: 500 }, { width: 900, height: 560 });
+    assert.deepEqual(size, { width: 800, height: 500 });
 });
 
 test("the window is sandboxed, isolated, and loads nothing but the one preload", () => {
@@ -135,4 +154,35 @@ test("the display blocker is one per window, released on off and idempotent", ()
 test("a window's blocker is released when it closes", () => {
     const window = readFileSync(resolve(root, "src/desktop/window.ts"), "utf8");
     assert.match(window, /win\.on\("closed", \(\) => setDisplayBlocker\(windowId, false, powerSaveBlocker\)\);/);
+});
+
+test("the bridge answers only the top frame at the app's own origin", () => {
+    const origin = "https://kvm.example.com";
+    assert.equal(trustedFrame(origin, { url: `${origin}/app/`, hasParent: false }), true);
+    assert.equal(trustedFrame(origin, { url: `${origin}/app/`, hasParent: true }), false);
+    assert.equal(trustedFrame(origin, { url: "https://evil.example/", hasParent: false }), false);
+    assert.equal(trustedFrame(origin, { url: "https://kvm.example.com.evil.example/", hasParent: false }), false);
+    assert.equal(trustedFrame(origin, { url: "not a url", hasParent: false }), false);
+    assert.equal(trustedFrame(origin, null), false);
+});
+
+test("fitting adds the fixed chrome back and shrinks only the picture", () => {
+    const min = { width: 900, height: 560 };
+    // Fits: native size plus chrome.
+    assert.deepEqual(
+        fitContentSize({ width: 1280, height: 720, chromeWidth: 64, chromeHeight: 80 }, { width: 1920, height: 1080 }, min),
+        { width: 1344, height: 800 },
+    );
+    // 1920x1080 on a 1366x768 work area: scale from the tighter axis, chrome unscaled.
+    const small = fitContentSize({ width: 1920, height: 1080, chromeWidth: 64, chromeHeight: 80 }, { width: 1366, height: 768 }, min);
+    assert.ok(small);
+    assert.ok(small.width <= 1366 && small.height <= 768, JSON.stringify(small));
+    assert.ok(Math.abs((small.width - 64) / (small.height - 80) - 1920 / 1080) < 0.01);
+    // Never below the window minimum, and nonsense sizes are refused.
+    assert.deepEqual(fitContentSize({ width: 640, height: 480, chromeWidth: 0, chromeHeight: 0 }, { width: 1920, height: 1080 }, min), {
+        width: 900,
+        height: 560,
+    });
+    assert.equal(fitContentSize({ width: 0, height: 720, chromeWidth: 0, chromeHeight: 0 }, { width: 1920, height: 1080 }, min), null);
+    assert.equal(fitContentSize({ width: NaN, height: 720, chromeWidth: 0, chromeHeight: 0 }, { width: 1920, height: 1080 }, min), null);
 });

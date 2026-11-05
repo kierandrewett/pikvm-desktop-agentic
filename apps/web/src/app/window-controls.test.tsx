@@ -45,6 +45,7 @@ function fakeBridge(platform: DesktopPlatform, maximised = false): FakeBridge {
             },
             setFullscreen: (on) => Promise.resolve(on),
             isFullscreen: () => Promise.resolve(false),
+            fitNative: () => void calls.push("fitNative"),
             onFullscreenChange: () => () => {},
             onFocusChange: () => () => {},
         },

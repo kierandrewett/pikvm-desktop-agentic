@@ -11,6 +11,7 @@ import { useMacros } from "../api/queries";
 import { SHORTCUTS, type ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
 import {
+    ArrowsIn,
     CaretDown,
     DotsThree,
     Keyboard,
@@ -37,6 +38,8 @@ export interface ToolbarProps {
     readonly openDialog: (name: DialogName) => void;
     readonly keysOpen: boolean;
     readonly onKeys: (open: boolean) => void;
+    /** Size the window to the target's native resolution. Null outside the desktop app or before a picture. */
+    readonly onFit?: (() => void) | null;
 }
 
 /**
@@ -69,7 +72,7 @@ function DeviceMenu({ kind }: { readonly kind: "audio" | "mic" }) {
     return <MenuButton label={`Choose ${noun}`} icon={<CaretDown />} entries={entries} className="kvm-tb-btn kvm-tb-dev" />;
 }
 
-export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: ToolbarProps) {
+export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onFit = null }: ToolbarProps) {
     const session = useKvmSession();
     const picture = usePictureState(controller);
     const inputOpen = useTarget((s) => s.link.open);
@@ -191,6 +194,18 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys }: T
                         onClick={() => controller?.resetZoom()}
                     >
                         <MagnifyingGlassMinus />
+                    </button>
+                ) : null}
+                {onFit ? (
+                    <button
+                        type="button"
+                        className="kvm-tb-btn"
+                        data-testid="fit-window"
+                        title="Resize the window to the native resolution"
+                        aria-label="Resize the window to the native resolution"
+                        onClick={onFit}
+                    >
+                        <ArrowsIn />
                     </button>
                 ) : null}
                 <span className="kvm-tb-sep" />

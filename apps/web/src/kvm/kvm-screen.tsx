@@ -7,7 +7,8 @@
  * of UI state (which key rows are open, drag-lock) and feeds the preferences down.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { desktopBridge } from "../host/desktop";
 import { useAgentActivity } from "../agent/activity";
 import { useMediaQuery } from "../app/viewport";
 import { TOUCH_HID_KEY, TOUCH_MODE_KEY, readTouchHid, readTouchMode, useStoredValue } from "../settings/local-prefs";
@@ -49,6 +50,52 @@ export function KvmScreen() {
     const [keysOpen, setKeysOpen] = useState(false);
     const { open } = useStore(session.dialogs.store);
     const picture = usePictureState(controller);
+    const stageRef = useRef<HTMLDivElement>(null);
+    // Everything in the window that is not the picture's box (nav, toolbar, titlebar) is fixed-pixel, so the
+    // shell adds back exactly this leftover around the native size.
+    const fitWindow = useCallback(
+        (force: boolean): void => {
+            const stage = stageRef.current;
+            const bridge = desktopBridge();
+            if (!bridge || !stage || picture.width <= 16 || picture.height <= 9) return;
+            bridge.window.fitNative({
+                width: picture.width,
+                height: picture.height,
+                chromeWidth: Math.max(0, window.innerWidth - stage.clientWidth),
+                chromeHeight: Math.max(0, window.innerHeight - stage.clientHeight),
+                force,
+            });
+        },
+        [picture.width, picture.height],
+    );
+    // Auto-size: when the target's resolution first arrives or changes, size the window to it. A manual
+    // resize afterwards stands until the resolution changes again. While the window is maximised or full
+    // screen the shell leaves it alone, so the fit is held and applied when the window is its own size again.
+    useEffect(() => {
+        const bridge = desktopBridge();
+        if (!bridge || !active) return;
+        let live = true;
+        let stop: Array<() => void> = [];
+        const settled = (): Promise<boolean> =>
+            Promise.all([bridge.window.isMaximised(), bridge.window.isFullscreen()]).then(([max, full]) => !max && !full);
+        void settled().then((free) => {
+            if (!live) return;
+            if (free) return fitWindow(false);
+            const retry = (): void =>
+                void settled().then((now) => {
+                    if (!live || !now) return;
+                    stop.forEach((off) => off());
+                    stop = [];
+                    fitWindow(false);
+                });
+            stop = [bridge.window.onMaximiseChange(retry), bridge.window.onFullscreenChange(retry)];
+        });
+        return () => {
+            live = false;
+            stop.forEach((off) => off());
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new resolution refits, not a new callback identity
+    }, [active, picture.width, picture.height]);
     const isFullscreen = useIsFullscreen();
     const background = useInBackground();
     // A phone suspends the page behind another app, so there is nothing running to watch the picture.
@@ -138,10 +185,17 @@ export function KvmScreen() {
         <OcrPickerProvider controller={controller}>
             <div className="kvm-screen" data-layout={dock ? "dock" : "wide"} data-desktop-app={desktop}>
                 {dock ? null : (
-                    <Toolbar controller={controller} actions={actions} openDialog={openDialog} keysOpen={keysOpen} onKeys={setKeysOpen} />
+                    <Toolbar
+                        controller={controller}
+                        actions={actions}
+                        openDialog={openDialog}
+                        keysOpen={keysOpen}
+                        onKeys={setKeysOpen}
+                        onFit={desktop && picture.width > 16 ? () => fitWindow(true) : null}
+                    />
                 )}
                 {!dock && keysOpen ? <KeyStrip keyboard={session.keyboard} focus={focus} dragLock={dragLock} onDragLock={setDragLock} /> : null}
-                <div className="kvm-stage" data-agent={agent?.state}>
+                <div className="kvm-stage" ref={stageRef} data-agent={agent?.state}>
                     <Picture session={session} focus={focus} desktop={desktop} prefs={prefs} onController={setController} />
                     <AgentPointer width={picture.width} height={picture.height} scale={picture.scale} />
                     <AgentBanner />

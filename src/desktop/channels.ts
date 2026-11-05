@@ -6,6 +6,7 @@ export const CHANNELS = {
     isMaximised: "desktop:window:is-maximised",
     setFullscreen: "desktop:window:set-fullscreen",
     isFullscreen: "desktop:window:is-fullscreen",
+    fitNative: "desktop:window:fit-native",
     openExternal: "desktop:open-external",
     checkForUpdate: "desktop:check-for-update",
     requestAttention: "desktop:request-attention",

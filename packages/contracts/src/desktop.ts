@@ -30,6 +30,20 @@ export interface DesktopWindowApi {
      */
     setFullscreen(on: boolean, options?: { readonly lockKeyboard?: boolean }): Promise<boolean>;
     isFullscreen(): Promise<boolean>;
+    /**
+     * Resize the window so the picture renders the target's native resolution 1:1 (no black bars),
+     * shrunk only as far as the screen's work area needs. `chromeWidth` and `chromeHeight` are
+     * everything in the window that is not the picture's own box (nav, toolbar, titlebar); the page
+     * measures that leftover in one go and main adds it back. Leaves maximised and full screen alone
+     * unless `force` is set (the button), which restores first.
+     */
+    fitNative(size: {
+        readonly width: number;
+        readonly height: number;
+        readonly chromeWidth: number;
+        readonly chromeHeight: number;
+        readonly force?: boolean;
+    }): void;
     onFullscreenChange(listener: (fullscreen: boolean) => void): () => void;
     /** The window itself gained or lost focus. Not the page's: a focused dialog still counts. */
     onFocusChange(listener: (focused: boolean) => void): () => void;

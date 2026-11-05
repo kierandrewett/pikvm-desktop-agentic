@@ -1,7 +1,7 @@
-import { BrowserWindow, ipcMain, Menu, powerSaveBlocker, session, shell, type MenuItemConstructorOptions } from "electron";
+import { BrowserWindow, ipcMain, Menu, powerSaveBlocker, screen, session, shell, type MenuItemConstructorOptions } from "electron";
 import { resolve } from "node:path";
 import { CHANNELS, VERSION_ARG } from "./channels";
-import { externalUrl, navigationVerdict } from "./policy";
+import { externalUrl, fitContentSize, navigationVerdict, trustedFrame } from "./policy";
 import { setDisplayBlocker } from "./display-blocker";
 import { requestAttention } from "../taskbar-attention";
 
@@ -23,8 +23,17 @@ export interface AppWindowOptions {
 
 /** Window controls and links, for whichever window sent the message. Registered once. */
 let ipcRegistered = false;
+/* The page the user chose to load. Only its top frame may use the bridge: an iframe in it, or a page it
+ * navigates to, gets nothing, so a link followed out of the app cannot drive the window. */
+let trustedOrigin = "";
+
+export function isTrustedSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
+    const frame = event.senderFrame;
+    return trustedFrame(trustedOrigin, frame ? { url: frame.url, hasParent: frame.parent !== null } : null);
+}
 
 function windowOf(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
+    if (!isTrustedSender(event)) return null;
     const win = BrowserWindow.fromWebContents(event.sender);
     return win && !win.isDestroyed() ? win : null;
 }
@@ -72,6 +81,33 @@ function registerIpc(): void {
         const win = windowOf(e);
         return win ? setFullscreen(win, on === true, lockKeyboard === true) : false;
     });
+    ipcMain.on(CHANNELS.fitNative, (e, size: unknown) => {
+        const win = windowOf(e);
+        if (!win || !size || typeof size !== "object") return;
+        const { width, height, chromeWidth, chromeHeight, force } = size as Record<string, unknown>;
+        const target = fitContentSize(
+            { width: Number(width), height: Number(height), chromeWidth: Number(chromeWidth), chromeHeight: Number(chromeHeight) },
+            screen.getDisplayMatching(win.getBounds()).workAreaSize,
+            { width: SIZE.minWidth, height: SIZE.minHeight },
+        );
+        if (!target) return;
+        const apply = (): void => {
+            if (!win.isDestroyed()) win.setContentSize(target.width, target.height);
+        };
+        if (win.isFullScreen()) {
+            // Only the button leaves full screen; a resolution change never pulls the user out of it.
+            if (force !== true) return;
+            // The window manager puts the old size back as it leaves full screen; ours has to land after that.
+            win.once("leave-full-screen", () => setTimeout(apply, 250));
+            win.setFullScreen(false);
+            return;
+        }
+        if (win.isMaximized()) {
+            if (force !== true) return;
+            win.unmaximize();
+        }
+        apply();
+    });
     ipcMain.on(CHANNELS.keepDisplayAwake, (e, on: unknown) => {
         const win = windowOf(e);
         if (win) setDisplayBlocker(win.id, on === true, powerSaveBlocker);
@@ -95,7 +131,8 @@ function registerIpc(): void {
             });
         });
     });
-    ipcMain.handle(CHANNELS.openExternal, async (_e, url: unknown) => {
+    ipcMain.handle(CHANNELS.openExternal, async (e, url: unknown) => {
+        if (!isTrustedSender(e)) throw new Error("Not allowed from this page");
         const target = typeof url === "string" ? externalUrl(url) : null;
         if (!target) throw new Error("Only http, https and mailto links can be opened");
         await shell.openExternal(target);
@@ -142,6 +179,7 @@ function setApplicationMenu(): void {
 }
 
 export function createAppWindow(options: AppWindowOptions): BrowserWindow {
+    trustedOrigin = new URL(options.url).origin;
     registerIpc();
     setApplicationMenu();
 

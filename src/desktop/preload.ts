@@ -32,6 +32,7 @@ const bridge: DesktopBridge = {
         onMaximiseChange: (listener) => subscribe<boolean>(CHANNELS.maximiseChange, listener),
         setFullscreen: (on, options) => ipcRenderer.invoke(CHANNELS.setFullscreen, on, options?.lockKeyboard === true),
         isFullscreen: () => ipcRenderer.invoke(CHANNELS.isFullscreen),
+        fitNative: (size) => ipcRenderer.send(CHANNELS.fitNative, size),
         onFullscreenChange: (listener) => subscribe<boolean>(CHANNELS.fullscreenChange, listener),
         onFocusChange: (listener) => subscribe<boolean>(CHANNELS.focusChange, listener),
     },

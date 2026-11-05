@@ -1,6 +1,7 @@
 import { ipcMain, Notification, shell } from "electron";
 import { CHANNELS } from "./channels";
 import { releaseChecker } from "./release-check";
+import { isTrustedSender } from "./window";
 
 /**
  * Tells the user a newer release exists. The app installs nothing: a new release is a new download (or
@@ -16,7 +17,8 @@ const EVERY_MS = 6 * 60 * 60_000;
 
 export function startUpdateChecks(version: string, icon: string): void {
     const check = releaseChecker(version);
-    ipcMain.handle(CHANNELS.checkForUpdate, () => check());
+    // A navigated or embedded frame gets the same answer as an unreachable GitHub.
+    ipcMain.handle(CHANNELS.checkForUpdate, (e) => (isTrustedSender(e) ? check() : { state: "unknown" as const }));
 
     let told: string | undefined;
     const look = async (): Promise<void> => {
