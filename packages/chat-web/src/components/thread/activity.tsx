@@ -321,8 +321,10 @@ function runningLabel(name: string, args: string): string {
 }
 
 /** Header words for a running group, from its newest step. */
-function liveGroupLabel(items: readonly OutputItem[]): string {
+export function liveGroupLabel(items: readonly OutputItem[]): string {
     const asked = askedCalls(items);
+    const answered = new Set<string>();
+    for (const it of items) if (it.type === "function_call_output") answered.add(it.call_id);
     for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]!;
         if (it.type === "mcp_approval_request") {
@@ -337,7 +339,12 @@ function liveGroupLabel(items: readonly OutputItem[]): string {
             if (it.status === "in_progress") return translate(ELICITATION_WAITING_LABEL);
             continue;
         }
-        if (it.type === "function_call" && !asked.has(it.call_id)) return runningLabel(it.name, it.arguments);
+        // A call that has its result is over: the model is now working out its next step, and may not show a word of it
+        // until that step arrives. Naming the finished call here would read as if it were still being done.
+        if (it.type === "function_call" && !asked.has(it.call_id)) {
+            if (!answered.has(it.call_id)) return runningLabel(it.name, it.arguments);
+            if (!items.some((p) => p.type === "function_call" && !asked.has(p.call_id) && !answered.has(p.call_id))) return translate("thread-act-thinking");
+        }
         if (it.type === "reasoning")
             return thinkingStatus(it.content.map((c) => c.text).join("")) ?? translate("thread-act-thinking");
     }
@@ -667,6 +674,7 @@ const ThinkingStep = memo(function ThinkingStep({ text, live }: { text: string; 
     const t = useT();
     const body = text.trim();
     const line = thinkingStatus(body);
+    const detail = body && body !== line ? () => <Markdown className="md md-step act-thinking" text={body} streaming={live} /> : undefined;
     return (
         <StepRow
             kind="thinking"
@@ -674,11 +682,8 @@ const ThinkingStep = memo(function ThinkingStep({ text, live }: { text: string; 
             verb={live ? t("thread-act-thinking") : t("thread-act-thought")}
             subject={line ? <span className="act-subject-quiet">{line}</span> : undefined}
             title={line}
-            detail={
-                body && body !== line
-                    ? () => <Markdown className="md md-step act-thinking" text={body} streaming={live} />
-                    : undefined
-            }
+            open={live && detail !== undefined ? true : undefined}
+            detail={detail}
         />
     );
 });
