@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clientOf, makeHidTap, type HidInputKind } from "../src/server/proxy/kvmd";
+import { clientOf, makeHidGate, makeHidTap, type HidInputKind } from "../src/server/proxy/kvmd";
 
 /** One client-to-server WebSocket frame, masked as a browser masks it. */
 function frame(payload: string | Buffer, opcode = 0x1): Buffer {
@@ -153,4 +153,55 @@ test("a client name that is not a plain id is no name, and is still not sent on"
         const url = `/api/ws?client=${encodeURIComponent(bad)}`;
         assert.deepEqual(clientOf(url), { path: "/api/ws", client: null }, bad);
     }
+});
+
+function gate(locked: () => boolean) {
+    const sent: Buffer[] = [];
+    const seen: HidInputKind[] = [];
+    const tap = makeHidTap({ onActivity: () => undefined, onInput: (kind) => void seen.push(kind) });
+    const feed = makeHidGate({ locked, observe: (f) => tap(f), forward: (f) => void sent.push(Buffer.from(f)) });
+    return { sent, seen, feed };
+}
+
+test("locked: text and binary input is dropped whole, and nobody is told of it", () => {
+    const { sent, seen, feed } = gate(() => true);
+    feed(json("key", { key: "KeyA", state: true }));
+    feed(json("mouse_move", { to: { x: 1, y: 2 } }));
+    feed(frame(Buffer.from([3, 0, 1, 0, 2]), 0x2));
+    feed(frame(Buffer.from([1, 1, 4]), 0x2));
+    assert.deepEqual(sent, []);
+    assert.deepEqual(seen, []);
+});
+
+test("locked: heartbeats, control frames and unknown messages still reach the Pi so the socket stays open", () => {
+    const { sent, feed } = gate(() => true);
+    const passing = [json("ping"), frame("ping"), frame(Buffer.from([0]), 0x2), frame(Buffer.alloc(0), 0x9), frame(Buffer.from([0x03, 0xe8]), 0x8), json("something_new")];
+    for (const f of passing) feed(f);
+    assert.deepEqual(sent, passing);
+});
+
+test("unlocked: every frame is forwarded byte for byte and observed", () => {
+    const { sent, seen, feed } = gate(() => false);
+    const a = json("key", { key: "KeyA", state: true });
+    const b = frame(Buffer.from([3, 0, 1, 0, 2]), 0x2);
+    feed(a);
+    feed(b);
+    assert.deepEqual(sent, [a, b]);
+    assert.deepEqual(seen, ["key", "mouse_move"]);
+});
+
+test("frames split across chunks or joined in one are judged as whole frames, and the lock is read per frame", () => {
+    let locked = false;
+    const { sent, feed } = gate(() => locked);
+    const a = json("key", { key: "KeyA", state: true });
+    const b = json("key", { key: "KeyB", state: true });
+    feed(a.subarray(0, 5));
+    feed(Buffer.concat([a.subarray(5), b.subarray(0, 3)]));
+    locked = true;
+    feed(b.subarray(3));
+    assert.deepEqual(sent, [a], "the second frame completed after the lock began and is dropped as a whole");
+    locked = false;
+    const c = json("key", { key: "KeyC", state: false });
+    feed(Buffer.concat([c, c]));
+    assert.deepEqual(sent, [a, c, c]);
 });

@@ -47,6 +47,12 @@ export interface ProxyDeps {
      * tab doing it. The agent's own input never passes here: it has its own link to the Pi.
      */
     onHidInput?: (kind: HidInputKind) => void;
+    /**
+     * Whether the agent holds the target's keyboard and mouse right now. While it does, what a person sends through
+     * this proxy as input is not forwarded to the Pi (HTTP answers 423, the input socket drops the frame) and is not
+     * reported to any of the hooks above. Heartbeats and control frames still pass, so the sockets stay open.
+     */
+    inputLocked?: () => boolean;
 }
 
 export interface HidTapEvents {
@@ -137,6 +143,82 @@ export function makeHidTap(events: HidTapEvents): (chunk: Buffer) => void {
         } catch {
             /* never disturb the proxied socket */
         }
+    };
+}
+
+/** The kind of input a whole client frame carries, or null for a heartbeat, a control frame or anything unknown. */
+function inputKindOf(frame: Buffer): HidInputKind | null {
+    const opcode = frame[0]! & 0x0f;
+    if (opcode !== 0x1 && opcode !== 0x2) return null;
+    const masked = (frame[1]! & 0x80) !== 0;
+    let len = frame[1]! & 0x7f;
+    let off = 2;
+    if (len === 126) {
+        len = frame.readUInt16BE(2);
+        off = 4;
+    } else if (len === 127) {
+        len = Number(frame.readBigUInt64BE(2));
+        off = 10;
+    }
+    if (len === 0 || len > 4096) return null;
+    const mask = masked ? frame.subarray(off, off + 4) : undefined;
+    const payload = frame.subarray(off + (masked ? 4 : 0));
+    if (opcode === 0x2) return BINARY_KINDS[mask ? payload[0]! ^ mask[0]! : payload[0]!] ?? null;
+    const text = (mask ? unmask(payload, mask) : payload).toString("utf8");
+    if (text.charCodeAt(0) !== 0x7b) return null;
+    try {
+        const type: unknown = JSON.parse(text)?.event_type;
+        return typeof type === "string" && Object.hasOwn(TEXT_KINDS, type) ? (type as HidInputKind) : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The client-to-server side of the input socket while the agent may hold the target. It cuts the stream into whole
+ * WebSocket frames and forwards each one unless it is input and `locked()` says the agent has the target: so the framing
+ * the Pi sees is always intact, and a frame is either all sent or all dropped. `observe` sees only the frames that were
+ * sent. A message split over several frames is never read for its kind: while locked it is dropped from its first frame to
+ * its last, and one that began unlocked is sent whole. Control frames always pass.
+ */
+export function makeHidGate(options: { locked: () => boolean; observe: (frame: Buffer) => void; forward: (frame: Buffer) => void }): (chunk: Buffer) => void {
+    let buf: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    /** What became of the unfinished fragmented message, if one is open. */
+    let fragments: "send" | "drop" | undefined;
+    return (chunk: Buffer) => {
+        buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+        while (buf.length >= 2) {
+            let len = buf[1]! & 0x7f;
+            let off = 2;
+            if (len === 126) {
+                if (buf.length < 4) break;
+                len = buf.readUInt16BE(2);
+                off = 4;
+            } else if (len === 127) {
+                if (buf.length < 10) break;
+                len = Number(buf.readBigUInt64BE(2));
+                off = 10;
+            }
+            const frameLen = off + ((buf[1]! & 0x80) !== 0 ? 4 : 0) + len;
+            if (buf.length < frameLen) break;
+            const frame = buf.subarray(0, frameLen);
+            buf = buf.subarray(frameLen);
+            const opcode = frame[0]! & 0x0f;
+            const final = (frame[0]! & 0x80) !== 0;
+            if (opcode === 0x0) {
+                const dropped = fragments === "drop";
+                if (final) fragments = undefined;
+                if (dropped) continue;
+            } else if ((opcode === 0x1 || opcode === 0x2) && !final) {
+                fragments = options.locked() ? "drop" : "send";
+                if (fragments === "drop") continue;
+            } else if (inputKindOf(frame) !== null && options.locked()) {
+                continue;
+            }
+            options.observe(frame);
+            options.forward(frame);
+        }
+        if (buf.length > 1 << 20) buf = Buffer.alloc(0);
     };
 }
 
@@ -232,8 +314,15 @@ export function createPiKvmProxy(deps: ProxyDeps) {
 
     async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
         const input = httpHidInput(req.method, req.url);
-        if (input) deps.onHidInput?.(input);
         const { origin, headers: auth, rejectUnauthorized } = await deps.control.proxyTarget();
+        // Judged after the await: the lock may have begun while the target was being found, and must hold from here to the Pi.
+        if (input && deps.inputLocked?.()) {
+            req.resume();
+            res.writeHead(423, { "content-type": "application/json", "cache-control": "no-store" });
+            res.end(JSON.stringify({ ok: false, result: { error: "agent_has_control", error_msg: "The agent is using the computer." } }));
+            return;
+        }
+        if (input) deps.onHidInput?.(input);
         const isHttps = origin.protocol === "https:";
         const requestFn = isHttps ? httpsRequest : httpRequest;
 
@@ -339,23 +428,32 @@ export function createPiKvmProxy(deps: ProxyDeps) {
             proxySocket.on("close", cleanup);
             clientSocket.on("error", cleanup);
             clientSocket.on("close", cleanup);
-            // Observe user HID input (mouse/keys) on the input WebSocket for the idle
-            // jiggler — a passive 'data' listener; the pipe still forwards every byte.
-            if (isInput && (deps.onHidActivity || deps.onHidInput || deps.onHidMouseMove || deps.onHidMouseRelative)) {
-                const moved = deps.onHidMouseMove;
-                const nudged = deps.onHidMouseRelative;
+            // Observe user HID input (mouse/keys) on the input WebSocket for the idle jiggler and the shared cursor.
+            const moved = deps.onHidMouseMove;
+            const nudged = deps.onHidMouseRelative;
+            const tap =
+                isInput && (deps.onHidActivity || deps.onHidInput || moved || nudged)
+                    ? makeHidTap({
+                          onActivity: deps.onHidActivity ?? (() => undefined),
+                          ...(moved ? { onMouseMove: (x: number, y: number) => moved(x, y, source) } : {}),
+                          ...(nudged ? { onMouseRelative: (dx: number, dy: number) => nudged(dx, dy, source) } : {}),
+                          ...(deps.onHidInput ? { onInput: deps.onHidInput } : {}),
+                      })
+                    : undefined;
+            const locked = deps.inputLocked;
+            if (isInput && locked) {
+                // Whole frames only, so what the agent holds the target for cannot be typed over from another page.
                 clientSocket.on(
                     "data",
-                    makeHidTap({
-                        onActivity: deps.onHidActivity ?? (() => undefined),
-                        ...(moved ? { onMouseMove: (x: number, y: number) => moved(x, y, source) } : {}),
-                        ...(nudged ? { onMouseRelative: (dx: number, dy: number) => nudged(dx, dy, source) } : {}),
-                        ...(deps.onHidInput ? { onInput: deps.onHidInput } : {}),
-                    }),
+                    makeHidGate({ locked, observe: (frame) => tap?.(frame), forward: (frame) => void proxySocket.write(frame) }),
                 );
+                clientSocket.on("end", () => proxySocket.end());
+                proxySocket.pipe(clientSocket);
+            } else {
+                if (tap) clientSocket.on("data", tap);
+                proxySocket.pipe(clientSocket);
+                clientSocket.pipe(proxySocket);
             }
-            proxySocket.pipe(clientSocket);
-            clientSocket.pipe(proxySocket);
         });
 
         // Upstream answered WITHOUT upgrading (auth failure, redirect, 5xx, Pi

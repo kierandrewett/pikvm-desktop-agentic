@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { resolve } from "node:path";
 import { OPERATOR_ID } from "@pikvm/chat-server";
-import { CURSOR_AGENT_SOURCE } from "@pikvm/contracts/api";
+import { agentHoldsInput, CURSOR_AGENT_SOURCE } from "@pikvm/contracts/api";
 import { DEFAULT_MAX_EDGE } from "@pikvm/kvm-engine/agent";
 import type { ImageOps } from "../image-ops";
 import { MacroStore } from "../macros";
@@ -27,6 +27,7 @@ import type { PiKvmControl } from "../pikvm-control";
 import type { SettingsStore } from "../settings";
 import { createActivity } from "./agent/activity";
 import { createDesk } from "./agent/desk";
+import { resetHid } from "./agent/hid-reset";
 import { createPresence } from "./agent/presence";
 import { createAgentRoutes } from "./agent/routes";
 import { createApi } from "./api";
@@ -127,6 +128,13 @@ export function startControlServer(
             cursor.place(CURSOR_AGENT_SOURCE, norm.x, norm.y);
         },
     });
+    // The agent taking the keyboard and mouse lets go of anything a person was holding: their key-ups are refused from now on.
+    let held = false;
+    activity.subscribe((current) => {
+        const next = agentHoldsInput(current);
+        if (next && !held) void resetHid(control);
+        held = next;
+    });
 
     /* The sockets and event streams served here: ended when the server in use changes (see sync/index.ts). */
     const live = createLiveConnections();
@@ -146,6 +154,7 @@ export function startControlServer(
     const kvmd = createPiKvmProxy({
         control,
         onHidActivity: () => jiggler.noteUserActivity(),
+        inputLocked: () => agentHoldsInput(activity.current()),
         onHidInput: (kind) => presence.note(kind),
         // Track the user's real cursor so the nudge returns it exactly, instead of
         // jogging off a stale position we only ever updated from our own moves.

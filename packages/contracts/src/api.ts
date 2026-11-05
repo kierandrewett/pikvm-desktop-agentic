@@ -336,6 +336,13 @@ export const AgentActivity = Schema.Struct({
 });
 export type AgentActivity = typeof AgentActivity.Type;
 
+/**
+ * Whether the agent holds the target's keyboard and mouse, so a person's input is refused. The server enforces it at
+ * the proxy and every page shows it, from this one rule: only `working` holds it. Waiting for an answer, released
+ * and idle do not, so a person can always take over by pressing Stop.
+ */
+export const agentHoldsInput = (activity: Pick<AgentActivity, "state"> | undefined): boolean => activity?.state === "working";
+
 /** Server-sent events: one `AgentActivity` as JSON per event, the current one first. */
 export const AGENT_ACTIVITY_PATH = `${API_PREFIX}/agent/activity`;
 /** POST: the person pressed Stop. Releases control, cancels the running responses. */
