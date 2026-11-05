@@ -125,7 +125,7 @@ describe("furniture and too little text", () => {
         assert.equal(readToast(["Slack", "Ping", "now!"])?.kind, "other");
     });
 
-    it("T5: a body is at most 160 characters and ends in '...' when it was cut", () => {
+    it("T5: a body is at most 300 characters and ends in '...' when it was cut", () => {
         const long = readToast(["Outlook", "Anna Berg", "Subject " + "word ".repeat(80)])!;
         assert.equal(long.body.length, MAX_BODY_CHARS);
         assert.ok(long.body.endsWith("..."));

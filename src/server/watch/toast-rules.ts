@@ -28,7 +28,7 @@ export interface Toast {
     words: number;
 }
 
-export const MAX_BODY_CHARS = 160;
+export const MAX_BODY_CHARS = 300;
 const MAX_TITLE_CHARS = 60;
 
 /** Fewer words than this is not a pop-up's text: a glyph, an icon's name, OCR noise. */

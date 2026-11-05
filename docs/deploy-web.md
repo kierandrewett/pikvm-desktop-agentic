@@ -216,7 +216,7 @@ flowchart LR
 4. **Text rules** (`src/server/watch/toast-rules.ts`, deterministic). A **call** (incoming call, is calling, calling you, ringing, wants
    to call, or Accept/Answer with Decline/Reject/Ignore) is pushed as **"Incoming call: <who>"** with Web Push `Urgency: high`, a
    **60 s** TTL, and a tag per caller (the same caller ringing again updates the same notification). A Teams message or an Outlook
-   mail is "Teams" or "Outlook" with "sender: first line" (at most 160 characters), urgency normal, a 5 minute TTL and a tag of its
+   mail is "Teams" or "Outlook" with "sender: first line" (at most 300 characters; the phone cuts it to what fits), urgency normal, a 5 minute TTL and a tag of its
    text. Any other pop-up shows its lines. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The
    **same pop-up text inside 30 s is notified once**.
 5. **No rule: no network call at all.** No OpenRouter key is needed, and with none the watch runs for fast alerts alone (see above). **With a rule** (Settings,
