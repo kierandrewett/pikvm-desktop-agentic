@@ -11,6 +11,12 @@ here=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
 app="$here/../lib/pikvm-desktop/pikvm-desktop"
 
 if [ -n "${FLATPAK_ID:-}" ]; then
+    # The Flatpak asks for fallback-x11, so the X11 socket is absent whenever Wayland works. Electron
+    # picks its platform from XDG_SESSION_TYPE, which a Flatpak may not carry, and would then try X11
+    # and exit. Name Wayland outright when the session has it; with no Wayland, the default is X11.
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        set -- --ozone-platform=wayland "$@"
+    fi
     set -- --no-sandbox "$@"
 elif [ -n "${APPIMAGE:-}" ] && ! unshare --user true 2>/dev/null; then
     set -- --no-sandbox "$@"

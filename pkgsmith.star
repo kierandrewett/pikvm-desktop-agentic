@@ -156,12 +156,12 @@ package(
     ] + icons(APP_ID),
     options = {
         "app_id": APP_ID,
-        "runtime_version": "24.08",
+        "runtime_version": "25.08",
         "command": NAME,
         "finish_args": [
             "--share=network",
             "--share=ipc",
-            "--socket=x11",
+            "--socket=fallback-x11",
             "--socket=wayland",
             "--socket=pulseaudio",
             "--device=dri",
