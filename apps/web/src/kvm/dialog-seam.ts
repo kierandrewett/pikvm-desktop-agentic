@@ -28,7 +28,7 @@ export type DialogName = (typeof DIALOG_NAMES)[number];
 
 /** Titles for the plain panel and for assistive technology until a real dialog is registered. */
 export const DIALOG_TITLES: Readonly<Record<DialogName, string>> = {
-    paste: "Paste text to the target",
+    paste: "Type text on the target",
     stream: "Stream settings",
     "audio-devices": "Audio devices",
     health: "System, GPIO and health",

@@ -1,13 +1,19 @@
 /**
- * Paste text to the target: kvmd types it itself through the chosen keymap, which is
- * layout-correct and far faster than sending keys. The box is prefilled from the host clipboard.
+ * Type text on the target: kvmd types it itself through the chosen keymap, which is
+ * layout-correct and far faster than sending keys. The box is prefilled from this machine's
+ * clipboard. This is the one way that clipboard reaches the target: Ctrl+V on the screen is the
+ * target's own paste.
+ *
+ * Text from a clipboard can be anything (curly quotes, CRLF line ends, zero-width marks, emoji),
+ * so what is typed is the text made typable (`prepareTypedText`), and the dialog says how many
+ * characters the keyboard has no key for and will be left out.
  *
  * A paste is a long operation (kvmd answers when it has typed the last character), and closing
  * the dialog does not stop it, so while it types the dialog says so and shows an estimate.
  */
 
-import { humanCount, humanDuration, keymapChoice, PASTE_DELAY_S, pasteDuration } from "@pikvm/kvm-engine";
-import { useEffect, useRef, useState } from "react";
+import { humanCount, humanDuration, keymapChoice, MAX_TYPED_CHARS, PASTE_DELAY_S, pasteDuration, prepareTypedText } from "@pikvm/kvm-engine";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DialogProps } from "../dialog-seam";
 import { useTarget } from "../session";
 import { useStore } from "../use-store";
@@ -22,6 +28,8 @@ export function typingProgress(elapsedMs: number, chars: number): number | null 
 
 export function PasteDialog({ session, onClose }: DialogProps) {
     const [text, setText] = useState("");
+    const prepared = useMemo(() => prepareTypedText(text), [text]);
+    const tooLong = prepared.text.length > MAX_TYPED_CHARS;
     const [typing, setTyping] = useState<{ chars: number; startedAt: number } | null>(null);
     const [now, setNow] = useState(() => session.clock.now());
     const mounted = useRef(true);
@@ -69,8 +77,8 @@ export function PasteDialog({ session, onClose }: DialogProps) {
     const blocked = gate.macro !== null || gate.pasting || typing !== null;
 
     const send = async (): Promise<void> => {
-        if (!text || typing) return;
-        const chars = text.length;
+        if (prepared.text === "" || tooLong || typing) return;
+        const chars = prepared.text.length;
         setNow(session.clock.now());
         setTyping({ chars, startedAt: session.clock.now() });
         // The engine refuses (and says why) while a macro or another paste holds the target, so
@@ -85,20 +93,20 @@ export function PasteDialog({ session, onClose }: DialogProps) {
         setTyping(null);
     };
 
-    const count = text.length;
+    const count = prepared.text.length;
     const progress = typing ? typingProgress(now - typing.startedAt, typing.chars) : null;
     const remaining = typing ? Math.max(0, typing.chars * PASTE_DELAY_S * 1000 - (now - typing.startedAt)) : 0;
 
     return (
         <DialogShell
-            title="Paste text to the target"
+            title="Type text on the target"
             onClose={onClose}
             testId="paste-dialog"
             initialFocus="textarea"
             actions={
                 <>
                     <Btn onClick={onClose}>{typing ? "Close" : "Cancel"}</Btn>
-                    <Btn variant="primary" disabled={!text || blocked} onClick={() => void send()}>
+                    <Btn variant="primary" disabled={prepared.text === "" || tooLong || blocked} onClick={() => void send()}>
                         Type on target
                     </Btn>
                 </>
@@ -149,6 +157,22 @@ export function PasteDialog({ session, onClose }: DialogProps) {
                     {count > 0 && pasteDuration(count) ? ` \u00b7 ${pasteDuration(count)}` : ""}
                 </span>
             </div>
+            {prepared.dropped > 0 ? (
+                <p className="dlg-note" role="status" data-testid="paste-dropped">
+                    {humanCount(prepared.dropped)} {prepared.dropped === 1 ? "character" : "characters"} the keyboard cannot type (emoji, arrows and the like) will be left
+                    out.
+                </p>
+            ) : null}
+            {text !== "" && prepared.text === "" ? (
+                <p className="dlg-note is-warn" role="status" data-testid="paste-nothing">
+                    Nothing in this text can be typed on the target.
+                </p>
+            ) : null}
+            {tooLong ? (
+                <p className="dlg-note is-warn" role="status" data-testid="paste-too-long">
+                    That is more than the {humanCount(MAX_TYPED_CHARS)} characters that can be typed at once ({humanDuration(prepared.text.length * PASTE_DELAY_S * 1000)}). Cut it down.
+                </p>
+            ) : null}
             {gate.macro !== null && !typing ? (
                 <p className="dlg-note is-warn" role="status">
                     {gate.macro} is still running; paste once it has finished.

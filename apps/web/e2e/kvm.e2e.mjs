@@ -593,7 +593,7 @@ async function desktop(browser) {
         const items = await page.$$eval(".kvm-menu .kvm-item", (els) => els.map((e) => e.textContent));
         await shot(page, outDir, "desktop-more");
         await page.keyboard.press("Escape");
-        return [items.includes("Full screen (send Win and Alt keys)") && items.includes("Paste text to the target"), items.join(" | ")];
+        return [items.includes("Full screen (send Win and Alt keys)") && items.includes("Type text on the target"), items.join(" | ")];
     });
 
     await check(profile, "socket drop recovers, input works again", async () => {

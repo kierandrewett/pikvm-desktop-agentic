@@ -77,8 +77,18 @@ export function bindHiddenField(field: HTMLInputElement | HTMLTextAreaElement, o
         if (e.defaultPrevented) mirror.reset();
     };
     const onKeyup = (e: KeyboardEvent): void => keyboard.keyup(e);
+    /**
+     * This machine's clipboard, or text dragged onto the field, is never typed by the field's diff: the target's own Ctrl+V is the
+     * target's, and this machine's clipboard goes through "Type text on the target" (which cleans it first) and nowhere else. A paste
+     * from a context menu, Shift+Insert on a soft keyboard or a long press reaches the field as a paste or a drop, and is refused.
+     */
+    const refuse = (e: Event): void => e.preventDefault();
     const onBeforeInput = (e: InputEvent): void => {
         if (block(e)) return;
+        if (e.inputType.startsWith("insertFromPaste") || e.inputType === "insertFromDrop" || e.inputType === "insertFromYank") {
+            e.preventDefault();
+            return;
+        }
         if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
             // Soft-keyboard fallback only. Matched on the CODE, not the full chord, so a
             // Shift+Enter that keydown already sent is not followed by a bare Enter.
@@ -95,6 +105,8 @@ export function bindHiddenField(field: HTMLInputElement | HTMLTextAreaElement, o
     el.addEventListener("keydown", onKeydown);
     el.addEventListener("keyup", onKeyup);
     el.addEventListener("beforeinput", onBeforeInput);
+    el.addEventListener("paste", refuse);
+    el.addEventListener("drop", refuse);
     el.addEventListener("input", onInput);
     el.addEventListener("compositionstart", onCompositionStart);
     el.addEventListener("compositionend", onCompositionEnd);
@@ -109,6 +121,8 @@ export function bindHiddenField(field: HTMLInputElement | HTMLTextAreaElement, o
             el.removeEventListener("keydown", onKeydown);
             el.removeEventListener("keyup", onKeyup);
             el.removeEventListener("beforeinput", onBeforeInput);
+            el.removeEventListener("paste", refuse);
+            el.removeEventListener("drop", refuse);
             el.removeEventListener("input", onInput);
             el.removeEventListener("compositionstart", onCompositionStart);
             el.removeEventListener("compositionend", onCompositionEnd);

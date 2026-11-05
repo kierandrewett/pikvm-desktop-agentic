@@ -54,9 +54,13 @@ Ordered by how much a KVM operator actually reaches for it.
       nudger stays as the fallback for boards that do not expose it.
 - [x] **ATX power control** — power / power_long / reset, with the power LED on the
       titlebar button. Confirms before every action; 409 means another client has it.
-- [x] **Paste text into the target** — `api/hid/print`, prefilled from the host
+- [x] **Type text on the target** — `api/hid/print`, prefilled from this machine's
       clipboard. kvmd types it with its own keymap, so it is layout-correct and far
-      faster than sending it key by key.
+      faster than sending it key by key. The text is made typable first (curly quotes,
+      CRLF, zero-width marks, ligatures and full-width letters become plain ones;
+      emoji and other characters no keyboard has are left out and counted). It is the
+      only way this machine's clipboard reaches the target: Ctrl+C and Ctrl+V on the
+      screen are the target's own, sent as keys.
 - [x] **Stream controls** — resolution, quality, target FPS, H264 bitrate/GOP, stream
       reset. Ranges come from the Pi's own `limits`, and each row hides unless the Pi
       reports the matching feature.

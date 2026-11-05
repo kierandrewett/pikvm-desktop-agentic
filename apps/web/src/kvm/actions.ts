@@ -99,7 +99,7 @@ export function useActions(inputs: ActionInputs): ActionSections {
         };
 
         const tools: Action[] = [
-            { id: "paste", label: "Paste text to the target", run: () => openDialog("paste") },
+            { id: "paste", label: "Type text on the target", run: () => openDialog("paste") },
             { id: "stream", label: "Stream settings", run: () => openDialog("stream") },
             { id: "screenshot", label: "Save screenshot", run: shoot, disabled: shooting },
             { id: "health", label: "System, GPIO and health", run: () => openDialog("health") },

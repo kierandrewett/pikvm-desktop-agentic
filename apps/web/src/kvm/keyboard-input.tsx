@@ -9,6 +9,10 @@
  * On a computer a click on the picture focuses it (the pointer machine asks for that), so a
  * hardware keyboard types into it. In the desktop app there is no such focus step: the window's
  * own key events are the keyboard, so they are forwarded directly.
+ *
+ * Every chord is the target's, Ctrl+C and Ctrl+V included: they are sent as keys, so copy and paste
+ * work inside the target with the target's own clipboard. This machine's clipboard never reaches the
+ * target from here (no shortcut reads it); it goes through "Type text on the target" and nowhere else.
  */
 
 import { bindHiddenField } from "@pikvm/kvm-engine";
@@ -22,36 +26,6 @@ export interface KeyboardInputProps {
     readonly focus: FieldFocus;
     /** The desktop app: the window's own key events drive the target. */
     readonly desktop: boolean;
-}
-
-/** Ctrl/Cmd+V is the HOST's paste: the target cannot see this machine's clipboard, so it is typed for it. */
-export function isHostPasteShortcut(e: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "altKey" | "code">): boolean {
-    return (e.ctrlKey || e.metaKey) && !e.altKey && e.code === "KeyV";
-}
-
-/**
- * Forwarding the shortcut would paste nothing (or the target's own old clipboard), so it is
- * consumed here and the host clipboard goes through the same path as the paste dialog, with
- * the same refusals while a macro or another paste holds the target.
- */
-export async function pasteHostClipboard(session: KvmSession): Promise<void> {
-    const { notify } = session.notices;
-    if (!navigator.clipboard?.readText) {
-        notify({ text: "Could not read the host clipboard", error: true });
-        return;
-    }
-    let text: string;
-    try {
-        text = await navigator.clipboard.readText();
-    } catch {
-        notify({ text: "Could not read the host clipboard", error: true });
-        return;
-    }
-    if (!text) {
-        notify({ text: "Host clipboard is empty", error: true });
-        return;
-    }
-    await session.paster.paste(text);
 }
 
 /** Something the user is typing into on this side of the glass: it keeps its keys. */
@@ -76,25 +50,11 @@ export function KeyboardInput({ session, focus, desktop }: KeyboardInputProps) {
         const blocked = (): boolean => !activeRef.current || dialogs.store.getState().open !== null;
         const binding = bindHiddenField(el, { keyboard, isBlocked: blocked });
         const detachFocus = focus.attach(el);
-        // After the field's own capture handler, ahead of everything it does on keydown.
-        const hostPaste = (e: KeyboardEvent): void => {
-            if (blocked() || !isHostPasteShortcut(e)) return;
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            void pasteHostClipboard(session);
-        };
-        el.addEventListener("keydown", hostPaste, true);
-
         const offs: Array<() => void> = [];
         if (desktop) {
             const down = (e: KeyboardEvent): void => {
                 // The field's own handlers already cover it, and forwarding twice would double every key.
                 if (e.target === el || blocked() || isOwnControl(e.target)) return;
-                if (isHostPasteShortcut(e)) {
-                    e.preventDefault();
-                    void pasteHostClipboard(session);
-                    return;
-                }
                 if (keyboard.keydown(e, true).preventDefault) e.preventDefault();
             };
             const up = (e: KeyboardEvent): void => {
@@ -116,7 +76,6 @@ export function KeyboardInput({ session, focus, desktop }: KeyboardInputProps) {
             for (const off of offs) off();
             // Leaving the screen with a key down would leave it down on the target.
             keyboard.releaseAll();
-            el.removeEventListener("keydown", hostPaste, true);
             detachFocus();
             binding.unbind();
         };

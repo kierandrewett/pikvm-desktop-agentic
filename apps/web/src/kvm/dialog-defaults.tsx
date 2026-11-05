@@ -42,7 +42,7 @@ export function PasteDialog({ session, onClose }: DialogProps) {
 
     return (
         <ModalFrame
-            title="Paste text to the target"
+            title="Type text on the target"
             onClose={onClose}
             actions={
                 <>

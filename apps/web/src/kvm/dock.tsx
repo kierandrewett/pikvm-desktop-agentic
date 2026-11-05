@@ -184,8 +184,8 @@ export function Dock(props: DockProps) {
                 <button
                     type="button"
                     className="kvm-ibtn"
-                    title="Paste text to the target"
-                    aria-label="Paste text to the target"
+                    title="Type text on the target"
+                    aria-label="Type text on the target"
                     onClick={() => props.openDialog("paste")}
                 >
                     <ClipboardText />

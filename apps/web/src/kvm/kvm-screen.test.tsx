@@ -135,9 +135,9 @@ describe("dialogs", () => {
         expect(screen.queryByRole("dialog")).toBeNull();
     });
 
-    it("the dock's paste button opens the paste dialog", async () => {
+    it("the dock's type-text button opens the type-text dialog", async () => {
         await mount({ dock: true });
-        fireEvent.click(screen.getByRole("button", { name: "Paste text to the target" }));
+        fireEvent.click(screen.getByRole("button", { name: "Type text on the target" }));
         expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
 });
@@ -235,35 +235,55 @@ describe("the Pi's own UI", () => {
     });
 });
 
-describe("host paste", () => {
-    function clipboard(text: string | Error): void {
-        Object.defineProperty(navigator, "clipboard", {
-            configurable: true,
-            value: { readText: () => (text instanceof Error ? Promise.reject(text) : Promise.resolve(text)) },
-        });
+describe("copy and paste belong to the target", () => {
+    /** A clipboard that records whether anything reads it: nothing on the screen should. */
+    function clipboard(text: string): { readText: () => Promise<string> } {
+        const readText = vi.fn(() => Promise.resolve(text));
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText } });
+        return { readText };
     }
 
-    it("Ctrl+V types the host clipboard on the target instead of forwarding the chord", async () => {
-        clipboard("from the host");
+    it("Ctrl+V and Ctrl+C are sent to the target as the keys they are; this machine's clipboard is never read or typed", async () => {
+        const { readText } = clipboard("from this machine");
         const rig = await mount({ dock: false });
-        const proceed = fireEvent.keyDown(field(), { key: "v", code: "KeyV", ctrlKey: true });
-        expect(proceed).toBe(false);
-        await waitFor(() => expect(rig.http.requests).toHaveLength(1));
-        expect(rig.http.requests[0]).toMatchObject({ path: "/api/hid/print?limit=0&delay=0.02", body: "from the host" });
+        for (const [key, code] of [["v", "KeyV"], ["c", "KeyC"]] as const) {
+            const proceed = fireEvent.keyDown(field(), { key, code, ctrlKey: true });
+            expect(proceed, `${code}: the browser's own copy or paste is not left to run`).toBe(false);
+            fireEvent.keyUp(field(), { key, code, ctrlKey: true });
+        }
         rig.clock.advance(1000);
-        expect(rig.sent()).toEqual([]);
+        const sent = rig.sent();
+        expect(sent).toContain("key KeyV:down");
+        expect(sent).toContain("key KeyC:down");
+        expect(sent.filter((each) => each.includes("ControlLeft"))).not.toEqual([]);
+        expect(readText).not.toHaveBeenCalled();
+        expect(rig.http.requests).toHaveLength(0);
     });
 
-    it("says so when the clipboard cannot be read or is empty, and sends nothing", async () => {
-        clipboard(new Error("denied"));
+    it("Cmd+V does not read this machine's clipboard either", async () => {
+        const { readText } = clipboard("from this machine");
         const rig = await mount({ dock: false });
         fireEvent.keyDown(field(), { key: "v", code: "KeyV", metaKey: true });
-        await waitFor(() => expect(rig.session.notices.store.getState().text).toBe("Could not read the host clipboard"));
-
-        clipboard("");
-        fireEvent.keyDown(field(), { key: "v", code: "KeyV", ctrlKey: true });
-        await waitFor(() => expect(rig.session.notices.store.getState().text).toBe("Host clipboard is empty"));
+        rig.clock.advance(1000);
+        expect(readText).not.toHaveBeenCalled();
         expect(rig.http.requests).toHaveLength(0);
+    });
+
+    it("a paste or a drop that reaches the field by another road (a menu, a long press) types nothing", async () => {
+        const { readText } = clipboard("from this machine");
+        const rig = await mount({ dock: false });
+        const target = field();
+        const paste = new Event("paste", { bubbles: true, cancelable: true });
+        expect(target.dispatchEvent(paste)).toBe(false);
+        for (const inputType of ["insertFromPaste", "insertFromPasteAsQuotation", "insertFromDrop", "insertFromYank"]) {
+            const before = new InputEvent("beforeinput", { inputType, data: "pasted", bubbles: true, cancelable: true });
+            expect(target.dispatchEvent(before), inputType).toBe(false);
+        }
+        expect(target.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }))).toBe(false);
+        rig.clock.advance(1000);
+        expect(rig.sent()).toEqual([]);
+        expect(rig.http.requests).toHaveLength(0);
+        expect(readText).not.toHaveBeenCalled();
     });
 });
 

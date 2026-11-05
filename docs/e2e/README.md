@@ -24,6 +24,14 @@ Puppeteer is not a dependency of the repo, so the run takes its locations from t
 
 The run exits non-zero if any case fails.
 
+`apps/web/e2e/clipboard.e2e.mjs` runs against the same two servers (the web host needs `NODE_PATH` set to a `node_modules` with `sharp`, as for the other
+runs) and covers copy and paste on the KVM screen in real Chrome. Ctrl+C and Ctrl+V are sent with the browser's own `copy` and `paste` editing commands
+attached, as a real key press carries them (a bare CDP key press does not run them), so the page's own handling is what decides: they reach the fake kvmd
+as keys, nothing from this machine's clipboard is typed, and the hidden field gains nothing. A control case shows the same key event DOES paste into an
+ordinary text box. It then types clipboards of odd text (curly quotes, CRLF, zero-width marks, emoji, a broken surrogate, tabs, a large mixed pile)
+through "Type text on the target" and asserts what kvmd received. `PUPPETEER_CORE=... CHROME=... node apps/web/e2e/clipboard.e2e.mjs [--out docs/e2e]`
+writes `docs/e2e/<date>-clipboard.md`.
+
 `deploy/e2e/chat.e2e.mjs` drives the HOSTED deployment over HTTP and the chat socket: the one image this repo builds
 (`make image`) with a fake kvmd and a scripted model, brought up with
 `podman compose -f deploy/e2e/compose.yml up -d` (set `KVM_IMAGE` if the image has another name). It listens on

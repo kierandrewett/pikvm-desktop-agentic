@@ -30,5 +30,6 @@ export {
     printQuery,
     type KeymapChoice,
 } from "./paste/print-query";
+export { MAX_TYPED_CHARS, prepareTypedText, type TypedText } from "./paste/typed-text";
 export * from "./soft-keyboard/index";
 export { createTypingGate, type TypingGate, type TypingState } from "./typing-gate";

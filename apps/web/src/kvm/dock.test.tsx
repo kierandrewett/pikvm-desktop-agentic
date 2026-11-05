@@ -37,7 +37,7 @@ function stubController(initial: PictureState = idle) {
 }
 
 const NO_ACTIONS: ActionSections = {
-    tools: [{ id: "paste", label: "Paste text to the target", run: () => {} }],
+    tools: [{ id: "paste", label: "Type text on the target", run: () => {} }],
     power: [],
     view: [{ id: "theme", label: "Toggle theme", run: () => {} }],
 };
@@ -246,7 +246,7 @@ describe("the bar", () => {
 
     it("paste opens the paste dialog", async () => {
         const { props } = await mount();
-        fireEvent.click(within(document.body).getByRole("button", { name: "Paste text to the target" }));
+        fireEvent.click(within(document.body).getByRole("button", { name: "Type text on the target" }));
         expect(props.openDialog).toHaveBeenCalledWith("paste");
     });
 });
