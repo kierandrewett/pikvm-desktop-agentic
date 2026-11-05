@@ -6,7 +6,7 @@
  *  V2. The poller keeps running after the last user switched off, or stops while one is still on; a restart forgets who had it on.
  *  V3. The rule is stored unvalidated (an unbounded rule makes every request dearer).
  *  V4. The OCR is sent the whole frame, or the wrong rectangle of it.
- *  V5. The chain (a pop-up appears, is read, written up by the chat model, pushed) fires more or less than once.
+ *  V5. The chain (a pop-up appears, is read, read again and judged by the chat model, pushed) fires more or less than once.
  *  V6. The view hands out anything secret (a subscription endpoint), or old settings fields come back.
  *  V7. The look pace is not the interval, or goes under the floor.
  *  V8. The test notification reports success when nobody was reachable.
@@ -17,7 +17,8 @@ import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { ALERT_ZONES, DEFAULT_ALERT_ZONE } from "@pikvm/contracts/watch";
 import type { ImageOps } from "../src/image-ops";
-import { limitsFromEnv, MAX_RULE_CHARS } from "../src/server/watch/limits";
+import { JUDGE_TIMEOUT_MS, limitsFromEnv, MAX_RULE_CHARS, READ_TIMEOUT_MS } from "../src/server/watch/limits";
+import { JUDGE_PROMPT, READ_PROMPT } from "../src/server/watch/prompts";
 import { createWatchService, WatchRefusal, type WatchService } from "../src/server/watch/service";
 import { PushError } from "../src/server/watch/push";
 import type { Snapshot } from "../src/server/watch/watcher";
@@ -33,6 +34,8 @@ interface Asked {
     system: string;
     user: string;
     timeoutMs: number;
+    maxTokens: number | undefined;
+    json: boolean | undefined;
 }
 
 interface Rig {
@@ -47,7 +50,7 @@ interface Rig {
     screen: { label: string; width: number; height: number };
     screens: Record<string, Uint8Array>;
     /** The chat model: whether there is one, what it was asked, and what it answers. */
-    chat: { present: boolean; asked: Asked[]; answer: string };
+    chat: { present: boolean; asked: Asked[]; read: string; judge: string };
     cropFails: boolean;
     hasGray: boolean;
     step(): Promise<void>;
@@ -69,7 +72,12 @@ function rig(reuse?: TempDir): Rig {
         crops: [],
         screen: { label: "home", width: 1920, height: 1080 },
         screens,
-        chat: { present: true, asked: [], answer: "Anna Berg asks if you are free Thursday" },
+        chat: {
+            present: true,
+            asked: [],
+            read: JSON.stringify({ source: "Outlook", from: "Anna Berg", subject: "Lunch on Thursday?", text: "Outlook / Anna Berg / Lunch on Thursday? / Are you free at 12:30", when: "12:30", numbers_and_codes: ["12:30"], actions: [], urgent_words: [] }),
+            judge: JSON.stringify({ reason: "person_waiting", notify: true, body: "Anna Berg asks if you are free Thursday at 12:30.", title: "Anna Berg" }),
+        },
         cropFails: false,
         hasGray: true,
         async step() {
@@ -96,8 +104,9 @@ function rig(reuse?: TempDir): Rig {
         chat: {
             hasSmallModel: () => state.chat.present,
             smallText: async (userId, system, user, options) => {
-                state.chat.asked.push({ userId, system, user, timeoutMs: options.timeoutMs });
-                return state.chat.present ? state.chat.answer : undefined;
+                state.chat.asked.push({ userId, system, user, timeoutMs: options.timeoutMs, maxTokens: options.maxTokens, json: options.json });
+                if (!state.chat.present) return undefined;
+                return system === READ_PROMPT ? state.chat.read : state.chat.judge;
             },
             userDir: (userId) => join(dir.path, "chat", "users", userId),
         },
@@ -232,7 +241,7 @@ describe("the pace and the crop", () => {
 });
 
 describe("the chain", () => {
-    it("V5: a pop-up is read on the host, written up by the chat model from the text only, and pushed once", async () => {
+    it("V5: a pop-up is read on the host, then read and judged by the chat model from the text only (JSON asked for), and pushed once", async () => {
         const r = rig();
         r.ocr.texts = { "crop:toast": ["Outlook", "Anna Berg", "Lunch on Thursday?", "Are you free at 12:30"] };
         r.service.update("operator", { enabled: true });
@@ -241,10 +250,15 @@ describe("the chain", () => {
         for (let i = 0; i < 6 && r.push.sent.length === 0; i++) await r.step();
         for (let i = 0; i < 4; i++) await r.step();
         assert.equal(r.push.sent.length, 1);
-        assert.equal(r.push.sent[0]!.payload.body, "Anna Berg asks if you are free Thursday");
-        assert.equal(r.chat.asked.length, 1);
-        assert.equal(r.chat.asked[0]!.timeoutMs, 2500);
-        assert.ok(!/crop|jpe?g|base64/i.test(r.chat.asked[0]!.user + r.chat.asked[0]!.system), "text only");
+        assert.equal(r.push.sent[0]!.payload.body, "Anna Berg asks if you are free Thursday at 12:30.");
+        assert.equal(r.push.sent[0]!.payload.title, "Anna Berg");
+        assert.equal(r.chat.asked.length, 2);
+        assert.equal(r.chat.asked[0]!.system, READ_PROMPT);
+        assert.ok(r.chat.asked[1]!.system.startsWith(JUDGE_PROMPT));
+        assert.equal(r.chat.asked[0]!.timeoutMs, READ_TIMEOUT_MS);
+        assert.ok(r.chat.asked[1]!.timeoutMs <= JUDGE_TIMEOUT_MS && r.chat.asked[1]!.timeoutMs > 0);
+        assert.ok(r.chat.asked.every((asked) => asked.json === true && (asked.maxTokens ?? 0) > 80), "JSON asked for, and room to answer it");
+        for (const asked of r.chat.asked) assert.ok(!/crop|jpe?g|base64/i.test(asked.user + asked.system), "text only");
         assert.equal(r.service.view("operator").limits.askedToday, 1);
     });
 

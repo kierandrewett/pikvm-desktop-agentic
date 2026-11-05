@@ -12,7 +12,7 @@
  *  G8. The log hides why a check did not notify.
  *  G9. Fast alerts can be switched on while the watch is off, or the page does not say why not.
  *  G10. The corner choice sends more than the rectangle, or shows another corner than the stored one.
- *  G11. The fast alerts text promises what the server does not do, or talks about models.
+ *  G11. The text promises what the server does not do, talks about models by name, or does not say what is and is not notified.
  */
 
 import { ALERT_ZONES, type CheckEntry, type WatchView } from "@pikvm/contracts/watch";
@@ -277,7 +277,7 @@ describe("the rule", () => {
         device({ permission: "granted" });
         renderApp("/settings/notifications");
         const save = await screen.findByRole("button", { name: "Save" });
-        const rule = await screen.findByLabelText("Rule", { selector: "textarea" });
+        const rule = await screen.findByLabelText("Extra instructions", { selector: "textarea" });
         await waitFor(() => expect(rule).toHaveValue("old rule"));
         expect(save).toBeDisabled();
         await userEvent.clear(rule);
@@ -371,6 +371,25 @@ describe("the log", () => {
         expect(labels).toEqual(["Notified you", "Nothing sent", "Failed"]);
     });
 
+    it("a pop-up judged not urgent is 'Not urgent' with the reason as a plain label; a notified one says why, and a failed step says so", async () => {
+        const server = watchServer({ chatModel: true });
+        const at = (t: number) => ({ t, at: new Date(t).toISOString() });
+        const latency = { firstSeenAt: 1, capturedAt: 2, detectedAt: 3 };
+        server.checks = [
+            { ...at(3000), kind: "alert", score: 0.2, outcome: "pushed", asked: true, latency: { ...latency, pushedAt: 4000, totalMs: 3100 }, judged: { readMs: 900, judgeMs: 3000, judgeSkipped: "timeout" }, notified: { kind: "other", tag: "t", urgency: "normal", ttlSec: 300, titleChars: 5, bodyChars: 40 } },
+            { ...at(2000), kind: "alert", score: 0.2, outcome: "pushed", asked: true, latency: { ...latency, pushedAt: 2500, totalMs: 1800 }, judged: { readMs: 800, readSkipped: "invalid", judgeMs: 700, notify: true, reason: "person_waiting" }, notified: { kind: "email", tag: "t", urgency: "normal", ttlSec: 300, titleChars: 5, bodyChars: 90 } },
+            { ...at(1000), kind: "alert", score: 0.2, outcome: "no", asked: true, latency, judged: { readMs: 600, judgeMs: 500, notify: false, reason: "marketing_social" } },
+        ];
+        install(server);
+        device();
+        renderApp("/settings/notifications");
+        const log = (await screen.findByText("Recent checks")).closest("section")!;
+        await waitFor(() => expect(within(log).getByText("Pop-up in the corner: marketing or social activity")).toBeInTheDocument());
+        expect(within(log).getByText(/^Not urgent, /)).toBeInTheDocument();
+        expect(within(log).getByText("Pop-up in the corner: a pop-up, judging ran out of time, so it was sent as read, 3.1 seconds to send")).toBeInTheDocument();
+        expect(within(log).getByText("Pop-up in the corner: a pop-up, a person is waiting, reading gave an answer that could not be used, 1.8 seconds to send")).toBeInTheDocument();
+    });
+
     it("says there is nothing yet when there is nothing", async () => {
         install(watchServer());
         device();
@@ -421,9 +440,9 @@ describe("where pop-ups appear", () => {
     });
 });
 
-describe("how notifications are written", () => {
-    const HONEST = "The text read from the pop-up (not the picture) is sent to your chat model to write the notification.";
-    const NONE = "No chat model is configured, so notifications show the text as read.";
+describe("how notifications are decided", () => {
+    const HONEST = "The text read from the pop-up (not the picture) goes to your chat model. It reads the text and decides whether it is worth interrupting you for.";
+    const NONE = "No chat model is configured, so every pop-up is sent as read.";
 
     it("S1: with a chat model configured it says what leaves: the text, not the picture", async () => {
         install(watchServer({ chatModel: true }));
@@ -433,13 +452,13 @@ describe("how notifications are written", () => {
         expect(screen.queryByText(NONE)).not.toBeInTheDocument();
     });
 
-    it("S2: with none it says the notifications show the text as read, and that a rule cannot be applied", async () => {
+    it("S2: with none it says every pop-up is sent as read, and that extra instructions cannot be applied", async () => {
         install(watchServer({ chatModel: false }));
         device({ permission: "granted" });
         renderApp("/settings/notifications");
         expect(await screen.findByText(NONE)).toBeInTheDocument();
         expect(screen.queryByText(HONEST)).not.toBeInTheDocument();
-        expect(screen.getByText(/Without a chat model a rule cannot be applied, so every pop-up is sent/)).toBeInTheDocument();
+        expect(screen.getByText(/Without a chat model every pop-up is sent, and extra instructions cannot be applied/)).toBeInTheDocument();
     });
 
     it("S3: there is one watch switch and nothing about modes, summaries or providers", async () => {
@@ -451,13 +470,27 @@ describe("how notifications are written", () => {
         expect(screen.queryByText(/fast alerts|summar|OpenRouter|image model|Jev/i)).not.toBeInTheDocument();
     });
 
-    it("S4: the page's words name no app and no use", async () => {
+    it("S4: the page's words name no app or product (generic categories such as a call are fine)", async () => {
         install(watchServer({ chatModel: true }));
         device({ permission: "granted" });
         renderApp("/settings/notifications");
         await screen.findByRole("switch", { name: NOTIFY });
         const page = screen.getByRole("heading", { name: "Notifications" }).closest("main") ?? document.body;
-        expect(page.textContent).not.toMatch(/e-?mail|teams|outlook|meeting|\bcalls?\b|work pc/i);
+        expect(page.textContent).not.toMatch(/teams|outlook|slack|gmail|openrouter|anthropic|openai|work pc/i);
+        expect(page.querySelector("textarea")?.getAttribute("placeholder") ?? "").not.toMatch(/teams|outlook|slack|gmail|openrouter|anthropic|openai/i);
+    });
+
+    it("S5: it says in plain words what is notified by default and what is not, and that the field adds to that", async () => {
+        install(watchServer({ chatModel: true }));
+        device({ permission: "granted" });
+        renderApp("/settings/notifications");
+        expect(await screen.findByText("Notified by default")).toBeInTheDocument();
+        expect(screen.getByText(/^Calls\. People waiting for a reply\..*Sign-in requests and codes\. Failures and outages\. Deadlines and money\. Alarms and door alerts\.$/)).toBeInTheDocument();
+        expect(screen.getByText("Not notified by default")).toBeInTheDocument();
+        expect(screen.getByText(/^Marketing\. Likes, follows and posts\. Routine status.*Group chatter and bot messages\. Repeats\.$/)).toBeInTheDocument();
+        const field = await screen.findByLabelText("Extra instructions", { selector: "textarea" });
+        expect(field).toHaveAttribute("placeholder", expect.stringMatching(/^For example: /));
+        expect(screen.getByText(/Add what else matters, or what to ignore/)).toBeInTheDocument();
     });
 });
 

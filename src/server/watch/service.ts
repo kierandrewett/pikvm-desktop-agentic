@@ -32,7 +32,7 @@ export class WatchRefusal extends Error {
 /** The chat host's part the watch needs. */
 export interface WatchChat {
     /** One small text request on the user's chat model. Undefined when there is no model to ask. Rejects on failure or after `timeoutMs`. */
-    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined>;
+    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     /** Whether `smallText` has a model to ask right now. */
     hasSmallModel(userId: string): boolean;
     userDir(userId: string): string;
@@ -172,7 +172,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             ocr,
             model: {
                 available: () => hasModel(userId),
-                ask: (system, user, timeoutMs) => deps.chat.smallText(userId, system, user, { maxTokens: 80, timeoutMs }),
+                ask: (system, user, options) => deps.chat.smallText(userId, system, user, options),
             },
             crop: cropCells,
             userActive: () => presence.active(userId),

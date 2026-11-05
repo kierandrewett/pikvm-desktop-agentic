@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { MAX_BODY_CHARS } from "./limits";
 
 /**
  * The words of a fast alert, made from what the local OCR read off a pop-up in the corner of the screen. Deterministic: no
@@ -28,7 +29,7 @@ export interface Toast {
     words: number;
 }
 
-export const MAX_BODY_CHARS = 300;
+/** A notification's title is cut to this. */
 const MAX_TITLE_CHARS = 60;
 
 /** Fewer words than this is not a pop-up's text: a glyph, an icon's name, OCR noise. */
@@ -138,9 +139,4 @@ export function readToast(raw: readonly string[]): Toast | null {
         urgency: "normal",
         words,
     };
-}
-
-/** The text a user's rule is judged against: the app and the lines, as one line. */
-export function toastForRule(toast: Toast): string {
-    return `${toast.app ?? toast.title}: ${toast.lines.join(" | ")}`.slice(0, 600);
 }

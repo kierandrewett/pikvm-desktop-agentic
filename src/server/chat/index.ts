@@ -47,7 +47,7 @@ export interface ChatHost {
     /** The long edge of the screenshots the agent sees, from Settings. */
     maxEdge(): number;
     /** One small text request on the user's chat model. Undefined when there is no model to ask, or while chat is not up. */
-    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined>;
+    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     /** Whether a small text request has a model to ask right now. False while chat is not up. */
     hasSmallModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`, where that user's files live. Throws while chat is not up. */

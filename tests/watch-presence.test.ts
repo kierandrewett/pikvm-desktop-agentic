@@ -241,11 +241,22 @@ describe("a pop-up while the person is at the screen", () => {
         assert.equal(entry.asked, true, "it was read, so it counts as a check");
     });
 
-    it("H1: the person arrives while the model is writing: checked again right before the push, and nothing is sent", async () => {
+    it("H1: the person arrives while the model is reading: checked again between the two steps, so the judge is not asked and nothing is sent", async () => {
         const r = rig();
         r.model.onAsk = () => r.presence.report(USER, "client-a", report({ keyboardAgoMs: 0 }));
         await r.popup("toast-a");
-        assert.equal(r.model.asks.length, 1, "the model was already asked");
+        assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read"], "only the first step was asked");
+        assert.equal(r.push.sent.length, 0);
+        assert.equal(r.entries()[0]!.outcome, "held");
+    });
+
+    it("H1: the person arrives while the model is judging: checked again right before the push, and nothing is sent", async () => {
+        const r = rig();
+        r.model.onAsk = (step) => {
+            if (step === "judge") r.presence.report(USER, "client-a", report({ keyboardAgoMs: 0 }));
+        };
+        await r.popup("toast-a");
+        assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read", "judge"]);
         assert.equal(r.push.sent.length, 0);
         assert.equal(r.entries()[0]!.outcome, "held");
     });

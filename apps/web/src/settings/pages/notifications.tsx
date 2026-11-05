@@ -2,15 +2,16 @@
  * Settings -> Notifications: the server-side watch for pop-ups.
  *
  * The server looks at one corner of the PiKVM's screen on its own, with no browser open; when a pop-up appears it reads it on the
- * server and sends a Web Push to the devices that subscribed, written as a sentence by the user's chat model when there is one. This
- * page switches that on, says where pop-ups appear, holds the rule, subscribes THIS device, sends a test, and shows the check log so a
+ * server and, when the person has a chat model, that model decides whether it is worth interrupting them for and writes the notification
+ * before a Web Push goes to the devices that subscribed. This page switches that on, says where pop-ups appear, says what is notified
+ * and what is not, holds the person's extra instructions, subscribes THIS device, sends a test, and shows the check log so a
  * notification that did not come can be explained.
  *
  * On an iPhone it only works from the app added to the Home Screen, and the permission prompt must come from the tap
  * that switches it on (see device.ts and push-client.ts).
  */
 
-import { ALERT_ZONES, alertZoneId, type CheckEntry, type WatchView } from "@pikvm/contracts/watch";
+import { ALERT_ZONES, alertZoneId, type CheckEntry, type JudgeReason, type ModelFailure, type WatchView } from "@pikvm/contracts/watch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { describeDevice, readDeviceEnv, type DeviceState } from "../../notify/device";
@@ -43,10 +44,35 @@ const checksKey = ["watch", "checks"] as const;
 /** How the log names what happened. */
 const OUTCOME: Record<CheckEntry["outcome"], string> = {
     pushed: "Notified you",
-    no: "Not what you asked for",
+    no: "Not urgent",
     held: "Held back",
     skipped: "Nothing sent",
     error: "Failed",
+};
+
+/** The judge's reasons as plain labels. The log never holds the pop-up's words, so this is all it can say about one. */
+const REASON: Record<JudgeReason, string> = {
+    call: "a call",
+    person_waiting: "a person is waiting",
+    time_critical: "starts soon",
+    security: "a sign-in or security request",
+    failure: "something failed",
+    money_legal: "money or a deadline",
+    real_world: "an alarm or a door alert",
+    routine: "routine status",
+    marketing_social: "marketing or social activity",
+    chatter: "group chatter or a bot",
+    duplicate: "a repeat",
+    rule: "your extra instructions",
+    other: "nothing that needs you",
+};
+
+/** What a step of the chat model did when it gave nothing usable. */
+const FAILURE: Record<ModelFailure, string> = {
+    timeout: "ran out of time",
+    error: "failed",
+    invalid: "gave an answer that could not be used",
+    empty: "gave an empty answer",
 };
 
 /** The choice a stored rectangle that is none of the presets shows as; it cannot be picked, only kept. */
@@ -59,11 +85,20 @@ function formatTime(t: number): string {
 }
 
 export function checkSummary(entry: CheckEntry): string {
-    const detail = entry.reason ?? entry.description ?? "";
     const what = entry.kind === "test" ? "Test notification" : "Pop-up in the corner";
+    const judged = entry.judged;
+    if (entry.outcome === "no" && judged?.reason) return `${what}: ${REASON[judged.reason]}`;
+    const detail = entry.reason ?? entry.description ?? "";
     // The log never holds the pop-up's words, so say what kind of notification it was and how long it took instead.
     const seconds = entry.latency?.totalMs !== undefined ? `${(entry.latency.totalMs / 1000).toFixed(1)} seconds to send` : "";
-    const facts = entry.kind === "alert" ? [entry.notified?.urgency === "high" ? "urgent" : entry.notified ? "a pop-up" : "", seconds].filter(Boolean).join(", ") : "";
+    const steps = judged
+        ? [
+              judged.notify && judged.reason ? REASON[judged.reason] : "",
+              judged.readSkipped ? `reading ${FAILURE[judged.readSkipped]}` : "",
+              judged.judgeSkipped ? `judging ${FAILURE[judged.judgeSkipped]}, so it was sent as read` : "",
+          ]
+        : [];
+    const facts = entry.kind === "alert" ? [entry.notified?.urgency === "high" ? "urgent" : entry.notified ? "a pop-up" : "", ...steps, seconds].filter(Boolean).join(", ") : "";
     return `${what}${detail ? `: ${detail}` : facts ? `: ${facts}` : ""}`;
 }
 
@@ -275,11 +310,11 @@ export function NotificationsPage() {
                     />
                     {data ? (
                         <SettingRow
-                            label="How notifications are written"
+                            label="How notifications are decided"
                             description={
                                 data.chatModel
-                                    ? "The text read from the pop-up (not the picture) is sent to your chat model to write the notification."
-                                    : "No chat model is configured, so notifications show the text as read."
+                                    ? "The text read from the pop-up (not the picture) goes to your chat model. It reads the text and decides whether it is worth interrupting you for."
+                                    : "No chat model is configured, so every pop-up is sent as read."
                             }
                         />
                     ) : null}
@@ -288,24 +323,39 @@ export function NotificationsPage() {
 
             <form onSubmit={submit} className="contents">
                 <SettingsSection
-                    title="What to tell me about"
+                    title="What is worth a notification"
                     description={
                         data?.chatModel === false
-                            ? "Describe what matters in your own words. Leave it empty to hear about every pop-up. Without a chat model a rule cannot be applied, so every pop-up is sent."
-                            : "Describe what matters in your own words. Leave it empty to hear about every pop-up."
+                            ? "Without a chat model every pop-up is sent, and extra instructions cannot be applied."
+                            : "You are notified when you are needed now or within minutes."
                     }
                 >
                     <SettingsCard>
-                        <SettingRow id="watch-rule" label="Rule" stack control={
-                            <TextArea
-                                label="Rule"
-                                rows={3}
-                                maxLength={500}
-                                value={shownRule}
-                                disabled={!data}
-                                onChange={setRule}
-                            />
-                        } />
+                        <SettingRow
+                            label="Notified by default"
+                            description="Calls. People waiting for a reply. Things that start in minutes. Sign-in requests and codes. Failures and outages. Deadlines and money. Alarms and door alerts."
+                        />
+                        <SettingRow
+                            label="Not notified by default"
+                            description="Marketing. Likes, follows and posts. Routine status, such as updates and finished backups. Group chatter and bot messages. Repeats."
+                        />
+                        <SettingRow
+                            id="watch-rule"
+                            label="Extra instructions"
+                            description="Add what else matters, or what to ignore. Sign-in requests stay on unless you name them."
+                            stack
+                            control={
+                                <TextArea
+                                    label="Extra instructions"
+                                    rows={3}
+                                    maxLength={500}
+                                    placeholder="For example: also tell me about the build server. Ignore anything about the news."
+                                    value={shownRule}
+                                    disabled={!data}
+                                    onChange={setRule}
+                                />
+                            }
+                        />
                     </SettingsCard>
                     <div className="flex justify-end">
                         <Button type="submit" variant="primary" disabled={!dirty || save.isPending}>

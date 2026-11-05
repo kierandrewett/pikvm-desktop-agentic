@@ -74,4 +74,46 @@ describe("smallText", () => {
         await expect(smallText(OPERATOR_ID, "s", "u", { timeoutMs: 1000 })).rejects.toThrow(/HTTP 401/);
         await expect(smallText(OPERATOR_ID, "s", "u", { timeoutMs: 1000 })).rejects.not.toThrow(/sk-test-secret-key/);
     });
+
+    describe("json", () => {
+        const reply = (content: string) => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200, headers: { "content-type": "application/json" } });
+
+        it("asks the endpoint for JSON mode and passes the token limit; without it the request has no response_format", async () => {
+            setValue("agent.providers", provider(), "test");
+            setValue("agent.defaultModel", "mine/small", "test");
+            const bodies: Record<string, unknown>[] = [];
+            vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+                bodies.push(JSON.parse(String(init.body)));
+                return reply("{}");
+            });
+            await smallText(OPERATOR_ID, "s", "u", { json: true, maxTokens: 400, timeoutMs: 1000 });
+            await smallText(OPERATOR_ID, "s", "u", { timeoutMs: 1000 });
+            expect(bodies[0]!.response_format).toEqual({ type: "json_object" });
+            expect(bodies[0]!.max_tokens).toBe(400);
+            expect(bodies[1]!.response_format).toBeUndefined();
+            expect(bodies[1]!.max_tokens).toBe(80);
+        });
+
+        it("an endpoint that does not know JSON mode (400 or 422) is asked once more without it; any other failure is not retried", async () => {
+            setValue("agent.providers", provider(), "test");
+            setValue("agent.defaultModel", "mine/small", "test");
+            const seen: boolean[] = [];
+            let status = 400;
+            vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+                const withFormat = "response_format" in JSON.parse(String(init.body));
+                seen.push(withFormat);
+                return withFormat ? new Response("unknown field response_format", { status }) : reply('{"ok":true}');
+            });
+            expect(await smallText(OPERATOR_ID, "s", "u", { json: true, timeoutMs: 1000 })).toBe('{"ok":true}');
+            expect(seen).toEqual([true, false]);
+            status = 422;
+            seen.length = 0;
+            expect(await smallText(OPERATOR_ID, "s", "u", { json: true, timeoutMs: 1000 })).toBe('{"ok":true}');
+            expect(seen).toEqual([true, false]);
+            status = 500;
+            seen.length = 0;
+            await expect(smallText(OPERATOR_ID, "s", "u", { json: true, timeoutMs: 1000 })).rejects.toThrow(/HTTP 500/);
+            expect(seen).toEqual([true]);
+        });
+    });
 });

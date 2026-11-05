@@ -83,7 +83,7 @@ export interface ChatServer {
      * One small text request on the user's own chat model (the Small tasks role, else the default model), through the provider and
      * the credential the chat already has. Undefined when there is no model that can be called. Rejects on failure or after `timeoutMs`.
      */
-    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined>;
+    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     /** Whether `smallText` has a model to ask right now. */
     hasSmallModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`. Not created. */

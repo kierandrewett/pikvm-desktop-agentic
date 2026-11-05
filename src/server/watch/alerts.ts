@@ -1,5 +1,6 @@
 import type { CheckEntry, CheckLatency, WatchSettings } from "@pikvm/contracts/watch";
 import { changedBox, createZoneSettler, zoneCells, type Frame, type ZoneCells, type ZoneSettler } from "./frame-diff";
+import { failOpenBody, judgePopup, readFacts, type Ask, type Facts, type Verdict } from "./judge";
 import {
     ALERT_TTL_SEC,
     CALL_TTL_SEC,
@@ -7,7 +8,6 @@ import {
     DUPLICATE_MS,
     OCR_PAD_CELLS,
     OCR_TIMEOUT_MS,
-    SUMMARY_TIMEOUT_MS,
     ZONE_CHANGE_FRACTION,
     ZONE_MAX_FRACTION,
     type WatchLimits,
@@ -15,14 +15,13 @@ import {
 import { OcrTimeoutError, type Ocr, type OcrResult } from "./ocr";
 import { PushError, type Push, type PushPayload } from "./push";
 import type { WatchStore } from "./store";
-import { parseAnswer, summaryRequest } from "./summary";
 import { cleanLines, MIN_TOAST_WORDS, readToast, toastHash } from "./toast-rules";
 
 /**
  * One user's watch, below the shared poller: a pop-up in one corner of the screen, from the look that sees it to the push.
  * docs/deploy-web.md ("Screen watch") has the flow and the numbers.
  *
- * Zone diff, then a crop, then OCR on this host, then text rules, then (when the user has a chat model) one small request to it, then
+ * Zone diff, then a crop, then OCR on this host, then text rules, then (when the user has a chat model) two small requests to it, then
  * the push. What it is, rule by rule:
  *  - it watches one rectangle (the zone) of the grey grid;
  *  - a change counts as a pop-up once it has held `settleMs` (1.2 s), and is not dropped if it goes away afterwards: it is read from the
@@ -30,11 +29,13 @@ import { cleanLines, MIN_TOAST_WORDS, readToast, toastHash } from "./toast-rules
  *  - only the cells that changed (the pop-up and a margin) are cropped and read;
  *  - its own gap (4 s) and daily cap (500), so two pop-ups 5 s apart both notify;
  *  - the same pop-up text inside `DUPLICATE_MS` is told once;
- *  - the chat model gets the OCR text (never the picture) and writes the notification as one sentence; with a rule it also answers SKIP for
- *    a pop-up that is not what the rule asks about. Past 2.5 s, on an error or an unusable answer, the notification is the rules' own
- *    text (with a rule: it is sent, a rule that could not be applied is not a reason to miss it). A call never waits for the model.
- *    Without a chat model there is no network call at all and the notification is the text as read.
- * Every check logs the timestamps of its path and never the screen's words (unless the host runs with `PIKVM_WATCH_LOG_TEXT=1`).
+ *  - the chat model gets the OCR text (never the picture) in two steps (prompts.ts, judge.ts): READ writes down everything the pop-up
+ *    shows, JUDGE decides from those facts whether it is worth interrupting the person for and writes the notification (the user's rule
+ *    is part of the JUDGE step only). Each step has its own hard time limit inside one budget (limits.ts). READ failing leaves the
+ *    JUDGE the OCR lines as read; JUDGE failing sends the notification anyway (fail open), as the facts' text or else the rules' own
+ *    text. A call never waits for the model. Without a chat model there is no network call at all and the notification is the text as read.
+ * Every check logs the timestamps of its path and fixed words for the model's steps, and never the screen's words (unless the host runs with
+ * `PIKVM_WATCH_LOG_TEXT=1`, which adds the OCR text) and never what the chat model wrote, whatever the host runs with.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -43,8 +44,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export interface AlertModel {
     /** A model is configured and its provider can be called. */
     available(): boolean;
-    /** One request; undefined when there is no model to ask. Rejects on failure or after `timeoutMs`. */
-    ask(system: string, user: string, timeoutMs: number): Promise<string | undefined>;
+    /**
+     * One request, answered with JSON where the provider has a JSON mode; undefined when there is no model to ask. Rejects on failure or
+     * after `options.timeoutMs`.
+     */
+    ask: Ask;
 }
 
 export interface AlertsDeps {
@@ -218,31 +222,34 @@ export function createAlerts(deps: AlertsDeps): Alerts {
                 return record({ ...common(), outcome: "skipped", reason: `The same pop-up text was notified ${seconds} seconds ago, so it was not sent again.` });
             }
 
-            // The chat model, if there is one: the OCR text in (never the picture), a sentence out; with a rule, SKIP for what the rule does
-            // not ask about. A call never waits for it. Any failure leaves the rules' own text, and the log says why (a reason, never text).
+            // The chat model, if there is one: the OCR text in (never the picture), in two steps (see `consult`). A call never waits for it.
+            // Whatever it does, the log gets numbers and fixed words, never its text.
             let body = toast.body;
-            let summary: CheckEntry["summary"];
+            let title = toast.title;
+            /** Whether the notification is the rules' own words (the OCR's text) and not the model's. Only those may be logged, and only on request. */
+            let ownWords = true;
+            let judged: CheckEntry["judged"];
             if (present()) return held();
             if (toast.kind !== "call" && deps.model.available()) {
-                const started = deps.now();
-                const answer = await ask(settings.rule, toast.lines);
-                latency.summarisedAt = deps.now();
-                const ms = latency.summarisedAt - started;
-                if (answer.kind === "skip") {
-                    return record({ ...common(), summary: { used: false, ms }, outcome: "no", reason: "The rule says this pop-up is not what you asked about." });
-                }
-                if (answer.kind === "text") {
-                    body = answer.text;
-                    summary = { used: true, ms };
-                } else {
-                    summary = { used: false, ms, skipped: `summary skipped: ${answer.why}` };
+                const consulted = await consult(toast.lines, settings.rule, latency);
+                if (consulted === "held") return held();
+                judged = consulted.judged;
+                if (consulted.verdict && !consulted.verdict.notify) return record({ ...common(), judged, outcome: "no" });
+                if (consulted.verdict) {
+                    body = consulted.verdict.body;
+                    title = consulted.verdict.title ?? toast.title;
+                    ownWords = false;
+                } else if (consulted.facts) {
+                    // The judge failed: fail open, with the facts' text.
+                    body = failOpenBody(consulted.facts, toast.body);
+                    ownWords = body === toast.body;
                 }
             }
 
             if (present()) return held();
             const ttlSec = toast.kind === "call" ? CALL_TTL_SEC : ALERT_TTL_SEC;
-            const payload: PushPayload = { title: toast.title, body, tag: toast.tag, url: "/app/", badge: 1 };
-            const done = { ...common(), ...(summary ? { summary } : {}) };
+            const payload: PushPayload = { title, body, tag: toast.tag, url: "/app/", badge: 1 };
+            const done = { ...common(), ...(judged ? { judged } : {}) };
             try {
                 const sent = await deps.push.send(deps.userId, payload, { urgency: toast.urgency, ttlSeconds: ttlSec });
                 latency.pushedAt = deps.now();
@@ -257,9 +264,9 @@ export function createAlerts(deps: AlertsDeps): Alerts {
                         tag: toast.tag,
                         urgency: toast.urgency,
                         ttlSec,
-                        titleChars: toast.title.length,
+                        titleChars: title.length,
                         bodyChars: body.length,
-                        ...(deps.logText ? { title: toast.title, body } : {}),
+                        ...(deps.logText && ownWords ? { title, body } : {}),
                     };
                     return record({ ...done, outcome: "pushed", push, notified: facts });
                 }
@@ -274,23 +281,35 @@ export function createAlerts(deps: AlertsDeps): Alerts {
         }
     }
 
-    /** The model's answer to one pop-up, or why there is none. The timeout is hard: the request is abandoned, not waited for. */
-    async function ask(rule: string, lines: readonly string[]): Promise<ReturnType<typeof parseAnswer>> {
-        const { system, user } = summaryRequest(lines, rule);
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const timedOut = new Promise<"timed out">((resolve) => {
-            timer = setTimeout(() => resolve("timed out"), SUMMARY_TIMEOUT_MS);
-        });
-        try {
-            const raw = await Promise.race([deps.model.ask(system, user, SUMMARY_TIMEOUT_MS), timedOut]);
-            if (raw === "timed out") return { kind: "unusable", why: "timed out" };
-            if (raw === undefined) return { kind: "unusable", why: "no chat model" };
-            return parseAnswer(raw, rule !== "");
-        } catch {
-            return { kind: "unusable", why: "model error" };
-        } finally {
-            clearTimeout(timer);
-        }
+    /**
+     * The chat model's two steps on one pop-up. READ first: the OCR lines to facts. Then JUDGE: the facts (or, when READ gave nothing
+     * usable, the lines as read) and the person's rule to a verdict. Each has its own hard time limit; JUDGE gets at most what is left of
+     * the budget after READ. "held" when the person came to the screen in between. A step that fails is in `judged` as a fixed word; what to
+     * do about it is the caller's: no verdict means notify anyway.
+     */
+    async function consult(
+        lines: readonly string[],
+        rule: string,
+        latency: CheckLatency,
+    ): Promise<"held" | { judged: NonNullable<CheckEntry["judged"]>; facts?: Facts; verdict?: Verdict }> {
+        const { readTimeoutMs, judgeTimeoutMs, modelBudgetMs } = deps.limits;
+        const started = deps.now();
+        const read = await readFacts(deps.model.ask, lines, Math.min(readTimeoutMs, modelBudgetMs), deps.now);
+        latency.factsAt = deps.now();
+        if (deps.userActive?.() === true) return "held";
+        const left = modelBudgetMs - (deps.now() - started);
+        const judge = await judgePopup(deps.model.ask, read.ok ? read.value : lines, rule, Math.min(judgeTimeoutMs, left), deps.now);
+        latency.judgedAt = deps.now();
+        return {
+            judged: {
+                readMs: read.ms,
+                ...(read.ok ? {} : { readSkipped: read.failure }),
+                judgeMs: judge.ms,
+                ...(judge.ok ? { notify: judge.value.notify, reason: judge.value.reason } : { judgeSkipped: judge.failure }),
+            },
+            ...(read.ok ? { facts: read.value } : {}),
+            ...(judge.ok ? { verdict: judge.value } : {}),
+        };
     }
 
     return {

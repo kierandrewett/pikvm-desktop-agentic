@@ -5,6 +5,7 @@ import { GRID_CELLS, type Grid } from "../../src/server/watch/frame-diff";
 import { GRID_WIDTH } from "../../src/server/watch/limits";
 import type { AlertModel } from "../../src/server/watch/alerts";
 import type { Ocr } from "../../src/server/watch/ocr";
+import { JUDGE_PROMPT, READ_PROMPT } from "../../src/server/watch/prompts";
 import type { Push, PushPayload, SendOptions, SendResult, StoredSubscription } from "../../src/server/watch/push";
 import { PushError } from "../../src/server/watch/push";
 import { createWatchStore, type WatchStore } from "../../src/server/watch/store";
@@ -54,37 +55,63 @@ export function tempStore(root: string): WatchStore {
     return createWatchStore({ userDir: (id) => join(root, "users", id), usersRoot: () => join(root, "users") });
 }
 
+/** What one step of the fake model answers; a function can make it depend on the message. */
+export type FakeAnswer = string | undefined | ((user: string) => string | undefined);
+
+/** The two steps, as a test sees them. */
+export type FakeStep = "read" | "judge";
+
 export interface FakeModel extends AlertModel {
     /** A chat model is configured. */
     present: boolean;
-    /** The requests made: the instructions, the message and the time limit. */
-    asks: { system: string; user: string; timeoutMs: number }[];
-    /** What the model answers; a function can make it depend on the message. */
-    answer: string | undefined | ((user: string) => string | undefined);
-    /** Make every request fail with this. */
-    error: Error | null;
-    /** While set, a request never answers: a model that is too slow. */
-    hang: boolean;
+    /** The requests made, in order: which step, the instructions, the message and the request's options. */
+    asks: { step: FakeStep; system: string; user: string; timeoutMs: number; maxTokens: number; json: boolean }[];
+    /** What each step answers. */
+    answer: Record<FakeStep, FakeAnswer>;
+    /** Make a step fail with this. */
+    error: Record<FakeStep, Error | null>;
+    /** While set for a step, it never answers: a model that is too slow. */
+    hang: Record<FakeStep, boolean>;
     /** Called when a request is made, so a test can let time pass while the model "thinks". */
-    onAsk: (() => void) | null;
+    onAsk: ((step: FakeStep) => void) | null;
 }
+
+/** The facts of a pop-up as step 1 answers them. */
+export const FACTS_JSON = JSON.stringify({
+    source: "Outlook",
+    from: "Anna Berg",
+    subject: "Lunch on Thursday?",
+    text: "Outlook / Anna Berg / Lunch on Thursday? / Are you free at 12:30 for the quarterly review",
+    when: "12:30",
+    numbers_and_codes: ["12:30"],
+    actions: [],
+    urgent_words: [],
+});
+
+/** A verdict as step 2 answers it. */
+export const verdictJson = (over: Record<string, unknown> = {}): string =>
+    JSON.stringify({ reason: "person_waiting", notify: true, body: "Anna Berg asks if you are free Thursday at 12:30 for the quarterly review.", title: "Anna Berg", ...over });
 
 export function fakeModel(): FakeModel {
     const model: FakeModel = {
         present: true,
         asks: [],
-        answer: "Anna Berg asks if you are free Thursday at 12:30 for the quarterly review",
-        error: null,
-        hang: false,
+        answer: { read: FACTS_JSON, judge: verdictJson() },
+        error: { read: null, judge: null },
+        hang: { read: false, judge: false },
         onAsk: null,
         available: () => model.present,
-        async ask(system, user, timeoutMs) {
-            model.asks.push({ system, user, timeoutMs });
-            model.onAsk?.();
+        async ask(system, user, options) {
+            const step: FakeStep = system === READ_PROMPT ? "read" : "judge";
+            if (step === "judge" && !system.startsWith(JUDGE_PROMPT)) throw new Error("the fake model was asked something that is neither step");
+            model.asks.push({ step, system, user, ...options });
+            model.onAsk?.(step);
             if (!model.present) return undefined;
-            if (model.hang) return new Promise<never>(() => undefined);
-            if (model.error) throw model.error;
-            return typeof model.answer === "function" ? model.answer(user) : model.answer;
+            if (model.hang[step]) return new Promise<never>(() => undefined);
+            const error = model.error[step];
+            if (error) throw error;
+            const answer = model.answer[step];
+            return typeof answer === "function" ? answer(user) : answer;
         },
     };
     return model;

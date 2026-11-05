@@ -113,7 +113,7 @@ export async function complete(
     system: string,
     user: string,
     maxTokens = 64,
-    options: { disableReasoning?: boolean; timeoutMs?: number } = {},
+    options: { disableReasoning?: boolean; json?: boolean; timeoutMs?: number } = {},
 ): Promise<string | undefined> {
     const target = chatTarget(userId, t.provider);
     if (!target) return undefined;
@@ -133,6 +133,8 @@ export async function complete(
                 stream: false,
                 // OpenRouter can spend the small naming budget on reasoning instead of visible text.
                 ...(options.disableReasoning && t.provider === "openrouter" ? { reasoning: { enabled: false } } : {}),
+                // JSON mode: the endpoint then answers with one JSON object only (the messages must say "JSON").
+                ...(options.json ? { response_format: { type: "json_object" } } : {}),
             });
             return r?.choices?.[0]?.message?.content ?? "";
         }
@@ -143,6 +145,7 @@ export async function complete(
                 input: user,
                 max_output_tokens: maxTokens,
                 store: false,
+                ...(options.json ? { text: { format: { type: "json_object" } } } : {}),
             });
             if (typeof r?.output_text === "string") return r.output_text;
             return (r?.output ?? [])
@@ -162,7 +165,7 @@ export async function complete(
             const r = await post(`/models/${encodeURIComponent(t.model)}:generateContent`, {
                 systemInstruction: { parts: [{ text: system }] },
                 contents: [{ role: "user", parts: [{ text: user }] }],
-                generationConfig: { maxOutputTokens: maxTokens },
+                generationConfig: { maxOutputTokens: maxTokens, ...(options.json ? { responseMimeType: "application/json" } : {}) },
             });
             return (r?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p?.text ?? "").join("");
         }

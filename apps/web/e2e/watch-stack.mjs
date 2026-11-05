@@ -23,6 +23,9 @@ export const CANARY = { key: `sk-or-e2e-${Math.random().toString(16).slice(2, 18
 
 export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
+/** The built host: `dist/` of this checkout, or the folder `PIKVM_E2E_DIST` names (a private build, so a run never waits on or disturbs `yarn build`). */
+export const dist = resolve(root, process.env.PIKVM_E2E_DIST ?? "dist");
+
 function start(name, args, env) {
     const lines = [];
     const child = spawn(process.execPath, args, { cwd: root, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
@@ -183,7 +186,7 @@ export async function startWatchStack({ ports = {}, env = {}, dataDir } = {}) {
     mkdirSync(join(data, "home"), { recursive: true });
     let host;
     const startHost = async () => {
-        host = start("web host", ["dist/web-server.js"], hostEnv);
+        host = start("web host", [join(dist, "web-server.js")], hostEnv);
         procs.push(host);
         await until(async () => (await fetch(`http://127.0.0.1:${p.web}/app/manifest.webmanifest`)).ok, "web host");
         await until(async () => (await (await fetch(`http://127.0.0.1:${p.web}/app/api/v1/state`)).json()).features.chat, "the chat server");
@@ -261,6 +264,7 @@ function watchStackCommon({ web, fakeUrl, pushUrl, orControl, orUrl, data, host,
         pushSubscribe: () => post(`${pushUrl}/__fake/subscription`).then((r) => r.json()),
         pushStatus: (id, status) => post(`${pushUrl}/__fake/status?id=${id}${status ? `&status=${status}` : ""}`),
         orScript: (body) => post(`${orControl}/__fake/script`, body),
+        orReset: () => post(`${orControl}/__fake/reset`),
         orCalls: async () => (await json(`${orControl}/__fake/requests`)).requests,
         restartHost,
         stop,

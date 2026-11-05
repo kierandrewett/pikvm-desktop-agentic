@@ -34,10 +34,21 @@ export function alertZoneId(zone: WatchZone): AlertZoneId | undefined {
     return ALERT_ZONES.find((preset) => preset.zone.x0 === zone.x0 && preset.zone.y0 === zone.y0 && preset.zone.x1 === zone.x1 && preset.zone.y1 === zone.y1)?.id;
 }
 
+/**
+ * Why the chat model judged a pop-up the way it did: a fixed set, so the log can say it without saying what the pop-up was. The first
+ * seven are the reasons to interrupt the person, the next four the reasons not to, `rule` is the person's own rule, `other` the rest.
+ */
+export const JUDGE_REASONS = ["call", "person_waiting", "time_critical", "security", "failure", "money_legal", "real_world", "routine", "marketing_social", "chatter", "duplicate", "rule", "other"] as const;
+
+export type JudgeReason = (typeof JUDGE_REASONS)[number];
+
+/** Why one of the chat model's two steps gave nothing usable: it ran out of time, failed, answered something that is not the JSON asked for, or answered with nothing in it. */
+export type ModelFailure = "timeout" | "error" | "invalid" | "empty";
+
 /** What a person sets: on or off, what to be told about in their own words (empty: every pop-up), and where on the screen pop-ups appear. */
 export interface WatchSettings {
     enabled: boolean;
-    /** Empty means: every pop-up. With a chat model configured the rule is applied by it; without one it cannot be, and every pop-up is notified. */
+    /** Empty means: nothing extra. Otherwise extra instructions for the chat model's judgement of a pop-up (what else to notify about, what never to); without a chat model they cannot be applied. */
     rule: string;
     /** The corner to watch. */
     alertZone: WatchZone;
@@ -48,7 +59,7 @@ export type WatchSettingsPatch = Partial<WatchSettings>;
 export interface WatchView extends WatchSettings {
     /** Whether the watch can be switched on now, and if not, why. */
     canEnable: { ok: true } | { ok: false; reason: string };
-    /** A chat model is configured, so a notification is written as a sentence (and a rule can be applied). Without one it shows the text as read. */
+    /** A chat model is configured, so it reads each pop-up and decides whether it is worth interrupting the person for (and applies the rule). Without one every pop-up is sent as read. */
     chatModel: boolean;
     /** Looking at the screen right now. */
     running: boolean;
@@ -82,13 +93,13 @@ export interface WatchPresence {
 export type CheckOutcome =
     /** A notification went out. */
     | "pushed"
-    /** The rule said this pop-up is not what the person asked about. */
+    /** The chat model judged the pop-up not worth interrupting the person for (`judged.reason` says why). Nothing was sent. */
     | "no"
     /** The person was using the app's window, so nothing was asked of any model and nothing was sent. */
     | "held"
     /** Something was seen but nothing was sent, for the reason in `reason`. */
     | "skipped"
-    /** Reading, the chat model or the push failed, for the reason in `reason`. */
+    /** Reading or the push failed, for the reason in `reason`. */
     | "error";
 
 /** One line of the check log (`users/<id>/watch/checks.jsonl`). */
@@ -107,8 +118,12 @@ export interface CheckEntry {
     description?: string;
     rule?: string;
     push?: { sent: number; removed: number; failed: number };
-    /** How the notification was written: whether a chat model's sentence became the body, how long it took, and why not when it did not (a reason, never text). */
-    summary?: { used: boolean; ms: number; skipped?: string };
+    /**
+     * How the chat model's two steps went (only when a chat model judged the pop-up): how long each took and, when one gave nothing usable,
+     * why (`readSkipped`: the judge got the pop-up's lines as read instead of the facts; `judgeSkipped`: the notification went out anyway).
+     * `notify` and `reason` are the judge's verdict. Fixed values and numbers only, never the model's words.
+     */
+    judged?: { readMs: number; readSkipped?: ModelFailure; judgeMs: number; judgeSkipped?: ModelFailure; notify?: boolean; reason?: JudgeReason };
     /** The timestamps (epoch ms), so the delay from the screen to the phone can be read off the log. */
     latency?: CheckLatency;
     /** How the text was read, and how much. Never the text itself: see `notified`. */
@@ -132,7 +147,8 @@ export interface CheckEntry {
 /**
  * One pop-up's path. `capturedAt` is when the snapshot of the frame that was read was requested (the Pi's own capture
  * and JPEG encode are inside it); `firstSeenAt` is the look that first saw the zone change, `detectedAt` the look at which it
- * had held long enough. `readAt` is when the OCR had the text, `summarisedAt` when the chat model's sentence was ready or given up on.
+ * had held long enough. `readAt` is when the OCR had the text, `factsAt` when the chat model's first step had the facts (or was given
+ * up on) and `judgedAt` when its second step had the verdict (or was given up on).
  * `totalMs` is `pushedAt - capturedAt`;
  * `sinceFirstSeenMs` is `pushedAt - firstSeenAt`, which is the one that includes the wait to be sure the pop-up has settled.
  */
@@ -141,8 +157,10 @@ export interface CheckLatency {
     capturedAt: number;
     detectedAt: number;
     readAt?: number;
-    /** When the chat model's sentence was ready (or was given up on), if one was asked for. */
-    summarisedAt?: number;
+    /** When the chat model's first step (reading the facts) was done or given up on, if a chat model was asked. */
+    factsAt?: number;
+    /** When its second step (the verdict) was done or given up on. */
+    judgedAt?: number;
     pushedAt?: number;
     totalMs?: number;
     sinceFirstSeenMs?: number;

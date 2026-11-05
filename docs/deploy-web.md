@@ -7,11 +7,20 @@ reaches the PiKVM only through the host's own tools.
 
 ```mermaid
 flowchart LR
-    phone[Browser or PWA] --> caddy[Caddy, TLS]
-    caddy -->|reverse_proxy kvm:8080| kvm[kvm: sign-in + host + chat server + omp]
-    kvm -.->|OIDC, optional| pocket[Pocket ID]
-    kvm --> pi[PiKVM]
-    kvm -->|API keys set in Settings| models[Model providers]
+    pi[PiKVM snapshot every 1 s] --> zone[zone diff on the 128x72 grey grid, held 1.2 s]
+    zone -->|a pop-up appeared| here{you are using this window?}
+    here -->|yes| held[held back, logged]
+    here -->|no| crop[crop of the cells that changed]
+    crop --> ocr[OCR on this host, own process]
+    ocr --> rules[text rules: a call, or ordinary]
+    rules -->|a call| push[Web Push]
+    rules -->|no chat model| push
+    rules -->|a chat model is set| read[step 1, READ: the text to facts, 3 s]
+    read --> judge[step 2, JUDGE: worth interrupting you? 3 s, 5 s in all]
+    read -.->|late or failed: the lines as read| judge
+    judge -->|yes: its body| push
+    judge -->|no: a reason, nothing sent| no[not urgent, logged]
+    judge -.->|late or failed: fail open, the facts' text| push
 ```
 
 ## The image
@@ -64,8 +73,9 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_WATCH_SETTLE_MS` | no | How long a pop-up must stay before it counts (default `1200`). |
 | `PIKVM_WATCH_MIN_GAP_SEC` | no | At most one check per watch in this many seconds (default `4`). |
 | `PIKVM_WATCH_DAILY_CAP` | no | At most this many checks per watch in 24 hours (default `500`). |
+| `PIKVM_WATCH_READ_TIMEOUT_MS`, `PIKVM_WATCH_JUDGE_TIMEOUT_MS`, `PIKVM_WATCH_MODEL_BUDGET_MS` | no | The chat model's two steps: how long each may take and the budget for both (defaults `3000`, `3000`, `5000`). Raise them for a slow local model. |
 | `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR that reads pop-ups: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
-| `PIKVM_WATCH_LOG_TEXT` | no | `1` puts a notification's words (title and body) in `checks.jsonl`. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
+| `PIKVM_WATCH_LOG_TEXT` | no | `1` puts the OCR text of a pop-up in `checks.jsonl`, and the notification's title and body when they are the rules' own words. Never the chat model's words, with or without it. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
 | `PIKVM_PUSH_ALLOW_LOCAL` | no | `1` accepts push subscriptions on any address, loopback and plain http included. For tests and local runs only: left off, only the push services browsers use are accepted. |
 
@@ -91,7 +101,7 @@ home-screen app when a pop-up appears there (a toast: Windows shows them at the 
 and off until switched on in Settings, Notifications. It is one poller on the PiKVM, shared by everyone who has theirs on, and it runs
 only while at least one person does. There is one mode: the settings are on or off, **Where pop-ups appear** (bottom right, top right,
 bottom left, top left; stored as a rectangle of the frame in fractions, `alertZone`, default x 0.62 to 1, y 0.55 to 1, so a custom rectangle
-can be offered later) and an optional rule in the person's own words.
+can be offered later) and optional extra instructions in the person's own words (stored as `rule`).
 
 ```mermaid
 flowchart LR
@@ -134,24 +144,66 @@ flowchart LR
    (at most 300 characters; the phone cuts it to what fits); any other shows its lines. Urgency normal, a 5 minute TTL and a tag of its
    text. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The **same pop-up text inside 30 s is notified
    once**.
-5. **The notification's words, from your chat model (optional).** If the app has a chat model configured (Settings, Models: the Small
-   tasks role, else Fast, else the default model, on whatever provider it names, through the chat server's own stored credential and
-   API type; no provider is built in here), the OCR **text** (never the picture) goes to it in **one small request** with a tight prompt:
-   one sentence, at most 140 characters, who and what and what is asked, fix words the OCR ran together, never add what the text does
-   not say. The sentence becomes the body; the title stays the rules' title. **With a rule** (Settings, "What to tell me about") the rule
-   goes in the same request and the model answers either the sentence or the exact word `SKIP`, which means no notification. **Without
-   a rule** every pop-up is notified. A hard **2.5 s** timeout (the request is aborted); on a timeout, an error, an empty answer or one over
-   140 characters the rules' own text is sent (with a rule too: a rule that could not be applied is not a reason to miss a pop-up) and the
-   log says `summary skipped: <reason>` (a reason, never text). **A call never waits for the model** and is never asked about. With **no chat
-   model configured there is no network call at all**: the notification is the text as read, and a rule cannot be applied (the page says
-   so). A model that cannot be called (no key, an API type the chat server has no client for) counts as none.
+5. **Is it worth interrupting you? Your chat model, in two steps (optional).** If the app has a chat model configured (Settings, Models:
+   the Small tasks role, else Fast, else the default model, on whatever provider it names, through the chat server's own stored credential
+   and API type; no provider is built in here), the OCR **text** (never the picture) goes to it in **two small requests**, each asked
+   for JSON (JSON mode where the provider has one; a server that refuses the option is asked again without it). Every word the model
+   is told is in `src/server/watch/prompts.ts`, with the reasoning behind it; the parsing and the checks are in `judge.ts`.
+   - **Step 1, READ** copies and judges nothing. It writes down everything the pop-up shows as one JSON object: `source` (the app or
+     site it names), `from`, `subject`, `text` (every line, joined), `when`, `numbers_and_codes`, `actions` (buttons or choices shown) and
+     `urgent_words` (now, urgent, today, overdue, expires...). It misses nothing, never invents or guesses a name, keeps every number, and
+     repairs a word the OCR ran together ("thereview") only when the text makes the right word clear. Two worked examples.
+   - **Step 2, JUDGE** decides: it gets those facts (compact JSON, empty fields left out; or the lines as read if step 1
+     failed) and the person's extra instructions, decides whether this is worth interrupting them for, and writes the body. Its answer
+     is `{reason, notify, body, title}` where `reason` is one of `call, person_waiting, time_critical, security, failure, money_legal,
+     real_world, routine, marketing_social, chatter, duplicate, rule, other` (asked first, so the category decides the yes or no).
+   - **What needs immediate attention** (the test is "needed now or within minutes", not "important"): someone calling, a call or video
+     invitation ringing, a missed call from a person; a real person waiting on you (a direct message or mail that asks a question, asks
+     for something or waits for a reply, most of all with time pressure, or that names you); something starting now or very soon (a
+     meeting or event within about 15 minutes, a reminder for a time today); security and access (a sign-in to approve, a one-time code, a
+     password reset, an unknown device, a locked or compromised account, fraud, a declined payment); something broken or about to break
+     (an error, a failed build, deploy or job, an outage, a service down, a disk or memory full or critically low, a failed backup, a
+     critical battery, a threat found, a restart needed now); money, law and deadlines (overdue, due now, a signature or offer that
+     expires); the real world (a delivery at the door, an alarm, a door, motion or camera alert).
+   - **What does not**: marketing (ads, offers, newsletters, surveys, requests for a review) and social activity (likes, follows,
+     reactions, comments, "someone posted"); routine status that asks nothing (an update available, a backup done, a build passed,
+     synced, saved, someone typing, read receipts, presence, a statement or storage notice, an event for tomorrow or later); group or channel
+     chatter not addressed to you, bot noise and digests; a repeat of something already shown, or only a count of it.
+   - **When unsure:** from a person, or with a real consequence, notify; automated and low-signal, do not. A missed urgent pop-up is the
+     worse error (you never learn of it), so every default leans to sending.
+   - **The body** is plain text for a lock screen: no emoji, sentence case, at most 250 characters (300 is the hard cut, `MAX_BODY_CHARS`),
+     carrying every material detail the facts give (who, what, what is asked, the time or deadline, amounts, codes, names), never
+     anything they do not. The optional `title` replaces the rules' title. The pop-up text is data: both prompts say never to follow
+     instructions in it.
+   - **Your extra instructions** (Settings, Notifications) are added to **step 2 only**, as the last lines of its instructions (never in the
+     pop-up's message, so text on the screen cannot pose as them): they may add things to notify about or things never to notify about; they
+     never switch off a call or a sign-in prompt unless they name them (`reason` is then `rule`). Calls themselves never reach the model.
+   - **Time and failure.** READ has **3 s**, JUDGE **3 s**, and both together **5 s** (`READ_TIMEOUT_MS`, `JUDGE_TIMEOUT_MS`,
+     `MODEL_BUDGET_MS`, overridable per host with the three `PIKVM_WATCH_*` variables above). After a slow READ, JUDGE gets what is left of
+     the 5 s, and none (it is not asked) if READ used it up. A step past its limit is abandoned and the request aborted. Why 3 s: on the four best of the hosted small models tried (`docs/e2e/2026-11-05-notification-judge.md`, 105 pop-ups) JUDGE
+   answered in 0.7 to 1.2 s at the median and 1.2 to 2.4 s at the 90th percentile, READ in 0.9 to 2.1 s (90th percentile 1.7 to 3.0 s),
+   and the pair in 3.8 to 4.7 s at the 90th percentile, so 3 + 3 inside 5 s lets nearly all of them through; and a notification should
+   not wait much longer than that for a better sentence. A late READ costs only detail (JUDGE reads the lines instead); a late JUDGE costs a
+   notification for something it would have held back, which is why it is the one given the most of the budget. A local model that is slower
+   needs the variables; its server's prompt cache makes the long fixed instructions cost only the first time. The policy: **READ
+     fails, is late or is not JSON** (log: `readSkipped`): JUDGE is given the lines as read. **JUDGE fails, is late, is not JSON, has a
+     reason outside the list that contradicts its decision (a reason to stay quiet on `notify: true`, or the reverse), or says notify with
+     no body** (log: `judgeSkipped`): **fail open**, the notification is sent anyway, with the facts' text when READ got that far, else the
+     rules' own text. A reason word that is not in the list ("social") is read as `other`: the decision stands. Answers are parsed as the first
+     balanced JSON object (a fence or a sentence around it is fine), every field is validated, lengths are clamped and control characters
+     and emoji are stripped. Nothing leaves the host with **no chat model configured**: the notification is the text as read, and the
+     extra instructions cannot be applied (the page says so). A model that cannot be called (no key, an API type the chat server has no
+     client for) counts as none.
+   - **The log** gets numbers and fixed words only (`judged`: `readMs`, `judgeMs`, `notify`, `reason`, `readSkipped`, `judgeSkipped`, and
+     the `factsAt` and `judgedAt` timestamps): never the pop-up's text, the facts, or what the model wrote, even with `PIKVM_WATCH_LOG_TEXT=1`
+     (which still logs the OCR text and, when the notification is the rules' own words, its title and body).
 6. **Held back while you are using the window.** Every notification, a call too, is suppressed while the person is already at the screen: a page of
    the app has **focus** (visible and `document.hasFocus()`, the existing `useInBackground`) **and** saw **real** input within the last
    **20 s** (`USER_ACTIVE_WINDOW_MS`): any real key press, or a significant pointer movement (about **40 CSS px** of path, forgotten after 1 s
    without movement, so a nudge, a bump or drift does not count; a finger on the screen counts at once, since touch is how a phone is used; a mouse
    click without movement does not). Only **real** input counts: trusted DOM events (`isTrusted`) on the page. The HID the app itself sends
    (the jiggler's nudges, the computer-use agent, macros, replays) never counts, and the host infers nothing from HID traffic. The check is made
-   **first** (a pop-up that appears while you are at the screen is not even read), **again before the chat model is asked** and **again just
+   **first** (a pop-up that appears while you are at the screen is not even read), **again before the chat model is asked, again between its two steps** and **again just
    before the push**, so no model request, no push and no cost when it holds. The check log gets its own outcome, `held`, "you are using
    this window", with no pop-up text, and a held pop-up is not marked as notified, so the same one is sent when you have left. The page
    (`apps/web/src/notify/presence.ts`, mounted in the shell for the hosted app, the phone app and the desktop shell alike) reports to
@@ -174,8 +226,10 @@ model service. The notification itself goes to the device's push service, as alw
 ### What it costs, and the bounds
 
 - **Per check:** the host's CPU (one snapshot a second, 3 ms to turn it into the grey grid on a workstation, and the OCR when a pop-up
-  appears) and, with a chat model, one request of about 100 tokens in and 20 out. Tried with three small models on 2026-11-05: about
-  $0.00001 per notification, 0.14 to 2.9 s a request (so the 2.5 s limit is real); the cost is on whatever provider the chat model is.
+  appears) and, with a chat model, **two requests**: about 2,500 tokens in (the two prompts are about 700 and 1,500 tokens and are the same
+  every time, so a provider or local server that caches the prompt prefix charges or computes them once) and about 250 out. On a hosted
+  small model at $0.10 per million tokens in and $0.40 out that is about $0.0004 a notification (a calculation from those prices, not a
+  bill); the measured request times are in `docs/e2e/2026-11-05-notification-judge.md`. The cost is on whatever provider the chat model is.
 - **Bounds** (per watch, whatever the screen does): at most **one check per 4 s**; a pop-up inside that gap waits, and only the newest one
   is checked when it ends (the ones it replaced are logged as skipped); at most **500 checks in any 24 hours**, counted from the log so a
   restart does not reset it; one check at a time. Two pop-ups 5 s apart both notify.
@@ -189,9 +243,13 @@ model service. The notification itself goes to the device's push service, as alw
   `--network none` (checked).
 
 **Measured** (`docs/e2e/2026-11-05-fast-alerts.md`, 10 toasts, fake PiKVM, fake push service on loopback, the real host and OCR on a
-workstation, no chat model): **toast to notification at the push service 1.8 s median (1.4 to 1.9 s)**; of that, waiting for the next
-look about 0.45 s (0.1 to 0.5 s here, up to 1 s in general), the 1.2 s hold, crop and OCR about 0.1 s (the OCR read itself 90 ms median here), the push send a few ms (loopback). **Not measured**: the push service on a
-real network (FCM or Apple add their own delay after the host's send), a real chat model (the fake answers after a scripted delay), a real
+workstation, no chat model): **toast to notification at the push service 1.8 s median (1.5 to 2.2 s)**; of that, waiting for the next
+look about 0.5 s (0.13 to 0.87 s here, up to 1 s in general), the 1.2 s hold, crop and OCR about 0.1 s (the OCR read itself 97 ms median here), the push send a few ms (loopback).
+With a chat model (the fake, answering READ after 400 ms and JUDGE after 600 ms, single runs, so give or take the up-to-1 s wait for the next
+look): an urgent pop-up 2.9 s from the toast to the notification; a judge that answers 503 1.8 s (it fails open at once); a judge that never
+answers 4.9 s (its 3 s limit, then the push); a call never asked about. What real small models did with the prompts (decisions, details
+kept, valid JSON, times) is in `docs/e2e/2026-11-05-notification-judge.md`. **Not measured**: the push service on a real network (FCM or Apple
+add their own delay after the host's send), a real chat model on this host (the models measured were hosted ones, over the internet), a real
 Pi, the real Xeon without its other load.
 
 ### The log: why it fired or did not
@@ -202,13 +260,18 @@ at `GET /app/api/v1/watch/checks`:
 ```json
 {"t":1793841911885,"at":"2026-11-05T01:25:11.885Z","kind":"alert","score":0.17,"rule":"","asked":true,"outcome":"pushed",
  "latency":{"firstSeenAt":1793841909159,"capturedAt":1793841910360,"detectedAt":1793841910361,"readAt":1793841910460,
-            "summarisedAt":1793841910810,"pushedAt":1793841910815,"totalMs":455,"sinceFirstSeenMs":1656},
- "read":{"ms":124,"chars":76,"words":13,"lines":4},"summary":{"used":true,"ms":350},
+            "factsAt":1793841910660,"judgedAt":1793841911110,"pushedAt":1793841911115,"totalMs":755,"sinceFirstSeenMs":1956},
+ "read":{"ms":124,"chars":76,"words":13,"lines":4},
+ "judged":{"readMs":200,"judgeMs":450,"notify":true,"reason":"person_waiting"},
  "push":{"sent":1,"removed":0,"failed":0},
  "notified":{"kind":"email","tag":"pikvm-alert-6c58e9e4","urgency":"normal","ttlSec":300,"titleChars":7,"bodyChars":59}}
 ```
 
-`kind` is `alert` (a pop-up) or `test`; `outcome` is `pushed`, `held` (you were using the window), `no` (the rule said it is not what was asked about), `skipped` (nothing was
+A pop-up the judge decided against is `{"outcome":"no","asked":true,"judged":{"readMs":180,"judgeMs":390,"notify":false,"reason":"routine"}, ...}` with no `push`.
+A step that gave nothing usable says so in `judged`: `"readSkipped":"timeout"` or `"judgeSkipped":"invalid"` (one of `timeout`, `error`,
+`invalid`, `empty`), and a `judgeSkipped` entry is `pushed` (fail open).
+
+`kind` is `alert` (a pop-up) or `test`; `outcome` is `pushed`, `held` (you were using the window), `no` (the chat model judged it not worth interrupting you for: `judged.reason` says why, as one word from the list above), `skipped` (nothing was
 sent, `reason` says why: replaced by a newer pop-up, daily cap, the same text a moment ago, too little text, a whole-corner change) or
 `error` (`reason` says what failed: the OCR, the push). `asked` is what the daily cap counts: a pop-up that was read. `latency` is epoch ms:
 `capturedAt` is when the snapshot that was read was requested (the Pi's own capture is inside it), `totalMs` is capture to push and

@@ -1,6 +1,6 @@
 /**
  * The watch through one user's pipeline: a pop-up in the corner of the screen, from the look that sees it to the push, read by the
- * host's own OCR and (when the user has a chat model) written as a sentence by it.
+ * host's own OCR and (when the user has a chat model) read and judged by it in two steps.
  *
  * Failure modes, before behaviour:
  *  F1. A pop-up waits longer than the settle time after the look that saw it.
@@ -8,7 +8,7 @@
  *  F3. Two pop-ups a few seconds apart are one notification, or the second is lost.
  *  F4. The same pop-up text twice inside 30 s is two notifications.
  *  F5. A caret, a clock digit or a pointer in the corner costs an OCR read.
- *  F7. Anything goes over the network with no chat model; a rule is ignored with one, or its SKIP is not obeyed.
+ *  F7. Anything goes over the network with no chat model; a rule is ignored with one, or reaches the step that only reads.
  *  F8. A call is pushed like anything else (urgency, time to live, title, tag), or waits for the model.
  *  F9. The gap or the cap is not held.
  *  F10. The log cannot say how long a notification took, or it holds the screen's words without being asked to.
@@ -17,18 +17,21 @@
  *  F13. A slow, failed or empty OCR sends nothing and says nothing.
  *  F14. The window behind a pop-up ends up in the notification.
  *  F17. The model gets the picture, or text it was not given; a bad answer is sent as the body.
+ *  F18. A step that fails, is late or is nonsense loses the pop-up (the judge failing must notify), or the wrong step's failure is blamed.
+ *  F19. The log holds what the pop-up or the model said, instead of numbers and fixed words.
  */
 import assert from "node:assert/strict";
 import { after, beforeEach, describe, it } from "node:test";
 import { ALERT_ZONES, DEFAULT_ALERT_ZONE, type CheckEntry, type WatchSettings } from "@pikvm/contracts/watch";
 import { createAlerts, type Alerts } from "../src/server/watch/alerts";
 import type { ZoneCells } from "../src/server/watch/frame-diff";
-import { ALERT_TTL_SEC, CALL_TTL_SEC, DEFAULT_SETTLE_MS, DUPLICATE_MS, limitsFromEnv, OCR_TIMEOUT_MS, SUMMARY_TIMEOUT_MS } from "../src/server/watch/limits";
+import { factsForJudge, parseFacts } from "../src/server/watch/judge";
+import { ALERT_TTL_SEC, CALL_TTL_SEC, DEFAULT_SETTLE_MS, DUPLICATE_MS, JUDGE_TIMEOUT_MS, limitsFromEnv, MAX_BODY_CHARS, OCR_TIMEOUT_MS, READ_TIMEOUT_MS, type WatchLimits } from "../src/server/watch/limits";
 import { OcrTimeoutError } from "../src/server/watch/ocr";
 import { PushError } from "../src/server/watch/push";
-import { RULE_ADDENDUM, SUMMARY_PROMPT } from "../src/server/watch/summary";
+import { JUDGE_PROMPT, READ_PROMPT } from "../src/server/watch/prompts";
 import type { WatchStore } from "../src/server/watch/store";
-import { cursor, fakeModel, fakeOcr, fakePush, flat, patched, tempDir, tempStore, type FakeModel, type FakeOcr, type FakePush, type TempDir } from "./support/watch-rig";
+import { cursor, FACTS_JSON, fakeModel, fakeOcr, fakePush, flat, patched, tempDir, tempStore, verdictJson, type FakeModel, type FakeOcr, type FakePush, type TempDir } from "./support/watch-rig";
 
 const USER = "operator";
 const SETTLE = DEFAULT_SETTLE_MS;
@@ -43,7 +46,9 @@ const MAIL = ["Outlook", "Anna Berg", "Lunch on Thursday?", "Are you free at 12:
 const CHAT = ["Microsoft Teams", "Ben Carter", "Can you join the standup now? We are waiting"];
 const CALL = ["Microsoft Teams", "Priya Shah is calling you", "Accept", "Decline"];
 const PLAIN_MAIL_BODY = "Anna Berg: Lunch on Thursday? - Are you free at 12:30 for the quarterly review";
-const SENTENCE = "Anna Berg asks if you are free Thursday at 12:30 for the quarterly review";
+const SENTENCE = "Anna Berg asks if you are free Thursday at 12:30 for the quarterly review.";
+/** The facts text of FACTS_JSON: what goes out when the judge fails after the facts were read. */
+const FACTS_TEXT = "Outlook / Anna Berg / Lunch on Thursday? / Are you free at 12:30 for the quarterly review";
 
 interface Rig {
     dir: TempDir;
@@ -67,7 +72,7 @@ interface Rig {
 const rigs: Rig[] = [];
 after(() => rigs.forEach((rig) => rig.dir.remove()));
 
-function rig(over: { dailyCap?: number; rule?: string; logText?: boolean; noModel?: boolean } = {}): Rig {
+function rig(over: { dailyCap?: number; rule?: string; logText?: boolean; noModel?: boolean; limits?: Partial<WatchLimits> } = {}): Rig {
     const dir = tempDir();
     const store = tempStore(dir.path);
     const result: Rig = {
@@ -107,7 +112,7 @@ function rig(over: { dailyCap?: number; rule?: string; logText?: boolean; noMode
         store,
         push: result.push,
         settings: () => result.settings,
-        limits: { ...limitsFromEnv({}), dailyCap: over.dailyCap ?? 500 },
+        limits: { ...limitsFromEnv({}), dailyCap: over.dailyCap ?? 500, ...over.limits },
         now: () => result.clock.t,
         ocr: result.ocr,
         model: result.model,
@@ -130,7 +135,7 @@ beforeEach(() => {
 });
 
 /** The same rig with a chat model configured. */
-function withModel(over: { rule?: string; logText?: boolean } = {}): void {
+function withModel(over: { rule?: string; logText?: boolean; limits?: Partial<WatchLimits> } = {}): void {
     r = rig(over);
     r.ocr.texts = { "crop:toast-a": MAIL, "crop:toast-b": CHAT, "crop:toast-c": CALL };
     r.hold(flat(60), "home", 3000);
@@ -345,7 +350,7 @@ describe("with no chat model", () => {
         assert.equal(r.push.sent.length, 1);
         assert.deepEqual(r.model.asks, []);
         const entry = r.entries()[0]!;
-        assert.equal(entry.summary, undefined);
+        assert.equal(entry.judged, undefined);
         assert.equal(entry.outcome, "pushed");
     });
 
@@ -361,52 +366,191 @@ describe("with no chat model", () => {
 describe("with a chat model", () => {
     beforeEach(() => withModel());
 
-    it("F17: the body is the model's sentence, the title stays the rules', and the request is the text only", async () => {
+    /** The chat model's steps are late or gone: short limits, so the hard timeout can be waited for. */
+    const quick: Partial<WatchLimits> = { readTimeoutMs: 30, judgeTimeoutMs: 30, modelBudgetMs: 1000 };
+
+    it("F17: READ then JUDGE, in that order, each asked for JSON, from the OCR text only; the verdict's body and title are what is pushed", async () => {
         r.toast(toastA(flat(60)), "toast-a");
         await r.alerts.idle();
-        assert.deepEqual(r.push.sent[0]!.payload, { title: "Outlook", body: SENTENCE, tag: r.push.sent[0]!.payload.tag, url: "/app/", badge: 1 });
-        assert.deepEqual(r.model.asks, [{ system: SUMMARY_PROMPT, user: MAIL.join(" | "), timeoutMs: SUMMARY_TIMEOUT_MS }]);
-        assert.ok(!r.model.asks[0]!.user.includes("crop:") && !r.model.asks[0]!.system.includes("crop:"), "the crop is not in the request");
+        assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read", "judge"]);
+        const [read, judge] = r.model.asks as [FakeModel["asks"][number], FakeModel["asks"][number]];
+        assert.equal(read.system, READ_PROMPT);
+        assert.equal(read.user, `Text:\n${MAIL.join("\n")}`);
+        assert.equal(read.timeoutMs, READ_TIMEOUT_MS);
+        assert.equal(judge.system, JUDGE_PROMPT);
+        const facts = parseFacts(FACTS_JSON);
+        assert.ok(facts.ok);
+        assert.equal(judge.user, `Facts: ${factsForJudge(facts.value)}`);
+        assert.ok(judge.timeoutMs > 0 && judge.timeoutMs <= JUDGE_TIMEOUT_MS);
+        for (const ask of r.model.asks) {
+            assert.equal(ask.json, true);
+            assert.ok(ask.maxTokens > 80, "room for a JSON answer");
+            assert.ok(!ask.user.includes("crop:") && !ask.system.includes("crop:"), "the crop is not in the request");
+        }
+        assert.deepEqual(r.push.sent[0]!.payload, { title: "Anna Berg", body: SENTENCE, tag: r.push.sent[0]!.payload.tag, url: "/app/", badge: 1 });
         const entry = r.entries()[0]!;
-        assert.deepEqual(entry.summary, { used: true, ms: 0 });
+        assert.equal(entry.outcome, "pushed");
+        assert.deepEqual(entry.judged, { readMs: 0, judgeMs: 0, notify: true, reason: "person_waiting" });
         assert.equal(entry.notified?.bodyChars, SENTENCE.length);
-        assert.ok(!JSON.stringify(entry).includes("Anna"), "no text in the log");
-        assert.ok(entry.latency!.summarisedAt !== undefined);
+        assert.ok(entry.latency!.factsAt !== undefined && entry.latency!.judgedAt !== undefined);
     });
 
-    it("F17: the model's time is in the latency fields and in the total", async () => {
-        r.model.onAsk = () => r.wait(600);
+    it("F17: each step's time is in `judged` and the latency fields, and in the total", async () => {
+        r.model.onAsk = (step) => r.wait(step === "read" ? 400 : 700);
         const firstSeen = r.clock.t;
         r.toast(toastA(flat(60)), "toast-a");
         await r.alerts.idle();
         const entry = r.entries()[0]!;
-        assert.equal(entry.summary?.ms, 600);
-        assert.equal(entry.latency?.summarisedAt, firstSeen + SETTLE + 600);
-        assert.equal(entry.latency?.totalMs, 600);
+        assert.equal(entry.judged?.readMs, 400);
+        assert.equal(entry.judged?.judgeMs, 700);
+        assert.equal(entry.latency?.factsAt, firstSeen + SETTLE + 400);
+        assert.equal(entry.latency?.judgedAt, firstSeen + SETTLE + 1100);
+        assert.equal(entry.latency?.totalMs, 1100);
     });
 
-    for (const [name, arrange, why] of [
-        ["an error", () => void (r.model.error = new Error("503")), /^summary skipped: model error$/],
-        ["an empty answer", () => void (r.model.answer = "   "), /^summary skipped: empty$/],
-        ["an answer over 140 characters", () => void (r.model.answer = "x".repeat(141)), /^summary skipped: too long \(141 characters\)$/],
-        ["no model after all (its provider cannot be called)", () => void (r.model.answer = undefined), /^summary skipped: no chat model$/],
-    ] as const) {
-        it(`F17: ${name} falls back to the text as read and says why, without text`, async () => {
-            arrange();
+    it("F17: a verdict of not urgent sends nothing and logs only the fixed reason; the same pop-up can come again and be judged again", async () => {
+        r.model.answer.judge = verdictJson({ reason: "routine", notify: false, body: "Secret body text", title: "Secret title" });
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.alerts.idle();
+        assert.equal(r.push.sent.length, 0);
+        const entry = r.entries()[0]!;
+        assert.equal(entry.outcome, "no");
+        assert.equal(entry.asked, true);
+        assert.equal(entry.reason, undefined);
+        assert.deepEqual(entry.judged, { readMs: 0, judgeMs: 0, notify: false, reason: "routine" });
+        const text = JSON.stringify(entry);
+        for (const word of ["Secret", "Anna", "Berg", "Lunch", "quarterly", "Outlook"]) assert.ok(!text.includes(word), `"${word}" is not in the log`);
+        r.hold(flat(60), "home", 6000);
+        r.model.answer.judge = verdictJson();
+        r.toast(toastB(flat(60)), "toast-a");
+        await r.alerts.idle();
+        assert.equal(r.push.sent.length, 1);
+    });
+
+    it("F17: every reason of the list is accepted and is logged as that word; one that is not in the list is 'other'", async () => {
+        for (const [reason, notify] of [["call", true], ["security", true], ["marketing_social", false], ["chatter", false], ["duplicate", false], ["rule", false], ["other", true]] as const) {
+            r.model.answer.judge = verdictJson({ reason, notify });
+            r.hold(flat(60), "home", 6000);
+            r.toast(toastA(flat(60)), "toast-a");
+            await r.alerts.idle();
+            assert.equal(r.entries().at(-1)!.judged?.reason, reason);
+            assert.equal(r.entries().at(-1)!.outcome, notify ? "pushed" : "no");
+            r.hold(flat(60), "home", DUPLICATE_MS);
+        }
+        r.model.answer.judge = verdictJson({ reason: "social" });
+        r.hold(flat(60), "home", 6000);
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.alerts.idle();
+        assert.equal(r.entries().at(-1)!.judged?.reason, "other");
+        assert.equal(r.entries().at(-1)!.outcome, "pushed");
+    });
+
+    it("F17: an answer wrapped in a fence and a sentence is read; emoji and control characters are stripped and a long body is cut at the limit", async () => {
+        const long = `${"word ".repeat(100)}end`;
+        r.model.answer.judge = `Sure! Here you go:\n\`\`\`json\n${verdictJson({ body: `Call Anna now \u{1F4DE}\u0007 ${long}`, title: "Anna \u{1F514}" })}\n\`\`\``;
+        r.toast(toastA(flat(60)), "toast-a");
+        await r.alerts.idle();
+        const payload = r.push.sent[0]!.payload;
+        assert.ok(payload.body.startsWith("Call Anna now word"));
+        assert.ok(!/[\u{1F4DE}\u0007]/u.test(payload.body));
+        assert.ok(payload.body.length <= MAX_BODY_CHARS && payload.body.endsWith("..."));
+        assert.equal(payload.title, "Anna");
+    });
+
+    describe("a step that fails (F18)", () => {
+        for (const [name, arrange, why] of [
+            ["errors", () => void (r.model.error.read = new Error("503")), "error"],
+            ["times out", () => void (r.model.hang.read = true), "timeout"],
+            ["answers something that is not JSON", () => void (r.model.answer.read = "I could not read that."), "invalid"],
+            ["answers with nothing", () => void (r.model.answer.read = "   "), "empty"],
+            ["answers JSON with no text in it", () => void (r.model.answer.read = JSON.stringify({ source: "x", from: null, text: "" })), "empty"],
+            ["is not there after all", () => void (r.model.answer.read = undefined), "error"],
+        ] as const) {
+            it(`READ ${name}: the judge gets the OCR lines as read, and the log says why (${why})`, async () => {
+                withModel({ limits: quick });
+                arrange();
+                r.toast(toastA(flat(60)), "toast-a");
+                await r.alerts.idle();
+                assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read", "judge"]);
+                assert.equal(r.model.asks[1]!.user, `The facts could not be read. The lines of the pop-up, as read:\n${MAIL.join("\n")}`);
+                assert.equal(r.push.sent[0]!.payload.body, SENTENCE, "the judge's body is used");
+                const entry = r.entries()[0]!;
+                assert.equal(entry.judged?.readSkipped, why);
+                assert.equal(entry.judged?.judgeSkipped, undefined);
+                assert.equal(entry.outcome, "pushed");
+            });
+        }
+
+        for (const [name, arrange, why] of [
+            ["errors", () => void (r.model.error.judge = new Error("503")), "error"],
+            ["times out", () => void (r.model.hang.judge = true), "timeout"],
+            ["answers something that is not JSON", () => void (r.model.answer.judge = "I cannot help with that."), "invalid"],
+            ["answers JSON of the wrong shape", () => void (r.model.answer.judge = JSON.stringify({ answer: "yes" })), "invalid"],
+            ["says notify with a reason to stay quiet", () => void (r.model.answer.judge = verdictJson({ notify: true, reason: "routine" })), "invalid"],
+            ["says do not notify with a reason to interrupt", () => void (r.model.answer.judge = verdictJson({ notify: false, reason: "security" })), "invalid"],
+            ["says notify with no body", () => void (r.model.answer.judge = verdictJson({ body: "  " })), "empty"],
+            ["answers with nothing", () => void (r.model.answer.judge = ""), "empty"],
+        ] as const) {
+            it(`JUDGE ${name}: it fails open, the notification goes out with the facts' text, and the log says why (${why})`, async () => {
+                withModel({ limits: quick });
+                arrange();
+                r.toast(toastA(flat(60)), "toast-a");
+                await r.alerts.idle();
+                assert.equal(r.push.sent.length, 1, "a judge that fails must not hide the pop-up");
+                assert.equal(r.push.sent[0]!.payload.body, FACTS_TEXT);
+                assert.equal(r.push.sent[0]!.payload.title, "Outlook", "the rules' own title");
+                const entry = r.entries()[0]!;
+                assert.equal(entry.outcome, "pushed");
+                assert.equal(entry.judged?.judgeSkipped, why);
+                assert.equal(entry.judged?.readSkipped, undefined);
+                assert.equal(entry.judged?.notify, undefined);
+            });
+        }
+
+        it("both steps failing: the rules' own plain text goes out", async () => {
+            withModel({ limits: quick });
+            r.model.error.read = new Error("503");
+            r.model.error.judge = new Error("503");
             r.toast(toastA(flat(60)), "toast-a");
             await r.alerts.idle();
             assert.equal(r.push.sent[0]!.payload.body, PLAIN_MAIL_BODY);
-            assert.match(r.entries()[0]!.summary?.skipped ?? "", why);
+            assert.deepEqual(r.entries()[0]!.judged, { readMs: 0, readSkipped: "error", judgeMs: 0, judgeSkipped: "error" });
         });
-    }
 
-    it("F17: a model that does not answer in 2.5 s is given up on: the text as read goes", async () => {
-        r.model.hang = true;
-        r.toast(toastA(flat(60)), "toast-a");
-        // The hard timeout is the thing under test, so this one waits for the real timer.
-        await r.alerts.idle();
-        assert.equal(r.push.sent[0]!.payload.body, PLAIN_MAIL_BODY);
-        assert.equal(r.entries()[0]!.summary?.skipped, "summary skipped: timed out");
+        it("a step that times out is abandoned at its own limit, not waited for", async () => {
+            withModel({ limits: { readTimeoutMs: 40, judgeTimeoutMs: 40, modelBudgetMs: 1000 } });
+            r.model.hang.read = true;
+            r.model.hang.judge = true;
+            const began = Date.now();
+            r.toast(toastA(flat(60)), "toast-a");
+            await r.alerts.idle();
+            const took = Date.now() - began;
+            assert.ok(took >= 70 && took < 1000, `two limits of 40 ms were waited, not a model's seconds (${took} ms)`);
+            assert.deepEqual(r.model.asks.map((ask) => ask.timeoutMs), [40, 40], "and the request was told its limit, so it is aborted");
+            assert.equal(r.push.sent.length, 1);
+        });
+
+        it("the budget: the judge gets what is left of it after a slow READ, and none at all when READ used it up", async () => {
+            withModel({ limits: { readTimeoutMs: 3000, judgeTimeoutMs: 3000, modelBudgetMs: 5000 } });
+            r.model.onAsk = (step) => {
+                if (step === "read") r.wait(4200);
+            };
+            r.toast(toastA(flat(60)), "toast-a");
+            await r.alerts.idle();
+            assert.equal(r.model.asks[1]!.timeoutMs, 800, "5000 less the 4200 that READ took");
+            r.hold(flat(60), "home", DUPLICATE_MS);
+            r.model.asks.length = 0;
+            r.model.onAsk = (step) => {
+                if (step === "read") r.wait(5200);
+            };
+            r.toast(toastA(flat(60)), "toast-a");
+            await r.alerts.idle();
+            assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read"], "no budget left: the judge is not asked");
+            const entry = r.entries().at(-1)!;
+            assert.equal(entry.judged?.judgeSkipped, "timeout");
+            assert.equal(entry.outcome, "pushed");
+            assert.equal(r.push.sent.at(-1)!.payload.body, FACTS_TEXT);
+        });
     });
 
     it("F8: a call never waits for the model, and is never asked about", async () => {
@@ -414,50 +558,62 @@ describe("with a chat model", () => {
         await r.alerts.idle();
         assert.equal(r.push.sent[0]!.payload.title, "Incoming call: Priya Shah");
         assert.deepEqual(r.model.asks, []);
-        assert.equal(r.entries()[0]!.summary, undefined);
+        assert.equal(r.entries()[0]!.judged, undefined);
     });
 
-    it("F7: the rule goes in the same request, in the message, and the instructions say how to answer SKIP", async () => {
-        withModel({ rule: "only mail from Anna" });
+    it("F7: the person's rule reaches the judge only, at the end of its instructions, and never the read step or the pop-up message", async () => {
+        withModel({ rule: "also tell me about the build server" });
         r.toast(toastA(flat(60)), "toast-a");
         await r.alerts.idle();
-        assert.deepEqual(r.model.asks, [{ system: SUMMARY_PROMPT + RULE_ADDENDUM, user: `Text: ${MAIL.join(" | ")}\nRule: only mail from Anna`, timeoutMs: SUMMARY_TIMEOUT_MS }]);
+        const [read, judge] = r.model.asks as [FakeModel["asks"][number], FakeModel["asks"][number]];
+        assert.equal(read.system, READ_PROMPT);
+        assert.ok(!read.user.includes("build server") && !read.system.includes("build server"));
+        assert.ok(judge.system.startsWith(JUDGE_PROMPT));
+        assert.ok(judge.system.endsWith("Extra instructions: also tell me about the build server"));
+        assert.ok(!judge.user.includes("build server"), "the pop-up's message carries no rule");
         assert.equal(r.push.sent[0]!.payload.body, SENTENCE);
-        assert.match(RULE_ADDENDUM, /exactly SKIP/);
     });
 
-    it("F7: SKIP means no notification, logged as such (and the text is not in the log)", async () => {
-        withModel({ rule: "only mail from Anna" });
-        r.model.answer = "SKIP";
+    it("F7: a rule that makes the judge say 'rule' for a skip is logged as that word, and the rule's own text is logged as the person's own setting", async () => {
+        withModel({ rule: "never tell me about mail" });
+        r.model.answer.judge = verdictJson({ reason: "rule", notify: false });
         r.toast(toastA(flat(60)), "toast-a");
         await r.alerts.idle();
         assert.equal(r.push.sent.length, 0);
-        const entry = r.entries()[0]!;
-        assert.equal(entry.outcome, "no");
-        assert.equal(entry.asked, true);
-        assert.ok(!JSON.stringify(entry).includes("Berg"));
-        // The text of a skipped pop-up is not "used up": the same pop-up can come again and be judged again.
-        r.hold(flat(60), "home", 6000);
-        r.model.answer = SENTENCE;
-        r.toast(toastB(flat(60)), "toast-a");
-        await r.alerts.idle();
-        assert.equal(r.push.sent.length, 1);
+        assert.equal(r.entries()[0]!.judged?.reason, "rule");
+        assert.equal(r.entries()[0]!.outcome, "no");
     });
 
-    it("F7: a rule with a timeout or an error still notifies, with the text as read", async () => {
-        withModel({ rule: "only mail from Anna" });
-        r.model.error = new Error("503");
+    it("F7: a rule with a failing judge still notifies, with the facts' text", async () => {
+        withModel({ rule: "only mail from Anna", limits: quick });
+        r.model.error.judge = new Error("503");
         r.toast(toastA(flat(60)), "toast-a");
         await r.alerts.idle();
-        assert.equal(r.push.sent[0]!.payload.body, PLAIN_MAIL_BODY);
+        assert.equal(r.push.sent[0]!.payload.body, FACTS_TEXT);
     });
 
-    it("F7: SKIP with no rule is not an answer: the text as read goes", async () => {
-        r.model.answer = "SKIP";
-        r.toast(toastA(flat(60)), "toast-a");
-        await r.alerts.idle();
-        assert.equal(r.push.sent[0]!.payload.body, PLAIN_MAIL_BODY);
-        assert.equal(r.entries()[0]!.summary?.skipped, "summary skipped: unexpected answer");
+    it("F19: nothing the pop-up or the model said is in the log, on any path (a verdict, a skip, a failed judge), even when the host logs text", async () => {
+        withModel({ logText: true });
+        const said = ["Anna", "Berg", "Lunch", "quarterly", "Thursday", "Outlook", "free at 12:30", "Written by the judge"];
+        const run = async (judge: string | undefined, error?: Error) => {
+            r.model.answer.judge = judge;
+            r.model.error.judge = error ?? null;
+            r.hold(flat(60), "home", DUPLICATE_MS + 1000);
+            r.toast(toastA(flat(60)), "toast-a");
+            await r.alerts.idle();
+        };
+        await run(verdictJson({ body: "Written by the judge, Anna Berg asks about Thursday", title: "Written by the judge" }));
+        await run(verdictJson({ reason: "routine", notify: false, body: "Written by the judge" }));
+        await run(undefined, new Error("503 Anna Berg"));
+        const entries = r.entries().filter((entry) => entry.kind === "alert");
+        assert.equal(entries.length, 3);
+        for (const entry of entries) {
+            const { description, ...rest } = entry;
+            const text = JSON.stringify(rest);
+            for (const word of said) assert.ok(!text.includes(word), `"${word}" is not in a ${entry.outcome} entry outside the OCR text the host was asked to log`);
+            assert.equal(description, MAIL.join("\n"), "the OCR text itself is logged only because the host asked for it");
+        }
+        assert.equal(entries[2]!.notified?.body, undefined, "the facts' text is the model's too");
     });
 });
 

@@ -12,7 +12,8 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cleanLines, MAX_BODY_CHARS, MIN_TOAST_WORDS, readToast, toastForRule, toastHash } from "../src/server/watch/toast-rules";
+import { MAX_BODY_CHARS } from "../src/server/watch/limits";
+import { cleanLines, MIN_TOAST_WORDS, readToast, toastHash } from "../src/server/watch/toast-rules";
 
 const OUTLOOK = ["Outlook", "Anna Berg", "Lunch on Thursday?", "Areyoufree at12:30forthe quarterlyreview", "10:42", "11/05/2026"];
 const TEAMS = ["Microsoft Teams", "Ben Carter", "Can you join the standup now?We are waiting", "10:42"];
@@ -103,11 +104,6 @@ describe("messages and mail", () => {
     it("a pop-up's tag is of its text: the same text the same tag, another text another", () => {
         assert.equal(readToast(TEAMS)!.tag, readToast([...TEAMS, "×"])!.tag);
         assert.notEqual(readToast(TEAMS)!.tag, readToast(OUTLOOK)!.tag);
-    });
-
-    it("what a rule is judged against is the app and the lines, on one line, at most 600 characters", () => {
-        assert.equal(toastForRule(readToast(TEAMS)!), "Teams: Microsoft Teams | Ben Carter | Can you join the standup now?We are waiting");
-        assert.ok(toastForRule(readToast(["Slack", "x".repeat(900), "more words here"])!).length <= 600);
     });
 });
 

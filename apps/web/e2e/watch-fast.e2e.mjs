@@ -9,15 +9,15 @@
 //
 // What is measured: for each of --runs toasts, shown on the fake PiKVM at a random moment, the time until the fake push service
 // received the notification, and the host's own timestamps (checks.jsonl: frame captured, seen, held, read, decided, pushed). What
-// is NOT measured, and the report says so: the model and the push service on a real network (there is no model in the fast path;
-// the push service here is loopback), a real Pi's snapshot and the real Xeon.
+// is NOT measured, and the report says so: a real model and the push service on a real network (the model's steps here are the fake's
+// scripted delays; the push service is loopback), a real Pi's snapshot and the real Xeon.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { drawFastFrames, drawToastFrame, TOAST_DEFS } from "./watch-fast-frames.mjs";
-import { CANARY, loadMeasure, sleep, startWatchStack, until } from "./watch-stack.mjs";
+import { CANARY, dist, loadMeasure, sleep, startWatchStack, until } from "./watch-stack.mjs";
 
 const args = process.argv.slice(2);
 const arg = (name, fallback) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : fallback);
@@ -102,7 +102,7 @@ const stack = await startWatchStack({
         PIKVM_WATCH_DAILY_CAP: "500",
         NODE_PATH: `${sharpModules}:${ocrModules}`,
         PIKVM_OCR_MODELS: ocrModels,
-        PIKVM_OCR_WORKER: join(import.meta.dirname, "../../../dist/ocr-worker.js"),
+        PIKVM_OCR_WORKER: join(dist, "ocr-worker.js"),
     },
 });
 const watchDir = () => join(stack.data, "chat", "users", "operator", "watch");
@@ -123,7 +123,22 @@ const childrenOf = (pid) => {
 };
 
 const rows = [];
-const summaryRows = [];
+const modelRows = [];
+/** The table of real models, copied from the doc that holds it (marked there), so this report carries it. */
+const evalTable = (() => {
+    const doc = join(import.meta.dirname, "../../../docs/e2e/2026-11-05-notification-judge.md");
+    const found = existsSync(doc) ? /<!-- eval-table:start -->\n([\s\S]*?)\n<!-- eval-table:end -->/.exec(readFileSync(doc, "utf8")) : null;
+    return found ? found[1] : "(`2026-11-05-notification-judge.md` was not found next to this report)";
+})();
+/** How the fake model was scripted for each pop-up of the two-step section, as the report says it. */
+const MODEL_SCRIPTS = {
+    "an urgent pop-up": "READ 400 ms, JUDGE 600 ms: notify",
+    "a routine pop-up": "READ 400 ms, JUDGE 600 ms: not urgent (routine)",
+    "a pop-up with the judge down": "READ 400 ms, JUDGE answers 503",
+    "a pop-up with the judge not answering": "READ 400 ms, JUDGE never answers",
+    "a pop-up with the reader down": "READ answers 503, JUDGE 600 ms: notify",
+    "a call": "not asked",
+};
 let report = "";
 try {
     await stack.show(frames.dark.idle);
@@ -238,45 +253,83 @@ try {
         await sleep(6000);
     }
 
-    // ---- with a chat model configured (the fake answers after a scripted delay) ---------------------------------------------------------
+    // ---- with a chat model configured: READ then JUDGE (the fake answers each step after its own scripted delay) -----------------------
     {
-        const SENTENCES = ["Zed Quinn asks if you can review ticket 5001", "Mara Lund asks you to look at ticket 5002 when you are back"];
-        const DELAY = 350;
+        const READ_DELAY = 400;
+        const JUDGE_DELAY = 600;
         await stack.setChatModel();
-        await stack.orScript({ answers: SENTENCES, delayMs: DELAY });
         const view = await stack.watch();
         check("with a chat model set the page's view says so", view.chatModel === true, `chatModel ${view.chatModel}`);
         await stack.show(frames.bright.idle);
         await sleep(6000);
-        const callsBefore = (await stack.orCalls()).length;
-        const plan = [
-            { kind: "email", name: "Zed Quinn", def: { ...TOAST_DEFS.email, lines: ["Zed Quinn", "Ticket 5001", "Could you review it today"] } },
-            { kind: "teams", name: "Mara Lund", def: { ...TOAST_DEFS.teams, lines: ["Mara Lund", "Can you look at ticket 5002 when you are back?"] } },
-            { kind: "call", name: "Kit Moreno", def: { ...TOAST_DEFS.call, lines: ["Kit Moreno is calling you"] } },
-        ];
-        for (const [k, item] of plan.entries()) {
-            const toast = await drawToastFrame(sharp, "bright", item.def);
+        /** One pop-up through the stack with the fake model scripted as given; the notification (if any) and the log line come back. */
+        const popup = async (what, def, script, { expectPush = true, wait = 15_000 } = {}) => {
+            await stack.orReset();
+            await stack.orScript(script);
+            const toast = await drawToastFrame(sharp, "bright", def);
             await sleep(2500 + Math.random() * 1000);
             const receivedBefore = (await stack.pushReceived()).length;
             const logBefore = log().length;
             const shownAt = Date.now();
             await stack.show(toast);
-            const got = await until(async () => {
-                const list = await stack.pushReceived();
-                return list.length > receivedBefore ? list[receivedBefore] : null;
-            }, `the notification for toast ${k + 1} with a chat model`, 15_000, 20);
-            const entry = await until(() => log().slice(logBefore).find((each) => each.kind === "alert" && each.outcome === "pushed"), "the log line", 5000, 50);
-            summaryRows.push({ kind: item.kind, name: item.name, appearToPush: got.at - shownAt, captureToPush: entry.latency.totalMs, summaryMs: entry.summary?.ms, payload: got.payload, entry });
-            console.log(`  toast with a chat model ${k + 1} (${item.kind}): ${ms(got.at - shownAt)} from the toast to the notification; model ${entry.summary ? ms(entry.summary.ms) : "not asked"}`);
-            await sleep(item.kind === "call" ? 4000 : 2500);
+            const entry = await until(() => log().slice(logBefore).find((each) => each.kind === "alert" && each.outcome !== "skipped"), `the log line for ${what}`, wait, 50);
+            const received = (await stack.pushReceived()).slice(receivedBefore);
+            const got = expectPush ? await until(async () => (await stack.pushReceived()).slice(receivedBefore)[0], `the notification for ${what}`, 5000, 20) : received[0];
+            const requests = await stack.orCalls();
+            console.log(`  ${what}: ${entry.outcome}${got ? `, ${ms(got.at - shownAt)} from the toast to the notification` : ""}; read ${entry.judged ? ms(entry.judged.readMs) : "-"}, judge ${entry.judged ? ms(entry.judged.judgeMs) : "-"}`);
+            await sleep(2500);
             await stack.show(frames.bright.idle);
             await sleep(6000);
-        }
-        const asked = (await stack.orCalls()).slice(callsBefore);
-        const [first, second, third] = summaryRows;
-        check("with a chat model, each pop-up's body is the model's sentence and a call's is not asked about", first.payload.body === SENTENCES[0] && second.payload.body === SENTENCES[1] && third.payload.title === "Incoming call: Kit Moreno" && third.entry.summary === undefined, `bodies ${JSON.stringify(summaryRows.map((row) => row.payload.body.length))} characters; call title ${third.payload.title}`);
-        check("the request carries the text and no image, and is made for two pop-ups out of three", asked.length === 2 && asked.every((request) => request.hasImage === false && request.model === "small" && request.authorization !== null), `${asked.length} requests to the fake chat model, image in ${asked.filter((request) => request.hasImage).length}; model ${asked[0]?.model}`);
-        check("the log says the model's sentence was used, with its time, and holds no text", summaryRows.slice(0, 2).every((row) => row.entry.summary?.used === true && row.entry.summary.ms >= DELAY - 20) && !JSON.stringify(log()).includes("Zed Quinn"), `model ms ${summaryRows.slice(0, 2).map((row) => row.summaryMs).join(", ")} (the fake answers after ${DELAY} ms)`);
+            return { what, entry, got, appearToPush: got ? got.at - shownAt : undefined, requests, pushes: received.length };
+        };
+        const noImage = (rows) => rows.every((row) => row.requests.every((request) => request.hasImage === false && request.json === true && request.model === "small" && request.authorization !== null));
+
+        // A. Urgent: a person with a deadline. READ copies the OCR text (the fake's default), JUDGE says notify with a body that has the details.
+        const URGENT = "Zed Quinn asks you to review ticket 5001 before 15:30 today.";
+        const urgent = await popup(
+            "an urgent pop-up",
+            { ...TOAST_DEFS.email, lines: ["Zed Quinn", "Ticket 5001", "Could you review it before 15:30 today"] },
+            { read: { delayMs: READ_DELAY }, judge: { delayMs: JUDGE_DELAY, answers: [JSON.stringify({ reason: "person_waiting", notify: true, body: URGENT, title: "Zed Quinn" })] } },
+        );
+        // B. Routine: JUDGE says not urgent. Nothing is pushed and the log says only the reason.
+        const routine = await popup(
+            "a routine pop-up",
+            { ...TOAST_DEFS.email, lines: ["Backup", "Backup completed successfully", "Files saved to the archive"] },
+            { read: { delayMs: READ_DELAY }, judge: { delayMs: JUDGE_DELAY, answers: [JSON.stringify({ reason: "routine", notify: false, body: "", title: null })] } },
+            { expectPush: false },
+        );
+        // C. The judge is down (503): it fails open. The body is the facts' text (READ's answer, here the OCR text) and the log says "error".
+        const down = await popup(
+            "a pop-up with the judge down",
+            { ...TOAST_DEFS.teams, lines: ["Mara Lund", "Can you look at ticket 5002 when you are back?"] },
+            { read: { delayMs: READ_DELAY }, judge: { failFirst: { status: 503, count: 99 } } },
+        );
+        // D. The judge never answers: the hard limit ends it (3 s) and it fails open the same way.
+        const slow = await popup(
+            "a pop-up with the judge not answering",
+            { ...TOAST_DEFS.teams, lines: ["Nils Aho", "Ticket 5003 is waiting for your answer"] },
+            { read: { delayMs: READ_DELAY }, judge: { hang: true } },
+            { wait: 20_000 },
+        );
+        // E. READ is down: the judge gets the OCR lines as read.
+        const noRead = await popup(
+            "a pop-up with the reader down",
+            { ...TOAST_DEFS.email, lines: ["Ola Brandt", "Ticket 5004", "Please approve it before 17:00"] },
+            { read: { failFirst: { status: 503, count: 99 } }, judge: { delayMs: JUDGE_DELAY, answers: [JSON.stringify({ reason: "time_critical", notify: true, body: "Ola Brandt needs ticket 5004 approved before 17:00.", title: "Ola Brandt" })] } },
+        );
+        // F. A call: not asked about at all.
+        const call = await popup("a call", { ...TOAST_DEFS.call, lines: ["Kit Moreno is calling you"] }, { read: { delayMs: READ_DELAY }, judge: { delayMs: JUDGE_DELAY } });
+        modelRows.push(urgent, routine, down, slow, noRead, call);
+
+        check("an urgent pop-up is pushed with the judge's detailed body and title", urgent.got?.payload?.body === URGENT && urgent.got.payload.title === "Zed Quinn", `body ${urgent.got?.payload?.body?.length} characters, title ${urgent.got?.payload?.title}`);
+        check("both steps were asked, in order, READ with the OCR text and JUDGE with the facts READ found, each asking for JSON, none with an image", urgent.requests.map((request) => request.step).join(",") === "read,judge" && urgent.requests[0].user.includes("Zed Quinn") && urgent.requests[0].user.includes("5001") && urgent.requests[1].user.startsWith("Facts: {") && urgent.requests[1].user.includes("Zed Quinn") && noImage([urgent]), `${urgent.requests.map((request) => `${request.step}${request.json ? "+json" : ""}`).join(", ")}; the judge was sent ${urgent.requests[1]?.user.length} characters`);
+        check("the log has each step's time and the verdict as fixed words, and no text", urgent.entry.judged?.notify === true && urgent.entry.judged.reason === "person_waiting" && urgent.entry.judged.readMs >= READ_DELAY - 20 && urgent.entry.judged.judgeMs >= JUDGE_DELAY - 20 && urgent.entry.latency.factsAt !== undefined && urgent.entry.latency.judgedAt >= urgent.entry.latency.factsAt + JUDGE_DELAY - 20 && !JSON.stringify(log()).includes("Zed Quinn") && !JSON.stringify(log()).includes("review it before"), `read ${urgent.entry.judged?.readMs} ms (scripted ${READ_DELAY}), judge ${urgent.entry.judged?.judgeMs} ms (scripted ${JUDGE_DELAY}), ${JSON.stringify(urgent.entry.judged)}`);
+        check("a routine pop-up is judged not urgent: nothing pushed, outcome 'no', only the reason in the log", routine.pushes === 0 && routine.entry.outcome === "no" && routine.entry.judged?.notify === false && routine.entry.judged.reason === "routine" && routine.entry.reason === undefined && !JSON.stringify(routine.entry).includes("Backup") && routine.requests.length === 2, `pushes ${routine.pushes}, log ${JSON.stringify(routine.entry.judged)}, ${routine.requests.length} model requests`);
+        check("the judge failing (503) fails open: the pop-up is pushed, as the facts' text, and the log says the judge errored", down.got?.payload?.body?.includes("Mara Lund") && down.got.payload.body.includes("5002") && down.entry.outcome === "pushed" && down.entry.judged?.judgeSkipped === "error" && down.entry.judged.readSkipped === undefined, `body ${down.got?.payload?.body?.length} characters; ${JSON.stringify(down.entry.judged)}`);
+        check("the judge not answering is cut at its hard limit (3 s) and fails open as well", slow.got?.payload?.body?.includes("Nils Aho") && slow.entry.judged?.judgeSkipped === "timeout" && slow.entry.judged.judgeMs >= 2900 && slow.entry.judged.judgeMs < 3600, `judge ${slow.entry.judged?.judgeMs} ms, toast to push ${slow.appearToPush} ms; ${JSON.stringify(slow.entry.judged)}`);
+        check("the reader failing: the judge is given the OCR lines as read, and its body is used", noRead.got?.payload?.body === "Ola Brandt needs ticket 5004 approved before 17:00." && noRead.entry.judged?.readSkipped === "error" && noRead.requests[1]?.user.startsWith("The facts could not be read.") && noRead.requests[1].user.includes("Ola Brandt"), `${JSON.stringify(noRead.entry.judged)}`);
+        check("a call is pushed at once and never asked about", call.got?.payload?.title === "Incoming call: Kit Moreno" && call.requests.length === 0 && call.entry.judged === undefined, `${call.requests.length} model requests; toast to push ${call.appearToPush} ms`);
+        check("every request carries the model, a key, JSON mode and no image", noImage([urgent, routine, down, slow, noRead]), `${[urgent, routine, down, slow, noRead].flatMap((row) => row.requests).length} requests`);
     }
 
     // ---- the person is at the screen (a page reports real input, as the app's page does): nothing is asked or sent -----------------------
@@ -284,7 +337,8 @@ try {
         const clientId = `e2e-page-${Math.random().toString(16).slice(2, 12)}`;
         const report = (focused, keyboardAgoMs) =>
             fetch(`${stack.web}/app/api/v1/watch/presence`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientId, focused, keyboardAgoMs, pointerAgoMs: null }) });
-        await stack.orScript({ answers: ["Held Person asks you to look at ticket 7001"], delayMs: 0 });
+        await stack.orReset();
+        await stack.orScript({ judge: { answers: [JSON.stringify({ reason: "person_waiting", notify: true, body: "Held Person asks you to look at ticket 7001.", title: "Held Person" })] } });
         const toast = await drawToastFrame(sharp, "bright", { ...TOAST_DEFS.email, lines: ["Held Person", "Ticket 7001", "Could you look at it today"] });
         await stack.show(frames.bright.idle);
         await sleep(3000);
@@ -341,12 +395,12 @@ try {
         `- Machine: ${cpu[0].model} x${cpu.length}, load average at the start ${os.loadavg().map((n) => n.toFixed(2)).join(" ")}; Node ${process.version}; commit ${gitHead} plus the working tree; onnxruntime-node ${JSON.parse(readFileSync(join(ocrModules, "onnxruntime-node/package.json"), "utf8")).version}, 2 threads in the OCR worker.`,
         `- Frames: 1920 x 1080 JPEG (quality 85, ${(jpegBytes / 1024).toFixed(0)} KB for the idle desktop) drawn with sharp: a Windows-like desktop, a taskbar with a clock, and Outlook, Teams and Teams-call toasts at 100% scale in Open Sans (dark and white desktops alternating). Each toast has its own name and text.`,
         "- Pace: the production defaults: a look every 1 s, a pop-up held 1.2 s, a 4 s gap between checks, 500 a day. The toast is shown at a random moment against the 1 s look cycle, stays 2.5 s (a call 4 s), then the desktop is back for 6 s.",
-        "- Rule: none; chat model: none for the main run (so no request is made to any model), the fake one for the last three toasts.",
+        "- Rule: none; chat model: none for the main run (so no request is made to any model), the fake one (two scripted steps, READ then JUDGE) for the section after it.",
         "",
         "## What was NOT measured",
         "",
         "- The push service on a real network. The fake push service is on loopback; a real FCM or Apple push adds its own delay (tens to hundreds of ms, sometimes seconds for a device that is asleep) after the host's send. Nothing here says how long a phone takes to show the notification.",
-        "- A real chat model. With none configured (the main run) nothing is asked of any model; with the fake one the model's time is the fake's. A real model on the real network answered in 0.1 to 3 s when tried by hand (docs/deploy-web.md, \"The notification's words\"), and the host gives up on it after 2.5 s.",
+        "- A real chat model. With none configured (the main run) nothing is asked of any model; with the fake one the two steps' time is the fake's. What real small models answered, and how fast, is in `2026-11-05-notification-judge.md` (hosted models over a network, not a local one on this machine). The host gives up on READ after 3 s and on JUDGE after what is left of a 5 s budget.",
         "- A real Pi. The fake kvmd answers a snapshot from memory; a real Pi's snapshot was measured by hand at 75 to 140 ms for a 123 KB JPEG (reported by the main agent, not by this run). The time to capture and encode is inside it and is not part of these numbers beyond the fake's.",
         "- The Xeon the image runs on: this is a workstation. The OCR benchmark on that Xeon is in `2026-11-05-fast-alerts-ocr.md`.",
         "",
@@ -369,13 +423,21 @@ try {
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ...rows.map((row) => `| ${row.i} | ${row.kind} | ${row.background} | ${row.appearToPush} ms | ${row.firstSeenToPush} ms | ${row.captureToPush} ms | ${row.wait} ms | ${row.settle} ms | ${row.ocrAndCrop} ms | ${row.ocr} ms | ${row.push} ms | ${row.urgency} / ${row.ttl} s |`),
         "",
-        "## With a chat model configured",
+        "## With a chat model configured: two steps",
         "",
-        "Two pop-ups are written up by the fake chat model (it answers after a scripted 350 ms) and a call is not asked about. **The fake model's latency is not a real model's**: the number to read is how much the model step adds to the host's own path.",
+        "Every pop-up that is not a call goes through the chat model twice: READ (the OCR text to facts) then JUDGE (the facts to a verdict and the notification's body). Each step is answered by the fake chat model after its own scripted delay (READ 400 ms, JUDGE 600 ms) or is made to fail. **The fake model's latency is not a real model's**: the numbers to read are what the two steps add to the host's own path, and what a failure costs. The measurements of real models are in `2026-11-05-notification-judge.md`.",
         "",
-        "| kind | toast to push | capture to push | model |",
-        "| --- | --- | --- | --- |",
-        ...summaryRows.map((row) => `| ${row.kind} | ${row.appearToPush} ms | ${row.captureToPush} ms | ${row.summaryMs === undefined ? "not asked (calls never wait)" : `${row.summaryMs} ms`} |`),
+        "| pop-up | fake model | outcome | toast to push | capture to push | READ | JUDGE |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+        ...modelRows.map((row) => `| ${row.what} | ${MODEL_SCRIPTS[row.what]} | ${row.entry.outcome === "no" ? "judged not urgent, nothing pushed" : row.entry.judged?.judgeSkipped ? `pushed, failed open (judge ${row.entry.judged.judgeSkipped})` : row.entry.judged?.readSkipped ? `pushed (reader ${row.entry.judged.readSkipped}, judge got the lines)` : row.entry.judged ? `pushed (${row.entry.judged.reason})` : "pushed, no model"} | ${row.appearToPush === undefined ? "-" : `${row.appearToPush} ms`} | ${row.entry.latency?.totalMs === undefined ? "-" : `${row.entry.latency.totalMs} ms`} | ${row.entry.judged ? `${row.entry.judged.readMs} ms${row.entry.judged.readSkipped ? ` (${row.entry.judged.readSkipped})` : ""}` : "not asked"} | ${row.entry.judged ? `${row.entry.judged.judgeMs} ms${row.entry.judged.judgeSkipped ? ` (${row.entry.judged.judgeSkipped})` : ""}` : "not asked"} |`),
+        "",
+        "The two steps are in the log as `judged.readMs` and `judged.judgeMs` and as `latency.factsAt` and `latency.judgedAt`; the verdict is `judged.notify` and `judged.reason` (one of a fixed list); a step that gave nothing usable is `readSkipped` or `judgeSkipped` with `timeout`, `error`, `invalid` or `empty`. The judge's own words, the facts and the pop-up's text are never logged.",
+        "",
+        "## Real small models, the same prompts",
+        "",
+        "Not run by this script (it needs a network and a key): the measurement of the two prompts on six hosted small models and 105 synthetic pop-ups, copied here from `2026-11-05-notification-judge.md`, which has the method, the iterations and what was not verified.",
+        "",
+        evalTable,
         "",
         "## Cost of looking every second",
         "",

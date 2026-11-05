@@ -113,7 +113,7 @@ export interface ChatServer {
     setting(key: "agent.pikvm.allowPower"): SettingValue<"agent.pikvm.allowPower">;
     setting(key: "agent.pikvm.maxEdge"): SettingValue<"agent.pikvm.maxEdge">;
     /** One small text request on the user's own chat model (the Small tasks role, else the default model), through the provider and credential the chat already has. Undefined when there is no model that can be called. */
-    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined>;
+    smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     hasSmallModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`: where this user's files live. Not created. */
     userDir(userId: string): string;

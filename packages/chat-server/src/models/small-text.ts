@@ -1,5 +1,5 @@
 /**
- * One small text request on the user's own chat model, for the host's own features (the screen watch writing a notification). It
+ * One small text request on the user's own chat model, for the host's own features (the screen watch judging a notification). It
  * takes the path the chat takes (conversations/titles.ts `complete`): the model of the Small tasks role (`tiny`, else Fast, else the
  * default model), the provider's endpoint and its stored credential, in the provider's own API family. Nothing here names a provider.
  *
@@ -7,7 +7,7 @@
  * client here all give `undefined`, and the caller carries on without a model.
  */
 import { complete } from "../conversations/titles.ts";
-import { chatTarget } from "./provider-call.ts";
+import { ProviderCallError, chatTarget } from "./provider-call.ts";
 import { resolveModelRole } from "./roles.ts";
 
 const SUPPORTED = new Set(["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"]);
@@ -30,9 +30,28 @@ export function hasSmallModel(userId: string): boolean {
 /**
  * Ask the small model: `system` and `user` in, text out. Undefined when there is no model to ask. Rejects when the call fails or passes
  * `timeoutMs` (the request is aborted); the caller decides what that means.
+ *
+ * `json` asks the endpoint for JSON mode where the API family has one. An endpoint that does not know the option (HTTP 400 or 422, as
+ * some local servers answer) is asked once more without it, inside the same time limit: the caller parses the text either way.
  */
-export async function smallText(userId: string, system: string, user: string, options: { maxTokens?: number; timeoutMs: number }): Promise<string | undefined> {
+export async function smallText(
+    userId: string,
+    system: string,
+    user: string,
+    options: { maxTokens?: number; json?: boolean; timeoutMs: number },
+): Promise<string | undefined> {
     const t = target(userId);
     if (!t) return undefined;
-    return complete(userId, t, system, user, options.maxTokens ?? 80, { disableReasoning: true, timeoutMs: options.timeoutMs });
+    const started = Date.now();
+    const ask = (json: boolean, timeoutMs: number) =>
+        complete(userId, t, system, user, options.maxTokens ?? 80, { disableReasoning: true, json, timeoutMs });
+    if (!options.json) return ask(false, options.timeoutMs);
+    try {
+        return await ask(true, options.timeoutMs);
+    } catch (error) {
+        if (!(error instanceof ProviderCallError) || (error.status !== 400 && error.status !== 422)) throw error;
+        const left = options.timeoutMs - (Date.now() - started);
+        if (left <= 0) throw error;
+        return ask(false, left);
+    }
 }
