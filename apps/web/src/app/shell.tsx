@@ -28,6 +28,7 @@ import { currentTheme, subscribeTheme } from "../theme";
 import { ChatPane } from "./chat-pane";
 import { activeTab, NavTabs, type TabId } from "./nav";
 import { Pane } from "./panes";
+import { PipBubble } from "./pip";
 import { paintStatusColour, statusColour } from "./status-colour";
 import { COMPACT_QUERY, useMediaQuery, useViewportFrame } from "./viewport";
 import { WindowControls } from "./window-controls";
@@ -103,6 +104,7 @@ export function Shell() {
                         <Pane id="settings" active={onSettings}>
                             {visited.has("settings") ? <SettingsPane page={settingsPage} active={onSettings} /> : null}
                         </Pane>
+                        {active !== "kvm" && active !== undefined ? <PipBubble round={compact} /> : null}
                     </main>
                 </div>
                 {bridge && !bridge.nativeControls ? <WindowControls bridge={bridge} /> : null}

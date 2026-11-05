@@ -1,0 +1,110 @@
+/* The live screen over Chat and Settings. It is placed with a transform from the top left of the content area. */
+.pip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 30;
+    will-change: transform;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.pip:not([data-live]) {
+    visibility: hidden;
+}
+
+.pip-open {
+    position: absolute;
+    inset: 0;
+    padding: 0;
+    overflow: hidden;
+    cursor: grab;
+    color: var(--muted-foreground);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-surface);
+    box-shadow:
+        0 6px 22px rgba(0, 0, 0, 0.45),
+        0 1px 3px rgba(0, 0, 0, 0.5);
+    touch-action: none;
+}
+.pip-open:active {
+    cursor: grabbing;
+}
+.pip[data-shape="bubble"] .pip-open {
+    border-radius: 50%;
+}
+.pip-open:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.pip-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Shown under the canvas until the first frame is drawn (the canvas is transparent until then). */
+.pip-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+
+.pip-close {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    color: var(--foreground);
+    background: var(--secondary);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    cursor: pointer;
+    /* A bubble's close button sits on its rim, not on the corner of a square that is not there. */
+}
+.pip[data-shape="bubble"] .pip-close {
+    top: 2px;
+    right: 2px;
+}
+.pip-close:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+}
+
+/* What the agent is doing, as a ring: working is the accent, an answer wanted is the warning colour. */
+.pip[data-agent="working"] .pip-open {
+    border-color: var(--primary);
+    box-shadow:
+        0 0 0 2px color-mix(in srgb, var(--primary) 55%, transparent),
+        0 6px 22px rgba(0, 0, 0, 0.45);
+}
+.pip[data-agent="waiting_approval"] .pip-open {
+    border-color: var(--warn);
+    box-shadow:
+        0 0 0 2px color-mix(in srgb, var(--warn) 55%, transparent),
+        0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .pip[data-agent="working"] .pip-open {
+        animation: pip-pulse 1.6s ease-in-out infinite;
+    }
+}
+@keyframes pip-pulse {
+    50% {
+        box-shadow:
+            0 0 0 5px color-mix(in srgb, var(--primary) 25%, transparent),
+            0 6px 22px rgba(0, 0, 0, 0.45);
+    }
+}

@@ -4,6 +4,10 @@ PiKVM Desktop is a chat-first workspace for supervised computer use. You connect
 
 The desktop app and the web host run the same server. It serves the app, proxies the PiKVM, and runs the chat server (`packages/chat-server`) and the PiKVM tools (`packages/pikvm-mcp`) in one process. The agent is omp's standalone binary, started once per conversation.
 
+While the agent is working (its state is `working`), the agent has the target's keyboard and mouse. The server refuses a person's input at the PiKVM proxy: the input socket drops input frames, the HTTP input routes answer `423`, and heartbeats still pass. Every page follows the same state, shows the screen as the agent's, and sends nothing. Press Stop to take control back. The server also resets the Pi's held keys when the agent takes the target. When the agent waits for an approval, or has let go, input works again.
+
+On Chat and Settings a live copy of the screen floats over the page: a window on a wide screen and a round bubble on a phone. Tap it to open the KVM. Drag it, or throw it and it bounces off the edges. Shift and the arrow keys move it for a keyboard. It only draws the picture the KVM tab already holds. It opens no stream and sends no input.
+
 The model never receives the PiKVM address or credentials. The agent reaches models and the PiKVM only through a separate loopback listener that needs its own bearer token.
 
 ## Run it
