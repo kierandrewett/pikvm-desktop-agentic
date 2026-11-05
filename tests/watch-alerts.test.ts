@@ -26,7 +26,7 @@ import { ALERT_ZONES, DEFAULT_ALERT_ZONE, type CheckEntry, type WatchSettings } 
 import { createAlerts, type Alerts } from "../src/server/watch/alerts";
 import type { ZoneCells } from "../src/server/watch/frame-diff";
 import { factsForJudge, parseFacts } from "../src/server/watch/judge";
-import { ALERT_TTL_SEC, CALL_TTL_SEC, DEFAULT_SETTLE_MS, DUPLICATE_MS, JUDGE_TIMEOUT_MS, limitsFromEnv, MAX_BODY_CHARS, OCR_TIMEOUT_MS, READ_TIMEOUT_MS, type WatchLimits } from "../src/server/watch/limits";
+import { ALERT_TTL_SEC, CALL_TTL_SEC, DEFAULT_SETTLE_MS, DUPLICATE_MS, JUDGE_TIMEOUT_MS, limitsFromEnv, MAX_BODY_CHARS, MAX_WAITING_POPUPS, OCR_TIMEOUT_MS, READ_TIMEOUT_MS, type WatchLimits } from "../src/server/watch/limits";
 import { OcrTimeoutError } from "../src/server/watch/ocr";
 import { PushError } from "../src/server/watch/push";
 import { JUDGE_PROMPT, READ_PROMPT } from "../src/server/watch/prompts";
@@ -269,7 +269,7 @@ describe("one notification per pop-up", () => {
         assert.deepEqual(r.ocr.reads, ["crop:toast-a", "crop:toast-b"]);
     });
 
-    it("F9: three inside the gap: the middle one is replaced and logged as skipped, the newest is read when the gap ends", async () => {
+    it("F9: three inside the gap: the later two wait in order and every one is read, none is replaced", async () => {
         r.ocr.texts["crop:toast-c"] = ["Outlook", "Dana Ruiz", "Invoice 4471", "Please find the invoice attached"];
         r.toast(toastA(flat(60)), "toast-a");
         await r.alerts.idle();
@@ -277,13 +277,31 @@ describe("one notification per pop-up", () => {
         r.toast(toastB(toastA(flat(60))), "toast-b");
         r.wait(400);
         r.toast(patched(toastB(toastA(flat(60))), 85, 60, 20, 6, 120), "toast-c");
+        assert.equal(r.alerts.status().waiting, true);
         r.wait(GAP);
         r.look(flat(60), "home");
         await r.alerts.idle();
-        assert.deepEqual(r.ocr.reads, ["crop:toast-a", "crop:toast-c"]);
+        assert.deepEqual(r.ocr.reads, ["crop:toast-a", "crop:toast-b"], "the oldest waiting one goes first");
+        r.wait(GAP);
+        r.look(flat(60), "home");
+        await r.alerts.idle();
+        assert.deepEqual(r.ocr.reads, ["crop:toast-a", "crop:toast-b", "crop:toast-c"]);
+        assert.equal(r.entries().filter((entry) => entry.outcome === "skipped").length, 0, "nothing was dropped");
+        assert.equal(r.alerts.status().waiting, false);
+    });
+
+    it("F9: the queue holds MAX_WAITING_POPUPS; only a pop-up that finds it full is dropped, and its reason is fixed", async () => {
+        withModel({ limits: { minCheckGapMs: 1e9 } });
+        for (let i = 0; i < MAX_WAITING_POPUPS + 2; i++) {
+            r.toast(toastA(flat(60)), i === 0 ? "toast-a" : `toast-${i}`);
+            await r.alerts.idle();
+            r.hold(flat(60), "home", 2000);
+        }
         const skipped = r.entries().filter((entry) => entry.outcome === "skipped");
-        assert.equal(skipped.length, 1);
-        assert.match(skipped[0]!.reason ?? "", /replaced by a newer pop-up/);
+        assert.equal(skipped.length, 1, "the first ran, MAX_WAITING_POPUPS waited, one more found it full");
+        assert.equal(skipped[0]!.reason, "too many pop-ups waiting to be read");
+        assert.equal(r.ocr.reads.length, 1);
+        assert.equal(r.alerts.status().waiting, true);
     });
 
     it("F4: the same text twice inside 30 seconds is notified once, and again after 30 seconds", async () => {
@@ -366,8 +384,8 @@ describe("with no chat model", () => {
 describe("with a chat model", () => {
     beforeEach(() => withModel());
 
-    /** The chat model's steps are late or gone: short limits, so the hard timeout can be waited for. */
-    const quick: Partial<WatchLimits> = { readTimeoutMs: 30, judgeTimeoutMs: 30, modelBudgetMs: 1000 };
+    /** The chat model's steps never answer: short hang guards, so they can be waited for. */
+    const quick: Partial<WatchLimits> = { readTimeoutMs: 30, judgeTimeoutMs: 30 };
 
     it("F17: READ then JUDGE, in that order, each asked for JSON, from the OCR text only; the verdict's body and title are what is pushed", async () => {
         r.toast(toastA(flat(60)), "toast-a");
@@ -471,8 +489,9 @@ describe("with a chat model", () => {
                 arrange();
                 r.toast(toastA(flat(60)), "toast-a");
                 await r.alerts.idle();
-                assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read", "judge"]);
-                assert.equal(r.model.asks[1]!.user, `The facts could not be read. The lines of the pop-up, as read:\n${MAIL.join("\n")}`);
+                const tries = why === "timeout" ? 1 : 2;
+                assert.deepEqual(r.model.asks.map((ask) => ask.step), [...Array<"read">(tries).fill("read"), "judge"], "a step that failed is tried once more, unless it timed out");
+                assert.equal(r.model.asks[tries]!.user, `The facts could not be read. The lines of the pop-up, as read:\n${MAIL.join("\n")}`);
                 assert.equal(r.push.sent[0]!.payload.body, SENTENCE, "the judge's body is used");
                 const entry = r.entries()[0]!;
                 assert.equal(entry.judged?.readSkipped, why);
@@ -497,6 +516,7 @@ describe("with a chat model", () => {
                 r.toast(toastA(flat(60)), "toast-a");
                 await r.alerts.idle();
                 assert.equal(r.push.sent.length, 1, "a judge that fails must not hide the pop-up");
+                assert.equal(r.model.asks.filter((ask) => ask.step === "judge").length, why === "timeout" ? 1 : 2, "tried once more, unless it timed out");
                 assert.equal(r.push.sent[0]!.payload.body, FACTS_TEXT);
                 assert.equal(r.push.sent[0]!.payload.title, "Outlook", "the rules' own title");
                 const entry = r.entries()[0]!;
@@ -517,39 +537,48 @@ describe("with a chat model", () => {
             assert.deepEqual(r.entries()[0]!.judged, { readMs: 0, readSkipped: "error", judgeMs: 0, judgeSkipped: "error" });
         });
 
-        it("a step that times out is abandoned at its own limit, not waited for", async () => {
-            withModel({ limits: { readTimeoutMs: 40, judgeTimeoutMs: 40, modelBudgetMs: 1000 } });
+        it("a step that never answers is abandoned at its hang guard, not before, and fails open", async () => {
+            withModel({ limits: { readTimeoutMs: 40, judgeTimeoutMs: 40 } });
             r.model.hang.read = true;
             r.model.hang.judge = true;
             const began = Date.now();
             r.toast(toastA(flat(60)), "toast-a");
             await r.alerts.idle();
             const took = Date.now() - began;
-            assert.ok(took >= 70 && took < 1000, `two limits of 40 ms were waited, not a model's seconds (${took} ms)`);
-            assert.deepEqual(r.model.asks.map((ask) => ask.timeoutMs), [40, 40], "and the request was told its limit, so it is aborted");
+            assert.ok(took >= 70 && took < 1000, `two guards of 40 ms were waited, not a model's seconds (${took} ms)`);
+            assert.deepEqual(r.model.asks.map((ask) => ask.timeoutMs), [40, 40], "and the request was told its guard, so it is aborted");
             assert.equal(r.push.sent.length, 1);
         });
 
-        it("the budget: the judge gets what is left of it after a slow READ, and none at all when READ used it up", async () => {
-            withModel({ limits: { readTimeoutMs: 3000, judgeTimeoutMs: 3000, modelBudgetMs: 5000 } });
-            r.model.onAsk = (step) => {
-                if (step === "read") r.wait(4200);
+        it("a slow model is waited for: READ at 20 s and JUDGE at 25 s are both used, and nothing is skipped", async () => {
+            r.model.onAsk = (step) => r.wait(step === "read" ? 20_000 : 25_000);
+            r.toast(toastA(flat(60)), "toast-a");
+            await r.alerts.idle();
+            assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read", "judge"]);
+            assert.equal(r.model.asks[1]!.timeoutMs, JUDGE_TIMEOUT_MS, "the judge has its whole guard, whatever READ took");
+            assert.deepEqual(r.entries()[0]!.judged, { readMs: 20_000, judgeMs: 25_000, notify: true, reason: "person_waiting" });
+            assert.equal(r.push.sent[0]!.payload.body, SENTENCE, "the judge's body, not a fallback");
+        });
+
+        it("a step that errors once is tried once more, and the second answer is used", async () => {
+            let judges = 0;
+            r.model.answer.judge = () => {
+                judges += 1;
+                if (judges === 1) throw new Error("503");
+                return verdictJson();
+            };
+            let reads = 0;
+            r.model.answer.read = () => {
+                reads += 1;
+                return reads === 1 ? "I could not read that." : FACTS_JSON;
             };
             r.toast(toastA(flat(60)), "toast-a");
             await r.alerts.idle();
-            assert.equal(r.model.asks[1]!.timeoutMs, 800, "5000 less the 4200 that READ took");
-            r.hold(flat(60), "home", DUPLICATE_MS);
-            r.model.asks.length = 0;
-            r.model.onAsk = (step) => {
-                if (step === "read") r.wait(5200);
-            };
-            r.toast(toastA(flat(60)), "toast-a");
-            await r.alerts.idle();
-            assert.deepEqual(r.model.asks.map((ask) => ask.step), ["read"], "no budget left: the judge is not asked");
-            const entry = r.entries().at(-1)!;
-            assert.equal(entry.judged?.judgeSkipped, "timeout");
-            assert.equal(entry.outcome, "pushed");
-            assert.equal(r.push.sent.at(-1)!.payload.body, FACTS_TEXT);
+            assert.deepEqual([reads, judges], [2, 2]);
+            assert.equal(r.push.sent[0]!.payload.body, SENTENCE);
+            const entry = r.entries()[0]!;
+            assert.equal(entry.judged?.readSkipped, undefined);
+            assert.equal(entry.judged?.judgeSkipped, undefined);
         });
     });
 

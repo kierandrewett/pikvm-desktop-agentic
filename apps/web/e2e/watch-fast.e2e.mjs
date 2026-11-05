@@ -100,6 +100,10 @@ const stack = await startWatchStack({
         PIKVM_WATCH_SETTLE_MS: "1200",
         PIKVM_WATCH_MIN_GAP_SEC: "4",
         PIKVM_WATCH_DAILY_CAP: "500",
+        // The hang guard is two minutes. Here it is 20 s, so a model that never answers can be waited out in a test, and the slow-model
+        // scenario (6 s a step) is well inside it: it proves a slow model is waited for, not cut off.
+        PIKVM_WATCH_READ_TIMEOUT_MS: "20000",
+        PIKVM_WATCH_JUDGE_TIMEOUT_MS: "20000",
         NODE_PATH: `${sharpModules}:${ocrModules}`,
         PIKVM_OCR_MODELS: ocrModels,
         PIKVM_OCR_WORKER: join(dist, "ocr-worker.js"),
@@ -135,7 +139,10 @@ const MODEL_SCRIPTS = {
     "an urgent pop-up": "READ 400 ms, JUDGE 600 ms: notify",
     "a routine pop-up": "READ 400 ms, JUDGE 600 ms: not urgent (routine)",
     "a pop-up with the judge down": "READ 400 ms, JUDGE answers 503",
-    "a pop-up with the judge not answering": "READ 400 ms, JUDGE never answers",
+    "a pop-up with the judge not answering": "READ 400 ms, JUDGE never answers (hang guard 20 s)",
+    "a pop-up with a slow model": "READ 6 s, JUDGE 6 s: notify",
+    "a first pop-up while the model is slow": "READ 3 s, JUDGE 3 s: notify",
+    "a second pop-up, queued behind the first": "READ 3 s, JUDGE 3 s: notify",
     "a pop-up with the reader down": "READ answers 503, JUDGE 600 ms: notify",
     "a call": "not asked",
 };
@@ -304,12 +311,12 @@ try {
             { ...TOAST_DEFS.teams, lines: ["Mara Lund", "Can you look at ticket 5002 when you are back?"] },
             { read: { delayMs: READ_DELAY }, judge: { failFirst: { status: 503, count: 99 } } },
         );
-        // D. The judge never answers: the hard limit ends it (3 s) and it fails open the same way.
+        // D. The judge never answers: only the hang guard (20 s here, two minutes in production) ends it, and it fails open the same way.
         const slow = await popup(
             "a pop-up with the judge not answering",
             { ...TOAST_DEFS.teams, lines: ["Nils Aho", "Ticket 5003 is waiting for your answer"] },
             { read: { delayMs: READ_DELAY }, judge: { hang: true } },
-            { wait: 20_000 },
+            { wait: 40_000 },
         );
         // E. READ is down: the judge gets the OCR lines as read.
         const noRead = await popup(
@@ -319,17 +326,65 @@ try {
         );
         // F. A call: not asked about at all.
         const call = await popup("a call", { ...TOAST_DEFS.call, lines: ["Kit Moreno is calling you"] }, { read: { delayMs: READ_DELAY }, judge: { delayMs: JUDGE_DELAY } });
-        modelRows.push(urgent, routine, down, slow, noRead, call);
+        // G. A slow model: 6 s a step. Neither step is cut off or skipped, and the judge's own body is what is pushed, about 13 s after the toast.
+        const SLOW_BODY = "Rhea Moss asks you to sign contract 5005 before the office closes at 17:30.";
+        const slowModel = await popup(
+            "a pop-up with a slow model",
+            { ...TOAST_DEFS.email, lines: ["Rhea Moss", "Contract 5005", "Please sign it before we close at 17:30"] },
+            { read: { delayMs: 6000 }, judge: { delayMs: 6000, answers: [JSON.stringify({ reason: "person_waiting", notify: true, body: SLOW_BODY, title: "Rhea Moss" })] } },
+            { wait: 40_000 },
+        );
+        // H. A second pop-up arrives while the first is still being read by a slow model (4 s a step): it waits its turn, in order, and is read too.
+        const FIRST_BODY = "Ines Ward asks you to confirm the room for ticket 5006 today.";
+        const SECOND_BODY = "Joel Park says the build is red again and asks you to look at ticket 5007.";
+        await stack.orReset();
+        await stack.orScript({
+            read: { delayMs: 4000 },
+            judge: {
+                delayMs: 4000,
+                answers: [
+                    JSON.stringify({ reason: "person_waiting", notify: true, body: FIRST_BODY, title: "Ines Ward" }),
+                    JSON.stringify({ reason: "failure", notify: true, body: SECOND_BODY, title: "Joel Park" }),
+                ],
+            },
+        });
+        const firstToast = await drawToastFrame(sharp, "bright", { ...TOAST_DEFS.email, lines: ["Ines Ward", "Ticket 5006", "Can you confirm the room today"] });
+        const secondToast = await drawToastFrame(sharp, "bright", { ...TOAST_DEFS.teams, lines: ["Joel Park", "Ticket 5007", "The build is red again, please look"] });
+        await sleep(2500);
+        const queueReceivedBefore = (await stack.pushReceived()).length;
+        const queueLogBefore = log().length;
+        const firstShownAt = Date.now();
+        await stack.show(firstToast);
+        await sleep(3500); // seen, held 1.2 s, and now 8 s into being read
+        await stack.show(frames.bright.idle);
+        await sleep(1500);
+        const secondShownAt = Date.now();
+        await stack.show(secondToast); // arrives while the first check is still running
+        const queued = await until(async () => {
+            const all = (await stack.pushReceived()).slice(queueReceivedBefore);
+            return all.length >= 2 ? all : undefined;
+        }, "both queued pop-ups pushed", 60_000, 100);
+        const queueEntries = log().slice(queueLogBefore).filter((each) => each.kind === "alert");
+        console.log(`  queued pop-ups: first ${ms(queued[0].at - firstShownAt)} from its toast, second ${ms(queued[1].at - secondShownAt)} from its toast`);
+        await sleep(2500);
+        await stack.show(frames.bright.idle);
+        await sleep(6000);
+        const firstRow = { what: "a first pop-up while the model is slow", entry: queueEntries[0], got: queued[0], appearToPush: queued[0].at - firstShownAt, requests: [], pushes: 1 };
+        const secondRow = { what: "a second pop-up, queued behind the first", entry: queueEntries[1], got: queued[1], appearToPush: queued[1].at - secondShownAt, requests: [], pushes: 1 };
+        modelRows.push(urgent, routine, down, slow, slowModel, firstRow, secondRow, noRead, call);
 
         check("an urgent pop-up is pushed with the judge's detailed body and title", urgent.got?.payload?.body === URGENT && urgent.got.payload.title === "Zed Quinn", `body ${urgent.got?.payload?.body?.length} characters, title ${urgent.got?.payload?.title}`);
         check("both steps were asked, in order, READ with the OCR text and JUDGE with the facts READ found, each asking for JSON, none with an image", urgent.requests.map((request) => request.step).join(",") === "read,judge" && urgent.requests[0].user.includes("Zed Quinn") && urgent.requests[0].user.includes("5001") && urgent.requests[1].user.startsWith("Facts: {") && urgent.requests[1].user.includes("Zed Quinn") && noImage([urgent]), `${urgent.requests.map((request) => `${request.step}${request.json ? "+json" : ""}`).join(", ")}; the judge was sent ${urgent.requests[1]?.user.length} characters`);
         check("the log has each step's time and the verdict as fixed words, and no text", urgent.entry.judged?.notify === true && urgent.entry.judged.reason === "person_waiting" && urgent.entry.judged.readMs >= READ_DELAY - 20 && urgent.entry.judged.judgeMs >= JUDGE_DELAY - 20 && urgent.entry.latency.factsAt !== undefined && urgent.entry.latency.judgedAt >= urgent.entry.latency.factsAt + JUDGE_DELAY - 20 && !JSON.stringify(log()).includes("Zed Quinn") && !JSON.stringify(log()).includes("review it before"), `read ${urgent.entry.judged?.readMs} ms (scripted ${READ_DELAY}), judge ${urgent.entry.judged?.judgeMs} ms (scripted ${JUDGE_DELAY}), ${JSON.stringify(urgent.entry.judged)}`);
         check("a routine pop-up is judged not urgent: nothing pushed, outcome 'no', only the reason in the log", routine.pushes === 0 && routine.entry.outcome === "no" && routine.entry.judged?.notify === false && routine.entry.judged.reason === "routine" && routine.entry.reason === undefined && !JSON.stringify(routine.entry).includes("Backup") && routine.requests.length === 2, `pushes ${routine.pushes}, log ${JSON.stringify(routine.entry.judged)}, ${routine.requests.length} model requests`);
         check("the judge failing (503) fails open: the pop-up is pushed, as the facts' text, and the log says the judge errored", down.got?.payload?.body?.includes("Mara Lund") && down.got.payload.body.includes("5002") && down.entry.outcome === "pushed" && down.entry.judged?.judgeSkipped === "error" && down.entry.judged.readSkipped === undefined, `body ${down.got?.payload?.body?.length} characters; ${JSON.stringify(down.entry.judged)}`);
-        check("the judge not answering is cut at its hard limit (3 s) and fails open as well", slow.got?.payload?.body?.includes("Nils Aho") && slow.entry.judged?.judgeSkipped === "timeout" && slow.entry.judged.judgeMs >= 2900 && slow.entry.judged.judgeMs < 3600, `judge ${slow.entry.judged?.judgeMs} ms, toast to push ${slow.appearToPush} ms; ${JSON.stringify(slow.entry.judged)}`);
-        check("the reader failing: the judge is given the OCR lines as read, and its body is used", noRead.got?.payload?.body === "Ola Brandt needs ticket 5004 approved before 17:00." && noRead.entry.judged?.readSkipped === "error" && noRead.requests[1]?.user.startsWith("The facts could not be read.") && noRead.requests[1].user.includes("Ola Brandt"), `${JSON.stringify(noRead.entry.judged)}`);
+        check("the judge not answering is ended only by the hang guard (20 s here) and fails open as well", slow.got?.payload?.body?.includes("Nils Aho") && slow.entry.judged?.judgeSkipped === "timeout" && slow.entry.judged.judgeMs >= 19_900 && slow.entry.judged.judgeMs < 21_500, `judge ${slow.entry.judged?.judgeMs} ms, toast to push ${slow.appearToPush} ms; ${JSON.stringify(slow.entry.judged)}`);
+        check("a slow model is waited for: READ 6 s and JUDGE 6 s are both used, nothing is skipped, and the judge's own body is pushed", slowModel.got?.payload?.body === SLOW_BODY && slowModel.entry.outcome === "pushed" && slowModel.entry.judged?.readSkipped === undefined && slowModel.entry.judged?.judgeSkipped === undefined && slowModel.entry.judged?.readMs >= 5900 && slowModel.entry.judged.judgeMs >= 5900, `${JSON.stringify(slowModel.entry.judged)}, toast to push ${slowModel.appearToPush} ms`);
+        check("a second pop-up that arrives while a slow check runs waits and is read: both pushed, in order, with their own bodies, nothing skipped", queued[0].payload.body === FIRST_BODY && queued[1].payload.body === SECOND_BODY && queueEntries.length === 2 && queueEntries.every((each) => each.outcome === "pushed" && each.judged?.judgeSkipped === undefined && each.judged?.readSkipped === undefined), `${queueEntries.map((each) => `${each.outcome} (read ${each.judged?.readMs} ms, judge ${each.judged?.judgeMs} ms)`).join("; ")}`);
+        const noReadJudge = noRead.requests.find((request) => request.step === "judge");
+        check("the reader failing: it is tried once more, then the judge is given the OCR lines as read, and its body is used", noRead.got?.payload?.body === "Ola Brandt needs ticket 5004 approved before 17:00." && noRead.entry.judged?.readSkipped === "error" && noRead.requests.filter((request) => request.step === "read").length === 2 && noReadJudge?.user.startsWith("The facts could not be read.") && noReadJudge.user.includes("Ola Brandt"), `${noRead.requests.map((request) => request.step).join(", ")}; ${JSON.stringify(noRead.entry.judged)}`);
         check("a call is pushed at once and never asked about", call.got?.payload?.title === "Incoming call: Kit Moreno" && call.requests.length === 0 && call.entry.judged === undefined, `${call.requests.length} model requests; toast to push ${call.appearToPush} ms`);
-        check("every request carries the model, a key, JSON mode and no image", noImage([urgent, routine, down, slow, noRead]), `${[urgent, routine, down, slow, noRead].flatMap((row) => row.requests).length} requests`);
+        check("every request carries the model, a key, JSON mode and no image", noImage([urgent, routine, down, slow, slowModel, noRead]), `${[urgent, routine, down, slow, slowModel, noRead].flatMap((row) => row.requests).length} requests`);
     }
 
     // ---- the person is at the screen (a page reports real input, as the app's page does): nothing is asked or sent -----------------------

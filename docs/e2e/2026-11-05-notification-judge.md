@@ -72,8 +72,10 @@ What the numbers say:
   went missing: a count written in words ("Two missed calls" for "(2)"), a reference ("RENT-NOV") left out, a sender's name dropped from a
   body that kept the ask, an amount or a time written another way ("3:30 PM" for "15:30").
 - **Time**: READ is the slower step (median 0.9 to 2.1 s) because its answer is longer; JUDGE is 0.7 to 1.2 s. The pair's 90th percentile is
-  3.8 to 4.7 s for the four best, which is why the two steps have 3 s each inside a 5 s budget (`limits.ts`): a READ over 3 s happened in 4 to
-  11 of 105 for the four best (the 8B model most) and costs only detail (the judge then gets the lines as read).
+  3.8 to 4.7 s for the four best. These are measurements, not limits: the host waits for a slower model (a local one, say) and never skips a
+  step for being slow. Each step has only a two-minute hang guard (`limits.ts`), for a model that says nothing at all. A READ over 3 s
+  happened in 4 to 11 of 105 for the four best (the 8B model most); with the earlier 3 s limit that cost the judge its facts, which is why the
+  limit was removed.
 
 ## How the prompts changed
 

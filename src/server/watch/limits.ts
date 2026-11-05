@@ -81,23 +81,23 @@ export const OCR_PAD_CELLS = 2;
 export const DIALOG_SCORE = 0.05;
 
 /**
- * The chat model reads a pop-up in two steps (docs/deploy-web.md, "Screen watch"), each with its own hard time limit and both inside one
- * budget. Step 1 (READ) turns the OCR lines into facts, step 2 (JUDGE) decides whether the person is worth interrupting and writes the
- * notification. Past its limit a step is abandoned, not waited for: a late READ means the judge gets the OCR lines as read, a late JUDGE
- * means the notification goes out as it is (fail open: a model that is down must not hide a pop-up).
+ * The chat model reads a pop-up in two steps (docs/deploy-web.md, "Screen watch"). Step 1 (READ) turns the OCR lines into facts, step 2
+ * (JUDGE) decides whether the person is worth interrupting and writes the notification. Each step runs to the end: a slow model is waited
+ * for, never skipped, because a verdict that arrives late is still worth more than none.
  *
- * 3 s each. On the four best hosted small models tried (docs/e2e/2026-11-05-notification-judge.md, 105 pop-ups) JUDGE answered in 0.7 to
- * 1.2 s at the median (90th percentile 1.2 to 2.4 s) and READ in 0.9 to 2.1 s (90th percentile 1.7 to 3.0 s), the pair in 3.8 to 4.7 s at the
- * 90th percentile: 3 + 3 inside 5 s lets nearly all of them through, and a person waiting for a phone to buzz does not want to wait much longer
- * for a better sentence. A late READ costs only detail (JUDGE then reads the OCR lines); a late JUDGE costs a notification for a pop-up it would
- * have held back, so JUDGE is the step the budget protects. A slower local model needs more: `PIKVM_WATCH_READ_TIMEOUT_MS`,
- * `PIKVM_WATCH_JUDGE_TIMEOUT_MS` and `PIKVM_WATCH_MODEL_BUDGET_MS` override these. The budget (5 s) is less than the two limits together
- * on purpose: when READ was slow, JUDGE gets what is left of it (at least 2 s) and not a fresh 3 s, so the model never delays a notification
- * by more than about 5 s.
+ * These two numbers are a hang guard, not a speed limit. They are the longest a step may wait for a model that has said nothing at all (a
+ * dead connection, a model that never loads) before the step is abandoned and the notification goes out as it is (fail open: a model that
+ * is down must not hide a pop-up). Two minutes is longer than any model that is working takes to answer a few lines of text, a local one
+ * loading its weights included. `PIKVM_WATCH_READ_TIMEOUT_MS` and `PIKVM_WATCH_JUDGE_TIMEOUT_MS` override them.
  */
-export const READ_TIMEOUT_MS = 3000;
-export const JUDGE_TIMEOUT_MS = 3000;
-export const MODEL_BUDGET_MS = 5000;
+export const READ_TIMEOUT_MS = 120_000;
+export const JUDGE_TIMEOUT_MS = 120_000;
+
+/**
+ * Pop-ups that arrive while a check is still running (a slow model) wait their turn, oldest first, and are all read. Only a pop-up that
+ * arrives to a full queue is dropped. Twenty is far more than a person gets in the time one slow model takes, and bounds the frames held.
+ */
+export const MAX_WAITING_POPUPS = 20;
 
 /** The most a notification's body may be. The judge is told 250 so a reply at the edge still fits; a longer one is cut at a word. */
 export const MAX_BODY_CHARS = 300;
@@ -124,7 +124,6 @@ export interface WatchLimits {
     dailyCap: number;
     readTimeoutMs: number;
     judgeTimeoutMs: number;
-    modelBudgetMs: number;
 }
 
 function positive(raw: string | undefined): number | undefined {
@@ -135,8 +134,8 @@ function positive(raw: string | undefined): number | undefined {
 
 /**
  * The limits for this host. `PIKVM_WATCH_INTERVAL_MS` (floored at `MIN_INTERVAL_MS`), `PIKVM_WATCH_SETTLE_MS`, `PIKVM_WATCH_MIN_GAP_SEC`,
- * `PIKVM_WATCH_DAILY_CAP`, `PIKVM_WATCH_READ_TIMEOUT_MS`, `PIKVM_WATCH_JUDGE_TIMEOUT_MS` and `PIKVM_WATCH_MODEL_BUDGET_MS` override the
- * defaults; a value that is not a positive number is ignored.
+ * `PIKVM_WATCH_DAILY_CAP`, `PIKVM_WATCH_READ_TIMEOUT_MS` and `PIKVM_WATCH_JUDGE_TIMEOUT_MS` override the defaults; a value that is not a
+ * positive number is ignored.
  */
 export function limitsFromEnv(env: NodeJS.ProcessEnv = process.env): WatchLimits {
     const interval = positive(env["PIKVM_WATCH_INTERVAL_MS"]);
@@ -150,6 +149,5 @@ export function limitsFromEnv(env: NodeJS.ProcessEnv = process.env): WatchLimits
         dailyCap: cap !== undefined ? Math.floor(cap) : DEFAULT_DAILY_CAP,
         readTimeoutMs: positive(env["PIKVM_WATCH_READ_TIMEOUT_MS"]) ?? READ_TIMEOUT_MS,
         judgeTimeoutMs: positive(env["PIKVM_WATCH_JUDGE_TIMEOUT_MS"]) ?? JUDGE_TIMEOUT_MS,
-        modelBudgetMs: positive(env["PIKVM_WATCH_MODEL_BUDGET_MS"]) ?? MODEL_BUDGET_MS,
     };
 }

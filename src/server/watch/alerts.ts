@@ -1,11 +1,12 @@
 import type { CheckEntry, CheckLatency, WatchSettings } from "@pikvm/contracts/watch";
 import { changedBox, createZoneSettler, zoneCells, type Frame, type ZoneCells, type ZoneSettler } from "./frame-diff";
-import { failOpenBody, judgePopup, readFacts, type Ask, type Facts, type Verdict } from "./judge";
+import { failOpenBody, judgePopup, readFacts, type Ask, type Facts, type StepResult, type Verdict } from "./judge";
 import {
     ALERT_TTL_SEC,
     CALL_TTL_SEC,
     DIALOG_SCORE,
     DUPLICATE_MS,
+    MAX_WAITING_POPUPS,
     OCR_PAD_CELLS,
     OCR_TIMEOUT_MS,
     ZONE_CHANGE_FRACTION,
@@ -111,6 +112,17 @@ function onlyPopup(ocr: OcrResult, change: Appearance): string[] {
     return inside.length > 0 ? inside : ocr.lines;
 }
 
+/**
+ * A model step that failed in a way another try can fix (the model errored, or answered with nothing usable) gets one more try. A timeout
+ * does not: it already waited its whole limit. The time of both tries is reported.
+ */
+async function withRetry<T>(run: () => Promise<StepResult<T>>): Promise<StepResult<T>> {
+    const first = await run();
+    if (first.ok || first.failure === "timeout") return first;
+    const second = await run();
+    return { ...second, ms: first.ms + second.ms };
+}
+
 export function createAlerts(deps: AlertsDeps): Alerts {
     const zone: ZoneSettler = createZoneSettler({ settleMs: deps.limits.settleMs, changeFraction: ZONE_CHANGE_FRACTION });
     const log = deps.log ?? (() => undefined);
@@ -118,7 +130,8 @@ export function createAlerts(deps: AlertsDeps): Alerts {
     let zoneKey = "";
     /** The frame of the last look at which the zone changed: what a pop-up that is gone by the confirming look is read from. */
     let detection: Frame | null = null;
-    let waiting: Appearance | null = null;
+    /** Pop-ups that came while a check was running or inside the gap, oldest first. */
+    const waiting: Appearance[] = [];
     let lastCheckAt = Number.NEGATIVE_INFINITY;
     let running: Promise<void> | null = null;
     /** Hash of a pop-up's text -> when it was notified. */
@@ -148,20 +161,25 @@ export function createAlerts(deps: AlertsDeps): Alerts {
             });
     }
 
-    /** Run, defer or drop an appearance, in that order of preference. */
-    function admit(change: Appearance, now: number): void {
-        const settings = deps.settings();
-        const skipped = (reason: string, about: Appearance): void =>
-            record({ score: about.score, outcome: "skipped", reason, asked: false, rule: settings.rule, latency: latencyOf(about) });
-        if (running || now - lastCheckAt < deps.limits.minCheckGapMs) {
-            if (waiting) skipped("replaced by a newer pop-up before the minimum gap between checks ended", waiting);
-            waiting = change;
-            return;
-        }
+    const skipped = (reason: string, about: Appearance): void =>
+        record({ score: about.score, outcome: "skipped", reason, asked: false, rule: deps.settings().rule, latency: latencyOf(about) });
+
+    /** Start a check now, unless the day's cap is spent. */
+    function begin(change: Appearance, now: number): void {
         if (deps.store.askedSince(deps.userId, now - DAY_MS) >= deps.limits.dailyCap) {
             return skipped(`daily cap of ${deps.limits.dailyCap} checks reached`, change);
         }
         start(change, now);
+    }
+
+    /** Run a pop-up now, or queue it behind the ones already waiting (oldest first). Only one that finds the queue full is dropped. */
+    function admit(change: Appearance, now: number): void {
+        if (running || waiting.length > 0 || now - lastCheckAt < deps.limits.minCheckGapMs) {
+            if (waiting.length >= MAX_WAITING_POPUPS) return skipped("too many pop-ups waiting to be read", change);
+            waiting.push(change);
+            return;
+        }
+        begin(change, now);
     }
 
     async function check(change: Appearance): Promise<void> {
@@ -283,22 +301,21 @@ export function createAlerts(deps: AlertsDeps): Alerts {
 
     /**
      * The chat model's two steps on one pop-up. READ first: the OCR lines to facts. Then JUDGE: the facts (or, when READ gave nothing
-     * usable, the lines as read) and the person's rule to a verdict. Each has its own hard time limit; JUDGE gets at most what is left of
-     * the budget after READ. "held" when the person came to the screen in between. A step that fails is in `judged` as a fixed word; what to
-     * do about it is the caller's: no verdict means notify anyway.
+     * usable, the lines as read) and the person's rule to a verdict. Each step runs to the end however slow the model is: its limit is
+     * only a hang guard, and a step that errored or answered with something unusable gets one more try. "held" when the person came to
+     * the screen in between. A step that fails is in `judged` as a fixed word; what to do about it is the caller's: no verdict means
+     * notify anyway.
      */
     async function consult(
         lines: readonly string[],
         rule: string,
         latency: CheckLatency,
     ): Promise<"held" | { judged: NonNullable<CheckEntry["judged"]>; facts?: Facts; verdict?: Verdict }> {
-        const { readTimeoutMs, judgeTimeoutMs, modelBudgetMs } = deps.limits;
-        const started = deps.now();
-        const read = await readFacts(deps.model.ask, lines, Math.min(readTimeoutMs, modelBudgetMs), deps.now);
+        const { readTimeoutMs, judgeTimeoutMs } = deps.limits;
+        const read = await withRetry(() => readFacts(deps.model.ask, lines, readTimeoutMs, deps.now));
         latency.factsAt = deps.now();
         if (deps.userActive?.() === true) return "held";
-        const left = modelBudgetMs - (deps.now() - started);
-        const judge = await judgePopup(deps.model.ask, read.ok ? read.value : lines, rule, Math.min(judgeTimeoutMs, left), deps.now);
+        const judge = await withRetry(() => judgePopup(deps.model.ask, read.ok ? read.value : lines, rule, judgeTimeoutMs, deps.now));
         latency.judgedAt = deps.now();
         return {
             judged: {
@@ -321,7 +338,7 @@ export function createAlerts(deps: AlertsDeps): Alerts {
             if (key !== zoneKey) {
                 zoneKey = key;
                 zone.reset();
-                waiting = null;
+                waiting.length = 0;
                 detection = null;
             }
             if (frame) {
@@ -358,17 +375,13 @@ export function createAlerts(deps: AlertsDeps): Alerts {
                     detection = null;
                 }
             }
-            if (waiting && !running && now - lastCheckAt >= deps.limits.minCheckGapMs) {
-                const change = waiting;
-                waiting = null;
-                admit(change, now);
-            }
+            if (waiting.length > 0 && !running && now - lastCheckAt >= deps.limits.minCheckGapMs) begin(waiting.shift()!, now);
         },
 
         async idle() {
             while (running) await running;
         },
 
-        status: () => ({ pending: zone.wakeAt !== null, waiting: waiting !== null, checking: running !== null }),
+        status: () => ({ pending: zone.wakeAt !== null, waiting: waiting.length > 0, checking: running !== null }),
     };
 }

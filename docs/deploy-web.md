@@ -15,9 +15,9 @@ flowchart LR
     ocr --> rules[text rules: a call, or ordinary]
     rules -->|a call| push[Web Push]
     rules -->|no chat model| push
-    rules -->|a chat model is set| read[step 1, READ: the text to facts, 3 s]
-    read --> judge[step 2, JUDGE: worth interrupting you? 3 s, 5 s in all]
-    read -.->|late or failed: the lines as read| judge
+    rules -->|a chat model is set| read[step 1, READ: the text to facts, runs to the end]
+    read --> judge[step 2, JUDGE: worth interrupting you? runs to the end]
+    read -.->|failed twice: the lines as read| judge
     judge -->|yes: its body| push
     judge -->|no: a reason, nothing sent| no[not urgent, logged]
     judge -.->|late or failed: fail open, the facts' text| push
@@ -73,7 +73,7 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_WATCH_SETTLE_MS` | no | How long a pop-up must stay before it counts (default `1200`). |
 | `PIKVM_WATCH_MIN_GAP_SEC` | no | At most one check per watch in this many seconds (default `4`). |
 | `PIKVM_WATCH_DAILY_CAP` | no | At most this many checks per watch in 24 hours (default `500`). |
-| `PIKVM_WATCH_READ_TIMEOUT_MS`, `PIKVM_WATCH_JUDGE_TIMEOUT_MS`, `PIKVM_WATCH_MODEL_BUDGET_MS` | no | The chat model's two steps: how long each may take and the budget for both (defaults `3000`, `3000`, `5000`). Raise them for a slow local model. |
+| `PIKVM_WATCH_READ_TIMEOUT_MS`, `PIKVM_WATCH_JUDGE_TIMEOUT_MS` | no | The hang guard of each of the chat model's two steps, in ms (default `120000` each): how long a model that has said nothing at all is waited for. A slow model is not cut off by it; only one that never answers. |
 | `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR that reads pop-ups: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
 | `PIKVM_WATCH_LOG_TEXT` | no | `1` puts the OCR text of a pop-up in `checks.jsonl`, and the notification's title and body when they are the rules' own words. Never the chat model's words, with or without it. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
@@ -178,22 +178,26 @@ flowchart LR
    - **Your extra instructions** (Settings, Notifications) are added to **step 2 only**, as the last lines of its instructions (never in the
      pop-up's message, so text on the screen cannot pose as them): they may add things to notify about or things never to notify about; they
      never switch off a call or a sign-in prompt unless they name them (`reason` is then `rule`). Calls themselves never reach the model.
-   - **Time and failure.** READ has **3 s**, JUDGE **3 s**, and both together **5 s** (`READ_TIMEOUT_MS`, `JUDGE_TIMEOUT_MS`,
-     `MODEL_BUDGET_MS`, overridable per host with the three `PIKVM_WATCH_*` variables above). After a slow READ, JUDGE gets what is left of
-     the 5 s, and none (it is not asked) if READ used it up. A step past its limit is abandoned and the request aborted. Why 3 s: on the four best of the hosted small models tried (`docs/e2e/2026-11-05-notification-judge.md`, 105 pop-ups) JUDGE
-   answered in 0.7 to 1.2 s at the median and 1.2 to 2.4 s at the 90th percentile, READ in 0.9 to 2.1 s (90th percentile 1.7 to 3.0 s),
-   and the pair in 3.8 to 4.7 s at the 90th percentile, so 3 + 3 inside 5 s lets nearly all of them through; and a notification should
-   not wait much longer than that for a better sentence. A late READ costs only detail (JUDGE reads the lines instead); a late JUDGE costs a
-   notification for something it would have held back, which is why it is the one given the most of the budget. A local model that is slower
-   needs the variables; its server's prompt cache makes the long fixed instructions cost only the first time. The policy: **READ
-     fails, is late or is not JSON** (log: `readSkipped`): JUDGE is given the lines as read. **JUDGE fails, is late, is not JSON, has a
-     reason outside the list that contradicts its decision (a reason to stay quiet on `notify: true`, or the reverse), or says notify with
+   - **Time and failure.** **Neither step is skipped for being slow.** A slow model, a local one included, is waited for: READ runs to the end,
+     then JUDGE runs to the end, however long each takes. Each has one limit, `READ_TIMEOUT_MS` and `JUDGE_TIMEOUT_MS` (`120000` each,
+     overridable per host with `PIKVM_WATCH_READ_TIMEOUT_MS` and `PIKVM_WATCH_JUDGE_TIMEOUT_MS`), and it is a **hang guard**, not a speed limit: it
+     is only how long a model that has said nothing at all (a dead connection, a model that never loads) is waited for before the request is
+     aborted. There is no budget for the two together. A step that errored or answered with something unusable is **tried once more**; a step that
+     hit the hang guard is not (it already waited the whole time). On the four best of the hosted small models tried
+     (`docs/e2e/2026-11-05-notification-judge.md`, 105 pop-ups) JUDGE answered in 0.7 to 1.2 s at the median and READ in 0.9 to 2.1 s, so
+     the notification follows the pop-up by a few seconds; a slower model makes that longer and changes nothing else. Its server's prompt cache
+     makes the long fixed instructions cost only the first time. The policy: **READ fails twice or never
+     answers** (log: `readSkipped`): JUDGE is given the lines as read. **JUDGE fails twice, never answers, is not JSON, has a
+     reason that contradicts its decision (a reason to stay quiet on `notify: true`, or the reverse), or says notify with
      no body** (log: `judgeSkipped`): **fail open**, the notification is sent anyway, with the facts' text when READ got that far, else the
      rules' own text. A reason word that is not in the list ("social") is read as `other`: the decision stands. Answers are parsed as the first
      balanced JSON object (a fence or a sentence around it is fine), every field is validated, lengths are clamped and control characters
      and emoji are stripped. Nothing leaves the host with **no chat model configured**: the notification is the text as read, and the
      extra instructions cannot be applied (the page says so). A model that cannot be called (no key, an API type the chat server has no
      client for) counts as none.
+   - **Pop-ups that arrive while a check runs** wait in a queue, oldest first (`MAX_WAITING_POPUPS`, 20), and every one is read from its own
+     frame; the minimum gap between check starts (4 s) still applies. Only a pop-up that arrives to a full queue is dropped, logged as
+     `skipped` with the reason "too many pop-ups waiting to be read". A call is never queued behind the model: it is never sent to it.
    - **The log** gets numbers and fixed words only (`judged`: `readMs`, `judgeMs`, `notify`, `reason`, `readSkipped`, `judgeSkipped`, and
      the `factsAt` and `judgedAt` timestamps): never the pop-up's text, the facts, or what the model wrote, even with `PIKVM_WATCH_LOG_TEXT=1`
      (which still logs the OCR text and, when the notification is the rules' own words, its title and body).
@@ -246,8 +250,10 @@ model service. The notification itself goes to the device's push service, as alw
 workstation, no chat model): **toast to notification at the push service 1.8 s median (1.5 to 2.2 s)**; of that, waiting for the next
 look about 0.5 s (0.13 to 0.87 s here, up to 1 s in general), the 1.2 s hold, crop and OCR about 0.1 s (the OCR read itself 97 ms median here), the push send a few ms (loopback).
 With a chat model (the fake, answering READ after 400 ms and JUDGE after 600 ms, single runs, so give or take the up-to-1 s wait for the next
-look): an urgent pop-up 2.9 s from the toast to the notification; a judge that answers 503 1.8 s (it fails open at once); a judge that never
-answers 4.9 s (its 3 s limit, then the push); a call never asked about. What real small models did with the prompts (decisions, details
+look): an urgent pop-up about 2.9 s from the toast to the notification; a judge that answers 503 about 2.5 s (it is tried twice, then fails
+open); a judge that never answers 22 s (the hang guard, set to 20 s for this run, then the push); a **slow model (READ 6 s, JUDGE 6 s) 14 s,
+with nothing skipped and the judge's own body pushed**; **a second pop-up arriving while the first is being read (4 s a step) is queued and
+pushed 13 s after its own toast, the first 10 s after its toast, both with their own bodies**; a call never asked about. What real small models did with the prompts (decisions, details
 kept, valid JSON, times) is in `docs/e2e/2026-11-05-notification-judge.md`. **Not measured**: the push service on a real network (FCM or Apple
 add their own delay after the host's send), a real chat model on this host (the models measured were hosted ones, over the internet), a real
 Pi, the real Xeon without its other load.
@@ -272,7 +278,7 @@ A step that gave nothing usable says so in `judged`: `"readSkipped":"timeout"` o
 `invalid`, `empty`), and a `judgeSkipped` entry is `pushed` (fail open).
 
 `kind` is `alert` (a pop-up) or `test`; `outcome` is `pushed`, `held` (you were using the window), `no` (the chat model judged it not worth interrupting you for: `judged.reason` says why, as one word from the list above), `skipped` (nothing was
-sent, `reason` says why: replaced by a newer pop-up, daily cap, the same text a moment ago, too little text, a whole-corner change) or
+sent, `reason` says why: too many pop-ups waiting to be read, daily cap, the same text a moment ago, too little text, a whole-corner change) or
 `error` (`reason` says what failed: the OCR, the push). `asked` is what the daily cap counts: a pop-up that was read. `latency` is epoch ms:
 `capturedAt` is when the snapshot that was read was requested (the Pi's own capture is inside it), `totalMs` is capture to push and
 `sinceFirstSeenMs` is first sight to push. **The log never holds the screen's words**, only lengths and a kind, unless the host runs

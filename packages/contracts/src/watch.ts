@@ -42,7 +42,7 @@ export const JUDGE_REASONS = ["call", "person_waiting", "time_critical", "securi
 
 export type JudgeReason = (typeof JUDGE_REASONS)[number];
 
-/** Why one of the chat model's two steps gave nothing usable: it ran out of time, failed, answered something that is not the JSON asked for, or answered with nothing in it. */
+/** Why one of the chat model's two steps gave nothing usable: it did not answer at all (the long hang guard), failed, answered something that is not the JSON asked for, or answered with nothing in it. A slow answer is waited for and is none of these. */
 export type ModelFailure = "timeout" | "error" | "invalid" | "empty";
 
 /** What a person sets: on or off, what to be told about in their own words (empty: every pop-up), and where on the screen pop-ups appear. */

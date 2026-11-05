@@ -386,8 +386,8 @@ describe("the log", () => {
         const log = (await screen.findByText("Recent checks")).closest("section")!;
         await waitFor(() => expect(within(log).getByText("Pop-up in the corner: marketing or social activity")).toBeInTheDocument());
         expect(within(log).getByText(/^Not urgent, /)).toBeInTheDocument();
-        expect(within(log).getByText("Pop-up in the corner: a pop-up, judging ran out of time, so it was sent as read, 3.1 seconds to send")).toBeInTheDocument();
-        expect(within(log).getByText("Pop-up in the corner: a pop-up, a person is waiting, reading gave an answer that could not be used, 1.8 seconds to send")).toBeInTheDocument();
+        expect(within(log).getByText("Pop-up in the corner: a pop-up, the chat model did not answer while judging, so it was sent as read, 3.1 seconds to send")).toBeInTheDocument();
+        expect(within(log).getByText("Pop-up in the corner: a pop-up, a person is waiting, the chat model gave an answer that could not be used while reading, 1.8 seconds to send")).toBeInTheDocument();
     });
 
     it("says there is nothing yet when there is nothing", async () => {

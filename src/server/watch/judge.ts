@@ -239,7 +239,7 @@ export function judgePopup(ask: Ask, input: Facts | readonly string[], rule: str
 }
 
 /**
- * The body of a notification the judge did not write (it failed, ran out of time or answered nonsense): the facts' text when READ got
+ * The body of a notification the judge did not write (it failed twice, never answered or answered nonsense): the facts' text when READ got
  * that far, which has the pop-up's every line with the OCR's run-together words repaired, else the rules' own plain body.
  */
 export function failOpenBody(facts: Facts | undefined, plainBody: string): string {

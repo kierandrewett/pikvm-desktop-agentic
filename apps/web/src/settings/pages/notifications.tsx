@@ -67,12 +67,12 @@ const REASON: Record<JudgeReason, string> = {
     other: "nothing that needs you",
 };
 
-/** What a step of the chat model did when it gave nothing usable. */
+/** What a step of the chat model did when it gave nothing usable. A step is only given up on after a long wait (two minutes), so this is a model that is not answering. */
 const FAILURE: Record<ModelFailure, string> = {
-    timeout: "ran out of time",
-    error: "failed",
-    invalid: "gave an answer that could not be used",
-    empty: "gave an empty answer",
+    timeout: "the chat model did not answer",
+    error: "the chat model failed",
+    invalid: "the chat model gave an answer that could not be used",
+    empty: "the chat model gave an empty answer",
 };
 
 /** The choice a stored rectangle that is none of the presets shows as; it cannot be picked, only kept. */
@@ -94,8 +94,8 @@ export function checkSummary(entry: CheckEntry): string {
     const steps = judged
         ? [
               judged.notify && judged.reason ? REASON[judged.reason] : "",
-              judged.readSkipped ? `reading ${FAILURE[judged.readSkipped]}` : "",
-              judged.judgeSkipped ? `judging ${FAILURE[judged.judgeSkipped]}, so it was sent as read` : "",
+              judged.readSkipped ? `${FAILURE[judged.readSkipped]} while reading` : "",
+              judged.judgeSkipped ? `${FAILURE[judged.judgeSkipped]} while judging, so it was sent as read` : "",
           ]
         : [];
     const facts = entry.kind === "alert" ? [entry.notified?.urgency === "high" ? "urgent" : entry.notified ? "a pop-up" : "", ...steps, seconds].filter(Boolean).join(", ") : "";
