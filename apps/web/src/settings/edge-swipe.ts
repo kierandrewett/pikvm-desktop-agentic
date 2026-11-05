@@ -98,6 +98,10 @@ export function useEdgeSwipeBack(options: EdgeSwipeOptions): void {
                 return;
             }
             track = { x0: touch.clientX, y0: touch.clientY, locked: false, dx: 0, samples: [{ x: touch.clientX, t: e.timeStamp }] };
+            // An attempt to keep the system's own back swipe (an iPhone home-screen app) from also leaving the page:
+            // cancel the touch before it is read. Not verified on a device, and Safari may reserve this edge whatever
+            // the page does. A tap that starts in that strip is lost with it.
+            if (touch.clientX <= EDGE_PX && e.cancelable) e.preventDefault();
         };
 
         const onMove = (e: TouchEvent): void => {
@@ -157,7 +161,7 @@ export function useEdgeSwipeBack(options: EdgeSwipeOptions): void {
             el.addEventListener("transitionend", done);
         };
 
-        el.addEventListener("touchstart", onStart, { passive: true });
+        el.addEventListener("touchstart", onStart, { passive: false });
         el.addEventListener("touchmove", onMove, { passive: false });
         el.addEventListener("touchend", onEnd);
         el.addEventListener("touchcancel", onEnd);
