@@ -1,4 +1,4 @@
-import { Segmented, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
+import { Segmented, SettingRow, SettingsCard, SettingsSection } from "@pikvm/chat-web/settings";
 import {
     readTouchHid,
     readTouchMode,
@@ -19,14 +19,14 @@ const HID = [
     { value: "rel", label: "Relative" },
 ] as const satisfies ReadonlyArray<{ value: TouchHid; label: string }>;
 
-/** Stored in this browser only, under the console's own keys, so the console picks them up. */
-export function InputPage() {
+/** The touch and mouse sections of Keyboard and mouse. Stored in this browser only, under the console's own keys, so the console picks them up. */
+export function InputSections() {
     const [mode, setMode] = useStoredValue(TOUCH_MODE_KEY, readTouchMode);
     const [hid, setHid] = useStoredValue(TOUCH_HID_KEY, readTouchHid);
 
     return (
-        <SettingsPage title="Touch and mouse" description="How touch drives the target's mouse.">
-            <SettingsSection title="Touch">
+        <>
+            <SettingsSection title="Touch" description="How touch drives the target's mouse.">
                 <SettingsCard>
                     <SettingRow
                         id="touch-input"
@@ -46,6 +46,6 @@ export function InputPage() {
                     />
                 </SettingsCard>
             </SettingsSection>
-        </SettingsPage>
+        </>
     );
 }

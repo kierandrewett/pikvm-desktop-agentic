@@ -159,7 +159,7 @@ describe("Chat and Settings keep their place", () => {
     it("P3/P4: Settings returns to the page that was open, with its scroll", async () => {
         const user = userEvent.setup();
         const { router } = await open("/settings/keyboard", { compact: false });
-        await within(pane("settings")).findByRole("heading", { level: 1, name: "Keyboard" });
+        await within(pane("settings")).findByRole("heading", { level: 1, name: "Keyboard and mouse" });
         const detail = pane("settings").querySelector<HTMLElement>("[data-settings-scroll]");
         if (!detail) throw new Error("no settings column");
         detail.scrollTop = 120;
@@ -173,7 +173,7 @@ describe("Chat and Settings keep their place", () => {
         await waitFor(() => expect(router.state.location.pathname).toBe("/settings/keyboard"));
         expect(pane("settings").querySelector("[data-settings-scroll]")).toBe(detail);
         expect(detail.scrollTop).toBe(120);
-        expect(within(pane("settings")).getByRole("heading", { level: 1, name: "Keyboard" })).toBeInTheDocument();
+        expect(within(pane("settings")).getByRole("heading", { level: 1, name: "Keyboard and mouse" })).toBeInTheDocument();
     });
 
     it("P4: the Settings tab opens the root until a page has been opened", async () => {

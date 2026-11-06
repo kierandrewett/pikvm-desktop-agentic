@@ -239,6 +239,27 @@ const escapeHtml = (text: string): string =>
 
 /** The page that asks whether to let a desktop app in. `grant` is the sealed request (what is being allowed, and for whom),
  *  posted back so nothing on this page can be altered between the question and the answer. */
+const PAGE_CSS = `
+:root{color-scheme:dark light}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d10;color:#e8eaed;font:16px/1.5 system-ui,sans-serif}
+main{width:min(30rem,calc(100vw - 2rem));padding:1.5rem;border:1px solid #2a2f36;border-radius:12px;background:#12161b}
+h1{font-size:1.35rem;line-height:1.3;margin:0 0 1rem}
+h2{font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;color:#9aa3ad;margin:1.25rem 0 .4rem;font-weight:600}
+ul{margin:0;padding-left:1.1rem;color:#c4cad1}li{margin:.25rem 0}
+.small{font-size:.875rem;color:#9aa3ad}
+dl{padding:.75rem 1rem;border-radius:8px;background:rgba(127,127,127,.12)}
+dl{margin:1rem 0;display:grid;grid-template-columns:auto 1fr;gap:.25rem 1rem}
+dt{color:#9aa3ad}dd{margin:0;word-break:break-word}
+p{color:#c4cad1;margin:.5rem 0}
+form{display:flex;gap:.75rem;margin-top:1.25rem}
+button{font:inherit;padding:.6rem 1.1rem;border-radius:8px;border:1px solid #3a414a;background:#1a2027;color:inherit;cursor:pointer}
+button.primary{background:#3b82f6;border-color:#3b82f6;color:#fff;flex:1}
+button{flex:0 0 auto}
+button:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}
+.err{color:#f97583}
+@media (prefers-color-scheme:light){body{background:#f4f5f7;color:#16191d}ul,h2,.small{color:#5b6570}main{background:#fff;border-color:#d5d9de}dt{color:#5b6570}p{color:#3b434c}button{background:#eef0f3;border-color:#c6ccd3}}
+`;
+
 export function consentPage(opts: {
     name: string;
     subject: string;
@@ -254,21 +275,7 @@ export function consentPage(opts: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="same-origin">
 <title>${opts.client ? "Allow an app" : "Allow PiKVM Desktop"}</title>
-<style>
-:root{color-scheme:dark light}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d10;color:#e8eaed;font:16px/1.5 system-ui,sans-serif}
-main{width:min(30rem,calc(100vw - 2rem));padding:1.5rem;border:1px solid #2a2f36;border-radius:12px;background:#12161b}
-h1{font-size:1.25rem;margin:0 0 .75rem}
-dl{margin:1rem 0;display:grid;grid-template-columns:auto 1fr;gap:.25rem 1rem}
-dt{color:#9aa3ad}dd{margin:0;word-break:break-word}
-p{color:#c4cad1;margin:.5rem 0}
-form{display:flex;gap:.75rem;margin-top:1.25rem}
-button{font:inherit;padding:.6rem 1.1rem;border-radius:8px;border:1px solid #3a414a;background:#1a2027;color:inherit;cursor:pointer}
-button.primary{background:#3b82f6;border-color:#3b82f6;color:#fff}
-button:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}
-.err{color:#f97583}
-@media (prefers-color-scheme:light){body{background:#f4f5f7;color:#16191d}main{background:#fff;border-color:#d5d9de}dt{color:#5b6570}p{color:#3b434c}button{background:#eef0f3;border-color:#c6ccd3}}
-</style>
+<style>${PAGE_CSS}</style>
 </head>
 <body>
 <main>
@@ -278,7 +285,13 @@ ${opts.error ? `<p class="err" role="alert">${escapeHtml(opts.error)}</p>` : ""}
 ${opts.client ? `<dt>App</dt><dd>${escapeHtml(opts.client.app)}</dd>\n<dt>Returns to</dt><dd>${escapeHtml(opts.client.returnsTo)}</dd>` : `<dt>App</dt><dd>PiKVM Desktop</dd>\n<dt>Device</dt><dd>${escapeHtml(opts.name)}</dd>`}
 <dt>Signed in as</dt><dd>${escapeHtml(opts.subject)}</dd>
 </dl>
-<p>It will be able to do what you can do here, until you remove it in Settings, Account on this server.</p>
+${opts.client ? `<h2>What this allows</h2>
+<ul>
+<li>See the screen of the PiKVM's target.</li>
+<li>Move the mouse, click, scroll and type on it.</li>
+<li>It cannot use power control or run actions that need your approval.</li>
+</ul>
+<p class="small">It stays allowed until you remove it in Settings, MCP server.</p>` : "<p>It will be able to do what you can do here, until you remove it in Settings, Account on this server.</p>"}
 <form method="post" action="${opts.client ? opts.client.action : "/app/auth/device"}">
 <input type="hidden" name="grant" value="${escapeHtml(opts.grant)}">
 <button class="primary" type="submit" name="decision" value="allow" autofocus>Allow</button>
@@ -291,5 +304,19 @@ ${opts.client ? `<dt>App</dt><dd>${escapeHtml(opts.client.app)}</dd>\n<dt>Return
 
 /** The page a refused or malformed request to /app/auth/device gets: nothing to act on, nothing about why beyond this. */
 export function devicePageError(message: string, hint = "Close this tab and try again from PiKVM Desktop."): string {
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PiKVM Desktop</title></head><body style="font:16px system-ui,sans-serif;margin:2rem"><main><h1>${escapeHtml(message)}</h1><p>${escapeHtml(hint)}</p></main></body></html>`;
+    return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PiKVM</title>
+<style>${PAGE_CSS}</style>
+</head>
+<body>
+<main>
+<h1>${escapeHtml(message)}</h1>
+<p>${escapeHtml(hint)}</p>
+</main>
+</body>
+</html>`;
 }

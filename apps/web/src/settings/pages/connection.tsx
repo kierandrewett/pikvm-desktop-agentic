@@ -31,6 +31,7 @@ import {
 } from "../../api/queries";
 import { reloadApp } from "../../host/reload";
 import { ConnectForm } from "./connect-form";
+import { KeepAwakeSection } from "./keep-awake";
 import { LoadError } from "./load-error";
 import { PikvmForm } from "./target-form";
 import { StatusDot } from "./value";
@@ -399,6 +400,7 @@ export function ConnectionPage() {
                     </SettingsSection>
                 ) : null}
                 <p className="max-w-prose text-base text-secondary">{PINNED_LINE}</p>
+                <KeepAwakeSection />
             </SettingsPage>
         );
     }
@@ -434,6 +436,7 @@ export function ConnectionPage() {
                     description={inUse ? "On this server." : undefined}
                 />
             ) : null}
+            {data && !showingForm ? <KeepAwakeSection /> : null}
             <ConfirmDialog
                 open={forgetting}
                 onOpenChange={(open) => {

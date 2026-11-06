@@ -1,6 +1,7 @@
 import type { KeyboardLayout } from "@pikvm/contracts/api";
 import { Segmented, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
 import { useServerSettings } from "../use-settings";
+import { InputSections } from "./input";
 import { LoadError } from "./load-error";
 
 const LAYOUTS = [
@@ -16,15 +17,15 @@ export function KeyboardPage() {
 
     if (loadError) {
         return (
-            <SettingsPage title="Keyboard">
+            <SettingsPage title="Keyboard and mouse">
                 <LoadError message={loadError} onRetry={retry} />
             </SettingsPage>
         );
     }
 
     return (
-        <SettingsPage title="Keyboard" description="How text is typed on the target.">
-            <SettingsSection title="Layout">
+        <SettingsPage title="Keyboard and mouse" description="How text is typed on the target, and how touch drives its mouse.">
+            <SettingsSection title="Keyboard">
                 <SettingsCard>
                     <SettingRow
                         id="keyboard-layout"
@@ -44,6 +45,7 @@ export function KeyboardPage() {
                     />
                 </SettingsCard>
             </SettingsSection>
+            <InputSections />
         </SettingsPage>
     );
 }

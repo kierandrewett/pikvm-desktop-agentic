@@ -23,8 +23,6 @@ import { McpPage } from "./pages/mcp";
 import { AudioPage } from "./pages/audio";
 import { ConnectionPage } from "./pages/connection";
 import { DisplayPage } from "./pages/display";
-import { InputPage } from "./pages/input";
-import { KeepAwakePage } from "./pages/keep-awake";
 import { KeyboardPage } from "./pages/keyboard";
 import { NotificationsPage } from "./pages/notifications";
 import { MacrosPage } from "./pages/macros";
@@ -33,10 +31,8 @@ import { AgentPage, ModelsPage, ProvidersPage } from "./chat-pages";
 
 export type PageId =
     | "connection"
-    | "keep-awake"
     | "notifications"
     | "keyboard"
-    | "input"
     | "macros"
     | "providers"
     | "models"
@@ -66,15 +62,13 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
         title: "Target",
         pages: [
             { id: "connection", title: "Connection", icon: Link, component: ConnectionPage },
-            { id: "keep-awake", title: "Keep awake", icon: Eye, component: KeepAwakePage },
             { id: "notifications", title: "Notifications", icon: Bell, component: NotificationsPage },
         ],
     },
     {
         title: "Input",
         pages: [
-            { id: "keyboard", title: "Keyboard", icon: Keyboard, component: KeyboardPage },
-            { id: "input", title: "Touch and mouse", icon: Cursor, component: InputPage },
+            { id: "keyboard", title: "Keyboard and mouse", icon: Keyboard, component: KeyboardPage },
             { id: "macros", title: "Macros", icon: Lightning, component: MacrosPage },
         ],
     },

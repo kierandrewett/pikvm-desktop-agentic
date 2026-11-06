@@ -181,19 +181,19 @@ describe("keyboard layout", () => {
 describe("keep awake", () => {
     it("reflects the server value", async () => {
         server.jiggler = true;
-        renderApp("/settings/keep-awake");
+        renderApp("/settings/connection");
         await waitFor(() =>
             expect(
-                screen.getByRole("switch", { name: "Keep the target awake" }),
+                screen.getByRole("switch", { name: "Mouse jiggler" }),
             ).toHaveAttribute("aria-checked", "true"),
         );
     });
 
     it("sends jiggler true then false, and nothing else", async () => {
         const user = userEvent.setup();
-        renderApp("/settings/keep-awake");
+        renderApp("/settings/connection");
         const toggle = await screen.findByRole("switch", {
-            name: "Keep the target awake",
+            name: "Mouse jiggler",
         });
         await waitFor(() => expect(toggle).toBeEnabled());
 
@@ -215,9 +215,9 @@ describe("keep awake", () => {
         const user = userEvent.setup();
         server.patchStatus = 500;
         server.patchError = "disk full";
-        renderApp("/settings/keep-awake");
+        renderApp("/settings/connection");
         const toggle = await screen.findByRole("switch", {
-            name: "Keep the target awake",
+            name: "Mouse jiggler",
         });
         await waitFor(() => expect(toggle).toBeEnabled());
 
@@ -230,7 +230,7 @@ describe("keep awake", () => {
 
 describe("touch and mouse", () => {
     it("defaults to trackpad and absolute, as the console does", async () => {
-        renderApp("/settings/input");
+        renderApp("/settings/keyboard");
         expect(
             await screen.findByRole("radio", { name: "Trackpad" }),
         ).toBeChecked();
@@ -240,7 +240,7 @@ describe("touch and mouse", () => {
     it("shows what is stored", async () => {
         localStorage.setItem("pikvm-touch-mode", "direct");
         localStorage.setItem("pikvm-touch-hid", "rel");
-        renderApp("/settings/input");
+        renderApp("/settings/keyboard");
         expect(
             await screen.findByRole("radio", { name: "Touch" }),
         ).toBeChecked();
@@ -249,7 +249,7 @@ describe("touch and mouse", () => {
 
     it("writes the console's keys and values, and talks to no server", async () => {
         const user = userEvent.setup();
-        renderApp("/settings/input");
+        renderApp("/settings/keyboard");
         await user.click(await screen.findByRole("radio", { name: "Touch" }));
         await user.click(screen.getByRole("radio", { name: "Relative" }));
 
@@ -961,7 +961,7 @@ describe("connection: the switch", () => {
         expect(
             await screen.findByText("https://pikvm.example"),
         ).toBeInTheDocument();
-        expect(screen.queryByRole("switch")).toBeNull();
+        expect(screen.queryByRole("switch", { name: "Use a server" })).toBeNull();
         expect(serverWrites()).toEqual([]);
     });
 
@@ -976,7 +976,7 @@ describe("connection: the switch", () => {
                 "The PiKVM is set by the host. Change it in the host's settings.",
             ),
         ).toBeInTheDocument();
-        expect(screen.queryByRole("switch")).toBeNull();
+        expect(screen.queryByRole("switch", { name: "Use a server" })).toBeNull();
         expect(
             screen.queryByRole("button", {
                 name: /Add a PiKVM|Edit|Remove|Make/,
@@ -1715,9 +1715,9 @@ describe("settings navigation", () => {
     it("shows only the list on a phone, then the page with a way back", async () => {
         const user = userEvent.setup();
         renderApp("/settings", { compact: true });
-        await user.click(await screen.findByRole("link", { name: "Keyboard" }));
+        await user.click(await screen.findByRole("link", { name: "Keyboard and mouse" }));
         expect(
-            await screen.findByRole("heading", { level: 1, name: "Keyboard" }),
+            await screen.findByRole("heading", { level: 1, name: "Keyboard and mouse" }),
         ).toBeInTheDocument();
         expect(
             screen.queryByRole("heading", { level: 1, name: "Settings" }),
@@ -1777,12 +1777,12 @@ describe("settings navigation", () => {
         try {
             renderApp("/settings", { compact: true });
             await user.click(
-                await screen.findByRole("link", { name: "Keyboard" }),
+                await screen.findByRole("link", { name: "Keyboard and mouse" }),
             );
             expect(
                 await screen.findByRole("heading", {
                     level: 1,
-                    name: "Keyboard",
+                    name: "Keyboard and mouse",
                 }),
             ).toBeInTheDocument();
             await waitFor(

@@ -24,7 +24,7 @@ mkdirSync(outDir, { recursive: true });
 const report = new Report("Settings style");
 const THEME_KEY = "pikvm-console-theme";
 
-const PAGES = ["connection", "keep-awake", "notifications", "keyboard", "input", "macros", "providers", "models", "agent", "display", "audio", "account", "about"];
+const PAGES = ["connection", "notifications", "keyboard", "macros", "providers", "models", "agent", "display", "audio", "account", "about"];
 const VIEWPORTS = [
     { name: "phone", phone: true },
     { name: "desktop-1280x800", width: 1280, height: 800 },
@@ -371,18 +371,18 @@ async function desktopChecks(browser) {
             const page = focusable.findIndex((e) => e.closest("[data-settings-page]"));
             return { nav, lastNav, page };
         });
-        await page.focus('#panel-settings nav[aria-label="Settings"] a[href$="/settings/input"]');
+        await page.focus('#panel-settings nav[aria-label="Settings"] a[href$="/settings/macros"]');
         // A keyboard user has arrived on it by keys, so the focus ring is drawn.
         await page.keyboard.press("Tab");
         await page.keyboard.down("Shift");
         await page.keyboard.press("Tab");
         await page.keyboard.up("Shift");
         await page.keyboard.press("Enter");
-        await page.waitForFunction(() => location.pathname === "/app/settings/input");
+        await page.waitForFunction(() => location.pathname === "/app/settings/macros");
         const focused = await page.evaluate(() => document.activeElement?.getAttribute("href"));
         const ring = await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle);
         await page.close();
-        return [order.nav === 0 && order.lastNav < order.page && focused?.endsWith("/settings/input") === true && ring !== "none", `nav links at 0..${order.lastNav}, the page's first control at ${order.page}; focus after Enter on ${focused}, outline ${ring}`];
+        return [order.nav === 0 && order.lastNav < order.page && focused?.endsWith("/settings/macros") === true && ring !== "none", `nav links at 0..${order.lastNav}, the page's first control at ${order.page}; focus after Enter on ${focused}, outline ${ring}`];
     });
 
     await check(profile, "a macro's delete still asks first, and Cancel keeps it", async () => {
