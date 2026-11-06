@@ -37,7 +37,7 @@ export function AboutPage() {
     const update = useDesktopUpdate();
     return (
         <SettingsPage title="About" description="The app and the host it connects to.">
-            <SettingsSection title="PiKVM">
+            <SettingsSection title="Versions">
                 <SettingsCard>
                     {desktop ? (
                         <SettingRow

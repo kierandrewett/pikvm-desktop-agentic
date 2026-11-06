@@ -403,7 +403,7 @@ describe("the log", () => {
         install(watchServer());
         device();
         renderApp("/settings/notifications");
-        expect(await screen.findByText(/every second.*1.2 seconds.*one check every 4 seconds and 500 a day \(7 used/)).toBeInTheDocument();
+        expect(await screen.findByText(/Looks every second.*stayed 1.2 seconds.*once every 4 seconds and 500 a day \(7 used/)).toBeInTheDocument();
     });
 });
 
@@ -523,7 +523,7 @@ describe("when the agent needs me", () => {
         renderApp("/settings/notifications");
         const toggle = await screen.findByRole("switch", { name: AGENT });
         await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-        expect(await screen.findByText(/On, but no device is set up yet/)).toBeInTheDocument();
+        expect(await screen.findByText(/Needs a device: set one up under This device/)).toBeInTheDocument();
     });
 
     it("A2: switching it off tells the server and does not touch the pop-ups or the device", async () => {

@@ -6,7 +6,8 @@ import { defineConfig } from "vitest/config";
 import { scopeChatTheme } from "./scope-chat-theme";
 import { startupImagesPlugin } from "./startup-images";
 
-const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
+// The release version is the repository root's (the workspace's own package.json says 0.0.0).
+const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
 
 /**
  * Names this build: the commit (PIKVM_BUILD_ID, which the image build passes in because the image has no

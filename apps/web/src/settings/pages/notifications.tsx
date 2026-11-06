@@ -281,8 +281,51 @@ export function NotificationsPage() {
             description="Get a notification when the agent needs you, or when a pop-up appears on the target's screen, even while the app is closed."
         >
             <SettingsSection
+                title="This device"
+                description={device.kind === "ready" ? "A test notification goes to every device that switched this on." : undefined}
+            >
+                <SettingsCard>
+                    {device.kind === "ready" ? (
+                        <SettingRow
+                            label={subscribed ? "This device is set up" : "This device is not set up"}
+                            description={subscribed ? "It will receive notifications." : "Set it up here, or switch one of the notifications above on."}
+                            control={
+                                subscribed ? undefined : (
+                                    <Button variant="primary" disabled={busy || !data} onClick={() => void setUpDevice()}>
+                                        Set up this device
+                                    </Button>
+                                )
+                            }
+                        />
+                    ) : (
+                        <SettingRow label="Not available on this device" description={device.message} />
+                    )}
+                    <SettingRow
+                        label="Send test notification"
+                        description={data && data.push.subscriptions === 0 ? "No device has been set up yet." : undefined}
+                        control={
+                            <Button disabled={busy || !data || data.push.subscriptions === 0} onClick={() => void test()}>
+                                Send test notification
+                            </Button>
+                        }
+                    />
+                    {subscribed ? (
+                        <SettingRow
+                            label="Stop notifying this device"
+                            control={
+                                <Button disabled={busy} onClick={() => void forgetDevice()}>
+                                    Remove this device
+                                </Button>
+                            }
+                        />
+                    ) : null}
+                </SettingsCard>
+                {note ? <Notice tone="success">{note}</Notice> : null}
+            </SettingsSection>
+
+            <SettingsSection
                 title="The agent"
-                description="The agent stops and waits for you when it needs an approval, an answer or some information. The notification says that and nothing about what it wants to do. It is not sent while you are using the app."
+                description="When the agent stops and waits for an approval or an answer. The notification never says what it wants to do."
             >
                 <SettingsCard>
                     <SettingRow
@@ -290,8 +333,8 @@ export function NotificationsPage() {
                         label="Notify me when the agent needs me"
                         description={
                             data && data.notifyAgent && data.push.subscriptions === 0 && subscribed !== true
-                                ? "On, but no device is set up yet. Set up this device below."
-                                : "Also while the app is closed."
+                                ? "Needs a device: set one up under This device."
+                                : "Also while the app is closed, never while you are using it."
                         }
                         status={busy || save.isPending ? { state: "saving" } : { state: "idle" }}
                         error={lastUsed === "agent" ? problem || (save.error ? `Could not save: ${save.error.message}` : null) : null}
@@ -307,14 +350,7 @@ export function NotificationsPage() {
                 </SettingsCard>
             </SettingsSection>
 
-            <SettingsSection
-                title="Pop-ups"
-                description={
-                    limits && data
-                        ? `The server looks at the corner you choose every ${limits.intervalSec === 1 ? "second" : `${limits.intervalSec} seconds`}, even when no app is open, and reads a pop-up on the server as soon as it has stayed for ${limits.settleSec} seconds. Limits: one check every ${limits.minCheckGapSec} seconds and ${limits.dailyCap} a day (${limits.askedToday} used in the last 24 hours).`
-                        : "Loading"
-                }
-            >
+            <SettingsSection title="Pop-ups" description="The server watches one corner of the target's screen and notifies you about a pop-up that stays, even when no app is open.">
                 <SettingsCard>
                     <SettingRow
                         id="screen-watch"
@@ -331,7 +367,11 @@ export function NotificationsPage() {
                             />
                         }
                     />
-                    {!on && cannotEnable ? <SettingRow label="Not available yet" description={cannotEnable} /> : null}
+                    {!on && cannotEnable ? (
+                        <div className="px-4 py-3">
+                            <Notice tone="warning">{cannotEnable}</Notice>
+                        </div>
+                    ) : null}
                     {!on && !cannotEnable && deviceBlocked ? (
                         <SettingRow label="Not available on this device" description={deviceBlocked} />
                     ) : null}
@@ -375,6 +415,11 @@ export function NotificationsPage() {
                         />
                     ) : null}
                 </SettingsCard>
+                {limits && data ? (
+                    <p className="m-0 px-1 text-sm text-tertiary">
+                        Looks every {limits.intervalSec === 1 ? "second" : `${limits.intervalSec} seconds`}, reads a pop-up once it has stayed {limits.settleSec} seconds, and checks at most once every {limits.minCheckGapSec} seconds and {limits.dailyCap} a day ({limits.askedToday} used in the last 24 hours).
+                    </p>
+                ) : null}
             </SettingsSection>
 
             <form onSubmit={submit} className="contents">
@@ -420,49 +465,6 @@ export function NotificationsPage() {
                     </div>
                 </SettingsSection>
             </form>
-
-            <SettingsSection
-                title="This device"
-                description={device.kind === "ready" ? "A test notification goes to every device that switched this on." : undefined}
-            >
-                <SettingsCard>
-                    {device.kind === "ready" ? (
-                        <SettingRow
-                            label={subscribed ? "This device is set up" : "This device is not set up"}
-                            description={subscribed ? "It will receive notifications." : "Set it up here, or switch one of the notifications above on."}
-                            control={
-                                subscribed ? undefined : (
-                                    <Button variant="primary" disabled={busy || !data} onClick={() => void setUpDevice()}>
-                                        Set up this device
-                                    </Button>
-                                )
-                            }
-                        />
-                    ) : (
-                        <SettingRow label="Not available on this device" description={device.message} />
-                    )}
-                    <SettingRow
-                        label="Send test notification"
-                        description={data && data.push.subscriptions === 0 ? "No device has been set up yet." : undefined}
-                        control={
-                            <Button disabled={busy || !data || data.push.subscriptions === 0} onClick={() => void test()}>
-                                Send test notification
-                            </Button>
-                        }
-                    />
-                    {subscribed ? (
-                        <SettingRow
-                            label="Stop notifying this device"
-                            control={
-                                <Button disabled={busy} onClick={() => void forgetDevice()}>
-                                    Remove this device
-                                </Button>
-                            }
-                        />
-                    ) : null}
-                </SettingsCard>
-                {note ? <Notice tone="success">{note}</Notice> : null}
-            </SettingsSection>
 
             <SettingsSection
                 title="Recent checks"

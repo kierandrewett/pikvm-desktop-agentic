@@ -39,12 +39,13 @@ export function DisplayReport() {
 
     return (
         <SettingsSection
-            title="Display"
-            description="What this device reports about its screen and how the page sits in it. Copy it to send."
+            title="Diagnostics"
+            description="For a bug report: what this device says about its screen and how the page sits in it."
         >
             <SettingsCard>
                 <SettingRow
                     label="Display report"
+                    description="Copy it and send it with the problem."
                     stack
                     control={
                         <div className="flex flex-wrap justify-end gap-2">
@@ -59,12 +60,15 @@ export function DisplayReport() {
                         </div>
                     }
                 >
+                    <details className="mt-3">
+                    <summary className="cursor-pointer text-sm text-secondary select-none">Show the report</summary>
                     <pre
                         className="mt-3 -mx-4 w-[calc(100%+2rem)] overflow-x-auto border-t border-default bg-[color-mix(in_srgb,var(--control-track)_50%,var(--panel))] px-4 py-3 font-mono text-xs leading-snug break-words whitespace-pre-wrap text-secondary select-text"
                         data-testid="display-report"
                     >
                         {text}
                     </pre>
+                    </details>
                 </SettingRow>
             </SettingsCard>
         </SettingsSection>
