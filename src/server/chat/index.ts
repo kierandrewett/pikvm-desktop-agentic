@@ -56,6 +56,8 @@ export interface ChatHost {
     decide(userId: string, request: { state: Record<string, string>; instructions: string; timeoutMs: number }): Promise<{ probability: number; backend: "decisions" | "chat" } | undefined>;
     /** Whether a Decisions model is set and can be called. False while chat is not up. */
     hasDecisionModel(userId: string): boolean;
+    /** One JSON-RPC message for the PiKVM MCP server from a client outside the app (`POST /app/mcp`). Undefined for a notification. */
+    mcp(message: unknown, signal: AbortSignal, client: string): Promise<unknown>;
     /** `<data>/chat/users/<id>`, where that user's files live. Throws while chat is not up. */
     userDir(userId: string): string;
     /** Resolves when the first start attempt has finished, whichever way. */
@@ -85,12 +87,17 @@ export function pikvmBuiltin(mcp: PikvmMcp): BuiltinMcp {
     };
 }
 
+/** An outside client that has not called for this long starts a new control session, as an agent run does after its lease (agent/desk.ts). */
+const EXTERNAL_SESSION_MS = 10 * 60_000;
+
 export function startChat(options: ChatHostOptions): ChatHost {
     const log = options.log ?? ((line: string) => console.log(line));
     const { desk } = options;
     let chat: ChatServer | null = null;
     let failure: string | null = null;
     let stopping: Promise<void> | undefined;
+    /** Outside MCP clients with a control session: the run's name and when it last called. */
+    const external = new Map<string, number>();
 
     const policy = (): PikvmPolicy =>
         chat
@@ -165,6 +172,23 @@ export function startChat(options: ChatHostOptions): ChatHost {
         hasSmallModel: (userId) => chat?.hasSmallModel(userId) ?? false,
         decide: async (userId, request) => chat?.decide(userId, request),
         hasDecisionModel: (userId) => chat?.hasDecisionModel(userId) ?? false,
+        async mcp(message, signal, client) {
+            // Control belongs to a conversation (agent/desk.ts), and an outside client has none, so each client gets a session of its own: a
+            // run named after it. A new one starts on its first call and after a long silence; a person taking control or pressing Stop
+            // ends it for that client until they hand control back, as for a chat run.
+            const id = `mcp-${client}`;
+            const t = Date.now();
+            for (const [other, last] of external) {
+                if (other !== id && t - last > EXTERNAL_SESSION_MS) {
+                    desk.endRun(other);
+                    external.delete(other);
+                }
+            }
+            const last = external.get(id);
+            if (last === undefined || t - last > EXTERNAL_SESSION_MS) desk.beginRun(id);
+            external.set(id, t);
+            return mcp.handle({ conversationId: id, signal, frames: { save: () => undefined } }, message as JsonRpcRequest);
+        },
         userDir(userId) {
             if (!chat) throw new Error("Chat is not up");
             return chat.userDir(userId);

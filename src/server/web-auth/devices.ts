@@ -190,6 +190,8 @@ interface PendingCode {
     name: string;
     method: Method;
     subject: string;
+    /** Set for an OAuth client (an MCP client): the redirect URI the code was issued to, which the token request must repeat. */
+    redirectUri?: string;
     exp: number;
 }
 
@@ -221,7 +223,7 @@ export class AuthCodes {
         const a = Buffer.from(challenge);
         const b = Buffer.from(found.challenge);
         if (a.length !== b.length || !timingSafeEqual(a, b)) return undefined;
-        return { name: found.name, method: found.method, subject: found.subject };
+        return { name: found.name, method: found.method, subject: found.subject, ...(found.redirectUri === undefined ? {} : { redirectUri: found.redirectUri }) };
     }
 
     private sweep(): void {
@@ -235,14 +237,21 @@ const escapeHtml = (text: string): string =>
 
 /** The page that asks whether to let a desktop app in. `grant` is the sealed request (what is being allowed, and for whom),
  *  posted back so nothing on this page can be altered between the question and the answer. */
-export function consentPage(opts: { name: string; subject: string; grant: string; error?: string }): string {
+export function consentPage(opts: {
+    name: string;
+    subject: string;
+    grant: string;
+    error?: string;
+    /** Set for an OAuth client: what it is, where the browser goes back to, and where the answer is posted. */
+    client?: { app: string; returnsTo: string; action: string };
+}): string {
     return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="same-origin">
-<title>Allow PiKVM Desktop</title>
+<title>${opts.client ? "Allow an app" : "Allow PiKVM Desktop"}</title>
 <style>
 :root{color-scheme:dark light}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d10;color:#e8eaed;font:16px/1.5 system-ui,sans-serif}
@@ -261,15 +270,14 @@ button:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}
 </head>
 <body>
 <main>
-<h1>Allow this app to use this server?</h1>
+<h1>${opts.client ? "Allow this app to control this PiKVM?" : "Allow this app to use this server?"}</h1>
 ${opts.error ? `<p class="err" role="alert">${escapeHtml(opts.error)}</p>` : ""}
 <dl>
-<dt>App</dt><dd>PiKVM Desktop</dd>
-<dt>Device</dt><dd>${escapeHtml(opts.name)}</dd>
+${opts.client ? `<dt>App</dt><dd>${escapeHtml(opts.client.app)}</dd>\n<dt>Returns to</dt><dd>${escapeHtml(opts.client.returnsTo)}</dd>` : `<dt>App</dt><dd>PiKVM Desktop</dd>\n<dt>Device</dt><dd>${escapeHtml(opts.name)}</dd>`}
 <dt>Signed in as</dt><dd>${escapeHtml(opts.subject)}</dd>
 </dl>
 <p>It will be able to do what you can do here, until you remove it in Settings, Account on this server.</p>
-<form method="post" action="/app/auth/device">
+<form method="post" action="${opts.client ? opts.client.action : "/app/auth/device"}">
 <input type="hidden" name="grant" value="${escapeHtml(opts.grant)}">
 <button class="primary" type="submit" name="decision" value="allow" autofocus>Allow</button>
 <button type="submit" name="decision" value="deny">Cancel</button>

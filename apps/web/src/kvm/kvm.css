@@ -1193,3 +1193,8 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 .kvm-screen[data-agent-lock] .kvm-pane {
     cursor: not-allowed;
 }
+/* Another window is in front: nothing here gets the pointer's input, and our own cursor is not the one being moved, so the
+   person's normal cursor shows over the picture. */
+.kvm-screen[data-background] .kvm-pane {
+    cursor: default;
+}

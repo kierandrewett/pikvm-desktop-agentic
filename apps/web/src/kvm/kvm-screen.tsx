@@ -200,7 +200,7 @@ export function KvmScreen() {
         <KvmLockedProvider value={locked}>
         <OcrPickerProvider controller={controller}>
             <FirstRunProvider value={welcome}>
-                <div className="kvm-screen" data-layout={dock ? "dock" : "wide"} data-desktop-app={desktop} data-agent-lock={locked || undefined}>
+                <div className="kvm-screen" data-layout={dock ? "dock" : "wide"} data-desktop-app={desktop} data-agent-lock={locked || undefined} data-background={background || undefined}>
                     {dock ? null : (
                         <Toolbar
                             controller={controller}

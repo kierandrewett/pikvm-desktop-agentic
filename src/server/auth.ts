@@ -31,6 +31,12 @@ export const PUBLIC_PATHS: Readonly<Record<string, true>> = {
     // A desktop app asks what the host offers, and trades its one-time code for a token, before it has any credential.
     "/app/auth/info": true,
     "/app/auth/device/token": true,
+    // An MCP client discovers how to sign in, registers itself and trades its code for a token before it has any credential (web-auth/index.ts).
+    "/.well-known/oauth-protected-resource": true,
+    "/.well-known/oauth-protected-resource/app/mcp": true,
+    "/.well-known/oauth-authorization-server": true,
+    "/app/oauth/register": true,
+    "/app/oauth/token": true,
     "/app/logout": true,
     "/app/manifest.webmanifest": true,
     "/app/sw.js": true,

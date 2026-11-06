@@ -32,6 +32,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { gate, loginPage, ROOT_ICON, sameOrigin, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
 import type { SignedIn, WebAuth } from "./web-auth";
+import { MCP_PATH as MCP_ENDPOINT } from "./web-auth";
 import type { AgentRoutes } from "./agent/routes";
 import { json, readBody } from "./http";
 import type { LiveConnections } from "./live";
@@ -60,6 +61,8 @@ export interface RouteTargets {
         handleRest(req: IncomingMessage, res: ServerResponse): void | Promise<void>;
         /** False when the chat server is not up (the upgrade is then refused). */
         handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
+        /** One JSON-RPC message for the PiKVM MCP server, from a client outside the app. `client` names who is asking (one control session each). Undefined for a notification. */
+        mcp(message: unknown, signal: AbortSignal, client: string): Promise<unknown>;
     };
     /** The connections served here (sockets, event streams): ended when the server in use changes. */
     live: LiveConnections;
@@ -206,6 +209,36 @@ export function createRoutes(t: RouteTargets): Route[] {
                     return;
                 }
                 redirect(res, "/app/login?error=1");
+            },
+        },
+
+        {
+            // The PiKVM MCP server for any MCP client: Streamable HTTP, one JSON reply per POST. Signed in by the gate above (an access
+            // token, or the device token an OAuth sign-in made); a GET (the optional event stream) is refused as the specification allows.
+            name: "MCP endpoint",
+            match: ({ path }) => path === MCP_ENDPOINT,
+            run: async ({ req, res, method, signedIn }) => {
+                if (method !== "POST") return json(res, 405, { error: "POST JSON-RPC messages here" });
+                if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) return json(res, 415, { error: "Expected application/json" });
+                let message: unknown;
+                try {
+                    message = JSON.parse(await readBody(req, 256 * 1024));
+                } catch {
+                    return json(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+                }
+                // A batch would hide calls from the per-call approval and the control session, so each message is sent alone.
+                if (typeof message !== "object" || message === null || Array.isArray(message)) {
+                    return json(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Send one JSON-RPC message at a time" } });
+                }
+                const abort = new AbortController();
+                res.on("close", () => abort.abort());
+                const reply = await t.chat.mcp(message, abort.signal, signedIn?.deviceId ?? signedIn?.method ?? "local");
+                if (reply === undefined) {
+                    res.writeHead(202);
+                    res.end();
+                    return;
+                }
+                json(res, 200, reply);
             },
         },
 
@@ -384,6 +417,10 @@ export function createRouter(targets: RouteTargets): Router {
                         if (verdict.kind === "login") return redirect(res, webAuth.loginRedirect(url));
                         if (verdict.kind === "deny") {
                             res.setHeader("cache-control", "no-store");
+                            // An MCP client learns from this where to sign in.
+                            if (verdict.status === 401 && url.pathname === MCP_ENDPOINT) {
+                                res.setHeader("www-authenticate", `Bearer resource_metadata="${webAuth.resourceMetadata(req)}"`);
+                            }
                             if (verdict.retryAfterSec !== undefined) res.setHeader("retry-after", String(verdict.retryAfterSec));
                             return json(res, verdict.status, { error: verdict.error });
                         }

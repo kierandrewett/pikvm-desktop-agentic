@@ -7,6 +7,7 @@ import {
 } from "@pikvm/chat-web/settings";
 import type { SessionView } from "@pikvm/contracts/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { useSession } from "../../api/queries";
 
 interface DeviceRow {
@@ -58,6 +59,35 @@ const METHOD_WORDING: Record<NonNullable<SessionView["method"]>, string> = {
     basic: "With a header credential.",
 };
 
+/** Where an MCP client connects: this host's own MCP endpoint. */
+function McpAddress() {
+    const [copied, setCopied] = useState(false);
+    const address = `${window.location.origin}/app/mcp`;
+    return (
+        <SettingsSection title="MCP server">
+            <SettingsCard>
+                <SettingRow
+                    label="Address"
+                    description={address}
+                    control={
+                        <Button
+                            onClick={() => {
+                                void navigator.clipboard.writeText(address).then(() => setCopied(true));
+                            }}
+                        >
+                            {copied ? "Copied" : "Copy"}
+                        </Button>
+                    }
+                />
+                <SettingRow
+                    label="Connect an agent"
+                    description={`Add the address to any agent that supports MCP over HTTP. The agent opens this site to sign you in, and then shows up below until you revoke it. For example: claude mcp add --transport http pikvm ${address}`}
+                />
+            </SettingsCard>
+        </SettingsSection>
+    );
+}
+
 export function AccountPage() {
     const session = useSession();
     // A device cannot list the others, so the list is for a person signed in some other way.
@@ -108,8 +138,9 @@ export function AccountPage() {
                     )}
                 </SettingsCard>
             </SettingsSection>
+            <McpAddress />
             {listed && devices.data && devices.data.length > 0 ? (
-                <SettingsSection title="Signed-in desktop apps">
+                <SettingsSection title="Signed-in apps">
                     <SettingsCard>
                         {devices.data.map((device) => (
                             <SettingRow

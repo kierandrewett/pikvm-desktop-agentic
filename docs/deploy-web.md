@@ -321,6 +321,35 @@ on is not worth delivering late. A tap opens Chat.
   `push-subscriptions.json` to stop the notifications and keep the watch's log.
 - To stop sending pop-up text to a model: remove the chat model (Settings, Models). Nothing is asked of any model without one.
 
+## MCP server (any agent, outside the app)
+
+The PiKVM computer-use tools (`screenshot`, `read_text`, `mouse_move`, `click`, `drag`, `scroll`, `type_text`, `key`, `wait`, `screen_info`) are also served to any
+MCP client at **`<origin>/app/mcp`** (Streamable HTTP: one JSON-RPC message in a POST, one JSON reply; a notification gets 202; a GET is answered 405, which the
+specification allows; a batch is refused so every call is seen alone). Settings, Account shows the address.
+
+How a client signs in:
+
+- **OAuth, as the MCP specification describes it.** A request with no credential gets `401` and
+  `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/app/mcp"`. The client reads that, then
+  `/.well-known/oauth-authorization-server`, registers itself at `/app/oauth/register` (dynamic client registration, public client, no secret), sends the person
+  to `/app/oauth/authorize` (authorization code, **PKCE S256 only**) and trades the code at `/app/oauth/token`. The person signs in on the host's own page
+  with whatever the host offers (access token, password, OpenID Connect) and presses **Allow** on a page that names the app and where it returns to. A
+  redirect URI must be `https`, or `http` to `127.0.0.1`, `localhost` or `[::1]`, and must be one the client registered. A client's `client_id` is sealed with the
+  session key and carries its name and redirect URIs, so nothing is stored and a restart forgets nothing. A code lives 60 s, works once, is bound to its redirect
+  URI and its PKCE verifier, and is spent by a wrong attempt.
+- **The token it gets is the same revocable device token** a desktop app gets (`pkd_...`), named "<client> (MCP)", listed in Settings, Account, and valid only while
+  the sign-in method it was made under is configured as it was. There is no refresh token and no expiry: revoke it there. It is never a cookie.
+- **The access token** (`PIKVM_ACCESS_TOKEN`) also works as `Authorization: Bearer`, for a script that cannot open a browser. On the desktop app (no sign-in
+  host) the endpoint is behind the app's own token gate, or open on loopback when no token is set.
+
+Control and approval. Control of the PiKVM belongs to a conversation (`agent/desk.ts`), and an outside client has none, so each client gets a control session of
+its own, named after its token: it starts on the client's first call and after 10 minutes of silence, one holder at a time, as for a chat run. A person using the
+mouse or keyboard, or pressing Stop, takes control from it until they press Hand back; the client is told `control_released`. Tools that need approval
+(`agent.pikvm.approval`, the power tool) have nobody to ask outside a chat, so they are **refused** unless the setting is `never`. The screenshots go to the client
+only; nothing is kept in a conversation.
+
+Not done: there is no approval card for an outside client, and the agent-activity view on the KVM tab is not checked for an outside client's session. Not verified with a real MCP client (Claude Code, Codex, claude.ai); the run in `docs/e2e/2026-11-06-mcp-oauth.md` plays the client by hand.
+
 ## Running it
 
 The host signs users in itself. There is no proxy or identity gateway to run in front of it, and none is needed for sign-in. A TLS
