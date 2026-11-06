@@ -35,6 +35,7 @@ export const OPERATOR_ID: string;
 export interface RunHooks {
     beginRun(conversationId: string): void;
     endRun(conversationId: string): void;
+    needsAnswer?(userId: string, conversationId: string, kind: "approval" | "question" | "input"): void;
 }
 
 export interface ChatServerOptions {

@@ -6,7 +6,7 @@ import { MAX_RULE_CHARS } from "./limits";
 /**
  * What a user's watch keeps on disk, under `users/<id>/watch/`:
  *
- *   settings.json               on or off, the plain-English rule, the corner to watch (older files may hold fields that are no longer used: they are ignored)
+ *   settings.json               on or off, the plain-English rule, the corner to watch, whether the agent's questions notify (older files may hold fields that are no longer used: they are ignored)
  *   checks.jsonl                one line per check, so the person can see why a notification came or did not
  *   checks.jsonl.1              the previous log, kept when checks.jsonl passes `LOG_ROTATE_BYTES`
  *   push-subscriptions.json     the devices that asked for notifications (push.ts)
@@ -14,7 +14,7 @@ import { MAX_RULE_CHARS } from "./limits";
  * Files are 0600 in a 0700 directory: the log holds what was on the screen.
  */
 
-export const DEFAULT_SETTINGS: WatchSettings = { enabled: false, rule: "", alertZone: DEFAULT_ALERT_ZONE };
+export const DEFAULT_SETTINGS: WatchSettings = { enabled: false, rule: "", alertZone: DEFAULT_ALERT_ZONE, notifyAgent: true };
 
 /** A zone smaller than this (of the frame, either way) cannot hold a pop-up, and would be a few cells of noise. */
 const MIN_ZONE_SIDE = 0.05;
@@ -112,6 +112,8 @@ export function createWatchStore(options: { userDir(userId: string): string; use
                     enabled: get("enabled") === true,
                     rule: typeof rule === "string" ? rule.slice(0, MAX_RULE_CHARS) : "",
                     alertZone: parseZone(get("alertZone")) ?? DEFAULT_SETTINGS.alertZone,
+                    // Older files have no such key: on, as for a new user.
+                    notifyAgent: get("notifyAgent") !== false,
                 };
             } catch {
                 return { ...DEFAULT_SETTINGS };
@@ -122,6 +124,7 @@ export function createWatchStore(options: { userDir(userId: string): string; use
             const current = this.read(userId);
             const next: WatchSettings = { ...current };
             if (patch.enabled !== undefined) next.enabled = patch.enabled === true;
+            if (patch.notifyAgent !== undefined) next.notifyAgent = patch.notifyAgent === true;
             if (patch.rule !== undefined) {
                 const rule = String(patch.rule).trim();
                 if (rule.length > MAX_RULE_CHARS) throw new SettingsError(`The rule is too long: ${MAX_RULE_CHARS} characters at most.`);

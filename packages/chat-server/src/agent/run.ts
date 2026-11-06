@@ -124,6 +124,8 @@ export class ResponseRun {
      * `task` read each subagent's own session for its full list of steps.
      */
     conversationDir?: string;
+    /** Told when the run starts waiting for the person (set by the session manager, which knows the user). */
+    attention?: (kind: "approval" | "question" | "input") => void;
     /** RPC id of this run's `prompt` command: its `prompt_result` frame carries it. */
     promptId?: string;
     #cancelRequested = false;
@@ -563,6 +565,7 @@ export class ResponseRun {
             title: req.title ?? "Allow this action?",
         };
         const idx = this.#add(item);
+        this.attention?.("approval");
         return new Promise((resolve) => {
             this.#approvals.set(item.id, (answer) => {
                 this.#approvals.delete(item.id);
@@ -603,6 +606,7 @@ export class ResponseRun {
             ...fields,
         };
         const idx = this.#add(item);
+        this.attention?.("approval");
         return new Promise((resolve) => {
             this.#approvals.set(item.id, (answer) => {
                 this.#approvals.delete(item.id);
@@ -627,6 +631,7 @@ export class ResponseRun {
             ...fields,
         };
         const idx = this.#add(item);
+        this.attention?.("input");
         return new Promise((resolve) => {
             this.#elicitations.set(item.id, (r) => {
                 this.#elicitations.delete(item.id);
@@ -669,6 +674,7 @@ export class ResponseRun {
         const call = callIdx !== undefined ? (this.response.output[callIdx] as FunctionCallItem) : undefined;
         const item = questionItem(req, req.method === "ask" && call?.name === "ask" ? call.call_id : undefined);
         const idx = this.#add(item);
+        this.attention?.("question");
         return new Promise((resolve) => {
             this.#questions.set(item.id, {
                 uiId: req.id,

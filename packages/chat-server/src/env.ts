@@ -60,6 +60,11 @@ export interface RunHooks {
     beginRun(conversationId: string): void;
     /** A response ended: finished, failed, stopped or the agent exited. */
     endRun(conversationId: string): void;
+    /**
+     * The running response is waiting for the person: an approval, a question, or a form from a connected server. Told when
+     * the card appears, not when it is answered. The host may send a notification; it must not wait for anything.
+     */
+    needsAnswer?(userId: string, conversationId: string, kind: "approval" | "question" | "input"): void;
 }
 
 let runHooks: RunHooks | undefined;

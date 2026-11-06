@@ -294,6 +294,17 @@ Notifications, PiKVM. Nothing new is public: the worker was already a public pat
 through the host's sign-in. The host must be able to reach the push services (`web.push.apple.com`,
 `fcm.googleapis.com`) over https.
 
+### When the agent needs you
+
+The same devices get a notification when the agent stops and waits for the person: an approval, a question, or a form from a connected
+server (`needsAnswer` in `packages/chat-server/src/env.ts`, told when the card appears, not when it is answered). It is on unless
+switched off in Settings, Notifications, **Notify me when the agent needs me** (stored as `notifyAgent`, per user; a settings file from
+before it existed counts as on). Nothing is sent when the person has no device set up, or is using the app (the same presence that holds
+back pop-up notifications), and the same wait does not notify twice within 20 seconds. The words are fixed ("The agent needs your
+approval.", "The agent has a question for you.", "The agent needs some information from you."): a push crosses a vendor's servers and
+lands on a lock screen, so it never says what the agent wants to do. It expires after 15 minutes, since an approval nobody can still act
+on is not worth delivering late. A tap opens Chat.
+
 ### Switching it off
 
 - Settings, Notifications, switch off: the poller stops at once if nobody else has it on, and the PiKVM is no longer asked for

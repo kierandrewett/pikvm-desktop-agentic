@@ -124,6 +124,8 @@ export function NotificationsPage() {
     const [busy, setBusy] = useState(false);
     const [problem, setProblem] = useState("");
     const [note, setNote] = useState("");
+    // Which switch was used last: the problem and a failed save are shown on that row, not on both.
+    const [lastUsed, setLastUsed] = useState<"agent" | "watch">("watch");
 
     const refreshDevice = async () => {
         const next = describeDevice(readDeviceEnv());
@@ -139,7 +141,7 @@ export function NotificationsPage() {
     // A device that was subscribed keeps the server's copy of its subscription current: the server may have dropped it
     // (an expired one is removed) or the browser may have rotated it.
     const publicKey = view.data?.push.publicKey;
-    const wanted = view.data?.enabled === true;
+    const wanted = view.data?.enabled === true || view.data?.notifyAgent === true;
     useEffect(() => {
         if (!wanted || !publicKey || device.kind !== "ready" || device.permission !== "granted") return;
         let cancelled = false;
@@ -174,33 +176,60 @@ export function NotificationsPage() {
     const deviceBlocked = device.kind === "ready" ? "" : device.message;
     const on = data?.enabled === true;
 
-    const toggle = async (next: boolean) => {
+    /**
+     * Asks for the permission and subscribes this device. The prompt must come from the tap that got us here, so nothing is awaited before it.
+     * Says why and answers false when it cannot.
+     */
+    const setUpDevice = async (): Promise<boolean> => {
         setProblem("");
         setNote("");
-        if (!data) return;
-        if (!next) {
-            save.mutate({ enabled: false });
-            return;
-        }
-        // Asked first and synchronously: the prompt must come from this tap, before any await.
+        if (!data) return false;
         const permission = device.kind === "ready" && device.permission === "default" ? await Notification.requestPermission() : undefined;
         setBusy(true);
         try {
             if (device.kind !== "ready") throw new Error(device.message);
             if (permission === "denied") {
                 await refreshDevice();
-                throw new Error("Notifications are blocked on this device. Allow them, then switch this on again.");
+                throw new Error("Notifications are blocked on this device. Allow them, then try again.");
             }
             if (!data.push.available || !data.push.publicKey) throw new Error(data.push.reason ?? "The server cannot send notifications.");
             const sub = await subscribeThisDevice(data.push.publicKey);
             await subscribeDevice(sub.toJSON());
-            save.mutate({ enabled: true });
             await refreshDevice();
+            void queryClient.invalidateQueries({ queryKey: watchKey });
+            return true;
         } catch (error) {
             setProblem(message(error));
+            return false;
         } finally {
             setBusy(false);
         }
+    };
+
+    const toggle = async (next: boolean) => {
+        setLastUsed("watch");
+        if (!data) return;
+        if (!next) {
+            setProblem("");
+            setNote("");
+            save.mutate({ enabled: false });
+            return;
+        }
+        if (await setUpDevice()) save.mutate({ enabled: true });
+    };
+
+    const toggleAgent = async (next: boolean) => {
+        setLastUsed("agent");
+        if (!data) return;
+        if (!next) {
+            setProblem("");
+            setNote("");
+            save.mutate({ notifyAgent: false });
+            return;
+        }
+        // With a device already set up (this one or another) there is nothing to ask of this browser.
+        if (data.push.subscriptions === 0 && subscribed !== true && !(await setUpDevice())) return;
+        save.mutate({ notifyAgent: true });
     };
 
     const submit = (event: FormEvent) => {
@@ -249,8 +278,35 @@ export function NotificationsPage() {
     return (
         <SettingsPage
             title="Notifications"
-            description="Get a notification when a pop-up appears on the target's screen, even while the app is closed."
+            description="Get a notification when the agent needs you, or when a pop-up appears on the target's screen, even while the app is closed."
         >
+            <SettingsSection
+                title="The agent"
+                description="The agent stops and waits for you when it needs an approval, an answer or some information. The notification says that and nothing about what it wants to do. It is not sent while you are using the app."
+            >
+                <SettingsCard>
+                    <SettingRow
+                        id="notify-agent"
+                        label="Notify me when the agent needs me"
+                        description={
+                            data && data.notifyAgent && data.push.subscriptions === 0 && subscribed !== true
+                                ? "On, but no device is set up yet. Set up this device below."
+                                : "Also while the app is closed."
+                        }
+                        status={busy || save.isPending ? { state: "saving" } : { state: "idle" }}
+                        error={lastUsed === "agent" ? problem || (save.error ? `Could not save: ${save.error.message}` : null) : null}
+                        control={
+                            <Switch
+                                label="Notify me when the agent needs me"
+                                checked={data?.notifyAgent === true}
+                                disabled={!data || busy || save.isPending || (data.notifyAgent !== true && data.push.subscriptions === 0 && subscribed !== true && deviceBlocked !== "")}
+                                onChange={(next) => void toggleAgent(next)}
+                            />
+                        }
+                    />
+                </SettingsCard>
+            </SettingsSection>
+
             <SettingsSection
                 title="Pop-ups"
                 description={
@@ -265,7 +321,7 @@ export function NotificationsPage() {
                         label="Notify me about pop-ups"
                         description="Also while the app is closed. Notifications are held back while you are using this window."
                         status={busy || save.isPending ? { state: "saving" } : { state: "idle" }}
-                        error={problem || (save.error ? `Could not save: ${save.error.message}` : null)}
+                        error={lastUsed === "watch" ? problem || (save.error ? `Could not save: ${save.error.message}` : null) : null}
                         control={
                             <Switch
                                 label="Notify me about pop-ups"
@@ -373,7 +429,14 @@ export function NotificationsPage() {
                     {device.kind === "ready" ? (
                         <SettingRow
                             label={subscribed ? "This device is set up" : "This device is not set up"}
-                            description={subscribed ? "It will receive notifications." : "Switch the watch on to set it up."}
+                            description={subscribed ? "It will receive notifications." : "Set it up here, or switch one of the notifications above on."}
+                            control={
+                                subscribed ? undefined : (
+                                    <Button variant="primary" disabled={busy || !data} onClick={() => void setUpDevice()}>
+                                        Set up this device
+                                    </Button>
+                                )
+                            }
                         />
                     ) : (
                         <SettingRow label="Not available on this device" description={device.message} />

@@ -265,9 +265,9 @@ describe("the files", () => {
         store.write("u", { enabled: true });
         const file = join(root.path, "users", "u", "watch", "settings.json");
         writeFileSync(file, "{ nope");
-        assert.deepEqual(store.read("u"), { enabled: false, rule: "", alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(store.read("u"), { enabled: false, rule: "", alertZone: DEFAULT_ALERT_ZONE, notifyAgent: true });
         writeFileSync(file, JSON.stringify({ enabled: true, rule: 5, visionModel: "bad model", fastAlerts: true, extra: 1 }));
-        assert.deepEqual(store.read("u"), { enabled: true, rule: "", alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", alertZone: DEFAULT_ALERT_ZONE, notifyAgent: true });
     });
 
     it("R8: the zone is stored, validated and read back; a damaged zone is the default", () => {
@@ -279,7 +279,7 @@ describe("the files", () => {
         assert.throws(() => store.write("u", { alertZone: { x0: 0, y0: 0, x1: Number.NaN, y1: 1 } }), SettingsError);
         assert.deepEqual(store.read("u").alertZone, ALERT_ZONES[2].zone, "a refused zone changes nothing");
         writeFileSync(join(root.path, "users", "u", "watch", "settings.json"), JSON.stringify({ enabled: true, alertZone: { x0: 2, y0: 0, x1: 3, y1: 1 } }));
-        assert.deepEqual(store.read("u"), { enabled: true, rule: "", alertZone: DEFAULT_ALERT_ZONE });
+        assert.deepEqual(store.read("u"), { enabled: true, rule: "", alertZone: DEFAULT_ALERT_ZONE, notifyAgent: true });
         assert.deepEqual(parseZone({ x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 }), { x0: 0.5, y0: 0.5, x1: 0.56, y1: 0.56 });
         assert.equal(parseZone({ x0: 0.5, y0: 0.5, x1: 0.54, y1: 1 }), undefined);
     });

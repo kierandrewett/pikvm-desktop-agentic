@@ -43,6 +43,7 @@ function watchServer(over: Partial<WatchView> = {}): WatchServer {
         view: {
             enabled: false,
             rule: "",
+            notifyAgent: true,
             canEnable: { ok: true },
             chatModel: false,
             running: false,
@@ -157,6 +158,7 @@ afterEach(() => {
 });
 
 const NOTIFY = "Notify me about pop-ups";
+const AGENT = "Notify me when the agent needs me";
 
 describe("when it cannot be switched on", () => {
     it("G1: where the host cannot read pop-ups the switch is off and the page says why", async () => {
@@ -461,12 +463,12 @@ describe("how notifications are decided", () => {
         expect(screen.getByText(/Without a chat model every pop-up is sent, and extra instructions cannot be applied/)).toBeInTheDocument();
     });
 
-    it("S3: there is one watch switch and nothing about modes, summaries or providers", async () => {
+    it("S3: there are two switches, the agent's and the pop-ups', and nothing about modes, summaries or providers", async () => {
         install(watchServer({ chatModel: true }));
         device({ permission: "granted" });
         renderApp("/settings/notifications");
         await screen.findByRole("switch", { name: NOTIFY });
-        expect(screen.getAllByRole("switch").map((each) => each.getAttribute("aria-label"))).toEqual([NOTIFY]);
+        expect(screen.getAllByRole("switch").map((each) => each.getAttribute("aria-label"))).toEqual([AGENT, NOTIFY]);
         expect(screen.queryByText(/fast alerts|summar|OpenRouter|image model|Jev/i)).not.toBeInTheDocument();
     });
 
@@ -511,5 +513,71 @@ describe("while you are using the window", () => {
         const log = (await screen.findByText("Recent checks")).closest("section")!;
         await waitFor(() => expect(within(log).getByText("Pop-up in the corner: you are using this window")).toBeInTheDocument());
         expect(within(log).getByText(/Held back/)).toBeInTheDocument();
+    });
+});
+
+describe("when the agent needs me", () => {
+    it("A1: on by default, and the page says no device is set up yet when none is", async () => {
+        install(watchServer());
+        device({ permission: "default" });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: AGENT });
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+        expect(await screen.findByText(/On, but no device is set up yet/)).toBeInTheDocument();
+    });
+
+    it("A2: switching it off tells the server and does not touch the pop-ups or the device", async () => {
+        const server = watchServer({ push: { available: true, publicKey: KEY, subscriptions: 1 } });
+        install(server);
+        device({ permission: "granted", subscribed: true });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: AGENT });
+        await userEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+        // The page keeps this device's subscription current on load; the only change it makes to the settings is this one.
+        expect(server.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ notifyAgent: false }]);
+        expect(screen.getByRole("switch", { name: NOTIFY })).toHaveAttribute("aria-checked", "false");
+    });
+
+    it("A3: switching it on with no device set up asks permission, subscribes this device, then saves", async () => {
+        const server = watchServer({ notifyAgent: false });
+        install(server);
+        const spies = device({ permission: "default", answer: "granted", ios: true, standalone: true });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: AGENT });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        await userEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+        expect(spies.order).toEqual(["permission", "subscribe"]);
+        const sent = server.requests.filter((r) => r.method !== "GET").map((r) => `${r.method} ${r.path}`);
+        expect(sent.indexOf("POST /subscribe")).toBeLessThan(sent.indexOf("PATCH /"));
+        expect(server.requests.find((r) => r.method === "PATCH")!.body).toEqual({ notifyAgent: true });
+    });
+
+    it("A4: with a device already set up elsewhere, switching it on only saves", async () => {
+        const server = watchServer({ notifyAgent: false, push: { available: true, publicKey: KEY, subscriptions: 1 } });
+        install(server);
+        const spies = device({ permission: "default", ios: true, standalone: true });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: AGENT });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        await userEvent.click(toggle);
+        await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+        expect(spies.requestPermission).not.toHaveBeenCalled();
+        expect(server.requests.filter((r) => r.method !== "GET").map((r) => `${r.method} ${r.path}`)).toEqual(["PATCH /"]);
+    });
+
+    it("A5: a refused permission is shown once, on the agent's row, and nothing is saved", async () => {
+        const server = watchServer({ notifyAgent: false });
+        install(server);
+        device({ permission: "default", answer: "denied" });
+        renderApp("/settings/notifications");
+        const toggle = await screen.findByRole("switch", { name: AGENT });
+        await waitFor(() => expect(toggle).toBeEnabled());
+        await userEvent.click(toggle);
+        expect(await screen.findByRole("alert")).toHaveTextContent(/are blocked on this device/);
+        expect(screen.getAllByRole("alert")).toHaveLength(1);
+        expect(server.requests.some((r) => r.method === "PATCH")).toBe(false);
+        expect(toggle).toHaveAttribute("aria-checked", "false");
     });
 });

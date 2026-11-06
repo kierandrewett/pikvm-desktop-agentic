@@ -172,6 +172,8 @@ export function startControlServer(
         migrationsDir: deps.migrationsDir,
         resourcesDir: deps.resourcesDir,
         create: deps.createChat,
+        // Told when a card waits for the person: the watch service decides whether a notification is due.
+        needsAnswer: (userId, conversationId, kind) => watch.agentNeeds(userId, conversationId, kind),
     });
     const agent = createAgentRoutes(activity, chat.controls);
 

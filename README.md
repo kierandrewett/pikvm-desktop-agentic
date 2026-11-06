@@ -6,6 +6,8 @@ The desktop app and the web host run the same server. It serves the app, proxies
 
 While the agent is working (its state is `working`), the agent has the target's keyboard and mouse. The server refuses a person's input at the PiKVM proxy: the input socket drops input frames, the HTTP input routes answer `423`, and heartbeats still pass. Every page follows the same state, shows the screen as the agent's, and sends nothing. Press Stop to take control back. The server also resets the Pi's held keys when the agent takes the target. When the agent waits for an approval, or has let go, input works again.
 
+In Settings, Notifications you can also be notified when the agent stops for an approval, a question or a form, with words that never say what it wants to do. It is on by default and only reaches devices you set up there.
+
 On Chat and Settings a live copy of the screen floats over the page: a window on a wide screen and a round bubble on a phone. Tap it to open the KVM. Drag it, or throw it and it bounces off the edges. Shift and the arrow keys move it for a keyboard. It only draws the picture the KVM tab already holds. It opens no stream and sends no input.
 
 The model never receives the PiKVM address or credentials. The agent reaches models and the PiKVM only through a separate loopback listener that needs its own bearer token.

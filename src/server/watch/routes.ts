@@ -62,6 +62,7 @@ export function createWatchRoutes(service: WatchService, userId: string): WatchR
                 const body = await readJson(req);
                 const field = (key: string): unknown => Reflect.get(body, key);
                 if (field("enabled") !== undefined && typeof field("enabled") !== "boolean") throw new WatchRefusal("enabled must be true or false.", 400);
+                if (field("notifyAgent") !== undefined && typeof field("notifyAgent") !== "boolean") throw new WatchRefusal("notifyAgent must be true or false.", 400);
                 if (field("rule") !== undefined && typeof field("rule") !== "string") throw new WatchRefusal("rule must be text.", 400);
                 const alertZone = field("alertZone");
                 if (alertZone !== undefined && (alertZone === null || typeof alertZone !== "object" || Array.isArray(alertZone))) {
@@ -69,11 +70,13 @@ export function createWatchRoutes(service: WatchService, userId: string): WatchR
                 }
                 const enabled = field("enabled");
                 const rule = field("rule");
+                const notifyAgent = field("notifyAgent");
                 return json(
                     res,
                     200,
                     service.update(userId, {
                         ...(typeof enabled === "boolean" ? { enabled } : {}),
+                        ...(typeof notifyAgent === "boolean" ? { notifyAgent } : {}),
                         ...(typeof rule === "string" ? { rule } : {}),
                         ...(alertZone !== undefined ? { alertZone: alertZone as WatchZone } : {}),
                     }),

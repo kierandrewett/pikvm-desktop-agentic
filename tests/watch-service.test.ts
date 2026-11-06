@@ -156,7 +156,7 @@ describe("switching on", () => {
         assert.equal(view.chatModel, false);
         r.chat.present = true;
         assert.equal(r.service.view("operator").chatModel, true);
-        assert.deepEqual(Object.keys(view).sort(), ["alertZone", "canEnable", "chatModel", "enabled", "limits", "push", "rule", "running", "signal"]);
+        assert.deepEqual(Object.keys(view).sort(), ["alertZone", "canEnable", "chatModel", "enabled", "limits", "notifyAgent", "push", "rule", "running", "signal"]);
     });
 
     it("V2: the poller runs while someone has it on, and a restart resumes whoever had it on", () => {
@@ -197,7 +197,7 @@ describe("settings", () => {
         assert.ok(!("fastAlerts" in view) && !("visionModel" in view) && !("summaryModel" in view));
         r.service.update("operator", { rule: "kept" });
         const saved = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
-        assert.deepEqual(Object.keys(saved).sort(), ["alertZone", "enabled", "rule"]);
+        assert.deepEqual(Object.keys(saved).sort(), ["alertZone", "enabled", "notifyAgent", "rule"]);
         assert.deepEqual(DEFAULT_ALERT_ZONE, ALERT_ZONES[0].zone);
     });
 });

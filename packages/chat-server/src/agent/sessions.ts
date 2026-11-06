@@ -471,6 +471,14 @@ async function startRun(req: PromptRequest, ticket: StartTicket): Promise<Respon
 
     const run = new ResponseRun(row.id, l.model || row.model, (e) => sink(req.userId, e), req.streamId);
     run.conversationDir = paths.user(req.userId).conversation(row.id);
+    run.attention = (kind) => {
+        // A notification is never worth a failed run: the host's hook may throw, and the card is already on screen.
+        try {
+            runLifecycle()?.needsAnswer?.(req.userId, row.id, kind);
+        } catch {
+            /* nothing to do */
+        }
+    };
     l.run = run;
     // The run holds the conversation from here (activeRun); a later stop goes to the run.
     release(ticket);

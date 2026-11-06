@@ -52,6 +52,8 @@ export interface WatchSettings {
     rule: string;
     /** The corner to watch. */
     alertZone: WatchZone;
+    /** Notify the person's devices when the agent waits for an approval, an answer or a form, unless they are at the app. On unless switched off. */
+    notifyAgent: boolean;
 }
 
 export type WatchSettingsPatch = Partial<WatchSettings>;

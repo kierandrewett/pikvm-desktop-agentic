@@ -32,6 +32,8 @@ export interface ChatHostOptions {
     /** A packaged desktop's resources directory, where the agent binary is `omp/omp`. */
     resourcesDir?: string | undefined;
     log?: (line: string) => void;
+    /** The running response waits for the person (an approval, a question or a form): the host may notify them. */
+    needsAnswer?: ((userId: string, conversationId: string, kind: "approval" | "question" | "input") => void) | undefined;
     /** Test seam. */
     create?: typeof createChatServer | undefined;
 }
@@ -109,7 +111,11 @@ export function startChat(options: ChatHostOptions): ChatHost {
         settingsPath: "/app/settings",
         instructions: INSTRUCTIONS,
         mcp: [pikvmBuiltin(mcp)],
-        runs: desk,
+        runs: {
+            beginRun: (conversationId) => desk.beginRun(conversationId),
+            endRun: (conversationId) => desk.endRun(conversationId),
+            ...(options.needsAnswer ? { needsAnswer: options.needsAnswer } : {}),
+        },
         ...(options.migrationsDir ? { migrationsDir: options.migrationsDir } : {}),
         ...(options.resourcesDir ? { resourcesDir: options.resourcesDir } : {}),
     }).then(
