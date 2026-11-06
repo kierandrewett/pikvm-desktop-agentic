@@ -1,6 +1,6 @@
 /**
- * How the picture-in-picture window moves when it is let go of: it keeps the speed of the throw, slows down, and bounces
- * off the edges of the area it lives in. Pure: the component feeds it the time since the last step.
+ * How the picture-in-picture window moves when it is let go of: it picks the corner of the area that its position and throw
+ * point at, and a spring pulls it there. It never bounces off the sides. Pure: the component feeds it the time since the last step.
  */
 
 export interface Body {
@@ -22,11 +22,13 @@ export interface Area {
     readonly inset: number;
 }
 
-/** Speed lost per second, as a rate: after one second 1/e of the speed is left. */
-const FRICTION = 2.6;
-/** A bounce keeps this much of the speed. */
-const RESTITUTION = 0.62;
-/** Below this speed (pixels per second) the body is at rest. */
+/** Spring stiffness and damping (damping ratio about 0.8): a quick pull to the corner with one small overshoot. */
+const STIFFNESS = 260;
+const DAMPING = 25.8;
+/** How far ahead (seconds) the throw is projected to choose the corner: a flick picks the corner it points at. */
+const LOOK_AHEAD = 0.22;
+/** Within this distance (pixels) and this speed (pixels per second) of its corner the body is at rest. */
+const REST_DISTANCE = 0.4;
 export const REST_SPEED = 14;
 /** A throw is never faster than this, so a flick cannot make it unreadable. */
 const MAX_SPEED = 4200;
@@ -67,39 +69,41 @@ export function throwOf(vx: number, vy: number): { vx: number; vy: number } {
     return { vx: vx * k, vy: vy * k };
 }
 
-export const atRest = (body: Body): boolean =>
-    Math.hypot(body.vx, body.vy) < REST_SPEED;
-
-/** One step of `dt` seconds. A long step is split so a fast body cannot pass through an edge. */
-export function step(body: Body, dt: number, area: Area): Body {
+/** The corner (top-left position of the body) a body released here would settle in. */
+export function cornerFor(body: Body, area: Area): { x: number; y: number } {
     const l = limits(area);
+    const x = body.x + body.vx * LOOK_AHEAD;
+    const y = body.y + body.vy * LOOK_AHEAD;
+    return {
+        x: x < (l.minX + l.maxX) / 2 ? l.minX : l.maxX,
+        y: y < (l.minY + l.maxY) / 2 ? l.minY : l.maxY,
+    };
+}
+
+/** At rest: on its corner and not moving. */
+export const atRest = (body: Body, corner: { x: number; y: number }): boolean =>
+    Math.hypot(body.vx, body.vy) < REST_SPEED &&
+    Math.hypot(body.x - corner.x, body.y - corner.y) < REST_DISTANCE;
+
+/** One step of `dt` seconds of the spring toward `corner`. A long step is split so the integration stays stable. */
+export function step(body: Body, dt: number, area: Area, corner: { x: number; y: number }): Body {
+    const raw = { minX: 0, maxX: Math.max(0, area.width - area.w), minY: 0, maxY: Math.max(0, area.height - area.h) };
     let { x, y, vx, vy } = body;
     let left = Math.min(dt, 0.25);
-    const slice = 1 / 120;
+    const slice = 1 / 240;
     while (left > 0) {
         const d = Math.min(slice, left);
         left -= d;
-        const decay = Math.exp(-FRICTION * d);
-        vx *= decay;
-        vy *= decay;
+        vx += (STIFFNESS * (corner.x - x) - DAMPING * vx) * d;
+        vy += (STIFFNESS * (corner.y - y) - DAMPING * vy) * d;
         x += vx * d;
         y += vy * d;
-        if (x < l.minX) {
-            x = l.minX;
-            vx = Math.abs(vx) * RESTITUTION;
-        } else if (x > l.maxX) {
-            x = l.maxX;
-            vx = -Math.abs(vx) * RESTITUTION;
-        }
-        if (y < l.minY) {
-            y = l.minY;
-            vy = Math.abs(vy) * RESTITUTION;
-        } else if (y > l.maxY) {
-            y = l.maxY;
-            vy = -Math.abs(vy) * RESTITUTION;
-        }
     }
-    return atRest({ x, y, vx, vy }) ? { x, y, vx: 0, vy: 0 } : { x, y, vx, vy };
+    // The overshoot may use the margin but never leaves the area.
+    x = clamp(x, raw.minX, raw.maxX);
+    y = clamp(y, raw.minY, raw.maxY);
+    const next = { x, y, vx, vy };
+    return atRest(next, corner) ? { x: corner.x, y: corner.y, vx: 0, vy: 0 } : next;
 }
 
 /** A pointer sample while the window is dragged. */

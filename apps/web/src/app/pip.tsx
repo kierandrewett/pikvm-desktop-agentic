@@ -2,7 +2,7 @@
  * The live screen, floating over Chat and Settings: a window on a wide screen, a round bubble on a phone. It is a
  * passive view of the picture the KVM tab already holds (a canvas that copies its frames), so it opens no stream and
  * no input socket of its own and sends nothing to the target. Tap or press Enter to go to the KVM; drag to move it,
- * throw it and it flies on and bounces off the edges (pip-physics.ts); Shift+arrow keys nudge it for a keyboard.
+ * let go and a spring pulls it to the nearest corner, the one a throw points at (pip-physics.ts); Shift+arrow keys nudge it for a keyboard.
  *
  * It sits inside the content area, so it never covers the tab bar, and its first place is the top right, away from the
  * composer. A person can hide it for this visit with the close button.
@@ -22,7 +22,7 @@ import {
 } from "react";
 import { useAgentActivity } from "../agent/activity";
 import {
-    atRest,
+    cornerFor,
     keepInside,
     step,
     velocityOf,
@@ -177,10 +177,14 @@ export function PipBubble({ round }: { readonly round: boolean }) {
     const fly = useCallback(
         (from: Body) => {
             stopFlight();
-            if (reduceMotion() || atRest(from)) return;
+            const corner = cornerFor(from, area());
+            if (reduceMotion()) {
+                paint({ ...corner, vx: 0, vy: 0 });
+                return;
+            }
             let before = performance.now();
             const tick = (now: number): void => {
-                const next = step(body.current, (now - before) / 1000, area());
+                const next = step(body.current, (now - before) / 1000, area(), corner);
                 before = now;
                 paint(next);
                 flight.current =
