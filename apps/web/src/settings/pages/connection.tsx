@@ -55,7 +55,7 @@ function LinkText({ link }: { readonly link: PikvmTarget["link"] | undefined }) 
     if (!link) return null;
     const { text, tone } = LINK[link];
     return (
-        <span className="inline-flex items-center gap-1.5 text-sm text-primary">
+        <span className="inline-flex items-center gap-1.5 text-sm text-secondary">
             <StatusDot tone={tone} />
             {text}
         </span>

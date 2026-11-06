@@ -13,7 +13,7 @@ export function DisplayPage() {
     const [choice, setChoice] = useState<ThemeChoice>(readThemeChoice);
 
     return (
-        <SettingsPage title="Display" description="Theme and screen alerts.">
+        <SettingsPage title="Display" description="How the app looks, and when it tells you the screen changed.">
             <SettingsSection title="Appearance">
                 <SettingsCard>
                     <SettingRow

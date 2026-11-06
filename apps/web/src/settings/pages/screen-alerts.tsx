@@ -25,7 +25,7 @@ export function ScreenAlertsSection() {
                     <SettingRow
                         id="screen-alerts"
                         label="Alert me when the screen changes"
-                        description="Not available on a phone. The page is suspended when you leave it, so it cannot watch the screen. Use Notifications instead: the server watches the screen and sends a notification."
+                        description="Not on a phone: the page is suspended when you leave it. Use Notifications, where the server watches for you."
                     />
                 </SettingsCard>
             </SettingsSection>
@@ -38,8 +38,8 @@ export function ScreenAlertsSection() {
             title="Screen changes"
             description={
                 desktop
-                    ? "While this window is behind others, its taskbar entry pulses when the target's screen changes. Examples: a dialog opens, a reboot starts, an install finishes."
-                    : "While this window is behind others, the tab title and icon badge change when the target's screen changes. A notification also appears if you allow it. The picture keeps streaming so the app can watch it."
+                    ? "While this window is behind others, its taskbar entry pulses when the target's screen changes."
+                    : "While this window is behind others, the tab title and icon badge change when the target's screen changes."
             }
         >
             <SettingsCard>
@@ -61,7 +61,7 @@ export function ScreenAlertsSection() {
                 {on && !desktop && permission === "denied" ? (
                     <SettingRow
                         label="Notifications are blocked"
-                        description="Only the title and badge change. To get system notifications, allow them for this site in the browser settings."
+                        description="Only the title and badge change. Allow notifications for this site in the browser to get system ones."
                     />
                 ) : null}
             </SettingsCard>

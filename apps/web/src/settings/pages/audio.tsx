@@ -52,10 +52,10 @@ export function AudioPage() {
     const hidden = labelsHidden(inputs) || labelsHidden(outputs);
 
     return (
-        <SettingsPage title="Audio" description="Microphone and speaker for the KVM screen.">
+        <SettingsPage title="Audio" description="Microphone and speaker.">
             <SettingsSection
                 title="Devices"
-                description="Used for the target's sound and your microphone on the KVM screen. A chosen device that is unplugged is marked, not replaced."
+                description="For the target's sound and your microphone on the KVM screen. An unplugged device you chose is marked, not replaced."
             >
                 <SettingsCard>
                     {loaded ? (

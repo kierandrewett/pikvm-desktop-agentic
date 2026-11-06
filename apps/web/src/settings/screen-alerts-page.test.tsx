@@ -39,7 +39,7 @@ const notificationApi = (permission: NotificationPermission, answer: Notificatio
 describe("screen changes setting", () => {
     it("S1: a phone is told why it is not offered, and gets no switch", async () => {
         renderApp("/settings/display", { coarse: true, compact: true });
-        expect(await screen.findByText(/Not available on a phone/)).toBeInTheDocument();
+        expect(await screen.findByText(/Not on a phone/)).toBeInTheDocument();
         expect(screen.queryByRole("switch", { name: "Alert me when the screen changes" })).toBeNull();
     });
 
