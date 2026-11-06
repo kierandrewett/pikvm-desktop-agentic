@@ -12,7 +12,7 @@
  */
 
 import { lookup } from "node:dns/promises";
-import { request } from "node:https";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 
 export interface ClientMetadata {
@@ -76,8 +76,14 @@ export interface FetchLike {
     (url: URL, address: string): Promise<{ status: number; type: string; body: string }>;
 }
 
-/** One GET to a checked address: no redirects, a time limit and a size limit. */
-const fetchChecked: FetchLike = (url, address) =>
+/** The slice of `https.request` the fetch uses, so a test can stand in for the network. */
+export type RequestFn = typeof httpsRequest;
+
+/**
+ * One GET to a checked address. No redirect is followed (a 3xx is just a status that is not 200), it takes at most `TIMEOUT_MS`
+ * of silence and at most `MAX_BYTES` of body, and the connection goes to the address given with the name as Host and SNI.
+ */
+export const makeFetchChecked = (request: RequestFn = httpsRequest): FetchLike => (url, address) =>
     new Promise((done, fail) => {
         const req = request(
             { host: address, port: url.port || 443, path: url.pathname + url.search, method: "GET", servername: url.hostname, headers: { host: url.host, accept: "application/json", "user-agent": "pikvm-desktop" }, timeout: TIMEOUT_MS },
@@ -99,6 +105,8 @@ const fetchChecked: FetchLike = (url, address) =>
         req.on("error", fail);
         req.end();
     });
+
+const fetchChecked = makeFetchChecked();
 
 export interface ClientMetadataOptions {
     now?: () => number;

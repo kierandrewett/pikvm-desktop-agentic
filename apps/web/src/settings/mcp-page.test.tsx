@@ -5,9 +5,13 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultServer, installFakeServer, renderApp } from "../test/harness";
+import { defaultServer, installFakeServer, renderApp, type ServerState } from "../test/harness";
 
-beforeEach(() => installFakeServer(defaultServer()));
+let server: ServerState;
+beforeEach(() => {
+    server = defaultServer();
+    installFakeServer(server);
+});
 afterEach(() => vi.unstubAllGlobals());
 
 describe("the MCP server page", () => {
@@ -24,5 +28,16 @@ describe("the MCP server page", () => {
         await user.click(screen.getByRole("radio", { name: "Cursor" }));
         expect(shown()).toContain('"mcpServers"');
         expect(shown()).not.toMatch(/pkd_|sk-/);
+    });
+
+    it("while a server is in use, shows that server's address and not this app's own", async () => {
+        server.servers = { ...server.servers, localActive: false, items: [{ id: "s1", name: "Rack", origin: "https://kvm.example.com/", tokenSet: true, active: true, state: "ok" }] };
+        renderApp("/settings/mcp", { compact: false });
+        await screen.findByRole("heading", { name: "MCP server" });
+        await screen.findByText("Rack");
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("claude mcp add --transport http pikvm https://kvm.example.com/app/mcp");
+        expect(text).not.toContain(`${window.location.origin}/app/mcp`);
+        expect(text).not.toContain("no sign-in step");
     });
 });

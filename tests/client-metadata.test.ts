@@ -56,3 +56,74 @@ test("C4: a good document is kept for a while, a refused one is kept refused", a
     await doc(ID);
     assert.equal(fetched, 2, "refetched after five minutes");
 });
+
+/*
+ * The one GET (`makeFetchChecked`), with a stand-in for https.request.
+ * FAILURE MODES: a redirect is followed; a body past the cap is read to the end; a silent server holds the request open.
+ */
+import { EventEmitter } from "node:events";
+import { makeFetchChecked, type RequestFn } from "../src/server/web-auth/client-metadata";
+
+function fakeRequest(drive: (res: EventEmitter & { statusCode?: number; headers: Record<string, string> }, req: EventEmitter & { destroy(e?: Error): void }) => void, seen: { options?: Record<string, unknown>; destroyed?: Error }): RequestFn {
+    return ((options: Record<string, unknown>, onResponse: (res: unknown) => void) => {
+        seen.options = options;
+        const req = Object.assign(new EventEmitter(), {
+            end() {
+                const res = Object.assign(new EventEmitter(), { statusCode: 200, headers: { "content-type": "application/json" } });
+                onResponse(res);
+                drive(res, req);
+            },
+            destroy(e?: Error) {
+                seen.destroyed = e;
+                if (e) req.emit("error", e);
+            },
+        });
+        return req;
+    }) as unknown as RequestFn;
+}
+
+test("C5: the connection goes to the checked address with the name as Host and SNI, and the request carries a timeout", async () => {
+    const seen: { options?: Record<string, unknown> } = {};
+    const get = makeFetchChecked(fakeRequest((res) => (res.emit("data", Buffer.from("{}")), res.emit("end")), seen));
+    const out = await get(new URL(ID), "93.184.216.34");
+    assert.equal(out.body, "{}");
+    assert.equal(seen.options!.host, "93.184.216.34");
+    assert.equal(seen.options!.servername, "agent.example.com");
+    assert.equal((seen.options!.headers as Record<string, string>).host, "agent.example.com");
+    assert.equal(seen.options!.timeout, 5000);
+});
+
+test("C6: a redirect is never followed: its status comes back and the document is refused", async () => {
+    const calls: string[] = [];
+    const redirecting = makeFetchChecked(
+        ((o: Record<string, unknown>, onResponse: (res: unknown) => void) => {
+            calls.push(String(o.host));
+            const req = Object.assign(new EventEmitter(), {
+                end() {
+                    const res = Object.assign(new EventEmitter(), { statusCode: 302, headers: { location: "https://10.0.0.1/secret.json", "content-type": "application/json" } });
+                    onResponse(res);
+                    res.emit("end");
+                },
+                destroy() {},
+            });
+            return req;
+        }) as unknown as RequestFn,
+    );
+    const doc = createClientMetadata({ resolve: async () => ["93.184.216.34"], fetch: redirecting });
+    assert.equal(await doc(ID), undefined);
+    assert.deepEqual(calls, ["93.184.216.34"], "exactly one request: the Location was not followed");
+});
+
+test("C7: a body past 16 KiB stops the read and fails the fetch", async () => {
+    const seen: { destroyed?: Error } = {};
+    const get = makeFetchChecked(fakeRequest((res) => (res.emit("data", Buffer.alloc(10_000)), res.emit("data", Buffer.alloc(10_000)), res.emit("end")), seen));
+    await assert.rejects(get(new URL(ID), "93.184.216.34"), /too large/);
+    assert.match(String(seen.destroyed), /too large/);
+});
+
+test("C8: a server that goes silent past the timeout is cut off", async () => {
+    const seen: { destroyed?: Error } = {};
+    const get = makeFetchChecked(fakeRequest((_res, req) => req.emit("timeout"), seen));
+    await assert.rejects(get(new URL(ID), "93.184.216.34"), /took too long/);
+    assert.match(String(seen.destroyed), /took too long/);
+});
