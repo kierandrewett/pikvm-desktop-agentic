@@ -256,7 +256,9 @@ function ProviderRow({
     health: Health;
 }) {
     const t = useT();
-    const name = nameOf(e.id, e.entry, undefined, useListedName(e.id));
+    // A row exists only once there is a provider, so the catalogue (one cached request) is worth loading to name it "OpenRouter", not "openrouter".
+    const presets = useQuery(catalogQuery).data?.presets;
+    const name = nameOf(e.id, e.entry, presets, useListedName(e.id));
     const [error, setError] = useState<string | null>(null);
     return (
         <LinkRow
