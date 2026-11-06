@@ -392,7 +392,7 @@ function Catalogue({ rec, view }: { rec: Records<ProviderEntry>; view: SubView }
     const custom = cat.data.custom;
     return (
         <>
-            <SubscriptionsSection />
+            <SubscriptionsSection renderIcon={(id, name) => <ProviderIcon id={id} name={name} />} />
             <PresetGallery
             items={items}
             groups={GROUPS.map((g) => ({ id: g.id, title: t(g.title) }))}

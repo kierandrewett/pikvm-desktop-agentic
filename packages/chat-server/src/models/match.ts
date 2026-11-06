@@ -35,6 +35,11 @@ const PROVIDER_ALIASES: Record<string, string> = {
     together: "togetherai",
     fireworks: "fireworks-ai",
     "lm-studio": "lmstudio",
+    nanogpt: "nano-gpt",
+    novita: "novita-ai",
+    "vercel-ai-gateway": "vercel",
+    huggingface: "huggingface",
+    zai: "zai",
 };
 
 /** Lab (model maker) by id stem. */
