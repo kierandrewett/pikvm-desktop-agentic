@@ -35,6 +35,7 @@ const PROVIDER_ALIASES: Record<string, string> = {
     together: "togetherai",
     fireworks: "fireworks-ai",
     "lm-studio": "lmstudio",
+    "opencode-zen": "opencode",
     nanogpt: "nano-gpt",
     novita: "novita-ai",
     "vercel-ai-gateway": "vercel",

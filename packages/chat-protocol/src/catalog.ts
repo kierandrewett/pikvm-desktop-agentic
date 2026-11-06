@@ -277,6 +277,22 @@ export const providerPresets: ProviderPreset[] = [
         inputs: [apiKey("https://app.kilo.ai/profile")],
     },
     {
+        id: "opencode-zen",
+        name: "OpenCode Zen",
+        description: "Models tested for coding agents",
+        kind: "cloud",
+        provider: { baseUrl: "https://opencode.ai/inference/openai/v1", api: "openai-completions", discovery: { type: "openai-models-list" } },
+        inputs: [apiKey("https://opencode.ai/auth")],
+    },
+    {
+        id: "opencode-go",
+        name: "OpenCode Go",
+        description: "Open coding models on a flat plan",
+        kind: "cloud",
+        provider: { baseUrl: "https://opencode.ai/inference/go/openai/v1", api: "openai-completions", discovery: { type: "openai-models-list" } },
+        inputs: [apiKey("https://opencode.ai/auth")],
+    },
+    {
         id: "typesafe",
         name: "TypeSafe",
         description: "Jev decision models",
