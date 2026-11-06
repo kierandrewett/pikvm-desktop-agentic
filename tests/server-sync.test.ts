@@ -336,6 +336,8 @@ test("forwarder: which paths go to the server while connected, and which stay he
     assert.equal(at("/app/api/v1/pikvms"), true);
     assert.equal(at("/app/api/v1/state/events"), true);
     assert.equal(at("/app/chat/ws"), true);
+    assert.equal(at("/app/mcp"), true, "an agent using this app's MCP address reaches the server's PiKVM while connected");
+    assert.equal(at("/app/mcpx"), false);
     // This app's own: its web files, its saved-server list, and the agent redirects.
     assert.equal(at("/app/index.html"), false);
     assert.equal(at("/app/apixyz"), false);

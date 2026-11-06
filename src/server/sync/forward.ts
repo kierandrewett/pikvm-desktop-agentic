@@ -4,7 +4,7 @@
  * The server owns all its state (settings, macros, its PiKVM list, chat, the agent, the screen watch, the cursor) and
  * talks to its own PiKVM with its own credentials, so video, keyboard and mouse run app -> server -> PiKVM.
  *
- * Forwarded (`isRemotePath`): everything except the local-only paths below. That is `/app/api/*` and `/app/chat/*`
+ * Forwarded (`isRemotePath`): everything except the local-only paths below. That is `/app/api/*`, `/app/chat/*` and `/app/mcp`
  * (REST, server-sent events, the chat WebSocket), `/` only as kvmd's own front page (`?native=1`), and the kvmd
  * passthrough (every other path, HTTP and WebSocket upgrades alike: the HID socket, the video stream, Janus).
  *
@@ -53,7 +53,8 @@ export function isRemotePath(path: string, url?: URL): boolean {
     if (isPublicPath(path) || under(path, "/_agent")) return false;
     if (path === "/app" || path.startsWith("/app/")) {
         if (under(path, "/app/api/v1/servers")) return false;
-        return under(path, "/app/api") || under(path, "/app/chat");
+        // The MCP endpoint too: while connected, an agent that uses this app's address reaches the server's PiKVM, not a local one.
+        return under(path, "/app/api") || under(path, "/app/chat") || under(path, "/app/mcp");
     }
     return true;
 }
