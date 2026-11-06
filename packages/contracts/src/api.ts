@@ -353,6 +353,37 @@ export const AGENT_HANDBACK_PATH = `${API_PREFIX}/agent/handback`;
 export const AgentStopResult = Schema.Struct({ stopped: Schema.Boolean });
 export const AgentHandBackResult = Schema.Struct({ handedBack: Schema.Number });
 
+/**
+ * One action an outside MCP client (Claude Code, Codex, Executor) wants to do and the person has not yet answered.
+ * Chat's own approvals are cards in the conversation; an outside client has no conversation, so they wait here, and
+ * the KVM tab shows them. `client` is the name the client signed in under.
+ */
+export const PendingApproval = Schema.Struct({
+    id: Schema.String,
+    client: Schema.String,
+    tool: Schema.String,
+    title: Schema.String,
+    summary: Schema.String,
+    reasons: Schema.Array(Schema.String),
+    /** Epoch milliseconds. */
+    at: Schema.Number,
+    /** Epoch milliseconds: when the question is dropped and the client is told nobody answered in time. */
+    expiresAt: Schema.Number,
+});
+export type PendingApproval = typeof PendingApproval.Type;
+
+/** Server-sent events: the whole list of `PendingApproval` as JSON per event, the current list first. */
+export const AGENT_APPROVALS_PATH = `${API_PREFIX}/agent/approvals`;
+/** POST: the person's answer to one pending action. */
+export const AGENT_APPROVAL_PATH = `${API_PREFIX}/agent/approval`;
+
+export const AgentApprovalAnswer = Schema.Struct({
+    id: Schema.String,
+    decision: Schema.Literal("approved", "denied"),
+}).annotations({ parseOptions: { onExcessProperty: "error" } });
+export type AgentApprovalAnswer = typeof AgentApprovalAnswer.Type;
+export const AgentApprovalResult = Schema.Struct({ answered: Schema.Boolean });
+
 /* ------------------------------------------------------------------ */
 /* The shared cursor                                                   */
 /* ------------------------------------------------------------------ */

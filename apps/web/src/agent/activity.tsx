@@ -9,16 +9,21 @@
 
 import {
     AGENT_ACTIVITY_PATH,
+    AGENT_APPROVAL_PATH,
+    AGENT_APPROVALS_PATH,
     AGENT_HANDBACK_PATH,
     AGENT_STOP_PATH,
     AgentActivity,
+    AgentApprovalResult,
     AgentHandBackResult,
     AgentStopResult,
+    PendingApproval,
 } from "@pikvm/contracts/api";
 import { Schema } from "effect";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 
 const decode = Schema.decodeUnknownSync(AgentActivity);
+const decodeApprovals = Schema.decodeUnknownSync(Schema.Array(PendingApproval));
 
 /** A stream of activity: each message is one AgentActivity. Exposed for tests. */
 export function parseActivity(data: string): AgentActivity | undefined {
@@ -29,11 +34,22 @@ export function parseActivity(data: string): AgentActivity | undefined {
     }
 }
 
+/** A stream of waiting approvals: each message is the whole list. Exposed for tests. */
+export function parseApprovals(data: string): readonly PendingApproval[] | undefined {
+    try {
+        return decodeApprovals(JSON.parse(data));
+    } catch {
+        return undefined;
+    }
+}
+
 const AgentContext = createContext<AgentActivity | undefined>(undefined);
+const ApprovalsContext = createContext<readonly PendingApproval[]>([]);
 
 /** Open the stream while `enabled`. Its reconnects are the browser's own; a message this page cannot read is ignored. */
 export function AgentActivityProvider({ enabled, children }: { enabled: boolean; children: ReactNode }) {
     const [activity, setActivity] = useState<AgentActivity | undefined>(undefined);
+    const [approvals, setApprovals] = useState<readonly PendingApproval[]>([]);
 
     useEffect(() => {
         if (!enabled || typeof EventSource === "undefined") return;
@@ -44,18 +60,36 @@ export function AgentActivityProvider({ enabled, children }: { enabled: boolean;
         };
         // Between a drop and the reconnect nobody knows; say nothing rather than something stale.
         source.onerror = () => setActivity(undefined);
+        // What outside MCP clients are waiting to do: a person answers them here.
+        const waiting = new EventSource(AGENT_APPROVALS_PATH);
+        waiting.onmessage = (event: MessageEvent<string>) => {
+            const next = parseApprovals(event.data);
+            if (next) setApprovals(next);
+        };
+        waiting.onerror = () => setApprovals([]);
         return () => {
             source.close();
+            waiting.close();
             setActivity(undefined);
+            setApprovals([]);
         };
     }, [enabled]);
 
-    return <AgentContext.Provider value={activity}>{children}</AgentContext.Provider>;
+    return (
+        <AgentContext.Provider value={activity}>
+            <ApprovalsContext.Provider value={approvals}>{children}</ApprovalsContext.Provider>
+        </AgentContext.Provider>
+    );
 }
 
 /** The agent's current activity, or undefined when there is no stream (no chat, or between reconnects). */
 export function useAgentActivity(): AgentActivity | undefined {
     return useContext(AgentContext);
+}
+
+/** What outside MCP clients are waiting to do, oldest first. Empty when nothing waits or there is no stream. */
+export function useAgentApprovals(): readonly PendingApproval[] {
+    return useContext(ApprovalsContext);
 }
 
 async function post<A>(path: string, decodeBody: (body: unknown) => A): Promise<A> {
@@ -70,6 +104,17 @@ export const stopAgent = () => post(AGENT_STOP_PATH, Schema.decodeUnknownSync(Ag
 
 /** The person gives control back to the run that lost it. */
 export const handBackToAgent = () => post(AGENT_HANDBACK_PATH, Schema.decodeUnknownSync(AgentHandBackResult));
+
+/** The person's answer to one waiting action. Throws the server's sentence when it is no longer waiting or may not be answered here. */
+export async function answerApproval(id: string, decision: "approved" | "denied"): Promise<void> {
+    const reply = await fetch(AGENT_APPROVAL_PATH, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, decision }) });
+    if (reply.ok) {
+        Schema.decodeUnknownSync(AgentApprovalResult)(await reply.json());
+        return;
+    }
+    const body = (await reply.json().catch(() => undefined)) as { error?: unknown } | undefined;
+    throw new Error(typeof body?.error === "string" ? body.error : `The server answered ${reply.status}.`);
+}
 
 const ACTIONS: Readonly<Record<string, string>> = {
     screenshot: "Looking at the screen",

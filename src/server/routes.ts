@@ -272,15 +272,15 @@ export function createRoutes(t: RouteTargets): Route[] {
             run: ({ req, res }) => void t.chat.handleRest(req, res),
         },
         {
-            name: "agent activity, stop and hand back",
+            name: "agent activity, approvals, stop and hand back",
             match: ({ path }) => t.agent.handles(path),
-            run: ({ req, res, path, method }) => {
+            run: ({ req, res, path, method, signedIn }) => {
                 const mutating = method !== "GET" && method !== "HEAD";
                 if (mutating && !String(req.headers["content-type"] ?? "").startsWith("application/json")) {
                     return json(res, 415, { error: "Expected application/json" });
                 }
                 t.live.track(res);
-                t.agent.handle(req, res, path);
+                t.agent.handle(req, res, path, signedIn);
             },
         },
 

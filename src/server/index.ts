@@ -28,6 +28,7 @@ import type { SettingsStore } from "../settings";
 import { createActivity } from "./agent/activity";
 import { createDesk } from "./agent/desk";
 import { resetHid } from "./agent/hid-reset";
+import { createApprovalQueue } from "./agent/approvals";
 import { createPresence } from "./agent/presence";
 import { createAgentRoutes } from "./agent/routes";
 import { createApi } from "./api";
@@ -166,16 +167,25 @@ export function startControlServer(
     });
 
 
+    // Risky calls of an outside MCP client wait here for a person: a card on the KVM tab, and a link where the host knows its public address
+    // (the web host's PIKVM_PUBLIC_URL). The push courtesy is the one chat's own cards use. The link opens the KVM tab, which signs in first.
+    const publicOrigin = (process.env["PIKVM_PUBLIC_URL"] ?? "").trim().replace(/\/+$/, "");
+    const approvals = createApprovalQueue({
+        onWaiting: (approval) => watch.agentNeeds(OPERATOR_ID, approval.id, "approval"),
+        ...(publicOrigin ? { link: (id: string) => `${publicOrigin}/app/kvm?approve=${id}` } : {}),
+    });
     chat = startChat({
         dataDir: settings.dir(),
         desk,
         migrationsDir: deps.migrationsDir,
         resourcesDir: deps.resourcesDir,
         create: deps.createChat,
+        externalApprover: approvals,
         // Told when a card waits for the person: the watch service decides whether a notification is due.
         needsAnswer: (userId, conversationId, kind) => watch.agentNeeds(userId, conversationId, kind),
     });
-    const agent = createAgentRoutes(activity, chat.controls);
+    // Stop takes back what an agent was waiting to do, and what a person had allowed it to repeat.
+    const agent = createAgentRoutes(activity, { stop: () => (chat.controls.stop(), approvals.clear()), handBack: () => chat.controls.handBack() }, approvals);
 
     // The screen watch: one poller on the PiKVM for everyone who switched theirs on. It needs the chat server's stored
     // key, so it starts once chat is up (or has failed to start, when it simply finds nothing to resume).

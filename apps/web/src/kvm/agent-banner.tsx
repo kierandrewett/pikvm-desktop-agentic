@@ -6,10 +6,10 @@
  * `operator`), and only Hand back, or a new message in Chat, gives it again.
  */
 
-import { Link } from "@tanstack/react-router";
-import type { AgentActivity } from "@pikvm/contracts/api";
+import { Link, useRouter } from "@tanstack/react-router";
+import type { AgentActivity, PendingApproval } from "@pikvm/contracts/api";
 import { useState } from "react";
-import { actionLabel, handBackToAgent, stopAgent, useAgentActivity } from "../agent/activity";
+import { actionLabel, answerApproval, handBackToAgent, stopAgent, useAgentActivity, useAgentApprovals } from "../agent/activity";
 
 interface Words {
     readonly title: string;
@@ -36,10 +36,24 @@ export function describeActivity(activity: AgentActivity): Words | null {
     }
 }
 
+/** The approval a link named (`/kvm?approve=<id>`), when it still waits. The server makes the id; it grants nothing, answering needs a signed-in person. */
+function linkedApproval(approvals: readonly PendingApproval[], search: unknown): PendingApproval | undefined {
+    const id = typeof search === "object" && search !== null ? (search as Record<string, unknown>)["approve"] : undefined;
+    return typeof id === "string" ? approvals.find((approval) => approval.id === id) : undefined;
+}
+
 export function AgentBanner() {
     const activity = useAgentActivity();
+    const approvals = useAgentApprovals();
+    // The screen is also drawn without a router (its own tests, a host page): then no link names anything. Opening a link loads the page
+    // fresh, and every change in the waiting list draws the banner again, so the router's state at that moment is the link's.
+    const search = useRouter({ warn: false })?.state.location.search;
     const [failed, setFailed] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    // An outside client is waiting on the person: that comes before everything else the chip could say. First in, first
+    // shown (the server lists them in the order they asked), unless a link named one.
+    const waiting = linkedApproval(approvals, search) ?? approvals[0];
+    if (waiting) return <ApprovalCard approval={waiting} more={approvals.length - 1} />;
     if (!activity) return null;
     const words = describeActivity(activity);
     if (!words) return null;
@@ -76,6 +90,42 @@ export function AgentBanner() {
                     Hand back
                 </button>
             ) : null}
+        </div>
+    );
+}
+
+/**
+ * One action an outside MCP client (Claude Code, Codex, Executor) wants to do and the person has not yet allowed. It
+ * says who asks, what, and why it asks, and holds the client's call open until Allow or Deny, or the server drops it.
+ * Nothing else here can answer for the person: the server refuses an answer from a script's credentials.
+ */
+function ApprovalCard({ approval, more }: { approval: PendingApproval; more: number }) {
+    const [busy, setBusy] = useState(false);
+    const [failed, setFailed] = useState<string | null>(null);
+    const answer = (decision: "approved" | "denied") => {
+        setBusy(true);
+        setFailed(null);
+        answerApproval(approval.id, decision)
+            .catch((error: unknown) => setFailed(error instanceof Error ? error.message : "That did not work."))
+            .finally(() => setBusy(false));
+    };
+    return (
+        <div className="kvm-agent kvm-agent-approval" data-state="waiting_approval" role="group" aria-label="Approval needed" data-kvm-ui="">
+            <span className="kvm-agent-dot" aria-hidden="true" />
+            <span className="kvm-agent-text">
+                <strong>{approval.client} needs your approval</strong>
+                <span>{approval.title}</span>
+                <span className="kvm-agent-summary">{approval.summary}</span>
+                {approval.reasons.length ? <span>Asking because {approval.reasons.join("; ")}.</span> : null}
+                {more > 0 ? <span>{more} more waiting.</span> : null}
+                {failed ? <span className="kvm-agent-error">{failed}</span> : null}
+            </span>
+            <button type="button" className="kvm-btn primary" disabled={busy} onClick={() => answer("approved")}>
+                Allow
+            </button>
+            <button type="button" className="kvm-btn" disabled={busy} onClick={() => answer("denied")}>
+                Deny
+            </button>
         </div>
     );
 }

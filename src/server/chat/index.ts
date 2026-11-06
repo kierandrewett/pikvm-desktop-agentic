@@ -2,9 +2,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { createChatServer, type BuiltinMcp, type ChatServer } from "@pikvm/chat-server";
 import type { Features } from "@pikvm/contracts/api";
-import { createPikvmMcp, defaultPolicy, tools, type JsonRpcRequest, type PikvmMcp, type PikvmPolicy } from "@pikvm/mcp";
+import { createPikvmMcp, defaultPolicy, tools, type Approver, type JsonRpcRequest, type PikvmMcp, type PikvmPolicy } from "@pikvm/mcp";
 import { DEFAULT_MAX_EDGE } from "@pikvm/kvm-engine/agent";
 import type { AgentDesk } from "../agent/desk";
+import { EXTERNAL_PREFIX } from "../agent/approvals";
 import type { AgentControls } from "../agent/routes";
 import { json } from "../http";
 
@@ -32,6 +33,11 @@ export interface ChatHostOptions {
     /** A packaged desktop's resources directory, where the agent binary is `omp/omp`. */
     resourcesDir?: string | undefined;
     log?: (line: string) => void;
+    /**
+     * Where the risky calls of a client outside the app wait for a person. Chat's own calls ask in their conversation; an
+     * outside client has none. Without it nobody can be asked, and such a call is refused.
+     */
+    externalApprover?: Approver | undefined;
     /** The running response waits for the person (an approval, a question or a form): the host may notify them. */
     needsAnswer?: ((userId: string, conversationId: string, kind: "approval" | "question" | "input") => void) | undefined;
     /** Test seam. */
@@ -119,8 +125,14 @@ export function startChat(options: ChatHostOptions): ChatHost {
 
     const mcp = createPikvmMcp({
         desk,
-        // Chat asks in the thread of the conversation whose call it is. Before the server is up nobody can be asked.
-        approver: { ask: async (request) => (chat ? chat.askApproval("pikvm", request) : "unavailable") },
+        approver: {
+            ask: async (request) => {
+                // An outside client has no conversation to ask in: its question waits for the person on the KVM tab.
+                if (request.conversationId.startsWith(EXTERNAL_PREFIX)) return options.externalApprover ? options.externalApprover.ask(request) : "unavailable";
+                // Chat asks in the thread of the conversation whose call it is. Before the server is up nobody can be asked.
+                return chat ? chat.askApproval("pikvm", request) : "unavailable";
+            },
+        },
         policy,
         onError: (error) => log(`[pikvm-mcp] ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`),
     });
@@ -186,7 +198,7 @@ export function startChat(options: ChatHostOptions): ChatHost {
             // own: a run named after it. It starts on the client's first call and ends after EXTERNAL_IDLE_MS of silence, so a client that
             // wandered off does not hold the PiKVM for the desk's ten-minute lease. A client that comes back starts a new one, as a new
             // chat message does. While it keeps calling, a person taking control or pressing Stop stays in force until they hand it back.
-            const id = `mcp-${client}`;
+            const id = `${EXTERNAL_PREFIX}${client}`;
             // Only a tool call uses the PiKVM: initialize, listing and discovery take no control session.
             const m = message as { method?: unknown };
             if (m.method !== "tools/call") return mcp.handle({ conversationId: undefined, signal, frames: { save: () => undefined } }, message as JsonRpcRequest);

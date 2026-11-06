@@ -20,6 +20,8 @@ import { defaultServer, FakeEventSource, installEventSource, installFakeServer, 
 
 let server: ServerState;
 let posts: { path: string; headers: Record<string, string>; body: string }[];
+/** When set, the next agent POSTs are refused the way the server refuses them. */
+let refuse: { status: number; error: string } | undefined;
 
 beforeAll(async () => {
     await import("@pikvm/chat-web");
@@ -31,6 +33,7 @@ beforeEach(() => {
     installViewport();
     installEventSource();
     posts = [];
+    refuse = undefined;
     const base = globalThis.fetch;
     vi.stubGlobal(
         "fetch",
@@ -38,9 +41,9 @@ beforeEach(() => {
             const path = new URL(input instanceof Request ? input.url : String(input), "http://localhost").pathname;
             if (path.startsWith("/app/api/v1/agent/")) {
                 posts.push({ path, headers: Object.fromEntries(new Headers(init?.headers)), body: String(init?.body) });
-                return new Response(JSON.stringify(path.endsWith("stop") ? { stopped: true } : { handedBack: 1 }), {
-                    headers: { "content-type": "application/json" },
-                });
+                if (refuse) return new Response(JSON.stringify({ error: refuse.error }), { status: refuse.status, headers: { "content-type": "application/json" } });
+                const answered = path.endsWith("/approval") ? { answered: true } : path.endsWith("stop") ? { stopped: true } : { handedBack: 1 };
+                return new Response(JSON.stringify(answered), { headers: { "content-type": "application/json" } });
             }
             return base(input, init);
         }),
@@ -142,6 +145,84 @@ describe("the agent on the KVM tab", () => {
         expect(screen.getByRole("tab", { name: "KVM" })).not.toHaveAttribute("data-attention");
         await push(source, { state: "working", tool: "key" });
         expect(screen.getByRole("tab", { name: "Chat" })).not.toHaveAttribute("data-attention");
+    });
+
+    it("asks about an outside client's action on the picture itself, with who, what and why, and Allow and Deny answer it", async () => {
+        const user = userEvent.setup();
+        renderApp("/kvm");
+        await stream();
+        await waitFor(() => expect(FakeEventSource.approvals.length).toBeGreaterThan(0));
+        const waiting = FakeEventSource.approvals[0]!;
+        expect(waiting.url).toBe("/app/api/v1/agent/approvals");
+        const first = {
+            id: "a1",
+            client: "Claude Code (MCP)",
+            tool: "type_text",
+            title: "Type this on the PiKVM?",
+            summary: 'Type: "ls -la\\n"',
+            reasons: ["the text contains a line break, which submits"],
+            at: NOW,
+            expiresAt: NOW + 120_000,
+        };
+        act(() => waiting.emit([first, { ...first, id: "a2" }]));
+        const card = await screen.findByRole("group", { name: "Approval needed" });
+        expect(within(card).getByText("Claude Code (MCP) needs your approval")).toBeInTheDocument();
+        expect(within(card).getByText('Type: "ls -la\\n"')).toBeInTheDocument();
+        expect(within(card).getByText(/the text contains a line break/)).toBeInTheDocument();
+        expect(within(card).getByText("1 more waiting.")).toBeInTheDocument();
+
+        await user.click(within(card).getByRole("button", { name: "Allow" }));
+        await waitFor(() => expect(posts).toHaveLength(1));
+        expect(posts[0]).toMatchObject({ path: "/app/api/v1/agent/approval", body: JSON.stringify({ id: "a1", decision: "approved" }) });
+        expect(posts[0]?.headers["content-type"]).toBe("application/json");
+
+        await user.click(within(card).getByRole("button", { name: "Deny" }));
+        await waitFor(() => expect(posts).toHaveLength(2));
+        expect(posts[1]?.body).toBe(JSON.stringify({ id: "a1", decision: "denied" }));
+
+        act(() => waiting.emit([]));
+        await waitFor(() => expect(screen.queryByRole("group", { name: "Approval needed" })).toBeNull());
+    });
+
+    it("says so when the server will not take the answer, and drops the card when the stream drops", async () => {
+        const user = userEvent.setup();
+        refuse = { status: 404, error: "That request is not waiting any more." };
+        renderApp("/kvm");
+        await stream();
+        await waitFor(() => expect(FakeEventSource.approvals.length).toBeGreaterThan(0));
+        const waiting = FakeEventSource.approvals[0]!;
+        act(() => waiting.emit([{ id: "a1", client: "Codex", tool: "key", title: "Press Alt+F4?", summary: "Press Alt+F4.", reasons: [], at: NOW, expiresAt: NOW + 1 }]));
+        const card = await screen.findByRole("group", { name: "Approval needed" });
+        await user.click(within(card).getByRole("button", { name: "Allow" }));
+        expect(await within(card).findByText("That request is not waiting any more.")).toBeInTheDocument();
+        act(() => waiting.emit("{not json"));
+        expect(screen.getByRole("group", { name: "Approval needed" })).toBeInTheDocument();
+        act(() => waiting.fail());
+        await waitFor(() => expect(screen.queryByRole("group", { name: "Approval needed" })).toBeNull());
+    });
+
+    it("shows the waiting actions in the order they asked, and the one a link names first", async () => {
+        const ask = (id: string, client: string) => ({ id, client, tool: "key", title: "Press Alt+F4?", summary: "Press Alt+F4.", reasons: [], at: NOW, expiresAt: NOW + 1 });
+        const waiting = [ask("a1", "First"), ask("a2", "Second"), ask("a3", "Third")];
+
+        const plain = renderApp("/kvm");
+        await stream();
+        await waitFor(() => expect(FakeEventSource.approvals.length).toBeGreaterThan(0));
+        act(() => FakeEventSource.approvals[0]!.emit(waiting));
+        const card = await screen.findByRole("group", { name: "Approval needed" });
+        expect(within(card).getByText("First needs your approval")).toBeInTheDocument();
+        expect(within(card).getByText("2 more waiting.")).toBeInTheDocument();
+        plain.unmount();
+
+        installEventSource();
+        renderApp("/kvm?approve=a3");
+        await stream();
+        await waitFor(() => expect(FakeEventSource.approvals.length).toBeGreaterThan(0));
+        act(() => FakeEventSource.approvals[0]!.emit(waiting));
+        const linked = await screen.findByRole("group", { name: "Approval needed" });
+        expect(within(linked).getByText("Third needs your approval")).toBeInTheDocument();
+        act(() => FakeEventSource.approvals[0]!.emit(waiting.slice(0, 2)));
+        await waitFor(() => expect(screen.getByRole("group", { name: "Approval needed" })).toHaveTextContent("First needs your approval"));
     });
 
     it("drops the banner when the stream drops, and ignores a message it cannot read", async () => {

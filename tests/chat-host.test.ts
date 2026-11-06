@@ -11,11 +11,14 @@ import { createPikvmMcp } from "@pikvm/mcp";
 import { createFakeApprover, createFakeDesk } from "@pikvm/mcp/testing";
 import { createActivity } from "../src/server/agent/activity";
 import { createAgentRoutes } from "../src/server/agent/routes";
+import { createApprovalQueue, type ApprovalQueue } from "../src/server/agent/approvals";
+import type { SignedIn } from "../src/server/web-auth";
 import { pikvmBuiltin, startChat } from "../src/server/chat";
 import type { AgentDesk } from "../src/server/agent/desk";
 import { stubChat } from "./support/chat-stub";
 
-async function serveAgent(over: { handBack?: () => number } = {}) {
+async function serveAgent(over: { handBack?: () => number; approvals?: ApprovalQueue; signedIn?: SignedIn } = {}) {
+    const approvals = over.approvals ?? createApprovalQueue();
     const activity = createActivity();
     const calls: string[] = [];
     const routes = createAgentRoutes(
@@ -27,14 +30,16 @@ async function serveAgent(over: { handBack?: () => number } = {}) {
                 return over.handBack?.() ?? 1;
             },
         },
+        approvals,
         50,
     );
-    const server: Server = createServer((req, res) => routes.handle(req, res, new URL(req.url ?? "/", "http://x").pathname));
+    const server: Server = createServer((req, res) => routes.handle(req, res, new URL(req.url ?? "/", "http://x").pathname, over.signedIn));
     await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     return {
         origin,
         activity,
+        approvals,
         calls,
         close: () =>
             new Promise<void>((done) => {

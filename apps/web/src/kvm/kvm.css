@@ -1125,6 +1125,32 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     background: var(--overlay-ink);
     animation: none;
 }
+/* An outside client's waiting action is a card, not a chip: it has a question and a text to read before the person answers. */
+.kvm-agent-approval {
+    max-width: min(560px, calc(100% - 20px));
+    border-radius: 16px;
+    align-items: flex-start;
+    /* Solid: this one has text to read over a moving picture, and a decision to make. */
+    background: var(--overlay-glass);
+}
+.kvm-agent-approval .kvm-agent-dot {
+    margin-top: 6px;
+}
+.kvm-agent-approval .kvm-agent-text {
+    flex-direction: column;
+    flex: 1 1 auto;
+    gap: 4px;
+}
+.kvm-agent-approval .kvm-agent-summary {
+    max-height: 6.5em;
+    overflow: auto;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    white-space: pre-wrap;
+}
+.kvm-agent-approval .kvm-btn {
+    align-self: center;
+}
 .kvm-agent .kvm-btn {
     min-height: 30px;
     padding: 0 12px;
