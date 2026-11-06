@@ -304,8 +304,7 @@ function ProviderList({ rec, view }: { rec: Records<ProviderEntry>; view: SubVie
         <SettingsPage
             title={t("integrations-prov-title")}
             actions={[
-                canAdd &&
-                    own.length > 0 && {
+                canAdd && {
                         label: t("integrations-prov-add"),
                         icon: <Plus />,
                         onSelect: () => view.go({ add: "catalog" }),
@@ -317,7 +316,6 @@ function ProviderList({ rec, view }: { rec: Records<ProviderEntry>; view: SubVie
                     {own.length ? t("integrations-prov-policy-paused") : t("integrations-prov-policy-blocked")}
                 </Notice>
             )}
-            <SubscriptionsSection />
             {global.length > 0 && (
                 <SettingsSection
                     title={t("integrations-prov-org-title")}
@@ -341,12 +339,18 @@ function ProviderList({ rec, view }: { rec: Records<ProviderEntry>; view: SubVie
                                     ? t("integrations-prov-empty-off")
                                     : t("integrations-prov-empty-user-description")
                             }
+                            action={
+                                canAdd ? (
+                                    <Button variant="primary" onClick={() => view.go({ add: "catalog" })}>
+                                        {t("integrations-prov-add")}
+                                    </Button>
+                                ) : undefined
+                            }
                         />
                     )}
                     {rows(own)}
                 </SettingsCard>
             </SettingsSection>
-            {canAdd && own.length === 0 && !rec.loading && <Catalogue rec={rec} view={view} />}
         </SettingsPage>
     );
 }
@@ -387,7 +391,9 @@ function Catalogue({ rec, view }: { rec: Records<ProviderEntry>; view: SubView }
     }));
     const custom = cat.data.custom;
     return (
-        <PresetGallery
+        <>
+            <SubscriptionsSection />
+            <PresetGallery
             items={items}
             groups={GROUPS.map((g) => ({ id: g.id, title: t(g.title) }))}
             noun="providers"
@@ -410,6 +416,7 @@ function Catalogue({ rec, view }: { rec: Records<ProviderEntry>; view: SubView }
                 </SettingsSection>
             }
         />
+        </>
     );
 }
 

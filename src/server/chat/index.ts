@@ -87,8 +87,8 @@ export function pikvmBuiltin(mcp: PikvmMcp): BuiltinMcp {
     };
 }
 
-/** An outside client that has not called for this long starts a new control session, as an agent run does after its lease (agent/desk.ts). */
-const EXTERNAL_SESSION_MS = 10 * 60_000;
+/** An outside MCP client that has not called for this long gives the PiKVM back (its run ends). */
+const EXTERNAL_IDLE_MS = 45_000;
 
 export function startChat(options: ChatHostOptions): ChatHost {
     const log = options.log ?? ((line: string) => console.log(line));
@@ -96,8 +96,8 @@ export function startChat(options: ChatHostOptions): ChatHost {
     let chat: ChatServer | null = null;
     let failure: string | null = null;
     let stopping: Promise<void> | undefined;
-    /** Outside MCP clients with a control session: the run's name and when it last called. */
-    const external = new Map<string, number>();
+    /** Outside MCP clients with a control session, and the timer that ends it. */
+    const external = new Map<string, { timer: NodeJS.Timeout }>();
 
     const policy = (): PikvmPolicy =>
         chat
@@ -173,20 +173,20 @@ export function startChat(options: ChatHostOptions): ChatHost {
         decide: async (userId, request) => chat?.decide(userId, request),
         hasDecisionModel: (userId) => chat?.hasDecisionModel(userId) ?? false,
         async mcp(message, signal, client) {
-            // Control belongs to a conversation (agent/desk.ts), and an outside client has none, so each client gets a session of its own: a
-            // run named after it. A new one starts on its first call and after a long silence; a person taking control or pressing Stop
-            // ends it for that client until they hand control back, as for a chat run.
+            // Control belongs to a conversation (agent/desk.ts), and an outside client has none, so each client gets a control session of its
+            // own: a run named after it. It starts on the client's first call and ends after EXTERNAL_IDLE_MS of silence, so a client that
+            // wandered off does not hold the PiKVM for the desk's ten-minute lease. A client that comes back starts a new one, as a new
+            // chat message does. While it keeps calling, a person taking control or pressing Stop stays in force until they hand it back.
             const id = `mcp-${client}`;
-            const t = Date.now();
-            for (const [other, last] of external) {
-                if (other !== id && t - last > EXTERNAL_SESSION_MS) {
-                    desk.endRun(other);
-                    external.delete(other);
-                }
-            }
-            const last = external.get(id);
-            if (last === undefined || t - last > EXTERNAL_SESSION_MS) desk.beginRun(id);
-            external.set(id, t);
+            const known = external.get(id);
+            if (!known) desk.beginRun(id);
+            clearTimeout(known?.timer);
+            const timer = setTimeout(() => {
+                external.delete(id);
+                desk.endRun(id);
+            }, EXTERNAL_IDLE_MS);
+            timer.unref();
+            external.set(id, { timer });
             return mcp.handle({ conversationId: id, signal, frames: { save: () => undefined } }, message as JsonRpcRequest);
         },
         userDir(userId) {

@@ -49,6 +49,8 @@ export interface DeviceRecord {
     subject: string;
     /** The sign-in method's configuration when this was made (Sessions.binding). */
     binding: string;
+    /** `mcp`: made by an MCP client's OAuth sign-in. Such a token is for the MCP endpoint only (MCP spec, token audience), never the rest of the app. */
+    audience?: "mcp";
     createdAt: number;
     lastUsedAt: number;
 }
@@ -134,11 +136,11 @@ export class DeviceStore {
     }
 
     /** Makes a device and its token, which is returned once and never kept. */
-    issue(name: string, method: Method, subject: string, binding: string): { token: string; device: DeviceView } {
+    issue(name: string, method: Method, subject: string, binding: string, audience?: "mcp"): { token: string; device: DeviceView } {
         const id = randomBytes(6).toString("hex");
         const secret = randomBytes(32).toString("base64url");
         const at = this.now();
-        const record: DeviceRecord = { id, name: cleanDeviceName(name), hash: sha256(secret).toString("hex"), method, subject, binding, createdAt: at, lastUsedAt: at };
+        const record: DeviceRecord = { id, name: cleanDeviceName(name), hash: sha256(secret).toString("hex"), method, subject, binding, ...(audience ? { audience } : {}), createdAt: at, lastUsedAt: at };
         this.devices.push(record);
         if (this.devices.length > MAX_DEVICES) {
             this.devices.sort((a, b) => a.lastUsedAt - b.lastUsedAt);

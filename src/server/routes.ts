@@ -33,6 +33,9 @@ import type { Duplex } from "node:stream";
 import { gate, loginPage, ROOT_ICON, sameOrigin, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
 import type { SignedIn, WebAuth } from "./web-auth";
 import { MCP_PATH as MCP_ENDPOINT } from "./web-auth";
+
+/** The protocol versions the PiKVM MCP server speaks (packages/pikvm-mcp SUPPORTED_PROTOCOLS). */
+const MCP_PROTOCOLS: readonly string[] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 import type { AgentRoutes } from "./agent/routes";
 import { json, readBody } from "./http";
 import type { LiveConnections } from "./live";
@@ -218,6 +221,11 @@ export function createRoutes(t: RouteTargets): Route[] {
             name: "MCP endpoint",
             match: ({ path }) => path === MCP_ENDPOINT,
             run: async ({ req, res, method, signedIn }) => {
+                // MCP, Streamable HTTP: an Origin that is not this site's is refused (DNS rebinding); a client that is not a browser sends none.
+                if (req.headers.origin !== undefined && !sameOrigin(req)) return json(res, 403, { jsonrpc: "2.0", id: null, error: { code: -32000, message: "Forbidden origin" } });
+                // And a protocol version this server does not speak is a 400. Absent is allowed: the negotiated one in `initialize` stands.
+                const version = req.headers["mcp-protocol-version"];
+                if (version !== undefined && !MCP_PROTOCOLS.includes(String(version))) return json(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: `Unsupported MCP-Protocol-Version: ${String(version).slice(0, 40)}` } });
                 if (method !== "POST") return json(res, 405, { error: "POST JSON-RPC messages here" });
                 if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) return json(res, 415, { error: "Expected application/json" });
                 let message: unknown;

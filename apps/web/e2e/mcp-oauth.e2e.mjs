@@ -47,9 +47,9 @@ await page.setViewport({ width: 1000, height: 760 });
 const shot = (name) => page.screenshot({ path: `${outDir}/mcp-oauth/${name}.png` });
 
 /** Send the person to the authorization endpoint and have Chrome press `decision`; the redirect is what the client's listener saw. */
-async function authorize({ clientId, redirect = REDIRECT, state, challenge, decision, shotName }) {
+async function authorize({ clientId, redirect = REDIRECT, state, challenge, decision, shotName, extra = {} }) {
     const seen = new Promise((done) => (landed = done));
-    const url = `${WEB}/app/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirect, state, code_challenge: challenge, code_challenge_method: "S256" })}`;
+    const url = `${WEB}/app/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirect, state, code_challenge: challenge, code_challenge_method: "S256", ...extra })}`;
     await page.goto(url, { waitUntil: "load" });
     if (await page.$('input[name="token"]')) {
         await page.type('input[name="token"]', TOKEN);
@@ -101,6 +101,8 @@ try {
     const allowed = await authorize({ clientId: client.client_id, state, challenge: other.challenge, decision: "allow" });
     const code = allowed.redirected?.searchParams.get("code");
     check("Allow sends a code and the state back", typeof code === "string" && allowed.redirected?.searchParams.get("state") === state, allowed.redirected?.search.slice(0, 40) ?? "no redirect");
+    const wrongResource = await authorize({ clientId: client.client_id, state, challenge: pkce().challenge, decision: "allow", extra: { resource: "https://other.example/mcp" } });
+    check("a resource that is not this host's MCP endpoint is refused with invalid_target, sent to the client's redirect", page.url().includes("error=invalid_target") && wrongResource.heading === "", page.url().split("?")[1] ?? "");
     const wrongRedirect = await exchange({ grant_type: "authorization_code", code, code_verifier: other.verifier, redirect_uri: "http://127.0.0.1:9/elsewhere", client_id: client.client_id });
     check("a code asked for with another redirect gets nothing", wrongRedirect.status === 400, `HTTP ${wrongRedirect.status}`);
     const spent = await exchange({ grant_type: "authorization_code", code, code_verifier: other.verifier, redirect_uri: REDIRECT, client_id: client.client_id });
@@ -112,9 +114,11 @@ try {
     const wrongVerifier = await exchange({ grant_type: "authorization_code", code: code2, code_verifier: pkce().verifier, redirect_uri: REDIRECT, client_id: client.client_id });
     check("a wrong PKCE verifier gets nothing", wrongVerifier.status === 400, `HTTP ${wrongVerifier.status}`);
 
+    const badTarget = await exchange({ grant_type: "authorization_code", code: code2, code_verifier: first.verifier, redirect_uri: REDIRECT, client_id: client.client_id, resource: "https://other.example/mcp" });
+    check("a token request for another resource gets invalid_target", badTarget.status === 400 && (await badTarget.json()).error === "invalid_target", `HTTP ${badTarget.status}`);
     const third = pkce();
     const last = await authorize({ clientId: client.client_id, state, challenge: third.challenge, decision: "allow" });
-    const token = await exchange({ grant_type: "authorization_code", code: last.redirected?.searchParams.get("code"), code_verifier: third.verifier, redirect_uri: REDIRECT, client_id: client.client_id });
+    const token = await exchange({ grant_type: "authorization_code", code: last.redirected?.searchParams.get("code"), code_verifier: third.verifier, redirect_uri: REDIRECT, client_id: client.client_id, resource: `${WEB}/app/mcp` });
     const issued = await token.json();
     check("the right code, verifier and redirect get a bearer token", token.status === 200 && issued.token_type === "Bearer" && /^pkd_[0-9a-f]{12}_/.test(issued.access_token) && issued.access_token !== TOKEN, `HTTP ${token.status}, ${String(issued.access_token).slice(0, 8)}`);
 
@@ -136,6 +140,14 @@ try {
     check("a batch is refused", batch.error?.code === -32600, JSON.stringify(batch.error));
     const getStream = await fetch(`${WEB}/app/mcp`, { headers: { authorization: `Bearer ${issued.access_token}` } });
     check("a GET (the optional event stream) is answered 405", getStream.status === 405, `HTTP ${getStream.status}`);
+    const hostile = await fetch(`${WEB}/app/mcp`, { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example", authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 20, method: "tools/list" }) });
+    check("a request with a foreign Origin is refused, token or not", hostile.status === 403 || hostile.status === 401, `HTTP ${hostile.status}`);
+    const oldVersion = await fetch(`${WEB}/app/mcp`, { method: "POST", headers: { "content-type": "application/json", "mcp-protocol-version": "1999-01-01", authorization: `Bearer ${issued.access_token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 21, method: "tools/list" }) });
+    check("an unsupported MCP-Protocol-Version is a 400", oldVersion.status === 400, `HTTP ${oldVersion.status}`);
+    const goodVersion = await fetch(`${WEB}/app/mcp`, { method: "POST", headers: { "content-type": "application/json", "mcp-protocol-version": "2025-11-25", authorization: `Bearer ${issued.access_token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 22, method: "tools/list" }) });
+    check("a supported one is accepted", goodVersion.status === 200, `HTTP ${goodVersion.status}`);
+    const elsewhere = await fetch(`${WEB}/app/api/v1/state`, { headers: { authorization: `Bearer ${issued.access_token}` } });
+    check("an MCP token is for the MCP endpoint only: the app's own API refuses it", elsewhere.status === 401, `HTTP ${elsewhere.status}`);
     const withAccess = await rpc(TOKEN, { jsonrpc: "2.0", id: 6, method: "tools/list" });
     check("the access token works on the endpoint too", withAccess.status === 200, `HTTP ${withAccess.status}`);
     const wrong = await rpc("pkd_000000000000_" + "A".repeat(43), { jsonrpc: "2.0", id: 7, method: "tools/list" });

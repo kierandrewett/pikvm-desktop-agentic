@@ -64,6 +64,12 @@ const rawCategories: readonly SettingsCategoryDef[] = [
                 section: "Models",
             },
             {
+                id: "agent.modelRoles.decisions",
+                label: "Decisions model",
+                description: "Answers yes or no questions cheaply, such as whether a pop-up is worth a notification.",
+                section: "Models",
+            },
+            {
                 id: "agent.modelRoles.tiny",
                 label: "Small tasks model",
                 description: "Writes chat titles.",

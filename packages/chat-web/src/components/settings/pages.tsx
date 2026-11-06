@@ -10,7 +10,10 @@ import { DecisionsModelRow, RoleModelRow } from "./role-models";
 import { ModelSelect } from "./models";
 import { erase, useUserSetting } from "./bindings";
 import { ChatServices } from "../../pane/chat-services";
-import { AdminKeyRow, BoundRow, KeyRow, SettingsCard, SettingsPage, SettingsSection } from "./kit";
+import { useState } from "react";
+import { api } from "../../lib/api";
+import { ConfirmDialog } from "../ui/dialog";
+import { AdminKeyRow, BoundRow, Button, KeyRow, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "./kit";
 
 export const ProvidersPage = () => (
     <ChatServices>
@@ -57,6 +60,44 @@ export function ModelsPage() {
     );
 }
 
+/** Empties the agent's memory for this user (DELETE /api/memory). Asks first: it cannot be undone. */
+function ForgetMemoryRow() {
+    const [asking, setAsking] = useState(false);
+    const [state, setState] = useState<"idle" | "busy" | "done" | "failed">("idle");
+    const forget = async () => {
+        setState("busy");
+        try {
+            await api.del("/memory");
+            setState("done");
+        } catch {
+            setState("failed");
+        }
+    };
+    return (
+        <>
+            <SettingRow
+                id="agent-memory-forget"
+                label="Forget everything"
+                description={state === "done" ? "Memory is empty." : state === "failed" ? "That did not work. Try again." : "Delete everything the assistant has remembered about you."}
+                control={
+                    <Button variant="danger" disabled={state === "busy"} onClick={() => setAsking(true)}>
+                        Forget
+                    </Button>
+                }
+            />
+            <ConfirmDialog
+                open={asking}
+                onOpenChange={setAsking}
+                title="Forget everything?"
+                description="This deletes every memory the assistant has kept for you. It cannot be undone."
+                confirmLabel="Forget"
+                danger
+                onConfirm={() => void forget()}
+            />
+        </>
+    );
+}
+
 export function AgentPage() {
     return (
         <ChatServices>
@@ -73,6 +114,7 @@ export function AgentPage() {
                         <KeyRow k="agent.permission" />
                         <AdminKeyRow k="agent.askTimeoutSec" />
                         <KeyRow k="agent.memory.enabled" />
+                        <ForgetMemoryRow />
                         <KeyRow k="agent.instructions" />
                     </SettingsCard>
                 </SettingsSection>

@@ -337,13 +337,14 @@ How a client signs in:
   redirect URI must be `https`, or `http` to `127.0.0.1`, `localhost` or `[::1]`, and must be one the client registered. A client's `client_id` is sealed with the
   session key and carries its name and redirect URIs, so nothing is stored and a restart forgets nothing. A code lives 60 s, works once, is bound to its redirect
   URI and its PKCE verifier, and is spent by a wrong attempt.
+- **Transport rules from the specification.** A request with an `Origin` that is not this site's is refused (403; DNS rebinding), a `MCP-Protocol-Version` this server does not speak is a 400, and the `resource` parameter of RFC 8707, when a client sends one, must be this endpoint (`invalid_target` otherwise), on the authorize and the token request alike. Not done: OAuth Client ID Metadata Documents (clients register with dynamic registration instead) and `scope`.
 - **The token it gets is the same revocable device token** a desktop app gets (`pkd_...`), named "<client> (MCP)", listed in Settings, Account, and valid only while
-  the sign-in method it was made under is configured as it was. There is no refresh token and no expiry: revoke it there. It is never a cookie.
+  the sign-in method it was made under is configured as it was. There is no refresh token and no expiry: revoke it there. It is never a cookie, and it is for the MCP endpoint only: the app's own API and chat answer 401 to it (the specification's token audience rule).
 - **The access token** (`PIKVM_ACCESS_TOKEN`) also works as `Authorization: Bearer`, for a script that cannot open a browser. On the desktop app (no sign-in
   host) the endpoint is behind the app's own token gate, or open on loopback when no token is set.
 
 Control and approval. Control of the PiKVM belongs to a conversation (`agent/desk.ts`), and an outside client has none, so each client gets a control session of
-its own, named after its token: it starts on the client's first call and after 10 minutes of silence, one holder at a time, as for a chat run. A person using the
+its own, named after its token: it starts on the client's first call and ends after 45 seconds of silence, so a client that wandered off does not hold the PiKVM; one holder at a time, as for a chat run. A person using the
 mouse or keyboard, or pressing Stop, takes control from it until they press Hand back; the client is told `control_released`. Tools that need approval
 (`agent.pikvm.approval`, the power tool) have nobody to ask outside a chat, so they are **refused** unless the setting is `never`. The screenshots go to the client
 only; nothing is kept in a conversation.

@@ -189,11 +189,11 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         log(`[web] sign-in refused (${what}) from ${clientAddress(req)}`);
     };
 
-    async function bearer(req: IncomingMessage): Promise<Verdict> {
+    async function bearer(req: IncomingMessage, path: string): Promise<Verdict> {
         const wait = limiter.wait(clientAddress(req));
         if (wait > 0) return tooMany(wait);
         const presented = String(req.headers.authorization ?? "").slice("Bearer ".length);
-        if (presented.startsWith(DEVICE_TOKEN_PREFIX)) return deviceBearer(req, presented);
+        if (presented.startsWith(DEVICE_TOKEN_PREFIX)) return deviceBearer(req, presented, path);
         const verdict = bearerVerdict(req, { token: o.token, allowHttp: o.allowHttpBearer, secureTransport: transportOk });
         if (verdict === "allow") {
             limiter.succeed(clientAddress(req));
@@ -205,7 +205,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
     }
 
     /** A device token: a bearer under the access token's rules (a connection a secret may cross, no foreign Origin), that can be revoked. */
-    function deviceBearer(req: IncomingMessage, presented: string): Verdict {
+    function deviceBearer(req: IncomingMessage, presented: string, path: string): Verdict {
         if (!(transportOk(req) || o.allowHttpBearer)) return unauthorized;
         if (req.headers.origin !== undefined && !sameOrigin(req)) return unauthorized;
         const found = devices.verify(presented, bindingOf);
@@ -213,6 +213,8 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
             refuse("device token", req);
             return unauthorized;
         }
+        // A token an MCP client got is for the MCP endpoint and nothing else: the app's own API and chat are other resources.
+        if (found.audience === "mcp" && path !== MCP_PATH) return unauthorized;
         limiter.succeed(clientAddress(req));
         return { kind: "allow", signedIn: { method: "device", subject: found.name, deviceId: found.id } };
     }
@@ -423,6 +425,9 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         });
     }
 
+    /** RFC 8707 `resource`: absent, or this host's MCP endpoint (a trailing slash is the same resource). */
+    const resourceOk = (raw: string | null | undefined, req: IncomingMessage): boolean => raw == null || raw === "" || raw.replace(/\/$/, "") === `${originOf(req)}${MCP_PATH}`;
+
     /** A redirect URI a client may register: https, or http to this machine, with no fragment and no credentials. */
     function acceptableRedirect(raw: unknown): raw is string {
         if (typeof raw !== "string" || raw.length > 300) return false;
@@ -479,7 +484,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
     const OAUTH_STATE = /^[\x21-\x7e]{1,512}$/;
 
     /** `GET /app/oauth/authorize`: the question, for a browser signed in by a cookie. */
-    function oauthAsk(res: ServerResponse, url: URL, signedIn: SignedIn | undefined): void {
+    function oauthAsk(req: IncomingMessage, res: ServerResponse, url: URL, signedIn: SignedIn | undefined): void {
         const p = url.searchParams;
         const client = openClient(p.get("client_id"));
         const redirectUri = p.get("redirect_uri") ?? (client?.r.length === 1 ? client.r[0] : undefined);
@@ -487,6 +492,8 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         if (!client || !redirectUri || !client.r.includes(redirectUri)) return page(res, 400, devicePageError("This sign-in link is not valid."));
         const state = p.get("state") ?? "";
         const challenge = p.get("code_challenge") ?? "";
+        // RFC 8707: a client names the resource it wants a token for. Only this host's MCP endpoint is offered.
+        if (!resourceOk(p.get("resource"), req)) return backWith(res, redirectUri, { error: "invalid_target", ...(state ? { state } : {}) });
         if (p.get("response_type") !== "code") return backWith(res, redirectUri, { error: "unsupported_response_type", ...(state ? { state } : {}) });
         if (!CHALLENGE.test(challenge) || p.get("code_challenge_method") !== "S256" || (state !== "" && !OAUTH_STATE.test(state))) {
             return backWith(res, redirectUri, { error: "invalid_request", error_description: "PKCE with S256 is required.", ...(state ? { state } : {}) });
@@ -533,6 +540,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
             return noStoreJson(res, 400, { error: "invalid_request" });
         }
         if (fields.grant_type !== "authorization_code") return noStoreJson(res, 400, { error: "unsupported_grant_type" });
+        if (!resourceOk(fields.resource, req)) return noStoreJson(res, 400, { error: "invalid_target" });
         const grant = fields.code && fields.code_verifier ? codes.redeem(fields.code, fields.code_verifier) : undefined;
         const binding = grant ? bindingOf(grant.method) : undefined;
         // The code was made for one redirect URI; a client that asks with another is somebody else.
@@ -541,7 +549,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
             return noStoreJson(res, 400, { error: "invalid_grant" });
         }
         limiter.succeed(clientAddress(req));
-        const issued = devices.issue(grant.name, grant.method, grant.subject, binding);
+        const issued = devices.issue(grant.name, grant.method, grant.subject, binding, "mcp");
         log(`[web] MCP client "${issued.device.name}" signed in as ${grant.subject} (${grant.method})`);
         noStoreJson(res, 200, { access_token: issued.token, token_type: "Bearer" });
     }
@@ -596,7 +604,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         async judge(req, path) {
             if (isPublicPath(path)) return { kind: "allow" };
             const header = String(req.headers.authorization ?? "");
-            if (header.startsWith("Bearer ")) return bearer(req);
+            if (header.startsWith("Bearer ")) return bearer(req, path);
             if (header.startsWith("Basic ")) return basic(req);
             return cookie(req);
         },
@@ -633,7 +641,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
             if (path.startsWith("/.well-known/oauth-protected-resource")) return protectedResource(req, res);
             if (path === "/app/oauth/register") return oauthRegister(req, res);
             if (path === "/app/oauth/token") return oauthToken(req, res);
-            if (path === "/app/oauth/authorize") return req.method === "POST" ? oauthAnswer(req, res, signedIn) : oauthAsk(res, url, signedIn);
+            if (path === "/app/oauth/authorize") return req.method === "POST" ? oauthAnswer(req, res, signedIn) : oauthAsk(req, res, url, signedIn);
             if (path === "/app/auth/info") return authInfo(res);
             if (path === "/app/auth/device") return req.method === "POST" ? answerDevice(req, res, signedIn) : askDevice(res, url, signedIn);
             if (path === "/app/auth/device/token") return deviceToken(req, res);
