@@ -357,18 +357,19 @@ only; nothing is kept in a conversation.
 
 ### Approvals for an outside client
 
-A call that needs approval (`agent.pikvm.approval`: long or multi-line typing, risky chords, drags, input on a stale screenshot, and always the power tool) waits for a person. They are answered two ways, and both reach the same first-in, first-out list (`agent/approvals.ts`):
+A call that needs approval (`agent.pikvm.approval`: long or multi-line typing, risky chords, drags, input on a stale screenshot, and always the power tool) waits for a person. The client's call is **held open** until they answer it (`agent/approvals.ts`).
 
-- **The KVM tab.** The oldest waiting action is a card over the picture: who asks, what, why, with **Allow** and **Deny**. "N more waiting" counts the rest.
-- **A link.** The host's `PIKVM_PUBLIC_URL` gives the link `<origin>/app/kvm?approve=<id>`. It opens the KVM tab (after sign-in) with that action shown first. The link names an action and grants nothing: nothing happens on opening it, and answering needs a signed-in person.
+- **The KVM tab.** The oldest waiting action is a card over the picture: who asks, what, why, with **Allow** and **Deny**. Answering it shows the next one; "N more waiting" counts the rest. The order is first in, first out.
+- **A notification.** Where the person is not at the app, the host sends the same push a chat approval sends. Tapping it opens `/app/kvm?approve=<id>`: the KVM tab (after sign-in) with that action shown first. The link names an action and grants nothing: opening it does not answer anything, and answering needs a signed-in person.
 
 What the client sees:
 
-1. The call is held open for 30 seconds. Allow or Deny in that time and the call goes on, or is refused (`approval_denied`, with "do not retry").
-2. After 30 seconds the call ends with the link. The question stays for 10 minutes. If the person allows it, the client may **repeat that exact call** (same client, tool and arguments) once within 5 minutes and it goes through without asking again. Only a hash of the arguments is kept.
-3. Any other call, another client, a second repeat, or a call after Stop asks again. Stop drops every waiting question and every allowance not yet used.
+- **Allow:** the call goes on and does the action.
+- **Deny:** `approval_denied`, "do not retry the same action".
+- **No answer in 90 seconds:** `approval_denied`, "did not answer in time", and the question is dropped. A client that repeats the call asks again from the start. **An Allow decides only the call it was shown for.** Nothing is remembered, so a later call, another client or other arguments never run on an old Allow, and an Allow clicked after the call ended finds nothing (404).
+- **Stop:** every waiting question is dropped and its calls are refused.
 
-Limits: at most 20 questions wait at once. An answer from the access token as a Bearer, or from a Basic header, is refused (403), so a script cannot approve for the agent it serves; an MCP client's own OAuth token never reaches the app API. Hosts without `PIKVM_PUBLIC_URL` (the desktop app) give no link: the client is told to allow it on the KVM tab. The host also sends the same push notification a chat approval does. Run: `docs/e2e/2026-11-06-mcp-approvals.md`.
+The same call repeated while it still waits joins one card. A client that goes away takes its question with it. At most 20 questions wait at once. An answer from the access token as a Bearer, or from a Basic header, is refused (403), so a script cannot approve for the agent it serves; an MCP client's own OAuth token never reaches the app API. Run: `docs/e2e/2026-11-06-mcp-approvals.md`.
 
 Not done: the agent-activity view on the KVM tab is not checked for an outside client's session. Not verified with a real MCP client (Claude Code, Codex, claude.ai, Executor); the run in `docs/e2e/2026-11-06-mcp-oauth.md` plays the client by hand.
 

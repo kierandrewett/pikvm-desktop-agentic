@@ -353,6 +353,9 @@ export const AGENT_HANDBACK_PATH = `${API_PREFIX}/agent/handback`;
 export const AgentStopResult = Schema.Struct({ stopped: Schema.Boolean });
 export const AgentHandBackResult = Schema.Struct({ handedBack: Schema.Number });
 
+/** The conversation id of an outside MCP client's control session starts with this, then the name it signed in under. Chat's own ids never do. */
+export const EXTERNAL_PREFIX = "mcp-";
+
 /**
  * One action an outside MCP client (Claude Code, Codex, Executor) wants to do and the person has not yet answered.
  * Chat's own approvals are cards in the conversation; an outside client has no conversation, so they wait here, and

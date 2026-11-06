@@ -15,17 +15,15 @@ import type { SignedIn } from "../src/server/web-auth";
  *
  *  1. A client outside the app has no conversation to ask in, so its risky call is refused with nobody to ask.
  *  2. The person answers, and the call does not go on; or it goes on with something they did not allow.
- *  3. A call that cannot wait gets no way to continue: no link, or a link whose approval is lost.
- *  4. An allowance outlives what the person meant: used twice, used for other arguments or another client, kept after Stop.
- *  5. A script (the access token, a Basic header) approves for the agent it serves.
- *  6. A question nobody answers stays on the screen for ever, or a client piles up questions without limit.
+ *  3. An Allow outlives the call it was for: a later call, other arguments or another client runs on it.
+ *  4. A script (the access token, a Basic header) approves for the agent it serves.
+ *  5. A question nobody is waiting for stays on the screen, or a client piles up questions without limit.
+ *  6. Stop leaves a call waiting, or a question on the screen.
  *
  * The real queue, routes and MCP handler run together. Time is the queue's `after` seam: nothing waits on a clock.
  */
 
 const HOLD = 1_000;
-const TTL = 60_000;
-const LINK = (id: string) => `https://kvm.example/app/kvm?approve=${id}`;
 
 function request(over: Partial<ApprovalRequest> = {}): ApprovalRequest {
     return {
@@ -51,14 +49,14 @@ function manualTime() {
                 timer.cancelled = true;
             };
         },
-        /** Fire the timers that wait `ms` and are still wanted. */
-        fire: (ms: number) => timers.filter((t) => t.ms === ms && !t.cancelled).forEach((t) => ((t.cancelled = true), t.fn())),
+        /** Fire the timers that are still wanted. */
+        fire: () => timers.filter((t) => !t.cancelled).forEach((t) => ((t.cancelled = true), t.fn())),
     };
 }
 
 function rig(over: Partial<ApprovalQueueOptions> = {}) {
     const time = manualTime();
-    const queue = createApprovalQueue({ after: time.after, holdMs: HOLD, ttlMs: TTL, link: LINK, ...over });
+    const queue = createApprovalQueue({ after: time.after, holdMs: HOLD, ...over });
     return { time, queue };
 }
 
@@ -118,99 +116,73 @@ test("a call waits for the person under the client's name, and the answer is wha
     assert.equal(await declined, "denied");
 });
 
-test("a call that cannot wait ends with the link, the question stays, and the allowed call goes through once when repeated", async () => {
-    const { queue, time } = rig();
-    const first = queue.ask(request());
-    const id = queue.pending()[0]!.id;
-    time.fire(HOLD);
-    const message = await refusal(first);
-    assert.match(message, new RegExp(LINK(id).replaceAll("?", "\\?")));
-    assert.match(message, /same arguments, within 5 minutes/);
-    assert.equal(queue.pending().length, 1, "the question outlives the call");
+test("the questions are listed in the order they asked", async () => {
+    const { queue } = rig();
+    const calls = ["one", "two", "three"].map((text) => queue.ask(request({ arguments: { text } })));
+    assert.deepEqual(queue.pending().map((p) => p.id).length, 3);
+    const [first, second, third] = queue.pending();
+    queue.answer(first!.id, "approved");
+    assert.deepEqual(queue.pending().map((p) => p.id), [second!.id, third!.id]);
+    queue.clear();
+    await Promise.all(calls);
+});
 
-    assert.equal(queue.answer(id, "approved"), true);
-    assert.deepEqual(queue.pending(), []);
-    assert.equal(await queue.ask(request()), "approved", "the repeat goes through");
+test("a call nobody answers is refused when its time is up, its question goes, and an Allow after that decides nothing", async () => {
+    const { queue, time } = rig();
+    const asking = queue.ask(request());
+    const id = queue.pending()[0]!.id;
+    assert.equal(queue.pending()[0]?.expiresAt, queue.pending()[0]!.at + HOLD);
+    time.fire();
+    assert.match(await refusal(asking), /did not answer in time/);
+    assert.deepEqual(queue.pending(), [], "nobody is waiting for the answer, so the question is gone");
+    assert.equal(queue.answer(id, "approved"), false, "a late Allow finds nothing");
+
     const again = queue.ask(request());
-    assert.equal(queue.pending().length, 1, "and only once: the next one asks again");
+    assert.equal(queue.pending().length, 1, "the same call asks again from the start: nothing was remembered");
+    assert.notEqual(queue.pending()[0]!.id, id);
     queue.answer(queue.pending()[0]!.id, "denied");
     assert.equal(await again, "denied");
 });
 
-test("an allowance is for that client, that tool and those arguments, ends with its time, and is gone after Stop", async () => {
-    let at = 0;
-    const { queue, time } = rig({ now: () => at, grantMs: 300_000 });
-    const allow = async (over: Partial<ApprovalRequest> = {}) => {
-        const asking = queue.ask(request(over));
-        time.fire(HOLD);
-        await refusal(asking);
-        queue.answer(queue.pending().at(-1)!.id, "approved");
-    };
-
-    await allow();
-    const other = queue.ask(request({ arguments: { text: "something else" } }));
-    assert.equal(queue.pending().length, 1, "other arguments ask again");
-    queue.clear();
-    await other;
-    const stranger = queue.ask(request({ conversationId: `${EXTERNAL_PREFIX}Codex` }));
-    assert.equal(queue.pending().length, 1, "another client asks again");
-    queue.clear();
-    await stranger;
-
-    await allow();
-    queue.clear();
-    const afterStop = queue.ask(request());
-    assert.equal(queue.pending().length, 1, "Stop forgets what was allowed");
-    queue.clear();
-    await afterStop;
-
-    await allow();
-    at += 300_001;
-    const late = queue.ask(request());
-    assert.equal(queue.pending().length, 1, "an allowance that ran out asks again");
-    queue.clear();
-    await late;
-});
-
-test("argument order does not make a different call", async () => {
-    const { queue, time } = rig();
-    const asking = queue.ask(request({ arguments: { a: 1, b: { c: 2, d: [3, 4] } } }));
-    time.fire(HOLD);
-    await refusal(asking);
-    queue.answer(queue.pending()[0]!.id, "approved");
-    assert.equal(await queue.ask(request({ arguments: { b: { d: [3, 4], c: 2 }, a: 1 } })), "approved");
-});
-
-test("the same call repeated while it waits joins one card; an answer reaches every call held on it", async () => {
+test("an Allow is for the call it was shown for: not a later one, other arguments or another client", async () => {
     const { queue } = rig();
-    const one = queue.ask(request());
-    const two = queue.ask(request());
+    const first = queue.ask(request());
+    queue.answer(queue.pending()[0]!.id, "approved");
+    assert.equal(await first, "approved");
+
+    const later = queue.ask(request());
+    const other = queue.ask(request({ arguments: { text: "something else" } }));
+    const stranger = queue.ask(request({ conversationId: `${EXTERNAL_PREFIX}Codex` }));
+    assert.equal(queue.pending().length, 3, "each of them asks");
+    queue.clear();
+    await Promise.all([later, other, stranger]);
+});
+
+test("the same call repeated while it waits joins one card, and one answer reaches every call held on it", async () => {
+    const { queue } = rig();
+    const one = queue.ask(request({ arguments: { a: 1, b: { c: 2, d: [3, 4] } } }));
+    const two = queue.ask(request({ arguments: { b: { d: [3, 4], c: 2 }, a: 1 } }));
     assert.equal(queue.pending().length, 1);
     queue.answer(queue.pending()[0]!.id, "approved");
     assert.deepEqual(await Promise.all([one, two]), ["approved", "approved"]);
 });
 
-test("a question nobody answers is dropped after its time, and an answer to it finds nothing", async () => {
-    const { queue, time } = rig();
-    const asking = queue.ask(request());
-    const id = queue.pending()[0]!.id;
-    assert.equal(queue.pending()[0]?.expiresAt, queue.pending()[0]!.at + TTL);
-    time.fire(TTL);
-    assert.equal(await asking, "unavailable");
-    assert.deepEqual(queue.pending(), []);
-    assert.equal(queue.answer(id, "approved"), false);
-    assert.equal(time.timers.filter((t) => t.ms === HOLD).every((t) => t.cancelled), true, "the call's own wait is cancelled with it");
-});
-
-test("a client that goes away leaves its question waiting for the link; one that already went never asks", async () => {
+test("a client that goes away takes its question with it, unless another call is still held on it", async () => {
     const { queue } = rig();
     const gone = new AbortController();
     const abandoned = queue.ask(request({ signal: gone.signal }));
     gone.abort();
     assert.equal(await abandoned, "unavailable");
-    assert.equal(queue.pending().length, 1, "the person can still allow it");
+    assert.deepEqual(queue.pending(), [], "nobody is left to answer for");
+
+    const leaving = new AbortController();
+    const first = queue.ask(request({ signal: leaving.signal }));
+    const second = queue.ask(request());
+    leaving.abort();
+    assert.equal(await first, "unavailable");
+    assert.equal(queue.pending().length, 1, "the other call still waits on it");
     queue.answer(queue.pending()[0]!.id, "approved");
-    assert.equal(await queue.ask(request()), "approved", "and the client's next try goes through");
+    assert.equal(await second, "approved");
 
     const already = new AbortController();
     already.abort();
@@ -218,7 +190,7 @@ test("a client that goes away leaves its question waiting for the link; one that
     assert.deepEqual(queue.pending(), []);
 });
 
-test("Stop drops every waiting question and its calls, and a client cannot pile up questions without limit", async () => {
+test("Stop drops every question and refuses its calls, and a client cannot pile up questions without limit", async () => {
     const { queue } = rig();
     const held = queue.ask(request());
     queue.clear();
@@ -269,60 +241,38 @@ test("a risky call from an outside client waits for the person's answer over HTT
     }
 });
 
-test("the link path through the real handler: refused with the link, allowed in the browser, repeated and typed exactly once", async () => {
+test("through the real handler: declined or unanswered types nothing, an Allow after the call ended changes nothing, and a repeat asks again", async () => {
     const { queue, time } = rig();
     const desk = createFakeDesk();
     const mcp = createPikvmMcp({ desk, approver: queue });
-    const client = createTestClient(inProcessTransport(mcp, { conversationId: `${EXTERNAL_PREFIX}Executor`, signal: new AbortController().signal }));
+    const client = createTestClient(inProcessTransport(mcp, { conversationId: `${EXTERNAL_PREFIX}Codex`, signal: new AbortController().signal }));
     const server = await serve(queue, { method: "oidc", subject: "kieran" });
+    const typed = () => desk.calls.filter((c) => c.method === "typeText").length;
     try {
         const args = { text: "line one\nline two" };
-        const first = client.call("type_text", args);
-        await waitingCount(queue, 1);
-        const id = queue.pending()[0]!.id;
-        time.fire(HOLD);
-        const refused = await first;
-        assert.equal(refused.isError, true);
-        assert.match(refused.text, /approval_denied: The person has not answered yet\. Ask them to open https:\/\/kvm\.example\/app\/kvm\?approve=/);
-        assert.ok(refused.text.includes(id));
-        assert.equal(desk.calls.filter((c) => c.method === "typeText").length, 0);
-
-        assert.equal((await server.answer({ id, decision: "approved" })).status, 200);
-        const repeated = await client.call("type_text", args);
-        assert.equal(repeated.isError, false);
-        assert.equal(desk.calls.filter((c) => c.method === "typeText").length, 1);
-
-        const third = client.call("type_text", args);
-        await waitingCount(queue, 1);
-        assert.equal(desk.calls.filter((c) => c.method === "typeText").length, 1, "a second repeat is a new question");
-        queue.clear();
-        assert.equal((await third).isError, true);
-    } finally {
-        await server.close();
-    }
-});
-
-test("a host with no public address tells the client to use the KVM tab", async () => {
-    const { queue, time } = rig({ link: undefined });
-    const asking = queue.ask(request());
-    time.fire(HOLD);
-    assert.match(await refusal(asking), /allow it on the KVM tab of the PiKVM app/);
-});
-
-test("a declined call types nothing and tells the agent not to repeat it", async () => {
-    const { queue } = rig();
-    const desk = createFakeDesk();
-    const mcp = createPikvmMcp({ desk, approver: queue });
-    const client = createTestClient(inProcessTransport(mcp, { conversationId: `${EXTERNAL_PREFIX}Codex`, signal: new AbortController().signal }));
-    const server = await serve(queue);
-    try {
-        const declined = client.call("type_text", { text: "line one\nline two" });
+        const declined = client.call("type_text", args);
         await waitingCount(queue, 1);
         await server.answer({ id: queue.pending()[0]!.id, decision: "denied" });
         const no = await declined;
         assert.equal(no.isError, true);
         assert.match(no.text, /approval_denied: The person declined/);
-        assert.equal(desk.calls.filter((c) => c.method === "typeText").length, 0);
+
+        const unanswered = client.call("type_text", args);
+        await waitingCount(queue, 1);
+        const id = queue.pending()[0]!.id;
+        time.fire();
+        const late = await unanswered;
+        assert.equal(late.isError, true);
+        assert.match(late.text, /approval_denied: The person did not answer in time/);
+        assert.equal((await server.answer({ id, decision: "approved" })).status, 404, "an Allow after the call ended finds nothing");
+        assert.equal(typed(), 0);
+
+        const repeat = client.call("type_text", args);
+        await waitingCount(queue, 1);
+        assert.equal(typed(), 0, "the repeat asks again and waits");
+        await server.answer({ id: queue.pending()[0]!.id, decision: "approved" });
+        assert.equal((await repeat).isError, false);
+        assert.equal(typed(), 1);
     } finally {
         await server.close();
     }

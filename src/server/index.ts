@@ -167,12 +167,10 @@ export function startControlServer(
     });
 
 
-    // Risky calls of an outside MCP client wait here for a person: a card on the KVM tab, and a link where the host knows its public address
-    // (the web host's PIKVM_PUBLIC_URL). The push courtesy is the one chat's own cards use. The link opens the KVM tab, which signs in first.
-    const publicOrigin = (process.env["PIKVM_PUBLIC_URL"] ?? "").trim().replace(/\/+$/, "");
+    // Risky calls of an outside MCP client wait here for a person, as a card on the KVM tab. Where the person is not at the app, the same
+    // push a chat approval sends opens that card: `/app/kvm?approve=<id>` is the KVM tab with that action first.
     const approvals = createApprovalQueue({
-        onWaiting: (approval) => watch.agentNeeds(OPERATOR_ID, approval.id, "approval"),
-        ...(publicOrigin ? { link: (id: string) => `${publicOrigin}/app/kvm?approve=${id}` } : {}),
+        onWaiting: (approval) => watch.agentNeeds(OPERATOR_ID, approval.id, "approval", `/app/kvm?approve=${approval.id}`),
     });
     chat = startChat({
         dataDir: settings.dir(),

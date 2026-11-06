@@ -147,6 +147,16 @@ describe("the agent on the KVM tab", () => {
         expect(screen.getByRole("tab", { name: "Chat" })).not.toHaveAttribute("data-attention");
     });
 
+    it("does not send the person to Chat for an outside MCP client's action: it has no conversation there", async () => {
+        renderApp("/kvm");
+        const source = await stream();
+        await push(source, { state: "waiting_approval", conversationId: "mcp-Claude Code (MCP)", tool: "type_text" });
+        const chip = document.querySelector<HTMLElement>(".kvm-agent")!;
+        expect(within(chip).getByText("Needs your approval")).toBeInTheDocument();
+        expect(within(chip).queryByRole("link", { name: "Open Chat" })).toBeNull();
+        expect(within(chip).getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    });
+
     it("asks about an outside client's action on the picture itself, with who, what and why, and Allow and Deny answer it", async () => {
         const user = userEvent.setup();
         renderApp("/kvm");

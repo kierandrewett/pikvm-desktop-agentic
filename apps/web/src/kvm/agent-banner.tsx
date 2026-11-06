@@ -7,7 +7,7 @@
  */
 
 import { Link, useRouter } from "@tanstack/react-router";
-import type { AgentActivity, PendingApproval } from "@pikvm/contracts/api";
+import { EXTERNAL_PREFIX, type AgentActivity, type PendingApproval } from "@pikvm/contracts/api";
 import { useState } from "react";
 import { actionLabel, answerApproval, handBackToAgent, stopAgent, useAgentActivity, useAgentApprovals } from "../agent/activity";
 
@@ -75,7 +75,8 @@ export function AgentBanner() {
                 {words.detail ? <span>{words.detail}</span> : null}
                 {failed ? <span className="kvm-agent-error">{failed}</span> : null}
             </span>
-            {activity.state === "waiting_approval" ? (
+            {/* Chat's own approvals are cards in the conversation. An outside MCP client has none: its card is the one above, so there is nothing to open. */}
+            {activity.state === "waiting_approval" && !activity.conversationId?.startsWith(EXTERNAL_PREFIX) ? (
                 <Link to="/chat" className="kvm-btn primary">
                     Open Chat
                 </Link>

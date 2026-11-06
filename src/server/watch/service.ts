@@ -79,8 +79,9 @@ export interface WatchService {
     /**
      * The agent waits for the person (a card in the thread). Sends a notification to their devices unless they switched it off,
      * have no device, or are at the app (the card is in front of them). Never throws and never waits for the push service.
+     * `url` is the page a tap opens: Chat by default, the KVM tab for an outside client's action.
      */
-    agentNeeds(userId: string, conversationId: string, kind: "approval" | "question" | "input"): void;
+    agentNeeds(userId: string, conversationId: string, kind: "approval" | "question" | "input", url?: string): void;
     /** The shared poller, for tests and status. */
     readonly watcher: Watcher;
     stop(): void;
@@ -301,7 +302,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
 
         presence: (userId, clientId, report) => presence.report(userId, clientId, report),
 
-        agentNeeds(userId, conversationId, kind) {
+        agentNeeds(userId, conversationId, kind, url = "/app/chat") {
             try {
                 if (!store.read(userId).notifyAgent) return;
                 if (push.list(userId).length === 0) return;
@@ -309,7 +310,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 // Told once for each card when it appears, so each wait notifies once and a second card in the same run is not lost.
                 const body = AGENT_WORDS[kind];
                 void push
-                    .send(userId, { title: "PiKVM", body, tag: `pikvm-agent-${conversationId}`, url: "/app/chat", badge: true }, { urgency: "high", ttlSeconds: AGENT_TTL_S })
+                    .send(userId, { title: "PiKVM", body, tag: `pikvm-agent-${conversationId}`, url, badge: true }, { urgency: "high", ttlSeconds: AGENT_TTL_S })
                     .catch((error: unknown) => log(`[watch] agent notification not sent: ${error instanceof Error ? error.message : String(error)}`));
             } catch (error) {
                 log(`[watch] agent notification not sent: ${error instanceof Error ? error.message : String(error)}`);
