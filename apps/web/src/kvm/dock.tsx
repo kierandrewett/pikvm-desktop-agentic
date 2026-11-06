@@ -28,6 +28,7 @@ import { KeyRows } from "./key-rows";
 import type { PictureController } from "./picture-controller";
 import { usePictureState } from "./picture";
 import { useKvmActive } from "./active";
+import { useKvmLocked } from "./locked";
 import { useKvmSession, useTarget } from "./session";
 import { Sheet } from "./sheet";
 import { useStore } from "./use-store";
@@ -50,6 +51,7 @@ export function Dock(props: DockProps) {
     const { controller, focus } = props;
     const session = useKvmSession();
     const active = useKvmActive();
+    const agentHolds = useKvmLocked();
     const picture = usePictureState(controller);
     const inputOpen = useTarget((s) => s.link.open);
     const { focused } = useStore(focus.store);
@@ -134,7 +136,7 @@ export function Dock(props: DockProps) {
                 />
             ) : null}
 
-            <div className="kvm-bar-main">
+            <div className="kvm-bar-main" inert={agentHolds || undefined}>
                 <span className={`kvm-dot ${tone}`} title={label} role="img" aria-label={label} />
                 <span className="kvm-status">{label}</span>
                 <span className="kvm-spacer" />

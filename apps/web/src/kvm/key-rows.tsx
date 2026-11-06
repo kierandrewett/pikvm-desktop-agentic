@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FieldFocus } from "./field-focus";
 import { MouseButtons } from "./sheet";
 import { useStore } from "./use-store";
+import { useKvmLocked } from "./locked";
 import { useTarget } from "./session";
 
 type KeyDef =
@@ -194,6 +195,7 @@ export interface KeyRowsProps {
 }
 
 export function KeyRows({ keyboard, focus, fnOpen, moreOpen, onFn, onMore }: KeyRowsProps) {
+    const agentHolds = useKvmLocked();
     const { armed, locked } = useStore(keyboard.armed);
     const capsOn = useTarget((s) => s.device.caps.on);
     const capsKnown = useTarget((s) => s.device.caps.known);
@@ -203,7 +205,7 @@ export function KeyRows({ keyboard, focus, fnOpen, moreOpen, onFn, onMore }: Key
         defs.map((def, i) => <KeyButton key={`${def.kind}:${"code" in def ? def.code : "spec" in def ? def.spec : i}`} def={def} {...shared} />);
 
     return (
-        <div className="kvm-keys" role="group" aria-label="Controls">
+        <div className="kvm-keys" role="group" aria-label="Controls" inert={agentHolds || undefined}>
             <div className="kvm-krow" role="group" aria-label="Modifiers">
                 {draw(MAIN_ROW)}
                 <button type="button" className={`kvm-key${fnOpen ? " on" : ""}`} disabled={offline} aria-pressed={fnOpen} data-toggle="fn" onClick={() => { onFn(); focus.refocus(); }}>
@@ -257,6 +259,7 @@ export function KeyStrip({
     const capsOn = useTarget((s) => s.device.caps.on);
     const capsKnown = useTarget((s) => s.device.caps.known);
     const offline = !useTarget((s) => s.link.open);
+    const agentHolds = useKvmLocked();
     const shared = { keyboard, focus, armed, locked, capsOn, capsKnown, offline };
     const strip: readonly KeyDef[] = [...MAIN_ROW, ...NAV_ROW, key("Home", "Home"), key("End", "End"), { kind: "cad" }];
     const row = useRef<HTMLDivElement>(null);
@@ -286,6 +289,7 @@ export function KeyStrip({
             className={`kvm-keys kvm-strip${fade.before ? " more-before" : ""}${fade.after ? " more-after" : ""}`}
             role="group"
             aria-label="Controls"
+            inert={agentHolds || undefined}
         >
             <MouseButtons dragLock={dragLock} onDragLock={onDragLock} />
             <span className="kvm-strip-sep" aria-hidden="true" />

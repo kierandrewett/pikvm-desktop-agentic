@@ -92,8 +92,6 @@ const AGENT_WORDS = {
 } as const;
 /** An approval that nobody can still act on after this long is not worth delivering late. */
 const AGENT_TTL_S = 15 * 60;
-/** The same wait does not notify again within this long. */
-const AGENT_NOTIFY_GAP_MS = 20_000;
 
 export function createWatchService(deps: WatchServiceDeps): WatchService {
     const now = deps.now ?? Date.now;
@@ -112,7 +110,6 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
     const ocr = deps.ocr ?? createOcrEngine({ log });
     const pipelines = new Map<string, Alerts>();
     const presence = createPresence(now);
-    const agentSent = new Map<string, number>();
     const { images } = deps;
 
     const snapshot =
@@ -297,11 +294,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
                 if (!store.read(userId).notifyAgent) return;
                 if (push.list(userId).length === 0) return;
                 if (presence.active(userId)) return;
-                // One notification for one wait: the same conversation and kind within a short while is the same ask.
-                const key = `${userId}/${conversationId}/${kind}`;
-                const last = agentSent.get(key);
-                if (last !== undefined && now() - last < AGENT_NOTIFY_GAP_MS) return;
-                agentSent.set(key, now());
+                // Told once for each card when it appears, so each wait notifies once and a second card in the same run is not lost.
                 const body = AGENT_WORDS[kind];
                 void push
                     .send(userId, { title: "PiKVM", body, tag: `pikvm-agent-${conversationId}`, url: "/app/chat", badge: true }, { urgency: "high", ttlSeconds: AGENT_TTL_S })

@@ -5,7 +5,7 @@
  *  N1. A notification goes out for a person who switched it off, or who has no device.
  *  N2. It goes out while the person is at the app, where the card is already in front of them.
  *  N3. It carries what the agent wants to do (a command, a path): a push crosses a vendor's servers and lands on a lock screen.
- *  N4. One wait notifies again and again (the same card re-sent), or two different waits are folded into one.
+ *  N4. Two cards in a row are folded into one notification, so the second one the person still needs to see is lost.
  *  N5. A push service that fails breaks the run that asked, or the failure is an unhandled rejection.
  *  N6. A settings file from before this setting existed turns it off.
  */
@@ -104,21 +104,15 @@ describe("the agent needs the person", () => {
         assert.equal(push.sent.length, 1);
     });
 
-    it("tells one wait once, but a later wait, another conversation and another kind each count", async () => {
+    it("tells each card once, so a second card in the same run notifies too", async () => {
         service.agentNeeds("operator", "c1", "approval");
         service.agentNeeds("operator", "c1", "approval");
-        clock += 5_000;
-        service.agentNeeds("operator", "c1", "approval");
-        await settle();
-        assert.equal(push.sent.length, 1, "the same wait inside 20 seconds");
         service.agentNeeds("operator", "c2", "approval");
         service.agentNeeds("operator", "c1", "question");
         await settle();
-        assert.equal(push.sent.length, 3);
-        clock += 30_000;
-        service.agentNeeds("operator", "c1", "approval");
-        await settle();
-        assert.equal(push.sent.length, 4, "a later wait");
+        assert.equal(push.sent.length, 4);
+        assert.equal(push.sent[0]!.payload.tag, push.sent[1]!.payload.tag, "the same conversation replaces its notification on the device");
+        assert.notEqual(push.sent[0]!.payload.tag, push.sent[2]!.payload.tag);
     });
 
     it("a push service that fails is logged and goes no further", async () => {

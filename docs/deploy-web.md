@@ -300,7 +300,7 @@ The same devices get a notification when the agent stops and waits for the perso
 server (`needsAnswer` in `packages/chat-server/src/env.ts`, told when the card appears, not when it is answered). It is on unless
 switched off in Settings, Notifications, **Notify me when the agent needs me** (stored as `notifyAgent`, per user; a settings file from
 before it existed counts as on). Nothing is sent when the person has no device set up, or is using the app (the same presence that holds
-back pop-up notifications), and the same wait does not notify twice within 20 seconds. The words are fixed ("The agent needs your
+back pop-up notifications), and each card notifies once, when it appears. The words are fixed ("The agent needs your
 approval.", "The agent has a question for you.", "The agent needs some information from you."): a push crosses a vendor's servers and
 lands on a lock screen, so it never says what the agent wants to do. It expires after 15 minutes, since an approval nobody can still act
 on is not worth delivering late. A tap opens Chat.

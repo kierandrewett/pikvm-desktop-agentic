@@ -253,7 +253,8 @@ export function createPictureController(options: PictureOptions): PictureControl
         machine: pointer.machine,
         source: activeSource,
         hidOpen: () => link.isOpen(),
-        modalOpen: () => pointer.machine.environment.modalOpen,
+        // What the shared cursor asks: whether a dialog or another tab hides it. The agent holding the target blocks gestures but must not hide its own pointer.
+        modalOpen: () => pointerBlocked({ ...prefs, locked: false }),
         backgrounded: () => desktop && !pointer.machine.environment.windowFocused,
         frame,
         cancelFrame: (id) => cancelAnimationFrame(id),
