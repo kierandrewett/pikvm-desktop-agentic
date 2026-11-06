@@ -97,7 +97,7 @@ export function startChat(options: ChatHostOptions): ChatHost {
     let failure: string | null = null;
     let stopping: Promise<void> | undefined;
     /** Outside MCP clients with a control session, and the timer that ends it. */
-    const external = new Map<string, { timer: NodeJS.Timeout }>();
+    const external = new Map<string, { timer: NodeJS.Timeout | undefined; calls: number }>();
 
     const policy = (): PikvmPolicy =>
         chat
@@ -181,13 +181,24 @@ export function startChat(options: ChatHostOptions): ChatHost {
             const known = external.get(id);
             if (!known) desk.beginRun(id);
             clearTimeout(known?.timer);
-            const timer = setTimeout(() => {
-                external.delete(id);
-                desk.endRun(id);
-            }, EXTERNAL_IDLE_MS);
-            timer.unref();
-            external.set(id, { timer });
-            return mcp.handle({ conversationId: id, signal, frames: { save: () => undefined } }, message as JsonRpcRequest);
+            // The idle clock runs only while no call is in flight (a long `wait` must not lose control mid-call), and starts again when the
+            // last one ends. `calls` and the timer belong to one session: a timer that fires finds the session it was set for or does nothing.
+            const session = known ?? { timer: undefined as NodeJS.Timeout | undefined, calls: 0 };
+            session.calls += 1;
+            external.set(id, session);
+            try {
+                return await mcp.handle({ conversationId: id, signal, frames: { save: () => undefined } }, message as JsonRpcRequest);
+            } finally {
+                session.calls -= 1;
+                if (session.calls === 0 && external.get(id) === session) {
+                    session.timer = setTimeout(() => {
+                        if (external.get(id) !== session || session.calls > 0) return;
+                        external.delete(id);
+                        desk.endRun(id);
+                    }, EXTERNAL_IDLE_MS);
+                    session.timer.unref();
+                }
+            }
         },
         userDir(userId) {
             if (!chat) throw new Error("Chat is not up");
