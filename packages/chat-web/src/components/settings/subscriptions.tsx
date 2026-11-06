@@ -4,7 +4,7 @@
  * The browser ends on a localhost address that this host's page cannot be reached from, so the last step is pasting that address.
  * It sits on the Add provider screen, drawn as the same tiles as the providers below it.
  */
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
 import { keys } from "../../lib/queries";
@@ -24,7 +24,9 @@ const PROVIDERS: { id: Provider; icon: string; name: string; description: string
     { id: "openai-codex", icon: "openai", name: "ChatGPT (Codex)", description: "Sign in with your ChatGPT plan" },
 ];
 
-function Entry({ id, icon, name, description, renderIcon }: (typeof PROVIDERS)[number] & { renderIcon: (id: string, name: string) => ReactNode }) {
+const signedInKey = ["logins"] as const;
+
+function Entry({ id, icon, name, description, renderIcon, signedInAt }: (typeof PROVIDERS)[number] & { renderIcon: (id: string, name: string) => ReactNode; signedInAt?: number }) {
     const queryClient = useQueryClient();
     const [login, setLogin] = useState<Login | undefined>();
     const [pasted, setPasted] = useState("");
@@ -37,7 +39,10 @@ function Entry({ id, icon, name, description, renderIcon }: (typeof PROVIDERS)[n
             void api.get<Login>(`/logins/${login.id}`).then(
                 (next) => {
                     setLogin((was) => (was ? { ...was, ...next } : was));
-                    if (next.state === "done") void queryClient.invalidateQueries({ queryKey: keys.models });
+                    if (next.state === "done") {
+                        void queryClient.invalidateQueries({ queryKey: keys.models });
+                        void queryClient.invalidateQueries({ queryKey: signedInKey });
+                    }
                 },
                 () => undefined,
             );
@@ -92,10 +97,10 @@ function Entry({ id, icon, name, description, renderIcon }: (typeof PROVIDERS)[n
                 <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-sm font-medium">{name}</span>
-                        {login?.state === "done" && <Badge tone="success">Signed in</Badge>}
+                        {(login?.state === "done" || signedInAt !== undefined) && <Badge tone="success">Signed in</Badge>}
                     </span>
                     <span className={failed ? "line-clamp-2 text-xs text-danger" : "line-clamp-2 text-xs text-tertiary"}>
-                        {failed ? `Could not sign in: ${login?.error ?? error}` : waiting ? "Waiting for you to finish below" : description}
+                        {failed ? `Could not sign in: ${login?.error ?? error}` : waiting ? "Waiting for you to finish below" : signedInAt !== undefined ? `Signed in ${new Date(signedInAt).toLocaleDateString()}. Select to sign in again.` : description}
                     </span>
                 </span>
             </button>
@@ -126,11 +131,14 @@ function Entry({ id, icon, name, description, renderIcon }: (typeof PROVIDERS)[n
 }
 
 export function SubscriptionsSection({ renderIcon }: { renderIcon: (id: string, name: string) => ReactNode }) {
+    // What the server remembers: a sign-in survives a reload and shows on every device.
+    const known = useQuery({ queryKey: signedInKey, queryFn: () => api.get<{ signedIn: { provider: Provider; at: number }[] }>("/logins"), retry: false });
+    const at = (id: Provider) => known.data?.signedIn.find((x) => x.provider === id)?.at;
     return (
         <SettingsSection title="Use your subscription" description="Sign in with a plan you already pay for. No API key needed.">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {PROVIDERS.map((p) => (
-                    <Entry key={p.id} {...p} renderIcon={renderIcon} />
+                    <Entry key={p.id} {...p} renderIcon={renderIcon} signedInAt={at(p.id)} />
                 ))}
             </div>
         </SettingsSection>

@@ -127,3 +127,12 @@ test("C8: a server that goes silent past the timeout is cut off", async () => {
     await assert.rejects(get(new URL(ID), "93.184.216.34"), /took too long/);
     assert.match(String(seen.destroyed), /took too long/);
 });
+
+test("C9: an operator-trusted host may resolve to a private address (a tailnet service); any other still may not", async () => {
+    const fetch = async () => ({ status: 200, type: "application/json", body: JSON.stringify({ ...good, client_id: "https://exe.example.net/c.json", redirect_uris: ["https://exe.example.net/cb"] }) });
+    const resolve = async () => ["100.107.62.125"];
+    const url = "https://exe.example.net/c.json";
+    assert.equal(await createClientMetadata({ resolve, fetch })(url), undefined, "not trusted: a tailnet address is refused");
+    assert.deepEqual(await createClientMetadata({ resolve, fetch, trustedHosts: ["EXE.example.net"] })(url), { name: "Example Agent", redirectUris: ["https://exe.example.net/cb"] });
+    assert.equal(await createClientMetadata({ resolve, fetch, trustedHosts: ["other.example.net"] })(url), undefined, "only the exact host named");
+});

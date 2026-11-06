@@ -16,6 +16,15 @@ afterAll(async () => f.close());
 const post = (path: string, json: unknown) => f.api(path, { method: "POST", json });
 
 describe("subscription sign-in", () => {
+    it("lists the sign-ins the server remembers: none before any finished, and a failed one is not remembered", async () => {
+        const list = async () => ((await (await f.api("/logins")).json()) as { signedIn: unknown[] }).signedIn;
+        expect(await list()).toEqual([]);
+        const login = (await (await post("/logins", { provider: "anthropic" })).json()) as { id: string };
+        await post(`/logins/${login.id}/code`, { input: "not a code" });
+        await new Promise((r) => setTimeout(r, 1500));
+        expect(await list()).toEqual([]);
+    });
+
     it("refuses a provider that is not a subscription", async () => {
         expect((await post("/logins", { provider: "bash" })).status).toBe(400);
     });

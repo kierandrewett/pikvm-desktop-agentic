@@ -115,6 +115,7 @@ export function webAuthFromEnv(env: (name: string) => string, dataDir: string, s
         ...(oidc ? { oidc } : {}),
         ...(publicOrigin ? { publicOrigin } : {}),
         trustProxy: env("PIKVM_TRUST_PROXY") === "1",
+        clientHosts: (env("PIKVM_OAUTH_CLIENT_HOSTS") ?? "").split(",").map((h) => h.trim()).filter(Boolean),
         sessionKey: loadSessionKey(env("PIKVM_SESSION_SECRET"), dataDir),
         devicesPath: resolve(dataDir, "devices.json"),
         ...seams,

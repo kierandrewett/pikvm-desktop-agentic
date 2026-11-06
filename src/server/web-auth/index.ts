@@ -69,6 +69,8 @@ export interface WebAuthOptions {
     publicOrigin?: string;
     /** Where the signed-in desktop apps are kept (<data dir>/devices.json). Without it they are kept in memory only. */
     devicesPath?: string;
+    /** Host names allowed to publish an OAuth client document from a private address (PIKVM_OAUTH_CLIENT_HOSTS). */
+    clientHosts?: readonly string[];
     /** PIKVM_TRUST_PROXY=1: believe X-Forwarded-Proto and X-Forwarded-For (their last hop). */
     trustProxy: boolean;
     sessionKey: Buffer;
@@ -471,7 +473,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         });
     }
 
-    const clientDocuments = createClientMetadata({ now });
+    const clientDocuments = createClientMetadata({ now, trustedHosts: o.clientHosts ?? [] });
     /** A client by its `client_id`: a document at an https address (Client ID Metadata Documents), or an id this host sealed at registration. */
     const loadClient = async (id: unknown): Promise<{ n: string; r: string[] } | undefined> => {
         if (typeof id === "string" && isClientMetadataUrl(id)) {
@@ -501,7 +503,12 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         const client = await loadClient(p.get("client_id"));
         const redirectUri = p.get("redirect_uri") ?? (client?.r.length === 1 ? client.r[0] : undefined);
         // Until the redirect URI is known to be the client's own, nothing goes back to it: the error is shown here.
-        if (!client || !redirectUri || !client.r.includes(redirectUri)) return page(res, 400, devicePageError("This sign-in link is not valid."));
+        if (!client) {
+            const id = p.get("client_id") ?? "";
+            const host = isClientMetadataUrl(id) ? new URL(id).host : undefined;
+            return page(res, 400, devicePageError(host ? `${host} did not give this server a usable description of the app.` : "This sign-in link is not valid.", host ? `This server fetched the app's description from its address and refused it: it must be reachable over https, resolve to a public address (a private one needs the operator to list the host in PIKVM_OAUTH_CLIENT_HOSTS), answer 200 JSON naming that same address as its client_id, and list https redirect addresses. Go back to the app and try again.` : "Go back to the app and start the sign-in again."));
+        }
+        if (!redirectUri || !client.r.includes(redirectUri)) return page(res, 400, devicePageError("This sign-in link is not valid.", `The app asked to return to an address it did not list (${(redirectUri ?? "none").slice(0, 80)}). Go back to the app and try again.`));
         const state = p.get("state") ?? "";
         const challenge = p.get("code_challenge") ?? "";
         // RFC 8707: a client names the resource it wants a token for. Only this host's MCP endpoint is offered.
@@ -528,7 +535,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         }
         const g = sessions.open("oauth-grant", form.get("grant") ?? "") as { c?: string; u?: string; s?: string; ch?: string; sub?: string; m?: string; exp?: number } | undefined;
         if (!g || typeof g.c !== "string" || typeof g.u !== "string" || typeof g.s !== "string" || typeof g.ch !== "string" || typeof g.sub !== "string" || typeof g.m !== "string" || typeof g.exp !== "number" || g.exp <= now()) {
-            return page(res, 400, devicePageError("That sign-in expired. Start again from the app."));
+            return page(res, 400, devicePageError("That sign-in expired.", "Go back to the app and start the sign-in again."));
         }
         if (g.sub !== signedIn.subject || g.m !== signedIn.method) return page(res, 403, devicePageError("That sign-in was started by someone else."));
         const state = g.s ? { state: g.s } : {};

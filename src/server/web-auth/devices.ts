@@ -290,6 +290,6 @@ ${opts.client ? `<dt>App</dt><dd>${escapeHtml(opts.client.app)}</dd>\n<dt>Return
 }
 
 /** The page a refused or malformed request to /app/auth/device gets: nothing to act on, nothing about why beyond this. */
-export function devicePageError(message: string): string {
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PiKVM Desktop</title></head><body style="font:16px system-ui,sans-serif;margin:2rem"><main><h1>${escapeHtml(message)}</h1><p>Close this tab and try again from PiKVM Desktop.</p></main></body></html>`;
+export function devicePageError(message: string, hint = "Close this tab and try again from PiKVM Desktop."): string {
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PiKVM Desktop</title></head><body style="font:16px system-ui,sans-serif;margin:2rem"><main><h1>${escapeHtml(message)}</h1><p>${escapeHtml(hint)}</p></main></body></html>`;
 }

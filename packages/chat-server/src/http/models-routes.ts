@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
+import { userKey } from "@pikvm/chat-protocol";
 import { Hono } from "hono";
 import { z } from "zod";
 import { HTTPException } from "hono/http-exception";
@@ -16,7 +17,7 @@ import {
     listModels,
     setRuntimeListener,
 } from "../models/service.ts";
-import { onSettingsChange } from "../settings/store.ts";
+import { getRow, onSettingsChange, setValue } from "../settings/store.ts";
 import { requireUser, type Env } from "./context.ts";
 import { broadcast, broadcastEach } from "./hub.ts";
 
@@ -75,6 +76,10 @@ export const modelsRoutes = new Hono<Env>()
         try {
             return c.json(
                 await startLogin(user.id, provider as LoginProvider, () => {
+                    // Remember that it finished, so Settings shows it after a reload. The credential is the runtime's, in the user's home.
+                    const key = userKey(user.id, "agent.subscriptions");
+                    const known = (getRow(key)?.value ?? {}) as Record<string, { signedInAt: number }>;
+                    setValue(key, { ...known, [provider as string]: { signedInAt: Date.now() } }, user.id);
                     forgetModels(user.id);
                     broadcast(user.id, { type: "chat.models.updated" });
                 }),
@@ -82,6 +87,10 @@ export const modelsRoutes = new Hono<Env>()
         } catch (err) {
             throw new HTTPException(502, { message: (err as Error).message });
         }
+    })
+    .get("/logins", (c) => {
+        const known = (getRow(userKey(requireUser(c).id, "agent.subscriptions"))?.value ?? {}) as Record<string, { signedInAt: number }>;
+        return c.json({ signedIn: Object.entries(known).map(([provider, v]) => ({ provider, at: v.signedInAt })) });
     })
     .get("/logins/:id", (c) => {
         const status = loginStatus(requireUser(c).id, c.req.param("id"));

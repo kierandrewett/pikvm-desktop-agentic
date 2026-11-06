@@ -114,12 +114,18 @@ export interface ClientMetadataOptions {
     resolve?: (host: string) => Promise<string[]>;
     /** Test seam: the one GET. */
     fetch?: FetchLike;
+    /**
+     * Host names the operator trusts to resolve to a private address (their own service on a tailnet or a LAN, such as an Executor gateway).
+     * Only for those exact names the public-address rule is waived; https, no redirects and the size and time limits stay.
+     */
+    trustedHosts?: readonly string[];
 }
 
 export function createClientMetadata(o: ClientMetadataOptions = {}): (clientId: string) => Promise<ClientMetadata | undefined> {
     const now = o.now ?? Date.now;
     const resolve = o.resolve ?? (async (host: string) => (await lookup(host, { all: true })).map((a) => a.address));
     const get = o.fetch ?? fetchChecked;
+    const trusted = new Set((o.trustedHosts ?? []).map((h) => h.toLowerCase()));
     const cache = new Map<string, { at: number; value: ClientMetadata | undefined }>();
 
     return async (clientId) => {
@@ -138,7 +144,7 @@ export function createClientMetadata(o: ClientMetadataOptions = {}): (clientId: 
             const host = url.hostname.replace(/^\[|\]$/g, "");
             const addresses = isIP(host) ? [host] : await resolve(host);
             // Every address the name gives must be public: one private answer is enough to refuse.
-            if (addresses.length === 0 || !addresses.every(isPublicAddress)) return undefined;
+            if (addresses.length === 0 || (!trusted.has(host.toLowerCase()) && !addresses.every(isPublicAddress))) return undefined;
             const res = await get(url, addresses[0]!);
             if (res.status !== 200 || !/^application\/(?:[\w.+-]+\+)?json\b/i.test(res.type)) return undefined;
             const doc = JSON.parse(res.body) as { client_id?: unknown; client_name?: unknown; redirect_uris?: unknown };

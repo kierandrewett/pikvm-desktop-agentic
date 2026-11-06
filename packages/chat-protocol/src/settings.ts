@@ -412,6 +412,16 @@ export const settingDefs = [
         merge: "override",
     }),
     def({
+        key: "agent.subscriptions",
+        schema: z.partialRecord(z.enum(["anthropic", "openai-codex"]), z.object({ signedInAt: z.number().int().nonnegative() })),
+        default: {},
+        description:
+            "Model subscriptions this user signed in to (Claude, ChatGPT/Codex), with when. The credential itself is kept by the agent runtime " +
+            "in the user's own home; this only says that a sign-in finished, so Settings can show it after a reload. Written by the server.",
+        userTwin: "user",
+        merge: "override",
+    }),
+    def({
         key: "agent.memory.enabled",
         schema: z.boolean(),
         default: false,
