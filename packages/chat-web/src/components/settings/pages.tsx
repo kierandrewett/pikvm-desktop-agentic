@@ -6,6 +6,7 @@
  */
 import { useT } from "../../l10n/provider";
 import { ProvidersSection } from "./integrations/providers";
+import { SubscriptionsSection } from "./subscriptions";
 import { DecisionsModelRow, RoleModelRow } from "./role-models";
 import { ModelSelect } from "./models";
 import { erase, useUserSetting } from "./bindings";
@@ -14,6 +15,7 @@ import { AdminKeyRow, BoundRow, KeyRow, SettingsCard, SettingsPage, SettingsSect
 
 export const ProvidersPage = () => (
     <ChatServices>
+        <SubscriptionsSection />
         <ProvidersSection />
     </ChatServices>
 );

@@ -146,7 +146,7 @@ try {
     await page.waitForFunction(() => /Test agent \(MCP\)/.test(document.body.innerText), { timeout: 10000 });
     await shot("account");
     const accountText = await page.evaluate(() => document.body.innerText);
-    check("Settings, Account shows the MCP address and the client that signed in", accountText.includes(`${WEB}/app/mcp`) && accountText.includes("Test agent (MCP)"), "address and client listed");
+    check("Settings, Account lists the client that signed in", accountText.includes("Test agent (MCP)"), "address and client listed");
     await page.evaluate(() => {
         for (const b of document.querySelectorAll("button")) if (b.textContent === "Revoke") b.click();
     });

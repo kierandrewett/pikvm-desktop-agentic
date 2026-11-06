@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
 import { HTTPException } from "hono/http-exception";
+import { cancelLogin, LOGIN_PROVIDERS, loginStatus, startLogin, submitLogin, type LoginProvider } from "../agent/login.ts";
 import { paths } from "../paths.ts";
 import { logo } from "../models/catalog.ts";
 import { decisionModels } from "../models/decisions.ts";
@@ -11,6 +12,7 @@ import {
     CatalogueConflict,
     CatalogueMissing,
     cataloguePage,
+    forgetModels,
     listModels,
     setRuntimeListener,
 } from "../models/service.ts";
@@ -65,6 +67,34 @@ export const modelsRoutes = new Hono<Env>()
         rmSync(join(paths.user(user.id).ompAgentDir, "memories"), { recursive: true, force: true });
         return c.json({ ok: true });
     })
+    // Sign in to a model subscription through the runtime's own login (agent/login.ts). The runtime keeps the credential in the user's home.
+    .post("/logins", async (c) => {
+        const user = requireUser(c);
+        const provider = ((await c.req.json().catch(() => ({}))) as { provider?: string }).provider;
+        if (!LOGIN_PROVIDERS.includes(provider as LoginProvider)) throw new HTTPException(400, { message: "Unknown provider" });
+        try {
+            return c.json(
+                await startLogin(user.id, provider as LoginProvider, () => {
+                    forgetModels(user.id);
+                    broadcast(user.id, { type: "chat.models.updated" });
+                }),
+            );
+        } catch (err) {
+            throw new HTTPException(502, { message: (err as Error).message });
+        }
+    })
+    .get("/logins/:id", (c) => {
+        const status = loginStatus(requireUser(c).id, c.req.param("id"));
+        if (!status) throw new HTTPException(404, { message: "No such sign-in" });
+        return c.json(status);
+    })
+    .post("/logins/:id/code", async (c) => {
+        const input = ((await c.req.json().catch(() => ({}))) as { input?: unknown }).input;
+        if (typeof input !== "string" || input.length < 4 || input.length > 4096) throw new HTTPException(400, { message: "Paste the address or the code" });
+        if (!submitLogin(requireUser(c).id, c.req.param("id"), input)) throw new HTTPException(409, { message: "That sign-in is not waiting" });
+        return c.json({ ok: true });
+    })
+    .delete("/logins/:id", (c) => c.json({ ok: cancelLogin(requireUser(c).id, c.req.param("id")) }))
     .get("/models/logos/:file", async (c) => {
         requireUser(c);
         const key = c.req.param("file").replace(/\.svg$/, "");

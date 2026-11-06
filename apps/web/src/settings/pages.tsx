@@ -19,6 +19,7 @@ import {
 } from "@pikvm/icons";
 import { AboutPage } from "./pages/about";
 import { AccountPage } from "./pages/account";
+import { McpPage } from "./pages/mcp";
 import { AudioPage } from "./pages/audio";
 import { ConnectionPage } from "./pages/connection";
 import { DisplayPage } from "./pages/display";
@@ -40,6 +41,7 @@ export type PageId =
     | "providers"
     | "models"
     | "agent"
+    | "mcp"
     | "display"
     | "audio"
     | "account"
@@ -82,6 +84,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
             { id: "providers", title: "Model providers", icon: Key, component: ProvidersPage },
             { id: "models", title: "Models", icon: Brain, component: ModelsPage },
             { id: "agent", title: "Agent", icon: Robot, component: AgentPage },
+            { id: "mcp", title: "MCP server", icon: Link, component: McpPage },
         ],
     },
     {

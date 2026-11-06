@@ -55,7 +55,7 @@ describe("memory", () => {
     });
 
     it("retain, recall and memory_edit run without a denial, and a retained fact is recalled in a new chat", async () => {
-        const schemas = Object.fromEntries((f.model.requests.at(-1)?.tools ?? []).filter((t) => /^(recall|retain|reflect|memory_edit)$/.test(t.function.name)).map((t) => [t.function.name, t.function.parameters]));
+        const schemas = Object.fromEntries((f.model.requests.at(-1)?.tools ?? []).filter((t) => /^(recall|retain|reflect|memory_edit)$/.test(t.function.name)).map((t) => [t.function.name, (t.function as { parameters?: unknown }).parameters]));
         appendFileSync(`${process.env.HOME}/.cache/pk-e2e/memory.log`, `${JSON.stringify({ schemas })}\n`);
         const results = async (c: Client, conversation: string) => {
             const items = (await (await f.api(`/conversations/${conversation}/items`)).json()) as { items: { type?: string; output?: unknown }[] };

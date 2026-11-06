@@ -31,12 +31,12 @@ afterEach(() => {
 });
 
 describe("the agent's settings", () => {
-    it("lists Providers, Models and Agent once each, and no MCP page", () => {
+    it("lists Providers, Models, Agent and this host\'s own MCP server once each, and no page for external MCP servers", () => {
         const agent = SETTINGS_GROUPS.find((group) => group.title === "Agent");
-        expect(agent?.pages.map((page) => page.title)).toEqual(["Model providers", "Models", "Agent"]);
+        expect(agent?.pages.map((page) => page.title)).toEqual(["Model providers", "Models", "Agent", "MCP server"]);
         const all = SETTINGS_GROUPS.flatMap((group) => group.pages.map((page) => page.id));
         expect(new Set(all).size).toBe(all.length);
-        expect(all.some((id) => /mcp/i.test(id))).toBe(false);
+        expect(all.filter((id) => /mcp/i.test(id))).toEqual(["mcp"]);
     });
 
     it.each([
