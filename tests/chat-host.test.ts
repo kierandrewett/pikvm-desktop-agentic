@@ -211,3 +211,68 @@ test("Stop releases the desk and stops the running responses; Hand back is the d
     assert.deepEqual(calls, ["desk.stop", "chat.stop"]);
     assert.equal(host.controls.handBack(), 3);
 });
+
+/*
+ * An outside MCP client has no conversation, so the host gives it a run of its own (src/server/chat/index.ts, `mcp`).
+ * FAILURE MODES:
+ *   X1. The idle clock runs during a long call, so the run ends under a call that is still working.
+ *   X2. A client that went quiet keeps the PiKVM (its run never ends).
+ *   X3. A timer of an earlier quiet spell ends the run of a newer call.
+ *   X4. One client's run is ended by another's.
+ */
+test("an outside MCP client's run ends only after it has been quiet, never under a call in flight", async () => {
+    const events: string[] = [];
+    const fake = createFakeDesk();
+    const slow = Promise.withResolvers<void>();
+    const desk = {
+        ...fake,
+        info: async () => {
+            await slow.promise;
+            return fake.info();
+        },
+        beginRun: (id: string) => void events.push(`begin ${id}`),
+        endRun: (id: string) => void events.push(`end ${id}`),
+    } as unknown as AgentDesk;
+    const timers: { fn: () => void; ms: number; cancelled: boolean }[] = [];
+    const host = startChat({
+        dataDir: "/unused",
+        desk,
+        create: stubChat(),
+        after: (fn, ms) => {
+            const entry = { fn, ms, cancelled: false };
+            timers.push(entry);
+            return () => void (entry.cancelled = true);
+        },
+    });
+    await host.ready;
+    const call = (client: string) => host.mcp({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "screen_info", arguments: {} } }, new AbortController().signal, client);
+    const fire = () => timers.filter((t) => !t.cancelled).forEach((t) => ((t.cancelled = true), t.fn()));
+
+    const inFlight = call("a");
+    await Promise.resolve();
+    assert.deepEqual(events, ["begin mcp-a"]);
+    assert.equal(timers.length, 0, "X1: no idle clock while the call is working");
+    fire();
+    assert.deepEqual(events, ["begin mcp-a"], "X1: nothing ends under the call");
+
+    slow.resolve();
+    await inFlight;
+    assert.equal(timers.filter((t) => !t.cancelled).length, 1, "the clock starts when the call ends");
+    const first = timers.find((t) => !t.cancelled)!;
+
+    await call("b");
+    assert.deepEqual(events, ["begin mcp-a", "begin mcp-b"], "X4: a second client has its own run");
+
+    await call("a");
+    assert.ok(first.cancelled, "X3: the earlier quiet spell's timer was cancelled by the newer call");
+    first.fn();
+    assert.deepEqual(events, ["begin mcp-a", "begin mcp-b"], "X3: a stale timer ends nothing");
+
+    fire();
+    assert.deepEqual(events.sort(), ["begin mcp-a", "begin mcp-b", "end mcp-a", "end mcp-b"], "X2: quiet clients give the PiKVM back, once each");
+    fire();
+    assert.equal(events.filter((e) => e.startsWith("end")).length, 2);
+
+    await call("a");
+    assert.equal(events.filter((e) => e === "begin mcp-a").length, 2, "a client that comes back starts a new run");
+});

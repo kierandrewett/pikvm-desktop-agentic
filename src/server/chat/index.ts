@@ -36,6 +36,8 @@ export interface ChatHostOptions {
     needsAnswer?: ((userId: string, conversationId: string, kind: "approval" | "question" | "input") => void) | undefined;
     /** Test seam. */
     create?: typeof createChatServer | undefined;
+    /** Test seam: run `fn` after `ms` and return how to cancel it. Default: a timer that does not keep the process alive. */
+    after?: ((fn: () => void, ms: number) => () => void) | undefined;
 }
 
 export interface ChatHost {
@@ -97,7 +99,14 @@ export function startChat(options: ChatHostOptions): ChatHost {
     let failure: string | null = null;
     let stopping: Promise<void> | undefined;
     /** Outside MCP clients with a control session, and the timer that ends it. */
-    const external = new Map<string, { timer: NodeJS.Timeout | undefined; calls: number }>();
+    const external = new Map<string, { cancel: (() => void) | undefined; calls: number; quiet: number }>();
+    const after =
+        options.after ??
+        ((fn: () => void, ms: number) => {
+            const timer = setTimeout(fn, ms);
+            timer.unref();
+            return () => clearTimeout(timer);
+        });
 
     const policy = (): PikvmPolicy =>
         chat
@@ -180,10 +189,10 @@ export function startChat(options: ChatHostOptions): ChatHost {
             const id = `mcp-${client}`;
             const known = external.get(id);
             if (!known) desk.beginRun(id);
-            clearTimeout(known?.timer);
+            known?.cancel?.();
             // The idle clock runs only while no call is in flight (a long `wait` must not lose control mid-call), and starts again when the
             // last one ends. `calls` and the timer belong to one session: a timer that fires finds the session it was set for or does nothing.
-            const session = known ?? { timer: undefined as NodeJS.Timeout | undefined, calls: 0 };
+            const session = known ?? { cancel: undefined as (() => void) | undefined, calls: 0, quiet: 0 };
             session.calls += 1;
             external.set(id, session);
             try {
@@ -191,12 +200,13 @@ export function startChat(options: ChatHostOptions): ChatHost {
             } finally {
                 session.calls -= 1;
                 if (session.calls === 0 && external.get(id) === session) {
-                    session.timer = setTimeout(() => {
-                        if (external.get(id) !== session || session.calls > 0) return;
+                    const spell = ++session.quiet;
+                    session.cancel = after(() => {
+                        // Only the latest quiet spell may end the run: a timer that was cancelled but still fires does nothing.
+                        if (external.get(id) !== session || session.calls > 0 || session.quiet !== spell) return;
                         external.delete(id);
                         desk.endRun(id);
                     }, EXTERNAL_IDLE_MS);
-                    session.timer.unref();
                 }
             }
         },
