@@ -51,6 +51,8 @@ interface Rig {
     screens: Record<string, Uint8Array>;
     /** The chat model: whether there is one, what it was asked, and what it answers. */
     chat: { present: boolean; asked: Asked[]; read: string; judge: string };
+    /** The Decisions model: whether one is set, what it was asked, and its answer (P(yes), or "fail"). */
+    decisions: { present: boolean; asked: { state: Record<string, string>; instructions: string; timeoutMs: number }[]; answer: number | "fail" };
     cropFails: boolean;
     hasGray: boolean;
     step(): Promise<void>;
@@ -78,6 +80,7 @@ function rig(reuse?: TempDir): Rig {
             read: JSON.stringify({ source: "Outlook", from: "Anna Berg", subject: "Lunch on Thursday?", text: "Outlook / Anna Berg / Lunch on Thursday? / Are you free at 12:30", when: "12:30", numbers_and_codes: ["12:30"], actions: [], urgent_words: [] }),
             judge: JSON.stringify({ reason: "person_waiting", notify: true, body: "Anna Berg asks if you are free Thursday at 12:30.", title: "Anna Berg" }),
         },
+        decisions: { present: false, asked: [], answer: 0.9 },
         cropFails: false,
         hasGray: true,
         async step() {
@@ -103,6 +106,13 @@ function rig(reuse?: TempDir): Rig {
     state.service = createWatchService({
         chat: {
             hasSmallModel: () => state.chat.present,
+            hasDecisionModel: () => state.decisions.present,
+            decide: async (_userId, request) => {
+                state.decisions.asked.push(request);
+                if (!state.decisions.present) return undefined;
+                if (state.decisions.answer === "fail") throw new Error("down");
+                return { probability: state.decisions.answer, backend: "decisions" };
+            },
             smallText: async (userId, system, user, options) => {
                 state.chat.asked.push({ userId, system, user, timeoutMs: options.timeoutMs, maxTokens: options.maxTokens, json: options.json });
                 if (!state.chat.present) return undefined;

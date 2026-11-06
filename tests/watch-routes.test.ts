@@ -40,6 +40,8 @@ before(async () => {
     const chat = {
         smallText: async (): Promise<string | undefined> => undefined,
         hasSmallModel: (): boolean => false,
+        decide: async () => undefined,
+        hasDecisionModel: (): boolean => false,
         userDir: (userId: string) => join(dir.path, "chat", "users", userId),
     };
     const store = createWatchStore({ userDir: chat.userDir, usersRoot: () => join(dir.path, "chat", "users") });

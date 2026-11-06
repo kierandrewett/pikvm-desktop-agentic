@@ -87,6 +87,10 @@ export interface ChatServer {
     smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     /** Whether `smallText` has a model to ask right now. */
     hasSmallModel(userId: string): boolean;
+    /** One yes/no question to the Decisions role model (a decisions model such as Jev on OpenRouter, or a chat model asked for JSON). Undefined when none is set or it cannot be called. Rejects on a failed call. */
+    decide(userId: string, request: { state: Record<string, string>; instructions: string; timeoutMs: number }): Promise<{ probability: number; backend: "decisions" | "chat" } | undefined>;
+    /** Whether a Decisions model is set and can be called. */
+    hasDecisionModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`. Not created. */
     userDir(userId: string): string;
     status(): ChatServerStatus;

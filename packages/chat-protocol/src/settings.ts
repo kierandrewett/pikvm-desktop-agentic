@@ -455,9 +455,10 @@ export const settingDefs = [
         schema: RoleModel,
         default: "",
         description:
-            "Decisions: a model that answers short yes/no, choice and score questions for Chat features, as " +
-            "`provider/model`. Any allowed model fits: one on a `systemone` provider answers natively, a chat model " +
-            "through a structured call. Empty turns decisions off and features use their own rules; there is no fallback.",
+            "Decisions: a model that answers short yes/no questions, as `provider/model`. A decisions model on OpenRouter " +
+            "(Jev, Perplexity Decider, Liquid d1 and others) answers natively for a fraction of a chat model's price; any " +
+            "chat model answers through a JSON call. The screen watch asks it first and drops pop-ups that are plainly " +
+            "noise before the chat model reads anything. Empty turns it off; there is no fallback.",
         userTwin: "user",
         merge: "override",
     }),

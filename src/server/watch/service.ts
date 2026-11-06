@@ -35,6 +35,10 @@ export interface WatchChat {
     smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     /** Whether `smallText` has a model to ask right now. */
     hasSmallModel(userId: string): boolean;
+    /** One yes/no question to the Decisions model. Undefined when none is set. Rejects on failure. */
+    decide(userId: string, request: { state: Record<string, string>; instructions: string; timeoutMs: number }): Promise<{ probability: number; backend: "decisions" | "chat" } | undefined>;
+    /** Whether a Decisions model is set and can be called. */
+    hasDecisionModel(userId: string): boolean;
     userDir(userId: string): string;
 }
 
@@ -187,6 +191,14 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
             model: {
                 available: () => hasModel(userId),
                 ask: (system, user, options) => deps.chat.smallText(userId, system, user, options),
+                decide: (request, options) => deps.chat.decide(userId, { ...request, timeoutMs: options.timeoutMs }),
+                decides: () => {
+                    try {
+                        return deps.chat.hasDecisionModel(userId);
+                    } catch {
+                        return false;
+                    }
+                },
             },
             crop: cropCells,
             userActive: () => presence.active(userId),

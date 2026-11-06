@@ -35,6 +35,8 @@ beforeEach(() => {
         chat: {
             smallText: async () => undefined,
             hasSmallModel: () => false,
+            decide: async () => undefined,
+            hasDecisionModel: () => false,
             userDir: (id) => join(dir.path, "users", id),
         },
         target: async () => {

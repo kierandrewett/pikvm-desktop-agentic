@@ -95,7 +95,7 @@ export interface WatchPresence {
 export type CheckOutcome =
     /** A notification went out. */
     | "pushed"
-    /** The chat model judged the pop-up not worth interrupting the person for (`judged.reason` says why). Nothing was sent. */
+    /** The Decisions model, or else the chat model's judge, found the pop-up not worth interrupting the person for (`decided` or `judged` says how). Nothing was sent. */
     | "no"
     /** The person was using the app's window, so nothing was asked of any model and nothing was sent. */
     | "held"
@@ -126,6 +126,12 @@ export interface CheckEntry {
      * `notify` and `reason` are the judge's verdict. Fixed values and numbers only, never the model's words.
      */
     judged?: { readMs: number; readSkipped?: ModelFailure; judgeMs: number; judgeSkipped?: ModelFailure; notify?: boolean; reason?: JudgeReason };
+    /**
+     * The Decisions model's answer, when one is set: how long it took, P(yes) and which kind of model answered (`decisions`: a native
+     * decisions model such as Jev, `chat`: a chat model asked for JSON). `failed` when it gave nothing usable; the pop-up then goes on to
+     * the chat model's steps as if no decisions model were set. Numbers and fixed words only.
+     */
+    decided?: { ms: number; probability?: number; backend?: "decisions" | "chat"; failed?: true };
     /** The timestamps (epoch ms), so the delay from the screen to the phone can be read off the log. */
     latency?: CheckLatency;
     /** How the text was read, and how much. Never the text itself: see `notified`. */

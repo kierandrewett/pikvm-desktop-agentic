@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { HTTPException } from "hono/http-exception";
 import { logo } from "../models/catalog.ts";
+import { decisionModels } from "../models/decisions.ts";
 import {
     catalogueIndex,
     CatalogueConflict,
@@ -54,6 +55,7 @@ export const modelsRoutes = new Hono<Env>()
             throw err;
         }
     })
+    .get("/models/decisions", async (c) => c.json(await decisionModels(requireUser(c).id)))
     .get("/models/logos/:file", async (c) => {
         requireUser(c);
         const key = c.req.param("file").replace(/\.svg$/, "");

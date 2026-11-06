@@ -144,7 +144,15 @@ flowchart LR
    (at most 300 characters; the phone cuts it to what fits); any other shows its lines. Urgency normal, a 5 minute TTL and a tag of its
    text. Buttons, close glyphs and clock times are dropped; fewer than 3 words is nothing. The **same pop-up text inside 30 s is notified
    once**.
-5. **Is it worth interrupting you? Your chat model, in two steps (optional).** If the app has a chat model configured (Settings, Models:
+5. **Is it plainly noise? The Decisions model (optional, Settings, Models, Decisions).** If one is set, the OCR text and your rule go to it
+   first as one yes/no question ("does the owner need to know now or within minutes?"). A decisions model on OpenRouter (Jev,
+   Perplexity Decider, Liquid d1 and others, listed from `/api/v1/models?output_modalities=decisions`) answers a probability at about
+   $0.00001 a call; any chat model can fill the role and is asked for a JSON probability. An answer of **0.15 or less** ends the check
+   (outcome `no`, `decided` in the log): nothing is read by the chat model, and nothing is sent. Any other answer, no answer, a failure or
+   a timeout goes on to step 6 as if no decisions model were set, so it can only save requests and never lose a notification. A call
+   (someone is calling) never waits for it. The OpenRouter calls use your own OpenRouter key from Settings, Providers, directly, because
+   the decisions endpoint is outside the chat API.
+6. **Is it worth interrupting you? Your chat model, in two steps (optional).** If the app has a chat model configured (Settings, Models:
    the Small tasks role, else Fast, else the default model, on whatever provider it names, through the chat server's own stored credential
    and API type; no provider is built in here), the OCR **text** (never the picture) goes to it in **two small requests**, each asked
    for JSON (JSON mode where the provider has one; a server that refuses the option is asked again without it). Every word the model
@@ -201,7 +209,7 @@ flowchart LR
    - **The log** gets numbers and fixed words only (`judged`: `readMs`, `judgeMs`, `notify`, `reason`, `readSkipped`, `judgeSkipped`, and
      the `factsAt` and `judgedAt` timestamps): never the pop-up's text, the facts, or what the model wrote, even with `PIKVM_WATCH_LOG_TEXT=1`
      (which still logs the OCR text and, when the notification is the rules' own words, its title and body).
-6. **Held back while you are using the window.** Every notification, a call too, is suppressed while the person is already at the screen: a page of
+7. **Held back while you are using the window.** Every notification, a call too, is suppressed while the person is already at the screen: a page of
    the app has **focus** (visible and `document.hasFocus()`, the existing `useInBackground`) **and** saw **real** input within the last
    **20 s** (`USER_ACTIVE_WINDOW_MS`): any real key press, or a significant pointer movement (about **40 CSS px** of path, forgotten after 1 s
    without movement, so a nudge, a bump or drift does not count; a finger on the screen counts at once, since touch is how a phone is used; a mouse
@@ -217,13 +225,13 @@ flowchart LR
    the person goes idle, and otherwise not at all. The host keeps one record per client and forgets a client after **12 s**
    (`PRESENCE_EXPIRY_MS`) without a report, so a closed tab or a crashed app cannot hold notifications back; it holds a notification back if
    ANY client is focused with input inside the 20 s window. Nothing else leaves the page: no key, no coordinate, no text.
-7. **The push.** A Web Push (VAPID, encrypted) to every device of that user; a tap opens `/app/`. A push service that answers 404 or 410
+8. **The push.** A Web Push (VAPID, encrypted) to every device of that user; a tap opens `/app/`. A push service that answers 404 or 410
    says the device is gone and its subscription is removed.
 
 Signal: while kvmd reports no video source (its snapshot answers 503), nothing is compared: a black screen is not a pop-up. The PiKVM
 being unreachable is not a lost signal.
 
-**What leaves the host, said plainly.** The pop-up is read on the host. Only the OCR **text** of a pop-up goes to the chat model the
+**What leaves the host, said plainly.** The pop-up is read on the host. Only the OCR **text** of a pop-up goes to the Decisions model and to the chat model the
 app already has configured, and only when there is one: the picture never does. With no chat model nothing from the screen goes to any
 model service. The notification itself goes to the device's push service, as always.
 

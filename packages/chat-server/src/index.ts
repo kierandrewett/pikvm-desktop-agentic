@@ -38,9 +38,11 @@ import { askApproval, type ApprovalDecision } from "./mcp/interactions.ts";
 import { ensureCatalog } from "./models/catalog.ts";
 import { configurePaths, OPERATOR_ID, paths } from "./paths.ts";
 import { setting, type SettingKey, type SettingValue } from "./settings/store.ts";
+import { decide, hasDecisionModel, type Decision, type DecideRequest } from "./models/decisions.ts";
 import { hasSmallModel, smallText } from "./models/small-text.ts";
 
 export type { BuiltinMcp, BuiltinMcpContext } from "./mcp/builtin.ts";
+export type { Decision, DecideRequest } from "./models/decisions.ts";
 export type { ApprovalDecision } from "./mcp/interactions.ts";
 export type { RunHooks } from "./env.ts";
 export { OPERATOR_ID } from "./paths.ts";
@@ -115,6 +117,9 @@ export interface ChatServer {
     /** One small text request on the user's own chat model (the Small tasks role, else the default model), through the provider and credential the chat already has. Undefined when there is no model that can be called. */
     smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     hasSmallModel(userId: string): boolean;
+    /** One yes/no question to the Decisions role model (Jev on OpenRouter, or a chat model). Undefined when no decisions model is set or it cannot be called. Rejects on a failed call. */
+    decide(userId: string, request: DecideRequest): Promise<Decision | undefined>;
+    hasDecisionModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`: where this user's files live. Not created. */
     userDir(userId: string): string;
     status(): ChatServerStatus;
@@ -194,6 +199,8 @@ export async function createChatServer(options: ChatServerOptions): Promise<Chat
         stopResponses: () => cancelAll(OPERATOR_ID),
         smallText: (userId, system, user, options) => smallText(userId, system, user, options),
         hasSmallModel: (userId) => hasSmallModel(userId),
+        decide: (userId, request) => decide(userId, request),
+        hasDecisionModel: (userId) => hasDecisionModel(userId),
         userDir: (userId) => paths.user(userId).root,
         setting: ((key: SettingKey) => setting(key)) as ChatServer["setting"],
         status: () => ({

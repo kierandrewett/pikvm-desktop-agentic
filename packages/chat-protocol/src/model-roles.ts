@@ -76,10 +76,10 @@ export function resolveRoleChain(
 }
 
 // Decisions contracts: GET /api/models/decisions and POST /api/models/decisions/test. Any allowed model fits the
-// decisions role: a model on a `systemone` provider answers natively, any chat model answers through a structured call.
+// decisions role: a decisions model on OpenRouter answers natively, any chat model answers through a structured call.
 
 /**
- * Models on `systemone` providers, for the extra group in the Decisions picker. Chat models come from
+ * Decisions models on OpenRouter, for the extra group in the Decisions picker. Chat models come from
  * `GET /api/models` as for every other role; these never do, because the runtime cannot chat with them.
  */
 export interface DecisionModelsResponse {

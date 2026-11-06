@@ -186,3 +186,27 @@ export function judgeRequest(input: { facts: string } | { lines: readonly string
         user: "facts" in input ? `Facts: ${input.facts}` : `The facts could not be read. The lines of the pop-up, as read:\n${input.lines.join("\n")}`,
     };
 }
+
+
+/**
+ * The yes/no question for the Decisions model, which answers a probability and writes nothing. It asks for the same test as the judge
+ * (needed now or within minutes) in fewer words, so a cheap native decisions model can screen out the pop-ups that are plainly noise
+ * before the chat model is asked to read and write anything. Only a confident no is acted on (alerts.ts).
+ */
+export const DECISION_QUESTION =
+    "popup is the text of a pop-up that appeared on a computer whose owner is away. Answer yes if the owner needs to know now or within minutes: " +
+    "someone is calling, a real person asks something or waits for a reply, something starts within about 15 minutes, a sign-in approval or one-time code, " +
+    "an error, failure or outage, a payment or deadline that is due now, a door, alarm or camera alert. Answer no for marketing, social activity, " +
+    "routine status that asks nothing, group chatter, bot digests, repeats, and anything for tomorrow or later.";
+
+/** The Decisions request: the pop-up's lines and the person's rule, with the question written about their names. */
+export function decisionRequest(lines: readonly string[], rule: string): { state: Record<string, string>; instructions: string } {
+    const cleaned = oneLine(rule);
+    return {
+        state: { popup: lines.join("\n"), ...(cleaned === "" ? {} : { rule: cleaned }) },
+        instructions:
+            cleaned === ""
+                ? DECISION_QUESTION
+                : `${DECISION_QUESTION} rule is an extra instruction from the owner: if it says to skip this kind of pop-up answer no, and if it asks to be told about this kind answer yes.`,
+    };
+}

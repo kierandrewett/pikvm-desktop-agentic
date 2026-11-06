@@ -13,6 +13,7 @@ import {
     ZONE_MAX_FRACTION,
     type WatchLimits,
 } from "./limits";
+import { decisionRequest } from "./prompts";
 import { OcrTimeoutError, type Ocr, type OcrResult } from "./ocr";
 import { PushError, type Push, type PushPayload } from "./push";
 import type { WatchStore } from "./store";
@@ -50,7 +51,20 @@ export interface AlertModel {
      * after `options.timeoutMs`.
      */
     ask: Ask;
+    /**
+     * The Decisions model, when one is set: P(yes) that the owner needs to know. Undefined when none is set. Rejects on failure or after
+     * `options.timeoutMs`. Only used to screen out plain noise before `ask` is spent (see `SKIP_BELOW`).
+     */
+    decide?(
+        request: { state: Record<string, string>; instructions: string },
+        options: { timeoutMs: number },
+    ): Promise<{ probability: number; backend: "decisions" | "chat" } | undefined>;
+    /** A Decisions model is set and can be called. */
+    decides?(): boolean;
 }
+
+/** A Decisions answer at or below this is a confident no: nothing is read, judged or sent. Anything higher, or no answer, goes on. */
+export const SKIP_BELOW = 0.15;
 
 export interface AlertsDeps {
     userId: string;
@@ -248,11 +262,25 @@ export function createAlerts(deps: AlertsDeps): Alerts {
             let ownWords = true;
             let judged: CheckEntry["judged"];
             if (present()) return held();
+            let decided: CheckEntry["decided"];
+            if (toast.kind !== "call" && deps.model.decide && deps.model.decides?.()) {
+                const started = deps.now();
+                try {
+                    const answer = await deps.model.decide(decisionRequest(toast.lines, settings.rule), { timeoutMs: deps.limits.judgeTimeoutMs });
+                    if (answer) decided = { ms: deps.now() - started, probability: answer.probability, backend: answer.backend };
+                } catch {
+                    decided = { ms: deps.now() - started, failed: true };
+                }
+                if (present()) return held();
+                if (decided?.probability !== undefined && decided.probability <= SKIP_BELOW) {
+                    return record({ ...common(), decided, outcome: "no" });
+                }
+            }
             if (toast.kind !== "call" && deps.model.available()) {
                 const consulted = await consult(toast.lines, settings.rule, latency);
                 if (consulted === "held") return held();
                 judged = consulted.judged;
-                if (consulted.verdict && !consulted.verdict.notify) return record({ ...common(), judged, outcome: "no" });
+                if (consulted.verdict && !consulted.verdict.notify) return record({ ...common(), judged, ...(decided ? { decided } : {}), outcome: "no" });
                 if (consulted.verdict) {
                     body = consulted.verdict.body;
                     title = consulted.verdict.title ?? toast.title;
@@ -267,7 +295,7 @@ export function createAlerts(deps: AlertsDeps): Alerts {
             if (present()) return held();
             const ttlSec = toast.kind === "call" ? CALL_TTL_SEC : ALERT_TTL_SEC;
             const payload: PushPayload = { title, body, tag: toast.tag, url: "/app/", badge: 1 };
-            const done = { ...common(), ...(judged ? { judged } : {}) };
+            const done = { ...common(), ...(judged ? { judged } : {}), ...(decided ? { decided } : {}) };
             try {
                 const sent = await deps.push.send(deps.userId, payload, { urgency: toast.urgency, ttlSeconds: ttlSec });
                 latency.pushedAt = deps.now();

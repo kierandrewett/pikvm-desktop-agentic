@@ -52,6 +52,10 @@ export interface ChatHost {
     smallText(userId: string, system: string, user: string, options: { maxTokens?: number; json?: boolean; timeoutMs: number }): Promise<string | undefined>;
     /** Whether a small text request has a model to ask right now. False while chat is not up. */
     hasSmallModel(userId: string): boolean;
+    /** One yes/no question to the Decisions model. Undefined when none is set, or while chat is not up. Rejects on failure. */
+    decide(userId: string, request: { state: Record<string, string>; instructions: string; timeoutMs: number }): Promise<{ probability: number; backend: "decisions" | "chat" } | undefined>;
+    /** Whether a Decisions model is set and can be called. False while chat is not up. */
+    hasDecisionModel(userId: string): boolean;
     /** `<data>/chat/users/<id>`, where that user's files live. Throws while chat is not up. */
     userDir(userId: string): string;
     /** Resolves when the first start attempt has finished, whichever way. */
@@ -159,6 +163,8 @@ export function startChat(options: ChatHostOptions): ChatHost {
         maxEdge: () => chat?.setting("agent.pikvm.maxEdge") ?? DEFAULT_MAX_EDGE,
         smallText: async (userId, system, user, options) => chat?.smallText(userId, system, user, options),
         hasSmallModel: (userId) => chat?.hasSmallModel(userId) ?? false,
+        decide: async (userId, request) => chat?.decide(userId, request),
+        hasDecisionModel: (userId) => chat?.hasDecisionModel(userId) ?? false,
         userDir(userId) {
             if (!chat) throw new Error("Chat is not up");
             return chat.userDir(userId);
