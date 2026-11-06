@@ -19,7 +19,7 @@ import type {
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { COMPUTER_ARGS, renderAgentConfig, writeAgentConfig } from "../agent/config.ts";
+import { computerArgs, renderAgentConfig, writeAgentConfig } from "../agent/config.ts";
 import { RpcClient } from "../agent/rpc.ts";
 import { buildSpawn, locateRuntime } from "../agent/launch.ts";
 import { agentBaseUrl } from "../env.ts";
@@ -132,7 +132,7 @@ function refresh(userId: string, includeCommands = false): Promise<RuntimeInfo> 
         const ws = paths.user(userId).workspace;
         mkdirSync(ws, { recursive: true });
         const rpc = new RpcClient(
-            buildSpawn(userId, ws, ["--mode", "rpc-ui", "--no-session", "--no-title", ...COMPUTER_ARGS]),
+            buildSpawn(userId, ws, ["--mode", "rpc-ui", "--no-session", "--no-title", ...computerArgs(userId)]),
             `${userId}/models`,
         );
         try {

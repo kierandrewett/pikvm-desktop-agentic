@@ -75,17 +75,27 @@ export const RUNTIME_TOOLS = [
 /** The built-in tools the `computer` profile keeps. */
 export const COMPUTER_TOOLS = ["ask", "todo"] as const;
 
-/** Runtime flags that keep skills, rules, extensions and context files out of the agent's prompt and tool set. */
-export const COMPUTER_ARGS = [
-    "--tools",
-    COMPUTER_TOOLS.join(","),
-    "--no-skills",
-    "--no-rules",
-    "--no-extensions",
-    "--no-context-files",
-    "--no-lsp",
-    "--no-pty",
-] as const;
+/** The tools of the runtime's memory backend, kept only for a user who turned memory on (`agent.memory.enabled`). */
+export const MEMORY_TOOLS = ["recall", "retain", "reflect", "memory_edit"] as const;
+
+/** The built-in tools this user's agent keeps. */
+export function keptTools(userId: string): readonly string[] {
+    return setting("agent.memory.enabled", userId) ? [...COMPUTER_TOOLS, ...MEMORY_TOOLS] : COMPUTER_TOOLS;
+}
+
+/** Runtime flags that keep skills, rules, extensions and context files out of the agent's prompt, and the tools this user's agent has. */
+export function computerArgs(userId: string): string[] {
+    return [
+        "--tools",
+        keptTools(userId).join(","),
+        "--no-skills",
+        "--no-rules",
+        "--no-extensions",
+        "--no-context-files",
+        "--no-lsp",
+        "--no-pty",
+    ];
+}
 
 export interface RenderedConfig {
     models: { providers: Record<string, unknown> };
@@ -186,7 +196,7 @@ export function renderAgentConfig(userId: string, gatewayBase: string): Rendered
 
     // A tool turned off in agent.disabledTools stays off whatever its server entry says.
     const disabled = setting("agent.disabledTools", userId);
-    const keep = new Set<string>(COMPUTER_TOOLS);
+    const keep = new Set<string>(keptTools(userId));
     const denied = RUNTIME_TOOLS.filter((t) => !keep.has(t));
     const approval: Record<string, string> = {
         ...Object.fromEntries(denied.map((t) => [t, "deny"])),
@@ -196,8 +206,12 @@ export function renderAgentConfig(userId: string, gatewayBase: string): Rendered
     const options = runtimeOptions(userId);
     const base = {
         ...toolSwitchesOff([...SWITCHED_TOOLS.filter((t) => !keep.has(t))]),
-        // Memory is off: nothing is recalled into a chat and nothing is retained from it.
-        memory: { backend: "off" },
+        // Memory is off unless this user turned it on. Then it is the runtime's local Mnemopi store in this user's own home, one bank
+        // for all of their chats, searched by text only (no embedding model is downloaded). Nothing is retained automatically: completed turns carry screen text and tool results,
+        // so only what the agent is asked to remember (`retain`) is kept.
+        ...(setting("agent.memory.enabled", userId)
+            ? { memory: { backend: "mnemopi" }, mnemopi: { scoping: "global", noEmbeddings: true, llmMode: "smol", autoRetain: false } }
+            : { memory: { backend: "off" } }),
         ...(Object.keys(options.modelRoles).length ? { modelRoles: options.modelRoles } : {}),
         disabledProviders: IMPLICIT_LOCAL.filter((id) => !(id in providers)),
         tools: { approvalMode: "write", approval, xdev: false },

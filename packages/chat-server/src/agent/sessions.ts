@@ -32,7 +32,7 @@ import {
     type ConversationRow,
 } from "../conversations/service.ts";
 import { cleanErrorMessage, type RunEnd } from "../conversations/history.ts";
-import { COMPUTER_ARGS, writeAgentConfig } from "./config.ts";
+import { computerArgs, writeAgentConfig } from "./config.ts";
 import { RpcClient, type Frame } from "./rpc.ts";
 import { MAX_TURN_RETRIES } from "./retry-limits.ts";
 import {
@@ -297,7 +297,7 @@ async function spawnWithSlot(userId: string, row: ConversationRow, permission: P
     // No --no-ui: under it the runtime skips tool approval prompts, and approvals are how
     // "default" permission is enforced. rpc-ui (not rpc) gives the session a UI, which is what makes the
     // runtime offer its `ask` tool; questions then arrive as `ask` dialogs (see set_ask_dialog below).
-    const args = ["--mode", "rpc-ui", "--session-dir", paths.user(userId).conversation(row.id), ...COMPUTER_ARGS];
+    const args = ["--mode", "rpc-ui", "--session-dir", paths.user(userId).conversation(row.id), ...computerArgs(userId)];
     // The runtime writes its session file lazily: a process killed during the first response leaves a
     // name with no file, and resuming it fails on every later spawn. Without the file, start a new one.
     const file = sessionFilePath(userId, row);

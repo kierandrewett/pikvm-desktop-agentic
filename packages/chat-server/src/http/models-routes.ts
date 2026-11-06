@@ -1,6 +1,9 @@
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
 import { HTTPException } from "hono/http-exception";
+import { paths } from "../paths.ts";
 import { logo } from "../models/catalog.ts";
 import { decisionModels } from "../models/decisions.ts";
 import {
@@ -56,6 +59,12 @@ export const modelsRoutes = new Hono<Env>()
         }
     })
     .get("/models/decisions", async (c) => c.json(await decisionModels(requireUser(c).id)))
+    // Forget everything the agent remembered for this user: the memory store in their own home. Safe while the agent runs; a new chat starts empty.
+    .delete("/memory", (c) => {
+        const user = requireUser(c);
+        rmSync(join(paths.user(user.id).ompAgentDir, "memories"), { recursive: true, force: true });
+        return c.json({ ok: true });
+    })
     .get("/models/logos/:file", async (c) => {
         requireUser(c);
         const key = c.req.param("file").replace(/\.svg$/, "");

@@ -133,6 +133,12 @@ const rawCategories: readonly SettingsCategoryDef[] = [
                 section: "Permissions",
             },
             {
+                id: "agent.memory.enabled",
+                label: "Memory",
+                description: "Remember facts across your chats. Kept only in your own private store.",
+                section: "Agent runtime",
+            },
+            {
                 id: "agent.askTimeoutSec",
                 label: "Question timeout",
                 description: "How long the assistant waits for an answer.",

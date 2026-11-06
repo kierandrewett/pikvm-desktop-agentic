@@ -412,6 +412,16 @@ export const settingDefs = [
         merge: "override",
     }),
     def({
+        key: "agent.memory.enabled",
+        schema: z.boolean(),
+        default: false,
+        description:
+            "Per-user memory. The agent remembers facts across this user's chats: completed turns are retained into a private store " +
+            "and recalled at the start of a chat, and the agent can recall, retain, reflect on and forget memories itself. Off by default.",
+        userTwin: "user",
+        merge: "override",
+    }),
+    def({
         key: "agent.askTimeoutSec",
         schema: z.number().int().min(0).max(3600),
         default: 0,

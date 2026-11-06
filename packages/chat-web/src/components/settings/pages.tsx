@@ -72,6 +72,7 @@ export function AgentPage() {
                     <SettingsCard>
                         <KeyRow k="agent.permission" />
                         <AdminKeyRow k="agent.askTimeoutSec" />
+                        <KeyRow k="agent.memory.enabled" />
                         <KeyRow k="agent.instructions" />
                     </SettingsCard>
                 </SettingsSection>
