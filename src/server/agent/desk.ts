@@ -37,6 +37,7 @@ import { FP_SETTLE, fpDiff } from "../../ambient/fingerprint";
 import type { ImageOps } from "../../image-ops";
 import type { ActivityStore } from "./activity";
 import type { OperatorPresence } from "./presence";
+import { listenToTarget } from "./audio";
 
 /**
  * The Desk: everything the agent does to the PiKVM, behind the one door the MCP server uses.
@@ -670,6 +671,15 @@ export function createDesk(options: DeskOptions): AgentDesk {
             const frame: Frame = { id: ++frameCounter, native, reference };
             frames.set(session.conversationId, frame);
             return { jpeg: image, width: reference.width, height: reference.height, frameId: frame.id, reference, mouse, sourceOnline, hidOnline };
+        },
+
+        async listen(session, durationMs) {
+            try {
+                return await listenToTarget(await options.target(), durationMs, session.signal);
+            } catch (error) {
+                session.signal.throwIfAborted();
+                throw new DeskError("target_offline", error instanceof Error ? error.message : "The PiKVM audio capture failed.");
+            }
         },
 
         async readText(session, region?: Region) {

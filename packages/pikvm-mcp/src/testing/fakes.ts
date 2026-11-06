@@ -100,6 +100,11 @@ export function createFakeDesk(): FakeDesk {
                 hidOnline: true,
             };
         },
+        async listen(_s, durationMs) {
+            record("listen", durationMs);
+            await desk.onAction?.("listen");
+            return { wav: new Uint8Array(), durationMs };
+        },
         async readText(_s, region?: Region) {
             record("readText", region);
             await desk.onAction?.("readText");

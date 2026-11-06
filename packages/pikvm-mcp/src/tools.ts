@@ -13,7 +13,8 @@ import { DeskError } from "./types";
 
 export type ToolBlock =
     | { readonly type: "text"; readonly text: string }
-    | { readonly type: "image"; readonly data: string; readonly mimeType: string };
+    | { readonly type: "image"; readonly data: string; readonly mimeType: string }
+    | { readonly type: "audio"; readonly data: string; readonly mimeType: string };
 
 /** What a tool run gives back: the blocks the model reads, and the screenshot it took, if it took one. */
 export interface ToolOutput {
@@ -279,6 +280,29 @@ export const tools: readonly Tool[] = [
         async run(desk, session, args) {
             await desk.key(session, args.keys);
             return text(`Pressed ${args.keys.join(", ")}.`);
+        },
+    }),
+
+    define({
+        name: "listen",
+        title: "Listen to target audio",
+        description:
+            "Record the target's audio as a WAV clip. Default 5 seconds, at most 30 seconds. " +
+            "Receive-only: does not use a microphone or interrupt browser audio/microphone sessions. " +
+            "Requires PiKVM audio support and a client that accepts MCP audio content.",
+        annotations: READ_ONLY,
+        intent: "observe",
+        schema: z.object({
+            duration_ms: z.number().int().min(100).max(30_000).optional().describe("Recording duration in milliseconds"),
+        }),
+        async run(desk, session, args) {
+            const clip = await desk.listen(session, args.duration_ms ?? 5000);
+            return {
+                content: [
+                    { type: "text", text: `Recorded ${Math.round(clip.durationMs)} ms of target audio.` },
+                    { type: "audio", data: Buffer.from(clip.wav).toString("base64"), mimeType: "audio/wav" },
+                ],
+            };
         },
     }),
 

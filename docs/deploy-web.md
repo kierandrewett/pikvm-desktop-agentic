@@ -323,9 +323,15 @@ on is not worth delivering late. A tap opens Chat.
 
 ## MCP server (any agent, outside the app)
 
-The PiKVM computer-use tools (`screenshot`, `read_text`, `mouse_move`, `click`, `drag`, `scroll`, `type_text`, `key`, `wait`, `screen_info`) are also served to any
-MCP client at **`<origin>/app/mcp`** (Streamable HTTP: one JSON-RPC message in a POST, one JSON reply; a notification gets 202; a GET is answered 405, which the
-specification allows; a batch is refused so every call is seen alone). Settings, MCP server shows the address and the setup for Claude Code, Codex and others.
+The computer-use tools are available to any MCP client at **`<origin>/app/mcp`**:
+
+- Observe: `screenshot`, `read_text`, `wait`, `screen_info`, and [audio recording](mcp-audio.md).
+- Pointer: `mouse_move`, `click`, `drag`, and `scroll`.
+- Keyboard: `type_text` and `key`.
+
+The endpoint uses Streamable HTTP. Each POST carries one JSON-RPC message and returns one JSON reply.
+Notifications return 202. GET returns 405. Batches are refused so each call is processed separately.
+Settings, MCP server shows the address and client setup instructions.
 
 How a client signs in:
 

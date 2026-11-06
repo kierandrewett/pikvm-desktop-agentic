@@ -37,7 +37,7 @@ await build({
     // slimmed to a pure PiKVM client. Neither is a dependency or installed any
     // more, and nothing imports them; naming them here suggested a build that
     // still handled transcription and local OCR.
-    external: ["electron", "sharp", "onnxruntime-node"],
+    external: ["electron", "sharp", "onnxruntime-node", "opusscript"],
     sourcemap: true,
     logLevel: "info",
     // chat-server finds its migrations from import.meta.url only when run from source; the bundle is told where
@@ -65,6 +65,8 @@ cpSync(resolve(root, "src/views"), resolve(dist, "views"), {
 cpSync(resolve(root, "src/assets"), resolve(dist, "assets"), { recursive: true });
 // The chat server's database migrations: the bundle cannot read them from its package folder.
 cpSync(resolve(root, "packages/chat-server/migrations"), resolve(dist, "chat-migrations"), { recursive: true });
+// OpusScript loads its WASM file relative to its package, so keep that package intact.
+cpSync(resolve(root, "node_modules/opusscript"), resolve(dist, "node_modules/opusscript"), { recursive: true });
 
 // 3. Haptics: bundle `web-haptics` into a single ESM module the (un-bundled,
 //     statically-served) console dynamically imports as /app/haptics.js.

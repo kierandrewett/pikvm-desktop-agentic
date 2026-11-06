@@ -25,7 +25,9 @@
     "dependencies": {
         "axios": "^1.13.2",
         "jose": "^6.2.15",
+        "opusscript": "^0.1.1",
         "web-haptics": "^0.0.6",
+        "werift": "^0.26.0",
         "ws": "^8.21.0"
     },
     "devDependencies": {

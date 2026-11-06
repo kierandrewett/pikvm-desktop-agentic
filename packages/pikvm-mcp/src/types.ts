@@ -134,6 +134,8 @@ export interface Desk {
     open(call: DeskCall, intent: "observe" | "act"): Promise<DeskSession>;
     info(session: DeskSession): Promise<ScreenInfo>;
     screenshot(session: DeskSession, region?: Region): Promise<Shot>;
+    /** A bounded receive-only recording. Existing browser audio and microphone sessions stay separate. */
+    listen(session: DeskSession, durationMs: number): Promise<{ readonly wav: Uint8Array; readonly durationMs: number }>;
     readText(session: DeskSession, region?: Region): Promise<string>;
     mouseMove(session: DeskSession, to: Point): Promise<void>;
     click(session: DeskSession, at: Point, button: MouseButton, count: number): Promise<void>;
