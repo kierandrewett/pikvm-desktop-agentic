@@ -103,6 +103,13 @@ try {
     check("Allow sends a code and the state back", typeof code === "string" && allowed.redirected?.searchParams.get("state") === state, allowed.redirected?.search.slice(0, 40) ?? "no redirect");
     const wrongResource = await authorize({ clientId: client.client_id, state, challenge: pkce().challenge, decision: "allow", extra: { resource: "https://other.example/mcp" } });
     check("a resource that is not this host's MCP endpoint is refused with invalid_target, sent to the client's redirect", page.url().includes("error=invalid_target") && wrongResource.heading === "", page.url().split("?")[1] ?? "");
+    // Client ID Metadata Documents: an https client_id is fetched, never a private address.
+    const meta2 = await (await fetch(`${WEB}/.well-known/oauth-authorization-server`)).json();
+    check("the server metadata says it supports Client ID Metadata Documents", meta2.client_id_metadata_document_supported === true, String(meta2.client_id_metadata_document_supported));
+    for (const [what, id] of [["a loopback address", "https://127.0.0.1/client.json"], ["a private address", "https://10.0.0.5/client.json"], ["a link-local address (cloud metadata)", "https://169.254.169.254/latest/client.json"], ["a name that resolves to loopback", "https://localhost/client.json"], ["an http address", "http://example.com/client.json"]]) {
+        const refused = await authorize({ clientId: id, state, challenge: pkce().challenge, decision: "allow" });
+        check(`a client_id on ${what} is refused and nothing is fetched or redirected`, refused.redirected === undefined && /not valid/.test(refused.text ?? ""), String(refused.text).trim().slice(0, 50));
+    }
     const wrongRedirect = await exchange({ grant_type: "authorization_code", code, code_verifier: other.verifier, redirect_uri: "http://127.0.0.1:9/elsewhere", client_id: client.client_id });
     check("a code asked for with another redirect gets nothing", wrongRedirect.status === 400, `HTTP ${wrongRedirect.status}`);
     const spent = await exchange({ grant_type: "authorization_code", code, code_verifier: other.verifier, redirect_uri: REDIRECT, client_id: client.client_id });
@@ -148,6 +155,30 @@ try {
     check("a supported one is accepted", goodVersion.status === 200, `HTTP ${goodVersion.status}`);
     const elsewhere = await fetch(`${WEB}/app/api/v1/state`, { headers: { authorization: `Bearer ${issued.access_token}` } });
     check("an MCP token is for the MCP endpoint only: the app's own API refuses it", elsewhere.status === 401, `HTTP ${elsewhere.status}`);
+    // The 2026-07-28 era: no handshake, the version in every request, headers that must match the body.
+    const modernMeta = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientInfo": { name: "e2e", version: "1" }, "io.modelcontextprotocol/clientCapabilities": {} };
+    const modern = (method, params, headers = {}, version = "2026-07-28") =>
+        fetch(`${WEB}/app/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${issued.access_token}`, "mcp-protocol-version": version, "mcp-method": method, ...headers }, body: JSON.stringify({ jsonrpc: "2.0", id: 50, method, params: { ...params, _meta: { ...modernMeta, "io.modelcontextprotocol/protocolVersion": version } } }) });
+    const discover = await modern("server/discover", {});
+    const discovered = await discover.json();
+    check("server/discover answers the versions, capabilities and identity", discover.status === 200 && discovered.result?.resultType === "complete" && discovered.result.supportedVersions?.[0] === "2026-07-28" && typeof discovered.result._meta?.["io.modelcontextprotocol/serverInfo"]?.name === "string" && "tools" in discovered.result.capabilities, JSON.stringify(discovered.result?.supportedVersions));
+    const mList = await (await modern("tools/list", {})).json();
+    check("a modern tools/list is complete, has the tools and a cache hint", mList.result?.resultType === "complete" && mList.result.tools?.length >= 10 && mList.result.ttlMs > 0 && mList.result.cacheScope === "public", `${mList.result?.tools?.length} tools, ttl ${mList.result?.ttlMs}`);
+    const mCall = await (await modern("tools/call", { name: "screen_info", arguments: {} }, { "mcp-name": "screen_info" })).json();
+    check("a modern tools/call runs the tool and says complete", mCall.result?.resultType === "complete" && mCall.result.isError !== true, JSON.stringify(mCall.result?.content ?? mCall.error).slice(0, 100));
+    const badVersion = await modern("tools/list", {}, {}, "1999-01-01");
+    const badBody = await badVersion.json();
+    check("a modern request for a version it does not speak is 400 with -32022 and the supported list", badVersion.status === 400 && badBody.error?.code === -32022 && badBody.error.data?.supported?.includes("2026-07-28"), `HTTP ${badVersion.status}, ${badBody.error?.code}`);
+    const noMethod = await fetch(`${WEB}/app/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${issued.access_token}`, "mcp-protocol-version": "2026-07-28" }, body: JSON.stringify({ jsonrpc: "2.0", id: 51, method: "tools/list", params: { _meta: modernMeta } }) });
+    check("a missing Mcp-Method header is 400 HeaderMismatch -32020", noMethod.status === 400 && (await noMethod.json()).error?.code === -32020, `HTTP ${noMethod.status}`);
+    const wrongName = await modern("tools/call", { name: "screen_info", arguments: {} }, { "mcp-name": "click" });
+    check("an Mcp-Name that is not the tool in the body is -32020", wrongName.status === 400 && (await wrongName.json()).error?.code === -32020, `HTTP ${wrongName.status}`);
+    const headerOnly = await fetch(`${WEB}/app/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${issued.access_token}`, "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/list" }, body: JSON.stringify({ jsonrpc: "2.0", id: 52, method: "tools/list" }) });
+    check("a modern header with no modern _meta in the body is -32020", headerOnly.status === 400 && (await headerOnly.json()).error?.code === -32020, `HTTP ${headerOnly.status}`);
+    const unknown = await modern("resources/list", {});
+    check("a method this server does not offer is 404 with -32601", unknown.status === 404 && (await unknown.json()).error?.code === -32601, `HTTP ${unknown.status}`);
+    const legacyStill = await (await rpc(issued.access_token, { jsonrpc: "2.0", id: 53, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "old", version: "1" } } })).json();
+    check("a client that opens with initialize still gets the legacy answer (dual-era)", legacyStill.result?.protocolVersion === "2025-11-25" && legacyStill.result.resultType === undefined, legacyStill.result?.protocolVersion);
     const withAccess = await rpc(TOKEN, { jsonrpc: "2.0", id: 6, method: "tools/list" });
     check("the access token works on the endpoint too", withAccess.status === 200, `HTTP ${withAccess.status}`);
     const wrong = await rpc("pkd_000000000000_" + "A".repeat(43), { jsonrpc: "2.0", id: 7, method: "tools/list" });

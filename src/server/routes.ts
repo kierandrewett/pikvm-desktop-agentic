@@ -33,9 +33,10 @@ import type { Duplex } from "node:stream";
 import { gate, loginPage, ROOT_ICON, sameOrigin, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
 import type { SignedIn, WebAuth } from "./web-auth";
 import { MCP_PATH as MCP_ENDPOINT } from "./web-auth";
+import { judgeModern, SUPPORTED_VERSIONS } from "./mcp-modern";
 
-/** The protocol versions the PiKVM MCP server speaks (packages/pikvm-mcp SUPPORTED_PROTOCOLS). */
-const MCP_PROTOCOLS: readonly string[] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+/** The protocol versions the PiKVM MCP server speaks: the modern one (mcp-modern.ts) and the legacy ones (packages/pikvm-mcp SUPPORTED_PROTOCOLS). */
+const MCP_PROTOCOLS: readonly string[] = SUPPORTED_VERSIONS;
 import type { AgentRoutes } from "./agent/routes";
 import { json, readBody } from "./http";
 import type { LiveConnections } from "./live";
@@ -225,7 +226,7 @@ export function createRoutes(t: RouteTargets): Route[] {
                 if (req.headers.origin !== undefined && !sameOrigin(req)) return json(res, 403, { jsonrpc: "2.0", id: null, error: { code: -32000, message: "Forbidden origin" } });
                 // And a protocol version this server does not speak is a 400. Absent is allowed: the negotiated one in `initialize` stands.
                 const version = req.headers["mcp-protocol-version"];
-                if (version !== undefined && !MCP_PROTOCOLS.includes(String(version))) return json(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: `Unsupported MCP-Protocol-Version: ${String(version).slice(0, 40)}` } });
+                if (version !== undefined && !MCP_PROTOCOLS.includes(String(version))) return json(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32022, message: "Unsupported protocol version", data: { supported: SUPPORTED_VERSIONS, requested: String(version).slice(0, 40) } } });
                 if (method !== "POST") return json(res, 405, { error: "POST JSON-RPC messages here" });
                 if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) return json(res, 415, { error: "Expected application/json" });
                 let message: unknown;
@@ -238,6 +239,20 @@ export function createRoutes(t: RouteTargets): Route[] {
                 if (typeof message !== "object" || message === null || Array.isArray(message)) {
                     return json(res, 200, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Send one JSON-RPC message at a time" } });
                 }
+                const describe = async () => {
+                    const init = (await t.chat.mcp({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "host", version: "0" } } }, new AbortController().signal, "describe")) as { result?: { capabilities?: unknown; serverInfo?: unknown; instructions?: unknown } } | undefined;
+                    return { capabilities: init?.result?.capabilities ?? {}, serverInfo: init?.result?.serverInfo ?? {}, instructions: init?.result?.instructions };
+                };
+                const verdict = await judgeModern(message, req.headers, describe);
+                if (verdict.kind === "answer") {
+                    if (verdict.body === undefined) {
+                        res.writeHead(verdict.status);
+                        res.end();
+                        return;
+                    }
+                    return json(res, verdict.status, verdict.body);
+                }
+                if (verdict.kind === "run") message = verdict.message;
                 const abort = new AbortController();
                 res.on("close", () => abort.abort());
                 const reply = await t.chat.mcp(message, abort.signal, signedIn?.deviceId ?? signedIn?.method ?? "local");
@@ -246,7 +261,7 @@ export function createRoutes(t: RouteTargets): Route[] {
                     res.end();
                     return;
                 }
-                json(res, 200, reply);
+                json(res, 200, verdict.kind === "run" ? verdict.wrap(reply) : reply);
             },
         },
 

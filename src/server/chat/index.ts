@@ -187,6 +187,9 @@ export function startChat(options: ChatHostOptions): ChatHost {
             // wandered off does not hold the PiKVM for the desk's ten-minute lease. A client that comes back starts a new one, as a new
             // chat message does. While it keeps calling, a person taking control or pressing Stop stays in force until they hand it back.
             const id = `mcp-${client}`;
+            // Only a tool call uses the PiKVM: initialize, listing and discovery take no control session.
+            const m = message as { method?: unknown };
+            if (m.method !== "tools/call") return mcp.handle({ conversationId: undefined, signal, frames: { save: () => undefined } }, message as JsonRpcRequest);
             const known = external.get(id);
             if (!known) desk.beginRun(id);
             known?.cancel?.();

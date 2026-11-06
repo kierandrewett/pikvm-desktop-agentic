@@ -27,6 +27,7 @@ import { isIP } from "node:net";
 import { bearerVerdict, isPublicPath, isLoopback, loginPage, parseCookies, sameOrigin, tokenMatches, type LoginOptions } from "../auth";
 import { json, readBody } from "../http";
 import { AuthCodes, CHALLENGE, DEVICE_TOKEN_PREFIX, DeviceStore, STATE, cleanDeviceName, consentPage, devicePageError } from "./devices";
+import { createClientMetadata, isClientMetadataUrl, type ClientMetadata } from "./client-metadata";
 import { AttemptLimiter, type LimiterOptions } from "./limiter";
 import { OidcClient, OidcError, type OidcConfig } from "./oidc";
 import { createPasswordLogin, parseBasic, type PasswordConfig, type PasswordLogin, type Scrypt } from "./password";
@@ -418,6 +419,7 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
             authorization_endpoint: `${origin}/app/oauth/authorize`,
             token_endpoint: `${origin}/app/oauth/token`,
             registration_endpoint: `${origin}/app/oauth/register`,
+            client_id_metadata_document_supported: true,
             response_types_supported: ["code"],
             grant_types_supported: ["authorization_code"],
             code_challenge_methods_supported: ["S256"],
@@ -469,6 +471,16 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
         });
     }
 
+    const clientDocuments = createClientMetadata({ now });
+    /** A client by its `client_id`: a document at an https address (Client ID Metadata Documents), or an id this host sealed at registration. */
+    const loadClient = async (id: unknown): Promise<{ n: string; r: string[] } | undefined> => {
+        if (typeof id === "string" && isClientMetadataUrl(id)) {
+            const doc: ClientMetadata | undefined = await clientDocuments(id);
+            return doc && { n: doc.name, r: doc.redirectUris };
+        }
+        return openClient(id);
+    };
+
     const openClient = (id: unknown): { n: string; r: string[] } | undefined => {
         const c = sessions.open("oauth-client", typeof id === "string" ? id : undefined) as { n?: unknown; r?: unknown } | undefined;
         return c && typeof c.n === "string" && Array.isArray(c.r) && c.r.every((x) => typeof x === "string") ? { n: c.n, r: c.r as string[] } : undefined;
@@ -484,9 +496,9 @@ export function createWebAuth(o: WebAuthOptions): WebAuth {
     const OAUTH_STATE = /^[\x21-\x7e]{1,512}$/;
 
     /** `GET /app/oauth/authorize`: the question, for a browser signed in by a cookie. */
-    function oauthAsk(req: IncomingMessage, res: ServerResponse, url: URL, signedIn: SignedIn | undefined): void {
+    async function oauthAsk(req: IncomingMessage, res: ServerResponse, url: URL, signedIn: SignedIn | undefined): Promise<void> {
         const p = url.searchParams;
-        const client = openClient(p.get("client_id"));
+        const client = await loadClient(p.get("client_id"));
         const redirectUri = p.get("redirect_uri") ?? (client?.r.length === 1 ? client.r[0] : undefined);
         // Until the redirect URI is known to be the client's own, nothing goes back to it: the error is shown here.
         if (!client || !redirectUri || !client.r.includes(redirectUri)) return page(res, 400, devicePageError("This sign-in link is not valid."));
