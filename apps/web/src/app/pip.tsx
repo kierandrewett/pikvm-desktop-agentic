@@ -4,11 +4,11 @@
  * no input socket of its own and sends nothing to the target. Tap or press Enter to go to the KVM; drag to move it,
  * let go and a spring pulls it to the nearest corner, the one a throw points at (pip-physics.ts); Shift+arrow keys nudge it for a keyboard.
  *
- * It sits inside the content area, so it never covers the tab bar, and its first place is the top right, away from the
+ * It sits inside the content area, so it never covers the tab bar, and its first place is the top right (the bottom right over Settings, where the controls are at the top), away from the
  * composer. A person can hide it for this visit with the close button.
  */
 
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { agentHoldsInput } from "@pikvm/contracts/api";
 import { Monitor, X } from "@pikvm/icons";
 import {
@@ -65,6 +65,8 @@ const reduceMotion = (): boolean =>
 
 export function PipBubble({ round }: { readonly round: boolean }) {
     const navigate = useNavigate();
+    // Settings keeps its controls at the top right, so the window's first place there is the bottom right; Chat keeps its composer low.
+    const onSettings = useLocation().pathname.startsWith("/settings");
     const agent = useAgentActivity();
     const root = useRef<HTMLDivElement>(null);
     const canvas = useRef<HTMLCanvasElement>(null);
@@ -101,13 +103,13 @@ export function PipBubble({ round }: { readonly round: boolean }) {
         flight.current = undefined;
     }, []);
 
-    // First place: the top right. Kept inside whenever the area or the window's own size changes.
+    // First place: the top right (the bottom right over Settings). Kept inside whenever the area or the window's own size changes.
     useLayoutEffect(() => {
         const a = area();
         if (a.width === 0) return;
         if (!placed.current) {
             placed.current = true;
-            const first = keepInside(a.width, MARGIN, a);
+            const first = keepInside(a.width, onSettings ? a.height : MARGIN, a);
             paint({ ...first, vx: 0, vy: 0 });
         } else {
             const kept = keepInside(body.current.x, body.current.y, a);

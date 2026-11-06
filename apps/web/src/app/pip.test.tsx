@@ -67,17 +67,17 @@ describe("the live screen window", () => {
         expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
     });
 
-    it("P5: Shift and the arrow keys move it", async () => {
+    it("P5: Shift and the arrow keys move it (up, from its first place at the bottom of Settings)", async () => {
         renderApp("/settings");
         await screen.findByRole("tab", { name: "Settings" });
         const before = pip()!.style.transform;
         act(() => {
-            fireEvent.keyDown(open(), { key: "ArrowDown", shiftKey: true });
+            fireEvent.keyDown(open(), { key: "ArrowUp", shiftKey: true });
         });
         expect(pip()!.style.transform).not.toBe(before);
-        fireEvent.keyDown(open(), { key: "ArrowDown" });
+        fireEvent.keyDown(open(), { key: "ArrowUp" });
         const moved = pip()!.style.transform;
-        fireEvent.keyDown(open(), { key: "ArrowDown" });
+        fireEvent.keyDown(open(), { key: "ArrowUp" });
         expect(pip()!.style.transform).toBe(moved);
     });
 
