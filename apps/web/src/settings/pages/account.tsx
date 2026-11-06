@@ -6,47 +6,8 @@ import {
     SettingsSection,
 } from "@pikvm/chat-web/settings";
 import type { SessionView } from "@pikvm/contracts/api";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDevices, useRevokeDevice } from "./devices";
 import { useSession } from "../../api/queries";
-
-interface DeviceRow {
-    readonly id: string;
-    readonly name: string;
-    readonly createdAt: number;
-    readonly lastUsedAt: number;
-}
-
-const devicesKey = ["devices"] as const;
-
-/** The desktop apps signed in to this host. Plain requests: the host answers them itself, they are not part of the app API. */
-function useDevices(enabled: boolean) {
-    return useQuery<readonly DeviceRow[]>({
-        queryKey: devicesKey,
-        enabled,
-        queryFn: async ({ signal }) => {
-            const response = await fetch("/app/api/v1/devices", { signal });
-            if (!response.ok)
-                throw new Error(`The host answered ${response.status}.`);
-            return ((await response.json()) as { devices: DeviceRow[] })
-                .devices;
-        },
-    });
-}
-
-function useRevokeDevice() {
-    const queryClient = useQueryClient();
-    return useMutation<void, Error, string>({
-        mutationFn: async (id) => {
-            const response = await fetch(`/app/api/v1/devices/${id}`, {
-                method: "DELETE",
-            });
-            if (!response.ok)
-                throw new Error(`The host answered ${response.status}.`);
-        },
-        onSuccess: () =>
-            queryClient.invalidateQueries({ queryKey: devicesKey }),
-    });
-}
 
 /** How the request got in, in the words a person would use for it. */
 const METHOD_WORDING: Record<NonNullable<SessionView["method"]>, string> = {

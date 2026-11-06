@@ -7,6 +7,7 @@
  * they can be turned back on. Nothing here loads on app start: the catalogue loads on the catalogue view, and one
  * provider's models load on its detail page.
  */
+import { SubscriptionsSection } from "../subscriptions";
 import {
     evaluateModelFeatures,
     Provider,
@@ -316,6 +317,7 @@ function ProviderList({ rec, view }: { rec: Records<ProviderEntry>; view: SubVie
                     {own.length ? t("integrations-prov-policy-paused") : t("integrations-prov-policy-blocked")}
                 </Notice>
             )}
+            <SubscriptionsSection />
             {global.length > 0 && (
                 <SettingsSection
                     title={t("integrations-prov-org-title")}

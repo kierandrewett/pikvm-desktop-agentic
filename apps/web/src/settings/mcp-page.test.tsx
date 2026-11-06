@@ -3,6 +3,7 @@
  * is not what the client's CLI takes (checked by hand against `claude mcp add --help` and `codex mcp add --help`), or a credential.
  */
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultServer, installFakeServer, renderApp } from "../test/harness";
 
@@ -14,11 +15,14 @@ describe("the MCP server page", () => {
         renderApp("/settings/mcp", { compact: false });
         await screen.findByRole("heading", { name: "MCP server" });
         const address = `${window.location.origin}/app/mcp`;
-        const text = document.body.textContent ?? "";
-        expect(text).toContain(`claude mcp add --transport http pikvm ${address}`);
-        expect(text).toContain(`codex mcp add pikvm --url ${address}`);
-        expect(text).toContain('"mcpServers"');
-        expect(text).not.toMatch(/pkd_|sk-/);
-        expect(screen.getAllByRole("button", { name: "Copy" })).toHaveLength(5);
+        const user = userEvent.setup();
+        const shown = () => document.body.textContent ?? "";
+        expect(shown()).toContain(`claude mcp add --transport http pikvm ${address}`);
+        await user.click(screen.getByRole("radio", { name: "Codex" }));
+        expect(shown()).toContain(`codex mcp add pikvm --url ${address}`);
+        expect(shown()).toContain("codex mcp login pikvm");
+        await user.click(screen.getByRole("radio", { name: "Cursor" }));
+        expect(shown()).toContain('"mcpServers"');
+        expect(shown()).not.toMatch(/pkd_|sk-/);
     });
 });

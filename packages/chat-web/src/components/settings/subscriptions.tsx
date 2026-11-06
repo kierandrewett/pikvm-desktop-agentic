@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { keys } from "../../lib/queries";
-import { Button, Input, Notice, SettingRow, SettingsCard, SettingsSection } from "./kit";
+import { Button, Input, SettingRow, SettingsCard, SettingsSection } from "./kit";
 
 type Provider = "anthropic" | "openai-codex";
 interface Login {
@@ -79,7 +79,7 @@ function Entry({ id, label, description }: { id: Provider; label: string; descri
             <SettingRow
                 id={`subscription-${id}`}
                 label={label}
-                description={login?.state === "done" ? "Signed in. Its models are in the model list." : description}
+                description={login?.state === "failed" || error ? `Could not sign in: ${login?.error ?? error}` : login?.state === "done" ? "Signed in. Its models are in the model list." : description}
                 control={
                     waiting ? (
                         <Button onClick={cancel}>Cancel</Button>
@@ -91,22 +91,30 @@ function Entry({ id, label, description }: { id: Provider; label: string; descri
                 }
             />
             {waiting ? (
-                <SettingRow
-                    id={`subscription-${id}-paste`}
-                    label="Finish signing in"
-                    description={`Sign in in the tab that opened (or open it again: ${login.url}). The last page cannot load. Copy its address, or the code it shows, and paste it here.`}
-                    control={
-                        <>
-                            <Input value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="http://localhost:.../callback?code=..." aria-label="Address or code" />
-                            <Button variant="primary" disabled={busy || pasted.trim().length < 4} onClick={() => void send()}>
-                                Done
-                            </Button>
-                        </>
-                    }
-                />
-            ) : null}
-            {login?.state === "failed" || error ? (
-                <Notice tone="danger">{login?.error ?? error}</Notice>
+                <div className="space-y-3 px-4 pb-4">
+                    <ol className="m-0 list-decimal space-y-1 ps-5 text-sm text-secondary">
+                        <li>
+                            Sign in in the tab that opened.{" "}
+                            <a className="text-text underline" href={login.url} target="_blank" rel="noreferrer">
+                                Open it again
+                            </a>
+                            .
+                        </li>
+                        <li>The last page will not load. Copy its address from the address bar (or the code it shows) and paste it here.</li>
+                    </ol>
+                    <div className="flex items-center gap-2">
+                        <Input
+                            value={pasted}
+                            onChange={(e) => setPasted(e.target.value)}
+                            placeholder="http://localhost:54545/callback?code=..."
+                            aria-label="Address or code"
+                            mono
+                        />
+                        <Button variant="primary" disabled={busy || pasted.trim().length < 4} onClick={() => void send()}>
+                            Done
+                        </Button>
+                    </div>
+                </div>
             ) : null}
         </>
     );
