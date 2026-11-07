@@ -364,7 +364,8 @@ for (const scenario of [
             if (scenario === "OCR failed") throw new Error("OCR failed");
             if (scenario === "OCR timed out") return new Promise<string>(() => {});
             if (scenario === "OCR unreadable" || (scenario === "unreadable click target" && region)) return "";
-            return region ? "Search files" : "File manager Search files Documents";
+            // Both reads contain enough text for the screen readability check, including the harmless target label.
+            return region ? "Search local files" : "File manager Search local files Documents";
         };
         const judge = createJudge({
             readMs: 10,
