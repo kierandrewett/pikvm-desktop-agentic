@@ -48,7 +48,7 @@
  *   PIKVM_TRUST_PROXY      "1": believe X-Forwarded-Proto and X-Forwarded-For (the last hop) from a reverse proxy
  *                          that terminates TLS. Unset: those headers are ignored.
  *   PIKVM_SESSION_SECRET   at least 32 characters; default: a random secret kept in PIKVM_DATA_DIR/session-secret
- *   PIKVM_KEYBOARD_LAYOUT  "us" | "uk" default before the Pi reports its keymap
+ *   PIKVM_KEYBOARD_LAYOUT  "us" | "uk", saved target layout for typed text (default "us")
  *   PIKVM_DATA_DIR         where settings.json and macros.json live (default ./data)
  *   PIKVM_JIGGLER          "1" makes the idle jiggler start on; only the first
  *                          value, after that the saved setting wins (default off)

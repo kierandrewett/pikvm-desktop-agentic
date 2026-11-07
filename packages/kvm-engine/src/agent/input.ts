@@ -4,7 +4,7 @@ import { fracToNorm, type Frac, type Size } from "../view/geometry";
 import { REL_CHUNK } from "../pointer/types";
 import type { HidCommand, MouseButton } from "../target/wire";
 import type { Chord } from "./chord";
-import { planText } from "./typing";
+import { planText, type TypingAnalysis } from "./typing";
 
 /**
  * Agent-side input: deterministic moves, clicks, drags, wheel, typing and chords.
@@ -109,7 +109,7 @@ export interface AgentInput {
     /** Move, then turn the wheel. Positive `dy` is down and positive `dx` is right, in notches. */
     scroll(at: Frac, dx: number, dy: number, signal: AbortSignal): Promise<void>;
     /** Type text through the layout. Throws before sending anything when a character has no key. */
-    typeText(text: string, signal: AbortSignal): Promise<void>;
+    typeText(text: string, signal: AbortSignal): Promise<TypingAnalysis>;
     /** Press each chord in turn, modifiers last released. */
     chords(chords: readonly Chord[], signal: AbortSignal): Promise<void>;
     /** Lift every key and button this holds. Safe to call at any time, and never throws. */
@@ -356,6 +356,7 @@ export function createAgentInput(options: AgentInputOptions): AgentInput {
                     if (stroke.shift) keyUp("ShiftLeft");
                     await sleep(timing.keyGapMs, signal);
                 }
+                return { layout: plan.layout, sensitiveCharacters: plan.sensitiveCharacters };
             }),
 
         chords: (chords, signal) =>

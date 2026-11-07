@@ -5,7 +5,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { WebSocket } from "ws";
 import { normToPixel, pixelToNorm, referenceSize } from "@pikvm/kvm-engine/agent";
 import { createPikvmMcp, defaultPolicy, type AgentActivity, type Approver, type PikvmPolicy } from "@pikvm/mcp";
-import { CURSOR_AGENT_SOURCE } from "@pikvm/contracts/api";
+import { CURSOR_AGENT_SOURCE, type KeyboardLayout } from "@pikvm/contracts/api";
 import { createFakeApprover, createTestClient, inProcessTransport, type CallResult } from "@pikvm/mcp/testing";
 import { MouseJiggler } from "../src/mouse-jiggler";
 import type { PiKvmControl } from "../src/pikvm-control";
@@ -62,6 +62,7 @@ interface RigOptions {
     timing?: Partial<typeof FAST>;
     approver?: Approver;
     policy?: Partial<PikvmPolicy>;
+    keyboardLayout?: () => KeyboardLayout;
     leaseMs?: number;
     now?: () => number;
     /** Told where the agent left the pointer, as the server wires it to the shared cursor. */
@@ -85,6 +86,7 @@ function rig(options: RigOptions = {}) {
             rejectUnauthorized: false,
         }),
         images,
+        keyboardLayout: options.keyboardLayout ?? (() => "us"),
         presence,
         activity,
         timing: { ...FAST, ...options.timing },
@@ -240,14 +242,13 @@ describe("each tool reaches kvmd as the right HID and streamer calls", () => {
         ]);
     });
 
-    it("type_text presses physical keys through the layout the Pi reports, Shift around the ones that need it", async () => {
+    it("type_text presses physical keys through the configured target layout, Shift around the ones that need it", async () => {
         await fake.post("/__fake/keymap?name=en-gb");
-        const r = rig();
+        const r = rig({ keyboardLayout: () => "uk" });
         r.desk.beginRun("a");
         const c = r.client("a");
         await c.call("screenshot");
-        const typed = await c.call("type_text", { text: 'A"' });
-        assert.equal(typed.text, "Typed 2 characters.");
+        await c.call("type_text", { text: 'A"' });
         await quiet();
         assert.deepEqual(types(await fake.hid("key")), [
             "key:ShiftLeft:down",
@@ -258,6 +259,55 @@ describe("each tool reaches kvmd as the right HID and streamer calls", () => {
             "key:Digit2:down",
             "key:Digit2:up",
             "key:ShiftLeft:up",
+        ]);
+        assert.deepEqual((await fake.state()).keysDown, []);
+    });
+
+    it("type_text uses the saved layout despite the Pi default and follows changes without reconnecting", async () => {
+        let keyboardLayout: KeyboardLayout = "uk";
+        const r = rig({ keyboardLayout: () => keyboardLayout });
+        r.desk.beginRun("a");
+        const c = r.client("a");
+        await c.call("screenshot");
+        const uk = await c.call("type_text", { text: 'C# "@\\|' });
+        assert.equal(uk.isError, false, uk.text);
+        const ukReport = JSON.parse(uk.text);
+        assert.equal(ukReport.layout, "uk");
+        assert.equal(ukReport.kvmdDefaultKeymap, "en-us");
+        assert.equal(ukReport.keymapMatchesLayout, false);
+        assert.equal(ukReport.outputVerified, false);
+        assert.deepEqual(ukReport.sensitiveCharacters.find((entry: { character: string }) => entry.character === "#"), {
+            character: "#", code: "Backslash", shift: false, otherLayout: "us", otherCharacter: "\\",
+        });
+        await quiet();
+        const ukKeys = await fake.hid("key");
+        assert.deepEqual(ukKeys.filter((e) => e.event.state).map((e) => e.event.key), [
+            "ShiftLeft", "KeyC", "Backslash", "Space", "ShiftLeft", "Digit2",
+            "ShiftLeft", "Quote", "IntlBackslash", "ShiftLeft", "IntlBackslash",
+        ]);
+        const pound = await c.call("type_text", { text: "\u00a3" });
+        assert.equal(pound.isError, false, pound.text);
+        await quiet();
+        const afterPound = await fake.hid("key");
+        assert.deepEqual(
+            afterPound.slice(ukKeys.length).filter((e) => e.event.state).map((e) => e.event.key),
+            ["ShiftLeft", "Digit3"],
+        );
+        keyboardLayout = "us";
+        const us = await c.call("type_text", { text: 'C# "@\\|' });
+        assert.equal(us.isError, false, us.text);
+        const usReport = JSON.parse(us.text);
+        assert.equal(usReport.layout, "us");
+        assert.equal(usReport.keymapMatchesLayout, true);
+        assert.equal(usReport.outputVerified, false);
+        assert.deepEqual(usReport.sensitiveCharacters.find((entry: { character: string }) => entry.character === "#"), {
+            character: "#", code: "Digit3", shift: true, otherLayout: "uk", otherCharacter: "\u00a3",
+        });
+        await quiet();
+        const usKeys = (await fake.hid("key")).slice(afterPound.length);
+        assert.deepEqual(usKeys.filter((e) => e.event.state).map((e) => e.event.key), [
+            "ShiftLeft", "KeyC", "ShiftLeft", "Digit3", "Space", "ShiftLeft", "Quote",
+            "ShiftLeft", "Digit2", "Backslash", "ShiftLeft", "Backslash",
         ]);
         assert.deepEqual((await fake.state()).keysDown, []);
     });
@@ -448,6 +498,7 @@ describe("what the desk refuses", () => {
             images,
             presence,
             activity: createActivity(),
+            keyboardLayout: () => "us",
             connectMs: 400,
         });
         rigs.push({ desk, stop: () => desk.dispose() });

@@ -1,6 +1,7 @@
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createHash } from "node:crypto";
+import type { KeyboardLayout } from "@pikvm/contracts/api";
 import {
     DeskError,
     type AgentActivity,
@@ -19,7 +20,6 @@ import {
     AgentAbort,
     createAgentInput,
     insideFrame,
-    layoutFromKeymap,
     LinkClosed,
     parseChord,
     pixelFrac,
@@ -69,6 +69,8 @@ export interface DeskOptions {
     target: () => Promise<DeskTarget>;
     /** Electron's nativeImage, or sharp on the web host. */
     images: ImageOps;
+    /** The saved target layout, read for each text entry. kvmd's default keymap is not the target OS layout. */
+    keyboardLayout: () => KeyboardLayout;
     presence: OperatorPresence;
     activity: ActivityStore;
     /** The long edge of the reference frame; read on every screenshot. */
@@ -313,7 +315,7 @@ export function createDesk(options: DeskOptions): AgentDesk {
             input = createAgentInput({
                 link: created,
                 native: () => nativeNow() ?? { width: 1920, height: 1080 },
-                layout: () => layoutFromKeymap(created.store.getState().device.keymaps?.default),
+                layout: options.keyboardLayout,
                 clock,
                 ...(options.timing ? { timing: options.timing } : {}),
             });
@@ -754,7 +756,21 @@ export function createDesk(options: DeskOptions): AgentDesk {
 
         async typeText(session, text) {
             currentFrame(session.conversationId);
-            await act(session, "type_text", (agent) => agent.typeText(text, session.signal));
+            return act(session, "type_text", async (agent, active) => {
+                const kvmdDefaultKeymap = active.store.getState().device.keymaps?.default ?? null;
+                const analysis = await agent.typeText(text, session.signal);
+                // Only known keymap families can be compared. Neither family identifies the OS layout.
+                const family = kvmdDefaultKeymap?.toLowerCase().replace(/_/g, "-");
+                const kvmdLayout = /^en-us(?:$|[-.])/.test(family ?? "")
+                    ? "us"
+                    : /^en-gb(?:$|[-.])/.test(family ?? "") ? "uk" : null;
+                return {
+                    ...analysis,
+                    kvmdDefaultKeymap,
+                    keymapMatchesLayout: kvmdLayout === null ? null : kvmdLayout === analysis.layout,
+                    outputVerified: false as const,
+                };
+            });
         },
 
         async key(session, chords) {

@@ -1,3 +1,5 @@
+import type { TypingAnalysis } from "@pikvm/kvm-engine/agent";
+
 /**
  * The two ports the PiKVM MCP server stands on, and the vocabulary they share.
  *
@@ -130,6 +132,13 @@ export interface WaitResult {
     readonly stable?: boolean;
 }
 
+/** kvmd's default is a send-side setting. It does not identify the target OS keyboard layout. */
+export interface TextEntryResult extends TypingAnalysis {
+    readonly kvmdDefaultKeymap: string | null;
+    readonly keymapMatchesLayout: boolean | null;
+    readonly outputVerified: false;
+}
+
 /** Every method may throw DeskError; the handler turns it into a tool result. */
 export interface Desk {
     open(call: DeskCall, intent: "observe" | "act"): Promise<DeskSession>;
@@ -142,7 +151,7 @@ export interface Desk {
     click(session: DeskSession, at: Point, button: MouseButton, count: number): Promise<void>;
     drag(session: DeskSession, from: Point, to: Point, button: MouseButton): Promise<void>;
     scroll(session: DeskSession, at: Point, dx: number, dy: number): Promise<void>;
-    typeText(session: DeskSession, text: string): Promise<void>;
+    typeText(session: DeskSession, text: string): Promise<TextEntryResult>;
     /** Chords in the notation `parseChord` reads. The handler has already parsed them, so they are well formed. */
     key(session: DeskSession, chords: readonly string[]): Promise<void>;
     wait(session: DeskSession, ms: number, untilStable: boolean): Promise<WaitResult>;

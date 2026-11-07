@@ -1,4 +1,4 @@
-import { charToKey, isLetterKey, type KeyboardLayout } from "../input/keyboard/char-map";
+import { charToKey, isLetterKey, keyToChar, type KeyboardLayout } from "../input/keyboard/char-map";
 
 /**
  * Text to key strokes for the agent.
@@ -14,15 +14,23 @@ export interface Stroke {
     readonly shift: boolean;
 }
 
-export interface TypingPlan {
+export interface LayoutSensitiveCharacter extends Stroke {
+    readonly character: string;
+    readonly otherLayout: KeyboardLayout;
+    /** Null means that the other send-side map has no known glyph for this physical key. */
+    readonly otherCharacter: string | null;
+}
+
+/** Evidence about the selected physical mapping, not confirmation of the target OS output. */
+export interface TypingAnalysis {
+    readonly layout: KeyboardLayout;
+    readonly sensitiveCharacters: readonly LayoutSensitiveCharacter[];
+}
+
+export interface TypingPlan extends TypingAnalysis {
     readonly strokes: readonly Stroke[];
     /** Distinct characters with no key on this layout, in order of first appearance. */
     readonly unmappable: readonly string[];
-}
-
-/** kvmd's keymap names the target layout: `en-gb` is the UK ISO keyboard, anything else is treated as US. */
-export function layoutFromKeymap(keymap: string | undefined): KeyboardLayout {
-    return keymap?.toLowerCase().startsWith("en-gb") ? "uk" : "us";
 }
 
 /**
@@ -32,6 +40,8 @@ export function layoutFromKeymap(keymap: string | undefined): KeyboardLayout {
 export function planText(text: string, layout: KeyboardLayout, capsOn: boolean): TypingPlan {
     const strokes: Stroke[] = [];
     const unmappable: string[] = [];
+    const sensitive = new Map<string, LayoutSensitiveCharacter>();
+    const otherLayout = layout === "us" ? "uk" : "us";
     // Windows line endings are one line break, not two.
     for (const ch of text.replace(/\r\n?/g, "\n")) {
         if (ch === "\n") {
@@ -48,6 +58,12 @@ export function planText(text: string, layout: KeyboardLayout, capsOn: boolean):
             continue;
         }
         strokes.push({ code: key.code, shift: capsOn && isLetterKey(key.code) ? !key.shift : key.shift });
+        if (!sensitive.has(ch)) {
+            const otherCharacter = keyToChar(key, otherLayout);
+            if (otherCharacter !== ch) {
+                sensitive.set(ch, { character: ch, ...key, otherLayout, otherCharacter });
+            }
+        }
     }
-    return { strokes, unmappable };
+    return { strokes, unmappable, layout, sensitiveCharacters: [...sensitive.values()] };
 }

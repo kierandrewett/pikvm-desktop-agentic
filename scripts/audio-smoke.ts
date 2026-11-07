@@ -18,6 +18,7 @@ const desk = createDesk({
         rejectUnauthorized: false,
     }),
     images: createSharpImageOps(),
+    keyboardLayout: () => "us",
     presence: createPresence(),
     activity: createActivity(),
 });

@@ -129,6 +129,13 @@ export function createFakeDesk(): FakeDesk {
         async typeText(_s, text: string) {
             record("typeText", text);
             await desk.onAction?.("typeText");
+            return {
+                layout: "us" as const,
+                sensitiveCharacters: [],
+                kvmdDefaultKeymap: "en-us",
+                keymapMatchesLayout: true,
+                outputVerified: false as const,
+            };
         },
         async key(_s, chords: readonly string[]) {
             record("key", chords);

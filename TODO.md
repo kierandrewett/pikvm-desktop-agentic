@@ -3,6 +3,13 @@
 What is actually open. The completed web-client migration that used to live here
 is in git history (`docs/web-client-migration.md`, removed with the /app cutover).
 
+## Agent text keyboard layout
+
+- [x] Make agent text entry use the saved target layout instead of kvmd's default keymap.
+- [x] Verify UK punctuation, live layout changes and unchanged physical-key commands through MCP.
+- [x] Report layout-sensitive characters from the actual text plan and compare the selected layout with kvmd metadata.
+- [x] Verify automatic diagnostics through the built host without claiming target OS output is verified.
+
 ## Permission fallback verification
 
 - [x] Connect the smart review without allowing it to clear the fixed risk rules.

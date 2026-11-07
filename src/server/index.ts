@@ -120,6 +120,7 @@ export function startControlServer(
     const desk = createDesk({
         target: () => control.proxyTarget(),
         images: deps.images,
+        keyboardLayout: () => settings.get().keyboardLayout,
         presence,
         activity,
         maxEdge: () => chat?.maxEdge() ?? DEFAULT_MAX_EDGE,

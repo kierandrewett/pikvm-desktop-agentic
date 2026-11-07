@@ -54,6 +54,26 @@ const UK_MAP: ReadonlyMap<string, PhysicalKey> = new Map<string, PhysicalKey>([
     ["\u00ac", { code: "Backquote", shift: true }],
 ]);
 
+function reverseMap(map: ReadonlyMap<string, PhysicalKey>): ReadonlyMap<string, readonly [string | null, string | null]> {
+    const result = new Map<string, [string | null, string | null]>();
+    for (const [character, key] of map) {
+        const pair = result.get(key.code) ?? [null, null];
+        pair[key.shift ? 1 : 0] = character;
+        result.set(key.code, pair);
+    }
+    return result;
+}
+
+const REVERSE_MAPS = {
+    us: reverseMap(US_MAP),
+    uk: reverseMap(new Map([...US_MAP, ...UK_MAP])),
+};
+
+/** Reverse the known send-side map. Null means unknown, not that the physical key produces no text. */
+export function keyToChar(key: PhysicalKey, layout: KeyboardLayout): string | null {
+    return REVERSE_MAPS[layout].get(key.code)?.[key.shift ? 1 : 0] ?? null;
+}
+
 /** Map a single character to a physical key + shift state for the layout, or null if the layout has none. */
 export function charToKey(ch: string, layout: KeyboardLayout): PhysicalKey | null {
     if (layout === "uk") {

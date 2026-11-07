@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutFromKeymap, planText } from "./typing";
+import { planText } from "./typing";
 
 describe("planText", () => {
     it("types letters, digits and punctuation as physical keys with Shift where the glyph needs it", () => {
@@ -47,15 +47,5 @@ describe("planText", () => {
     it("names every character the layout cannot type, once, instead of dropping it", () => {
         const plan = planText("caf\u00e9 \u{1f600} caf\u00e9", "us", false);
         expect(plan.unmappable).toEqual(["\u00e9", "\u{1f600}"]);
-    });
-});
-
-describe("layoutFromKeymap", () => {
-    it("is UK only for the en-gb family", () => {
-        expect(layoutFromKeymap("en-gb")).toBe("uk");
-        expect(layoutFromKeymap("EN-GB")).toBe("uk");
-        expect(layoutFromKeymap("en-us")).toBe("us");
-        expect(layoutFromKeymap("de")).toBe("us");
-        expect(layoutFromKeymap(undefined)).toBe("us");
     });
 });

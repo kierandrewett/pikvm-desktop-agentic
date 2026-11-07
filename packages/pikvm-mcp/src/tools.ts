@@ -242,13 +242,19 @@ export const tools: readonly Tool[] = [
         title: "Type text",
         description:
             "Type text into whatever has keyboard focus, through the target's keyboard layout. A newline is the Enter key, which submits forms and runs commands: " +
-            "text with a line break, or over 200 characters, asks the person first. Click the field before typing. Characters the layout has no key for are refused before any key is sent.",
+            "text with a line break, or over 200 characters, asks the person first. Click the field before typing. Characters the layout has no key for are refused before any key is sent. " +
+            "Returns JSON with the selected layout, kvmd default, and characters whose physical keys differ on US/UK layouts. " +
+            "These are mapping diagnostics, not proof of the target OS layout or received text. Do not guess replacement keys or clear and retry without checking the target.",
         annotations: INPUT,
         intent: "act",
         schema: z.object({ text: z.string().min(1).max(5000).describe("The text to type") }),
         async run(desk, session, args) {
-            await desk.typeText(session, args.text);
-            return text(`Typed ${args.text.length} character${args.text.length === 1 ? "" : "s"}.`);
+            const report = await desk.typeText(session, args.text);
+            return text(JSON.stringify({
+                requestedCharacters: args.text.length,
+                ...report,
+                guidance: "The target OS interprets physical keys. kvmd metadata does not confirm its layout. Check the target output before retrying.",
+            }));
         },
     }),
 

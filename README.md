@@ -31,6 +31,18 @@ The chat server looks for the agent program in this order:
 
 Without it, Chat opens and says what is missing. `make package` and `make image` fetch it with `scripts/fetch-omp.mjs`, checked against `deploy/omp.lock`.
 
+## Target keyboard layout
+
+In Settings > Keyboard and mouse, set Keyboard layout to match the target computer: US or UK. The default is US. Agent `type_text` uses this saved setting, not kvmd's default keymap. Changes apply to the next text entry without reconnecting.
+
+For a UK target, choose UK so the hash in `C#` does not arrive as a pound sign. This also selects the correct keys for quotes, `@`, backslash and pipe.
+
+Each `type_text` result contains JSON with the selected layout, kvmd's default keymap and distinct layout-sensitive characters. For each character, it shows the physical key and its known US/UK alternative. An unknown alternative is `null`. The result also reports whether the known kvmd keymap family matches the selected layout.
+
+These checks do not identify the target operating system's active layout. Even matching settings cannot confirm received text, so `outputVerified` is always false. The app does not switch layouts or retry text automatically.
+
+Physical-key commands remain physical keys. For example, `key` with `Shift+3` still produces a pound sign on a UK target. Agent text mapping does not rewrite physical keyboard shortcuts.
+
 ## PiKVMs and credentials
 
 On a first run with no PiKVM saved and no server in use, the KVM tab shows a "Welcome to PiKVM" screen in place of the picture. It asks for the PiKVM's name, address, user name and password, and "Use a server instead" asks for a server's address and access token. A save makes the new PiKVM the one in use and reloads the app onto it. A hosted web build, which pins its PiKVM, never shows it.

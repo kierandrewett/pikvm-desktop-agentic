@@ -21,4 +21,4 @@ export {
     type AgentLink,
     type AgentTiming,
 } from "./input";
-export { layoutFromKeymap, planText, type Stroke, type TypingPlan } from "./typing";
+export { planText, type Stroke, type TypingPlan, type TypingAnalysis, type LayoutSensitiveCharacter } from "./typing";
