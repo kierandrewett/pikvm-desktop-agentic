@@ -117,7 +117,7 @@ const rawCategories: readonly SettingsCategoryDef[] = [
             {
                 id: "agent.pikvm.approval",
                 label: "Ask before PiKVM actions",
-                description: "Risky actions only, every input, or never.",
+                description: "Fixed risk rules, smart screen checks plus fixed rules, every input, or never. Smart checks ask when OCR or the Decisions model is unavailable.",
                 section: "PiKVM",
             },
             {

@@ -1,4 +1,4 @@
-import { assess, describeCall, needsApproval } from "./risk";
+import { assess, describeCall, FREE_TOOLS, needsApproval } from "./risk";
 import { tools, type Tool, type ToolBlock, type ToolOutput } from "./tools";
 import {
     DeskError,
@@ -11,6 +11,7 @@ import {
     type FrameRef,
     type FrameSink,
     type PikvmPolicy,
+    type Judge,
 } from "./types";
 
 /**
@@ -63,6 +64,8 @@ export interface McpCaller {
 export interface PikvmMcpOptions {
     readonly desk: Desk;
     readonly approver: Approver;
+    /** Additional checks for smart mode. Absence requires approval for unreviewed input. */
+    readonly judge?: Judge;
     /** Read on every call, so a change in Settings applies to the next one. */
     readonly policy?: () => PikvmPolicy;
     readonly version?: string;
@@ -138,8 +141,43 @@ export function createPikvmMcp(options: PikvmMcpOptions): PikvmMcp {
     }
 
     async function ask(tool: Tool, args: Readonly<Record<string, unknown>>, session: DeskSession): Promise<void> {
+        const currentPolicy = policy();
         const risk = assess(tool.name, args, { lookAgeMs: session.lookAgeMs });
-        if (!needsApproval(risk, policy().approval)) return;
+        const reasons = [...risk.reasons];
+        let required = needsApproval(risk, currentPolicy.approval);
+        if (currentPolicy.approval === "smart" && risk.level !== "observe" && !FREE_TOOLS.has(tool.name)) {
+            // Fixed risks cannot be cleared by a model, and their arguments do not need to reach a provider.
+            if (!required) {
+                try {
+                    const verdict = await options.judge?.review({
+                        tool: tool.name,
+                        args,
+                        screenText: async () => currentPolicy.ocr ? options.desk.readText(session) : undefined,
+                        textAround: async (point) => {
+                            if (!currentPolicy.ocr) return undefined;
+                            const { reference } = await options.desk.info(session);
+                            if (!reference) return undefined;
+                            const x = Math.max(0, point.x - 100);
+                            const y = Math.max(0, point.y - 30);
+                            const width = Math.min(200, reference.width - x);
+                            const height = Math.min(60, reference.height - y);
+                            if (width <= 0 || height <= 0) return undefined;
+                            return options.desk.readText(session, { x, y, width, height });
+                        },
+                    }, session.signal);
+                    if (verdict?.guidance) throw new DeskError("try_another_way", verdict.guidance);
+                    required = verdict?.ask !== false;
+                    reasons.push(...(verdict?.reasons ?? ["the action could not be reviewed"]));
+                } catch (error) {
+                    if (error instanceof DeskError && error.code === "try_another_way") throw error;
+                    session.signal.throwIfAborted();
+                    required = true;
+                    reasons.push("the action review failed");
+                }
+            }
+        }
+        if (!required) return;
+        session.signal.throwIfAborted();
         const { title, summary } = describeCall(tool.name, args);
         options.desk.approving?.(session, tool.name, true);
         let decision: ApprovalDecision;
@@ -149,7 +187,7 @@ export function createPikvmMcp(options: PikvmMcpOptions): PikvmMcp {
                 tool: tool.name,
                 title,
                 summary,
-                reasons: risk.reasons,
+                reasons,
                 arguments: args,
                 signal: session.signal,
             });
@@ -159,6 +197,7 @@ export function createPikvmMcp(options: PikvmMcpOptions): PikvmMcp {
         // Control may have ended while the person was deciding; that outranks their answer.
         const released = abortError(session.signal);
         if (released) throw released;
+        session.signal.throwIfAborted();
         if (decision === "approved") return;
         throw new DeskError(
             "approval_denied",

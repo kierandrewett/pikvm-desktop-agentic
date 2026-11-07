@@ -16,9 +16,11 @@ describe("assess", () => {
         expect(assess("key", { keys: ["ctrl+c", "Enter"] }, FRESH).level).toBe("input");
     });
 
-    it("power is always, and says what it does", () => {
-        expect(assess("power", { action: "reset" }, FRESH)).toEqual({ level: "always", reasons: ["it resets the target"] });
-        expect(assess("power", { action: "off" }, FRESH).reasons).toEqual(["it switches off the target"]);
+    it("power requires approval under every policy", () => {
+        for (const mode of ["smart", "risky", "always", "never"] as const) {
+            expect(needsApproval(assess("power", { action: "reset" }, FRESH), mode)).toBe(true);
+            expect(needsApproval(assess("power", { action: "off" }, FRESH), mode)).toBe(true);
+        }
     });
 
     it("a key list the schema would have refused is flagged rather than crashing the rules", () => {

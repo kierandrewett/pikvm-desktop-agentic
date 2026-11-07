@@ -826,9 +826,9 @@ export const settingDefs = [
     }),
     def({
         key: "agent.pikvm.approval",
-        schema: z.enum(["risky", "always", "never"]),
+        schema: z.enum(["smart", "risky", "always", "never"]),
         default: "risky",
-        description: "When the PiKVM tools ask for approval: for risky actions only, for every input, or never.",
+        description: "When the PiKVM tools ask for approval: fixed risk rules, smart screen checks plus fixed rules, every input, or never. Smart checks require approval when OCR or the Decisions model is unavailable.",
         userTwin: "none",
         merge: "override",
     }),

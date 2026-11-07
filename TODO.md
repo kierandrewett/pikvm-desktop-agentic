@@ -3,6 +3,11 @@
 What is actually open. The completed web-client migration that used to live here
 is in git history (`docs/web-client-migration.md`, removed with the /app cutover).
 
+## Permission fallback verification
+
+- [x] Connect the smart review without allowing it to clear the fixed risk rules.
+- [x] Verify absent models, failed OCR, invalid answers, timeouts and denied approvals through the HTTP approval path.
+
 ## Needs hardware — cannot be settled from a dev box
 
 - [ ] **Microphone pinning, end to end.** The device now reaches the capture via

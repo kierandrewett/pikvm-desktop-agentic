@@ -77,7 +77,7 @@ export interface ChatServer {
     ): Promise<ApprovalDecision>;
     stopResponses(): number;
     /** The effective value of a setting the host reads. */
-    setting(key: "agent.pikvm.approval"): "risky" | "always" | "never";
+    setting(key: "agent.pikvm.approval"): "smart" | "risky" | "always" | "never";
     setting(key: "agent.pikvm.allowPower"): boolean;
     setting(key: "agent.pikvm.maxEdge"): number;
     /**

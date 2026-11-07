@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { AGENT_APPROVAL_PATH, AGENT_APPROVALS_PATH, type PendingApproval } from "@pikvm/contracts/api";
 import { createPikvmMcp, DeskError, type ApprovalRequest } from "@pikvm/mcp";
+import { createJudge } from "../packages/pikvm-mcp/src/judge";
 import { createFakeDesk, createTestClient, inProcessTransport } from "@pikvm/mcp/testing";
 import { createActivity } from "../src/server/agent/activity";
 import { createApprovalQueue, EXTERNAL_PREFIX, MAX_WAITING, type ApprovalQueue, type ApprovalQueueOptions } from "../src/server/agent/approvals";
@@ -19,6 +20,9 @@ import type { SignedIn } from "../src/server/web-auth";
  *  4. A script (the access token, a Basic header) approves for the agent it serves.
  *  5. A question nobody is waiting for stays on the screen, or a client piles up questions without limit.
  *  6. Stop leaves a call waiting, or a question on the screen.
+ *  7. Missing models or OCR, unreadable text, invalid probabilities or timeouts permit an unreviewed input.
+ *  8. A low model score clears a fixed risk rule, or sends credentials to the model before the local gate.
+ *  9. An absent judge silently disables smart-mode approval.
  *
  * The real queue, routes and MCP handler run together. Time is the queue's `after` seam: nothing waits on a clock.
  */
@@ -335,5 +339,137 @@ test("only a person at the app answers: an access token or Basic header cannot a
         assert.equal(await asking, "approved");
     } finally {
         await person.close();
+    }
+});
+
+for (const scenario of [
+    "no judge",
+    "no model",
+    "OCR disabled",
+    "OCR failed",
+    "OCR timed out",
+    "OCR unreadable",
+    "model failed",
+    "model timed out",
+    "invalid probability",
+    "negative probability",
+    "probability above one",
+    "infinite probability",
+    "unreadable click target",
+] as const) {
+    test(`smart approvals through HTTP: ${scenario} cannot permit an unreviewed click`, { timeout: 3_000 }, async () => {
+        const { queue } = rig();
+        const desk = createFakeDesk();
+        desk.readText = async (_session, region) => {
+            if (scenario === "OCR failed") throw new Error("OCR failed");
+            if (scenario === "OCR timed out") return new Promise<string>(() => {});
+            if (scenario === "OCR unreadable" || (scenario === "unreadable click target" && region)) return "";
+            return region ? "Search files" : "File manager Search files Documents";
+        };
+        const judge = createJudge({
+            readMs: 10,
+            decideMs: 10,
+            decide: async () => {
+                if (scenario === "no model") return undefined;
+                if (scenario === "negative probability") return -0.1;
+                if (scenario === "probability above one") return 1.1;
+                if (scenario === "infinite probability") return Infinity;
+                if (scenario === "model failed") throw new Error("provider failed");
+                if (scenario === "model timed out") return new Promise<number>(() => {});
+                if (scenario === "invalid probability") return NaN;
+                return 0;
+            },
+        });
+        const mcp = createPikvmMcp({
+            desk,
+            approver: queue,
+            policy: () => ({ approval: "smart", allowPower: false, ocr: scenario !== "OCR disabled" }),
+            ...(scenario === "no judge" ? {} : { judge }),
+        });
+        const client = createTestClient(inProcessTransport(mcp, { conversationId: `${EXTERNAL_PREFIX}permission-smoke` }));
+        const server = await serve(queue, { method: "oidc", subject: "kieran" });
+        try {
+            const waiting = waitingCount(queue, 1);
+            const call = client.call("click", { x: 50, y: 50 });
+            await Promise.race([waiting, call.then(() => assert.fail("the click completed without approval"))]);
+            assert.equal(desk.calls.some((c) => c.method === "click"), false);
+            assert.equal((await server.answer({ id: queue.pending()[0]!.id, decision: "denied" })).status, 200);
+            const result = await call;
+            assert.equal(result.isError, true);
+            assert.match(result.text, /^approval_denied:/);
+            assert.equal(desk.calls.some((c) => c.method === "click"), false);
+        } finally {
+            queue.clear();
+            await server.close();
+        }
+    });
+}
+
+test("smart approvals retain fixed risks even when the model reports safe", { timeout: 3_000 }, async () => {
+    const { queue } = rig();
+    const desk = createFakeDesk();
+    desk.readText = async () => "Personal notes Search files Documents";
+    const judge = createJudge({ decide: async () => 0 });
+    const mcp = createPikvmMcp({
+        desk,
+        approver: queue,
+        judge,
+        policy: () => ({ approval: "smart", allowPower: true, ocr: true }),
+    });
+    const client = createTestClient(inProcessTransport(mcp, { conversationId: `${EXTERNAL_PREFIX}permission-smoke` }));
+    const server = await serve(queue, { method: "oidc", subject: "kieran" });
+    try {
+        for (const [name, args, method] of [
+            ["type_text", { text: "a".repeat(201) }, "typeText"],
+            ["type_text", { text: "rm -rf /tmp/example" }, "typeText"],
+            ["key", { keys: ["alt+F4"] }, "key"],
+            ["drag", { from: { x: 5, y: 5 }, to: { x: 10, y: 10 } }, "drag"],
+            ["power", { action: "reset" }, "power"],
+        ] as const) {
+            const waiting = waitingCount(queue, 1);
+            const call = client.call(name, args);
+            await Promise.race([waiting, call.then(() => assert.fail(`${name} bypassed its fixed risk`))]);
+            await server.answer({ id: queue.pending()[0]!.id, decision: "denied" });
+            assert.equal((await call).isError, true);
+            assert.equal(desk.calls.some((c) => c.method === method), false);
+        }
+    } finally {
+        queue.clear();
+        await server.close();
+    }
+});
+
+test("smart screen gates ask before sending credentials or payment context to a model", { timeout: 3_000 }, async () => {
+    const { queue } = rig();
+    const desk = createFakeDesk();
+    let screen = "Password";
+    let decisions = 0;
+    desk.readText = async (_session, region) => region ? "Send" : screen;
+    const mcp = createPikvmMcp({
+        desk,
+        approver: queue,
+        judge: createJudge({ decide: async () => { decisions++; return 0; } }),
+        policy: () => ({ approval: "smart", allowPower: false, ocr: true }),
+    });
+    const client = createTestClient(inProcessTransport(mcp, { conversationId: `${EXTERNAL_PREFIX}permission-smoke` }));
+    const server = await serve(queue, { method: "oidc", subject: "kieran" });
+    try {
+        for (const [name, args, text] of [
+            ["type_text", { text: "synthetic-secret" }, "Password"],
+            ["key", { keys: ["Enter"] }, "Confirm payment"],
+            ["click", { x: 50, y: 50 }, "Compose a message to someone"],
+        ] as const) {
+            screen = text;
+            const waiting = waitingCount(queue, 1);
+            const call = client.call(name, args);
+            await Promise.race([waiting, call.then(() => assert.fail(`${name} bypassed the local screen gate`))]);
+            assert.equal(decisions, 0, "sensitive context must not be sent to the decisions provider");
+            await server.answer({ id: queue.pending()[0]!.id, decision: "denied" });
+            assert.equal((await call).isError, true);
+        }
+        assert.equal(desk.calls.some((c) => ["typeText", "key", "click"].includes(c.method)), false);
+    } finally {
+        queue.clear();
+        await server.close();
     }
 });

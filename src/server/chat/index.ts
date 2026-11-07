@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import { createChatServer, type BuiltinMcp, type ChatServer } from "@pikvm/chat-server";
+import { createChatServer, OPERATOR_ID, type BuiltinMcp, type ChatServer } from "@pikvm/chat-server";
 import type { Features } from "@pikvm/contracts/api";
-import { createPikvmMcp, defaultPolicy, tools, type Approver, type JsonRpcRequest, type PikvmMcp, type PikvmPolicy } from "@pikvm/mcp";
+import { createJudge, createPikvmMcp, defaultPolicy, tools, type Approver, type JsonRpcRequest, type PikvmMcp, type PikvmPolicy } from "@pikvm/mcp";
 import { DEFAULT_MAX_EDGE } from "@pikvm/kvm-engine/agent";
 import type { AgentDesk } from "../agent/desk";
 import { EXTERNAL_PREFIX } from "../agent/approvals";
@@ -125,6 +125,13 @@ export function startChat(options: ChatHostOptions): ChatHost {
 
     const mcp = createPikvmMcp({
         desk,
+        judge: createJudge({
+            decide: async (state, instructions, timeoutMs) => {
+                const answer = await chat?.decide(OPERATOR_ID, { state: { ...state }, instructions, timeoutMs });
+                return answer?.probability;
+            },
+            log,
+        }),
         approver: {
             ask: async (request) => {
                 // An outside client has no conversation to ask in: its question waits for the person on the KVM tab.

@@ -9,4 +9,5 @@ export {
 } from "./handler";
 export { assess, describeCall, MAX_LOOK_AGE_MS, MAX_PLAIN_TYPE_CHARS, needsApproval, type Risk, type RiskContext, type RiskLevel } from "./risk";
 export { tools, type Tool, type ToolAnnotations, type ToolBlock, type ToolOutput } from "./tools";
+export { createJudge, type JudgeOptions } from "./judge";
 export * from "./types";

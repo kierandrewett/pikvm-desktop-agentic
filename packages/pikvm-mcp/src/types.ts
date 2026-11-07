@@ -40,7 +40,8 @@ export type DeskErrorCode =
     | "ocr_unavailable"
     | "power_disabled"
     | "unsupported_text"
-    | "no_conversation";
+    | "no_conversation"
+    | "try_another_way";
 
 export class DeskError extends Error {
     readonly code: DeskErrorCode;
@@ -179,7 +180,12 @@ export interface Approver {
     ask(request: ApprovalRequest): Promise<ApprovalDecision>;
 }
 
-export type ApprovalMode = "risky" | "always" | "never";
+/**
+ * `risky`: ask for the calls the fixed rules call risky. `always`: ask for every input. `never`: ask for nothing but power.
+ * `smart`: retain the fixed rules and add screen-based review. Without a judge, readable OCR or a valid model answer,
+ * input requires approval. Pointer movement and scrolling retain the fixed rules without screen review.
+ */
+export type ApprovalMode = "smart" | "risky" | "always" | "never";
 
 /** Settings the host may change while the server runs; read afresh on every call. */
 export interface PikvmPolicy {
@@ -191,6 +197,34 @@ export interface PikvmPolicy {
 }
 
 export const defaultPolicy: PikvmPolicy = { approval: "risky", allowPower: false, ocr: true };
+
+/**
+ * One step the agent is about to take, as the judge sees it. `screenText` and `textAround` read the screen on demand: they
+ * cost an OCR each, so the judge asks only for what its questions need. Either may return undefined (OCR off, failed, too slow).
+ */
+export interface JudgedStep {
+    readonly tool: string;
+    readonly args: Readonly<Record<string, unknown>>;
+    screenText(): Promise<string | undefined>;
+    /** The text near a point of the reference frame: what a click or a drag's two ends are on. */
+    textAround(point: Point): Promise<string | undefined>;
+}
+
+/** The judge's reading of a step. `ask`: a person should decide. `reasons`: one short phrase each, for the approval card. */
+export interface JudgeVerdict {
+    readonly ask: boolean;
+    readonly reasons: readonly string[];
+    /**
+     * Set when the right move is for the agent to do something else, not for a person to decide: the call is refused with
+     * these words, and the agent adapts and calls again.
+     */
+    readonly guidance?: string;
+}
+
+/** Undefined means no verdict: smart mode then requires approval, never permission to execute. */
+export interface Judge {
+    review(step: JudgedStep, signal: AbortSignal): Promise<JudgeVerdict | undefined>;
+}
 
 /** What the KVM tab shows about the agent. */
 export type AgentState = "idle" | "working" | "waiting_approval" | "released";
