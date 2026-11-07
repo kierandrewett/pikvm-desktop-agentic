@@ -357,7 +357,11 @@ only; nothing is kept in a conversation.
 
 ### Approvals for an outside client
 
-A call that needs approval (`agent.pikvm.approval`: long or multi-line typing, risky chords, drags, input on a stale screenshot, and always the power tool) waits for a person. The client's call is **held open** until they answer it (`agent/approvals.ts`).
+A call that needs approval waits for a person. The client's call is **held open** until they answer it (`agent/approvals.ts`).
+
+The approval setting defaults to `risky`. Optional `smart` mode retains the fixed risk checks and adds screen review.
+Missing OCR or a Decisions model requires approval in smart mode, not permission to act.
+See the [approval modes and fallback verification](e2e/2026-11-06-mcp-approvals.md#smart-approval-fallback-7-november-2026) for every accepted value and the recorded checks.
 
 - **The KVM tab.** The oldest waiting action is a card over the picture: who asks, what, why, with **Allow** and **Deny**. Answering it shows the next one; "N more waiting" counts the rest. The order is first in, first out.
 - **A notification.** Where the person is not at the app, the host sends the same push a chat approval sends. Tapping it opens `/app/kvm?approve=<id>`: the KVM tab (after sign-in) with that action shown first. The link names an action and grants nothing: opening it does not answer anything, and answering needs a signed-in person.
