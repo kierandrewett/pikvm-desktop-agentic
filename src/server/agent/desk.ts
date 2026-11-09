@@ -13,6 +13,7 @@ import {
     type Point,
     type Region,
     type ScreenInfo,
+    type ScreenWatchReport,
     type Shot,
     type WaitResult,
 } from "@pikvm/mcp";
@@ -37,6 +38,7 @@ import { FP_SETTLE, fpDiff } from "../../ambient/fingerprint";
 import type { ImageOps } from "../../image-ops";
 import type { ActivityStore } from "./activity";
 import type { OperatorPresence } from "./presence";
+import type { ScreenWaits, WaitView } from "../watch/screen-wait";
 import { listenToTarget } from "./audio";
 
 /**
@@ -92,6 +94,11 @@ export interface DeskOptions {
     connectMs?: number;
     /** Test seam: the socket factory the link uses. */
     socket?: SocketFactory;
+    /**
+     * The agent's screen waits (watch/screen-wait.ts), read at each call: the desk is made before the watch service it needs, and a host
+     * with no watch has none. Absent, the three watch tools say they are not available here.
+     */
+    screenWaits?: () => ScreenWaits | undefined;
 }
 
 export interface RunLifecycle {
@@ -511,6 +518,43 @@ export function createDesk(options: DeskOptions): AgentDesk {
         options.onPointer?.({ x: fracToNorm(at.fx), y: fracToNorm(at.fy) }, link?.isAbsolute() === true);
     };
 
+    // ---- screen waits ------------------------------------------------------------------------
+
+    const screenWaits = (): ScreenWaits => {
+        const waits = options.screenWaits?.();
+        if (!waits) throw new DeskError("watch_unavailable", "Screen waits are not available on this host.");
+        return waits;
+    };
+
+    /** The host's refusal (watch/service.ts) as an error the model can act on. Checked by name: this file is imported by the service. */
+    const watchRefusal = (error: unknown): unknown => {
+        if (error instanceof Error && error.name === "WatchRefusal") {
+            return new DeskError(Reflect.get(error, "status") === 400 ? "invalid_arguments" : "watch_unavailable", error.message);
+        }
+        return error;
+    };
+
+    const noSuchWatch = (): DeskError =>
+        new DeskError("no_such_watch", "This conversation has no screen wait with that id. It was never started, or it ended more than 30 minutes ago.");
+
+    const seconds = (ms: number): number => Math.round(ms / 1000);
+
+    const reportOf = (view: WaitView): ScreenWatchReport => ({
+        id: view.id,
+        status: view.status,
+        question: view.question,
+        elapsedSeconds: seconds(view.elapsedMs),
+        changes: view.changes,
+        asked: view.asked,
+        repeated: view.repeated,
+        skipped: view.skipped,
+        dropped: view.dropped,
+        bestProbability: view.bestProbability,
+        ...(view.match ? { match: { probability: view.match.probability, excerpt: view.match.excerpt, atSeconds: seconds(view.match.atMs) } } : {}),
+        ...(view.reason !== undefined ? { reason: view.reason } : {}),
+        screen: view.screen,
+    });
+
     // ---- the Desk port -----------------------------------------------------------------------
 
     const desk: AgentDesk = {
@@ -546,6 +590,8 @@ export function createDesk(options: DeskOptions): AgentDesk {
 
         stop(conversationId) {
             for (const id of conversationId ? [conversationId] : [...runs.keys()]) release(id, "stopped");
+            // Stop is the person saying: no more. A watch left running would go on reading the screen and asking a model for an agent that was told to stop.
+            options.screenWaits?.()?.cancelFor(conversationId);
         },
 
         handBack() {
@@ -809,6 +855,42 @@ export function createDesk(options: DeskOptions): AgentDesk {
             }
         },
 
+        async watchScreen(session, request) {
+            const waits = screenWaits();
+            // The whole screen unless the agent gave a rectangle of its screenshot, which is turned into fractions of the screen.
+            let zone = { x0: 0, y0: 0, x1: 1, y1: 1 };
+            if (request.region) {
+                const frame = currentFrame(session.conversationId);
+                const area = regionToNative(frame.reference, frame.native, request.region);
+                if (!area) throw new DeskError("invalid_arguments", `The region is outside the ${frame.reference.width}x${frame.reference.height} screenshot.`);
+                zone = {
+                    x0: area.x / frame.native.width,
+                    y0: area.y / frame.native.height,
+                    x1: (area.x + area.width) / frame.native.width,
+                    y1: (area.y + area.height) / frame.native.height,
+                };
+            }
+            let started: WaitView;
+            try {
+                started = waits.start(session.conversationId, { question: request.question, zone, timeoutMs: request.timeoutSeconds * 1000 });
+            } catch (error) {
+                throw watchRefusal(error);
+            }
+            return reportOf((await waits.wait(session.conversationId, started.id, request.waitSeconds * 1000, session.signal)) ?? started);
+        },
+
+        async watchResult(session, id, waitSeconds) {
+            const view = await screenWaits().wait(session.conversationId, id, waitSeconds * 1000, session.signal);
+            if (!view) throw noSuchWatch();
+            return reportOf(view);
+        },
+
+        async watchCancel(session, id) {
+            const view = screenWaits().cancel(session.conversationId, id);
+            if (!view) throw noSuchWatch();
+            return reportOf(view);
+        },
+
         async power(session, action) {
             const device = link?.store.getState().device;
             if (device?.atx && device.atx.enabled === false) {
@@ -844,6 +926,7 @@ export function createDesk(options: DeskOptions): AgentDesk {
             unsubscribePresence();
             clearInterval(sweepTimer);
             clearTimeout(idleTimer);
+            options.screenWaits?.()?.cancelFor();
             for (const run of runs.values()) run.abort.abort(new Error("the desk was disposed"));
             runs.clear();
             input?.releaseAll();

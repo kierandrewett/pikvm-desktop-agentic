@@ -1,6 +1,6 @@
 import { parseChord } from "@pikvm/kvm-engine/agent";
 import { z } from "zod";
-import type { Desk, DeskSession, PikvmPolicy, ScreenInfo, Shot } from "./types";
+import type { Desk, DeskSession, PikvmPolicy, ScreenInfo, ScreenWatchReport, Shot } from "./types";
 import { DeskError } from "./types";
 
 /**
@@ -46,6 +46,9 @@ export interface Tool {
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const INPUT: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
 const DESTRUCTIVE: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true };
+/** Starting a watch changes only what the server remembers; stopping one is the same each time. */
+const WATCH_START: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+const WATCH_STOP: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 const text = (value: string): ToolOutput => ({ content: [{ type: "text", text: value }] });
 
@@ -62,6 +65,29 @@ const region = z
         height: z.number().finite().min(1).transform(Math.round),
     })
     .describe("A rectangle of the screenshot, in its pixels");
+
+const watchId = z.string().trim().min(1).max(64).describe("The id watch_screen returned");
+/** Seconds a call itself may wait. The cap keeps it under the time most clients give a single tool call. */
+const waitSeconds = (fallback: number) =>
+    z.number().int().min(0).max(50).default(fallback).describe(`How long this call waits for an answer, in seconds, 0 to 50. Default ${fallback}.`);
+
+/** What the agent does next, for each way a screen wait stands. */
+function watchGuidance(report: ScreenWatchReport): string {
+    switch (report.status) {
+        case "watching":
+            return "Still watching: nothing has matched yet, which is not a no. Call watch_result with this id to keep waiting, or watch_cancel to stop.";
+        case "matched":
+            return "The screen matched. Take a screenshot to see it before you act: the match was read from text and may be partial.";
+        case "timed_out":
+            return "The time ran out before the screen matched. Take a screenshot to look for yourself, or start another wait.";
+        case "cancelled":
+            return "This wait was cancelled.";
+        case "failed":
+            return "This wait could not go on; the reason says why. Take a screenshot to look for yourself.";
+    }
+}
+
+const watchText = (report: ScreenWatchReport): ToolOutput => text(JSON.stringify({ ...report, guidance: watchGuidance(report) }));
 
 function describeIssues(error: z.ZodError): string {
     return error.issues.map((i) => `${i.path.length ? `${i.path.join(".")}: ` : ""}${i.message}`).join("; ");
@@ -346,6 +372,67 @@ export const tools: readonly Tool[] = [
         schema: noArgs,
         async run(desk, session) {
             return text(infoWords(await desk.info(session)));
+        },
+    }),
+
+    define({
+        name: "watch_screen",
+        title: "Watch the screen for something",
+        description:
+            "Wait for something to appear on the screen without taking screenshots in a loop: a notification, a message, a build finishing, a page loading. " +
+            "Give a plain yes/no question about what should be on the screen, such as \"Has a notification from Sam Rowe appeared?\". " +
+            "The server watches the screen (only `region`, if you give one) and, each time it changes and holds still, reads the part that changed and asks a decisions model your question about its text. A yes ends the wait. " +
+            "This call waits up to `wait_seconds` for that and returns. If nothing has matched yet the status is `watching` and the wait carries on in the server: call `watch_result` with the id to keep waiting, or `watch_cancel`. " +
+            "It stops by itself after `timeout_seconds`. Only text read from the part that changed is sent to the decisions model, never a picture, so it cannot answer questions about colour or layout. " +
+            "Needs a decisions model to be set up. At most 4 waits run at once.",
+        annotations: WATCH_START,
+        intent: "observe",
+        schema: z.object({
+            question: z
+                .string()
+                .trim()
+                .overwrite((value) => value.replace(/\s+/g, " "))
+                .min(1)
+                .max(500)
+                .describe("A yes/no question about what the screen should show, 500 characters at most"),
+            region: region.optional().describe("Watch only this rectangle of the screenshot. Needs a screenshot first. Default: the whole screen."),
+            timeout_seconds: z.number().int().min(10).max(3600).default(600).describe("How long the server keeps watching, 10 to 3600 seconds. Default 600."),
+            wait_seconds: waitSeconds(30),
+        }),
+        async run(desk, session, args) {
+            const report = await desk.watchScreen(session, {
+                question: args.question,
+                ...(args.region ? { region: args.region } : {}),
+                timeoutSeconds: args.timeout_seconds,
+                waitSeconds: args.wait_seconds,
+            });
+            return watchText(report);
+        },
+    }),
+
+    define({
+        name: "watch_result",
+        title: "Wait for a screen watch",
+        description:
+            "Wait up to `wait_seconds` more for a screen wait started with `watch_screen` to end, and report how it stands. " +
+            "A status of `watching` means it has not matched yet and carries on; call this again to keep waiting. `matched`, `timed_out`, `cancelled` and `failed` are final.",
+        annotations: READ_ONLY,
+        intent: "observe",
+        schema: z.object({ id: watchId, wait_seconds: waitSeconds(30) }),
+        async run(desk, session, args) {
+            return watchText(await desk.watchResult(session, args.id, args.wait_seconds));
+        },
+    }),
+
+    define({
+        name: "watch_cancel",
+        title: "Stop a screen watch",
+        description: "Stop a screen wait started with `watch_screen`, for example when you no longer need the answer. One that has already ended is reported as it ended.",
+        annotations: WATCH_STOP,
+        intent: "observe",
+        schema: z.object({ id: watchId }),
+        async run(desk, session, args) {
+            return watchText(await desk.watchCancel(session, args.id));
         },
     }),
 

@@ -321,11 +321,76 @@ on is not worth delivering late. A tap opens Chat.
   `push-subscriptions.json` to stop the notifications and keep the watch's log.
 - To stop sending pop-up text to a model: remove the chat model (Settings, Models). Nothing is asked of any model without one.
 
+## Agent screen waits (an agent waits for something on the screen)
+
+An agent can ask the server to watch the screen for it. It calls `watch_screen` with a yes/no question, for example "Has a
+notification from Sam Rowe appeared?". The server watches, and hands the answer back when the screen shows it. This replaces a loop
+of screenshots.
+
+It uses the same poller, grey grid, local OCR and Decisions model as the screen watch above. It sends no notification and writes no
+check log: the answer goes to the agent that asked.
+
+```mermaid
+flowchart LR
+    agent[agent: watch_screen with a question] --> wait[wait on the shared poller]
+    pi[PiKVM snapshot every 1 s] --> change[change in the watched part, held 1.2 s]
+    wait --> change
+    change --> ocr[OCR of the part that changed, on this host]
+    ocr --> ask[Decisions model: the question about that text]
+    ask -->|yes: 0.85 or more| back[handed back to the agent]
+    ask -->|no or maybe| change
+```
+
+1. **Start.** `watch_screen` takes `question` (500 characters at most), an optional `region` (a rectangle of the last screenshot) and
+   `timeout_seconds`. It refuses at once, with the reason, if this host cannot compare screenshots or read text, if no Decisions model is
+   set, or if four waits already run.
+2. **A change.** Any change counts, not only a pop-up: a page that finished loading is as good an answer as a toast. It must cover 0.3 % of
+   the watched cells (at least 8 cells) and hold still for 1.2 s. A pointer moving, a caret and a clock are under that.
+3. **The text.** The cells that changed, with two cells of margin, are cut out and read by the local OCR. A change with no letters or digits
+   is counted and not asked about. The same text is asked about once: a repeat reuses the first answer.
+4. **The question.** The text (4000 characters at most) goes to the Decisions model, with the agent's question. The model answers a
+   probability. **0.85 or more** is a yes and ends the wait. A lower answer, a maybe included, does not: the wait goes on and asks again at
+   the next change.
+5. **Hand back.** The call returns the status, the highest probability, and an excerpt (300 characters) of the matching text. The agent
+   then takes a screenshot to see it before it acts.
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Time the server watches | 10 to 3600 s, default 600 | A wait must end. |
+| Time one call waits | 0 to 50 s, default 30 | Most clients stop a call before one minute. |
+| Gap between questions | 4 s (`PIKVM_WATCH_MIN_GAP_SEC`) | The same gap as the pop-up watch. |
+| Changes waiting for a question | 8, oldest first | Past that the oldest is dropped, and counted. |
+| Questions in one wait | 200 | A screen that keeps changing must not cost for ever. |
+| Model failures in a row | 3 | Then the wait ends as `failed`. |
+| OCR time limit | 15 s | A large change takes longer to read than a toast. |
+| A finished result is kept | 30 minutes | The agent can still collect it. |
+
+The tools:
+
+| Tool | Arguments | Does |
+| --- | --- | --- |
+| `watch_screen` | `question`, `region?`, `timeout_seconds?`, `wait_seconds?` | Starts a wait, then waits up to `wait_seconds` for it. |
+| `watch_result` | `id`, `wait_seconds?` | Waits up to `wait_seconds` more, and reports how the wait stands. |
+| `watch_cancel` | `id` | Stops a wait. A wait that has ended is reported as it ended. |
+
+A status of `watching` is not an answer: the wait goes on in the server. The final statuses are `matched`, `timed_out`, `cancelled`
+and `failed`.
+
+A wait belongs to the conversation that started it. Another conversation sees "no such wait". Stop in the app cancels the waits of
+that conversation (or all of them, for Stop on everything). A restart of the host forgets every wait.
+
+What leaves this host is the text of the part of the screen that changed. It goes to the model set as the Decisions model (Settings,
+Models), and never as a picture. If that model is a chat model, the same question goes to it as a request for JSON.
+
+To stop this, remove the Decisions model: every `watch_screen` is then refused. The wait reads text only, so it cannot answer a
+question about colour or layout.
+
 ## MCP server (any agent, outside the app)
 
 The computer-use tools are available to any MCP client at **`<origin>/app/mcp`**:
 
-- Observe: `screenshot`, `read_text`, `wait`, `screen_info`, and [audio recording](mcp-audio.md).
+- Observe: `screenshot`, `read_text`, `wait`, `screen_info`, `watch_screen`, `watch_result`, `watch_cancel` (see
+  [agent screen waits](#agent-screen-waits-an-agent-waits-for-something-on-the-screen)), and [audio recording](mcp-audio.md).
 - Pointer: `mouse_move`, `click`, `drag`, and `scroll`.
 - Keyboard: `type_text` and `key`.
 

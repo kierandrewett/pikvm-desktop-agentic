@@ -124,6 +124,8 @@ export function startControlServer(
         presence,
         activity,
         maxEdge: () => chat?.maxEdge() ?? DEFAULT_MAX_EDGE,
+        // The watch service is made below, after chat; the desk asks for the waits only when an agent calls a watch tool.
+        screenWaits: () => watch.waits(OPERATOR_ID),
         // The idle jiggler returns to where the agent left the pointer, not to a stale spot.
         onPointer: (norm, absolute) => {
             if (absolute) control.noteObservedMouse(norm.x, norm.y);

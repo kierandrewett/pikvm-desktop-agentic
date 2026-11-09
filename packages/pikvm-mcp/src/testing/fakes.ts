@@ -11,6 +11,7 @@ import {
     type Point,
     type Region,
     type ScreenInfo,
+    type ScreenWatchReport,
     type Shot,
     type WaitResult,
 } from "../types";
@@ -50,6 +51,10 @@ export interface FakeDesk extends Desk {
     /** Runs inside every action; throw a DeskError to fail it. */
     onAction: ((method: string) => void | Promise<void>) | null;
     reference: FrameSize;
+    /** What every screen watch call answers. */
+    watchReport: ScreenWatchReport;
+    /** The next screen watch call throws this. */
+    watchError: DeskError | null;
 }
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
@@ -63,6 +68,20 @@ export function createFakeDesk(): FakeDesk {
         openError: null,
         onAction: null,
         reference: { width: 1280, height: 720 },
+        watchReport: {
+            id: "w-fake",
+            status: "watching",
+            question: "",
+            elapsedSeconds: 0,
+            changes: 0,
+            asked: 0,
+            repeated: 0,
+            skipped: 0,
+            dropped: 0,
+            bestProbability: null,
+            screen: "signal",
+        },
+        watchError: null,
         async open(call: DeskCall, intent) {
             record("open", call.conversationId, intent);
             if (desk.openError) throw desk.openError;
@@ -144,6 +163,21 @@ export function createFakeDesk(): FakeDesk {
         async wait(_s, ms: number, untilStable: boolean): Promise<WaitResult> {
             record("wait", ms, untilStable);
             return { waitedMs: ms, ...(untilStable ? { stable: true } : {}) };
+        },
+        async watchScreen(_s, request) {
+            record("watchScreen", request);
+            if (desk.watchError) throw desk.watchError;
+            return desk.watchReport;
+        },
+        async watchResult(_s, id, waitSeconds) {
+            record("watchResult", id, waitSeconds);
+            if (desk.watchError) throw desk.watchError;
+            return desk.watchReport;
+        },
+        async watchCancel(_s, id) {
+            record("watchCancel", id);
+            if (desk.watchError) throw desk.watchError;
+            return desk.watchReport;
         },
         approving(_s, tool, waiting) {
             record("approving", tool, waiting);

@@ -409,12 +409,15 @@ Model-visible names are `mcp__pikvm_<tool>`. Every coordinate is an integer in t
 | `key` | `keys` | One or more chords such as `ctrl+c`; modifiers always released | risky for the 4.4 list |
 | `wait` | `ms?, until_stable?` | Pause, or wait for two identical frames (the existing "settled" rule) | observe |
 | `screen_info` | none | Resolution, mouse mode, HID and source online, who holds control | observe |
+| `watch_screen` | `question, region?, timeout_seconds?, wait_seconds?` | Starts a server-side wait for a change on the screen that answers the question, and waits up to `wait_seconds` for it | observe |
+| `watch_result` | `id, wait_seconds?` | Waits up to `wait_seconds` more for that wait to end, and reports how it stands | observe |
+| `watch_cancel` | `id` | Stops the wait | observe |
 | `power` | `action` | ATX on, off or reset. Off by default (`agent.pikvm.allowPower`) | always approve |
 
 Not offered: raw HID, virtual media, GPIO, paste-as-print, stream settings. The operator uses the KVM tab for those.
 
 Tools return text errors the model can act on, not protocol errors: `control_released`, `stale_frame`,
-`target_offline`, `another_conversation_holds_control`, `approval_denied`.
+`target_offline`, `another_conversation_holds_control`, `approval_denied`, `watch_unavailable`, `no_such_watch`.
 
 ### 4.2 Coordinate system
 
@@ -478,7 +481,7 @@ Initial risky set, to be tuned from use. The Python harness's `dangerous_commits
 - `type_text` containing a newline, or over 200 characters.
 - Any input when the Desk has no screenshot from the last 30 s.
 
-Never asked: `screenshot`, `read_text`, `wait`, `screen_info`, plain `click`, `mouse_move`, `scroll`, and short
+Never asked: `screenshot`, `read_text`, `wait`, `screen_info`, `watch_screen`, `watch_result`, `watch_cancel`, plain `click`, `mouse_move`, `scroll`, and short
 single-line `type_text`. A denial returns `approval_denied`, and the model is told not to retry the same action.
 
 ### 4.5 Cursor takeover

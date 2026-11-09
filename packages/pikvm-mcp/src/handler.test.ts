@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPikvmMcp, type McpCaller, type PikvmMcpOptions } from "./handler";
 import { MAX_LOOK_AGE_MS, MAX_PLAIN_TYPE_CHARS } from "./risk";
 import { createFakeApprover, createFakeDesk, createTestClient, inProcessTransport } from "./testing/index";
-import { DeskError, FRAME_META_KEY, defaultPolicy, type FrameSink, type PikvmPolicy } from "./types";
+import { DeskError, FRAME_META_KEY, defaultPolicy, type FrameSink, type PikvmPolicy, type ScreenWatchReport } from "./types";
 
 function setup(overrides: Partial<PikvmMcpOptions> = {}, caller: Partial<McpCaller> = {}) {
     const desk = createFakeDesk();
@@ -493,5 +493,93 @@ describe("frames for the person", () => {
         for (let i = 0; i < 70; i++) await as(`other${i}`).call("screenshot");
         expect((await as("first").call("click", { x: 1, y: 1 })).meta).toBeUndefined();
         expect((await as("other69").call("click", { x: 1, y: 1 })).meta).toBeDefined();
+    });
+});
+
+describe("waiting for something to appear on the screen", () => {
+    const report = (over: Partial<ScreenWatchReport> | Record<string, unknown> = {}): ScreenWatchReport =>
+        ({
+            id: "w-abc",
+            status: "watching",
+            question: "Has Sam written?",
+            elapsedSeconds: 3,
+            changes: 0,
+            asked: 0,
+            repeated: 0,
+            skipped: 0,
+            dropped: 0,
+            bestProbability: null,
+            screen: "signal",
+            ...over,
+        }) as ScreenWatchReport;
+    const json = (text: string): Record<string, any> => JSON.parse(text);
+
+    it("offers the three tools, and using them needs no screenshot, no approval and no input", async () => {
+        const { client, desk, approver } = setup();
+        const names = (await client.listTools()).map((t) => t.name);
+        expect(names).toEqual(expect.arrayContaining(["watch_screen", "watch_result", "watch_cancel"]));
+        desk.watchReport = report();
+        await client.call("watch_screen", { question: "Has Sam written?" });
+        await client.call("watch_result", { id: "w-abc" });
+        await client.call("watch_cancel", { id: "w-abc" });
+        expect(approver.requests).toEqual([]);
+        expect(desk.calls.filter((c) => c.method === "open").map((c) => c.args[1])).toEqual(["observe", "observe", "observe"]);
+        expect(actions(desk.calls)).toEqual(["watchScreen", "watchResult", "watchCancel"]);
+    });
+
+    it("hands the desk the question, the region and the limits, tidied, with the defaults the agent did not give", async () => {
+        const { client, desk } = setup();
+        desk.watchReport = report();
+        await client.call("watch_screen", { question: "  Has Sam\n written?  " });
+        await client.call("watch_screen", { question: "Is the build green?", region: { x: 10.4, y: 20, width: 300, height: 100 }, timeout_seconds: 120, wait_seconds: 0 });
+        const asked = desk.calls.filter((c) => c.method === "watchScreen").map((c) => c.args[0]);
+        expect(asked[0]).toEqual({ question: "Has Sam written?", timeoutSeconds: 600, waitSeconds: 30 });
+        expect(asked[1]).toEqual({ question: "Is the build green?", region: { x: 10, y: 20, width: 300, height: 100 }, timeoutSeconds: 120, waitSeconds: 0 });
+    });
+
+    it("returns the report as JSON, and tells the agent what to do next whichever way it ended", async () => {
+        const { client, desk } = setup();
+        const next = async (over: Record<string, unknown>) => {
+            desk.watchReport = report(over);
+            return json((await client.call("watch_result", { id: "w-abc" })).text);
+        };
+        const watching = await next({});
+        expect(watching).toMatchObject({ id: "w-abc", status: "watching", asked: 0, bestProbability: null });
+        expect(watching["guidance"]).toContain("watch_result");
+        const matched = await next({ status: "matched", asked: 2, bestProbability: 0.93, match: { probability: 0.93, excerpt: "Sam Rowe / Are you free?", atSeconds: 41 } });
+        expect(matched).toMatchObject({ status: "matched", match: { probability: 0.93, excerpt: "Sam Rowe / Are you free?" } });
+        expect(matched["guidance"]).toContain("screenshot");
+        for (const status of ["timed_out", "cancelled", "failed"]) {
+            const ended = await next({ status, reason: "because" });
+            expect(ended).toMatchObject({ status, reason: "because" });
+            expect(ended["guidance"]).not.toContain("watch_result");
+        }
+    });
+
+    it.each([
+        ["an empty question", "watch_screen", { question: "   " }],
+        ["a question over 500 characters", "watch_screen", { question: "x".repeat(501) }],
+        ["a time under 10 seconds", "watch_screen", { question: "q", timeout_seconds: 5 }],
+        ["a time over an hour", "watch_screen", { question: "q", timeout_seconds: 3601 }],
+        ["a wait over 50 seconds", "watch_screen", { question: "q", wait_seconds: 51 }],
+        ["a wait in the past", "watch_result", { id: "w-abc", wait_seconds: -1 }],
+        ["no id", "watch_result", {}],
+        ["no id to cancel", "watch_cancel", {}],
+    ] as const)("%s never reaches the desk", async (_name, tool, args) => {
+        const { client, desk } = setup();
+        const result = await client.call(tool, args);
+        expect(result.isError).toBe(true);
+        expect(result.text).toMatch(/^invalid_arguments:/);
+        expect(desk.calls).toEqual([]);
+    });
+
+    it.each([
+        ["watch_unavailable", "Screen waits need a Decisions model, and none is set."],
+        ["no_such_watch", "No screen wait has that id."],
+    ] as const)("%s from the desk is the text of a failed result", async (code, message) => {
+        const { client, desk } = setup();
+        desk.watchError = new DeskError(code, message);
+        const result = await client.call("watch_screen", { question: "Has Sam written?" });
+        expect(result).toMatchObject({ isError: true, text: `${code}: ${message}` });
     });
 });

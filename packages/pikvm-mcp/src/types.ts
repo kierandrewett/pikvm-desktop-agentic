@@ -43,6 +43,8 @@ export type DeskErrorCode =
     | "power_disabled"
     | "unsupported_text"
     | "no_conversation"
+    | "watch_unavailable"
+    | "no_such_watch"
     | "try_another_way";
 
 export class DeskError extends Error {
@@ -132,6 +134,41 @@ export interface WaitResult {
     readonly stable?: boolean;
 }
 
+/** What an agent asks of the server to watch for: a yes/no question, the part of the screen to look at, and how long. */
+export interface ScreenWatchRequest {
+    readonly question: string;
+    /** A rectangle of the reference frame. Absent: the whole screen. */
+    readonly region?: Region;
+    /** How long the server keeps watching, in seconds. */
+    readonly timeoutSeconds: number;
+    /** How long this call itself waits for an answer before it hands back what it has, in seconds. 0 hands back at once. */
+    readonly waitSeconds: number;
+}
+
+/** How a screen wait stands. `watching` is not an answer: the wait goes on in the server until it matches, runs out of time or is cancelled. */
+export interface ScreenWatchReport {
+    readonly id: string;
+    readonly status: "watching" | "matched" | "timed_out" | "cancelled" | "failed";
+    readonly question: string;
+    readonly elapsedSeconds: number;
+    /** Changes of the watched part that held still. */
+    readonly changes: number;
+    /** Times the Decisions model was asked the question. */
+    readonly asked: number;
+    /** Changes whose text had been asked about already. */
+    readonly repeated: number;
+    /** Changes with no readable text. */
+    readonly skipped: number;
+    /** Changes dropped unasked because too many were waiting. */
+    readonly dropped: number;
+    /** The highest probability of yes any answer gave, or null before the first. */
+    readonly bestProbability: number | null;
+    readonly match?: { readonly probability: number; readonly excerpt: string; readonly atSeconds: number };
+    readonly reason?: string;
+    /** Whether the PiKVM shows a picture. With no signal there is nothing to change. */
+    readonly screen: "signal" | "no-signal" | "unknown";
+}
+
 /** kvmd's default is a send-side setting. It does not identify the target OS keyboard layout. */
 export interface TextEntryResult extends TypingAnalysis {
     readonly kvmdDefaultKeymap: string | null;
@@ -155,6 +192,12 @@ export interface Desk {
     /** Chords in the notation `parseChord` reads. The handler has already parsed them, so they are well formed. */
     key(session: DeskSession, chords: readonly string[]): Promise<void>;
     wait(session: DeskSession, ms: number, untilStable: boolean): Promise<WaitResult>;
+    /** Start watching for a change on the screen that answers a question, and wait up to `waitSeconds` for it. */
+    watchScreen(session: DeskSession, request: ScreenWatchRequest): Promise<ScreenWatchReport>;
+    /** Wait up to `waitSeconds` more for a screen wait to end. */
+    watchResult(session: DeskSession, id: string, waitSeconds: number): Promise<ScreenWatchReport>;
+    /** Stop a screen wait. One that has ended is reported as it ended. */
+    watchCancel(session: DeskSession, id: string): Promise<ScreenWatchReport>;
     /** Returns a sentence saying what happened. */
     power(session: DeskSession, action: "on" | "off" | "reset"): Promise<string>;
     /**

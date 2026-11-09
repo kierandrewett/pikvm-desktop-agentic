@@ -84,6 +84,7 @@ const INSTRUCTIONS = [
     "After any action that may change the screen, take another screenshot before the next one. Do not guess where things are.",
     "If a result says control_released, a person took over the mouse or keyboard: stop, and ask them to hand control back. Do not try again.",
     "If a result says approval_denied, the person said no: do not repeat the same action.",
+    "To wait for something to appear (a notification, a message, a finished build), use `watch_screen` with a yes/no question instead of taking screenshots in a loop.",
 ].join("\n");
 
 const rpcResult = (message: JsonRpcRequest, result: unknown): JsonRpcResponse => ({
