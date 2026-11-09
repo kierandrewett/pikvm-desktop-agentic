@@ -9,6 +9,7 @@ import { createOcrEngine } from "./ocr-engine";
 import { createPresence, type PresenceReport } from "./presence";
 import type { Ocr } from "./ocr";
 import { createPush, PushError, type Push, type SendResult } from "./push";
+import { createScreenWaits, type ScreenWaits } from "./screen-wait";
 import { createWatchStore, SettingsError, type WatchStore } from "./store";
 import { createWatcher, type Snapshot, type Watcher } from "./watcher";
 
@@ -82,6 +83,8 @@ export interface WatchService {
      * `url` is the page a tap opens: Chat by default, the KVM tab for an outside client's action.
      */
     agentNeeds(userId: string, conversationId: string, kind: "approval" | "question" | "input", url?: string): void;
+    /** The agent's screen waits for this user (screen-wait.ts): a yes/no question about the screen, asked of the Decisions model as it changes. */
+    waits(userId: string): ScreenWaits;
     /** The shared poller, for tests and status. */
     readonly watcher: Watcher;
     stop(): void;
@@ -116,6 +119,7 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
     const pipelines = new Map<string, Alerts>();
     const presence = createPresence(now);
     const { images } = deps;
+    const waitsByUser = new Map<string, ScreenWaits>();
 
     const snapshot =
         deps.snapshot ??
@@ -302,6 +306,32 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
 
         presence: (userId, clientId, report) => presence.report(userId, clientId, report),
 
+        waits(userId) {
+            let waits = waitsByUser.get(userId);
+            if (!waits) {
+                waits = createScreenWaits({
+                    watcher,
+                    ocr,
+                    limits: deps.limits,
+                    now,
+                    log,
+                    canRead: canEnable,
+                    hasDecisionModel: () => {
+                        try {
+                            return deps.chat.hasDecisionModel(userId);
+                        } catch {
+                            return false;
+                        }
+                    },
+                    decide: (request) => deps.chat.decide(userId, request),
+                    crop: cropCells,
+                    refuse: (message, status) => new WatchRefusal(message, status),
+                });
+                waitsByUser.set(userId, waits);
+            }
+            return waits;
+        },
+
         agentNeeds(userId, conversationId, kind, url = "/app/chat") {
             try {
                 if (!store.read(userId).notifyAgent) return;
@@ -318,6 +348,8 @@ export function createWatchService(deps: WatchServiceDeps): WatchService {
         },
 
         stop() {
+            for (const waits of waitsByUser.values()) waits.cancelFor();
+            waitsByUser.clear();
             pipelines.clear();
             watcher.stop();
             ocr.close();

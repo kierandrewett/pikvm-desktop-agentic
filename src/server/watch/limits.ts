@@ -117,6 +117,41 @@ export const NO_SIGNAL_LOOKS = 2;
 /** The rule text is for a sentence or two; a larger one only makes every request dearer. */
 export const MAX_RULE_CHARS = 500;
 
+/**
+ * The agent's screen waits (screen-wait.ts): an agent asks a yes/no question about the screen and the Decisions model is asked it
+ * whenever the watched part changes and holds still. Unlike the pop-up watch there is no corner and no ceiling on how much changes: a
+ * page that finished loading is as good an answer as a toast.
+ */
+/** A Decisions answer at or above this is a yes, and ends the wait. Below it, including a maybe, the wait goes on. Jev's own advice for a decisive answer. */
+export const WAIT_MATCH_AT = 0.85;
+/**
+ * The fraction of the watched cells that must change for it to count. The pop-up watch uses 1.5% of its small corner; the whole screen is
+ * six times larger, so a toast is 1.3% to 2.3% of it. 0.3% is 28 cells of the grid: over the noisiest noise measured (0.43% of the corner, 7
+ * cells, so under 0.1% of the screen) and under the weakest toast measured (116 cells).
+ */
+export const WAIT_CHANGE_FRACTION = 0.003;
+/** A watched region so small that the fraction is under this many cells still needs this many to change: one cell is noise. */
+export const WAIT_MIN_CELLS = 8;
+/** Changes that arrive while a question is being answered wait their turn, oldest first. Past this the oldest is dropped, and counted. */
+export const WAIT_QUEUE = 8;
+/** A wait that has asked this many times without a yes ends: something on the screen keeps changing and a model is paying for it. */
+export const WAIT_MAX_ASKS = 200;
+/** The Decisions model failing this many times in a row ends the wait. */
+export const WAIT_MAX_FAILURES = 3;
+/** Waits running at once on one host. Each one costs a look's worth of work per second only once (the poller is shared), and a question per change. */
+export const WAIT_MAX_ACTIVE = 4;
+/** A whole screen, or a large part of it, takes longer to read than a toast's corner. */
+export const WAIT_OCR_TIMEOUT_MS = 15_000;
+/** The most screen text one question carries. Jev's advice is under about 32 KB of text; this is far under it. */
+export const WAIT_TEXT_CHARS = 4000;
+/** How much of the matching text is handed back to the agent. */
+export const WAIT_EXCERPT_CHARS = 300;
+export const WAIT_QUESTION_CHARS = 500;
+export const WAIT_MIN_TIMEOUT_MS = 10_000;
+export const WAIT_MAX_TIMEOUT_MS = 3_600_000;
+/** A wait that has ended keeps its answer this long for the agent to collect. */
+export const WAIT_KEEP_MS = 30 * 60_000;
+
 export interface WatchLimits {
     intervalMs: number;
     settleMs: number;

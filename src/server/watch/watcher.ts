@@ -30,15 +30,18 @@ export interface WatcherDeps {
     log?(line: string): void;
 }
 
+/** What the poller needs of a pipeline: a pop-up watch (alerts.ts) or an agent's screen wait (screen-wait.ts). */
+export type Pipeline = Pick<Alerts, "look" | "wakeAt">;
+
 /** The least wait before an extra look for a pending corner change: a change already due is looked at at once, but not in a tight loop. */
 const MIN_WAKE_MS = 50;
 
 export type SignalState = "unknown" | "signal" | "no-signal";
 
 export interface Watcher {
-    attach(userId: string, pipeline: Alerts): void;
-    detach(userId: string): void;
-    /** How many users are attached. The poller runs while this is above zero. */
+    attach(key: string, pipeline: Pipeline): void;
+    detach(key: string): void;
+    /** How many pipelines are attached. The poller runs while this is above zero. */
     readonly size: number;
     readonly running: boolean;
     readonly signal: SignalState;
@@ -48,7 +51,7 @@ export interface Watcher {
 }
 
 export function createWatcher(deps: WatcherDeps): Watcher {
-    const pipelines = new Map<string, Alerts>();
+    const pipelines = new Map<string, Pipeline>();
     const schedule = deps.schedule ?? ((fn: () => void, ms: number) => {
         const timer = setTimeout(fn, ms);
         timer.unref();
@@ -72,7 +75,7 @@ export function createWatcher(deps: WatcherDeps): Watcher {
         return delay;
     }
 
-    const each = (fn: (pipeline: Alerts) => void): void => {
+    const each = (fn: (pipeline: Pipeline) => void): void => {
         for (const [userId, pipeline] of pipelines) {
             try {
                 fn(pipeline);
@@ -142,12 +145,12 @@ export function createWatcher(deps: WatcherDeps): Watcher {
     }
 
     return {
-        attach(userId, pipeline) {
-            pipelines.set(userId, pipeline);
+        attach(key, pipeline) {
+            pipelines.set(key, pipeline);
             startLoop();
         },
-        detach(userId) {
-            pipelines.delete(userId);
+        detach(key) {
+            pipelines.delete(key);
             if (pipelines.size === 0) stopLoop();
         },
         get size() {
