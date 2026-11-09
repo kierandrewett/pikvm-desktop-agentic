@@ -159,14 +159,15 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
                         <button
                             ref={audioButton}
                             type="button"
-                            className={`kvm-tb-btn kvm-av${audio.audioOn ? " on" : ""}`}
+                            className={`kvm-tb-btn kvm-av${audio.audioOn && !audio.blocked ? " on" : ""}`}
                             data-tb="audio"
-                            aria-pressed={audio.audioOn}
+                            {...(audio.blocked ? { "data-waiting": "true" } : {})}
+                            aria-pressed={audio.audioOn && !audio.blocked}
                             aria-label="Audio output"
-                            title="Audio output"
+                            title={audio.blocked ? "Tap to turn on sound" : "Audio output"}
                             onClick={() => controller?.toggleAudio()}
                         >
-                            {audio.audioOn ? <SpeakerHigh weight="fill" /> : <SpeakerSimpleNone />}
+                            {audio.audioOn && !audio.blocked ? <SpeakerHigh weight="fill" /> : <SpeakerSimpleNone />}
                         </button>
                         {audioDevicesSupported() && speakerSelectionSupported() ? <DeviceMenu kind="audio" /> : null}
                         <button

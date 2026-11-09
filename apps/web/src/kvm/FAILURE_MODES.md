@@ -65,3 +65,7 @@ The screen stays mounted for the whole visit (see `app/panes.tsx`), so "mounted"
 - K35. The page's input socket URL carries its client id, so the host can say whose moves are whose.
 - K36. The picture draws what it is told: the trackpad blob moves with the cursor, or (mouse, direct touch, a relative trackpad) a distinct marker for somebody else's pointer; the same point of the picture after a resize.
 - K37. A page that is moving the pointer is not moved by another client, and nothing it is told is ever sent to the target.
+
+## Audio on a phone
+
+- K38. The picture starts muted, and Safari refuses to unmute it unless the attempt runs inside a real user gesture. A touch counts as one when it is released (`pointerup`, `touchend`, `click`), not when it lands (`pointerdown`), so waiting for the first touch to LAND left an iPhone silent however often it was tapped. The unmute is tried on the first release of a touch, a click or a key press, once, and the waiting stops the moment it has run or is cancelled.

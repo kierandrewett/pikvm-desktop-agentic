@@ -34,6 +34,7 @@ import {
 import { attentionSink } from "./attention";
 import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
+import { onNextActivation } from "./gesture-unmute";
 import { buzz } from "./haptics";
 import { createJanusBridge } from "./janus-stream";
 import { createScreenAlerts } from "./screen-alerts";
@@ -56,6 +57,8 @@ export interface AudioState {
     /** A WebRTC session is carrying the picture, so there is audio to switch (MJPEG has none). */
     readonly available: boolean;
     readonly audioOn: boolean;
+    /** Sound is wanted but the browser has not allowed it yet: it waits for a tap (Safari, K38). */
+    readonly blocked: boolean;
     readonly micOn: boolean;
     /** What the mic pip says: "On", "Off", "...", "Denied", "No mic", "Mic gone". */
     readonly micLabel: string;
@@ -135,7 +138,7 @@ const METER_IDLE_MS = 500;
 /** The machine's environment is read-only to it; a patch is built up key by key. */
 type EnvPatch = { -readonly [K in keyof PointerEnv]?: PointerEnv[K] };
 
-const initialAudio: AudioState = { available: false, audioOn: true, micOn: false, micLabel: "Off", micWarn: false };
+const initialAudio: AudioState = { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false };
 
 /** The pointer machine treats "a dialog is open" and "another tab is in front" the same way: it lets go of what it holds and takes no gestures; so does the agent holding the target. */
 const pointerBlocked = (p: Pick<PicturePrefs, "modalOpen" | "active" | "locked">): boolean => p.modalOpen || !p.active || p.locked;
@@ -340,6 +343,7 @@ export function createPictureController(options: PictureOptions): PictureControl
     let audioOn = true;
     let micOn = false;
     let gestureArmed = false;
+    let cancelGestureUnmute: (() => void) | null = null;
     let cancelReenable: (() => void) | null = null;
     const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome|CriOS|Chromium|Android/.test(navigator.userAgent);
 
@@ -353,21 +357,29 @@ export function createPictureController(options: PictureOptions): PictureControl
     // picture playing and unmute on the next interaction instead.
     const tryUnmute = (): void => {
         video.muted = false;
-        void video.play().catch(() => {
-            video.muted = true;
-            void video.play().catch(() => {});
-            armGestureUnmute();
-        });
+        void video.play().then(
+            () => patchAudio({ blocked: false }),
+            () => {
+                video.muted = true;
+                void video.play().catch(() => {});
+                armGestureUnmute();
+            },
+        );
     };
     function armGestureUnmute(): void {
+        patchAudio({ blocked: true });
         if (gestureArmed) return;
         gestureArmed = true;
-        const handler = (): void => {
-            document.removeEventListener("pointerdown", handler, true);
+        session.notices.notify({ text: "Tap anywhere to turn on sound" });
+        // A touch is a gesture Safari accepts when it is released, not when it lands (gesture-unmute.ts, K38).
+        cancelGestureUnmute = onNextActivation(document, (event) => {
             gestureArmed = false;
+            cancelGestureUnmute = null;
+            // A tap on the speaker button is that button's own press: its click turns the sound on (toggleAudio),
+            // and unmuting here first would let the click turn it straight back off.
+            if (event.target instanceof Element && event.target.closest('[data-tb="audio"], [data-setting="audio"]')) return;
             if (audioOn && store.getState().webrtc && video.muted) tryUnmute();
-        };
-        document.addEventListener("pointerdown", handler, true);
+        });
     }
 
     const applySink = (): void => {
@@ -569,11 +581,19 @@ export function createPictureController(options: PictureOptions): PictureControl
             applyView(IDENTITY_VIEW);
         },
         toggleAudio() {
+            // Sound is wanted but still waiting for a tap: this press is the tap, so it turns sound on, not off.
+            if (audioOn && store.getState().webrtc && video.muted) {
+                cancelGestureUnmute?.();
+                cancelGestureUnmute = null;
+                gestureArmed = false;
+                tryUnmute();
+                return;
+            }
             audioOn = !audioOn;
             video.muted = !audioOn;
             if (audioOn) void video.play().catch(() => {});
             janus.current()?.setAudio(audioOn);
-            patchAudio({ audioOn });
+            patchAudio({ audioOn, blocked: false });
             showResolution(true);
             startMeters();
             if (!audioOn) scheduleReenable();
@@ -645,6 +665,7 @@ export function createPictureController(options: PictureOptions): PictureControl
             cancelResHide?.();
             cancelResEmpty?.();
             cancelReenable?.();
+            cancelGestureUnmute?.();
             if (meterRaf) cancelAnimationFrame(meterRaf);
             clearTimeout(meterTimer ?? undefined);
             painter?.dispose();

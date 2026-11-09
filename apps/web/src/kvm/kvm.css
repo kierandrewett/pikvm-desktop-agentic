@@ -517,6 +517,11 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 .kvm-av.warn {
     color: var(--warn);
 }
+/* Sound is wanted but waiting for a tap (K38): the speaker pulses so it is clear something is asked of you. */
+.kvm-av[data-waiting] {
+    color: var(--primary);
+    animation: kvm-agent-pulse 1.4s ease-in-out infinite;
+}
 .kvm-av::before {
     content: "";
     position: absolute;
@@ -1072,6 +1077,9 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
     }
     .kvm-av::before {
         transition: none;
+    }
+    .kvm-av[data-waiting] {
+        animation: none;
     }
 }
 

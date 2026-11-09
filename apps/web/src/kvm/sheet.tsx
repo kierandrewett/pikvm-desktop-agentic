@@ -170,13 +170,13 @@ export function Sheet(props: SheetProps) {
                 <>
                     <button
                         type="button"
-                        className={`kvm-item toggle${audio.audioOn ? " on" : ""}`}
+                        className={`kvm-item toggle${audio.audioOn && !audio.blocked ? " on" : ""}`}
                         data-setting="audio"
-                        aria-pressed={audio.audioOn}
+                        aria-pressed={audio.audioOn && !audio.blocked}
                         onClick={() => controller?.toggleAudio()}
                     >
                         <span>Audio output</span>
-                        <span className="kvm-pip">{audio.audioOn ? "On" : "Off"}</span>
+                        <span className="kvm-pip">{audio.blocked ? "Tap to turn on" : audio.audioOn ? "On" : "Off"}</span>
                     </button>
                     <button
                         type="button"

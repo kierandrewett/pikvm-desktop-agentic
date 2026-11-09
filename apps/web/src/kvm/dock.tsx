@@ -146,13 +146,14 @@ export function Dock(props: DockProps) {
                         <button
                             ref={audioButton}
                             type="button"
-                            className={`kvm-ibtn kvm-av${audio.audioOn ? " on" : ""}`}
+                            className={`kvm-ibtn kvm-av${audio.audioOn && !audio.blocked ? " on" : ""}`}
                             data-tb="audio"
-                            aria-pressed={audio.audioOn}
+                            {...(audio.blocked ? { "data-waiting": "true", title: "Tap to turn on sound" } : {})}
+                            aria-pressed={audio.audioOn && !audio.blocked}
                             aria-label="Audio output"
                             onClick={() => controller?.toggleAudio()}
                         >
-                            {audio.audioOn ? <SpeakerHigh weight="fill" /> : <SpeakerSimpleNone />}
+                            {audio.audioOn && !audio.blocked ? <SpeakerHigh weight="fill" /> : <SpeakerSimpleNone />}
                         </button>
                         <button
                             ref={micButton}

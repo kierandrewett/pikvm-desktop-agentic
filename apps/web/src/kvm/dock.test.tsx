@@ -14,7 +14,7 @@ const idle: PictureState = {
     mode: "native",
     webrtc: false,
     scale: 1,
-    audio: { available: false, audioOn: true, micOn: false, micLabel: "Off", micWarn: false },
+    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false },
     res: { text: "", av: "", show: false },
     fullUi: false,
     hasFrame: true,
@@ -209,7 +209,7 @@ describe("the bar", () => {
         const { store, calls } = await mount();
         expect(screen.queryByRole("button", { name: "Audio output" })).toBeNull();
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, micOn: false, micLabel: "Off", micWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false } }));
         const speaker = screen.getByRole("button", { name: "Audio output" });
         const mic = screen.getByRole("button", { name: "Microphone" });
         expect(speaker).toHaveAttribute("aria-pressed", "true");
@@ -219,11 +219,26 @@ describe("the bar", () => {
         expect(calls.toggleAudio).toHaveBeenCalledTimes(1);
         expect(calls.toggleMic).toHaveBeenCalledTimes(1);
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, micOn: false, micLabel: "Denied", micWarn: true } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Denied", micWarn: true } }));
         expect(screen.getByRole("button", { name: "Microphone" })).toHaveAttribute("title", "Denied");
 
         act(() => store.setState(idle));
         expect(screen.queryByRole("button", { name: "Audio output" })).toBeNull();
+    });
+
+    it("K38: sound that is waiting for a tap says so on the speaker, and a tap on the speaker is the tap", async () => {
+        const { store, calls } = await mount();
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: true, micOn: false, micLabel: "Off", micWarn: false } }));
+        const speaker = screen.getByRole("button", { name: "Audio output" });
+        expect(speaker).toHaveAttribute("title", "Tap to turn on sound");
+        expect(speaker).toHaveAttribute("data-waiting", "true");
+        expect(speaker).toHaveAttribute("aria-pressed", "false");
+        fireEvent.click(speaker);
+        expect(calls.toggleAudio).toHaveBeenCalledTimes(1);
+
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false } }));
+        expect(screen.getByRole("button", { name: "Audio output" })).not.toHaveAttribute("data-waiting");
+        expect(screen.getByRole("button", { name: "Audio output" })).toHaveAttribute("aria-pressed", "true");
     });
 
     it("K13: the zoom-out button exists only while zoomed, and pressing it resets the view", async () => {
