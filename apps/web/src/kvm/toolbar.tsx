@@ -17,6 +17,7 @@ import {
     Keyboard,
     MagnifyingGlassMinus,
     Microphone,
+    Webcam,
     Power,
     SpeakerHigh,
     SpeakerSimpleNone,
@@ -183,6 +184,19 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
                             <Microphone weight={audio.micOn ? "fill" : "regular"} />
                         </button>
                         {audioDevicesSupported() ? <DeviceMenu kind="mic" /> : null}
+                        {audio.camAvailable ? (
+                            <button
+                                type="button"
+                                className={`kvm-tb-btn kvm-av${audio.camOn ? " on" : ""}${audio.camWarn ? " warn" : ""}`}
+                                data-tb="cam"
+                                aria-pressed={audio.camOn}
+                                aria-label="Camera"
+                                title={audio.camWarn ? audio.camLabel : "Camera"}
+                                onClick={() => controller?.toggleCam()}
+                            >
+                                <Webcam weight={audio.camOn ? "fill" : "regular"} />
+                            </button>
+                        ) : null}
                     </>
                 ) : null}
                 {picture.scale > 1 ? (

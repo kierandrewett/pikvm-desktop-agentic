@@ -26,7 +26,7 @@ const BLANK: PictureState = {
     mode: "detecting",
     webrtc: false,
     scale: 1,
-    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false },
+    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false },
     res: { text: "", av: "", show: false },
     fullUi: false,
     hasFrame: false,

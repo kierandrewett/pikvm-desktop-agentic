@@ -188,6 +188,18 @@ export function Sheet(props: SheetProps) {
                         <span>Microphone</span>
                         <span className="kvm-pip">{audio.micLabel}</span>
                     </button>
+                    {audio.camAvailable ? (
+                        <button
+                            type="button"
+                            className={`kvm-item toggle${audio.camOn ? " on" : ""}${audio.camWarn ? " warn" : ""}`}
+                            data-setting="cam"
+                            aria-pressed={audio.camOn}
+                            onClick={() => controller?.toggleCam()}
+                        >
+                            <span>Camera</span>
+                            <span className="kvm-pip">{audio.camLabel}</span>
+                        </button>
+                    ) : null}
                     <button type="button" className="kvm-item" onClick={() => { onClose(); props.openDialog("audio-devices"); }}>
                         Audio devices
                     </button>

@@ -63,6 +63,12 @@ export interface AudioState {
     /** What the mic pip says: "On", "Off", "...", "Denied", "No mic", "Mic gone". */
     readonly micLabel: string;
     readonly micWarn: boolean;
+    /** The Pi can carry a camera to the target (PiKVM V3/V4 with `ucamera`); without it there is no camera button. */
+    readonly camAvailable: boolean;
+    readonly camOn: boolean;
+    /** What the camera pip says: "On", "Off", "...", "Denied", "No camera". */
+    readonly camLabel: string;
+    readonly camWarn: boolean;
 }
 
 export interface ResolutionToast {
@@ -111,6 +117,7 @@ export interface PictureController {
     resetZoom(): void;
     toggleAudio(): void;
     toggleMic(): void;
+    toggleCam(): void;
     micDeviceChanged(): void;
     /** Show or hide the Pi's own UI over the picture: its stream is released while it is up. */
     setFullUi(on: boolean): void;
@@ -138,7 +145,18 @@ const METER_IDLE_MS = 500;
 /** The machine's environment is read-only to it; a patch is built up key by key. */
 type EnvPatch = { -readonly [K in keyof PointerEnv]?: PointerEnv[K] };
 
-const initialAudio: AudioState = { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false };
+const initialAudio: AudioState = {
+    available: false,
+    audioOn: true,
+    blocked: false,
+    micOn: false,
+    micLabel: "Off",
+    micWarn: false,
+    camAvailable: false,
+    camOn: false,
+    camLabel: "Off",
+    camWarn: false,
+};
 
 /** The pointer machine treats "a dialog is open" and "another tab is in front" the same way: it lets go of what it holds and takes no gestures; so does the agent holding the target. */
 const pointerBlocked = (p: Pick<PicturePrefs, "modalOpen" | "active" | "locked">): boolean => p.modalOpen || !p.active || p.locked;
@@ -342,6 +360,7 @@ export function createPictureController(options: PictureOptions): PictureControl
 
     let audioOn = true;
     let micOn = false;
+    let camOn = false;
     let gestureArmed = false;
     let cancelGestureUnmute: (() => void) | null = null;
     let cancelReenable: (() => void) | null = null;
@@ -351,6 +370,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         video,
         () => readDeviceChoice(MIC_DEVICE_KEY).id,
         () => audioOn,
+        (supported) => patchAudio({ camAvailable: supported }),
     );
 
     // Unmute without losing the picture: if the browser blocks it (no gesture), keep the muted
@@ -393,7 +413,7 @@ export function createPictureController(options: PictureOptions): PictureControl
     const avSummary = (): string => {
         // Only a WebRTC session carries audio at all; audioOn is a desired state that survives a drop.
         if (!store.getState().webrtc) return "";
-        return [audioOn ? "\u{1F50A}" : "", micOn ? "\u{1F399}" : ""].filter(Boolean).join(" ");
+        return [audioOn ? "\u{1F50A}" : "", micOn ? "\u{1F399}" : "", camOn ? "\u{1F4F7}" : ""].filter(Boolean).join(" ");
     };
 
     let resKey = "";
@@ -551,6 +571,12 @@ export function createPictureController(options: PictureOptions): PictureControl
         patchAudio({ micLabel: gone ? "No mic" : "Denied", micWarn: true });
     };
 
+    const camFailure = (error: unknown): void => {
+        const name = error instanceof Error ? error.name : "";
+        const gone = name === "OverconstrainedError" || name === "NotFoundError" || name === "DevicesNotFoundError";
+        patchAudio({ camLabel: gone ? "No camera" : "Denied", camWarn: true });
+    };
+
     const controller: PictureController = {
         store,
         pointer,
@@ -634,6 +660,35 @@ export function createPictureController(options: PictureOptions): PictureControl
                     startMeters();
                 })
                 .catch(micFailure);
+        },
+        toggleCam() {
+            const stream = janus.current();
+            if (!stream) return;
+            if (camOn) {
+                camOn = false;
+                stream.setCam(false);
+                patchAudio({ camOn: false, camLabel: "Off", camWarn: false });
+                showResolution(true);
+                return;
+            }
+            patchAudio({ camLabel: "\u2026", camWarn: false });
+            const devices = navigator.mediaDevices;
+            if (!devices?.getUserMedia) {
+                patchAudio({ camLabel: "No camera", camWarn: true });
+                return;
+            }
+            // Pre-flight the permission prompt so a refusal can be named. The real capture is opened by the
+            // session when the target asks for the camera, so these tracks are not kept.
+            devices
+                .getUserMedia({ video: true })
+                .then((granted) => {
+                    for (const track of granted.getTracks()) track.stop();
+                    camOn = true;
+                    stream.setCam(true);
+                    patchAudio({ camOn: true, camLabel: "On", camWarn: false });
+                    showResolution(true);
+                })
+                .catch(camFailure);
         },
         micDeviceChanged() {
             janus.current()?.micDeviceChanged();

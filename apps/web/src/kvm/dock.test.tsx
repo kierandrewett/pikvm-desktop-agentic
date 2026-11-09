@@ -14,7 +14,7 @@ const idle: PictureState = {
     mode: "native",
     webrtc: false,
     scale: 1,
-    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false },
+    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false },
     res: { text: "", av: "", show: false },
     fullUi: false,
     hasFrame: true,
@@ -25,7 +25,7 @@ const idle: PictureState = {
 /** Only what the dock reads; the real controller needs a picture element and is covered by the end-to-end run. */
 function stubController(initial: PictureState = idle) {
     const store = createStore(initial);
-    const calls = { resetZoom: vi.fn(), toggleAudio: vi.fn(), toggleMic: vi.fn() };
+    const calls = { resetZoom: vi.fn(), toggleAudio: vi.fn(), toggleMic: vi.fn(), toggleCam: vi.fn() };
     // A test double for a class-less object: the dock calls five methods and reads one store.
     const controller = {
         store,
@@ -209,7 +209,7 @@ describe("the bar", () => {
         const { store, calls } = await mount();
         expect(screen.queryByRole("button", { name: "Audio output" })).toBeNull();
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
         const speaker = screen.getByRole("button", { name: "Audio output" });
         const mic = screen.getByRole("button", { name: "Microphone" });
         expect(speaker).toHaveAttribute("aria-pressed", "true");
@@ -219,16 +219,35 @@ describe("the bar", () => {
         expect(calls.toggleAudio).toHaveBeenCalledTimes(1);
         expect(calls.toggleMic).toHaveBeenCalledTimes(1);
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Denied", micWarn: true } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Denied", micWarn: true, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
         expect(screen.getByRole("button", { name: "Microphone" })).toHaveAttribute("title", "Denied");
 
         act(() => store.setState(idle));
         expect(screen.queryByRole("button", { name: "Audio output" })).toBeNull();
     });
 
+    it("K39: the camera button exists only when the Pi can carry a camera, and shows a refusal", async () => {
+        const { store, calls } = await mount();
+        const audio = { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false };
+        act(() => store.setState({ ...idle, webrtc: true, audio }));
+        expect(screen.queryByRole("button", { name: "Camera" })).toBeNull();
+
+        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camAvailable: true } }));
+        const camera = screen.getByRole("button", { name: "Camera" });
+        expect(camera).toHaveAttribute("aria-pressed", "false");
+        fireEvent.click(camera);
+        expect(calls.toggleCam).toHaveBeenCalledTimes(1);
+
+        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camAvailable: true, camWarn: true, camLabel: "Denied" } }));
+        expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute("title", "Denied");
+
+        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camAvailable: true, camOn: true, camLabel: "On" } }));
+        expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute("aria-pressed", "true");
+    });
+
     it("K38: sound that is waiting for a tap says so on the speaker, and a tap on the speaker is the tap", async () => {
         const { store, calls } = await mount();
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: true, micOn: false, micLabel: "Off", micWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: true, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
         const speaker = screen.getByRole("button", { name: "Audio output" });
         expect(speaker).toHaveAttribute("title", "Tap to turn on sound");
         expect(speaker).toHaveAttribute("data-waiting", "true");
@@ -236,7 +255,7 @@ describe("the bar", () => {
         fireEvent.click(speaker);
         expect(calls.toggleAudio).toHaveBeenCalledTimes(1);
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
         expect(screen.getByRole("button", { name: "Audio output" })).not.toHaveAttribute("data-waiting");
         expect(screen.getByRole("button", { name: "Audio output" })).toHaveAttribute("aria-pressed", "true");
     });

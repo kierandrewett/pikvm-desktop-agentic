@@ -73,6 +73,8 @@ export interface JanusStreamOptions {
     readonly wantMic: boolean;
     /** Which microphone, not just whether. Empty means any; read again on every (re)start. */
     readonly micDeviceId: () => string;
+    /** The Pi said whether it can take a camera (the `cam` feature: PiKVM V3/V4 with `ucamera`), on every session. */
+    readonly onCameraSupport?: (supported: boolean) => void;
     readonly onStatus: (status: JanusStatus) => void;
     readonly onActive: (active: boolean) => void;
 }
@@ -89,6 +91,8 @@ export interface JanusStream {
     setMic(on: boolean): void;
     /** Restart the session if the pinned microphone changed while the mic is live. */
     micDeviceChanged(): void;
+    /** Send the browser's camera to the target as its USB camera, or stop. Restarts the session. */
+    setCam(on: boolean): void;
     hasVideo(): boolean;
     getAudioLevels(): Promise<AudioLevels>;
 }
@@ -106,6 +110,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
     let stopped = false;
     let allowAudio = opts.wantAudio;
     let allowMic = opts.wantMic;
+    let allowCam = false;
     let usedMicId = opts.micDeviceId();
     let retry: ReturnType<typeof setTimeout> | null = null;
     let restartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -139,7 +144,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
 
     const sendWatch = (): void => {
         handle?.send({
-            message: { request: "watch", params: { orientation: 0, audio: allowAudio, mic: allowMic, cam: false } },
+            message: { request: "watch", params: { orientation: 0, audio: allowAudio, mic: allowMic, cam: allowCam } },
         });
     };
     const sendStop = (): void => {
@@ -228,11 +233,13 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
                     } else if (result["status"] === "stopped") {
                         opts.onActive(false);
                     } else if (result["status"] === "features") {
-                        const features = result["features"] as { ice?: { url?: string }; audio?: boolean; mic?: boolean };
+                        const features = result["features"] as { ice?: { url?: string }; audio?: boolean; mic?: boolean; cam?: boolean };
                         iceUrl = features.ice?.url ?? null;
                         // Honour what the Pi actually supports.
                         if (!features.audio) allowAudio = false;
                         if (!features.mic) allowMic = false;
+                        if (!features.cam) allowCam = false;
+                        opts.onCameraSupport?.(!!features.cam);
                         sendWatch();
                     }
                 } else if (msg["error_code"] || msg["error"]) {
@@ -249,7 +256,16 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
                     // ONE audio track whose direction is set per flag, exactly as upstream: capture
                     // (mic to the target) gated on mic, recv (target to speaker) on audio, and added
                     // when EITHER is on, so the mic works with the speaker off and both together.
-                    const tracks: Array<Record<string, unknown>> = [{ type: "video", capture: false, recv: true, add: true }];
+                    // The camera is `capture` on the video track, which still receives the target's picture. The
+                    // Pi asks for it only when the target opens its camera; 1280x720 is the most it carries.
+                    const tracks: Array<Record<string, unknown>> = [
+                        {
+                            type: "video",
+                            capture: allowCam ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false,
+                            recv: true,
+                            add: true,
+                        },
+                    ];
                     if (allowAudio || allowMic) {
                         usedMicId = opts.micDeviceId();
                         tracks.push({
@@ -351,6 +367,10 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
             allowMic = on;
             if (janus || handle) restart();
         },
+        setCam(on) {
+            allowCam = on;
+            if (janus || handle) restart();
+        },
         micDeviceChanged() {
             if (allowMic && (janus || handle) && opts.micDeviceId() !== usedMicId) restart();
         },
@@ -395,6 +415,7 @@ export function createJanusBridge(
     video: HTMLVideoElement,
     micDeviceId: () => string,
     wantAudio: () => boolean,
+    onCameraSupport?: (supported: boolean) => void,
 ): JanusBridge {
     let running: JanusStream | null = null;
     const port: JanusPort = {
@@ -407,6 +428,7 @@ export function createJanusBridge(
                 wantAudio: wantAudio(),
                 wantMic: false,
                 micDeviceId,
+                ...(onCameraSupport ? { onCameraSupport } : {}),
                 onStatus: handlers.onStatus,
                 onActive: handlers.onActive,
             });

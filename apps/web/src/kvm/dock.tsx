@@ -22,6 +22,7 @@ import {
     Microphone,
     SpeakerHigh,
     SpeakerSimpleNone,
+    Webcam,
 } from "@pikvm/icons";
 import { HealthButton } from "./health-button";
 import { KeyRows } from "./key-rows";
@@ -167,6 +168,19 @@ export function Dock(props: DockProps) {
                         >
                             <Microphone weight={audio.micOn ? "fill" : "regular"} />
                         </button>
+                        {audio.camAvailable ? (
+                            <button
+                                type="button"
+                                className={`kvm-ibtn kvm-av${audio.camOn ? " on" : ""}${audio.camWarn ? " warn" : ""}`}
+                                data-tb="cam"
+                                aria-pressed={audio.camOn}
+                                aria-label="Camera"
+                                title={audio.camWarn ? audio.camLabel : undefined}
+                                onClick={() => controller?.toggleCam()}
+                            >
+                                <Webcam weight={audio.camOn ? "fill" : "regular"} />
+                            </button>
+                        ) : null}
                     </>
                 ) : null}
                 {picture.scale > 1 ? (
