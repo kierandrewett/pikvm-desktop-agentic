@@ -10,6 +10,7 @@ export const TOUCH_MODE_KEY = "pikvm-touch-mode";
 export const TOUCH_HID_KEY = "pikvm-touch-hid";
 export const MIC_DEVICE_KEY = "pikvm-console-mic-device";
 export const OUT_DEVICE_KEY = "pikvm-console-speaker-device";
+export const CAM_DEVICE_KEY = "pikvm-console-camera-device";
 
 export type TouchMode = "trackpad" | "direct";
 export type TouchHid = "abs" | "rel";

@@ -23,7 +23,7 @@ import {
     SpeakerSimpleNone,
 } from "@pikvm/icons";
 import { audioDevicesSupported, speakerSelectionSupported, useAudioDevices } from "../settings/pages/audio-devices";
-import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice } from "../settings/local-prefs";
+import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice } from "../settings/local-prefs";
 import { emitAudioDevicesChanged } from "./audio-devices-event";
 import { HealthButton } from "./health-button";
 import { MacroStrip, runnable, useMacroBlocked } from "./macro-buttons";
@@ -43,17 +43,24 @@ export interface ToolbarProps {
     readonly onFit?: (() => void) | null;
 }
 
+type DeviceMenuKind = "audio" | "mic" | "cam";
+
+const DEVICE_MENU = {
+    audio: { key: OUT_DEVICE_KEY, noun: "audio output", item: "Output" },
+    mic: { key: MIC_DEVICE_KEY, noun: "microphone", item: "Microphone" },
+    cam: { key: CAM_DEVICE_KEY, noun: "camera", item: "Camera" },
+} as const;
+
 /**
  * The device popout beside a toggle: a shortcut to the choice the Audio devices dialog makes, and
  * its own control because the toggle has to keep meaning on/off. "System default" is first, and a
  * pinned device that has gone still appears, and says so, so the choice is never silently lost.
  */
-function DeviceMenu({ kind }: { readonly kind: "audio" | "mic" }) {
+function DeviceMenu({ kind }: { readonly kind: DeviceMenuKind }) {
     const devices = useAudioDevices();
-    const key = kind === "mic" ? MIC_DEVICE_KEY : OUT_DEVICE_KEY;
-    const list = kind === "mic" ? devices.inputs : devices.outputs;
+    const { key, noun, item } = DEVICE_MENU[kind];
+    const list = kind === "mic" ? devices.inputs : kind === "cam" ? devices.cameras : devices.outputs;
     const current = readDeviceChoice(key);
-    const noun = kind === "mic" ? "microphone" : "audio output";
     const pick = (id: string, label: string): void => {
         writeDeviceChoice(key, { id, label });
         emitAudioDevicesChanged();
@@ -62,7 +69,7 @@ function DeviceMenu({ kind }: { readonly kind: "audio" | "mic" }) {
         { id: "default", label: "Follow the system default", checked: current.id === "", run: () => pick("", "") },
         ...list.map((device, i) => ({
             id: device.id,
-            label: device.label || `${kind === "mic" ? "Microphone" : "Output"} ${i + 1}`,
+            label: device.label || `${item} ${i + 1}`,
             checked: device.id === current.id,
             run: () => pick(device.id, device.label),
         })),
@@ -197,6 +204,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
                                 <Webcam weight={audio.camOn ? "fill" : "regular"} />
                             </button>
                         ) : null}
+                        {audio.camAvailable && audioDevicesSupported() ? <DeviceMenu kind="cam" /> : null}
                     </>
                 ) : null}
                 {picture.scale > 1 ? (

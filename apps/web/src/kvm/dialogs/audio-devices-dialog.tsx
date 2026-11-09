@@ -12,7 +12,7 @@ import { useState } from "react";
 import type { DialogProps } from "../dialog-seam";
 import { emitAudioDevicesChanged } from "../audio-devices-event";
 import { labelsHidden, speakerSelectionSupported, useAudioDevices, audioDevicesSupported, type AudioDevice } from "../../settings/pages/audio-devices";
-import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice, type DeviceChoice } from "../../settings/local-prefs";
+import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice, type DeviceChoice } from "../../settings/local-prefs";
 import { Btn, DialogShell, Note } from "./shell";
 
 export function goneSentence(kind: string, choice: DeviceChoice): string {
@@ -60,25 +60,28 @@ function DevicePicker({ id, label, devices, choice, disabled, onChoose, storageK
 }
 
 export function AudioDevicesDialog({ onClose }: DialogProps) {
-    const { inputs, outputs, loaded, error, allowAccess } = useAudioDevices();
+    const { inputs, outputs, cameras, loaded, error, allowAccess } = useAudioDevices();
     const [mic, setMic] = useState<DeviceChoice>(() => readDeviceChoice(MIC_DEVICE_KEY));
     const [out, setOut] = useState<DeviceChoice>(() => readDeviceChoice(OUT_DEVICE_KEY));
+    const [cam, setCam] = useState<DeviceChoice>(() => readDeviceChoice(CAM_DEVICE_KEY));
     const haveApi = audioDevicesSupported();
     const sink = speakerSelectionSupported();
 
     const choose = (key: string, set: (c: DeviceChoice) => void) => (choice: DeviceChoice) => {
         writeDeviceChoice(key, choice);
         set(choice);
-        // A running stream has to re-pin the microphone and the speaker.
+        // A running stream has to re-pin the microphone, the camera and the speaker.
         emitAudioDevicesChanged();
     };
 
     // "Not in the list" is only a claim worth making once there is a list.
     const micGone = loaded && !!mic.id && !inputs.some((d) => d.id === mic.id);
     const outGone = loaded && !!out.id && !outputs.some((d) => d.id === out.id);
+    const camGone = loaded && !!cam.id && !cameras.some((d) => d.id === cam.id);
     const wrong: string[] = [];
     if (micGone) wrong.push(goneSentence("microphone", mic));
     if (outGone) wrong.push(goneSentence("audio output", out));
+    if (camGone) wrong.push(goneSentence("camera", cam));
 
     const hidden = labelsHidden(inputs) || labelsHidden(outputs);
     // What is WRONG goes in the live region; what is merely true goes in the static one.
@@ -121,6 +124,17 @@ export function AudioDevicesDialog({ onClose }: DialogProps) {
                 disabled={!haveApi || !sink}
                 onChoose={choose(OUT_DEVICE_KEY, setOut)}
             />
+            {cameras.length > 0 || cam.id ? (
+                <DevicePicker
+                    id="ad-cam"
+                    label="Camera"
+                    storageKey={CAM_DEVICE_KEY}
+                    devices={cameras}
+                    choice={cam}
+                    disabled={!haveApi}
+                    onChoose={choose(CAM_DEVICE_KEY, setCam)}
+                />
+            ) : null}
             <p className={`dlg-note${wrong.length > 0 ? " is-warn" : ""}`} role="status" aria-live="polite">
                 {wrong.join(" ")}
             </p>

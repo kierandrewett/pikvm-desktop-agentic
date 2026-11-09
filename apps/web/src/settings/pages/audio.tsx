@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Select, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
 import {
+    CAM_DEVICE_KEY,
     type DeviceChoice,
     MIC_DEVICE_KEY,
     OUT_DEVICE_KEY,
@@ -48,14 +49,14 @@ function DeviceSelect({ label, storageKey, devices }: DeviceSelectProps) {
 }
 
 export function AudioPage() {
-    const { inputs, outputs, loaded, error, allowAccess } = useAudioDevices();
+    const { inputs, outputs, cameras, loaded, error, allowAccess } = useAudioDevices();
     const hidden = labelsHidden(inputs) || labelsHidden(outputs);
 
     return (
-        <SettingsPage title="Audio" description="Microphone and speaker.">
+        <SettingsPage title="Audio" description="Microphone, speaker and camera.">
             <SettingsSection
                 title="Devices"
-                description="For the target's sound and your microphone on the KVM screen. An unplugged device you chose is marked, not replaced."
+                description="For the target's sound, your microphone and your camera on the KVM screen. An unplugged device you chose is marked, not replaced."
             >
                 <SettingsCard>
                     {loaded ? (
@@ -74,6 +75,14 @@ export function AudioPage() {
                     ) : null}
                     {loaded && !speakerSelectionSupported() ? (
                         <SettingRow label="Speaker" description="This browser always plays through the system output." />
+                    ) : null}
+                    {loaded && cameras.length > 0 ? (
+                        <SettingRow
+                            id="camera"
+                            label="Camera"
+                            description="Sent to the target as a USB camera on a PiKVM set up for it."
+                            control={<DeviceSelect label="Camera" storageKey={CAM_DEVICE_KEY} devices={cameras} />}
+                        />
                     ) : null}
                     {hidden ? (
                         <SettingRow

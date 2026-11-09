@@ -1,5 +1,5 @@
 /**
- * Audio device discovery for the Audio page, over navigator.mediaDevices.
+ * Device discovery for the Audio page and the KVM's device menus, over navigator.mediaDevices.
  *
  * The rules are the console's: "default" and "communications" are aliases for whatever the OS
  * prefers right now, so pinning to one pins to the moving target the choice exists to avoid;
@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 
 const DEVICE_ALIASES = ["default", "communications"];
 
-export type DeviceKind = "audioinput" | "audiooutput";
+export type DeviceKind = "audioinput" | "audiooutput" | "videoinput";
 
 export interface AudioDevice {
     readonly id: string;
@@ -33,13 +33,15 @@ export function collectDevices(all: ReadonlyArray<MediaDeviceInfo>, kind: Device
         .map((device) => ({ id: device.deviceId, label: device.label }));
 }
 
-/** enumerateDevices leaves every label empty until microphone access has been granted once. */
+/** enumerateDevices leaves every label empty until the matching access (microphone, camera) has been granted once. */
 export const labelsHidden = (devices: ReadonlyArray<AudioDevice>): boolean =>
     devices.length > 0 && devices.every((device) => device.label === "");
 
 export interface AudioDevices {
     readonly inputs: ReadonlyArray<AudioDevice>;
     readonly outputs: ReadonlyArray<AudioDevice>;
+    /** Cameras the browser can send to the target. */
+    readonly cameras: ReadonlyArray<AudioDevice>;
     readonly loaded: boolean;
     readonly error: string | undefined;
     /** Ask for microphone access once so the browser reveals device names. */
@@ -83,6 +85,7 @@ export function useAudioDevices(): AudioDevices {
     return {
         inputs: collectDevices(all, "audioinput"),
         outputs: collectDevices(all, "audiooutput"),
+        cameras: collectDevices(all, "videoinput"),
         loaded,
         error,
         allowAccess,

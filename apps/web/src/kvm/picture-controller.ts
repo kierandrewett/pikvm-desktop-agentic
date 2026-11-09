@@ -40,7 +40,7 @@ import { createJanusBridge } from "./janus-stream";
 import { createScreenAlerts } from "./screen-alerts";
 import { createPointerExecutor } from "./pointer-executor";
 import type { KvmSession } from "./session";
-import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice } from "../settings/local-prefs";
+import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice } from "../settings/local-prefs";
 
 export interface PictureElements {
     readonly pane: HTMLElement;
@@ -118,7 +118,8 @@ export interface PictureController {
     toggleAudio(): void;
     toggleMic(): void;
     toggleCam(): void;
-    micDeviceChanged(): void;
+    /** A device choice changed in Audio devices: the live session pins the new microphone and camera, and the speaker follows. */
+    devicesChanged(): void;
     /** Show or hide the Pi's own UI over the picture: its stream is released while it is up. */
     setFullUi(on: boolean): void;
     /** Draw the speaker or mic level into `--vol` on this element, outside React. */
@@ -366,12 +367,12 @@ export function createPictureController(options: PictureOptions): PictureControl
     let cancelReenable: (() => void) | null = null;
     const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome|CriOS|Chromium|Android/.test(navigator.userAgent);
 
-    const janus = createJanusBridge(
-        video,
-        () => readDeviceChoice(MIC_DEVICE_KEY).id,
-        () => audioOn,
-        (supported) => patchAudio({ camAvailable: supported }),
-    );
+    const janus = createJanusBridge(video, {
+        micDeviceId: () => readDeviceChoice(MIC_DEVICE_KEY).id,
+        camDeviceId: () => readDeviceChoice(CAM_DEVICE_KEY).id,
+        wantAudio: () => audioOn,
+        onCameraSupport: (supported) => patchAudio({ camAvailable: supported }),
+    });
 
     // Unmute without losing the picture: if the browser blocks it (no gesture), keep the muted
     // picture playing and unmute on the next interaction instead.
@@ -574,6 +575,12 @@ export function createPictureController(options: PictureOptions): PictureControl
     const camFailure = (error: unknown): void => {
         const name = error instanceof Error ? error.name : "";
         const gone = name === "OverconstrainedError" || name === "NotFoundError" || name === "DevicesNotFoundError";
+        // Same split as the microphone: a refused prompt is "Denied", a pinned camera that was unplugged is named.
+        if (gone && readDeviceChoice(CAM_DEVICE_KEY).id) {
+            patchAudio({ camLabel: "Camera gone", camWarn: true });
+            session.notices.notify({ text: "The chosen camera is not connected. Pick another in Audio devices.", error: true });
+            return;
+        }
         patchAudio({ camLabel: gone ? "No camera" : "Denied", camWarn: true });
     };
 
@@ -679,8 +686,9 @@ export function createPictureController(options: PictureOptions): PictureControl
             }
             // Pre-flight the permission prompt so a refusal can be named. The real capture is opened by the
             // session when the target asks for the camera, so these tracks are not kept.
+            const pinnedCam = readDeviceChoice(CAM_DEVICE_KEY).id;
             devices
-                .getUserMedia({ video: true })
+                .getUserMedia({ video: pinnedCam ? { deviceId: { exact: pinnedCam } } : true })
                 .then((granted) => {
                     for (const track of granted.getTracks()) track.stop();
                     camOn = true;
@@ -690,8 +698,9 @@ export function createPictureController(options: PictureOptions): PictureControl
                 })
                 .catch(camFailure);
         },
-        micDeviceChanged() {
+        devicesChanged() {
             janus.current()?.micDeviceChanged();
+            janus.current()?.camDeviceChanged();
             applySink();
         },
         setFullUi(on) {

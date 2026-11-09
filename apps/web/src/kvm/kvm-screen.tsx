@@ -133,7 +133,7 @@ export function KvmScreen() {
         if (locked) session.keyboard.releaseAll();
     }, [session, locked]);
 
-    useEffect(() => onAudioDevicesChanged(() => controller?.micDeviceChanged()), [controller]);
+    useEffect(() => onAudioDevicesChanged(() => controller?.devicesChanged()), [controller]);
 
     const [windowFocused, setWindowFocused] = useState(true);
     useEffect(() => {

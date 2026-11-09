@@ -165,7 +165,7 @@ The idle jiggler is off unless `PIKVM_JIGGLER=1` sets its first value. After you
 
 On a touch screen, the console docks its controls above the soft keyboard. The bar holds speaker, mic, camera, paste, keyboard, and the more button. Rows of modifier and navigation keys follow.
 
-The camera button sends this browser's camera to the target as a USB camera. It shows only when the PiKVM reports the `cam` feature, which needs a PiKVM V3 or V4 with the `ucamera` package and `otg: devices: camera: enabled: true` in `/etc/kvmd/override.yaml` (see the PiKVM handbook page "Web camera"). The picture must use WebRTC. Turning the button on only allows the camera: the target starts the stream when an app on it opens the camera, at 1280x720 at most. The browser asks for camera permission the first time.
+The camera button sends this browser's camera to the target as a USB camera. It shows only when the PiKVM reports the `cam` feature, which needs a PiKVM V3 or V4 with the `ucamera` package and `otg: devices: camera: enabled: true` in `/etc/kvmd/override.yaml` (see the PiKVM handbook page "Web camera"). The picture must use WebRTC. Turning the button on only allows the camera: the target starts the stream when an app on it opens the camera, at 1280x720 at most. The browser asks for camera permission the first time. Pick which camera in Audio devices (the dialog, the arrow beside the button in the toolbar, or Settings > Audio), the same place as the microphone and speaker. The choice is remembered in this browser.
 
 - Trackpad mode is the default. Drag to move the cursor. Tap to click.
 - Two fingers scroll. Pinch zooms on the cursor.
