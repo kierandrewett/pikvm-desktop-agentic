@@ -48,3 +48,41 @@ describe("a pointer the page never sees released", () => {
         expect(send).not.toHaveBeenCalled();
     });
 });
+
+describe("P20: the screen's edge strip belongs to the page while a finger is on the picture", () => {
+    function touchStart(pane: HTMLElement, x: number, target: Element = pane): Event {
+        const event = new Event("touchstart", { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "changedTouches", { value: [{ clientX: x, clientY: 200 }] });
+        target.dispatchEvent(event);
+        return event;
+    }
+
+    function paneWith(ignoreTarget?: (target: EventTarget | null) => boolean) {
+        const pane = document.createElement("div");
+        document.body.append(pane);
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 });
+        const detach = attachPointerInput({ pane, driver: { send: vi.fn(() => ({ preventDefault: false })) } as unknown as PointerDriver, ...(ignoreTarget ? { ignoreTarget } : {}) });
+        return { pane, detach };
+    }
+
+    it("a touch starting at the left or right edge is cancelled; one elsewhere is not", () => {
+        const { pane, detach } = paneWith();
+        expect(touchStart(pane, 5).defaultPrevented).toBe(true);
+        expect(touchStart(pane, 24).defaultPrevented).toBe(true);
+        expect(touchStart(pane, 395).defaultPrevented).toBe(true);
+        expect(touchStart(pane, 25).defaultPrevented).toBe(false);
+        expect(touchStart(pane, 200).defaultPrevented).toBe(false);
+        detach();
+        pane.remove();
+    });
+
+    it("a touch on overlaid UI is left alone, and detaching removes the guard", () => {
+        const ui = document.createElement("button");
+        const { pane, detach } = paneWith((target) => target === ui);
+        pane.append(ui);
+        expect(touchStart(pane, 5, ui).defaultPrevented).toBe(false);
+        detach();
+        expect(touchStart(pane, 5).defaultPrevented).toBe(false);
+        pane.remove();
+    });
+});

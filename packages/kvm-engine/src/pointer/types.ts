@@ -31,6 +31,11 @@ export const WHEEL_STEP_PX = 22;
 export const PINCH_RATIO = 0.12;
 /** Centroid travel that makes it a drag instead. Pinch is tested first. */
 export const TWO_FINGER_DRAG_PX = 14;
+/**
+ * While the left button is held by a drag, a second finger moves the cursor this many times the travel of the
+ * fingers' centre, so a long drag does not need a swipe across the whole screen.
+ */
+export const DRAG_BOOST = 3;
 /** Per-event distance change below which a pinch does not zoom (jitter). */
 export const PINCH_STEP_EPSILON = 0.004;
 /** Both fingers up within this, with no travel, is a two-finger tap = right click. */

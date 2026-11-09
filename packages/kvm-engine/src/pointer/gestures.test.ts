@@ -516,6 +516,85 @@ describe("relative HID", () => {
     });
 });
 
+describe("dragging with more than one finger", () => {
+    const relEnv = { touchHid: "rel" as const, mouseMode: "relative" as const, relativeAvailable: true };
+
+    /** Hold to arm, then move past the slop: the left button is down and finger 1 is at (430, 225). */
+    function dragging(r: Rig): void {
+        r.down(1, 400, 225);
+        r.advance(450);
+        r.move(1, 430, 225);
+        r.frame();
+        r.take();
+    }
+
+    it("P18: a second finger moves a relative cursor at triple travel, keeps the button held and sends no wheel or click", () => {
+        const r = createRig({ env: relEnv });
+        dragging(r);
+        r.down(2, 500, 300);
+        r.move(2, 520, 300); // the centre of the two fingers moved 10 px
+        expect(r.take()).toEqual(["rel:30,0"]);
+        expect(r.driver.machine.leftHeld).toBe(true);
+        r.move(2, 520, 330); // 15 px down at the centre
+        expect(r.take()).toEqual(["rel:0,45"]);
+        r.up(2);
+        expect(r.take()).toEqual([]); // a finger lifting is not a right click, and the button stays down
+        expect(r.driver.machine.leftHeld).toBe(true);
+        r.up(1);
+        expect(r.take()).toEqual(["up:left"]);
+    });
+
+    it("P18: on an absolute Pi the same gesture moves the virtual cursor at triple travel and never scrolls", () => {
+        const r = createRig();
+        dragging(r);
+        r.down(2, 500, 300);
+        const before = r.driver.machine.virtualCursor.x;
+        r.move(2, 520, 300);
+        r.frame();
+        const travelled = r.driver.machine.virtualCursor.x - before;
+        expect(travelled).toBeCloseTo((30 / 800) * 0.9 * 65534, 0); // 10 px of centre travel, tripled
+        expect(r.ofType("wheel")).toEqual([]);
+        expect(r.driver.machine.currentView).toEqual(IDENTITY_VIEW);
+    });
+
+    it("P18: drag-lock holds the button from the first touch, and a second finger boosts it the same way", () => {
+        const r = createRig({ env: { ...relEnv, dragLock: true } });
+        r.down(1, 400, 225);
+        r.move(1, 430, 225);
+        r.take();
+        r.down(2, 500, 300);
+        r.move(2, 520, 300);
+        expect(r.take()).toEqual(["rel:30,0"]);
+    });
+
+    it("P19: lifting the first finger leaves the second dragging at normal travel until it lifts", () => {
+        const r = createRig({ env: relEnv });
+        dragging(r);
+        r.down(2, 500, 300);
+        r.move(2, 520, 300);
+        r.take();
+        r.up(1);
+        expect(r.take()).toEqual([]);
+        expect(r.driver.machine.leftHeld).toBe(true);
+        r.move(2, 540, 300);
+        expect(r.take()).toEqual(["rel:20,0"]);
+        r.up(2);
+        expect(r.take()).toEqual(["up:left"]);
+        expect(r.driver.machine.leftHeld).toBe(false);
+        r.advance(1000);
+        expect(r.take()).toEqual([]);
+    });
+
+    it("a second finger with no button held is still a scroll, not a boost", () => {
+        const r = createRig({ env: relEnv });
+        r.down(1, 300, 225);
+        r.down(2, 500, 225);
+        r.move(1, 300, 255);
+        r.move(2, 500, 255);
+        expect(r.take()).toEqual(["wheel:0,1"]);
+    });
+});
+
 describe("direct touch", () => {
     const direct = { touchMode: "direct" as const, mouseMode: "absolute" as const };
 

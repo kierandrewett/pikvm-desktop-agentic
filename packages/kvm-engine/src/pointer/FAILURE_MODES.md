@@ -23,6 +23,9 @@ as observable commands (never source text). IDs are referenced from test names.
 - P15. After a multi-touch gesture, lifting one finger never clicks; the first finger left behind keeps driving the cursor, the second does nothing until lifted.
 - P16. A zoomed absolute trackpad follows its cursor; the view stays inside the picture.
 - P17. The lens hears every single-finger trackpad move once the finger is more than 4 px from where it touched (before the cursor starts moving at the 16 px slop), with that move's own travel; jitter under 4 px, a direct touch, a two-finger gesture and the mouse send it nothing.
+- P18. While the left button is held by a drag (hold-to-drag or drag-lock), a second finger does not scroll or zoom: the centre of the fingers moves the cursor at three times the travel, so a long drag does not need a swipe across the whole screen. The button stays held, nothing is clicked when a finger lifts, and no wheel step is sent.
+- P19. A held drag survives the first finger lifting: the finger left on the glass keeps dragging at normal travel, and the button is released only when the last finger lifts.
+- P20. A touch that starts in the 24 px strip at either screen edge has its touchstart cancelled, which is the only say the page has over the system's back swipe. The page guarantees the cancel, not the outcome: whether iOS still takes the swipe is not verified on a device. A touch elsewhere, and a touch on overlaid UI, is left alone.
 
 ## Relative HID (trackpad pinned to relative)
 

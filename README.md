@@ -167,6 +167,7 @@ On a touch screen, the console docks its controls above the soft keyboard. The b
 
 - Trackpad mode is the default. Drag to move the cursor. Tap to click.
 - Two fingers scroll. Pinch zooms on the cursor.
+- To drag, hold a finger still until it buzzes, then move. Add a second finger while you drag to move the cursor three times as far.
 - A lens at the cursor magnifies what is under it.
 - Touch mode points where you tap.
 

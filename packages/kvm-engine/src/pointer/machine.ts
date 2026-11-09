@@ -27,6 +27,7 @@ import {
     ABS_SWEEP_MS,
     ABS_WAIT_MS,
     DEFAULT_ENV,
+    DRAG_BOOST,
     HOLD_MS,
     MOVE_SLOP,
     NUDGE_MAX,
@@ -761,7 +762,9 @@ export class PointerMachine {
         this.pts.set(i.id, { x: i.x, y: i.y });
 
         if (this.pts.size >= 2) {
-            this.onTwoFingerMove();
+            // With the button held by a drag, more fingers carry the drag further; otherwise they scroll or zoom.
+            if (this.pressing && !this.gestureDirect) this.onBoostedDragMove();
+            else this.onTwoFingerMove();
             return true;
         }
 
@@ -895,6 +898,18 @@ export class PointerMachine {
         this.pinchCy = c.y;
     }
 
+    /** A second finger while the button is held: the centre of the fingers drags the cursor, at DRAG_BOOST times the travel. */
+    private onBoostedDragMove(): void {
+        this.cancelHold();
+        const c = this.centroid();
+        // A drag is not a two-finger tap, whichever finger lifts first.
+        if (this.twoStart) this.twoStart.moved = true;
+        this.relMove((c.x - this.pinchCx) * DRAG_BOOST, (c.y - this.pinchCy) * DRAG_BOOST);
+        this.pinchDist = this.twoDist();
+        this.pinchCx = c.x;
+        this.pinchCy = c.y;
+    }
+
     /* ---- pointer up ---- */
 
     private onUp(i: PointerUpInput): void {
@@ -927,6 +942,15 @@ export class PointerMachine {
         }
         const wasPressing = this.pressing;
         if (this.pressing && this.pts.size === 0) this.releasePressing();
+        if (this.startPt && this.startPt.id === i.id && this.pressing) {
+            // The finger that started the drag lifted while another is still down: that one carries the drag on.
+            const rest = this.pts.entries().next();
+            if (!rest.done) {
+                const [id, p] = rest.value;
+                this.startPt = { x: p.x, y: p.y, id };
+                return;
+            }
+        }
         if (this.startPt && this.startPt.id === i.id) {
             // Pure tap = left click; a hold released without moving = right click. Two quick
             // taps send two clicks, so the target OS forms the double-click. A cancelled touch

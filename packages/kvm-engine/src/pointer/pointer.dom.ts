@@ -21,6 +21,9 @@ function kindOf(e: PointerEvent): PointerKind {
     return e.pointerType === "mouse" ? "mouse" : e.pointerType === "pen" ? "pen" : "touch";
 }
 
+/** A touch starting within this many px of the screen's left or right edge is the system's, unless the page cancels it. */
+const EDGE_GUARD_PX = 24;
+
 /** Attach every listener; returns the detach function. */
 export function attachPointerInput(opts: PointerDomOptions): () => void {
     const { pane, driver } = opts;
@@ -53,6 +56,22 @@ export function attachPointerInput(opts: PointerDomOptions): () => void {
             if (r.preventDefault) e.preventDefault();
         },
         { capture: true },
+    );
+    // The system reads a touch that starts in the strip at the screen's edge as its back swipe, so a drag begun
+    // there leaves the page instead of moving the cursor. Cancelling the touchstart is the page's one say in that.
+    // Touches on overlaid UI keep their own behaviour.
+    on(
+        "touchstart",
+        (e) => {
+            if (ignored(e) || !e.cancelable) return;
+            for (const touch of Array.from(e.changedTouches)) {
+                if (touch.clientX <= EDGE_GUARD_PX || touch.clientX >= window.innerWidth - EDGE_GUARD_PX) {
+                    e.preventDefault();
+                    return;
+                }
+            }
+        },
+        { capture: true, passive: false },
     );
     on(
         "pointermove",
