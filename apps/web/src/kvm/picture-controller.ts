@@ -367,10 +367,12 @@ export function createPictureController(options: PictureOptions): PictureControl
         );
     };
     function armGestureUnmute(): void {
+        // Said once, on the way into waiting: a refused attempt that re-arms must not repeat it.
+        const alreadyWaiting = store.getState().audio.blocked;
         patchAudio({ blocked: true });
+        if (!alreadyWaiting) session.notices.notify({ text: "Tap anywhere to turn on sound" });
         if (gestureArmed) return;
         gestureArmed = true;
-        session.notices.notify({ text: "Tap anywhere to turn on sound" });
         // A touch is a gesture Safari accepts when it is released, not when it lands (gesture-unmute.ts, K38).
         cancelGestureUnmute = onNextActivation(document, (event) => {
             gestureArmed = false;

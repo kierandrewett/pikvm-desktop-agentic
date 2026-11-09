@@ -161,6 +161,54 @@ describe("WebRTC", () => {
     });
 });
 
+describe("K38: sound waiting for a tap", () => {
+    /** A picture whose WebRTC is up and whose video is still muted, as on an iPhone before the first tap. */
+    async function waiting() {
+        const made = await mount();
+        const play = vi.fn(() => Promise.resolve());
+        Object.defineProperty(made.video, "play", { configurable: true, value: play });
+        made.video.muted = true;
+        // The controller shows its store read-only; the same object is writable inside it, and a fake Janus is far more than this needs.
+        const store = made.controller.store as unknown as { getState(): object; setState(next: object): void };
+        store.setState({ ...store.getState(), webrtc: true });
+        return { ...made, play };
+    }
+
+    it("pressing the speaker while sound waits turns it on, and does not turn it off", async () => {
+        const { controller, video, play } = await waiting();
+        controller.toggleAudio();
+        expect(play).toHaveBeenCalledTimes(1);
+        expect(video.muted).toBe(false);
+        expect(controller.store.getState().audio.audioOn).toBe(true);
+        await Promise.resolve();
+        expect(controller.store.getState().audio.blocked).toBe(false);
+    });
+
+    it("once sound is on, the same press turns it off", async () => {
+        const { controller, video } = await waiting();
+        controller.toggleAudio();
+        await Promise.resolve();
+        controller.toggleAudio();
+        expect(video.muted).toBe(true);
+        expect(controller.store.getState().audio.audioOn).toBe(false);
+    });
+
+    it("a refused unmute leaves it muted and waiting for the next tap, and says so once", async () => {
+        const { controller, video, play } = await waiting();
+        play.mockImplementationOnce(() => Promise.reject(new Error("NotAllowedError")));
+        controller.toggleAudio();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(video.muted).toBe(true);
+        expect(controller.store.getState().audio.blocked).toBe(true);
+        expect(controller.store.getState().audio.audioOn).toBe(true);
+        document.dispatchEvent(new Event("pointerup", { bubbles: true }));
+        await Promise.resolve();
+        expect(video.muted).toBe(false);
+        expect(controller.store.getState().audio.blocked).toBe(false);
+    });
+});
+
 describe("the KVM behind another tab", () => {
     it("takes no gestures: the pointer machine is told a modal owns it", async () => {
         const { controller } = await mount();
