@@ -18,7 +18,7 @@ import { findIn } from "./find";
 import { displayTitle, formatBytes, formatDuration, formatStarted } from "./format";
 import { RenameField } from "./library-view";
 import { MenuButton, type MenuItem } from "./menu";
-import { Expiry, Highlighted, StatusPill } from "./parts";
+import { Expiry, Highlighted, Provenance, StatusPill } from "./parts";
 import { SearchBox, type SearchBoxHandle } from "./search-box";
 import { downloadTranscript, copyTranscript } from "./transcript-actions";
 import { TRANSCRIPT_FORMATS } from "./transcript-export";
@@ -54,7 +54,7 @@ function useTranscript(recording: RecordingView | null): TranscriptState {
 }
 
 /**
- * A browser's own recorder writes a file with no length, and a player will not seek in what has none. Asking for a time far past
+ * A recording an older version took from a browser's own recorder is a file with no length, and a player will not seek in what has none (a recording the host made has its length). Asking for a time far past
  * the end makes it read to the end and learn the length; the position is then put where it was wanted. Resolves once it is there.
  */
 function prepare(video: HTMLVideoElement, startAt: number): Promise<void> {
@@ -293,7 +293,7 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
         if (!recording) return;
         const sure = await confirm.ask({
             title: "Delete this recording?",
-            body: `"${name}", its sound and its transcript are removed from the host. This cannot be undone.`,
+            body: `${recording.status === "recording" ? "The recording in progress is stopped first. " : ""}"${name}", its sound and its transcript are removed from the host. This cannot be undone.`,
             confirm: "Delete",
             danger: true,
         });
@@ -319,7 +319,7 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
         );
     }
 
-    const playable = recording.status !== "recording" && recording.bytes > 0;
+    const playable = recording.status !== "recording" && recording.status !== "finishing" && recording.bytes > 0;
     const doneTranscript = transcript.phase === "ready" ? transcript.transcript : null;
     const canTranscribe = transcription?.available === true && (recording.status === "ready" || recording.status === "failed" || recording.status === "done");
     const downloads: MenuItem[] = [
@@ -376,6 +376,9 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
                         <StatusPill recording={recording} />
                         <Expiry recording={recording} />
                     </p>
+                    <p className="rw-meta">
+                        <Provenance recording={recording} />
+                    </p>
                 </div>
                 <div className="rw-actions">
                     <button
@@ -402,7 +405,7 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
                             <ArrowClockwise aria-hidden="true" /> {recording.status === "done" ? "Transcribe again" : recording.status === "failed" ? "Try again" : "Transcribe"}
                         </button>
                     ) : null}
-                    <button type="button" className="rl-btn is-danger" disabled={busy || recording.status === "recording"} data-testid="watch-delete" onClick={() => void remove()}>
+                    <button type="button" className="rl-btn is-danger" disabled={busy} data-testid="watch-delete" onClick={() => void remove()}>
                         <Trash aria-hidden="true" /> Delete
                     </button>
                 </div>
@@ -431,7 +434,13 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
                             onError={() => setPlayerError(true)}
                         />
                     ) : (
-                        <div className="rw-noplayer">{recording.status === "recording" ? "This recording is still being made." : "Nothing was kept of this recording."}</div>
+                        <div className="rw-noplayer">
+                            {recording.status === "recording"
+                                ? "The host is recording this now. It can be played when it is stopped and finished."
+                                : recording.status === "finishing"
+                                  ? `The host is shrinking what it captured into the file it keeps${recording.progress === null ? "" : ` (${Math.round(recording.progress * 100)}%)`}. It can be played when that is done.`
+                                  : "Nothing was kept of this recording."}
+                        </div>
                     )}
                     {playerError ? (
                         <p className="rl-note is-bad" role="alert">
@@ -479,6 +488,11 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
                     {transcript.phase === "error" ? (
                         <p className="rl-note is-bad" role="alert">
                             {transcript.message}
+                        </p>
+                    ) : null}
+                    {recording.status === "recording" || recording.status === "finishing" ? (
+                        <p className="rl-note" role="status">
+                            {recording.status === "recording" ? "Recording on the host." : "Finishing the file on the host."} The transcript is made once the file exists{recording.status === "recording" ? " and the recording is stopped" : ""}.
                         </p>
                     ) : null}
                     {recording.status === "transcribing" ? (

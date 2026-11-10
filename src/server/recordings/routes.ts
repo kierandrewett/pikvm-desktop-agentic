@@ -1,7 +1,8 @@
 import { createReadStream } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { RECORDINGS_PATH } from "@pikvm/contracts/recordings";
+import { RECORDING_LIVE_PATH, RECORDINGS_PATH } from "@pikvm/contracts/recordings";
 import { json, readBody } from "../http";
 import type { RecordingService } from "./service";
 import { isRecordingId, RecordingRefusal } from "./store";
@@ -10,26 +11,35 @@ import { isRecordingId, RecordingRefusal } from "./store";
  * `/app/api/v1/recordings/*`: session recordings, as the contract (packages/contracts/src/recordings.ts) defines them.
  *
  *   GET    /                    the list (`?status=` a comma list, `?sort=`) and whether this host can transcribe
- *   POST   /                    { mime, startedAt, target? }: a new recording
+ *   POST   /start               { target?, mic, title?, transcribe? }: the host starts recording the PiKVM's stream
+ *   GET    /live                the capture in progress and the recordings being finished; `Accept: text/event-stream` for a stream
  *   GET    /search              `?q=&limit=&offset=&speaker=&from=&to=`: full text over transcripts and titles
  *   GET    /:id                 one recording
  *   PATCH  /:id                 { title }: rename
- *   DELETE /:id                 the recording, its transcript and its work files
- *   PUT    /:id/chunks/:n       the next chunk, as application/octet-stream, streamed to disk
- *   POST   /:id/finish          { durationMs, transcribe }
+ *   DELETE /:id                 the recording, its transcript and its work files; a recording in progress is stopped first
+ *   POST   /:id/stop            end the capture
+ *   WS     /:id/mic             Opus frames from the page's microphone (an upgrade: `handleUpgrade`)
  *   GET    /:id/media           the file, with Range
  *   GET    /:id/transcript      the transcript JSON (404 until done)
  *   POST   /:id/transcribe      start or restart the transcription
  *
  * The route table (routes.ts) has judged the sign-in and required the `x-pikvm-recording: 1` header on every write. Here: a JSON
- * body on every write but a chunk, and an octet-stream body on a chunk. An id that is not 32 hex digits is a 404 before any file is
- * touched.
+ * body on every write. The microphone socket cannot carry that header; the router checks the sign-in and that the page is of this
+ * host (the chat socket's rule). An id that is not 32 hex digits is a 404 before any file is touched.
  */
 
 export interface RecordingRoutes {
     handles(path: string): boolean;
     handle(req: IncomingMessage, res: ServerResponse, path: string): Promise<void>;
+    /** Whether an upgrade at this path is the microphone socket of a recording. */
+    handlesUpgrade(path: string): boolean;
+    handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer, path: string): void;
 }
+
+const MIC_PATH = /^\/app\/api\/v1\/recordings\/([0-9a-f]{32})\/mic$/;
+
+/** A line of keep-alive this often on the live stream while nothing runs, so a proxy does not close it. */
+const LIVE_KEEPALIVE_TICKS = 15;
 
 const MAX_JSON_BYTES = 16 * 1024;
 
@@ -49,8 +59,8 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 
 const contentType = (req: IncomingMessage): string => String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
 
-function requireType(req: IncomingMessage, expected: "application/json" | "application/octet-stream"): void {
-    if (contentType(req) !== expected) throw new RecordingRefusal(`Expected ${expected}`, 415);
+function requireJson(req: IncomingMessage): void {
+    if (contentType(req) !== "application/json") throw new RecordingRefusal("Expected application/json", 415);
 }
 
 function methodNot(res: ServerResponse, ...allowed: string[]): void {
@@ -105,6 +115,35 @@ async function serveMedia(req: IncomingMessage, res: ServerResponse, media: { pa
 }
 
 export function createRecordingRoutes(service: RecordingService): RecordingRoutes {
+    function liveStream(res: ServerResponse): void {
+        res.writeHead(200, {
+            "content-type": "text/event-stream; charset=utf-8",
+            "cache-control": "no-store",
+            connection: "keep-alive",
+            // A proxy in front must not buffer a stream the page waits on.
+            "x-accel-buffering": "no",
+        });
+        const send = (): void => {
+            if (!res.writableNeedDrain) res.write(`data: ${JSON.stringify(service.live())}\n\n`);
+        };
+        res.write(": live\n\n");
+        send();
+        const off = service.onLive(send);
+        let idle = 0;
+        // While something runs the elapsed time moves, so the page hears every second; otherwise only when something changes.
+        const timer = setInterval(() => {
+            const live = service.live();
+            if (live.recording !== null || live.finishing.length > 0) return send();
+            idle += 1;
+            if (idle % LIVE_KEEPALIVE_TICKS === 0 && !res.writableNeedDrain) res.write(": keep-alive\n\n");
+        }, 1000);
+        timer.unref();
+        res.on("close", () => {
+            off();
+            clearInterval(timer);
+        });
+    }
+
     async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
         const method = req.method ?? "GET";
         try {
@@ -117,12 +156,20 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
         const query = new URL(req.url ?? "/", "http://localhost").searchParams;
 
         if (rest === "") {
-            if (method === "GET") return json(res, 200, await service.list({ status: query.get("status"), sort: query.get("sort") }));
-            if (method === "POST") {
-                requireType(req, "application/json");
-                return json(res, 201, await service.create(await readJson(req)));
-            }
-            return methodNot(res, "GET", "POST");
+            if (method !== "GET") return methodNot(res, "GET");
+            return json(res, 200, await service.list({ status: query.get("status"), sort: query.get("sort") }));
+        }
+
+        if (rest === "/start") {
+            if (method !== "POST") return methodNot(res, "POST");
+            requireJson(req);
+            return json(res, 201, await service.startRecording(await readJson(req)));
+        }
+
+        if (path === RECORDING_LIVE_PATH) {
+            if (method !== "GET") return methodNot(res, "GET");
+            if (String(req.headers.accept ?? "").includes("text/event-stream")) return liveStream(res);
+            return json(res, 200, service.live());
         }
 
         if (rest === "/search") {
@@ -142,11 +189,11 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
         if (parts.length === 1) {
             if (method === "GET") return json(res, 200, service.view(id));
             if (method === "PATCH") {
-                requireType(req, "application/json");
+                requireJson(req);
                 return json(res, 200, await service.rename(id, await readJson(req)));
             }
             if (method === "DELETE") {
-                requireType(req, "application/json");
+                requireJson(req);
                 await service.remove(id);
                 return json(res, 200, { deleted: true });
             }
@@ -154,30 +201,16 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
         }
 
         const what = parts[1];
-        if (what === "chunks" && parts.length === 3) {
-            if (method !== "PUT") return methodNot(res, "PUT");
-            requireType(req, "application/octet-stream");
-            const n = /^\d{1,9}$/.test(parts[2] ?? "") ? Number(parts[2]) : NaN;
-            if (!Number.isInteger(n)) throw new RecordingRefusal("The chunk number must be a whole number from 0.", 400);
-            const declared = Number(req.headers["content-length"]);
-            try {
-                return json(res, 200, await service.chunk(id, n, req, Number.isInteger(declared) && declared >= 0 ? declared : null));
-            } catch (error) {
-                // The rest of an oversized or refused body is not worth reading.
-                if (error instanceof RecordingRefusal && (error.status === 413 || error.status === 507)) res.setHeader("connection", "close");
-                throw error;
-            }
-        }
         if (parts.length !== 2) return json(res, 404, { error: "Not found" });
 
-        if (what === "finish") {
+        if (what === "stop") {
             if (method !== "POST") return methodNot(res, "POST");
-            requireType(req, "application/json");
-            return json(res, 200, await service.finish(id, await readJson(req)));
+            requireJson(req);
+            return json(res, 200, await service.stopRecording(id));
         }
         if (what === "media") {
             if (method !== "GET" && method !== "HEAD") return methodNot(res, "GET", "HEAD");
-            return serveMedia(req, res, service.media(id));
+            return serveMedia(req, res, await service.media(id));
         }
         if (what === "transcript") {
             if (method !== "GET") return methodNot(res, "GET");
@@ -188,7 +221,7 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
         }
         if (what === "transcribe") {
             if (method !== "POST") return methodNot(res, "POST");
-            requireType(req, "application/json");
+            requireJson(req);
             return json(res, 200, await service.transcribe(id));
         }
         return json(res, 404, { error: "Not found" });
@@ -196,6 +229,12 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
 
     return {
         handles: (path) => path === RECORDINGS_PATH || path.startsWith(`${RECORDINGS_PATH}/`),
+        handlesUpgrade: (path) => MIC_PATH.test(path),
+        handleUpgrade(req, socket, head, path) {
+            const id = MIC_PATH.exec(path)?.[1];
+            if (id === undefined) return void socket.destroy();
+            service.attachMic(req, socket, head, id);
+        },
         async handle(req, res, path) {
             try {
                 await route(req, res, path);

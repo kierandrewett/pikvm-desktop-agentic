@@ -197,7 +197,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
                 {/* Always drawn: a camera the Pi or the picture cannot take is disabled with its reason, not hidden. */}
                 <CameraToggle controller={controller} variant="toolbar" />
                 <CameraMenu controller={controller} />
-                <RecordButton controller={controller} variant="toolbar" />
+                <RecordButton variant="toolbar" />
                 {picture.scale > 1 ? (
                     <button
                         type="button"

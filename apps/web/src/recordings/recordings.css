@@ -610,6 +610,24 @@ mark {
 .rl-sub-card {
     display: none;
 }
+/* Where the file came from and how it ended: a quiet line that wraps, in the warning colour only for a gap or an early end. */
+.rl-provenance {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+    color: var(--muted-foreground);
+    font-size: var(--type-footnote);
+}
+.rl-gap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--warn);
+}
+.rl-gap svg {
+    flex: none;
+}
 
 /* A state: a word, never colour alone. */
 .rl-pill {

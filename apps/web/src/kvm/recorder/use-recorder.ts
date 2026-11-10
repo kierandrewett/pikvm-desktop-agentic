@@ -1,81 +1,58 @@
 /**
- * How the screen's controls reach the recorder: one recorder per picture, made once the picture exists and handed down
- * through a context, the way the session is. The recorder reads the `<video>` the picture machine plays, so it is made
- * from the stage's own element rather than asking the picture controller (which owns playback, not recording).
+ * How the screen's controls reach the Record control: one per screen, made once and handed down through a context, the way the
+ * session is. It needs no picture: the host records the PiKVM's own stream, so it works from any tab (MJPEG included) and shows a
+ * recording another client started.
  */
 
-import { createStore, type ReadableStore } from "@pikvm/kvm-engine";
-import { createContext, useContext, useEffect, useRef, useState, type RefObject } from "react";
-import { useAppState } from "../../api/queries";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createStore, type Notify } from "@pikvm/kvm-engine";
 import { MIC_DEVICE_KEY, readDeviceChoice } from "../../settings/local-prefs";
-import type { PictureController, PictureState } from "../picture-controller";
-import type { KvmSession } from "../session";
 import { useStore } from "../use-store";
-import { createRecorder, recordSupport, type Recorder, type RecorderState } from "./recorder";
+import { liveFeed, type LiveFeedState } from "./live";
+import { createRecordControl, type RecordControl, type RecordControlState } from "./recorder";
 
-const RecorderContext = createContext<Recorder | null>(null);
+const RecorderContext = createContext<RecordControl | null>(null);
+const FALLBACK_CONTROL = createStore<RecordControlState>({ phase: "idle", error: null, micNote: null, feeding: false });
+const FALLBACK_FEED = createStore<LiveFeedState>({ live: null, receivedAt: 0 });
 
 export const RecorderProvider = RecorderContext.Provider;
 
-/** The screen's recorder, or null before the picture exists (and outside the screen). */
-export function useRecorder(): Recorder | null {
+/** The screen's Record control, or null outside the screen. */
+export function useRecorder(): RecordControl | null {
     return useContext(RecorderContext);
 }
 
-const BLANK: RecorderState = {
-    phase: "idle",
-    elapsedMs: 0,
-    bytesSent: 0,
-    bytesQueued: 0,
-    retrying: false,
-    error: null,
-    recordingId: null,
-    micMissing: false,
-};
-const BLANK_STORE: ReadableStore<RecorderState> = createStore(BLANK);
-
-export function useRecorderState(recorder: Recorder | null): RecorderState {
-    return useStore(recorder?.store ?? BLANK_STORE);
+/** Makes the screen's Record control, follows the host's live state while the screen is mounted and lets go when it is not. */
+export function useKvmRecorder(notify: Notify | undefined): RecordControl {
+    const control = useMemo(() => createRecordControl({ feed: liveFeed(), micDeviceId: () => readDeviceChoice(MIC_DEVICE_KEY).id, ...(notify ? { notify } : {}) }), [notify]);
+    useEffect(() => control.attach(), [control]);
+    return control;
 }
 
-/** The host name of the PiKVM, for the list ("pikvm.lan"); null when it is not known yet. */
-function targetName(origin: string | undefined): string | null {
-    if (!origin) return null;
-    try {
-        return new URL(origin).host || null;
-    } catch {
-        return origin;
-    }
+export interface RecordUiState {
+    readonly control: RecordControlState;
+    readonly feed: LiveFeedState;
+    /** This page's clock, which moves while a recording runs. */
+    readonly now: number;
 }
 
-/** Makes the recorder for this picture and ends it with the picture. `stage` holds the `<video>`. */
-export function useKvmRecorder(controller: PictureController | null, stage: RefObject<HTMLElement | null>, session: KvmSession): Recorder | null {
-    const [recorder, setRecorder] = useState<Recorder | null>(null);
-    const state = useAppState();
-    const target = useRef<string | null>(null);
-    target.current = targetName(state.data?.pikvm.origin);
-    const notify = session.notices.notify;
-
+/** The control's state, the host's live state, and a clock that ticks twice a second only while a recording runs. */
+export function useRecordUi(control: RecordControl | null): RecordUiState {
+    const own = useStore(control?.store ?? FALLBACK_CONTROL);
+    const feed = useStore(control?.feed.store ?? FALLBACK_FEED);
+    const [now, setNow] = useState(() => Date.now());
+    const running = feed.live?.recording != null;
     useEffect(() => {
-        const video = controller ? stage.current?.querySelector<HTMLVideoElement>("video.kvm-video") : null;
-        if (!controller || !video) return;
-        const made = createRecorder({
-            video,
-            micDeviceId: () => readDeviceChoice(MIC_DEVICE_KEY).id,
-            target: () => target.current,
-            notify,
-        });
-        setRecorder(made);
-        return () => {
-            setRecorder(null);
-            made.dispose();
-        };
-    }, [controller, stage, notify]);
-
-    return recorder;
+        if (!running) return;
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 500);
+        return () => clearInterval(timer);
+    }, [running]);
+    return { control: own, feed, now };
 }
 
-/** What a Record button shows, from the picture and the recorder. One place, so the toolbar, dock and sheet agree. */
+
+/** What a Record button shows. One place, so the toolbar, dock and sheet agree. */
 export interface RecordButtonView {
     readonly disabled: boolean;
     readonly recording: boolean;
@@ -96,30 +73,42 @@ export function formatClock(ms: number): string {
     return hours > 0 ? `${hours}:${two(minutes)}:${two(seconds)}` : `${two(minutes)}:${two(seconds)}`;
 }
 
-export function recordButtonView(picture: Pick<PictureState, "webrtc">, recorder: Recorder | null, state: RecorderState): RecordButtonView {
-    const recording = state.phase === "recording";
-    const busy = state.phase === "starting" || state.phase === "stopping";
-    const unavailable = recorder === null ? recordSupport(picture.webrtc) ?? "Recording starts when the picture is ready." : recordSupport(picture.webrtc);
-    const clock = recording ? formatClock(state.elapsedMs) : "";
-    if (recording) {
-        const held = state.retrying ? " The host is out of reach; the recording is kept here and sent when it returns." : "";
-        return { disabled: false, recording, busy, warn: state.retrying, clock, label: `Stop recording (${clock})`, title: `Stop recording. ${clock} so far.${held}` };
+export function recordButtonView(ui: RecordUiState): RecordButtonView {
+    const { control, feed, now } = ui;
+    const live = feed.live;
+    const recording = live?.recording != null;
+    const busy = control.phase !== "idle";
+    if (live && live.recording) {
+        const clock = formatClock(live.elapsedMs + Math.max(0, now - feed.receivedAt));
+        const reconnecting = live.connection === "reconnecting";
+        const notes = [
+            reconnecting ? `The host lost the PiKVM's stream${live.connectionNote ? ` (${live.connectionNote})` : ""} and is reconnecting; the recording has a gap until it returns.` : "",
+            live.holes.length > 0 ? `${live.holes.length} gap${live.holes.length === 1 ? "" : "s"} so far.` : "",
+            live.mic === "waiting" && !control.feeding ? "No microphone is being recorded." : "",
+        ].filter(Boolean);
+        return {
+            disabled: control.phase === "stopping",
+            recording,
+            busy: control.phase === "stopping",
+            warn: reconnecting,
+            clock,
+            label: `Stop recording (${clock})`,
+            title: `Stop recording. ${clock} so far, recorded on the host.${notes.length > 0 ? ` ${notes.join(" ")}` : ""}`,
+        };
     }
     if (busy) {
-        const word = state.phase === "starting" ? "Starting the recording" : "Saving the recording";
-        return { disabled: true, recording, busy, warn: false, clock, label: word, title: `${word}...` };
+        const word = control.phase === "starting" ? "Starting the recording" : "Stopping the recording";
+        return { disabled: true, recording: false, busy, warn: false, clock: "", label: word, title: `${word}...` };
     }
-    if (unavailable) return { disabled: true, recording, busy, warn: false, clock, label: "Record the session", title: unavailable };
-    if (state.phase === "failed" && state.error) {
-        return { disabled: false, recording, busy, warn: true, clock, label: "Record the session", title: `${state.error} Click to record again.` };
-    }
+    const idle = "Record the session on the host: the picture and the target's sound";
+    if (control.error) return { disabled: false, recording: false, busy: false, warn: true, clock: "", label: "Record the session", title: `${control.error} Click to record again.` };
     return {
         disabled: false,
-        recording,
-        busy,
+        recording: false,
+        busy: false,
         warn: false,
-        clock,
+        clock: "",
         label: "Record the session",
-        title: "Record the picture, the target's sound and your microphone",
+        title: control.micNote ? `${idle}. ${control.micNote}` : `${idle}, and your microphone`,
     };
 }

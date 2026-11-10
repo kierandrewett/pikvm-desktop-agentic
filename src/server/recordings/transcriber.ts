@@ -15,7 +15,7 @@ export interface TranscribeJob {
     id: string;
     file: string;
     workDir: string;
-    /** What the browser said the recording lasted; the first guess for the time limit, replaced by what the decoder finds. */
+    /** What the host knows the recording lasted; the first guess for the time limit, replaced by what the decoder finds. */
     durationMs: number | null;
 }
 
@@ -43,6 +43,8 @@ export interface TranscriberOptions {
 export interface Transcriber {
     status(): Promise<TranscriptionStatus>;
     enqueue(job: TranscribeJob): void;
+    /** True while a job runs or waits: the re-encoder holds its own work then (the transcription is the one that must not be slowed). */
+    busy(): boolean;
     /** Takes a job out of the queue or stops it, and resolves once its process is gone. */
     cancel(id: string): Promise<void>;
     /** Stops everything: queued jobs are dropped, the running one is killed. */
@@ -163,6 +165,7 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
             const reason = await problem();
             return reason === null ? { available: true, reason: null, models: { ...ASR_MODEL_NAMES } } : { available: false, reason, models: null };
         },
+        busy: () => current !== null || queue.length > 0,
         enqueue(job) {
             if (stopped) return;
             queue.push(job);

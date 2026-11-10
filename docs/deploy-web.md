@@ -43,6 +43,12 @@ Built from the repository root, in four stages:
    `dist/`, `apps/web/dist`, the models and the binary at `/opt/omp/omp`.
 
 It runs as uid 10001, writes only `/data` and `/tmp`, needs no capability, and has a healthcheck on `/app/login`.
+Session recordings write their raw video (about 10 MB a minute until it is re-encoded) under `/data/recordings/<id>/capture`, never to
+`/tmp`, which is a tmpfs here and so RAM: give `/data` a disk with room (`PIKVM_RECORDINGS_MAX_BYTES` is 10 GiB by default). The
+host reaches the PiKVM over UDP as well as HTTPS for the recording (the same WebRTC media the page watches), and asks for a 4 MiB
+UDP receive buffer, which the kernel grants up to `net.core.rmem_max` (4 MiB in the container; the host logs a warning if it
+gets less than 1 MiB, and keyframes can then be lost). `read_only`, `cap_drop: [ALL]` and `no-new-privileges` are enough: nothing
+here needs a capability (the re-encoder only lowers its own priority with `nice`).
 The recommended posture is:
 
 ```yaml
@@ -78,7 +84,7 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_WATCH_DAILY_CAP` | no | At most this many checks per watch in 24 hours (default `500`). |
 | `PIKVM_WATCH_READ_TIMEOUT_MS`, `PIKVM_WATCH_JUDGE_TIMEOUT_MS` | no | The hang guard of each of the chat model's two steps, in ms (default `120000` each): how long a model that has said nothing at all is waited for. A slow model is not cut off by it; only one that never answers. |
 | `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR that reads pop-ups: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
-| `PIKVM_RECORDINGS_RETENTION_DAYS`, `PIKVM_RECORDINGS_MAX_BYTES`, `PIKVM_RECORDINGS_MAX_RECORDING_BYTES`, `PIKVM_ASR_MODELS`, `PIKVM_ASR_WORKER`, `PIKVM_ASR_THREADS`, `PIKVM_ASR_SPEAKER_THRESHOLD` | no | Session recordings: how long they are kept (default 30 days, `0` keeps them), the disk limits (10 GiB in all, 2 GiB each), and the transcriber's models directory (image default `/opt/asr/models`), worker script, threads (default `2`) and diarization threshold (default `0.85`). See "Session recordings". |
+| `PIKVM_RECORDINGS_RETENTION_DAYS`, `PIKVM_RECORDINGS_MAX_BYTES`, `PIKVM_RECORDINGS_MAX_RECORDING_BYTES`, `PIKVM_RECORDINGS_MAX_RAW_BACKLOG_BYTES`, `PIKVM_RECORDINGS_KEYFRAME_SECONDS`, `PIKVM_RECORDINGS_SEGMENT_SECONDS`, `PIKVM_RECORDINGS_UDP_RCVBUF_BYTES`, `PIKVM_ASR_MODELS`, `PIKVM_ASR_WORKER`, `PIKVM_ASR_THREADS`, `PIKVM_ASR_SPEAKER_THRESHOLD` | no | Session recordings, made by the host: how long they are kept (default 30 days, `0` keeps them), the disk limits (10 GiB in all, 2 GiB each, 2 GiB of raw video waiting to be re-encoded), how often the host asks the PiKVM for a keyframe (30 s) and how long the raw segments are (300 s), the UDP receive buffer for the Pi's media (4 MiB), and the transcriber's models directory (image default `/opt/asr/models`), worker script, threads (default `2`) and diarization threshold (default `0.85`). See "Session recordings". |
 | `PIKVM_WATCH_LOG_TEXT` | no | `1` puts the OCR text of a pop-up in `checks.jsonl`, and the notification's title and body when they are the rules' own words. Never the chat model's words, with or without it. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
 | `PIKVM_PUSH_ALLOW_LOCAL` | no | `1` accepts push subscriptions on any address, loopback and plain http included. For tests and local runs only: left off, only the push services browsers use are accepted. |
@@ -94,7 +100,7 @@ The data volume holds, and is the only thing that needs backing up:
 | `chat/` | The chat database, per-conversation files, the agent's `HOME`, and provider keys entered in Settings (mode 0600, write-only from the browser). |
 | `push-vapid.json` | The server's Web Push key pair, made once on first use (mode 0600). **Back it up with the volume and never delete it**: a new pair orphans every device's subscription. |
 | `chat/users/<id>/watch/` | One user's screen watch (directory 0700, files 0600): `settings.json` (on or off, the rule, the corner; fields of older versions are ignored), `checks.jsonl` (one line per check, rotated at 512 KB to `checks.jsonl.1`) and `push-subscriptions.json` (the devices). Today there is one user, `operator`. |
-| `recordings/<id>/` | One session recording (directory 0700, files 0600): `recording.webm` or `.mp4`, `meta.json` (with the title, if it was renamed), `transcript.json`, `transcript.txt`, and `work/` while a transcription runs. Deleted `PIKVM_RECORDINGS_RETENTION_DAYS` (30) days after the recording ended; see "Session recordings". |
+| `recordings/<id>/` | One session recording (directory 0700, files 0600): `<id>.mp4` (made by the host) or `recording.webm` / `recording.mp4` (one an older version's browser uploaded), `meta.json` (with the title, if it was renamed), `transcript.json`, `transcript.txt`, `capture/` while the host records and re-encodes it (**raw video, about 10 MB a minute until it is re-encoded: keep it on the data volume**), and `work/` while a transcription runs. Deleted `PIKVM_RECORDINGS_RETENTION_DAYS` (30) days after the recording ended; see "Session recordings". |
 | `recordings/index.db` | The search index over the transcripts and titles: a copy, rebuilt at start if missing or stale (see "Search"). Safe to delete; it is not worth backing up. |
 
 Model providers are set in the app: Settings, then Providers, then add a base URL and key. Sign-in with a provider
@@ -393,65 +399,117 @@ question about colour or layout.
 
 ## Session recordings
 
-The app can record a KVM session (the target's screen, the target's audio and the person's own microphone) into **one small
-file** on this host, play it back, and turn it into a transcript that says who spoke. Nothing leaves the host: the audio is
-decoded and transcribed here, with models that are files in the image, by a process that opens no network connection.
+The host can record a KVM session (the target's screen, the target's audio and the person's own microphone) into **one small
+file**, play it back, and turn it into a transcript that says who spoke. **The host records**: it joins the PiKVM's own video and
+audio stream (the same Janus stream the page watches), writes what the Pi sends without re-encoding it, and re-encodes it in the
+background at the lowest priority. So a recording costs the browser almost nothing, needs no tab to stay open, and can be started
+and stopped by anything that can call the API (a meeting detector, a script). Nothing leaves the host: the audio is decoded and
+transcribed here, with models that are files in the image, by a process that opens no network connection.
+
+### How a recording is made
+
+1. `POST /start` makes the recording. The host opens a Janus session to the PiKVM (the origin and credentials
+   `PiKvmControl.proxyTarget()` holds), asks for a keyframe (the Pi sends none until asked), and from the first one forwards the
+   video and the target's Opus audio to a local ffmpeg, which writes **raw segments** of about 5 minutes (`seg-N.mp4`, or
+   Matroska when a microphone is recorded), each cut on a keyframe. The picture is the Pi's 1080p H.264, untouched: about
+   10 MB a minute.
+2. Each closed raw segment goes to **one shared re-encoder**, at `nice -n 19`, one job at a time, held (SIGSTOP) while a
+   transcription runs. It makes the stored segment and deletes the raw one, so the raw backlog is normally one segment and a
+   recording does not eat CPU or memory: the host's own process only passes the packets on (measured below).
+3. `POST /:id/stop` (or a limit, or the PiKVM gone for 15 minutes) closes the capture. The last raw segment is re-encoded
+   (status `finishing`, with `progress`), the stored segments are joined without re-encoding into `<id>.mp4`, the work directory is
+   deleted, the file is checked, and, if the start asked for it (the default), the transcription starts.
+4. If the PiKVM drops out, the host opens a new session by itself (backing off from 1 s to 15 s). The gap is a **hole** in the
+   recording's timeline (the file is as long as the wall clock; the picture stops and the sound is silence there) and is listed in the
+   view and in the live state.
+5. If the host stops or is killed, the recording is finished at the next start (see "After a restart").
+
+One recording is made at a time (`409` for a second start).
 
 ### The file, and why it is small
 
 | | |
 | --- | --- |
-| Container | WebM with **VP9** video (`video/webm`), or fragmented MP4 with **H.264** where the browser cannot do VP9 (Safari: `video/mp4`). The browser's `MediaRecorder` writes it; the host stores the bytes as uploaded and never remuxes them. |
-| Video | the target's screen, about **300 kbit/s** |
-| Audio | ONE stereo track, Opus (AAC in MP4), **48 kbit/s**. **Left = what the target played, right = the person's microphone.** |
-| Name | `<PIKVM_DATA_DIR>/recordings/<id>/recording.webm` (or `.mp4`), with `meta.json`, and `transcript.json` and `transcript.txt` once transcribed |
+| Container | MP4 (`video/mp4`) |
+| Video | H.264 (x264 `slow`, CRF 31, capped by a 180 kbit/s VBV ceiling), **720p at 10 frames a second**, a keyframe every 10 s |
+| Audio | **two tracks, named by their handler name**: `target` (what the target played: **stereo** AAC, 32 kbit/s at 24 kHz, because the Pi's audio is true stereo) and `mic` (the person's microphone: mono AAC, 24 kbit/s). A recording with no microphone has only `target`. |
+| Size | **about 1 to 2 MB a minute all in** (at most about 1.85 MB a minute whatever is on the screen). Measured: a 40 s recording of the fake Pi's text-on-screen picture with speech and a microphone took **0.99 MB, 1.51 MB a minute**. |
+| Name | `<PIKVM_DATA_DIR>/recordings/<id>/<id>.mp4`, with `meta.json`, and `transcript.json` and `transcript.txt` once transcribed |
+| While it is made | `<PIKVM_DATA_DIR>/recordings/<id>/capture/{raw,stored,manifest.json}`: the work directory, **on the data volume**, on the same filesystem as the file |
 
-**The channel trick.** A mixed recording would need a program to tell the person's voice from the target's, and from each
-other voice. Keeping the two sources on two channels does the first step for free: the right channel is always one person,
-"You", so it only needs speech recognition, and only the left channel is run through speaker diarization to be told apart
-into "Speaker 1", "Speaker 2" and so on.
+The work directory must be on a disk, not in RAM: the image's `/tmp` is a tmpfs, and 10 MB a minute of raw video there would be
+memory. That is why it is under the recording's own directory in `/data`.
 
-Size. At the ceiling (300 + 48 kbit/s) a recording takes about **2.6 MB a minute, 157 MB an hour**. A quiet desktop takes
-far less, because VP9 spends bits only on what moves. Measured here, on a synthetic 71 s session (a dark desktop, a grid, one
-small block crossing it, speech on both audio channels):
+**What the transcriber reads.** ffmpeg decodes the `target` track (the two channels folded to one, `pan=mono|c0=0.5*c0+0.5*c1`)
+and the `mic` track (`c0`) to 16 kHz mono float. The microphone's words are the speaker **You**; the target's are told apart into
+**Speaker 1, 2, ...** by diarization. A recording an older version took from a browser (WebM or MP4 with ONE stereo track, the
+target on the left and the person on the right) is read the old way (`c0` and `c1`): the layout is chosen from the track names, so a
+host recording that has no microphone is not mistaken for one.
 
-| Encoder | Bytes | Per minute | All in |
-| --- | --- | --- | --- |
-| Chrome 154 `MediaRecorder`, 300 + 48 kbit/s, 10 s slices (what the app does) | 645,398 | **545 KB** | 73 kbit/s |
-| ffmpeg libvpx-vp9 `-b:v 300k` + libopus 32k, written live | 1,432,451 | 1.21 MB | 161 kbit/s |
+### The microphone
 
-At the default 10 GiB total that is about 65 hours at the ceiling and several hundred hours of a quiet screen. The transcript of
-those 71 s is 4.8 KB.
+The host cannot hear the person: the page sends it. While a recording that asked for a microphone (`mic: true` in the start) runs,
+the page captures its microphone, cuts it into 20 ms frames in an AudioWorklet, encodes each as Opus (48 kHz mono, 24 kbit/s) with
+WebCodecs `AudioEncoder`, and sends them over a WebSocket (`WS /app/api/v1/recordings/<id>/mic`). The first message is
+`{"hello":1,"now":<Date.now()>}`; each binary message after it is 8 bytes (a big-endian double: the frame's capture time on the
+page's clock) and one Opus packet. The host works out the difference between the two clocks from the hello, puts the frames on its
+own timeline, keeps the track continuous with Opus silence where frames are late or missing, and hands them to ffmpeg as a second
+audio stream lined up with the Pi's by wall-clock time. A frame whose time is more than 15 s off is dropped; a socket that sends
+more than 150 frames a second is closed (`1008`). A browser cannot set `x-pikvm-recording` on a WebSocket, so this route is guarded
+by the sign-in and the same-origin check the chat socket has. One page feeds a recording at a time: a second page that connects
+replaces the first (`4000`). A page that reloads in the middle of a recording it started takes its microphone up again.
+
+**Browsers.** Chrome and Edge encode Opus with WebCodecs and work: the E2E below ran it in Chromium 154. Safari has no Opus
+MediaRecorder, which is why this does not use MediaRecorder at all; Safari 26 adds `AudioEncoder`, but whether it encodes Opus was
+not tried here. Where `AudioEncoder.isConfigSupported` says no for Opus, the page sends no microphone: the recording has only the
+`target` track, and the Record button's tooltip says so. Nothing is ever encoded in JavaScript, and a recording never depends on the
+microphone: if it is refused or gone, the recording goes ahead and says so. The page asks for the microphone chosen in Settings
+as `exact` (a gone headset is named, never replaced), with echo cancellation and noise suppression on.
 
 ### The page
 
-The app's **Recordings** tab (`/app/recordings`) is the library for all of this: a table (cards on a phone) with filters, a sort,
-rename in place, a menu on each row and bulk delete; a search box over every transcript and title; and one recording's page,
-`/app/recordings/<id>`, with the player beside its transcript. Its addresses are shareable and survive a reload: `?q=words` is a
-search (or, on a recording, the words to find in its transcript), `?t=95` opens the recording at second 95, `?filter=failed` and
-`?sort=longest` set the list. The thumbnails are the first frame of each file, taken in the browser. Everything it does goes through
-the routes below; the host serves the same `index.html` for `/app/recordings` and `/app/recordings/<id>` as for the other tabs.
+The record button (toolbar, phone dock, and the sheet's Record row) switches the **host's** recording and shows the host's state
+(a server-sent stream, `GET /live`): the elapsed time, "reconnecting" while the PiKVM is away, and a recording another client or a
+meeting detector started, with the same clock. It works with the MJPEG picture too. The **Recordings** tab (`/app/recordings`) is
+the library for all of this: a table (cards on a phone) with filters, a sort, rename in place, a menu on each row and bulk delete;
+each row says who made the file (the host, or a browser for the older ones), how far the shrinking of a finished recording has got
+(`Finishing 42%`), any gap in the picture and, if it ended at a limit, why; a search box over every transcript and title; and one
+recording's page, `/app/recordings/<id>`, with the player beside its transcript. Its addresses are shareable and survive a reload:
+`?q=words` is a search (or, on a recording, the words to find in its transcript), `?t=95` opens the recording at second 95,
+`?filter=failed` and `?sort=longest` set the list. The thumbnails are the first frame of each file, taken in the browser. Everything it
+does goes through the routes below; the host serves the same `index.html` for `/app/recordings` and `/app/recordings/<id>` as for
+the other tabs.
 
 ### The API
 
 All under `/app/api/v1/recordings`, behind the host's sign-in like every route; nothing is served without it, the media route
 included. Every write carries `x-pikvm-recording: 1` (a custom header forces a browser preflight this host never answers, which
-is what the JSON rule does for the other routes); a chunk is `application/octet-stream`, every other write is JSON. The wire
-types are `packages/contracts/src/recordings.ts`.
+is what the JSON rule does for the other routes) and a JSON body. The wire types are `packages/contracts/src/recordings.ts`.
 
 | Request | Answer |
 | --- | --- |
-| `POST /` `{ mime, startedAt, target? }` | `201` the recording (`status: "recording"`). `507` when the disk limit is reached. |
-| `PUT /:id/chunks/:n` (bytes) | `{ received: n + 1 }`. Chunk `n` must be the next one: a repeat or a gap is `409 { received }` (what the host holds, so the browser sends from there). `413` over 8 MiB. Streamed to disk, never held whole. |
-| `POST /:id/finish` `{ durationMs, transcribe }` | The recording, `ready` (or `transcribing`, or `failed` when the file cannot be read as media). A second finish is `409`. |
-| `GET /` (`?status=done,failed&sort=longest`) | `{ recordings, transcription: { available, reason, models } }`. `status` is a comma list of `recording`, `ready`, `transcribing`, `done`, `failed`; `sort` is `newest` (default), `oldest`, `longest` or `largest`. Anything else is `400`. |
+| `POST /start` `{ mic, target?, title?, transcribe? }` | `201` the recording (`status: "recording"`). `409 { recording }` when one is in progress, `507` when the recordings already take the disk limit, `503` when this host has no PiKVM. `mic` is required: whether a page will send a microphone (a client with none sends `false`). `transcribe` defaults to `true`. |
+| `POST /:id/stop` | The recording, now `finishing`. `409 { recording }` when it is not in progress. |
+| `GET /live` | The capture in progress (`recording`, `elapsedMs`, `bytes`, `rawBacklogBytes`, `connection`: `connecting`, `live` or `reconnecting`, `connectionNote`, `holes`, `mic`: `off`, `waiting` or `connected`) and the recordings being finished (`finishing: [{ id, progress }]`). With `Accept: text/event-stream`: one `data:` line at once, then at least every second while something runs and whenever it changes. |
+| `WS /:id/mic` | The microphone's Opus frames (above). Closed with `1000` when the recording ends, `4404` when no such recording is in progress, `4409` when it takes no microphone. |
+| `GET /` (`?status=done,failed&sort=longest`) | `{ recordings, transcription: { available, reason, models } }`. `status` is a comma list of `recording`, `finishing`, `ready`, `transcribing`, `done`, `failed`; `sort` is `newest` (default), `oldest`, `longest` or `largest`. Anything else is `400`. |
 | `GET /search?q=&limit=&offset=&speaker=&from=&to=` | Full text over transcripts and titles: see "Search". |
-| `GET /:id` | One recording: status, `title`, bytes, duration, `expiresAt`, `progress` (0 to 1 while transcribing), `speakers`. |
+| `GET /:id` | One recording: `status`, `source` (`host` or `browser`), `title`, `bytes`, `durationMs`, `expiresAt`, `progress` (0 to 1 while `finishing` or `transcribing`), `speakers`, `reason` (why the capture ended), `holes`, `hasMic`. |
 | `PATCH /:id` `{ title }` | Renames. A title is one line of at most 200 characters (runs of white space become one space); `null` or `""` goes back to the default name. More than 200 is `400`. |
-| `GET /:id/media` | The file, with `Range` (`206`, `Accept-Ranges`, `416` out of range) for a `<video>` element. |
+| `GET /:id/media` | The file, with `Range` (`206`, `Accept-Ranges`, `416` out of range) for a `<video>` element. `409` while the recording is `recording` or `finishing`. |
 | `GET /:id/transcript` | The transcript (`404` until `done`). |
 | `POST /:id/transcribe` | Start or restart the transcription. `503` with the reason when this host cannot. |
-| `DELETE /:id` | The recording, its transcript and its work files; a running transcription is stopped first. |
+| `DELETE /:id` | The recording, its transcript and its work files; a capture in progress is stopped first, and a re-encode or a transcription is cancelled. |
+
+There is no upload route any more: a page no longer records, and a recording an older version uploaded stays on the host and is
+read as it was (`source: "browser"`).
+
+`status` is the one lifecycle field: `recording` (the host is capturing) -> `finishing` (stopped; re-encoding what it captured and
+joining it; not playable yet) -> `ready` (the file exists) -> `transcribing` -> `done`, or `failed` with `error`. `reason` says why the
+capture ended: `stopped`; `quota` (the recordings together would have passed the total); `recording_cap` (this one reached the
+per-recording limit); `backlog_cap` (the raw stream waiting for the re-encoder passed its limit); `error` (the PiKVM stayed away for
+15 minutes, or ffmpeg kept crashing; `error` says which); `interrupted` (the host stopped or restarted while it recorded). Every end
+keeps what was captured.
 
 An id is 32 random hex digits (`crypto.randomBytes`) and is checked against that shape before any path is built from it:
 anything else is a `404` and no file is touched.
@@ -486,16 +544,15 @@ modification time or size) or that was never indexed is indexed again, and a mis
 ### Transcription
 
 One job at a time, in a process of its own (`dist/transcribe-worker.js`) started under `nice -n 19`, so it never competes with
-the page, with the memory handed back when it ends. ffmpeg decodes each channel to 16 kHz mono float
-(`pan=mono|c0=c0` for the target, `c0=c1` for the microphone). Then, with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+the page, with the memory handed back when it ends. ffmpeg decodes the target and the microphone to 16 kHz mono float, from the tracks named `target` and `mic` (see "The file, and why it is small"). Then, with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
 (CPU, onnxruntime inside, no Python, no GPU):
 
-- **both channels**: Silero VAD splits speech from silence, and NVIDIA Parakeet TDT 110M recognises each stretch with word
+- **both voices**: Silero VAD splits speech from silence, and NVIDIA Parakeet TDT 110M recognises each stretch with word
   timestamps;
-- **target channel only**: pyannote segmentation 3.0 finds who speaks when, 3D-Speaker ERes2Net embeddings are clustered into
+- **the target only**: pyannote segmentation 3.0 finds who speaks when, 3D-Speaker ERes2Net embeddings are clustered into
   voices, and each word takes the voice it overlaps most (a run of one or two words between two runs of the same voice follows
   its neighbours: that is the diarizer wavering, not a speaker);
-- the stretches of both channels are merged by time into `Transcript.segments`, so a turn where the person speaks over the target
+- the stretches of both voices are merged by time into `Transcript.segments`, so a turn where the person speaks over the target
   stays two overlapping segments.
 
 A transcription is stopped after 4 times the audio's length plus a minute, when the recording is deleted, and when the host
@@ -519,37 +576,66 @@ fetches nothing. Run `node scripts/fetch-asr.mjs --out <dir>` and set `PIKVM_ASR
 Without ffmpeg, the models or `sherpa-onnx-node`, `GET /` says `transcription.available: false` with the reason, the page shows
 no Transcribe button, `POST /:id/transcribe` is `503`, and recording, storing, playing and deleting all still work.
 
-**Measured** (the E2E below, on this workstation: 16 threads, load average 13 to 16 from other work, the worker at `nice -n 19`):
+**Measured** (the transcription E2E, `~/.cache/pikvm-e2e/recordings/e2e.mjs`, on an older browser-made recording, on this workstation: 16 threads, load average 13 to 16 from other work, the worker at `nice -n 19`):
 a 71 s recording with three voices was transcribed in **25.7 s** (0.36 times real time), the worker peaking at about 480 MB;
 inside the image (`--read-only --user 10001:10001 --cap-drop ALL --network none`) the same file took 15.2 s. Word error rate
 against the script: 4.1 % on the target channel, 35.3 % on the microphone channel (see the next paragraph). Both target voices kept
 one label through all of their turns (100 % and 100 %).
 
-**Audio bitrate.** The microphone voice that speaks while the target is loud is the weak spot: at 32 kbit/s stereo Opus the
-codec spends the bits on the louder channel and "I will upgrade the staging server this afternoon" came out as "Brade the
-stages". Measured with the same worker on the same audio re-encoded by ffmpeg: at 48 and 64 kbit/s the sentence is read
-whole. The recorder therefore uses 48 kbit/s (`AUDIO_BITS_PER_SECOND`), about 7 MB an hour more than 32. With it the E2E
-measures a microphone word error rate of 17.6% (35.3% at 32 kbit/s); the ffmpeg row above was encoded at 32k.
+**Stored audio.** What the transcriber reads is the stored AAC, not the Pi's Opus: 32 kbit/s stereo at 24 kHz for the target and
+24 kbit/s mono for the microphone (`STORED_SETTINGS` in `src/server/recordings/capture/transcode.ts`, chosen so the whole file stays
+under 2 MB a minute). It costs some words on a hard voice. Measured with this worker on the same 34 s of espeak speech (two voices): read
+from lossless FLAC, "The deployment pipeline failed on the staging cluster" and "certificate expire on Friday morning"; from AAC at
+32 kbit/s, "Employment pipeline failed on the failing cluster" and "certificate at Pyramon Friday morning"; from AAC at 64 kbit/s,
+one word different. The microphone, which is the person's own clear voice, read well at its 24 kbit/s in the E2E. If target accuracy
+matters more than 0.24 MB a minute, raise `audioKbps.target` there.
 
 Diarization is a heuristic. Voices are joined when their embeddings are closer than a threshold (`PIKVM_ASR_SPEAKER_THRESHOLD`,
 default 0.85; larger joins more voices into one speaker). On the E2E recording the range 0.8 to 0.9 found exactly the two target
 voices, and two real two-speaker recordings from sherpa-onnx's test set gave two speakers from 0.6 to 0.9. Voices that are very
 alike, or a speaker who is very quiet, can still be merged or split: do not read "Speaker 2" as an identity.
 
+### After a restart
+
+A host that is stopped (SIGTERM: the web host closes the capture first, so ffmpeg finishes its files) or killed (SIGKILL, a power
+cut) while recording does not lose the recording. At the next start every recording that was `recording` or `finishing` is finished
+from its work directory: an ffmpeg the dead host left running is stopped (it is found by the directory in its command line), raw
+segments that were never re-encoded are queued on the re-encoder, stored ones are kept, and the stored segments are joined into the
+file. The recording ends with `reason: "interrupted"`, keeping everything up to the last whole fragment (the last two seconds of the
+segment that was open when the host died can be lost), and is transcribed afterwards if the start asked for it. A transcription that
+was running is queued again. A recording an older version's browser was still uploading is closed to `ready` with the bytes it has;
+media that ffprobe cannot read is `failed` with the reason.
+
 ### Disk, retention and the variables
+
+A recording takes, on disk, its raw segments that wait for the re-encoder, plus its stored segments, plus (once it exists) the file:
+`bytes` in its view, and in `GET /live` while it runs. All recordings together are held to `PIKVM_RECORDINGS_MAX_BYTES`: a start is
+refused with `507` when they already take that much, and a recording in progress is **closed cleanly**, never stalled, keeping what
+it holds, when it would pass it (`reason: "quota"`), when it alone reaches its own limit (`"recording_cap"`), or when the raw
+backlog passes its limit because the re-encoder cannot keep up (`"backlog_cap"`). The work directory is on the data volume, never in
+`/tmp` (a tmpfs, so RAM), and on the same filesystem as the file, which the join needs.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PIKVM_RECORDINGS_RETENTION_DAYS` | `30` | A recording is deleted this many days after it ended, with all its files. `0` keeps them for ever. Swept at host start and every hour; every view says `expiresAt`. |
-| `PIKVM_RECORDINGS_MAX_BYTES` | 10 GiB | All recordings together. A new recording is refused with `507` at this size; a chunk that would pass it closes that recording with the bytes the host holds (`507`). |
-| `PIKVM_RECORDINGS_MAX_RECORDING_BYTES` | 2 GiB | One recording: at this size it is closed with what it holds (`413`). |
+| `PIKVM_RECORDINGS_MAX_BYTES` | 10 GiB | All recordings together, as above. |
+| `PIKVM_RECORDINGS_MAX_RECORDING_BYTES` | 2 GiB | One recording, raw backlog and stored segments included: at this size it is closed with what it holds (`recording_cap`). |
+| `PIKVM_RECORDINGS_MAX_RAW_BACKLOG_BYTES` | 2 GiB | The raw 1080p waiting for the re-encoder: at this size the recording is closed (`backlog_cap`). The re-encoder runs at `nice -n 19` and is held while a transcription runs, so a host that stays busy for hours falls behind; at about 10 MB a minute of raw video 2 GiB is over three hours. |
+| `PIKVM_RECORDINGS_KEYFRAME_SECONDS` | `30` | How often the host asks the PiKVM for a keyframe (it sends none by itself). Raw segments are cut on these. |
+| `PIKVM_RECORDINGS_SEGMENT_SECONDS` | `300` | The raw segments' length, rounded to whole keyframe intervals. |
+| `PIKVM_RECORDINGS_UDP_RCVBUF_BYTES` | 4 MiB | The receive buffer asked for the PiKVM's media sockets. The Pi sends each keyframe as a burst of about 300 packets: the kernel's default buffer (208 KB) lost 2,249 packets in the host-capture E2E and every keyframe was damaged, 4 MiB lost none. The kernel grants at most `net.core.rmem_max` (4 MiB in the container); the host logs a warning when it got less than 1 MiB. |
 | `PIKVM_ASR_MODELS` | `/opt/asr/models` | The speech models' directory. |
 | `PIKVM_ASR_WORKER` | `transcribe-worker.js` beside the bundle | The worker script. |
 | `PIKVM_ASR_THREADS` | `2` | onnxruntime's threads in the worker. |
 | `PIKVM_ASR_SPEAKER_THRESHOLD` | `0.85` | The diarizer's clustering threshold. |
 
-A recording still `recording` when the host starts (it was killed, or the tab never finished) is closed to `ready` with the bytes
-it has, and so is one that has received no chunk for an hour; media that ffprobe cannot read is `failed` with the reason.
+### What it costs the host
+
+Measured by the E2E below on this workstation (16 threads, load average 8 to 16 from other work), recording the fake Pi's 1080p60
+stream with a microphone: the host's node process used **9 % of one core and 162 MB** over 39 s (the whole web host: the chat server, the page's streams and the recording's packet path); the capture's ffmpeg 1.3 % of a core; the re-encode (asked to run at nice 19; this workstation's ananicy-cpp rewrites every ffmpeg to nice 9) took at least 12 CPU seconds for those 39 s.
+
+The capture's own ffmpeg only copies packets into a file. The re-encode is `nice -n 19`, one at a time, and held while a
+transcription runs. The 2 GiB raw-backlog limit is what keeps a host that is too busy to re-encode from filling its disk.
 
 ### Privacy
 
@@ -560,21 +646,31 @@ The data volume holds the recordings: back it up (or not) accordingly.
 
 ### What it costs in the image
 
-Measured by building the image with and without this feature (layer sizes, MiB): the image content grows from 654 to 1286 MiB,
-**+632 MiB**: ffmpeg and its dependencies from Debian **+442 MiB** (the apt step installs 203 packages, graphics and codec
-libraries among them), the speech models **+157 MiB** and sherpa-onnx **+31 MiB**. `docker images` reports 994 MB before
-and 1.97 GB after.
+Measured by building the image with and without the transcription feature (layer sizes, MiB): the image content grows from 654 to
+1286 MiB, **+632 MiB**: ffmpeg and its dependencies from Debian **+442 MiB** (the apt step installs 203 packages, graphics and codec
+libraries among them), the speech models **+157 MiB** and sherpa-onnx **+31 MiB**. `docker images` reports 994 MB before and 1.97 GB
+after. Recording itself adds no package: the same ffmpeg captures, re-encodes (libx264, AAC) and decodes. The image was NOT rebuilt
+for the host capture: its ffmpeg is Debian bookworm's (5.1), and the E2E ran ffmpeg 7.1.
 
 ### Verified how
 
-`~/.cache/pikvm-e2e/recordings/e2e.mjs` (run with `nice node e2e.mjs`): it bundles the real host, records a 71 s session with
-three synthetic voices (Piper `en_GB-vctk-medium`: two on the target channel taking turns, one on the microphone channel, with
-an overlap and silences) through a **real Chrome `MediaRecorder`** (the app's graph: a channel merger into a stereo destination,
-VP9 + Opus at 300 + 48 kbit/s, 10 s slices), starts the real host, and drives the routes: ordered upload, a repeated chunk and a
-gap (`409` with the count), Range, `416`, malformed and unknown ids (`404`, `strace -f` showing no file call outside the
-recordings directory), the per-recording and total quotas, the retention sweep, a restart with a recording left open, a real
-transcription with the real models, delete while transcribing (worker and ffmpeg gone, every file gone), host stop, and the
-host without models or ffmpeg. The image was then built and a recording transcribed in it.
+`~/.cache/pikvm-e2e/host-recording/e2e.mjs` (`nice node e2e.mjs`; it writes `runs/<stamp>/` with `RESULT.md`, screenshots, evidence and
+the host logs). It bundles the real host and starts it in front of the host-capture E2E's FAKE PiKVM
+(`~/.cache/pikvm-e2e/host-capture`: a Janus and WebRTC peer that sends 1080p60 H.264 and stereo Opus the way the real Pi does, with
+real speech as its sound) and `tools/fake-kvmd` for the page, and drives it with a real Chromium 154 whose microphone is a file of
+speech (real `getUserMedia`, AudioWorklet, WebCodecs Opus encoder and WebSocket). Last run: 70 of 70 checks passed (305 s). It covers: an old browser recording
+that still plays, transcribes (You on the right channel, Speaker on the left) and is found by search; a click on Record with MJPEG as
+the picture, the microphone reaching the host as Opus frames, a second client that shows the recording live and stops it, the
+re-encode with its progress in the library, the stored file (H.264 720p, two audio tracks named `target` and `mic`, MB a minute), the
+transcript with You and Speaker labels, the search and the player; a recording started from the API with no tab open; a second start
+(`409`); the PiKVM dropping in the middle (reconnecting, the gap in the file and the library); deleting a recording in progress;
+SIGTERM and SIGKILL in the middle of a recording and the recovery at the next start; `507` at the quota; and closing at the
+per-recording limit and at the total quota, each with its reason shown by the page.
+
+**Not verified:** Safari (its WebCodecs `AudioEncoder` may or may not encode Opus), Firefox, a real PiKVM end to end from the browser
+flow (the host capture was run once against a real Pi on its own: `~/.cache/pikvm-e2e/host-capture`), non-silent real audio from a
+real target, recordings longer than a few minutes (the segment join and the limits ran with 15 s segments), and the image built with
+these changes.
 
 ## MCP server (any agent, outside the app)
 

@@ -71,6 +71,8 @@ FROM node:22-bookworm-slim AS runtime
 # sharp resizes and crops the screenshots the agent sees. It is a native addon with a prebuilt
 # binary per platform, so it is installed here, beside the bundle, and the bundle leaves it external.
 ARG SHARP_VERSION=0.35.5
+# ffmpeg (and ffprobe) do three jobs for session recordings (src/server/recordings): the host's capture of the PiKVM's stream, the
+# background re-encode to H.264 (libx264) and AAC, and the decoding of the audio for transcription.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
@@ -127,7 +129,8 @@ ENV NODE_ENV=production \
     ORT_DISABLE_TELEMETRY=1
 
 # One fixed unprivileged user that owns /data. Nothing but /data (and tmpfs /tmp) is ever written,
-# so the root filesystem can be read-only and every capability dropped.
+# so the root filesystem can be read-only and every capability dropped. A session recording's raw stream (about 10 MB a minute until
+# it has been re-encoded) is written under /data/recordings/<id>/capture, never to /tmp: that is RAM.
 RUN useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin pikvm \
     && mkdir -p /data && chown 10001:10001 /data
 USER 10001:10001

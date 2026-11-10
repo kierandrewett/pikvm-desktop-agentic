@@ -212,8 +212,9 @@ export function startControlServer(
         }
     });
 
-    // Session recordings: stored under <data dir>/recordings, transcribed by a low-priority worker process.
-    const recordings = createRecordingService({ dataDir: settings.dir() });
+    // Session recordings: the host joins the PiKVM's stream and writes it (under <data dir>/recordings), re-encodes it in the
+    // background and has a low-priority worker process transcribe it.
+    const recordings = createRecordingService({ dataDir: settings.dir(), target: () => control.proxyTarget() });
     const recordingRoutes = createRecordingRoutes(recordings);
     void recordings.start().catch((error: unknown) => console.error("[recordings] could not start:", error));
 

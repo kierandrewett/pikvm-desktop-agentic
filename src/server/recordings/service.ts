@@ -1,12 +1,14 @@
+import { stat } from "node:fs/promises";
+import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
-import type { Readable } from "node:stream";
+import type { Duplex } from "node:stream";
 import {
     MAX_SEARCH_QUERY_CHARS,
     MAX_TITLE_CHARS,
-    RECORDING_MIMES,
     RECORDING_SORTS,
     SEARCH_DEFAULT_LIMIT,
     SEARCH_MAX_LIMIT,
+    type RecordingLive,
     type RecordingMime,
     type RecordingSearchResult,
     type RecordingSort,
@@ -16,6 +18,8 @@ import {
     type TranscriptionStatus,
 } from "@pikvm/contracts/recordings";
 import { ASR_MODEL_NAMES, DEFAULT_CLUSTER_THRESHOLD } from "./asr-models";
+import type { JanusTarget } from "./capture";
+import { createHostRecorder } from "./host-recorder";
 import { limitsFromEnv, type RecordingLimits } from "./limits";
 import { probeMedia } from "./media";
 import { buildMatch, indexedSegments, RecordingIndex } from "./search-index";
@@ -23,14 +27,16 @@ import { RecordingRefusal, RecordingStore } from "./store";
 import { createTranscriber, type TranscribeResult, type Transcriber } from "./transcriber";
 
 /**
- * Session recordings: the store (store.ts) and the transcriber (transcriber.ts) behind one object, which the routes
- * (routes.ts) call. It checks every body, probes a recording when it is closed, and decides what happens to a recording that
- * was left open, expired, or being transcribed when the host stopped.
+ * Session recordings: the store (store.ts), the host's recorder (host-recorder.ts) and the transcriber (transcriber.ts) behind one
+ * object, which the routes (routes.ts) call. It checks every body, and decides what happens to a recording that was being made,
+ * finished, expired, or transcribed when the host stopped.
  */
 
 export interface RecordingServiceOptions {
     dataDir: string;
     limits?: RecordingLimits;
+    /** Where the PiKVM is, as `control.proxyTarget()` says. Absent on a host with none: it can play recordings but not make them. */
+    target?: () => Promise<JanusTarget>;
     /** Default `PIKVM_ASR_MODELS`, else /opt/asr/models. */
     modelsDir?: string;
     /** Default `PIKVM_ASR_WORKER`, else `transcribe-worker.js` beside this bundle. */
@@ -54,18 +60,26 @@ export interface RecordingService {
     search(params: URLSearchParams): RecordingSearchResult;
     /** Renames: `body` is `{ title }`. */
     rename(id: string, body: unknown): Promise<RecordingView>;
-    create(body: unknown): Promise<RecordingView>;
-    chunk(id: string, n: number, body: Readable, declaredLength: number | null): Promise<{ received: number }>;
-    finish(id: string, body: unknown): Promise<RecordingView>;
+    /** Starts the host recording the PiKVM's stream: `body` is `{ target?, mic, title?, transcribe? }`. One at a time (409). */
+    startRecording(body: unknown): Promise<RecordingView>;
+    /** Stops it cleanly; the recording goes on to "finishing". */
+    stopRecording(id: string): Promise<RecordingView>;
+    /** The capture in progress and the recordings being finished. */
+    live(): RecordingLive;
+    /** Told whenever `live()` changes. Returns the way to stop being told. */
+    onLive(listener: () => void): () => void;
+    /** The microphone socket of a recording in progress, after the router has judged the upgrade. */
+    attachMic(req: IncomingMessage, socket: Duplex, head: Buffer, id: string): void;
     view(id: string): RecordingView;
-    media(id: string): { path: string; size: number; mime: RecordingMime };
+    /** The file to serve, with its size; 409 until it exists. */
+    media(id: string): Promise<{ path: string; size: number; mime: RecordingMime }>;
     transcript(id: string): Promise<string>;
     transcribe(id: string): Promise<RecordingView>;
     remove(id: string): Promise<void>;
     sweep(): Promise<void>;
 }
 
-const STATUSES: readonly RecordingStatus[] = ["recording", "ready", "transcribing", "done", "failed"];
+const STATUSES: readonly RecordingStatus[] = ["recording", "finishing", "ready", "transcribing", "done", "failed"];
 const DAY_MS = 86_400_000;
 
 /** The `from` or `to` of a search: an ISO time, or a date alone (UTC), which for `to` means to the end of that day. */
@@ -85,7 +99,6 @@ function wholeNumber(raw: string | null, name: string, fallback: number, min: nu
 }
 
 const SWEEP_EVERY_MS = 60 * 60 * 1000;
-const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function asObject(body: unknown): Record<string, unknown> {
     if (typeof body !== "object" || body === null || Array.isArray(body)) throw new RecordingRefusal("The request body must be a JSON object.", 400);
@@ -99,6 +112,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
     // Opened at start, once the recordings directory exists. Until then (and for a host that cannot open one) it is unavailable.
     let index: RecordingIndex | null = null;
     let sweeper: NodeJS.Timeout | undefined;
+    let stopping = false;
     const ready = Promise.withResolvers<void>();
     // A start that fails is reported where start() was called; a request then answers 503 instead of waiting for ever.
     ready.promise.catch(() => undefined);
@@ -189,21 +203,39 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         log(`[recordings] ${id}: could not record the end of its transcription: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    /** Closes a recording with what it holds, and fails it if what it holds cannot be read as media. */
-    async function closeRecording(id: string, durationMs: number | null): Promise<RecordingView> {
-        const closed = await store.close(id, durationMs);
-        if (closed.status !== "ready") return closed;
-        if (closed.bytes === 0) return store.update(id, { status: "failed", error: "The recording is empty: the host received no data." });
+    /** An older version's browser was uploading this recording when the host stopped: close it with what it holds. */
+    async function closeUpload(id: string): Promise<void> {
+        await store.update(id, { status: "ready", endedAt: Date.now() });
+        if ((await store.measureFile(id)) === 0) {
+            await store.update(id, { status: "failed", error: "The recording is empty: the host received no data." });
+            return;
+        }
         try {
             const facts = await probeMedia(store.mediaPath(id));
-            if (facts?.durationSeconds && closed.durationMs === null) return store.update(id, { durationMs: Math.round(facts.durationSeconds * 1000) });
-            return closed;
+            if (facts?.durationSeconds && store.durationMsOf(id) === null) await store.update(id, { durationMs: Math.round(facts.durationSeconds * 1000) });
         } catch (error) {
             const why = error instanceof Error ? error.message : String(error);
             log(`[recordings] ${id} does not probe as media: ${why}`);
-            return store.update(id, { status: "failed", error: `The recording could not be read as video or audio (${why}).` });
+            await store.update(id, { status: "failed", error: `The recording could not be read as video or audio (${why}).` });
         }
     }
+
+    /** A host recording's file exists: transcribe it when the start asked for that and this host can. */
+    async function onReady(id: string): Promise<void> {
+        if (!store.has(id) || !store.wantsTranscript(id) || store.bytesOf(id) === 0) return;
+        if (!(await transcriber.status()).available) return;
+        await store.update(id, { status: "transcribing" });
+        await queue(id);
+    }
+
+    const recorder = createHostRecorder({
+        store,
+        limits,
+        target: options.target,
+        transcriberBusy: () => transcriber.busy(),
+        onReady: (id) => onReady(id).catch((error: unknown) => logIgnoringGone(error, id)),
+        log,
+    });
 
     async function queue(id: string): Promise<void> {
         await store.clearWork(id);
@@ -218,28 +250,30 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             await store.remove(id).catch((error: unknown) => logIgnoringGone(error, id));
             indexing(id, (db) => db.remove(id));
         }
-        for (const id of store.idle()) {
-            log(`[recordings] ${id} received no chunk for ${Math.round(limits.idleCloseMs / 60000)} minutes and is closed`);
-            await closeRecording(id, null).catch((error: unknown) => logIgnoringGone(error, id));
-        }
     }
 
     async function boot(): Promise<void> {
         const loaded = await store.load();
-        index = RecordingIndex.open(store.root, log);
-        if (index.available) await index.restrict(store.root);
-        for (const id of loaded.open) {
-            log(`[recordings] ${id} was still recording when the host stopped; closing it with what it holds`);
-            await closeRecording(id, null);
+        const db = RecordingIndex.open(store.root, log);
+        index = db;
+        if (db.available) await db.restrict(store.root);
+        for (const id of loaded.openUploads) {
+            log(`[recordings] ${id} was still being uploaded when the host stopped; closing it with what it holds`);
+            await closeUpload(id);
         }
         for (const view of store.views()) if (view.status !== "transcribing") await store.clearWork(view.id);
+        // Host recordings the last run left unfinished are finished in the background, from what their capture directories hold.
+        recorder.recover([...loaded.capturing, ...loaded.finishing]);
         const status = await transcriber.status();
         for (const id of loaded.transcribing) {
             if (status.available) await queue(id);
             else await store.update(id, { status: "ready", error: null });
         }
-        if (index.available) await reconcile(index);
+        // A host stopped while it was starting (a test, a quick restart) has closed the index and has nothing left to start.
+        if (stopping) return;
+        if (db.available) await reconcile(db);
         await sweep();
+        if (stopping) return;
         sweeper = setInterval(() => void sweep().catch((error: unknown) => log(`[recordings] sweep failed: ${String(error)}`)), SWEEP_EVERY_MS);
         sweeper.unref();
         log(`[recordings] ${store.views().length} recording(s), ${(store.totalBytes() / 1048576).toFixed(1)} MB; transcription ${status.available ? "available" : `unavailable: ${status.reason}`}`);
@@ -259,7 +293,10 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         },
 
         async stop() {
+            stopping = true;
             clearInterval(sweeper);
+            // A recording in progress is closed cleanly first; its re-encode is finished at the next start.
+            await recorder.shutdown();
             // Closed first and at once: a host that is stopping may exit before the transcriber has finished stopping, and an open
             // index would be left with its write-ahead log. A transcription that ends after this is indexed at the next start.
             index?.close();
@@ -322,46 +359,30 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             return view;
         },
 
-        async create(body) {
-            const input = asObject(body);
-            const rawMime = typeof input["mime"] === "string" ? (input["mime"].split(";")[0] ?? "").trim().toLowerCase() : "";
-            const mime = RECORDING_MIMES.find((m) => m === rawMime);
-            if (!mime) throw new RecordingRefusal(`mime must be one of ${RECORDING_MIMES.join(", ")}.`, 400);
-            const startedMs = typeof input["startedAt"] === "string" ? Date.parse(input["startedAt"]) : NaN;
-            if (!Number.isFinite(startedMs)) throw new RecordingRefusal("startedAt must be an ISO time.", 400);
-            const target = input["target"];
-            if (target !== undefined && target !== null && typeof target !== "string") throw new RecordingRefusal("target must be text.", 400);
-            const name = typeof target === "string" ? target.trim().slice(0, 200) : "";
-            return store.create({ mime, startedAt: new Date(startedMs).toISOString(), target: name === "" ? null : name });
-        },
-
-        async chunk(id, n, body, declaredLength) {
-            const { received } = await store.append(id, n, body, declaredLength);
-            return { received };
-        },
-
-        async finish(id, body) {
-            const input = asObject(body);
-            const durationMs = input["durationMs"];
-            if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0 || durationMs > MAX_DURATION_MS) {
-                throw new RecordingRefusal("durationMs must be a number of milliseconds, 0 up to seven days.", 400);
-            }
-            if (typeof input["transcribe"] !== "boolean") throw new RecordingRefusal("transcribe must be true or false.", 400);
-            // A recording is finished once: a second finish (or one after the host closed it at a limit) is a 409.
-            const view = await closeRecording(id, Math.round(durationMs));
-            if (input["transcribe"] && view.status === "ready" && (await transcriber.status()).available) {
-                await store.update(id, { status: "transcribing", error: null });
-                await queue(id);
-                return store.view(id);
-            }
+        async startRecording(body) {
+            const view = await recorder.start(recorder.parseStart(body));
+            indexing(view.id, (db) => db.putTitle(view.id, Date.parse(view.startedAt), view.title));
             return view;
         },
 
+        stopRecording: (id) => recorder.stop(id),
+
+        live: () => recorder.live(),
+
+        onLive: (listener) => recorder.subscribe(listener),
+
+        attachMic: (req, socket, head, id) => recorder.attachMic(req, socket, head, id),
+
         view: (id) => store.view(id),
 
-        media(id) {
-            if (store.status(id) === "recording") throw new RecordingRefusal("This recording is still being recorded.", 409);
-            return { path: store.mediaPath(id), size: store.bytesOf(id), mime: store.mimeOf(id) };
+        async media(id) {
+            const status = store.status(id);
+            if (status === "recording") throw new RecordingRefusal("This recording is still being recorded.", 409);
+            if (status === "finishing") throw new RecordingRefusal("This recording is still being finished: its file is not made yet.", 409);
+            const path = store.mediaPath(id);
+            const info = await stat(path).catch(() => null);
+            if (!info) throw new RecordingRefusal("This recording has no file.", 404);
+            return { path, size: info.size, mime: store.mimeOf(id) };
         },
 
         async transcript(id) {
@@ -373,6 +394,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         async transcribe(id) {
             const status = store.status(id);
             if (status === "recording") throw new RecordingRefusal("This recording is still being recorded.", 409);
+            if (status === "finishing") throw new RecordingRefusal("This recording is still being finished.", 409);
             if (status === "transcribing") return store.view(id);
             const available = await transcriber.status();
             if (!available.available) throw new RecordingRefusal(available.reason ?? "Transcription is not available on this host.", 503);
@@ -386,6 +408,8 @@ export function createRecordingService(options: RecordingServiceOptions): Record
 
         async remove(id) {
             store.view(id);
+            // A capture in progress (or one being re-encoded) is stopped and lets go of its files first.
+            await recorder.release(id);
             await transcriber.cancel(id);
             await store.remove(id);
             indexing(id, (db) => db.remove(id));

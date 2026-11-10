@@ -201,7 +201,7 @@ export function Sheet(props: SheetProps) {
             ) : null}
             <div className="kvm-sep" />
 
-            <RecordSheetItem controller={controller} />
+            <RecordSheetItem />
             <div className="kvm-sep" />
 
             <Group actions={actions.tools} onDone={onClose} />

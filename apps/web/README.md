@@ -1,6 +1,6 @@
 # @pikvm/web
 
-The PiKVM app: the shell (navigation, layout), the KVM screen, the Recordings library (`src/recordings`), Settings and the agent Chat (the
+The PiKVM app: the shell (navigation, layout), the KVM screen with its Record control (`src/kvm/recorder`: it starts and stops the host's recording, follows the host's live state and sends the microphone; the host records), the Recordings library (`src/recordings`), Settings and the agent Chat (the
 conversation pane from `@pikvm/chat-web`, rendered natively). Vite, React 19,
 Tailwind 4, TanStack Router and Query, Effect. Served by the host under `/app/`.
 

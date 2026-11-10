@@ -59,6 +59,8 @@ export function stubTargets(webAuth?: WebAuth): RouteTargets {
         },
         recordings: {
             handles: (path: string) => path.startsWith("/app/api/v1/recordings"),
+            handlesUpgrade: () => false,
+            handleUpgrade(): void {},
             handle(req: IncomingMessage, res: ServerResponse, path: string): void {
                 res.writeHead(200, { "content-type": "text/plain", "x-target": "recordings" });
                 res.end(`recordings ${req.method} ${path}`);

@@ -203,9 +203,14 @@ function main(): void {
 
     function shutdown(signal: string): void {
         console.log(`[web] ${signal}, closing`);
-        server.close(() => process.exit(0));
-        // Open WebSockets (HID, stream) keep close() waiting; do not hang a container stop.
-        setTimeout(() => process.exit(0), 3000).unref();
+        // The control server's own shutdown first: a recording in progress is stopped cleanly (ffmpeg closes its files and the next
+        // start finishes the recording) before the open WebSockets (HID, stream, microphone) are cut.
+        void server.shutdown().then(
+            () => process.exit(0),
+            () => process.exit(0),
+        );
+        // A container stop gives ten seconds: do not hang on a part that never answers.
+        setTimeout(() => process.exit(0), 8000).unref();
     }
     process.on("SIGTERM", () => shutdown("SIGTERM"));
     process.on("SIGINT", () => shutdown("SIGINT"));

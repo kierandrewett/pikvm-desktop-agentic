@@ -15,7 +15,7 @@ import { mediaUrl } from "../kvm/recorder/api";
 import { useConfirm } from "../kvm/dialogs/shell";
 import { displayTitle, FILTERS, formatBytes, formatDuration, formatStarted, matchesFilter, type RecordingFilter, SORTS, sortRecordings } from "./format";
 import { MenuButton, type MenuItem } from "./menu";
-import { Expiry, Poster, StatusPill } from "./parts";
+import { Expiry, Poster, Provenance, StatusPill } from "./parts";
 import { copyTranscript } from "./transcript-actions";
 import { errorText, type Library } from "./use-library";
 
@@ -135,7 +135,7 @@ function RowMenu({ recording, transcription, onRename, onDelete, onTranscribe, o
     readonly onNotice: LibraryViewProps["onNotice"];
 }) {
     const name = displayTitle(recording);
-    const hasMedia = recording.status !== "recording" && recording.bytes > 0;
+    const hasMedia = recording.status !== "recording" && recording.status !== "finishing" && recording.bytes > 0;
     const canTranscribe = transcription.available && (recording.status === "ready" || recording.status === "failed");
     const items: MenuItem[] = [
         { id: "open", label: "Open", icon: <VideoCamera aria-hidden="true" />, run: () => document.getElementById(`rl-open-${recording.id}`)?.click() },
@@ -158,7 +158,7 @@ function RowMenu({ recording, transcription, onRename, onDelete, onTranscribe, o
             run: () => document.getElementById(`rl-download-${recording.id}`)?.click(),
         },
         { type: "separator" },
-        { id: "delete", label: "Delete", icon: <Trash aria-hidden="true" />, danger: true, disabled: recording.status === "recording", why: "Stop the recording first.", run: onDelete },
+        { id: "delete", label: recording.status === "recording" ? "Stop and delete" : "Delete", icon: <Trash aria-hidden="true" />, danger: true, run: onDelete },
     ];
     return (
         <>
@@ -224,7 +224,7 @@ export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice,
             title: ids.length === 1 ? "Delete this recording?" : `Delete ${ids.length} recordings?`,
             body:
                 ids.length === 1 && first
-                    ? `"${displayTitle(first)}", its sound and its transcript are removed from the host. This cannot be undone.`
+                    ? `${first.status === "recording" ? "The recording in progress is stopped first. " : ""}"${displayTitle(first)}", its sound and its transcript are removed from the host. This cannot be undone.`
                     : "The videos, their sound and their transcripts are removed from the host. This cannot be undone.",
             confirm: ids.length === 1 ? "Delete" : `Delete ${ids.length}`,
             danger: true,
@@ -396,6 +396,7 @@ export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice,
                                     <div className="rl-titleblock">
                                         <Title recording={r} editing={editing === r.id} onStart={() => setEditing(r.id)} onDone={() => setEditing(null)} onSave={save(r.id)} />
                                         <span className="rl-sub">{[r.target, formatBytes(r.bytes)].filter(Boolean).join(" \u00b7 ")}</span>
+                                        <Provenance recording={r} />
                                         <span className="rl-sub-card">{[formatStarted(r.startedAt), r.target, formatBytes(r.bytes)].filter(Boolean).join(" \u00b7 ")}</span>
                                     </div>
                                 </div>

@@ -1,16 +1,18 @@
 /**
  * The recordings routes of the app host, typed from the contract (packages/contracts/src/recordings.ts).
  *
- * Plain fetch on purpose: the routes answer hand-written JSON, not the Effect HttpApi the rest of the app uses, and a
- * chunk body is raw bytes. Every failure becomes a `RecordingsError` whose `message` is fit to show a person.
+ * Plain fetch on purpose: the routes answer hand-written JSON, not the Effect HttpApi the rest of the app uses. Every failure
+ * becomes a `RecordingsError` whose `message` is fit to show a person.
  */
 
 import {
     RECORDING_HEADER,
+    RECORDING_LIVE_PATH,
     RECORDINGS_PATH,
-    type RecordingMime,
+    type RecordingLive,
     type RecordingSearchResult,
     type RecordingView,
+    type StartRecordingBody,
     type Transcript,
     type TranscriptionStatus,
 } from "@pikvm/contracts/recordings";
@@ -20,27 +22,16 @@ export interface RecordingsList {
     readonly transcription: TranscriptionStatus;
 }
 
-export interface CreateRecordingBody {
-    readonly mime: RecordingMime;
-    readonly startedAt: string;
-    readonly target?: string;
-}
-
-export interface FinishRecordingBody {
-    readonly durationMs: number;
-    readonly transcribe: boolean;
-}
-
-/** `status` is null when the host could not be reached at all. `received` is set on a 409 (the chunks the host holds). */
+/** `status` is null when the host could not be reached at all. `recording` is set on a 409 (the recording in progress, or the one already stopped). */
 export class RecordingsError extends Error {
     readonly status: number | null;
-    readonly received: number | null;
+    readonly recording: RecordingView | null;
 
-    constructor(message: string, status: number | null, received: number | null = null) {
+    constructor(message: string, status: number | null, recording: RecordingView | null = null) {
         super(message);
         this.name = "RecordingsError";
         this.status = status;
-        this.received = received;
+        this.recording = recording;
     }
 
     /** Worth trying again later: the host was unreachable, is busy, or failed on its side. */
@@ -55,7 +46,7 @@ const FALLBACK: Readonly<Record<number, string>> = {
     401: "Sign in again to use recordings.",
     403: "This host does not allow recordings.",
     404: "The host does not have this recording. It may have been deleted.",
-    413: "The host refused a piece of the recording as too large.",
+    409: "A recording is already in progress.",
     507: "The disk limit for recordings is reached on the host. Delete some recordings and try again.",
 };
 
@@ -66,11 +57,11 @@ function bodyError(body: unknown): string | null {
     return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** A numeric field of a JSON reply, when there is one. */
-function numberField(body: unknown, key: string): number | null {
-    if (typeof body !== "object" || body === null || !(key in body)) return null;
-    const value: unknown = Reflect.get(body, key);
-    return typeof value === "number" ? value : null;
+/** The `recording` a 409 carries, when it is one. */
+function recordingField(body: unknown): RecordingView | null {
+    if (typeof body !== "object" || body === null || !("recording" in body)) return null;
+    const value: unknown = body.recording;
+    return typeof value === "object" && value !== null && "id" in value && "status" in value ? (value as RecordingView) : null;
 }
 
 async function readBody(res: Response): Promise<unknown> {
@@ -84,10 +75,8 @@ async function readBody(res: Response): Promise<unknown> {
 }
 
 interface CallOptions {
-    readonly body?: BodyInit;
     readonly json?: unknown;
     readonly signal?: AbortSignal;
-    readonly keepalive?: boolean;
     /** Writes carry the marker header; reads do not need it. */
     readonly write?: boolean;
 }
@@ -95,12 +84,10 @@ interface CallOptions {
 async function call(method: string, path: string, options: CallOptions = {}): Promise<unknown> {
     const headers: Record<string, string> = {};
     if (options.write) headers[RECORDING_HEADER] = "1";
-    let body: BodyInit | undefined = options.body;
+    let body: string | undefined;
     if (options.json !== undefined) {
         headers["content-type"] = "application/json";
         body = JSON.stringify(options.json);
-    } else if (options.body !== undefined) {
-        headers["content-type"] = "application/octet-stream";
     } else if (options.write) {
         // A bodyless write still says JSON, the rule every other write on this host follows.
         headers["content-type"] = "application/json";
@@ -113,7 +100,6 @@ async function call(method: string, path: string, options: CallOptions = {}): Pr
             credentials: "same-origin",
             ...(body !== undefined ? { body } : {}),
             ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.keepalive ? { keepalive: true } : {}),
         });
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") throw error;
@@ -124,7 +110,7 @@ async function call(method: string, path: string, options: CallOptions = {}): Pr
         throw new RecordingsError(
             bodyError(parsed) ?? FALLBACK[res.status] ?? `The server answered ${res.status}.`,
             res.status,
-            numberField(parsed, "received"),
+            recordingField(parsed),
         );
     }
     return parsed;
@@ -179,25 +165,23 @@ export async function deleteRecording(id: string): Promise<void> {
     await call("DELETE", idPath(id), { write: true });
 }
 
-export async function createRecording(body: CreateRecordingBody, signal?: AbortSignal): Promise<RecordingView> {
-    return (await call("POST", RECORDINGS_PATH, { write: true, json: body, ...(signal ? { signal } : {}) })) as RecordingView;
+/** The host starts recording the PiKVM's stream. 409 while one is in progress, 507 when the disk limit is reached. */
+export async function startRecording(body: StartRecordingBody, signal?: AbortSignal): Promise<RecordingView> {
+    return (await call("POST", `${RECORDINGS_PATH}/start`, { write: true, json: body, ...(signal ? { signal } : {}) })) as RecordingView;
 }
 
-/** One chunk, in order: `n` counts from 0. Answers how many chunks the host now holds. */
-export async function putChunk(
-    id: string,
-    n: number,
-    chunk: Blob,
-    options: { readonly signal?: AbortSignal; readonly keepalive?: boolean } = {},
-): Promise<number> {
-    const reply = await call("PUT", `${idPath(id)}/chunks/${n}`, { write: true, body: chunk, ...options });
-    return numberField(reply, "received") ?? n + 1;
+export async function stopRecording(id: string): Promise<RecordingView> {
+    return (await call("POST", `${idPath(id)}/stop`, { write: true })) as RecordingView;
 }
 
-export async function finishRecording(
-    id: string,
-    body: FinishRecordingBody,
-    options: { readonly signal?: AbortSignal; readonly keepalive?: boolean } = {},
-): Promise<RecordingView> {
-    return (await call("POST", `${idPath(id)}/finish`, { write: true, json: body, ...options })) as RecordingView;
+/** One reading of the live state (the page follows it as a stream: live.ts). */
+export async function getLive(signal?: AbortSignal): Promise<RecordingLive> {
+    return (await call("GET", RECORDING_LIVE_PATH, signal ? { signal } : {})) as RecordingLive;
+}
+
+/** Where the microphone's frames go: the WebSocket of a recording in progress. */
+export function micSocketUrl(id: string): string {
+    const base = new URL(`${idPath(id)}/mic`, window.location.href);
+    base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+    return base.toString();
 }

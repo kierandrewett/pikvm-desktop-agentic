@@ -1,10 +1,14 @@
 /**
  * The transcriber's own process (built to dist/transcribe-worker.js, started by transcriber.ts under `nice`, one per job). It
- * decodes the recording's two audio channels with ffmpeg, then:
+ * reads the recording's two voices with ffmpeg, then:
  *
- *   target channel (left)   Silero VAD splits it into speech segments; Parakeet recognises each; pyannote segmentation with
- *                           WeSpeaker embeddings tells who spoke when; each word takes the speaker it overlaps most.
- *   mic channel (right)     the same VAD and recogniser; one speaker, "You".
+ *   target   Silero VAD splits it into speech segments; Parakeet recognises each; pyannote segmentation with
+ *            WeSpeaker embeddings tells who spoke when; each word takes the speaker it overlaps most.
+ *   mic      the same VAD and recogniser; one speaker, "You".
+ *
+ * Where the two voices are depends on who made the file (`layoutOf`): a recording the host captured has an audio stream named
+ * `target` (the Pi's stereo sound, folded to mono) and, when a browser sent a microphone, one named `mic`; a recording an older
+ * browser uploaded has ONE stereo stream, the target in its left channel and the person in its right.
  *
  * All through sherpa-onnx-node (CPU, onnxruntime inside). It opens no socket and makes no request; the models are files.
  *
@@ -17,11 +21,11 @@
  * When the parent goes away the worker stops, and its ffmpeg with it.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TranscriptSegment } from "@pikvm/contracts/recordings";
 import { asrModelPaths, type AsrModelPaths } from "./asr-models";
-import { probeMedia } from "./media";
+import { probeMedia, type MediaFacts } from "./media";
 import { segmentsOf, smoothSpeakers, speakersOfWords, transcriptText, wordsOf, type RawSegment, type SpeakerSpan, type Word } from "./transcript";
 
 const SAMPLE_RATE = 16_000;
@@ -73,9 +77,35 @@ process.on("exit", stopAll);
 // The host went away (or killed this process's parent): nothing is waiting for the answer.
 process.on("disconnect", () => process.exit(1));
 
-/** One channel of the recording's first audio stream, as 16 kHz mono 32-bit float, in a file. */
-async function decodeChannel(file: string, channel: 0 | 1, out: string): Promise<void> {
-    const args = ["-nostdin", "-v", "error", "-i", file, "-vn", "-sn", "-dn", "-map", "0:a:0", "-af", `pan=mono|c0=c${channel}`, "-ar", String(SAMPLE_RATE), "-f", "f32le", "-y", out];
+/** Where a voice is in the file: the audio stream (counted among the audio streams) and the filter that makes it mono. */
+interface Voice {
+    stream: number;
+    filter: string;
+}
+
+const FOLD_STEREO = "pan=mono|c0=0.5*c0+0.5*c1";
+const LEFT = "pan=mono|c0=c0";
+const RIGHT = "pan=mono|c0=c1";
+
+/** The target's and the person's voice in this file; null for a voice it does not hold. */
+export function layoutOf(facts: MediaFacts | null): { target: Voice | null; mic: Voice | null } {
+    const streams = facts?.audioStreams ?? [];
+    const targetAt = streams.findIndex((s) => s.name === "target");
+    const micAt = streams.findIndex((s) => s.name === "mic");
+    if (targetAt >= 0 || micAt >= 0) {
+        return {
+            target: targetAt >= 0 ? { stream: targetAt, filter: (streams[targetAt]?.channels ?? 1) >= 2 ? FOLD_STEREO : LEFT } : null,
+            mic: micAt >= 0 ? { stream: micAt, filter: LEFT } : null,
+        };
+    }
+    // An older browser recording: one stereo stream, LEFT the target and RIGHT the person (a mono one is the target alone).
+    const stereo = facts === null || (streams[0]?.channels ?? 0) >= 2;
+    return { target: { stream: 0, filter: LEFT }, mic: stereo ? { stream: 0, filter: RIGHT } : null };
+}
+
+/** One voice of the recording, as 16 kHz mono 32-bit float, in a file. */
+async function decodeVoice(file: string, voice: Voice, out: string): Promise<void> {
+    const args = ["-nostdin", "-v", "error", "-i", file, "-vn", "-sn", "-dn", "-map", `0:a:${voice.stream}`, "-af", voice.filter, "-ar", String(SAMPLE_RATE), "-f", "f32le", "-y", out];
     const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
     running.add(child);
     let stderr = "";
@@ -85,7 +115,7 @@ async function decodeChannel(file: string, channel: 0 | 1, out: string): Promise
     child.on("close", (code) => {
         running.delete(child);
         if (code === 0) resolve();
-        else reject(new Error(`ffmpeg failed decoding channel ${channel}: ${stderr.trim().split("\n").pop() ?? `exit ${code}`}`));
+        else reject(new Error(`ffmpeg failed decoding audio stream ${voice.stream}: ${stderr.trim().split("\n").pop() ?? `exit ${code}`}`));
     });
     return promise;
 }
@@ -117,14 +147,16 @@ async function main(job: Job): Promise<void> {
 
     const facts = await probeMedia(job.file);
     if (facts && !facts.hasAudio) throw new Error("This recording has no audio track to transcribe.");
-    const stereo = facts === null || facts.audioChannels >= 2;
+    const layout = layoutOf(facts);
+    const hasMic = layout.mic !== null;
 
     const targetFile = join(job.workDir, "target.f32");
     const micFile = join(job.workDir, "mic.f32");
-    await decodeChannel(job.file, 0, targetFile);
-    if (stereo) await decodeChannel(job.file, 1, micFile);
+    if (layout.target) await decodeVoice(job.file, layout.target, targetFile);
+    else writeFileSync(targetFile, "");
+    if (layout.mic) await decodeVoice(job.file, layout.mic, micFile);
     const targetLength = statSync(targetFile).size / 4;
-    const micLength = stereo ? statSync(micFile).size / 4 : 0;
+    const micLength = hasMic ? statSync(micFile).size / 4 : 0;
     const durationSeconds = Math.max(targetLength, micLength) / SAMPLE_RATE;
     if (durationSeconds > job.maxSeconds) {
         throw new Error(`This recording is ${Math.round(durationSeconds / 60)} minutes long; the host transcribes at most ${Math.round(job.maxSeconds / 60)}.`);
@@ -197,13 +229,13 @@ async function main(job: Job): Promise<void> {
     }
     send({ type: "progress", value: 0.15 });
 
-    const asrEnd = stereo ? 0.6 : 0.97;
+    const asrEnd = hasMic ? 0.6 : 0.97;
     const targetRaw = await recognise(target, 0.15, asrEnd);
     target = null;
     const targetSegments: RawSegment[] = targetRaw.map((words) => ({ words, speakers: smoothSpeakers(speakersOfWords(words, spans)) }));
 
     let micRaw: Word[][] = [];
-    if (stereo) {
+    if (hasMic) {
         const mic = loadSamples(micFile);
         micRaw = await recognise(mic, asrEnd, 0.97);
     }

@@ -172,7 +172,7 @@ export function Dock(props: DockProps) {
                     </>
                 ) : null}
                 <CameraToggle controller={controller} variant="dock" />
-                <RecordButton controller={controller} variant="dock" />
+                <RecordButton variant="dock" />
                 {picture.scale > 1 ? (
                     <button
                         type="button"

@@ -58,9 +58,9 @@ export interface ExpiryView {
     readonly soon: boolean;
 }
 
-/** Null while the recording is still being made: it has no end, so nothing to count down. */
+/** Null while the recording is still being made or finished: it has no end, so nothing to count down. */
 export function expiryOf(recording: Pick<RecordingView, "status" | "expiresAt">, now: number = Date.now()): ExpiryView | null {
-    if (recording.status === "recording") return null;
+    if (recording.status === "recording" || recording.status === "finishing") return null;
     if (recording.expiresAt === null) return { text: "Kept until you delete it", soon: false };
     const left = Date.parse(recording.expiresAt) - now;
     if (left <= 0) return { text: "Deleted today", soon: true };
@@ -74,8 +74,10 @@ export type PillTone = "neutral" | "busy" | "ok" | "bad" | "live";
 export interface StatusView {
     readonly label: string;
     readonly tone: PillTone;
-    /** 0..1 while transcribing. */
+    /** 0..1 while finishing or transcribing. */
     readonly progress: number | null;
+    /** What the bar measures. */
+    readonly measures: "re-encode" | "transcription" | null;
     /** A fuller sentence, for a tooltip. */
     readonly title: string;
 }
@@ -83,12 +85,22 @@ export interface StatusView {
 export function statusOf(recording: RecordingView): StatusView {
     switch (recording.status) {
         case "recording":
-            return { label: "Recording", tone: "live", progress: null, title: "This recording is still being made." };
+            return { label: "Recording", tone: "live", progress: null, measures: null, title: "The host is recording this now." };
+        case "finishing": {
+            const progress = recording.progress;
+            return {
+                label: progress === null ? "Finishing" : `Finishing ${Math.round(progress * 100)}%`,
+                tone: "busy",
+                progress,
+                measures: progress === null ? null : "re-encode",
+                title: "The host stopped recording and is shrinking what it captured into the file it keeps. It can be played when this is done.",
+            };
+        }
         case "ready":
-            return { label: "Not transcribed", tone: "neutral", progress: null, title: "Saved, with no transcript." };
+            return { label: "Not transcribed", tone: "neutral", progress: null, measures: null, title: "Saved, with no transcript." };
         case "transcribing": {
             const progress = recording.progress ?? 0;
-            return { label: `Transcribing ${Math.round(progress * 100)}%`, tone: "busy", progress, title: "The host is turning the speech into text." };
+            return { label: `Transcribing ${Math.round(progress * 100)}%`, tone: "busy", progress, measures: "transcription", title: "The host is turning the speech into text." };
         }
         case "done": {
             const speakers = recording.speakers;
@@ -96,12 +108,51 @@ export function statusOf(recording: RecordingView): StatusView {
                 label: speakers === null ? "Transcribed" : `Transcribed, ${speakers} ${speakers === 1 ? "speaker" : "speakers"}`,
                 tone: "ok",
                 progress: null,
+                measures: null,
                 title: "The transcript is ready and searchable.",
             };
         }
         case "failed":
-            return { label: "Failed", tone: "bad", progress: null, title: recording.error ?? "The recording failed." };
+            return { label: "Failed", tone: "bad", progress: null, measures: null, title: recording.error ?? "The recording failed." };
     }
+}
+
+/** A sentence on how a capture that ended early ended, or null for an ordinary end. */
+export function endedEarly(recording: Pick<RecordingView, "reason" | "error">): string | null {
+    switch (recording.reason) {
+        case "quota":
+            return "Closed when the host's recordings reached their disk limit. What was captured is kept.";
+        case "recording_cap":
+            return "Closed at the size limit for one recording. What was captured is kept.";
+        case "backlog_cap":
+            return "Closed because the host could not shrink it as fast as it recorded. What was captured is kept.";
+        case "error":
+            return `${recording.error ?? "The recording stopped because of an error."} What was captured is kept.`;
+        case "interrupted":
+            return "The host restarted while this was recording, so it ends there. What was captured is kept.";
+        case "duration":
+            return "Closed at its time limit.";
+        case "stopped":
+        case null:
+            return null;
+    }
+}
+
+/** `1 gap (0:12 to 0:19)`, `3 gaps`: the stretches the PiKVM sent no picture, or null when there are none. */
+export function holesText(holes: RecordingView["holes"]): string | null {
+    if (holes.length === 0) return null;
+    if (holes.length === 1) {
+        const hole = holes[0]!;
+        return `1 gap in the picture (${formatDuration(hole.fromMs)} to ${formatDuration(hole.toMs)})`;
+    }
+    const total = holes.reduce((sum, h) => sum + Math.max(0, h.toMs - h.fromMs), 0);
+    return `${holes.length} gaps in the picture (${formatDuration(total)} in all)`;
+}
+
+/** Who made the file and what it holds, in a few words, for the line under a title. */
+export function sourceText(recording: Pick<RecordingView, "source" | "hasMic">): string {
+    if (recording.source === "browser") return "Uploaded from a browser";
+    return recording.hasMic ? "Recorded on the host, with your microphone" : "Recorded on the host";
 }
 
 export type RecordingFilter = "all" | "done" | "transcribing" | "failed" | "expiring";

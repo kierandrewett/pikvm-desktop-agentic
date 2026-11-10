@@ -475,11 +475,12 @@ export function renderApp(path: string, env: Env = {}) {
     return { ...view, router, history, queryClient };
 }
 
-/** A page's EventSource a test can push messages into. Opened streams are kept in `sources`; the shared cursor's, which every KVM page opens, in `cursors`; the agent's waiting approvals in `approvals`. */
+/** A page's EventSource a test can push messages into. Opened streams are kept in `sources`; the shared cursor's, which every KVM page opens, in `cursors`; the host's recording state, which every KVM page follows, in `recordingLive`; the agent's waiting approvals in `approvals`. */
 export class FakeEventSource {
     static sources: FakeEventSource[] = [];
     static cursors: FakeEventSource[] = [];
     static approvals: FakeEventSource[] = [];
+    static recordingLive: FakeEventSource[] = [];
     onmessage: ((event: MessageEvent<string>) => void) | null = null;
     onerror: (() => void) | null = null;
     closed = false;
@@ -488,7 +489,9 @@ export class FakeEventSource {
             ? FakeEventSource.cursors
             : url.endsWith("/approvals")
               ? FakeEventSource.approvals
-              : FakeEventSource.sources
+              : url.endsWith("/recordings/live")
+                ? FakeEventSource.recordingLive
+                : FakeEventSource.sources
         ).push(this);
     }
     close(): void {
@@ -510,6 +513,7 @@ export function installEventSource(): typeof FakeEventSource {
     FakeEventSource.sources = [];
     FakeEventSource.cursors = [];
     FakeEventSource.approvals = [];
+    FakeEventSource.recordingLive = [];
     vi.stubGlobal("EventSource", FakeEventSource);
     return FakeEventSource;
 }

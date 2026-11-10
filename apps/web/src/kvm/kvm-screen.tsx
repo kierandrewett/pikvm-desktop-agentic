@@ -61,7 +61,7 @@ export function KvmScreen() {
     // No PiKVM yet: the stage is the welcome, and there is no target for the keyboard or the picture to belong to.
     const welcome = firstRun.phase === "needed";
     const stageRef = useRef<HTMLDivElement>(null);
-    const recorder = useKvmRecorder(controller, stageRef, session);
+    const recorder = useKvmRecorder(session.notices.notify);
     // Everything in the window that is not the picture's box (nav, toolbar, titlebar) is fixed-pixel, so the
     // shell adds back exactly this leftover around the native size.
     const fitWindow = useCallback(

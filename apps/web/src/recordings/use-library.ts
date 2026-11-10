@@ -64,7 +64,7 @@ export function useLibrary(active: boolean): Library {
         if (active) void reload();
     }, [active, reload]);
 
-    const busy = active && state.phase === "ready" && state.recordings.some((r) => r.status === "transcribing" || r.status === "recording");
+    const busy = active && state.phase === "ready" && state.recordings.some((r) => r.status === "transcribing" || r.status === "recording" || r.status === "finishing");
     useEffect(() => {
         if (!busy) return;
         const timer = setInterval(() => void reload(), POLL_MS);

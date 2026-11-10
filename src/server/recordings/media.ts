@@ -5,11 +5,20 @@ import { execFile } from "node:child_process";
  * Nothing here decodes audio: that is the transcriber's worker.
  */
 
+/** One audio stream of a file, in file order. */
+export interface AudioStreamFacts {
+    channels: number;
+    /** What the host named the track when it made the file (`target`, `mic`), from the stream's title or handler name; null when it has none. */
+    name: string | null;
+}
+
 export interface MediaFacts {
     hasVideo: boolean;
     hasAudio: boolean;
     /** Channels of the first audio stream, 0 without one. */
     audioChannels: number;
+    /** Every audio stream, in order. */
+    audioStreams: AudioStreamFacts[];
     /** Seconds, when the container says (a browser's live WebM often does not). */
     durationSeconds: number | null;
 }
@@ -48,20 +57,30 @@ export async function ffmpegProblem(): Promise<string | null> {
  * a rejection means the file is not media ffprobe can read.
  */
 export async function probeMedia(file: string): Promise<MediaFacts | null> {
-    const result = await run("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,channels:format=duration", "-of", "json", file], 30_000);
+    const result = await run("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,channels:stream_tags=title,handler_name:format=duration", "-of", "json", file], 30_000);
     if (!result.ok) {
         if (result.missing) return null;
         throw new Error(result.message || "ffprobe could not read the file");
     }
-    const parsed = JSON.parse(result.stdout) as { streams?: { codec_type?: string; channels?: number }[]; format?: { duration?: string } };
+    const parsed = JSON.parse(result.stdout) as {
+        streams?: { codec_type?: string; channels?: number; tags?: { title?: string; handler_name?: string } }[];
+        format?: { duration?: string };
+    };
     const streams = parsed.streams ?? [];
     if (streams.length === 0) throw new Error("the file has no video or audio stream");
-    const audio = streams.find((s) => s.codec_type === "audio");
+    const audioStreams: AudioStreamFacts[] = streams
+        .filter((s) => s.codec_type === "audio")
+        .map((s) => {
+            const name = (s.tags?.title || s.tags?.handler_name || "").trim().toLowerCase();
+            return { channels: s.channels ?? 0, name: name === "" ? null : name };
+        });
+    const audio = audioStreams[0];
     const duration = Number(parsed.format?.duration);
     return {
         hasVideo: streams.some((s) => s.codec_type === "video"),
         hasAudio: audio !== undefined,
         audioChannels: audio?.channels ?? 0,
+        audioStreams,
         durationSeconds: Number.isFinite(duration) && duration > 0 ? duration : null,
     };
 }
