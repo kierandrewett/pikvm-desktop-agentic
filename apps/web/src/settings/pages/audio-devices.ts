@@ -46,6 +46,8 @@ export interface AudioDevices {
     readonly error: string | undefined;
     /** Ask for microphone access once so the browser reveals device names. */
     readonly allowAccess: () => Promise<void>;
+    /** List the devices again: a camera preview that was allowed is what reveals camera names. */
+    readonly refresh: () => Promise<void>;
 }
 
 export function useAudioDevices(): AudioDevices {
@@ -89,5 +91,6 @@ export function useAudioDevices(): AudioDevices {
         loaded,
         error,
         allowAccess,
+        refresh,
     };
 }

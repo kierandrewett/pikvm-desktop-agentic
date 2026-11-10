@@ -14,7 +14,7 @@ const idle: PictureState = {
     mode: "native",
     webrtc: false,
     scale: 1,
-    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false },
+    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" },
     res: { text: "", av: "", show: false },
     fullUi: false,
     hasFrame: true,
@@ -209,7 +209,7 @@ describe("the bar", () => {
         const { store, calls } = await mount();
         expect(screen.queryByRole("button", { name: "Audio output" })).toBeNull();
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" } }));
         const speaker = screen.getByRole("button", { name: "Audio output" });
         const mic = screen.getByRole("button", { name: "Microphone" });
         expect(speaker).toHaveAttribute("aria-pressed", "true");
@@ -219,35 +219,54 @@ describe("the bar", () => {
         expect(calls.toggleAudio).toHaveBeenCalledTimes(1);
         expect(calls.toggleMic).toHaveBeenCalledTimes(1);
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Denied", micWarn: true, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Denied", micWarn: true, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" } }));
         expect(screen.getByRole("button", { name: "Microphone" })).toHaveAttribute("title", "Denied");
 
         act(() => store.setState(idle));
         expect(screen.queryByRole("button", { name: "Audio output" })).toBeNull();
     });
 
-    it("K39: the camera button exists only when the Pi can carry a camera, and shows a refusal", async () => {
+    it("K39, K53: the camera button is always there; it is disabled with its reason when the Pi cannot carry a camera, and shows a refusal", async () => {
+        // A secure page: a camera can be opened.
+        vi.stubGlobal("navigator", Object.assign(Object.create(navigator), { mediaDevices: { getUserMedia: async () => new MediaStream(), enumerateDevices: async () => [] } }));
         const { store, calls } = await mount();
-        const audio = { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false };
-        act(() => store.setState({ ...idle, webrtc: true, audio }));
-        expect(screen.queryByRole("button", { name: "Camera" })).toBeNull();
+        const audio = { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" } as const;
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camAvailable: true } }));
+        // Before the Pi has answered, and on a picture that is not WebRTC: there, and saying what it waits for.
+        act(() => store.setState({ ...idle, webrtc: false, audio: { ...audio, available: false } }));
+        const waiting = screen.getByRole("button", { name: "Camera" });
+        expect(waiting).toHaveAttribute("aria-disabled", "true");
+        expect(waiting.getAttribute("title")).toMatch(/WebRTC/);
+
+        // The Pi has no camera: disabled, with the reason, and a press still reaches the controller to say it.
+        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camSupport: "no" } }));
+        const refused = screen.getByRole("button", { name: "Camera" });
+        expect(refused).toHaveAttribute("aria-disabled", "true");
+        expect(refused.getAttribute("title")).toMatch(/does not offer a USB camera/);
+        expect(refused).toHaveAttribute("data-state", "unavailable");
+
+        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camSupport: "yes" } }));
         const camera = screen.getByRole("button", { name: "Camera" });
+        expect(camera).not.toHaveAttribute("aria-disabled");
         expect(camera).toHaveAttribute("aria-pressed", "false");
         fireEvent.click(camera);
         expect(calls.toggleCam).toHaveBeenCalledTimes(1);
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camAvailable: true, camWarn: true, camLabel: "Denied" } }));
-        expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute("title", "Denied");
+        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camSupport: "yes", camWarn: true, camLabel: "Denied" } }));
+        expect(screen.getByRole("button", { name: "Camera" }).getAttribute("title")).toMatch(/^Camera: Denied\./);
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camAvailable: true, camOn: true, camLabel: "On" } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { ...audio, camSupport: "yes", camOn: true, camLabel: "On" } }));
         expect(screen.getByRole("button", { name: "Camera" })).toHaveAttribute("aria-pressed", "true");
+
+        // A camera that is on can always be turned off, even if the Pi stops reporting it.
+        act(() => store.setState({ ...idle, webrtc: false, audio: { ...audio, available: false, camSupport: "no", camOn: true, camLabel: "On" } }));
+        expect(screen.getByRole("button", { name: "Camera" })).not.toHaveAttribute("aria-disabled");
+        vi.unstubAllGlobals();
     });
 
     it("K38: sound that is waiting for a tap says so on the speaker, and a tap on the speaker is the tap", async () => {
         const { store, calls } = await mount();
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: true, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: true, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" } }));
         const speaker = screen.getByRole("button", { name: "Audio output" });
         expect(speaker).toHaveAttribute("title", "Tap to turn on sound");
         expect(speaker).toHaveAttribute("data-waiting", "true");
@@ -255,7 +274,7 @@ describe("the bar", () => {
         fireEvent.click(speaker);
         expect(calls.toggleAudio).toHaveBeenCalledTimes(1);
 
-        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false } }));
+        act(() => store.setState({ ...idle, webrtc: true, audio: { available: true, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" } }));
         expect(screen.getByRole("button", { name: "Audio output" })).not.toHaveAttribute("data-waiting");
         expect(screen.getByRole("button", { name: "Audio output" })).toHaveAttribute("aria-pressed", "true");
     });

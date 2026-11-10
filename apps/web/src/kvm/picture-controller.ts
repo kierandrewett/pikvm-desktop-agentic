@@ -41,6 +41,19 @@ import { createScreenAlerts } from "./screen-alerts";
 import { createPointerExecutor } from "./pointer-executor";
 import type { KvmSession } from "./session";
 import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice } from "../settings/local-prefs";
+import { collectDevices } from "../settings/pages/audio-devices";
+import {
+    CAMERA_LABELS,
+    CAMERA_WARNINGS,
+    cameraBlock,
+    cameraConstraints,
+    cameraOpenable,
+    classifyCameraError,
+    readCameraChoice,
+    type CameraSent,
+    type CameraDevices,
+    type CameraSupport,
+} from "./camera";
 
 export interface PictureElements {
     readonly pane: HTMLElement;
@@ -63,12 +76,16 @@ export interface AudioState {
     /** What the mic pip says: "On", "Off", "...", "Denied", "No mic", "Mic gone". */
     readonly micLabel: string;
     readonly micWarn: boolean;
-    /** The Pi can carry a camera to the target (PiKVM V3/V4 with `ucamera`); without it there is no camera button. */
-    readonly camAvailable: boolean;
+    /** What the Pi said about its camera (the `cam` feature, PiKVM V3/V4 with `ucamera`). The camera control is always drawn; this decides whether it can be turned on. */
+    readonly camSupport: CameraSupport;
     readonly camOn: boolean;
-    /** What the camera pip says: "On", "Off", "...", "Denied", "No camera". */
+    /** What the camera pip says: "On", "Off", "...", "Denied", "No camera", "Camera gone", "In use", "Stopped". */
     readonly camLabel: string;
     readonly camWarn: boolean;
+    /** What the camera sends, as the browser really opened it (not as asked), while it is on and the session carries it. */
+    readonly camSent: CameraSent | null;
+    /** The browser's camera list as last read: "none" is "No camera" before anything is pressed, "denied" is a blocked permission (no camera is listed then). */
+    readonly camDevices: CameraDevices;
 }
 
 export interface ResolutionToast {
@@ -153,10 +170,12 @@ const initialAudio: AudioState = {
     micOn: false,
     micLabel: "Off",
     micWarn: false,
-    camAvailable: false,
+    camSupport: "unknown",
     camOn: false,
-    camLabel: "Off",
+    camLabel: CAMERA_LABELS.off,
     camWarn: false,
+    camSent: null,
+    camDevices: "unknown",
 };
 
 /** The pointer machine treats "a dialog is open" and "another tab is in front" the same way: it lets go of what it holds and takes no gestures; so does the agent holding the target. */
@@ -369,9 +388,19 @@ export function createPictureController(options: PictureOptions): PictureControl
 
     const janus = createJanusBridge(video, {
         micDeviceId: () => readDeviceChoice(MIC_DEVICE_KEY).id,
-        camDeviceId: () => readDeviceChoice(CAM_DEVICE_KEY).id,
+        cam: readCameraChoice,
         wantAudio: () => audioOn,
-        onCameraSupport: (supported) => patchAudio({ camAvailable: supported }),
+        wantCam: () => camOn,
+        onCameraSupport: (supported) => {
+            // A Pi that cannot take a camera cannot be sent one: a camera left on from an earlier session is off now.
+            if (!supported && camOn) {
+                camOn = false;
+                patchAudio({ camOn: false, camLabel: CAMERA_LABELS.off, camWarn: false });
+            }
+            patchAudio({ camSupport: supported ? "yes" : "no" });
+        },
+        onCameraSent: (sent) => patchAudio({ camSent: sent }),
+        onCameraEnded: () => void cameraEnded(),
     });
 
     // Unmute without losing the picture: if the browser blocks it (no gesture), keep the muted
@@ -573,16 +602,98 @@ export function createPictureController(options: PictureOptions): PictureControl
     };
 
     const camFailure = (error: unknown): void => {
-        const name = error instanceof Error ? error.name : "";
-        const gone = name === "OverconstrainedError" || name === "NotFoundError" || name === "DevicesNotFoundError";
+        const kind = classifyCameraError(error, !!readDeviceChoice(CAM_DEVICE_KEY).id);
         // Same split as the microphone: a refused prompt is "Denied", a pinned camera that was unplugged is named.
-        if (gone && readDeviceChoice(CAM_DEVICE_KEY).id) {
-            patchAudio({ camLabel: "Camera gone", camWarn: true });
-            session.notices.notify({ text: "The chosen camera is not connected. Pick another in Audio devices.", error: true });
-            return;
-        }
-        patchAudio({ camLabel: gone ? "No camera" : "Denied", camWarn: true });
+        const label =
+            kind === "gone"
+                ? CAMERA_LABELS.gone
+                : kind === "none"
+                  ? CAMERA_LABELS.none
+                  : kind === "denied"
+                    ? CAMERA_LABELS.denied
+                    : kind === "busy"
+                      ? CAMERA_LABELS.busy
+                      : CAMERA_LABELS.stopped;
+        patchAudio({ camLabel: label, camWarn: true });
+        const sentence = CAMERA_WARNINGS[label];
+        // A press that fails must be seen to fail: the pip is on a button, and on a phone nobody hovers its title.
+        if (sentence) session.notices.notify({ text: sentence, error: true });
+        // The list says why too ("denied" lists no camera at all), and it is what the control reads before the next press.
+        void reconcileCamera();
     };
+
+    /** The camera permission as the browser reports it, or null where it does not say ("camera" is not in every browser's Permissions API). */
+    const cameraPermission = async (): Promise<PermissionState | null> => {
+        try {
+            return (await navigator.permissions?.query({ name: "camera" as PermissionName }))?.state ?? null;
+        } catch {
+            return null;
+        }
+    };
+
+    /** Whether the camera the console would use is there now. A blocked permission is its own answer: Chromium lists no camera then, and others list names they will not open. */
+    const cameraPresence = async (): Promise<"present" | "gone" | "none" | "denied" | "unknown"> => {
+        try {
+            const cameras = collectDevices(await navigator.mediaDevices.enumerateDevices(), "videoinput");
+            const pinned = readDeviceChoice(CAM_DEVICE_KEY).id;
+            if ((await cameraPermission()) === "denied") return "denied";
+            if (cameras.length === 0) return "none";
+            return pinned && !cameras.some((device) => device.id === pinned) ? "gone" : "present";
+        } catch {
+            return "unknown";
+        }
+    };
+
+    /** The camera is off and says why: the pip, the warning and one notice. */
+    const stopCamera = (label: string): void => {
+        if (!camOn) return;
+        camOn = false;
+        janus.current()?.setCam(false);
+        patchAudio({ camOn: false, camLabel: label, camWarn: true, camSent: null });
+        const sentence = CAMERA_WARNINGS[label];
+        if (sentence) session.notices.notify({ text: sentence, error: true });
+        showResolution(true);
+    };
+
+    const reasonFor = (presence: "present" | "gone" | "none" | "denied" | "unknown"): string =>
+        presence === "gone" ? CAMERA_LABELS.gone : presence === "none" ? CAMERA_LABELS.none : presence === "denied" ? CAMERA_LABELS.denied : CAMERA_LABELS.stopped;
+
+    /** The camera's track ended under a live session: the camera was unplugged, or its permission was withdrawn. */
+    const cameraEnded = async (): Promise<void> => {
+        if (!camOn) return;
+        const denied = (await cameraPermission()) === "denied";
+        stopCamera(reasonFor(denied ? "denied" : await cameraPresence()));
+    };
+
+    /**
+     * A camera came or went (devicechange), the choice changed, or the permission did. A camera that is on and has vanished is
+     * turned off with the reason; a "gone", "no camera" or "denied" warning that no longer holds is cleared, because nothing
+     * else would, and said once.
+     */
+    const reconcileCamera = async (): Promise<void> => {
+        const presence = await cameraPresence();
+        if (presence !== "unknown") patchAudio({ camDevices: presence === "denied" ? "denied" : presence === "none" ? "none" : "some" });
+        const { camOn: on, camLabel } = store.getState().audio;
+        if (on && presence !== "present" && presence !== "unknown") {
+            stopCamera(reasonFor(presence));
+        } else if (!on && presence === "present" && (camLabel === CAMERA_LABELS.gone || camLabel === CAMERA_LABELS.none || camLabel === CAMERA_LABELS.denied)) {
+            patchAudio({ camLabel: CAMERA_LABELS.off, camWarn: false });
+            session.notices.notify({ text: "The camera is available again. Turn it on to send it." });
+        }
+    };
+    const mediaDevices: MediaDevices | undefined = navigator.mediaDevices;
+    const onDeviceChange = (): void => void reconcileCamera();
+    mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
+    // Allowing or blocking the camera in the browser's own settings changes what the list holds, and raises no devicechange.
+    let permissionWatch: PermissionStatus | null = null;
+    navigator.permissions?.query({ name: "camera" as PermissionName }).then(
+        (status) => {
+            permissionWatch = status;
+            status.addEventListener("change", onDeviceChange);
+        },
+        () => {},
+    );
+    void reconcileCamera();
 
     const controller: PictureController = {
         store,
@@ -669,38 +780,44 @@ export function createPictureController(options: PictureOptions): PictureControl
                 .catch(micFailure);
         },
         toggleCam() {
-            const stream = janus.current();
-            if (!stream) return;
             if (camOn) {
                 camOn = false;
-                stream.setCam(false);
-                patchAudio({ camOn: false, camLabel: "Off", camWarn: false });
+                janus.current()?.setCam(false);
+                patchAudio({ camOn: false, camLabel: CAMERA_LABELS.off, camWarn: false, camSent: null });
                 showResolution(true);
                 return;
             }
-            patchAudio({ camLabel: "\u2026", camWarn: false });
-            const devices = navigator.mediaDevices;
-            if (!devices?.getUserMedia) {
-                patchAudio({ camLabel: "No camera", camWarn: true });
+            // The camera is always drawn, but a press the Pi or the picture cannot honour says so and sends nothing:
+            // video to a Pi that cannot take it would go nowhere, and the `features` reply stays the gate for sending.
+            const { webrtc, audio } = store.getState();
+            const blocked = cameraBlock({ browser: cameraOpenable(), webrtc, support: audio.camSupport, devices: audio.camDevices });
+            if (blocked) {
+                session.notices.notify({ text: blocked.reason, error: true });
                 return;
             }
-            // Pre-flight the permission prompt so a refusal can be named. The real capture is opened by the
-            // session when the target asks for the camera, so these tracks are not kept.
-            const pinnedCam = readDeviceChoice(CAM_DEVICE_KEY).id;
-            devices
-                .getUserMedia({ video: pinnedCam ? { deviceId: { exact: pinnedCam } } : true })
+            const stream = janus.current();
+            if (!stream) return;
+            patchAudio({ camLabel: CAMERA_LABELS.working, camWarn: false });
+            // Pre-flight the permission prompt so a refusal can be named, with the constraints the real capture uses:
+            // it fails in exactly the cases the capture would. The real capture is opened by the session, so these
+            // tracks are not kept.
+            navigator.mediaDevices
+                .getUserMedia({ video: cameraConstraints(readCameraChoice()) })
                 .then((granted) => {
                     for (const track of granted.getTracks()) track.stop();
                     camOn = true;
                     stream.setCam(true);
-                    patchAudio({ camOn: true, camLabel: "On", camWarn: false });
+                    patchAudio({ camOn: true, camLabel: CAMERA_LABELS.on, camWarn: false });
+                    // A permission that was blocked and has been allowed: the list has its cameras back.
+                    void reconcileCamera();
                     showResolution(true);
                 })
                 .catch(camFailure);
         },
         devicesChanged() {
             janus.current()?.micDeviceChanged();
-            janus.current()?.camDeviceChanged();
+            janus.current()?.camChanged();
+            void reconcileCamera();
             applySink();
         },
         setFullUi(on) {
@@ -717,6 +834,8 @@ export function createPictureController(options: PictureOptions): PictureControl
         },
         remeasure,
         dispose() {
+            mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
+            permissionWatch?.removeEventListener("change", onDeviceChange);
             detachVideo();
             detachPointer();
             pane.removeEventListener("pointerdown", refreshAtDown, { capture: true });

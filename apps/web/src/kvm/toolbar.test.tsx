@@ -15,7 +15,7 @@ const idle: PictureState = {
     mode: "native",
     webrtc: false,
     scale: 1,
-    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camAvailable: false, camOn: false, camLabel: "Off", camWarn: false },
+    audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" },
     res: { text: "", av: "", show: false },
     fullUi: false,
     hasFrame: true,

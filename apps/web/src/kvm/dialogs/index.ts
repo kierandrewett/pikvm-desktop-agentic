@@ -14,7 +14,6 @@ import { MsdDialog } from "./msd-dialog";
 import { OcrDialog } from "./ocr-dialog";
 import { PasteDialog } from "./paste-dialog";
 import { StreamDialog } from "./stream-dialog";
-import { RecordingsDialog } from "../recorder/recordings-dialog";
 
 export function registerKvmDialogs(): void {
     registerDialog("paste", PasteDialog);
@@ -28,5 +27,4 @@ export function registerKvmDialogs(): void {
     registerDialog("atx-power", AtxPowerDialog);
     registerDialog("atx-power-long", AtxPowerLongDialog);
     registerDialog("atx-reset", AtxResetDialog);
-    registerDialog("recordings", RecordingsDialog);
 }

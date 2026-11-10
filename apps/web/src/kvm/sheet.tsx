@@ -7,6 +7,7 @@
 
 import type { Clock, Keyboard, TargetLink } from "@pikvm/kvm-engine";
 import type { Action, ActionSections } from "./actions";
+import { CameraSheetItem } from "./camera-control";
 import type { DialogName } from "./dialog-seam";
 import { MacroTiles } from "./macro-buttons";
 import { RecordSheetItem } from "./recorder/record-button";
@@ -189,36 +190,18 @@ export function Sheet(props: SheetProps) {
                         <span>Microphone</span>
                         <span className="kvm-pip">{audio.micLabel}</span>
                     </button>
-                    {audio.camAvailable ? (
-                        <button
-                            type="button"
-                            className={`kvm-item toggle${audio.camOn ? " on" : ""}${audio.camWarn ? " warn" : ""}`}
-                            data-setting="cam"
-                            aria-pressed={audio.camOn}
-                            onClick={() => controller?.toggleCam()}
-                        >
-                            <span>Camera</span>
-                            <span className="kvm-pip">{audio.camLabel}</span>
-                        </button>
-                    ) : null}
-                    <button type="button" className="kvm-item" onClick={() => { onClose(); props.openDialog("audio-devices"); }}>
-                        Audio devices
-                    </button>
-                    <div className="kvm-sep" />
                 </>
             ) : null}
+            {/* Always drawn: a camera the Pi or the picture cannot take says so on this row, with the options one tap away. */}
+            <CameraSheetItem controller={controller} />
+            {audio.available ? (
+                <button type="button" className="kvm-item" onClick={() => { onClose(); props.openDialog("audio-devices"); }}>
+                    Audio devices
+                </button>
+            ) : null}
+            <div className="kvm-sep" />
 
             <RecordSheetItem controller={controller} />
-            <button
-                type="button"
-                className="kvm-item"
-                onClick={() => {
-                    onClose();
-                    props.openDialog("recordings");
-                }}
-            >
-                Recordings
-            </button>
             <div className="kvm-sep" />
 
             <Group actions={actions.tools} onDone={onClose} />

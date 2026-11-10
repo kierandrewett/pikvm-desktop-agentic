@@ -21,12 +21,18 @@ export interface MenuButtonProps {
     readonly label: string;
     readonly icon: ReactNode;
     readonly entries: readonly MenuEntry[];
+    /**
+     * Content of its own instead of the entries (the camera's preview and options). It is mounted only while the menu
+     * is open and unmounted when it closes, so what it holds (a live preview) lives exactly that long.
+     */
+    readonly panel?: ReactNode;
     readonly className?: string;
+    readonly menuClassName?: string;
     readonly disabled?: boolean;
     readonly testId?: string;
 }
 
-export function MenuButton({ label, icon, entries, className, disabled, testId }: MenuButtonProps) {
+export function MenuButton({ label, icon, entries, panel, className, menuClassName, disabled, testId }: MenuButtonProps) {
     const [open, setOpen] = useState(false);
     const button = useRef<HTMLButtonElement>(null);
     const menu = useRef<HTMLDivElement>(null);
@@ -78,26 +84,27 @@ export function MenuButton({ label, icon, entries, className, disabled, testId }
                 {icon}
             </button>
             {open ? (
-                <div ref={menu} id={id} className="kvm-menu" role="group" aria-label={label}>
-                    {entries.map((entry, i) =>
-                        entry.type === "separator" ? (
-                            <div key={`sep-${i}`} className="kvm-sep" />
-                        ) : (
-                            <button
-                                key={entry.id}
-                                type="button"
-                                className="kvm-item"
-                                disabled={entry.disabled}
-                                aria-pressed={entry.checked}
-                                onClick={() => {
-                                    close(false);
-                                    entry.run();
-                                }}
-                            >
-                                {entry.label}
-                            </button>
-                        ),
-                    )}
+                <div ref={menu} id={id} className={menuClassName ? `kvm-menu ${menuClassName}` : "kvm-menu"} role="group" aria-label={label}>
+                    {panel ??
+                        entries.map((entry, i) =>
+                            entry.type === "separator" ? (
+                                <div key={`sep-${i}`} className="kvm-sep" />
+                            ) : (
+                                <button
+                                    key={entry.id}
+                                    type="button"
+                                    className="kvm-item"
+                                    disabled={entry.disabled}
+                                    aria-pressed={entry.checked}
+                                    onClick={() => {
+                                        close(false);
+                                        entry.run();
+                                    }}
+                                >
+                                    {entry.label}
+                                </button>
+                            ),
+                        )}
                 </div>
             ) : null}
         </span>

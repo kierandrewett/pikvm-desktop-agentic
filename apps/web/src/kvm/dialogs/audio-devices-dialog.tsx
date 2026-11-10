@@ -12,7 +12,8 @@ import { useState } from "react";
 import type { DialogProps } from "../dialog-seam";
 import { emitAudioDevicesChanged } from "../audio-devices-event";
 import { labelsHidden, speakerSelectionSupported, useAudioDevices, audioDevicesSupported, type AudioDevice } from "../../settings/pages/audio-devices";
-import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice, type DeviceChoice } from "../../settings/local-prefs";
+import { CAM_DEVICE_KEY, CAM_PREFS_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeCameraPrefs, writeDeviceChoice, type DeviceChoice } from "../../settings/local-prefs";
+import { CAMERA_PRESETS, presetText, useCameraSelection } from "../camera";
 import { Btn, DialogShell, Note } from "./shell";
 
 export function goneSentence(kind: string, choice: DeviceChoice): string {
@@ -65,6 +66,7 @@ export function AudioDevicesDialog({ onClose }: DialogProps) {
     const [out, setOut] = useState<DeviceChoice>(() => readDeviceChoice(OUT_DEVICE_KEY));
     const [cam, setCam] = useState<DeviceChoice>(() => readDeviceChoice(CAM_DEVICE_KEY));
     const haveApi = audioDevicesSupported();
+    const camSelection = useCameraSelection();
     const sink = speakerSelectionSupported();
 
     const choose = (key: string, set: (c: DeviceChoice) => void) => (choice: DeviceChoice) => {
@@ -124,17 +126,36 @@ export function AudioDevicesDialog({ onClose }: DialogProps) {
                 disabled={!haveApi || !sink}
                 onChoose={choose(OUT_DEVICE_KEY, setOut)}
             />
-            {cameras.length > 0 || cam.id ? (
-                <DevicePicker
-                    id="ad-cam"
-                    label="Camera"
-                    storageKey={CAM_DEVICE_KEY}
-                    devices={cameras}
-                    choice={cam}
-                    disabled={!haveApi}
-                    onChoose={choose(CAM_DEVICE_KEY, setCam)}
-                />
-            ) : null}
+            <DevicePicker
+                id="ad-cam"
+                label="Camera"
+                storageKey={CAM_DEVICE_KEY}
+                devices={cameras}
+                choice={cam}
+                disabled={!haveApi}
+                onChoose={choose(CAM_DEVICE_KEY, setCam)}
+            />
+            <div className="dlg-row stack">
+                <label className="dlg-label" htmlFor="ad-cam-quality" style={{ minWidth: 92 }}>
+                    Camera quality
+                </label>
+                <select
+                    id="ad-cam-quality"
+                    className="dlg-select dlg-grow"
+                    value={camSelection.choice.preset.id}
+                    data-storage-key={CAM_PREFS_KEY}
+                    onChange={(e) => {
+                        writeCameraPrefs(camSelection.device.id, { preset: e.target.value });
+                        emitAudioDevicesChanged();
+                    }}
+                >
+                    {CAMERA_PRESETS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                            {`${presetText(preset)} (${preset.width} \u00d7 ${preset.height})`}
+                        </option>
+                    ))}
+                </select>
+            </div>
             <p className={`dlg-note${wrong.length > 0 ? " is-warn" : ""}`} role="status" aria-live="polite">
                 {wrong.join(" ")}
             </p>

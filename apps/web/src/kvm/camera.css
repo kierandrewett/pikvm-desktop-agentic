@@ -1,0 +1,268 @@
+/* The camera control: its toggle, the menu beside it (with a live self-view) and the phone sheet's row. Tokens and the
+   base button and menu classes are kvm.css. */
+
+/* A camera that cannot be turned on stays in the row, quiet, and says why when it is pressed or hovered. */
+.kvm-tb-btn[aria-disabled="true"],
+.kvm-ibtn[aria-disabled="true"] {
+    opacity: 0.5;
+}
+.kvm-item[aria-disabled="true"] {
+    opacity: 0.6;
+}
+
+/* The state pip on the round button: green while the camera is on, amber on a problem. The speaker and mic show a
+   level here; a camera has a picture instead, in its menu. */
+.kvm-av[data-tb="cam"]::after {
+    content: "";
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: transparent;
+    pointer-events: none;
+}
+.kvm-av[data-tb="cam"].on::after {
+    background: var(--ok);
+}
+.kvm-av[data-tb="cam"].warn::after {
+    background: var(--warn);
+}
+
+/* ---- the menu and the sheet's unfolded options ---- */
+
+.kvm-menu.kvm-cam-menu {
+    width: 304px;
+    max-width: calc(100vw - 16px);
+    padding: 8px;
+}
+.kvm-cam {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.kvm-cam-inline {
+    padding: 4px 4px 8px;
+}
+.kvm-cam-stage {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 8px;
+    background: #000;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+.kvm-cam-video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+}
+.kvm-cam-video[hidden] {
+    display: none;
+}
+.kvm-cam-video.is-mirrored {
+    transform: scaleX(-1);
+}
+.kvm-cam-msg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    text-align: center;
+    color: var(--muted-foreground);
+    font-size: var(--type-chrome);
+}
+.kvm-cam-msg svg {
+    width: 20px;
+    height: 20px;
+    color: var(--warn);
+}
+.kvm-cam-spin {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+    border-top-color: var(--primary);
+    animation: kvm-spin 0.7s linear infinite;
+}
+.kvm-cam-retry {
+    appearance: none;
+    border: 0;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font: inherit;
+    font-size: var(--type-chrome);
+    font-weight: 550;
+    color: var(--foreground);
+    background: var(--secondary);
+    box-shadow: 0 0 0 1px var(--border);
+}
+.kvm-cam-retry:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+    .kvm-cam-retry:hover {
+        background: var(--accent);
+    }
+}
+/* What the browser really opened, over the picture, the way a monitor says its mode. */
+.kvm-cam-chip {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: var(--type-caption);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    background: rgb(0 0 0 / 62%);
+}
+
+.kvm-cam-status {
+    margin: 8px 2px 4px;
+    font-size: var(--type-footnote);
+    line-height: 1.45;
+    color: var(--muted-foreground);
+}
+.kvm-cam-status.is-warn {
+    color: var(--warn);
+}
+.kvm-cam-status.is-ok {
+    color: var(--foreground);
+}
+.kvm-cam-status a {
+    color: var(--primary);
+    text-underline-offset: 2px;
+}
+.kvm-cam-label {
+    margin: 8px 2px 2px;
+    font-size: var(--type-footnote);
+    font-weight: 550;
+    color: var(--muted-foreground);
+}
+.kvm-cam-list {
+    display: flex;
+    flex-direction: column;
+}
+.kvm-cam-opt {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.kvm-cam-opt.is-gone {
+    font-style: italic;
+}
+/* A choice of a few short values in one row: the pressed one is lifted, the way the toolbar's own toggles are. */
+.kvm-cam-seg {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--secondary);
+    box-shadow: inset 0 0 0 1px var(--border);
+}
+.kvm-cam-segment {
+    appearance: none;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 30px;
+    border: 0;
+    border-radius: 6px;
+    padding: 0 6px;
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: var(--type-chrome);
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+    transition:
+        background 0.12s,
+        color 0.12s;
+}
+.kvm-cam-segment[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--foreground);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+    .kvm-cam-segment[aria-pressed="false"]:hover {
+        color: var(--foreground);
+    }
+}
+.kvm-cam-segment:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 85%, transparent);
+}
+.kvm-sheet .kvm-cam-segment {
+    min-height: 40px;
+}
+/* One check, drawn here, whether the list is in the menu or unfolded in the sheet. */
+.kvm-cam .kvm-item.kvm-cam-opt[aria-pressed="true"]::after {
+    content: "\2713";
+    float: none;
+    flex: none;
+    width: 14px;
+    text-align: right;
+    color: var(--primary);
+}
+.kvm-cam .kvm-item.kvm-cam-opt[aria-pressed="false"]::after {
+    content: "";
+    flex: none;
+    width: 14px;
+}
+.kvm-cam-fine {
+    margin: 2px 2px 4px;
+    font-size: var(--type-caption);
+    line-height: 1.4;
+    color: var(--muted-foreground);
+}
+.kvm-cam-mirror {
+    margin-top: 4px;
+}
+
+/* The sheet's row: the toggle, and a button that unfolds the options under it. */
+.kvm-split {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+}
+.kvm-split > .kvm-item {
+    width: auto;
+    flex: 1 1 auto;
+}
+.kvm-split > .kvm-split-more {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    padding: 0;
+}
+.kvm-split-more svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s;
+}
+.kvm-split-more[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .kvm-cam-spin {
+        animation: none;
+    }
+    .kvm-split-more svg {
+        transition: none;
+    }
+}

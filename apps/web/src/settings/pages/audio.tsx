@@ -6,8 +6,10 @@ import {
     MIC_DEVICE_KEY,
     OUT_DEVICE_KEY,
     readDeviceChoice,
+    writeCameraPrefs,
     writeDeviceChoice,
 } from "../local-prefs";
+import { CAMERA_PRESETS, presetText, useCameraSelection } from "../../kvm/camera";
 import {
     type AudioDevice,
     labelsHidden,
@@ -51,6 +53,7 @@ function DeviceSelect({ label, storageKey, devices }: DeviceSelectProps) {
 export function AudioPage() {
     const { inputs, outputs, cameras, loaded, error, allowAccess } = useAudioDevices();
     const hidden = labelsHidden(inputs) || labelsHidden(outputs);
+    const camera = useCameraSelection();
 
     return (
         <SettingsPage title="Audio" description="Microphone, speaker and camera.">
@@ -76,12 +79,31 @@ export function AudioPage() {
                     {loaded && !speakerSelectionSupported() ? (
                         <SettingRow label="Speaker" description="This browser always plays through the system output." />
                     ) : null}
-                    {loaded && cameras.length > 0 ? (
+                    {loaded ? (
                         <SettingRow
                             id="camera"
                             label="Camera"
-                            description="Sent to the target as a USB camera on a PiKVM set up for it."
+                            description={
+                                cameras.length > 0
+                                    ? "Sent to the target as a USB camera, from the camera button on the KVM screen. That needs a PiKVM V3 or V4 with the ucamera package and the OTG camera enabled."
+                                    : "This browser found no camera. Plug one in and it is listed here."
+                            }
                             control={<DeviceSelect label="Camera" storageKey={CAM_DEVICE_KEY} devices={cameras} />}
+                        />
+                    ) : null}
+                    {loaded ? (
+                        <SettingRow
+                            id="camera-quality"
+                            label="Camera quality"
+                            description="Remembered for each camera. The PiKVM camera takes 1280 x 720 at most."
+                            control={
+                                <Select
+                                    label="Camera quality"
+                                    value={camera.choice.preset.id}
+                                    options={CAMERA_PRESETS.map((preset) => ({ value: preset.id, label: presetText(preset) }))}
+                                    onChange={(preset) => writeCameraPrefs(camera.device.id, { preset })}
+                                />
+                            }
                         />
                     ) : null}
                     {hidden ? (

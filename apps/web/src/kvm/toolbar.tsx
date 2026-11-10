@@ -17,14 +17,14 @@ import {
     Keyboard,
     MagnifyingGlassMinus,
     Microphone,
-    Webcam,
     Power,
     SpeakerHigh,
     SpeakerSimpleNone,
 } from "@pikvm/icons";
 import { audioDevicesSupported, speakerSelectionSupported, useAudioDevices } from "../settings/pages/audio-devices";
-import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice } from "../settings/local-prefs";
+import { MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, writeDeviceChoice } from "../settings/local-prefs";
 import { emitAudioDevicesChanged } from "./audio-devices-event";
+import { CameraMenu, CameraToggle } from "./camera-control";
 import { HealthButton } from "./health-button";
 import { MacroStrip, runnable, useMacroBlocked } from "./macro-buttons";
 import { MenuButton, type MenuEntry } from "./menu-button";
@@ -44,12 +44,11 @@ export interface ToolbarProps {
     readonly onFit?: (() => void) | null;
 }
 
-type DeviceMenuKind = "audio" | "mic" | "cam";
+type DeviceMenuKind = "audio" | "mic";
 
 const DEVICE_MENU = {
     audio: { key: OUT_DEVICE_KEY, noun: "audio output", item: "Output" },
     mic: { key: MIC_DEVICE_KEY, noun: "microphone", item: "Microphone" },
-    cam: { key: CAM_DEVICE_KEY, noun: "camera", item: "Camera" },
 } as const;
 
 /**
@@ -60,7 +59,7 @@ const DEVICE_MENU = {
 function DeviceMenu({ kind }: { readonly kind: DeviceMenuKind }) {
     const devices = useAudioDevices();
     const { key, noun, item } = DEVICE_MENU[kind];
-    const list = kind === "mic" ? devices.inputs : kind === "cam" ? devices.cameras : devices.outputs;
+    const list = kind === "mic" ? devices.inputs : devices.outputs;
     const current = readDeviceChoice(key);
     const pick = (id: string, label: string): void => {
         writeDeviceChoice(key, { id, label });
@@ -139,7 +138,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
         }));
     const more: MenuEntry[] = [];
     if (audio.available) more.push({ id: "audio-devices", label: "Audio devices", run: () => openDialog("audio-devices") });
-    more.push({ id: "recordings", label: "Recordings", run: () => openDialog("recordings") }, { type: "separator" });
+    more.push({ type: "separator" });
     more.push(...toEntries(actions.tools), { type: "separator" }, ...toEntries(actions.view));
 
     const powerLabel = actions.power.length === 0 ? "Power" : atxBusy ? "Power: busy" : atxOn ? "Power: target is on" : "Power: target is off";
@@ -163,9 +162,9 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
                         testId="power"
                     />
                 ) : null}
+                <span className="kvm-tb-sep" />
                 {audio.available ? (
                     <>
-                        <span className="kvm-tb-sep" />
                         <button
                             ref={audioButton}
                             type="button"
@@ -193,23 +192,11 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
                             <Microphone weight={audio.micOn ? "fill" : "regular"} />
                         </button>
                         {audioDevicesSupported() ? <DeviceMenu kind="mic" /> : null}
-                        {audio.camAvailable ? (
-                            <button
-                                type="button"
-                                className={`kvm-tb-btn kvm-av${audio.camOn ? " on" : ""}${audio.camWarn ? " warn" : ""}`}
-                                data-tb="cam"
-                                aria-pressed={audio.camOn}
-                                aria-label="Camera"
-                                title={audio.camWarn ? audio.camLabel : "Camera"}
-                                onClick={() => controller?.toggleCam()}
-                            >
-                                <Webcam weight={audio.camOn ? "fill" : "regular"} />
-                            </button>
-                        ) : null}
-                        {audio.camAvailable && audioDevicesSupported() ? <DeviceMenu kind="cam" /> : null}
                     </>
                 ) : null}
-                {audio.available ? null : <span className="kvm-tb-sep" />}
+                {/* Always drawn: a camera the Pi or the picture cannot take is disabled with its reason, not hidden. */}
+                <CameraToggle controller={controller} variant="toolbar" />
+                <CameraMenu controller={controller} />
                 <RecordButton controller={controller} variant="toolbar" />
                 {picture.scale > 1 ? (
                     <button

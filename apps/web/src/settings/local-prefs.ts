@@ -11,6 +11,8 @@ export const TOUCH_HID_KEY = "pikvm-touch-hid";
 export const MIC_DEVICE_KEY = "pikvm-console-mic-device";
 export const OUT_DEVICE_KEY = "pikvm-console-speaker-device";
 export const CAM_DEVICE_KEY = "pikvm-console-camera-device";
+/** What was chosen for each camera: its quality preset and whether its preview is mirrored. One JSON map, keyed by device id. */
+export const CAM_PREFS_KEY = "pikvm-console-camera-prefs";
 
 export type TouchMode = "trackpad" | "direct";
 export type TouchHid = "abs" | "rel";
@@ -21,7 +23,7 @@ export const readTouchMode = (): TouchMode => (readString(TOUCH_MODE_KEY) === "d
 /** What the console reads: "rel" means relative, anything else is absolute. */
 export const readTouchHid = (): TouchHid => (readString(TOUCH_HID_KEY) === "rel" ? "rel" : "abs");
 
-function readString(key: string): string {
+export function readString(key: string): string {
     try {
         return localStorage.getItem(key) ?? "";
     } catch {
@@ -83,4 +85,40 @@ export function readDeviceChoice(key: string): DeviceChoice {
 
 export function writeDeviceChoice(key: string, choice: DeviceChoice): void {
     writeString(key, choice.id ? JSON.stringify(choice) : undefined);
+}
+
+/** The per-camera choices that are not which camera. An empty `preset` means the console's default. */
+export interface CameraPrefs {
+    readonly preset: string;
+    readonly mirror: boolean;
+}
+
+/** A camera nobody chose by name (the browser's default) is filed under this key. */
+const DEFAULT_CAMERA_KEY = "default";
+
+function readCameraMap(): Record<string, { preset?: unknown; mirror?: unknown }> {
+    const raw = readString(CAM_PREFS_KEY);
+    if (!raw) return {};
+    try {
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, { preset?: unknown; mirror?: unknown }>) : {};
+    } catch {
+        return {};
+    }
+}
+
+/** Each camera remembers its own quality and mirror choice; one never seen before is mirrored, at the default quality. */
+export function readCameraPrefs(deviceId: string): CameraPrefs {
+    const entry = readCameraMap()[deviceId || DEFAULT_CAMERA_KEY];
+    return {
+        preset: typeof entry?.preset === "string" ? entry.preset : "",
+        mirror: typeof entry?.mirror === "boolean" ? entry.mirror : true,
+    };
+}
+
+export function writeCameraPrefs(deviceId: string, change: Partial<CameraPrefs>): void {
+    const map = readCameraMap();
+    const key = deviceId || DEFAULT_CAMERA_KEY;
+    map[key] = { ...readCameraPrefs(deviceId), ...change };
+    writeString(CAM_PREFS_KEY, JSON.stringify(map));
 }
