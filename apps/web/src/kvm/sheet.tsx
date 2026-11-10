@@ -9,6 +9,7 @@ import type { Clock, Keyboard, TargetLink } from "@pikvm/kvm-engine";
 import type { Action, ActionSections } from "./actions";
 import type { DialogName } from "./dialog-seam";
 import { MacroTiles } from "./macro-buttons";
+import { RecordSheetItem } from "./recorder/record-button";
 import type { PictureController } from "./picture-controller";
 import { useKvmSession, useTarget } from "./session";
 import { usePictureState } from "./picture";
@@ -206,6 +207,19 @@ export function Sheet(props: SheetProps) {
                     <div className="kvm-sep" />
                 </>
             ) : null}
+
+            <RecordSheetItem controller={controller} />
+            <button
+                type="button"
+                className="kvm-item"
+                onClick={() => {
+                    onClose();
+                    props.openDialog("recordings");
+                }}
+            >
+                Recordings
+            </button>
+            <div className="kvm-sep" />
 
             <Group actions={actions.tools} onDone={onClose} />
 

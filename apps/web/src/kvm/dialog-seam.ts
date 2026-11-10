@@ -23,6 +23,7 @@ export const DIALOG_NAMES = [
     "atx-power",
     "atx-power-long",
     "atx-reset",
+    "recordings",
 ] as const;
 export type DialogName = (typeof DIALOG_NAMES)[number];
 
@@ -39,6 +40,7 @@ export const DIALOG_TITLES: Readonly<Record<DialogName, string>> = {
     "atx-power": "Press the power button?",
     "atx-power-long": "Hold the power button?",
     "atx-reset": "Press the reset button?",
+    recordings: "Recordings",
 };
 
 export interface DialogState {

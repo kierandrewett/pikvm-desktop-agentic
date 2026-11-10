@@ -32,6 +32,7 @@ import { Picture, usePictureState } from "./picture";
 import type { PictureController, PicturePrefs } from "./picture-controller";
 import { DOCK_QUERY, isDesktopApp, useInBackground, useIsFullscreen, useWakeLock } from "./platform";
 import { KvmSessionProvider, useAppKvmSession, useKvmSession, useSessionReady } from "./session";
+import { RecorderProvider, useKvmRecorder } from "./recorder/use-recorder";
 import { Toolbar } from "./toolbar";
 import { Welcome } from "./welcome";
 import { KvmActiveProvider, useKvmActive } from "./active";
@@ -60,6 +61,7 @@ export function KvmScreen() {
     // No PiKVM yet: the stage is the welcome, and there is no target for the keyboard or the picture to belong to.
     const welcome = firstRun.phase === "needed";
     const stageRef = useRef<HTMLDivElement>(null);
+    const recorder = useKvmRecorder(controller, stageRef, session);
     // Everything in the window that is not the picture's box (nav, toolbar, titlebar) is fixed-pixel, so the
     // shell adds back exactly this leftover around the native size.
     const fitWindow = useCallback(
@@ -197,6 +199,7 @@ export function KvmScreen() {
     });
 
     return (
+        <RecorderProvider value={recorder}>
         <KvmLockedProvider value={locked}>
         <OcrPickerProvider controller={controller}>
             <FirstRunProvider value={welcome}>
@@ -251,6 +254,7 @@ export function KvmScreen() {
             </FirstRunProvider>
         </OcrPickerProvider>
         </KvmLockedProvider>
+        </RecorderProvider>
     );
 }
 

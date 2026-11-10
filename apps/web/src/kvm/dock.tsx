@@ -27,6 +27,7 @@ import {
 import { HealthButton } from "./health-button";
 import { KeyRows } from "./key-rows";
 import type { PictureController } from "./picture-controller";
+import { RecordButton } from "./recorder/record-button";
 import { usePictureState } from "./picture";
 import { useKvmActive } from "./active";
 import { useKvmLocked } from "./locked";
@@ -183,6 +184,7 @@ export function Dock(props: DockProps) {
                         ) : null}
                     </>
                 ) : null}
+                <RecordButton controller={controller} variant="dock" />
                 {picture.scale > 1 ? (
                     <button
                         type="button"

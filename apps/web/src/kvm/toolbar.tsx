@@ -28,6 +28,7 @@ import { emitAudioDevicesChanged } from "./audio-devices-event";
 import { HealthButton } from "./health-button";
 import { MacroStrip, runnable, useMacroBlocked } from "./macro-buttons";
 import { MenuButton, type MenuEntry } from "./menu-button";
+import { RecordButton } from "./recorder/record-button";
 import type { PictureController } from "./picture-controller";
 import { usePictureState } from "./picture";
 import { isDesktopApp } from "./platform";
@@ -137,7 +138,8 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
             ...(a.checked !== undefined ? { checked: a.checked } : {}),
         }));
     const more: MenuEntry[] = [];
-    if (audio.available) more.push({ id: "audio-devices", label: "Audio devices", run: () => openDialog("audio-devices") }, { type: "separator" });
+    if (audio.available) more.push({ id: "audio-devices", label: "Audio devices", run: () => openDialog("audio-devices") });
+    more.push({ id: "recordings", label: "Recordings", run: () => openDialog("recordings") }, { type: "separator" });
     more.push(...toEntries(actions.tools), { type: "separator" }, ...toEntries(actions.view));
 
     const powerLabel = actions.power.length === 0 ? "Power" : atxBusy ? "Power: busy" : atxOn ? "Power: target is on" : "Power: target is off";
@@ -207,6 +209,8 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
                         {audio.camAvailable && audioDevicesSupported() ? <DeviceMenu kind="cam" /> : null}
                     </>
                 ) : null}
+                {audio.available ? null : <span className="kvm-tb-sep" />}
+                <RecordButton controller={controller} variant="toolbar" />
                 {picture.scale > 1 ? (
                     <button
                         type="button"
