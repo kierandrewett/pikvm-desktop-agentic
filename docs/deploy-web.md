@@ -410,16 +410,16 @@ other voice. Keeping the two sources on two channels does the first step for fre
 "You", so it only needs speech recognition, and only the left channel is run through speaker diarization to be told apart
 into "Speaker 1", "Speaker 2" and so on.
 
-Size. At the ceiling (300 + 32 kbit/s) a recording takes about **2.5 MB a minute, 150 MB an hour**. A quiet desktop takes
+Size. At the ceiling (300 + 48 kbit/s) a recording takes about **2.6 MB a minute, 157 MB an hour**. A quiet desktop takes
 far less, because VP9 spends bits only on what moves. Measured here, on a synthetic 71 s session (a dark desktop, a grid, one
 small block crossing it, speech on both audio channels):
 
 | Encoder | Bytes | Per minute | All in |
 | --- | --- | --- | --- |
-| Chrome 154 `MediaRecorder`, 300 + 32 kbit/s, 10 s slices (what the app does) | 429,104 | **363 KB** | 48 kbit/s |
+| Chrome 154 `MediaRecorder`, 300 + 48 kbit/s, 10 s slices (what the app does) | 645,398 | **545 KB** | 73 kbit/s |
 | ffmpeg libvpx-vp9 `-b:v 300k` + libopus 32k, written live | 1,432,451 | 1.21 MB | 161 kbit/s |
 
-At the default 10 GiB total that is about 68 hours at the ceiling and several hundred hours of a quiet screen. The transcript of
+At the default 10 GiB total that is about 65 hours at the ceiling and several hundred hours of a quiet screen. The transcript of
 those 71 s is 4.8 KB.
 
 ### The API
@@ -489,8 +489,8 @@ one label through all of their turns (100 % and 100 %).
 **Audio bitrate.** The microphone voice that speaks while the target is loud is the weak spot: at 32 kbit/s stereo Opus the
 codec spends the bits on the louder channel and "I will upgrade the staging server this afternoon" came out as "Brade the
 stages". Measured with the same worker on the same audio re-encoded by ffmpeg: at 48 and 64 kbit/s the sentence is read
-whole. The recorder therefore uses 48 kbit/s (`AUDIO_BITS_PER_SECOND`), about 7 MB an hour more than 32. The size and time
-numbers above were measured at 32 kbit/s.
+whole. The recorder therefore uses 48 kbit/s (`AUDIO_BITS_PER_SECOND`), about 7 MB an hour more than 32. With it the E2E
+measures a microphone word error rate of 17.6% (35.3% at 32 kbit/s); the ffmpeg row above was encoded at 32k.
 
 Diarization is a heuristic. Voices are joined when their embeddings are closer than a threshold (`PIKVM_ASR_SPEAKER_THRESHOLD`,
 default 0.85; larger joins more voices into one speaker). On the E2E recording the range 0.8 to 0.9 found exactly the two target
@@ -531,7 +531,7 @@ and 1.97 GB after.
 `~/.cache/pikvm-e2e/recordings/e2e.mjs` (run with `nice node e2e.mjs`): it bundles the real host, records a 71 s session with
 three synthetic voices (Piper `en_GB-vctk-medium`: two on the target channel taking turns, one on the microphone channel, with
 an overlap and silences) through a **real Chrome `MediaRecorder`** (the app's graph: a channel merger into a stereo destination,
-VP9 + Opus at 300 + 32 kbit/s, 10 s slices), starts the real host, and drives the routes: ordered upload, a repeated chunk and a
+VP9 + Opus at 300 + 48 kbit/s, 10 s slices), starts the real host, and drives the routes: ordered upload, a repeated chunk and a
 gap (`409` with the count), Range, `416`, malformed and unknown ids (`404`, `strace -f` showing no file call outside the
 recordings directory), the per-recording and total quotas, the retention sweep, a restart with a recording left open, a real
 transcription with the real models, delete while transcribing (worker and ffmpeg gone, every file gone), host stop, and the
