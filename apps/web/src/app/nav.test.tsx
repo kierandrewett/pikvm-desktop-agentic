@@ -172,7 +172,7 @@ describe("keyboard navigation", () => {
         const { router } = renderApp("/kvm", { compact: true });
         await screen.findByRole("tab", { name: "KVM" });
         screen.getByRole("tab", { name: "KVM" }).focus();
-        await user.keyboard("{ArrowRight}{ArrowRight} ");
+        await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight} ");
         await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
     });
 });
@@ -307,7 +307,7 @@ describe("icons only on the desktop rail", () => {
     it("names every rail item without drawing a label, and the bar still draws them", async () => {
         const rail = renderApp("/kvm", { compact: false });
         const tabs = await screen.findAllByRole("tab");
-        expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual(["KVM", "Chat", "Settings"]);
+        expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual(["KVM", "Chat", "Recordings", "Settings"]);
         // The tooltip is the only text in a rail item, and it is hidden from assistive tech.
         for (const tab of tabs) {
             const tip = tab.querySelector(".nav-tip");
@@ -320,8 +320,8 @@ describe("icons only on the desktop rail", () => {
 
         renderApp("/kvm", { compact: true });
         const bar = await screen.findAllByRole("tab");
-        expect(bar.map((tab) => tab.textContent)).toEqual(["KVM", "Chat", "Settings"]);
-        expect(bar.map((tab) => tab.getAttribute("aria-label"))).toEqual(["KVM", "Chat", "Settings"]);
+        expect(bar.map((tab) => tab.textContent)).toEqual(["KVM", "Chat", "Recordings", "Settings"]);
+        expect(bar.map((tab) => tab.getAttribute("aria-label"))).toEqual(["KVM", "Chat", "Recordings", "Settings"]);
         expect(document.querySelector(".nav-tip")).toBeNull();
     });
 });

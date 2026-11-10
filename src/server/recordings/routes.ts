@@ -9,9 +9,11 @@ import { isRecordingId, RecordingRefusal } from "./store";
 /**
  * `/app/api/v1/recordings/*`: session recordings, as the contract (packages/contracts/src/recordings.ts) defines them.
  *
- *   GET    /                    the list and whether this host can transcribe
+ *   GET    /                    the list (`?status=` a comma list, `?sort=`) and whether this host can transcribe
  *   POST   /                    { mime, startedAt, target? }: a new recording
+ *   GET    /search              `?q=&limit=&offset=&speaker=&from=&to=`: full text over transcripts and titles
  *   GET    /:id                 one recording
+ *   PATCH  /:id                 { title }: rename
  *   DELETE /:id                 the recording, its transcript and its work files
  *   PUT    /:id/chunks/:n       the next chunk, as application/octet-stream, streamed to disk
  *   POST   /:id/finish          { durationMs, transcribe }
@@ -112,13 +114,20 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
         }
         const rest = path.slice(RECORDINGS_PATH.length);
 
+        const query = new URL(req.url ?? "/", "http://localhost").searchParams;
+
         if (rest === "") {
-            if (method === "GET") return json(res, 200, await service.list());
+            if (method === "GET") return json(res, 200, await service.list({ status: query.get("status"), sort: query.get("sort") }));
             if (method === "POST") {
                 requireType(req, "application/json");
                 return json(res, 201, await service.create(await readJson(req)));
             }
             return methodNot(res, "GET", "POST");
+        }
+
+        if (rest === "/search") {
+            if (method !== "GET") return methodNot(res, "GET");
+            return json(res, 200, service.search(query));
         }
 
         const parts = rest.slice(1).split("/");
@@ -132,12 +141,16 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
 
         if (parts.length === 1) {
             if (method === "GET") return json(res, 200, service.view(id));
+            if (method === "PATCH") {
+                requireType(req, "application/json");
+                return json(res, 200, await service.rename(id, await readJson(req)));
+            }
             if (method === "DELETE") {
                 requireType(req, "application/json");
                 await service.remove(id);
                 return json(res, 200, { deleted: true });
             }
-            return methodNot(res, "GET", "DELETE");
+            return methodNot(res, "GET", "PATCH", "DELETE");
         }
 
         const what = parts[1];

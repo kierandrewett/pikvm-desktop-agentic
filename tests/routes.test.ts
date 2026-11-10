@@ -430,7 +430,7 @@ test("once the web app is built it owns /app/ and its client routes; the console
     const dir = fakeAppBuild();
     const s = await run(targets({ appDir: dir }));
     try {
-        for (const path of ["/app/", "/app/kvm", "/app/chat", "/app/settings", "/app/settings/keyboard/deep"]) {
+        for (const path of ["/app/", "/app/kvm", "/app/chat", "/app/recordings", "/app/recordings/0123456789abcdef0123456789abcdef", "/app/settings", "/app/settings/keyboard/deep"]) {
             const page = await call(s.origin, path);
             assert.equal(page.status, 200, path);
             assert.match(page.body, /app shell/, path);

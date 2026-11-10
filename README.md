@@ -8,7 +8,7 @@ While the agent is working (its state is `working`), the agent has the target's 
 
 In Settings, Notifications you can also be notified when the agent stops for an approval, a question or a form, with words that never say what it wants to do. It is on by default and only reaches devices you set up there.
 
-On Chat and Settings a live copy of the screen floats over the page: a window on a wide screen and a round bubble on a phone. Tap it to open the KVM. Drag it, or throw it and it bounces off the edges. Shift and the arrow keys move it for a keyboard. It only draws the picture the KVM tab already holds. It opens no stream and sends no input.
+On Chat, Recordings and Settings a live copy of the screen floats over the page: a window on a wide screen and a round bubble on a phone. Tap it to open the KVM. Drag it, or throw it and it bounces off the edges. Shift and the arrow keys move it for a keyboard. It only draws the picture the KVM tab already holds. It opens no stream and sends no input.
 
 The model never receives the PiKVM address or credentials. The agent reaches models and the PiKVM only through a separate loopback listener that needs its own bearer token.
 
@@ -165,10 +165,6 @@ The idle jiggler is off unless `PIKVM_JIGGLER=1` sets its first value. After you
 
 On a touch screen, the console docks its controls above the soft keyboard. The bar holds speaker, mic, camera, paste, keyboard, and the more button. Rows of modifier and navigation keys follow.
 
-The camera button sends this browser's camera to the target as a USB camera. It shows only when the PiKVM reports the `cam` feature, which needs a PiKVM V3 or V4 with the `ucamera` package and `otg: devices: camera: enabled: true` in `/etc/kvmd/override.yaml` (see the PiKVM handbook page "Web camera"). The picture must use WebRTC. Turning the button on only allows the camera: the target starts the stream when an app on it opens the camera, at 1280x720 at most. The browser asks for camera permission the first time. Pick which camera in Audio devices (the dialog, the arrow beside the button in the toolbar, or Settings > Audio), the same place as the microphone and speaker. The choice is remembered in this browser.
-
-Session recordings: the record button (a red dot and the elapsed time while it is on) saves the picture, the target's sound and your microphone as one small file on the host, about 300 kbit/s of video and one stereo audio track, roughly 150 MB an hour. The target is the left channel and you are the right, which is what lets a transcript tell you apart from the target's voices. The browser sends the file to the host as it records, so a closed tab loses seconds, not the whole session. It needs the WebRTC picture; with MJPEG the button is off and its tooltip says why. More > Recordings lists what the host holds, newest first, plays it, and shows the transcript (you as "You", the target's voices as "Speaker 1", "Speaker 2") when the host can transcribe; clicking a line seeks the player. Recordings are deleted 30 days after they end (`PIKVM_RECORDINGS_RETENTION_DAYS`, 0 keeps them), each one shows its deletion date, and a new recording is refused when the disk limit is reached (`PIKVM_RECORDINGS_MAX_BYTES`). A browser that records VP9 or VP8 saves WebM; Safari saves MP4.
-
 - Trackpad mode is the default. Drag to move the cursor. Tap to click.
 - Two fingers scroll. Pinch zooms on the cursor.
 - To drag, hold a finger still until it buzzes, then move. Add a second finger while you drag and the cursor moves three times as far as the middle of your two fingers. Move both fingers together for the full boost.
@@ -176,6 +172,22 @@ Session recordings: the record button (a red dot and the elapsed time while it i
 - Touch mode points where you tap.
 
 The trackpad uses the Pi's absolute mouse by default. The more menu offers relative mode for targets that need it.
+
+### Camera
+
+The camera button sends this browser's camera to the target as a USB camera. It sits with the speaker and microphone in the toolbar (an arrow beside it opens the camera menu), in the phone dock, and in the More sheet. It is always there. When the camera cannot be turned on it is dimmed, its tooltip says why, and pressing it says so again; the menu still shows your camera, so you can check it before there is anywhere to send it. The reasons are:
+
+- **Unavailable on this PiKVM**: the PiKVM did not report the `cam` feature. That needs a PiKVM V3 or V4 with the `ucamera` package and `otg: devices: camera: enabled: true` in `/etc/kvmd/override.yaml` (see the PiKVM handbook page [Web Camera](https://docs.pikvm.org/camera/)). Nothing is sent to a PiKVM that does not report it.
+- **Needs WebRTC**: the picture must use WebRTC, as the camera travels with it.
+- **Needs HTTPS**: browsers open cameras only on a secure page.
+
+The camera menu shows a live self-view while it is open (the camera is released the moment it closes), lists your cameras, and offers a quality: 360p, 480p, 720p at 30 fps (the default) or 720p at 15 fps. Nothing above 1280x720 is offered, as that is the most the PiKVM camera takes. Each camera remembers its own quality and whether its preview is mirrored; the target always sees the true picture. The menu shows the size the browser really opened, and when the camera is on, what it is ready to send. Turning the button on only allows the camera: the target starts the stream when an app on it opens the camera. The browser asks for camera permission the first time. If the camera is unplugged or its permission is withdrawn while it is on, it turns itself off and says why (Camera gone, No camera, Denied); plug it back in and turn it on again. The camera is chosen here, in the Audio devices dialog, or in Settings > Audio, and the choice is remembered in this browser.
+
+### Session recordings
+
+The record button (a red dot and the elapsed time while it is on) saves the picture, the target's sound and your microphone as one small file on the host, about 300 kbit/s of video and one stereo audio track, roughly 150 MB an hour. The target is the left channel and you are the right, which is what lets a transcript tell you apart from the target's voices. The browser sends the file to the host as it records, so a closed tab loses seconds, not the whole session. It needs the WebRTC picture; with MJPEG the button is off and its tooltip says why. The Recordings tab in the rail is where they are kept (next paragraph). Recordings are deleted 30 days after they end (`PIKVM_RECORDINGS_RETENTION_DAYS`, 0 keeps them), each one shows its deletion date, and a new recording is refused when the disk limit is reached (`PIKVM_RECORDINGS_MAX_BYTES`). A browser that records VP9 or VP8 saves WebM; Safari saves MP4.
+
+The **Recordings** tab is a library of what the host holds, laid out like YouTube Studio's content page: a table of thumbnail, title (rename it in place), target, date, length, size, state (with transcription progress) and when it will be deleted, with filters (All, Transcribed, Transcribing, Failed, Expiring soon), a sort (newest, oldest, longest, largest), a menu on each row (open, rename, copy transcript, download, delete) and bulk delete. The box at the top searches every transcript and title (`/` puts the cursor there, Escape clears it; words, `"phrases"`, and the last word also matches by prefix) and groups the matches by recording, each with its second, who said it and the words marked; a match opens the recording at that second (`/recordings/<id>?t=95&q=words`, so the link can be shared and survives a reload). A recording opens with the player beside its transcript, coloured by speaker: a line seeks the player, the line being played follows it, and the box above the transcript finds and jumps between matches; the transcript downloads as .txt, .srt or .vtt, and a recording can be transcribed again or deleted. On a phone the table is a list of cards. The search is built on the host (`docs/deploy-web.md`, "Search").
 
 ### Installed app
 

@@ -12,12 +12,29 @@
  *   POST   /app/api/v1/recordings                     JSON { mime, startedAt, target? }      -> RecordingView (status "recording")
  *   PUT    /app/api/v1/recordings/:id/chunks/:n       body = bytes, n counts from 0, in order -> { received: n + 1 }
  *   POST   /app/api/v1/recordings/:id/finish          JSON { durationMs, transcribe }        -> RecordingView
- *   GET    /app/api/v1/recordings                     -> { recordings: RecordingView[], transcription: TranscriptionStatus }
+ *   GET    /app/api/v1/recordings?status=&sort=       -> { recordings: RecordingView[], transcription: TranscriptionStatus }
+ *   GET    /app/api/v1/recordings/search?q=&limit=&offset=&speaker=&from=&to=   -> RecordingSearchResult
  *   GET    /app/api/v1/recordings/:id                 -> RecordingView
+ *   PATCH  /app/api/v1/recordings/:id                 JSON { title }                          -> RecordingView (rename)
  *   GET    /app/api/v1/recordings/:id/media           the file, with Range support, for a <video> element
  *   GET    /app/api/v1/recordings/:id/transcript      -> Transcript (404 until status is "done")
  *   POST   /app/api/v1/recordings/:id/transcribe      start or restart the transcription -> RecordingView
  *   DELETE /app/api/v1/recordings/:id                 remove the recording, its transcript and its audio work files
+ *
+ * List: `status` is a comma list of RecordingStatus values to keep (an unknown value is 400), `sort` is one of RECORDING_SORTS
+ * (default "newest"; a recording with no duration sorts last under "longest"). Both are optional.
+ *
+ * Rename: `title` is text of at most MAX_TITLE_CHARS characters (runs of white space become one space), or null or "" to go back to
+ * the default name. More than that is 400. The title is part of the view and of the search.
+ *
+ * Search: full text over every finished transcript's segments and over titles, in an index the host keeps beside the recordings
+ * (src/server/recordings/search-index.ts). `q` is words, all of which must match (a word matches its other forms: "upgrading" finds
+ * "upgrade"), `"in quotes"` is a phrase, and the LAST word, when the query does not end in a space or a quote, also matches by prefix
+ * ("stag" finds "staging"). An empty query, one with nothing but punctuation, or one over MAX_SEARCH_QUERY_CHARS is 400. `limit` is
+ * 1 to MAX_SEARCH_LIMIT (default SEARCH_DEFAULT_LIMIT), `offset` 0 or more. `speaker` keeps only segments by that exact label ("You",
+ * "Speaker 2") and so leaves out title hits. `from` and `to` keep recordings that STARTED in that range: an ISO time, or a date
+ * alone (UTC; `to` then includes that whole day). A host that cannot keep the index answers 503 `{ error }`.
+ * Hits come title hits first, then segments best match first (ties: newer recording, earlier second).
  *
  * Writes carry `x-pikvm-recording: 1` (a custom header forces a preflight this server never answers, which is what the JSON
  * content-type rule does for the other routes). Chunk bodies are `application/octet-stream`; every other write is JSON.
@@ -50,11 +67,22 @@ export const RECORDINGS_MAX_TOTAL_BYTES = 10 * 1024 * 1024 * 1024;
 /** Days a finished recording is kept by default. */
 export const RECORDING_RETENTION_DAYS = 30;
 
+/** The longest title a recording may be given. */
+export const MAX_TITLE_CHARS = 200;
+/** The longest search query the host will take. */
+export const MAX_SEARCH_QUERY_CHARS = 200;
+export const SEARCH_DEFAULT_LIMIT = 20;
+export const SEARCH_MAX_LIMIT = 100;
+
 /** Containers the browser may record and the host will keep. */
 export const RECORDING_MIMES = ["video/webm", "video/mp4"] as const;
 export type RecordingMime = (typeof RECORDING_MIMES)[number];
 
 export type RecordingStatus = "recording" | "ready" | "transcribing" | "done" | "failed";
+
+/** How the list may be ordered: by when it started, by length, or by size on disk. */
+export const RECORDING_SORTS = ["newest", "oldest", "longest", "largest"] as const;
+export type RecordingSort = (typeof RECORDING_SORTS)[number];
 
 export interface RecordingView {
     id: string;
@@ -64,6 +92,8 @@ export interface RecordingView {
     startedAt: string;
     durationMs: number | null;
     bytes: number;
+    /** The name the person gave it (rename), or null for the default one, which the page builds from the start time. */
+    title: string | null;
     /** What the person was looking at, for the list: the target's name or address. */
     target: string | null;
     /** ISO time the host will delete this recording, or null when retention is off or it is still recording. */
@@ -106,4 +136,37 @@ export interface Transcript {
     models: { recognizer: string; diarizer: string };
     /** Seconds the transcription took. */
     tookSeconds: number;
+}
+
+/** One match of a search: a segment of a transcript, or a recording's title. */
+export interface RecordingSearchHit {
+    recording: RecordingView;
+    /** "title": the recording's title matched (no time, no speaker). "transcript": one segment matched. */
+    kind: "title" | "transcript";
+    /** Milliseconds from the start of the recording; null for a title hit. */
+    startMs: number | null;
+    endMs: number | null;
+    /** The label of whoever spoke ("You", "Speaker 1", ...); null for a title hit. */
+    speaker: string | null;
+    /**
+     * The matching text as PLAIN text, cut to about 220 characters around the first match, with an ellipsis where it was cut. It is
+     * never HTML: the page draws it as text and wraps `ranges` in its own marks, so nothing in a transcript can inject markup.
+     */
+    text: string;
+    /** Where the query matched in `text`: [start, end) in UTF-16 code units, in order, not overlapping; words of a phrase are joined. */
+    ranges: Array<[number, number]>;
+    /** SQLite's bm25 of the match: lower is better, and comparable only between hits of one kind. */
+    rank: number;
+}
+
+export interface RecordingSearchResult {
+    /** The query as sent, trimmed. */
+    query: string;
+    hits: RecordingSearchHit[];
+    /** Every hit the query has with these filters, not only this page. */
+    total: number;
+    /** In how many recordings. */
+    recordings: number;
+    offset: number;
+    limit: number;
 }

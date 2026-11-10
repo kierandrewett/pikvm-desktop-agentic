@@ -19,7 +19,7 @@
  *   /app/api/v1/recordings*    session recordings: the writes carry `x-pikvm-recording: 1` and a body of the type the route names
  *   /app/api/v1/cursor         where the target's pointer is, for every client (SSE)
  *   /app/api/v1/*              our HttpApi
- *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
+ *   /app/, /app/kvm, /chat, /recordings/*, /settings/*   the web app's index.html (the console at
  *                              /app/ until the app is built); /app/legacy/ the console
  *   /app/<file>                the app's build (hashed /app/assets/*), then the console bundle
  *   anything else              kvmd (HTTP and WebSocket upgrades alike)
@@ -133,9 +133,9 @@ function redirect(res: ServerResponse, location: string, headers: Record<string,
     res.end();
 }
 
-/** The client-side routes of the web app: the shell, KVM, Chat and Settings. */
+/** The client-side routes of the web app: the shell, KVM, Chat, Recordings (and one recording) and Settings. */
 function isAppPage(path: string): boolean {
-    return path === "/app/" || path === "/app/kvm" || path === "/app/chat" || under(path, "/app/settings");
+    return path === "/app/" || path === "/app/kvm" || path === "/app/chat" || under(path, "/app/recordings") || under(path, "/app/settings");
 }
 
 export function createRoutes(t: RouteTargets): Route[] {

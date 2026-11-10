@@ -1,5 +1,5 @@
 /**
- * The app's three destinations as an ARIA tablist: a bottom bar on phones, an icons-only rail on
+ * The app's four destinations as an ARIA tablist: a bottom bar on phones, an icons-only rail on
  * wide screens. One component, two orientations, so the behaviour cannot drift apart.
  *
  * Tabs are links (they are real routes, so long-press and middle-click work and the URL is
@@ -10,15 +10,16 @@
 
 import { Link } from "@tanstack/react-router";
 import { type KeyboardEvent, useRef } from "react";
-import { ChatCircle, Gear, type Icon, Monitor } from "@pikvm/icons";
+import { ChatCircle, FilmStrip, Gear, type Icon, Monitor } from "@pikvm/icons";
 import { useAgentActivity } from "../agent/activity";
 import { preloadChat } from "./chat-pane";
+import { preloadRecordings } from "./recordings-pane";
 
-export type TabId = "kvm" | "chat" | "settings";
+export type TabId = "kvm" | "chat" | "recordings" | "settings";
 
 interface TabDef {
     readonly id: TabId;
-    readonly to: "/kvm" | "/chat" | "/settings";
+    readonly to: "/kvm" | "/chat" | "/recordings" | "/settings";
     readonly label: string;
     readonly icon: Icon;
     /** Warm what the tab will need, when the pointer or focus arrives. */
@@ -28,6 +29,7 @@ interface TabDef {
 export const TABS: ReadonlyArray<TabDef> = [
     { id: "kvm", to: "/kvm", label: "KVM", icon: Monitor },
     { id: "chat", to: "/chat", label: "Chat", icon: ChatCircle, preload: preloadChat },
+    { id: "recordings", to: "/recordings", label: "Recordings", icon: FilmStrip, preload: preloadRecordings },
     { id: "settings", to: "/settings", label: "Settings", icon: Gear },
 ];
 

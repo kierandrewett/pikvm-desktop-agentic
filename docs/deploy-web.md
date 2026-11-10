@@ -94,7 +94,8 @@ The data volume holds, and is the only thing that needs backing up:
 | `chat/` | The chat database, per-conversation files, the agent's `HOME`, and provider keys entered in Settings (mode 0600, write-only from the browser). |
 | `push-vapid.json` | The server's Web Push key pair, made once on first use (mode 0600). **Back it up with the volume and never delete it**: a new pair orphans every device's subscription. |
 | `chat/users/<id>/watch/` | One user's screen watch (directory 0700, files 0600): `settings.json` (on or off, the rule, the corner; fields of older versions are ignored), `checks.jsonl` (one line per check, rotated at 512 KB to `checks.jsonl.1`) and `push-subscriptions.json` (the devices). Today there is one user, `operator`. |
-| `recordings/<id>/` | One session recording (directory 0700, files 0600): `recording.webm` or `.mp4`, `meta.json`, `transcript.json`, `transcript.txt`, and `work/` while a transcription runs. Deleted `PIKVM_RECORDINGS_RETENTION_DAYS` (30) days after the recording ended; see "Session recordings". |
+| `recordings/<id>/` | One session recording (directory 0700, files 0600): `recording.webm` or `.mp4`, `meta.json` (with the title, if it was renamed), `transcript.json`, `transcript.txt`, and `work/` while a transcription runs. Deleted `PIKVM_RECORDINGS_RETENTION_DAYS` (30) days after the recording ended; see "Session recordings". |
+| `recordings/index.db` | The search index over the transcripts and titles: a copy, rebuilt at start if missing or stale (see "Search"). Safe to delete; it is not worth backing up. |
 
 Model providers are set in the app: Settings, then Providers, then add a base URL and key. Sign-in with a provider
 account (the old Claude and Codex CLI flows) is not part of this image.
@@ -422,6 +423,15 @@ small block crossing it, speech on both audio channels):
 At the default 10 GiB total that is about 65 hours at the ceiling and several hundred hours of a quiet screen. The transcript of
 those 71 s is 4.8 KB.
 
+### The page
+
+The app's **Recordings** tab (`/app/recordings`) is the library for all of this: a table (cards on a phone) with filters, a sort,
+rename in place, a menu on each row and bulk delete; a search box over every transcript and title; and one recording's page,
+`/app/recordings/<id>`, with the player beside its transcript. Its addresses are shareable and survive a reload: `?q=words` is a
+search (or, on a recording, the words to find in its transcript), `?t=95` opens the recording at second 95, `?filter=failed` and
+`?sort=longest` set the list. The thumbnails are the first frame of each file, taken in the browser. Everything it does goes through
+the routes below; the host serves the same `index.html` for `/app/recordings` and `/app/recordings/<id>` as for the other tabs.
+
 ### The API
 
 All under `/app/api/v1/recordings`, behind the host's sign-in like every route; nothing is served without it, the media route
@@ -434,8 +444,10 @@ types are `packages/contracts/src/recordings.ts`.
 | `POST /` `{ mime, startedAt, target? }` | `201` the recording (`status: "recording"`). `507` when the disk limit is reached. |
 | `PUT /:id/chunks/:n` (bytes) | `{ received: n + 1 }`. Chunk `n` must be the next one: a repeat or a gap is `409 { received }` (what the host holds, so the browser sends from there). `413` over 8 MiB. Streamed to disk, never held whole. |
 | `POST /:id/finish` `{ durationMs, transcribe }` | The recording, `ready` (or `transcribing`, or `failed` when the file cannot be read as media). A second finish is `409`. |
-| `GET /` | `{ recordings, transcription: { available, reason, models } }` |
-| `GET /:id` | One recording: status, bytes, duration, `expiresAt`, `progress` (0 to 1 while transcribing), `speakers`. |
+| `GET /` (`?status=done,failed&sort=longest`) | `{ recordings, transcription: { available, reason, models } }`. `status` is a comma list of `recording`, `ready`, `transcribing`, `done`, `failed`; `sort` is `newest` (default), `oldest`, `longest` or `largest`. Anything else is `400`. |
+| `GET /search?q=&limit=&offset=&speaker=&from=&to=` | Full text over transcripts and titles: see "Search". |
+| `GET /:id` | One recording: status, `title`, bytes, duration, `expiresAt`, `progress` (0 to 1 while transcribing), `speakers`. |
+| `PATCH /:id` `{ title }` | Renames. A title is one line of at most 200 characters (runs of white space become one space); `null` or `""` goes back to the default name. More than 200 is `400`. |
 | `GET /:id/media` | The file, with `Range` (`206`, `Accept-Ranges`, `416` out of range) for a `<video>` element. |
 | `GET /:id/transcript` | The transcript (`404` until `done`). |
 | `POST /:id/transcribe` | Start or restart the transcription. `503` with the reason when this host cannot. |
@@ -443,6 +455,33 @@ types are `packages/contracts/src/recordings.ts`.
 
 An id is 32 random hex digits (`crypto.randomBytes`) and is checked against that shape before any path is built from it:
 anything else is a `404` and no file is touched.
+
+### Search
+
+`GET /app/api/v1/recordings/search` finds words in the transcripts and in the titles, and answers where: for each hit the recording's
+own view, the segment's `startMs` and `endMs`, who said it (`speaker`), a `text` snippet and `ranges` into it, and a `rank`. The
+snippet is plain text, about 220 characters cut around the first match with an ellipsis where it was cut; `ranges` are `[start, end)`
+offsets in UTF-16 code units of that text (words of a phrase are one range), so the page marks them as elements and nothing a
+transcript says can be read as markup. A title hit has no time and no speaker. Title hits come first, then segments, best match
+first; `rank` is SQLite's bm25 (lower is better) and only compares hits of the same kind. The answer also says `total` (every hit
+the query has, not only this page) and `recordings` (in how many).
+
+| Parameter | Meaning |
+| --- | --- |
+| `q` | Required. Words, all of which must match, and any of their forms (`upgrading` finds `upgrade`: SQLite's Porter stemmer, accents and case ignored); `"in quotes"` is a phrase; the **last** word also matches by prefix (`stag` finds `staging`) unless the text ends in a space or a quote. Operators and punctuation have no meaning: every word is quoted before it reaches SQLite. At most 200 characters. An empty query, or one with no word or number in it, is `400` with a sentence that says so. |
+| `limit` | 1 to 100, default 20. |
+| `offset` | 0 or more, default 0. |
+| `speaker` | Keep only segments by this exact label (`You`, `Speaker 2`); title hits are then left out. |
+| `from`, `to` | Keep recordings that started in this range: an ISO time, or a date alone (UTC; for `to` the whole day counts). |
+
+**The index** is `<data dir>/recordings/index.db` (mode 0600), SQLite through `node:sqlite` (the same module the chat database uses)
+with FTS5, which the Node 22 builds this image uses have compiled in (checked: SQLite 3.50.2 on Node 22.22.2, `ENABLE_FTS5`). It is a
+copy, never the truth: the transcripts (`transcript.json`) and the titles (`meta.json`) are. A transcript is indexed when it finishes,
+a title when it is set, and a recording's rows are taken out when it is deleted, swept for retention or transcribed again. At every
+start the host compares the index with the recordings: rows of recordings that are gone leave, a transcript whose file changed (its
+modification time or size) or that was never indexed is indexed again, and a missing, older (`PRAGMA user_version`) or unreadable
+`index.db` is made again from the recordings. A host whose SQLite has no FTS5, or that cannot open the file, runs without search: `GET
+/search` is `503` with the reason, and recording, playing, renaming and deleting are not affected. There is no variable to set for it.
 
 ### Transcription
 

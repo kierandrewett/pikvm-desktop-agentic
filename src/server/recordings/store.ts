@@ -55,6 +55,8 @@ interface Meta {
     endedAt: number | null;
     durationMs: number | null;
     target: string | null;
+    /** The name the person gave it (null: the default). */
+    title: string | null;
     error: string | null;
     speakers: number | null;
 }
@@ -179,6 +181,7 @@ export class RecordingStore {
                 endedAt: num(m["endedAt"]),
                 durationMs: num(m["durationMs"]),
                 target: str(m["target"]),
+                title: str(m["title"]),
                 error: str(m["error"]),
                 speakers: num(m["speakers"]),
             };
@@ -241,6 +244,7 @@ export class RecordingStore {
             startedAt: meta.startedAt,
             durationMs: meta.durationMs,
             bytes: entry.bytes,
+            title: meta.title,
             target: meta.target,
             expiresAt: this.expiresAt(meta),
             error: meta.error,
@@ -251,6 +255,11 @@ export class RecordingStore {
 
     view(id: string): RecordingView {
         return this.viewOf(this.entry(id));
+    }
+
+    /** Every recording's id. */
+    ids(): string[] {
+        return [...this.entries.keys()];
     }
 
     /** Newest first. */
@@ -293,6 +302,7 @@ export class RecordingStore {
             endedAt: null,
             durationMs: null,
             target: input.target,
+            title: null,
             error: null,
             speakers: null,
         };
@@ -396,8 +406,8 @@ export class RecordingStore {
         });
     }
 
-    /** Changes status, error, speakers or duration, on disk. */
-    update(id: string, patch: Partial<Pick<Meta, "status" | "error" | "speakers" | "durationMs">>): Promise<RecordingView> {
+    /** Changes status, error, speakers, duration or title, on disk. */
+    update(id: string, patch: Partial<Pick<Meta, "status" | "error" | "speakers" | "durationMs" | "title">>): Promise<RecordingView> {
         const entry = this.entry(id);
         return this.locked(entry, async () => {
             if (this.entries.get(id) !== entry) throw notFound();
@@ -434,6 +444,13 @@ export class RecordingStore {
             await rename(join(dir, "transcript.json.tmp"), join(dir, "transcript.json"));
             await writeFile(join(dir, "transcript.txt"), transcript.text + "\n", { mode: 0o600 });
         });
+    }
+
+    /** Changes when the transcript file does: its modification time and size, or "" when there is none. What the search index was built from. */
+    async transcriptSignature(id: string): Promise<string> {
+        this.entry(id);
+        const info = await stat(join(this.dirOf(id), "transcript.json")).catch(() => null);
+        return info ? `${Math.round(info.mtimeMs)}:${info.size}` : "";
     }
 
     /** The stored transcript's JSON text, or null. */

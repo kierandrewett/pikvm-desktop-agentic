@@ -1,5 +1,5 @@
 /**
- * The three destinations as panes that stay put.
+ * The four destinations as panes that stay put.
  *
  * Each pane is drawn once it has been visited (the KVM from the start, so its picture and link
  * are live before the user ever opens it) and is never unmounted afterwards: a tab change hides

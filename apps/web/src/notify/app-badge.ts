@@ -125,7 +125,7 @@ export interface BadgeController {
 }
 
 /** Which tab has seen which kind. */
-const SEES: Readonly<Record<TabId, BadgeKind | undefined>> = { kvm: "screen", chat: "chat", settings: undefined };
+const SEES: Readonly<Record<TabId, BadgeKind | undefined>> = { kvm: "screen", chat: "chat", recordings: undefined, settings: undefined };
 
 export function createBadgeController({ badge, visible, store }: BadgeControllerDeps): BadgeController {
     let current: TabId | undefined;

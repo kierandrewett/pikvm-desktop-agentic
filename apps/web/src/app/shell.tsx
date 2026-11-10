@@ -11,7 +11,7 @@
  * front. Settings also remembers the page that was open, so its tab returns there.
  *
  * In the desktop app the window is frameless, so the page is its titlebar. The KVM's toolbar is
- * that titlebar on the KVM; Chat and Settings get a slim one here. The window controls sit over
+ * that titlebar on the KVM; Chat, Recordings and Settings get a slim one here. The window controls sit over
  * the right end of either.
  */
 
@@ -26,6 +26,7 @@ import { useAppBadge } from "../notify/use-app-badge";
 import { usePresence } from "../notify/use-presence";
 import { currentTheme, subscribeTheme } from "../theme";
 import { ChatPane } from "./chat-pane";
+import { RecordingsPane } from "./recordings-pane";
 import { activeTab, NavTabs, type TabId } from "./nav";
 import { Pane } from "./panes";
 import { PipBubble } from "./pip";
@@ -100,6 +101,9 @@ export function Shell() {
                         </Pane>
                         <Pane id="chat" active={active === "chat"}>
                             {visited.has("chat") ? <ChatPane active={active === "chat"} /> : null}
+                        </Pane>
+                        <Pane id="recordings" active={active === "recordings"}>
+                            {visited.has("recordings") ? <RecordingsPane active={active === "recordings"} /> : null}
                         </Pane>
                         <Pane id="settings" active={onSettings}>
                             {visited.has("settings") ? <SettingsPane page={settingsPage} active={onSettings} /> : null}

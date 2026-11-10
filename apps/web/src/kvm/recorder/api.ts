@@ -9,6 +9,7 @@ import {
     RECORDING_HEADER,
     RECORDINGS_PATH,
     type RecordingMime,
+    type RecordingSearchResult,
     type RecordingView,
     type Transcript,
     type TranscriptionStatus,
@@ -136,6 +137,30 @@ export const mediaUrl = (id: string): string => `${idPath(id)}/media`;
 
 export async function listRecordings(signal?: AbortSignal): Promise<RecordingsList> {
     return (await call("GET", RECORDINGS_PATH, signal ? { signal } : {})) as RecordingsList;
+}
+
+export interface SearchRecordingsOptions {
+    readonly limit?: number;
+    readonly offset?: number;
+    readonly speaker?: string;
+    readonly from?: string;
+    readonly to?: string;
+    readonly signal?: AbortSignal;
+}
+
+/** Full text over transcripts and titles. The host judges the query (an empty one is a 400 with its own sentence). */
+export async function searchRecordings(query: string, options: SearchRecordingsOptions = {}): Promise<RecordingSearchResult> {
+    const params = new URLSearchParams({ q: query });
+    for (const key of ["limit", "offset", "speaker", "from", "to"] as const) {
+        const value = options[key];
+        if (value !== undefined) params.set(key, String(value));
+    }
+    return (await call("GET", `${RECORDINGS_PATH}/search?${params.toString()}`, options.signal ? { signal: options.signal } : {})) as RecordingSearchResult;
+}
+
+/** Renames; null (or empty text) goes back to the default name. */
+export async function renameRecording(id: string, title: string | null): Promise<RecordingView> {
+    return (await call("PATCH", idPath(id), { write: true, json: { title } })) as RecordingView;
 }
 
 export async function getRecording(id: string, signal?: AbortSignal): Promise<RecordingView> {

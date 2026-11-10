@@ -1,6 +1,6 @@
 # @pikvm/web
 
-The PiKVM app: the shell (navigation, layout), the KVM screen, Settings and the agent Chat (the
+The PiKVM app: the shell (navigation, layout), the KVM screen, the Recordings library (`src/recordings`), Settings and the agent Chat (the
 conversation pane from `@pikvm/chat-web`, rendered natively). Vite, React 19,
 Tailwind 4, TanStack Router and Query, Effect. Served by the host under `/app/`.
 
@@ -32,7 +32,7 @@ yarn workspace @pikvm/web test        # vitest + testing-library
 ```
 
 `base` is `/app/`, so the server serves `apps/web/dist` at `/app/` with `index.html` as the
-fallback for `/app/kvm`, `/app/chat` and `/app/settings/*`, and `/app/assets/*` as immutable.
+fallback for `/app/kvm`, `/app/chat`, `/app/recordings/*` and `/app/settings/*`, and `/app/assets/*` as immutable.
 
 ## Layout
 

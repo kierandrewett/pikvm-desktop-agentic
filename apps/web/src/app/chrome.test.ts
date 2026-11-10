@@ -92,7 +92,7 @@ describe("status bar", () => {
     });
 
     it("is worked out before first paint for the route it opens on, with the same colours as status-colour.ts", () => {
-        expect(html).toMatch(/\^\\\/app\\\/\(chat\|settings\)/);
+        expect(html).toMatch(/\^\\\/app\\\/\(chat\|settings\|recordings\)/);
         expect(html).toContain(`"${PAGE_COLOUR.light}"`);
         expect(html).toContain(`"${PAGE_COLOUR.dark}"`);
         expect(html).toContain(`"${KVM_COLOUR}"`);
