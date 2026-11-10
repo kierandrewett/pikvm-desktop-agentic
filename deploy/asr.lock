@@ -1,0 +1,79 @@
+{
+    "$comment": "The speech models and engine the session recordings are transcribed with (src/server/recordings/transcribe-worker.ts). Models are fetched at image build time by scripts/fetch-asr.mjs and checked against these hashes; the running image never fetches anything, and the transcriber opens no network connection. Every URL is a k2-fsa/sherpa-onnx release asset (an ONNX export of the original model). sherpa-onnx-node (Apache-2.0, onnxruntime inside) is the engine; the image installs exactly this version, and the platform package for its architecture, each checked by integrity.",
+    "sherpa": {
+        "package": "sherpa-onnx-node",
+        "version": "2.0.1",
+        "integrity": "sha512-1PSACfQgPXAD7ExwCv1QW09EXTjcNlpZKBqDY+jxSdIzlyOSq0M13SILBoUQUfeJqiTTXnqp6Ha9jjMUQ6efXg==",
+        "platforms": {
+            "x64": {
+                "package": "sherpa-onnx-linux-x64",
+                "integrity": "sha512-w5mRRrIvPvcNWac7rQ8AN/t/cwElPGoRpH+ceCRBV7XfjCIQ9Rcr3Ig/kXcJLNOxgK4bGmef+Y47lIWiesDODw=="
+            },
+            "arm64": {
+                "package": "sherpa-onnx-linux-arm64",
+                "integrity": "sha512-5CJvLjFYIg23oELCsT7l07fMLT3PdquZ3tqh7KZK3Pzi+c2YiPKRe1DDUxoNdtCaw3ZiS4aQSQPBblB9JStuDA=="
+            }
+        }
+    },
+    "models": [
+        {
+            "name": "NVIDIA Parakeet TDT 110M, English, int8 (speech recognition, transducer export)",
+            "licence": "CC-BY-4.0",
+            "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8.tar.bz2",
+            "sha256": "f628312e9fdf8686374cb01a69425c41732529d540860311f16f37cbc32cfe9b",
+            "archive": "tar.bz2",
+            "files": [
+                {
+                    "from": "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8/encoder.int8.onnx",
+                    "to": "parakeet-tdt-110m/encoder.int8.onnx",
+                    "sha256": "0f35509ddeb9b39002fb077d979a9fe74f06eb0bc4dd5c34f512f82e5111d657"
+                },
+                {
+                    "from": "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8/decoder.int8.onnx",
+                    "to": "parakeet-tdt-110m/decoder.int8.onnx",
+                    "sha256": "f7c331c5504c2e593c76ed22b728e3f554af6c4a383dde862e719ced08b1da19"
+                },
+                {
+                    "from": "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8/joiner.int8.onnx",
+                    "to": "parakeet-tdt-110m/joiner.int8.onnx",
+                    "sha256": "bf7dff69e9f2cdbe9943d70da358f38b361c115ba0105bae7e908e0d6ec782f6"
+                },
+                {
+                    "from": "sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8/tokens.txt",
+                    "to": "parakeet-tdt-110m/tokens.txt",
+                    "sha256": "450e56bd2f036fe5b6aa821865838cc5aa9d8b0106134ce9a9ba0664abe6cd10"
+                }
+            ]
+        },
+        {
+            "name": "Silero VAD (speech segments)",
+            "licence": "MIT",
+            "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+            "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+            "archive": null,
+            "files": [{ "to": "silero_vad.onnx", "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6" }]
+        },
+        {
+            "name": "pyannote segmentation 3.0, int8 (who speaks when)",
+            "licence": "MIT",
+            "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+            "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488",
+            "archive": "tar.bz2",
+            "files": [
+                {
+                    "from": "sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx",
+                    "to": "pyannote-segmentation-3.0.int8.onnx",
+                    "sha256": "d582f4b4c6b48205de7e0643c57df0df5615a3c176189be3fc461e9d18827b5d"
+                }
+            ]
+        },
+        {
+            "name": "3D-Speaker ERes2Net, English VoxCeleb (speaker embeddings)",
+            "licence": "Apache-2.0",
+            "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
+            "sha256": "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5",
+            "archive": null,
+            "files": [{ "to": "3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx", "sha256": "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5" }]
+        }
+    ]
+}

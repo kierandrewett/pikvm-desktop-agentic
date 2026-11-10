@@ -64,6 +64,13 @@ function targets(over: { token?: string; appDir?: string } = {}): RouteTargets {
                 res.end(`watch ${req.method} ${path}`);
             },
         },
+        recordings: {
+            handles: (path: string) => path.startsWith("/app/api/v1/recordings"),
+            handle(req: IncomingMessage, res: ServerResponse, path: string): void {
+                res.writeHead(200, { "content-type": "text/plain", "x-target": "recordings" });
+                res.end(`recordings ${req.method} ${path}`);
+            },
+        },
         cursor: {
             handles: (path: string) => path === "/app/api/v1/cursor",
             handle(_req: IncomingMessage, res: ServerResponse): void {

@@ -21,6 +21,8 @@ await build({
         "web-server": resolve(root, "src/web-server.ts"),
         // The OCR the fast alerts read pop-ups with, in a process of its own (forked by src/server/watch/ocr-engine.ts).
         "ocr-worker": resolve(root, "src/server/watch/ocr-worker.ts"),
+        // The session recordings' transcriber, in a process of its own (started by src/server/recordings/transcriber.ts).
+        "transcribe-worker": resolve(root, "src/server/recordings/transcribe-worker.ts"),
         // The one preload: window.pikvmDesktop. A preload left off this list is
         // not built, Electron then fails to load it and the window keeps running
         // with the bridge missing, so the window controls quietly do nothing.
@@ -37,7 +39,7 @@ await build({
     // slimmed to a pure PiKVM client. Neither is a dependency or installed any
     // more, and nothing imports them; naming them here suggested a build that
     // still handled transcription and local OCR.
-    external: ["electron", "sharp", "onnxruntime-node", "opusscript"],
+    external: ["electron", "sharp", "onnxruntime-node", "opusscript", "sherpa-onnx-node"],
     sourcemap: true,
     logLevel: "info",
     // chat-server finds its migrations from import.meta.url only when run from source; the bundle is told where

@@ -9,7 +9,8 @@
     "./kvmd": "./src/kvmd.ts",
     "./api": "./src/api.ts",
     "./desktop": "./src/desktop.ts",
-    "./watch": "./src/watch.ts"
+    "./watch": "./src/watch.ts",
+    "./recordings": "./src/recordings.ts"
   },
   "dependencies": {
     "@effect/platform": "^0.97.2",

@@ -16,6 +16,7 @@
  *   /app/chat/ws (upgrade)     its socket: the gate, then a same-origin check
  *   /app/api/v1/agent/*        what the agent is doing (SSE), Stop, Hand back
  *   /app/api/v1/watch/*        the screen watch: its settings, push subscriptions, test and check log
+ *   /app/api/v1/recordings*    session recordings: the writes carry `x-pikvm-recording: 1` and a body of the type the route names
  *   /app/api/v1/cursor         where the target's pointer is, for every client (SSE)
  *   /app/api/v1/*              our HttpApi
  *   /app/, /app/kvm, /chat, /settings/*   the web app's index.html (the console at
@@ -33,6 +34,7 @@ import type { Duplex } from "node:stream";
 import { gate, loginPage, ROOT_ICON, sameOrigin, sessionValue, SESSION_COOKIE, tokenMatches } from "./auth";
 import type { SignedIn, WebAuth } from "./web-auth";
 import { MCP_PATH as MCP_ENDPOINT } from "./web-auth";
+import { RECORDING_HEADER } from "@pikvm/contracts/recordings";
 import { judgeModern, SUPPORTED_VERSIONS } from "./mcp-modern";
 
 /** The protocol versions the PiKVM MCP server speaks: the modern one (mcp-modern.ts) and the legacy ones (packages/pikvm-mcp SUPPORTED_PROTOCOLS). */
@@ -74,6 +76,11 @@ export interface RouteTargets {
     agent: AgentRoutes;
     /** The screen watch's settings and notification routes. */
     watch: {
+        handles(path: string): boolean;
+        handle(req: IncomingMessage, res: ServerResponse, path: string): void | Promise<void>;
+    };
+    /** Session recordings: record, store, play, transcribe and delete (src/server/recordings). */
+    recordings: {
         handles(path: string): boolean;
         handle(req: IncomingMessage, res: ServerResponse, path: string): void | Promise<void>;
     };
@@ -294,6 +301,21 @@ export function createRoutes(t: RouteTargets): Route[] {
                     return json(res, 415, { error: "Expected application/json" });
                 }
                 return t.watch.handle(req, res, path);
+            },
+        },
+
+        {
+            name: "session recordings",
+            match: ({ path }) => t.recordings.handles(path),
+            // Not the JSON rule of the routes around it: a chunk is bytes. A write carries `x-pikvm-recording: 1` instead, a custom
+            // header that forces a preflight this server never answers, and the recordings routes then check each body's type
+            // (octet-stream for a chunk, JSON for everything else).
+            run: ({ req, res, path, method }) => {
+                const mutating = method !== "GET" && method !== "HEAD";
+                if (mutating && req.headers[RECORDING_HEADER] !== "1") {
+                    return json(res, 403, { error: `Expected the ${RECORDING_HEADER}: 1 header` });
+                }
+                return t.recordings.handle(req, res, path);
             },
         },
 

@@ -41,6 +41,8 @@ import type { WebAuth } from "./web-auth";
 import { limitsFromEnv } from "./watch/limits";
 import { createWatchRoutes } from "./watch/routes";
 import { createWatchService } from "./watch/service";
+import { createRecordingRoutes } from "./recordings/routes";
+import { createRecordingService } from "./recordings/service";
 import { createPiKvmProxy } from "./proxy/kvmd";
 import { createCursorHub } from "./cursor/hub";
 import { createCursorRoutes } from "./cursor/routes";
@@ -210,6 +212,10 @@ export function startControlServer(
         }
     });
 
+    // Session recordings: stored under <data dir>/recordings, transcribed by a low-priority worker process.
+    const recordings = createRecordingService({ dataDir: settings.dir() });
+    const recordingRoutes = createRecordingRoutes(recordings);
+    void recordings.start().catch((error: unknown) => console.error("[recordings] could not start:", error));
 
     const api = createApi({
         control,
@@ -232,6 +238,7 @@ export function startControlServer(
         cursor: cursorRoutes,
         live,
         watch: watchRoutes,
+        recordings: recordingRoutes,
         ...(deps.webAuth ? { webAuth: deps.webAuth } : {}),
         api,
         ...(serverSync ? { forward: serverSync.forwarder } : {}),
@@ -243,6 +250,7 @@ export function startControlServer(
     server.on("upgrade", (req, socket, head) => router.onUpgrade(req, socket, head));
     server.on("close", () => {
         watch.stop();
+        void recordings.stop();
         jiggler.stop();
         cursor.dispose();
         void api.dispose();
@@ -256,6 +264,7 @@ export function startControlServer(
     return Object.assign(server, {
         async shutdown() {
             watch.stop();
+            await recordings.stop();
             jiggler.stop();
             cursor.dispose();
             server.closeAllConnections();

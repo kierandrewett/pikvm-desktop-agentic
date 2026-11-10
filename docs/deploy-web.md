@@ -30,14 +30,17 @@ make image                       # podman build --format docker -f deploy/Docker
 make image IMAGE_TOOL=docker     # or docker; IMAGE=name:tag renames the result
 ```
 
-Built from the repository root, in three stages:
+Built from the repository root, in four stages:
 
 1. **omp.** `scripts/fetch-omp.mjs` downloads the release asset for the image's architecture (`linux-x64` or
    `linux-arm64`, by `TARGETARCH`) and checks it against the sha256 in `deploy/omp.lock`. A mismatch fails the build.
 2. **build.** `yarn install --immutable`, `yarn build` and the web app's build.
-3. **runtime** (`node:22-bookworm-slim`). `tini`, `ca-certificates`, `sharp` (the build argument `SHARP_VERSION`,
+3. **speech models.** `scripts/fetch-asr.mjs` downloads the transcription models and checks each against the sha256 in
+   `deploy/asr.lock` (the session recordings' transcriber).
+4. **runtime** (`node:22-bookworm-slim`). `tini`, `ca-certificates`, `ffmpeg` (decodes the audio for transcription), `sharp` (the build argument `SHARP_VERSION`,
    for screenshot resize and crop; a native addon with a prebuilt binary, so the image is glibc and not alpine),
-   `dist/`, `apps/web/dist` and the binary at `/opt/omp/omp`.
+   `onnxruntime-node` and `sherpa-onnx-node` (each checked by npm integrity against `deploy/ocr.lock` and `deploy/asr.lock`),
+   `dist/`, `apps/web/dist`, the models and the binary at `/opt/omp/omp`.
 
 It runs as uid 10001, writes only `/data` and `/tmp`, needs no capability, and has a healthcheck on `/app/login`.
 The recommended posture is:
@@ -75,6 +78,7 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_WATCH_DAILY_CAP` | no | At most this many checks per watch in 24 hours (default `500`). |
 | `PIKVM_WATCH_READ_TIMEOUT_MS`, `PIKVM_WATCH_JUDGE_TIMEOUT_MS` | no | The hang guard of each of the chat model's two steps, in ms (default `120000` each): how long a model that has said nothing at all is waited for. A slow model is not cut off by it; only one that never answers. |
 | `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR that reads pop-ups: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
+| `PIKVM_RECORDINGS_RETENTION_DAYS`, `PIKVM_RECORDINGS_MAX_BYTES`, `PIKVM_RECORDINGS_MAX_RECORDING_BYTES`, `PIKVM_ASR_MODELS`, `PIKVM_ASR_WORKER`, `PIKVM_ASR_THREADS`, `PIKVM_ASR_SPEAKER_THRESHOLD` | no | Session recordings: how long they are kept (default 30 days, `0` keeps them), the disk limits (10 GiB in all, 2 GiB each), and the transcriber's models directory (image default `/opt/asr/models`), worker script, threads (default `2`) and diarization threshold (default `0.85`). See "Session recordings". |
 | `PIKVM_WATCH_LOG_TEXT` | no | `1` puts the OCR text of a pop-up in `checks.jsonl`, and the notification's title and body when they are the rules' own words. Never the chat model's words, with or without it. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
 | `PIKVM_PUSH_ALLOW_LOCAL` | no | `1` accepts push subscriptions on any address, loopback and plain http included. For tests and local runs only: left off, only the push services browsers use are accepted. |
@@ -90,6 +94,7 @@ The data volume holds, and is the only thing that needs backing up:
 | `chat/` | The chat database, per-conversation files, the agent's `HOME`, and provider keys entered in Settings (mode 0600, write-only from the browser). |
 | `push-vapid.json` | The server's Web Push key pair, made once on first use (mode 0600). **Back it up with the volume and never delete it**: a new pair orphans every device's subscription. |
 | `chat/users/<id>/watch/` | One user's screen watch (directory 0700, files 0600): `settings.json` (on or off, the rule, the corner; fields of older versions are ignored), `checks.jsonl` (one line per check, rotated at 512 KB to `checks.jsonl.1`) and `push-subscriptions.json` (the devices). Today there is one user, `operator`. |
+| `recordings/<id>/` | One session recording (directory 0700, files 0600): `recording.webm` or `.mp4`, `meta.json`, `transcript.json`, `transcript.txt`, and `work/` while a transcription runs. Deleted `PIKVM_RECORDINGS_RETENTION_DAYS` (30) days after the recording ended; see "Session recordings". |
 
 Model providers are set in the app: Settings, then Providers, then add a base URL and key. Sign-in with a provider
 account (the old Claude and Codex CLI flows) is not part of this image.
@@ -384,6 +389,153 @@ Models), and never as a picture. If that model is a chat model, the same questio
 
 To stop this, remove the Decisions model: every `watch_screen` is then refused. The wait reads text only, so it cannot answer a
 question about colour or layout.
+
+## Session recordings
+
+The app can record a KVM session (the target's screen, the target's audio and the person's own microphone) into **one small
+file** on this host, play it back, and turn it into a transcript that says who spoke. Nothing leaves the host: the audio is
+decoded and transcribed here, with models that are files in the image, by a process that opens no network connection.
+
+### The file, and why it is small
+
+| | |
+| --- | --- |
+| Container | WebM with **VP9** video (`video/webm`), or fragmented MP4 with **H.264** where the browser cannot do VP9 (Safari: `video/mp4`). The browser's `MediaRecorder` writes it; the host stores the bytes as uploaded and never remuxes them. |
+| Video | the target's screen, about **300 kbit/s** |
+| Audio | ONE stereo track, Opus (AAC in MP4), **48 kbit/s**. **Left = what the target played, right = the person's microphone.** |
+| Name | `<PIKVM_DATA_DIR>/recordings/<id>/recording.webm` (or `.mp4`), with `meta.json`, and `transcript.json` and `transcript.txt` once transcribed |
+
+**The channel trick.** A mixed recording would need a program to tell the person's voice from the target's, and from each
+other voice. Keeping the two sources on two channels does the first step for free: the right channel is always one person,
+"You", so it only needs speech recognition, and only the left channel is run through speaker diarization to be told apart
+into "Speaker 1", "Speaker 2" and so on.
+
+Size. At the ceiling (300 + 32 kbit/s) a recording takes about **2.5 MB a minute, 150 MB an hour**. A quiet desktop takes
+far less, because VP9 spends bits only on what moves. Measured here, on a synthetic 71 s session (a dark desktop, a grid, one
+small block crossing it, speech on both audio channels):
+
+| Encoder | Bytes | Per minute | All in |
+| --- | --- | --- | --- |
+| Chrome 154 `MediaRecorder`, 300 + 32 kbit/s, 10 s slices (what the app does) | 429,104 | **363 KB** | 48 kbit/s |
+| ffmpeg libvpx-vp9 `-b:v 300k` + libopus 32k, written live | 1,432,451 | 1.21 MB | 161 kbit/s |
+
+At the default 10 GiB total that is about 68 hours at the ceiling and several hundred hours of a quiet screen. The transcript of
+those 71 s is 4.8 KB.
+
+### The API
+
+All under `/app/api/v1/recordings`, behind the host's sign-in like every route; nothing is served without it, the media route
+included. Every write carries `x-pikvm-recording: 1` (a custom header forces a browser preflight this host never answers, which
+is what the JSON rule does for the other routes); a chunk is `application/octet-stream`, every other write is JSON. The wire
+types are `packages/contracts/src/recordings.ts`.
+
+| Request | Answer |
+| --- | --- |
+| `POST /` `{ mime, startedAt, target? }` | `201` the recording (`status: "recording"`). `507` when the disk limit is reached. |
+| `PUT /:id/chunks/:n` (bytes) | `{ received: n + 1 }`. Chunk `n` must be the next one: a repeat or a gap is `409 { received }` (what the host holds, so the browser sends from there). `413` over 8 MiB. Streamed to disk, never held whole. |
+| `POST /:id/finish` `{ durationMs, transcribe }` | The recording, `ready` (or `transcribing`, or `failed` when the file cannot be read as media). A second finish is `409`. |
+| `GET /` | `{ recordings, transcription: { available, reason, models } }` |
+| `GET /:id` | One recording: status, bytes, duration, `expiresAt`, `progress` (0 to 1 while transcribing), `speakers`. |
+| `GET /:id/media` | The file, with `Range` (`206`, `Accept-Ranges`, `416` out of range) for a `<video>` element. |
+| `GET /:id/transcript` | The transcript (`404` until `done`). |
+| `POST /:id/transcribe` | Start or restart the transcription. `503` with the reason when this host cannot. |
+| `DELETE /:id` | The recording, its transcript and its work files; a running transcription is stopped first. |
+
+An id is 32 random hex digits (`crypto.randomBytes`) and is checked against that shape before any path is built from it:
+anything else is a `404` and no file is touched.
+
+### Transcription
+
+One job at a time, in a process of its own (`dist/transcribe-worker.js`) started under `nice -n 19`, so it never competes with
+the page, with the memory handed back when it ends. ffmpeg decodes each channel to 16 kHz mono float
+(`pan=mono|c0=c0` for the target, `c0=c1` for the microphone). Then, with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+(CPU, onnxruntime inside, no Python, no GPU):
+
+- **both channels**: Silero VAD splits speech from silence, and NVIDIA Parakeet TDT 110M recognises each stretch with word
+  timestamps;
+- **target channel only**: pyannote segmentation 3.0 finds who speaks when, 3D-Speaker ERes2Net embeddings are clustered into
+  voices, and each word takes the voice it overlaps most (a run of one or two words between two runs of the same voice follows
+  its neighbours: that is the diarizer wavering, not a speaker);
+- the stretches of both channels are merged by time into `Transcript.segments`, so a turn where the person speaks over the target
+  stays two overlapping segments.
+
+A transcription is stopped after 4 times the audio's length plus a minute, when the recording is deleted, and when the host
+stops. It is refused for audio over 4 hours (the decoded channels are held in memory: 230 MB an hour each). The decoded audio
+goes to `recordings/<id>/work/` and is removed when the job ends. A transcription that was running when the host stopped is
+queued again at the next start.
+
+| Model | Size | Licence |
+| --- | --- | --- |
+| NVIDIA Parakeet TDT 110M, English, int8 (`sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8`) | 136 MB | CC-BY-4.0 (attribution: NVIDIA) |
+| Silero VAD | 0.6 MB | MIT |
+| pyannote segmentation 3.0, int8 | 1.5 MB | MIT |
+| 3D-Speaker ERes2Net, English VoxCeleb | 26 MB | Apache-2.0 |
+| sherpa-onnx-node 2.0.1 (addon and onnxruntime, 32 MB for linux-x64) | | Apache-2.0 |
+| ffmpeg (Debian's package, run as a separate process) | | LGPL and GPL parts, as Debian packages them |
+
+Every download is pinned by sha256 (models, `deploy/asr.lock`, fetched at image build time by `scripts/fetch-asr.mjs`) or by
+npm integrity (sherpa-onnx-node and its linux library, installed beside `onnxruntime-node` and `sharp`); the running image
+fetches nothing. Run `node scripts/fetch-asr.mjs --out <dir>` and set `PIKVM_ASR_MODELS=<dir>` to use them outside the image.
+
+Without ffmpeg, the models or `sherpa-onnx-node`, `GET /` says `transcription.available: false` with the reason, the page shows
+no Transcribe button, `POST /:id/transcribe` is `503`, and recording, storing, playing and deleting all still work.
+
+**Measured** (the E2E below, on this workstation: 16 threads, load average 13 to 16 from other work, the worker at `nice -n 19`):
+a 71 s recording with three voices was transcribed in **25.7 s** (0.36 times real time), the worker peaking at about 480 MB;
+inside the image (`--read-only --user 10001:10001 --cap-drop ALL --network none`) the same file took 15.2 s. Word error rate
+against the script: 4.1 % on the target channel, 35.3 % on the microphone channel (see the next paragraph). Both target voices kept
+one label through all of their turns (100 % and 100 %).
+
+**Audio bitrate.** The microphone voice that speaks while the target is loud is the weak spot: at 32 kbit/s stereo Opus the
+codec spends the bits on the louder channel and "I will upgrade the staging server this afternoon" came out as "Brade the
+stages". Measured with the same worker on the same audio re-encoded by ffmpeg: at 48 and 64 kbit/s the sentence is read
+whole. The recorder therefore uses 48 kbit/s (`AUDIO_BITS_PER_SECOND`), about 7 MB an hour more than 32. The size and time
+numbers above were measured at 32 kbit/s.
+
+Diarization is a heuristic. Voices are joined when their embeddings are closer than a threshold (`PIKVM_ASR_SPEAKER_THRESHOLD`,
+default 0.85; larger joins more voices into one speaker). On the E2E recording the range 0.8 to 0.9 found exactly the two target
+voices, and two real two-speaker recordings from sherpa-onnx's test set gave two speakers from 0.6 to 0.9. Voices that are very
+alike, or a speaker who is very quiet, can still be merged or split: do not read "Speaker 2" as an identity.
+
+### Disk, retention and the variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PIKVM_RECORDINGS_RETENTION_DAYS` | `30` | A recording is deleted this many days after it ended, with all its files. `0` keeps them for ever. Swept at host start and every hour; every view says `expiresAt`. |
+| `PIKVM_RECORDINGS_MAX_BYTES` | 10 GiB | All recordings together. A new recording is refused with `507` at this size; a chunk that would pass it closes that recording with the bytes the host holds (`507`). |
+| `PIKVM_RECORDINGS_MAX_RECORDING_BYTES` | 2 GiB | One recording: at this size it is closed with what it holds (`413`). |
+| `PIKVM_ASR_MODELS` | `/opt/asr/models` | The speech models' directory. |
+| `PIKVM_ASR_WORKER` | `transcribe-worker.js` beside the bundle | The worker script. |
+| `PIKVM_ASR_THREADS` | `2` | onnxruntime's threads in the worker. |
+| `PIKVM_ASR_SPEAKER_THRESHOLD` | `0.85` | The diarizer's clustering threshold. |
+
+A recording still `recording` when the host starts (it was killed, or the tab never finished) is closed to `ready` with the bytes
+it has, and so is one that has received no chunk for an hour; media that ffprobe cannot read is `failed` with the reason.
+
+### Privacy
+
+Recordings can hold passwords typed on the target and private talk, so they are kept 30 days by default, never leave the host,
+and are served only to a signed-in session. The transcriber has no network code: the E2E ran the image with `--network none`
+(its only interface `lo`) and transcribed a recording in it. `ORT_DISABLE_TELEMETRY=1` is set for the worker as for the OCR.
+The data volume holds the recordings: back it up (or not) accordingly.
+
+### What it costs in the image
+
+Measured by building the image with and without this feature (layer sizes, MiB): the image content grows from 654 to 1286 MiB,
+**+632 MiB**: ffmpeg and its dependencies from Debian **+442 MiB** (the apt step installs 203 packages, graphics and codec
+libraries among them), the speech models **+157 MiB** and sherpa-onnx **+31 MiB**. `docker images` reports 994 MB before
+and 1.97 GB after.
+
+### Verified how
+
+`~/.cache/pikvm-e2e/recordings/e2e.mjs` (run with `nice node e2e.mjs`): it bundles the real host, records a 71 s session with
+three synthetic voices (Piper `en_GB-vctk-medium`: two on the target channel taking turns, one on the microphone channel, with
+an overlap and silences) through a **real Chrome `MediaRecorder`** (the app's graph: a channel merger into a stereo destination,
+VP9 + Opus at 300 + 32 kbit/s, 10 s slices), starts the real host, and drives the routes: ordered upload, a repeated chunk and a
+gap (`409` with the count), Range, `416`, malformed and unknown ids (`404`, `strace -f` showing no file call outside the
+recordings directory), the per-recording and total quotas, the retention sweep, a restart with a recording left open, a real
+transcription with the real models, delete while transcribing (worker and ffmpeg gone, every file gone), host stop, and the
+host without models or ffmpeg. The image was then built and a recording transcribed in it.
 
 ## MCP server (any agent, outside the app)
 
