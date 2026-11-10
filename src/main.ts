@@ -398,8 +398,8 @@ async function createWindow() {
             });
     });
 
-    // Microphone and clipboard for the KVM; full screen and Keyboard Lock for the window
-    // controls. Everything else (camera, geolocation, notifications, ...) is refused.
+    // Microphone and camera ("media" covers both) and clipboard for the KVM; full screen and Keyboard
+    // Lock for the window controls. Everything else (geolocation, notifications, ...) is refused.
     const allowedPermissions = new Set([
         "media",
         "clipboard-read",

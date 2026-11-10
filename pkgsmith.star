@@ -165,6 +165,9 @@ package(
             "--socket=wayland",
             "--socket=pulseaudio",
             "--device=dri",
+            # Webcams (/dev/video*) are only visible with --device=all; the console sends the browser camera
+            # to the target, and the sandbox would otherwise show "No camera".
+            "--device=all",
         ],
     },
     **common
