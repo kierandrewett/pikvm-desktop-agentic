@@ -343,8 +343,9 @@ class Capture implements CaptureHandle {
             let size: number;
             try {
                 size = (await stat(path)).size;
-            } catch {
-                continue;
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+                throw error;
             }
             if (size === 0) {
                 await rm(path, { force: true });
