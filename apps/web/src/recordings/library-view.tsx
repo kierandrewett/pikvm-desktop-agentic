@@ -14,7 +14,7 @@ import { Link } from "@tanstack/react-router";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mediaUrl } from "../kvm/recorder/api";
 import { useConfirm } from "../kvm/dialogs/shell";
-import { displayTitle, FILTERS, formatBytes, formatDuration, formatStarted, matchesFilter, type RecordingFilter, SORTS, sortRecordings } from "./format";
+import { displayTitle, FILTERS, formatDuration, formatStarted, matchesFilter, type RecordingFilter, SORTS, sizeText, sortRecordings } from "./format";
 import { MenuButton, type MenuItem } from "./menu";
 import { Expiry, Poster, Provenance, StatusPill } from "./parts";
 import { copyTranscript } from "./transcript-actions";
@@ -415,9 +415,9 @@ export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice,
                                     </Link>
                                     <div className="rl-titleblock">
                                         <Title recording={r} editing={editing === r.id} onStart={() => setEditing(r.id)} onDone={() => setEditing(null)} onSave={save(r.id)} />
-                                        <span className="rl-sub">{[r.target, formatBytes(r.bytes)].filter(Boolean).join(" \u00b7 ")}</span>
+                                        <span className="rl-sub">{[r.target, sizeText(r)].filter(Boolean).join(" \u00b7 ")}</span>
                                         <Provenance recording={r} />
-                                        <span className="rl-sub-card">{[formatStarted(r.startedAt), r.target, formatBytes(r.bytes)].filter(Boolean).join(" \u00b7 ")}</span>
+                                        <span className="rl-sub-card">{[formatStarted(r.startedAt), r.target, sizeText(r)].filter(Boolean).join(" \u00b7 ")}</span>
                                     </div>
                                 </div>
                                 <div className="rl-c-target" role="cell">
@@ -433,7 +433,7 @@ export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice,
                                     {formatDuration(r.durationMs)}
                                 </div>
                                 <div className="rl-c-size" role="cell">
-                                    {formatBytes(r.bytes)}
+                                    {sizeText(r)}
                                 </div>
                                 <div className="rl-c-exp" role="cell">
                                     <Expiry recording={r} />

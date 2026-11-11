@@ -18,7 +18,7 @@
  *   POST   /:id/stop               (no body)                                    -> RecordingView (status "finishing", or "ready")
  *   GET    /live                   -> RecordingLive; with `Accept: text/event-stream` a stream of them (see "Live state")
  *   WS     /:id/mic                the microphone's Opus frames (see "Microphone")
- *   GET    /?status=&sort=         -> { recordings: RecordingView[], transcription: TranscriptionStatus }
+ *   GET    /?status=&sort=         -> { recordings: RecordingView[], transcription: TranscriptionStatus, archive: RecordingArchiveSummary }
  *   GET    /search?q=&limit=&offset=&speaker=&from=&to=   -> RecordingSearchResult
  *   GET    /:id                    -> RecordingView
  *   PATCH  /:id                    JSON { title }                               -> RecordingView (rename)
@@ -81,13 +81,17 @@
  * nothing is served without it, the media route included.
  *
  * Retention and disk: recordings can hold passwords and private talk, so they do not stay for ever and they cannot fill
- * the disk. A recording is deleted RECORDING_RETENTION_DAYS after it ended unless the operator sets
- * `PIKVM_RECORDINGS_RETENTION_DAYS` (0 keeps them); the sweep runs at host start and every hour. What a recording takes is
+ * the disk. A recording's file is deleted RECORDING_RETENTION_DAYS after it ended unless the operator sets
+ * `PIKVM_RECORDINGS_RETENTION_DAYS` (0 keeps them). A finished recording keeps its transcript, title and search rows for
+ * `PIKVM_RECORDINGS_TRANSCRIPT_RETENTION_DAYS` (default 0: for ever); when that is set and shorter, the whole recording goes at its end.
+ * The sweep runs at host start and every hour. What a recording takes is
  * its raw segments waiting to be re-encoded plus its stored segments plus its file; a new recording is refused with 507 when the
  * total on disk would pass RECORDINGS_MAX_TOTAL_BYTES (`PIKVM_RECORDINGS_MAX_BYTES` overrides it). A recording in progress is
  * CLOSED CLEANLY (never stalled, and what it holds is kept) when it reaches the per-recording limit (`reason: "recording_cap"`),
  * when it would take the total past the quota (`reason: "quota"`), or when the raw backlog the re-encoder has not caught up with
- * passes its limit (`reason: "backlog_cap"`). Each view says when it will be deleted.
+ * passes its limit (`reason: "backlog_cap"`). Each view says when its file and the whole recording will be deleted. When an
+ * archive folder is set (`PIKVM_RECORDINGS_ARCHIVE_DIR`), a finished file is only deleted once its copy there is checked by size
+ * and SHA-256; the host never deletes an archive copy.
  */
 
 export const RECORDINGS_PATH = "/app/api/v1/recordings";
@@ -152,6 +156,24 @@ export interface RecordingHole {
 export const RECORDING_SORTS = ["newest", "oldest", "longest", "largest"] as const;
 export type RecordingSort = (typeof RECORDING_SORTS)[number];
 
+/** The copy of a recording's file in the archive folder: "pending" until it is checked, "copied" once its size and SHA-256 match, "failed" while it is retried. */
+export interface RecordingArchive {
+    state: "pending" | "copied" | "failed";
+    /** ISO time the copy was checked. */
+    copiedAt: string | null;
+    /** Why the last try failed, in a sentence; null otherwise. */
+    error: string | null;
+}
+
+/** The archive folder as the list shows it: whether it is set, whether it copies what the host already holds, and how many copies are in each state. */
+export interface RecordingArchiveSummary {
+    enabled: boolean;
+    backfill: boolean;
+    copied: number;
+    pending: number;
+    failed: number;
+}
+
 export interface RecordingView {
     id: string;
     status: RecordingStatus;
@@ -167,8 +189,14 @@ export interface RecordingView {
     title: string | null;
     /** What the person was looking at, for the list: the target's name or address. */
     target: string | null;
-    /** ISO time the host will delete this recording, or null when retention is off or it is still recording. */
+    /** ISO time the host will delete the whole recording (its file and its transcript), or null when it is kept or still recording. */
     expiresAt: string | null;
+    /** ISO time the host will delete the file, or null when it is kept, already gone, or still recording. */
+    mediaExpiresAt: string | null;
+    /** True once the host has deleted the file (under retention or to stay under the disk limit); the transcript stays. */
+    mediaRemoved: boolean;
+    /** The copy in the archive folder, or null when no archive covers this recording. */
+    archive: RecordingArchive | null;
     /** Set when status is "failed": the reason, in a sentence. Also set when the host closed the capture because of an error but kept what it had (`reason: "error"`). */
     error: string | null;
     /** 0..1 while status is "finishing" (the re-encode) or "transcribing", null when that is not known or the status is another. */

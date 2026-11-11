@@ -15,7 +15,7 @@ import { memo, type CSSProperties, useCallback, useEffect, useMemo, useRef, useS
 import { useConfirm } from "../kvm/dialogs/shell";
 import { getTranscript, mediaUrl } from "../kvm/recorder/api";
 import { findIn } from "./find";
-import { displayTitle, formatBytes, formatDuration, formatStarted } from "./format";
+import { displayTitle, formatBytes, formatDuration, formatStarted, sizeText } from "./format";
 import { RenameField } from "./library-view";
 import { MenuButton, type MenuItem } from "./menu";
 import { Expiry, Highlighted, Provenance, StatusPill } from "./parts";
@@ -333,7 +333,7 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
         { type: "separator" },
         {
             id: "download-video",
-            label: `Video file (${formatBytes(recording.bytes)})`,
+            label: recording.mediaRemoved ? "Video file (deleted)" : `Video file (${formatBytes(recording.bytes)})`,
             disabled: !playable,
             run: () => document.getElementById("rw-video-download")?.click(),
         },
@@ -371,7 +371,7 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
                     <p className="rw-meta">
                         <time dateTime={recording.startedAt}>{formatStarted(recording.startedAt)}</time>
                         <span>{formatDuration(recording.durationMs)}</span>
-                        <span>{formatBytes(recording.bytes)}</span>
+                        <span>{sizeText(recording)}</span>
                         {recording.target ? <span>{recording.target}</span> : null}
                         <StatusPill recording={recording} />
                         <Expiry recording={recording} />
@@ -439,6 +439,8 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
                                 ? "The host is recording this now. It can be played when it is stopped and finished."
                                 : recording.status === "finishing"
                                   ? `The host is shrinking what it captured into the file it keeps${recording.progress === null ? "" : ` (${Math.round(recording.progress * 100)}%)`}. It can be played when that is done.`
+                                : recording.mediaRemoved
+                                  ? "The video was deleted under the retention limit or to free disk space. The transcript is kept."
                                   : "Nothing was kept of this recording."}
                         </div>
                     )}

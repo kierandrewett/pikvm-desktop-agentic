@@ -8,6 +8,7 @@ import {
     RECORDING_SORTS,
     SEARCH_DEFAULT_LIMIT,
     SEARCH_MAX_LIMIT,
+    type RecordingArchiveSummary,
     type RecordingLive,
     type RecordingMime,
     type RecordingSearchResult,
@@ -19,6 +20,7 @@ import {
     type TranscriptionStatus,
     type YouTubeSettings,
 } from "@pikvm/contracts/recordings";
+import { archiveFromEnv, createArchive, type ArchiveSettings } from "./archive";
 import { ASR_MODEL_NAMES, DEFAULT_CLUSTER_THRESHOLD } from "./asr-models";
 import type { JanusTarget } from "./capture";
 import { createHostRecorder } from "./host-recorder";
@@ -50,6 +52,8 @@ export interface RecordingServiceOptions {
     clusterThreshold?: number;
     /** YouTube's upload: the fetch and the clock, for tests. Default: the global fetch and Date.now. */
     youtube?: Pick<YouTubeOptions, "fetch" | "now">;
+    /** Where the archive copies go and whether they cover the recordings the host already holds. Default: from the environment. */
+    archive?: ArchiveSettings;
     log?: (line: string) => void;
 }
 
@@ -60,7 +64,10 @@ export interface RecordingService {
     start(): Promise<void>;
     stop(): Promise<void>;
     /** `status` (a comma list) and `sort` are the query parameters of the same names, as text; both optional. */
-    list(query?: { status?: string | null; sort?: string | null }): Promise<{ recordings: RecordingView[]; transcription: TranscriptionStatus }>;
+    list(query?: {
+        status?: string | null;
+        sort?: string | null;
+    }): Promise<{ recordings: RecordingView[]; transcription: TranscriptionStatus; archive: RecordingArchiveSummary }>;
     /** Full-text search over transcripts and titles; `params` are the query parameters, as text. */
     search(params: URLSearchParams): RecordingSearchResult;
     /** Renames: `body` is `{ title }`. */
@@ -126,6 +133,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
     const limits = options.limits ?? limitsFromEnv();
     const store = new RecordingStore({ dataDir: options.dataDir, limits, log });
     const youtube = createYouTubeUploads({ dataDir: options.dataDir, store, log, ...options.youtube });
+    const archive = createArchive({ ...(options.archive ?? archiveFromEnv()), store, log });
 
     /** The recording with its YouTube upload state, and the warning the delete confirmation shows while it is not verified. */
     function withYouTube(view: RecordingView): RecordingView {
@@ -234,6 +242,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
     /** An older version's browser was uploading this recording when the host stopped: close it with what it holds. */
     async function closeUpload(id: string): Promise<void> {
         await store.update(id, { status: "ready", endedAt: Date.now() });
+        archive.consider(id);
         if ((await store.measureFile(id)) === 0) {
             await store.update(id, { status: "failed", error: "The recording is empty: the host received no data." });
             return;
@@ -251,6 +260,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
     /** A host recording's file exists: transcribe it when the start asked for that and this host can. */
     async function onReady(id: string): Promise<void> {
         youtube.consider(id);
+        archive.consider(id);
         if (!store.has(id) || !store.wantsTranscript(id) || store.bytesOf(id) === 0) return;
         if (!(await transcriber.status()).available) return;
         await store.update(id, { status: "transcribing" });
@@ -271,15 +281,43 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         transcriber.enqueue({ id, file: store.mediaPath(id), workDir: store.workDir(id), durationMs: store.durationMsOf(id) });
     }
 
+    /** A YouTube upload that has not ended still reads the file: the file is kept until the upload has ended. */
+    function uploadPending(id: string): boolean {
+        const state = youtube.stateOf(id)?.state;
+        return state === "pending" || state === "uploading" || state === "verifying";
+    }
+
+    /** Deletes a finished recording's file and keeps its transcript, once the archive allows it. */
+    async function releaseMedia(id: string, why: string): Promise<void> {
+        if (!store.has(id) || store.mediaRemoved(id) || uploadPending(id) || !(await archive.mayRemoveMedia(id))) return;
+        log(`[recordings] ${id} ${why}: its file is deleted and its transcript is kept`);
+        await store.removeMedia(id);
+    }
+
+    /** Under the disk limit, frees the files of finished recordings the archive holds a verified copy of, oldest first, until there is room. */
+    async function freeArchivedSpace(): Promise<void> {
+        if (!archive.enabled) return;
+        for (const id of store.mediaCandidates()) {
+            if (store.totalBytes() < limits.maxTotalBytes) return;
+            if (!store.has(id) || store.archiveOf(id)?.state !== "copied") continue;
+            await releaseMedia(id, "is in the archive and the disk limit needs its space");
+        }
+    }
+
     async function sweep(): Promise<void> {
-        for (const id of store.expired()) {
+        for (const id of store.expiredRecords()) {
             if (!store.has(id)) continue;
+            // The whole recording waits while the archive has not verified the copy of its file: the host is then the only other holder.
+            if (store.bytesOf(id) > 0 && !(await archive.mayRemoveMedia(id))) continue;
             log(`[recordings] ${id} passed its retention and is deleted`);
+            archive.cancel(id);
             await transcriber.cancel(id);
             youtube.cancel(id);
             await store.remove(id).catch((error: unknown) => logIgnoringGone(error, id));
             indexing(id, (db) => db.remove(id));
         }
+        for (const id of store.expiredMedia()) await releaseMedia(id, "passed its file retention");
+        await freeArchivedSpace();
     }
 
     async function boot(): Promise<void> {
@@ -307,6 +345,8 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         if (stopping) return;
         sweeper = setInterval(() => void sweep().catch((error: unknown) => log(`[recordings] sweep failed: ${String(error)}`)), SWEEP_EVERY_MS);
         sweeper.unref();
+        archive.start();
+        void archive.pump();
         log(`[recordings] ${store.views().length} recording(s), ${(store.totalBytes() / 1048576).toFixed(1)} MB; transcription ${status.available ? "available" : `unavailable: ${status.reason}`}`);
     }
 
@@ -327,6 +367,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             stopping = true;
             clearInterval(sweeper);
             await youtube.stop();
+            await archive.stop();
             // A recording in progress is closed cleanly first; its re-encode is finished at the next start.
             await recorder.shutdown();
             // Closed first and at once: a host that is stopping may exit before the transcriber has finished stopping, and an open
@@ -358,7 +399,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
                 };
                 recordings = [...recordings].sort(order[by]);
             }
-            return { recordings: recordings.map(withYouTube), transcription: await transcriber.status() };
+            return { recordings: recordings.map(withYouTube), transcription: await transcriber.status(), archive: archive.summary() };
         },
 
         search(params) {
@@ -392,7 +433,9 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         },
 
         async startRecording(body) {
-            const view = await recorder.start(recorder.parseStart(body));
+            const start = recorder.parseStart(body);
+            await freeArchivedSpace();
+            const view = await recorder.start(start);
             indexing(view.id, (db) => db.putTitle(view.id, Date.parse(view.startedAt), view.title));
             return view;
         },
@@ -411,6 +454,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             const status = store.status(id);
             if (status === "recording") throw new RecordingRefusal("This recording is still being recorded.", 409);
             if (status === "finishing") throw new RecordingRefusal("This recording is still being finished: its file is not made yet.", 409);
+            if (store.mediaRemoved(id)) throw new RecordingRefusal("This recording's file was deleted under retention; its transcript is kept.", 404);
             const path = store.mediaPath(id);
             const info = await stat(path).catch(() => null);
             if (!info) throw new RecordingRefusal("This recording has no file.", 404);
@@ -428,6 +472,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             if (status === "recording") throw new RecordingRefusal("This recording is still being recorded.", 409);
             if (status === "finishing") throw new RecordingRefusal("This recording is still being finished.", 409);
             if (status === "transcribing") return store.view(id);
+            if (store.mediaRemoved(id)) throw new RecordingRefusal("This recording's file was deleted, so it cannot be transcribed again.", 409);
             const available = await transcriber.status();
             if (!available.available) throw new RecordingRefusal(available.reason ?? "Transcription is not available on this host.", 503);
             if (store.bytesOf(id) === 0) throw new RecordingRefusal("This recording is empty.", 409);
@@ -444,6 +489,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             await recorder.release(id);
             await transcriber.cancel(id);
             youtube.cancel(id);
+            archive.cancel(id);
             await store.remove(id);
             indexing(id, (db) => db.remove(id));
         },

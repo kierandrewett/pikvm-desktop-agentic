@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
+    RecordingArchive,
     RecordingEndReason,
     RecordingHole,
     RecordingMime,
@@ -30,6 +31,8 @@ import type { RecordingLimits } from "./limits";
 export const ID_PATTERN = /^[0-9a-f]{32}$/;
 export const isRecordingId = (value: string): boolean => ID_PATTERN.test(value);
 
+const DAY_MS = 86_400_000;
+
 /** A refusal the route answers as `{ error, ...extra }` with this status. */
 export class RecordingRefusal extends Error {
     constructor(
@@ -43,6 +46,53 @@ export class RecordingRefusal extends Error {
 }
 
 const notFound = (): RecordingRefusal => new RecordingRefusal("There is no such recording.", 404);
+
+/** One file the archive holds for a recording, with what its copy was checked against. */
+export interface ArchiveFile {
+    bytes: number;
+    sha256: string;
+}
+
+/** A recording's copy in the archive: "pending" until it is verified, "failed" while it is retried. */
+export interface ArchiveMeta {
+    state: "pending" | "copied" | "failed";
+    /** By file name. A copy is only ever replaced when it is still the one this host made. */
+    files: Record<string, ArchiveFile>;
+    /** Milliseconds since the epoch: when the copy was verified. */
+    copiedAt: number | null;
+    attempts: number;
+    /** Milliseconds since the epoch: when the next try is due after a failure, or null. */
+    nextAt: number | null;
+    error: string | null;
+}
+
+/** The archive record read back from meta.json, or null when there is none or it is not one. */
+function readArchive(raw: unknown): ArchiveMeta | null {
+    if (typeof raw !== "object" || raw === null) return null;
+    const a = raw as Record<string, unknown>;
+    const state = a["state"];
+    if (state !== "pending" && state !== "copied" && state !== "failed") return null;
+    const files: Record<string, ArchiveFile> = {};
+    const rawFiles = typeof a["files"] === "object" && a["files"] !== null ? (a["files"] as Record<string, unknown>) : {};
+    for (const [name, value] of Object.entries(rawFiles)) {
+        const file = value as Record<string, unknown> | null;
+        if (file && typeof file["bytes"] === "number" && typeof file["sha256"] === "string") files[name] = { bytes: file["bytes"], sha256: file["sha256"] };
+    }
+    return {
+        state,
+        files,
+        copiedAt: typeof a["copiedAt"] === "number" ? a["copiedAt"] : null,
+        attempts: typeof a["attempts"] === "number" ? a["attempts"] : 0,
+        nextAt: typeof a["nextAt"] === "number" ? a["nextAt"] : null,
+        error: typeof a["error"] === "string" ? a["error"] : null,
+    };
+}
+
+/** The archive copy as the views show it. */
+function archiveView(meta: ArchiveMeta | null): RecordingArchive | null {
+    if (meta === null) return null;
+    return { state: meta.state, copiedAt: meta.copiedAt === null ? null : new Date(meta.copiedAt).toISOString(), error: meta.error };
+}
 
 interface Meta {
     id: string;
@@ -66,6 +116,10 @@ interface Meta {
     hasMic: boolean;
     /** Transcribe once the file exists. */
     transcribe: boolean;
+    /** When the host deleted the file (under retention, or to stay under the disk limit), in ms since the epoch; null while it is kept. The transcript stays. */
+    mediaRemovedAt: number | null;
+    /** The archive copy, or null when no archive covers this recording. */
+    archive: ArchiveMeta | null;
 }
 
 interface Entry {
@@ -107,7 +161,7 @@ export interface Loaded {
 }
 
 /** What `update` may change. */
-export type MetaPatch = Partial<Pick<Meta, "status" | "error" | "speakers" | "durationMs" | "title" | "reason" | "holes" | "hasMic" | "endedAt" | "target">>;
+export type MetaPatch = Partial<Pick<Meta, "status" | "error" | "speakers" | "durationMs" | "title" | "reason" | "holes" | "hasMic" | "endedAt" | "target" | "archive" | "mediaRemovedAt">>;
 
 const STATUSES: readonly unknown[] = ["recording", "finishing", "ready", "transcribing", "done", "failed"];
 const MIMES: readonly unknown[] = ["video/webm", "video/mp4"];
@@ -213,6 +267,8 @@ export class RecordingStore {
                 holes,
                 hasMic: m["hasMic"] === true,
                 transcribe: m["transcribe"] === true,
+                mediaRemovedAt: num(m["mediaRemovedAt"]),
+                archive: readArchive(m["archive"]),
             };
         } catch {
             return null;
@@ -273,9 +329,30 @@ export class RecordingStore {
         return total;
     }
 
+    /** The whole recording goes at its end's retention: a finished one keeps its transcript for the transcript's retention. */
     private expiresAt(meta: Meta): string | null {
-        if (this.limits.retentionDays <= 0 || meta.endedAt === null || meta.status === "recording" || meta.status === "finishing") return null;
-        return new Date(meta.endedAt + this.limits.retentionDays * 86_400_000).toISOString();
+        const due = this.dueAt(meta, this.recordDays(meta));
+        return due === null ? null : new Date(due).toISOString();
+    }
+
+    /** The file goes at the file's retention, or with the whole recording if that ends first; null once it is removed. */
+    private mediaExpiresAt(meta: Meta): string | null {
+        if (meta.mediaRemovedAt !== null) return null;
+        const fileDue = this.dueAt(meta, this.limits.retentionDays);
+        const recordDue = this.dueAt(meta, this.recordDays(meta));
+        const dues = [fileDue, recordDue].filter((due): due is number => due !== null);
+        return dues.length === 0 ? null : new Date(Math.min(...dues)).toISOString();
+    }
+
+    /** Days the whole recording is kept after it ended: a finished one keeps its transcript for the transcript's retention. */
+    private recordDays(meta: Meta): number {
+        return meta.status === "done" ? this.limits.transcriptRetentionDays : this.limits.retentionDays;
+    }
+
+    /** When `days` after the end falls, in ms since the epoch; null when it never does (kept for ever, or not ended yet). */
+    private dueAt(meta: Meta, days: number): number | null {
+        if (days <= 0 || meta.endedAt === null || meta.status === "recording" || meta.status === "finishing") return null;
+        return meta.endedAt + days * DAY_MS;
     }
 
     private viewOf(entry: Entry): RecordingView {
@@ -292,6 +369,9 @@ export class RecordingStore {
             title: meta.title,
             target: meta.target,
             expiresAt: this.expiresAt(meta),
+            mediaExpiresAt: this.mediaExpiresAt(meta),
+            mediaRemoved: meta.mediaRemovedAt !== null,
+            archive: archiveView(meta.archive),
             error: meta.error,
             progress: measured ? (entry.progress ?? (meta.status === "transcribing" ? 0 : null)) : null,
             speakers: meta.status === "done" ? meta.speakers : null,
@@ -315,14 +395,50 @@ export class RecordingStore {
         return [...this.entries.values()].sort((a, b) => b.meta.createdAt - a.meta.createdAt).map((e) => this.viewOf(e));
     }
 
-    /** Recordings past their retention, as of now. */
-    expired(): string[] {
-        const days = this.limits.retentionDays;
-        if (days <= 0) return [];
-        const now = this.now();
-        return [...this.entries.values()]
-            .filter((e) => e.meta.endedAt !== null && e.meta.status !== "recording" && e.meta.status !== "finishing" && now >= e.meta.endedAt + days * 86_400_000)
-            .map((e) => e.meta.id);
+    /** Recordings past their retention as a whole, oldest first. */
+    expiredRecords(): string[] {
+        return this.idsAt((meta) => this.dueAt(meta, this.recordDays(meta)), this.now());
+    }
+
+    /** Transcribed recordings whose file is past its retention and still here, oldest first. */
+    expiredMedia(): string[] {
+        const finished = (meta: Meta): number | null =>
+            meta.status === "done" && meta.mediaRemovedAt === null ? this.dueAt(meta, this.limits.retentionDays) : null;
+        return this.idsAt(finished, this.now());
+    }
+
+    /** Transcribed recordings whose file is still here, oldest first: what may be released to stay under the disk limit. */
+    mediaCandidates(): string[] {
+        return this.idsAt((meta) => (meta.status === "done" && meta.mediaRemovedAt === null ? meta.endedAt : null), Infinity);
+    }
+
+    private idsAt(at: (meta: Meta) => number | null, limit: number): string[] {
+        const due: Array<{ id: string; at: number }> = [];
+        for (const { meta } of this.entries.values()) {
+            const when = at(meta);
+            if (when !== null && when <= limit) due.push({ id: meta.id, at: when });
+        }
+        return due.sort((a, b) => a.at - b.at).map((d) => d.id);
+    }
+
+    archiveOf(id: string): ArchiveMeta | null {
+        return this.entry(id).meta.archive;
+    }
+
+    mediaRemoved(id: string): boolean {
+        return this.entry(id).meta.mediaRemovedAt !== null;
+    }
+
+    /** Deletes a finished recording's file and keeps the rest of it, its transcript included. */
+    removeMedia(id: string): Promise<void> {
+        const entry = this.entry(id);
+        return this.locked(entry, async () => {
+            if (this.entries.get(id) !== entry || entry.meta.mediaRemovedAt !== null) return;
+            await rm(this.mediaPath(id), { force: true, maxRetries: 3, retryDelay: 100 });
+            entry.bytes = 0;
+            entry.meta.mediaRemovedAt = this.now();
+            await this.writeMeta(entry.meta);
+        });
     }
 
     // -- changing -------------------------------------------------------------------------------------------------
@@ -355,6 +471,8 @@ export class RecordingStore {
             holes: [],
             hasMic: input.mic,
             transcribe: input.transcribe,
+            mediaRemovedAt: null,
+            archive: null,
         };
         await mkdir(join(this.root, id), { recursive: true, mode: 0o700 });
         await this.writeMeta(meta);

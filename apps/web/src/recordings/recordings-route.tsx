@@ -98,6 +98,11 @@ export function RecordingsRoute({ active }: { active: boolean }) {
                     Transcription is not available on this host{ready.transcription.reason ? `: ${ready.transcription.reason}` : "."} Recordings can still be played and deleted.
                 </p>
             ) : null}
+            {ready?.archive.enabled && ready.archive.failed > 0 ? (
+                <p className="rl-note is-bad" role="alert" data-testid="archive-note">
+                    {ready.archive.failed} {ready.archive.failed === 1 ? "recording is" : "recordings are"} not copied to the archive folder yet, so the host keeps their files. The copy is retried.
+                </p>
+            ) : null}
             <div className="rl-content">
                 {searching ? (
                     <SearchResults query={q} state={results.state} more={results.more} />

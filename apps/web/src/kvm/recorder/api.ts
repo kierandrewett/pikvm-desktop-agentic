@@ -9,6 +9,7 @@ import {
     RECORDING_HEADER,
     RECORDING_LIVE_PATH,
     RECORDINGS_PATH,
+    type RecordingArchiveSummary,
     type RecordingLive,
     type RecordingSearchResult,
     type RecordingView,
@@ -20,6 +21,7 @@ import {
 export interface RecordingsList {
     readonly recordings: ReadonlyArray<RecordingView>;
     readonly transcription: TranscriptionStatus;
+    readonly archive: RecordingArchiveSummary;
 }
 
 /** `status` is null when the host could not be reached at all. `recording` is set on a 409 (the recording in progress, or the one already stopped). */

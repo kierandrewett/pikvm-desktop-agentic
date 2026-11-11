@@ -31,6 +31,11 @@ export function formatBytes(bytes: number): string {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+/** The size column: the file's size, or "Video deleted" once the host has deleted the file (its bytes are then 0). */
+export function sizeText(recording: Pick<RecordingView, "bytes" | "mediaRemoved">): string {
+    return recording.mediaRemoved ? "Video deleted" : formatBytes(recording.bytes);
+}
+
 /** `Today, 14:32`, `Yesterday, 09:05`, `3 Nov, 14:32`, `3 Nov 2025`: when it started. */
 export function formatStarted(iso: string, now: number = Date.now()): string {
     const at = new Date(iso);
@@ -53,20 +58,33 @@ export function displayTitle(recording: Pick<RecordingView, "title" | "startedAt
 }
 
 export interface ExpiryView {
-    /** "Deleted in 12 days", "Deleted tomorrow", "Deleted today", or "Kept until you delete it". */
+    /** "Video deleted in 12 days", "Deleted tomorrow", "Deleted today", "Video deleted; transcript kept", or "Kept until you delete it". */
     readonly text: string;
     readonly soon: boolean;
 }
 
-/** Null while the recording is still being made or finished: it has no end, so nothing to count down. */
-export function expiryOf(recording: Pick<RecordingView, "status" | "expiresAt">, now: number = Date.now()): ExpiryView | null {
+/** Null while the recording is still being made or finished: it has no end, so nothing to count down. The nearer of the file's and the whole recording's deletion counts. */
+export function expiryOf(
+    recording: Pick<RecordingView, "status" | "expiresAt" | "mediaExpiresAt" | "mediaRemoved">,
+    now: number = Date.now(),
+): ExpiryView | null {
     if (recording.status === "recording" || recording.status === "finishing") return null;
-    if (recording.expiresAt === null) return { text: "Kept until you delete it", soon: false };
-    const left = Date.parse(recording.expiresAt) - now;
-    if (left <= 0) return { text: "Deleted today", soon: true };
+    const media = recording.mediaRemoved ? null : recording.mediaExpiresAt;
+    const whole = recording.expiresAt;
+    if (media === null && whole === null) {
+        return recording.mediaRemoved
+            ? { text: "Video deleted; transcript kept", soon: false }
+            : { text: "Kept until you delete it", soon: false };
+    }
+    const ends = [
+        ...(media === null ? [] : [{ at: media, prefix: "Video deleted" }]),
+        ...(whole === null ? [] : [{ at: whole, prefix: "Deleted" }]),
+    ];
+    const next = ends.reduce((a, b) => (Date.parse(b.at) < Date.parse(a.at) ? b : a));
+    const left = Date.parse(next.at) - now;
     const days = Math.ceil(left / DAY_MS);
-    const text = days <= 1 ? "Deleted tomorrow" : `Deleted in ${days} days`;
-    return { text: left < DAY_MS ? "Deleted today" : text, soon: days <= EXPIRING_DAYS };
+    const when = left < DAY_MS ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+    return { text: `${next.prefix} ${when}`, soon: days <= EXPIRING_DAYS };
 }
 
 export type PillTone = "neutral" | "busy" | "ok" | "bad" | "live";
@@ -176,7 +194,7 @@ export function matchesFilter(recording: RecordingView, filter: RecordingFilter,
         case "failed":
             return recording.status === "failed";
         case "expiring":
-            return expiryOf(recording, now)?.soon === true && recording.expiresAt !== null;
+            return expiryOf(recording, now)?.soon === true;
     }
 }
 

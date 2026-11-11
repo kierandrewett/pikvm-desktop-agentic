@@ -4,7 +4,7 @@
  * it is out of date; a first load that fails shows the error and not an empty list.
  */
 
-import type { RecordingView, TranscriptionStatus } from "@pikvm/contracts/recordings";
+import type { RecordingArchiveSummary, RecordingView, TranscriptionStatus } from "@pikvm/contracts/recordings";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { deleteRecording, listRecordings, RecordingsError, renameRecording, transcribeRecording } from "../kvm/recorder/api";
 import { forgetPoster } from "./poster";
@@ -20,6 +20,7 @@ export type LibraryState =
           readonly phase: "ready";
           readonly recordings: ReadonlyArray<RecordingView>;
           readonly transcription: TranscriptionStatus;
+          readonly archive: RecordingArchiveSummary;
           /** Why the list on screen may be out of date; null when it is fresh. */
           readonly stale: string | null;
       };
@@ -45,7 +46,13 @@ export function useLibrary(active: boolean): Library {
         try {
             const list = await listRecordings();
             if (!alive.current || asked !== changes.current) return;
-            setState({ phase: "ready", recordings: list.recordings, transcription: list.transcription, stale: null });
+            setState({
+                phase: "ready",
+                recordings: list.recordings,
+                transcription: list.transcription,
+                archive: list.archive,
+                stale: null,
+            });
         } catch (error) {
             if (!alive.current) return;
             setState((now) => (now.phase === "ready" ? { ...now, stale: errorText(error) } : { phase: "error", message: errorText(error) }));

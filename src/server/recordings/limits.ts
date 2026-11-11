@@ -6,8 +6,11 @@ export interface RecordingLimits {
     maxRecordingBytes: number;
     /** The most all recordings together may take: a new one is refused (507) at this size, and one in progress is closed when it would pass it. `PIKVM_RECORDINGS_MAX_BYTES`. */
     maxTotalBytes: number;
-    /** Days a recording is kept after it ended; 0 keeps them for ever. `PIKVM_RECORDINGS_RETENTION_DAYS`. */
+    /** Days a recording's file is kept after it ended; 0 keeps it for ever. `PIKVM_RECORDINGS_RETENTION_DAYS`. */
     retentionDays: number;
+    /** Days a finished recording keeps its transcript (and title, and search rows) after it ended; 0 keeps them for ever. When it
+     *  is shorter than `retentionDays` the whole recording goes at its end. `PIKVM_RECORDINGS_TRANSCRIPT_RETENTION_DAYS`, default 0 (for ever). */
+    transcriptRetentionDays: number;
     /** The longest audio the transcriber will take, in seconds: its decoded channels are held in memory (230 MB an hour each). */
     maxTranscribeSeconds: number;
 }
@@ -25,10 +28,12 @@ function number(env: NodeJS.ProcessEnv, name: string, fallback: number, accept: 
 }
 
 export function limitsFromEnv(env: NodeJS.ProcessEnv = process.env, log: (line: string) => void = (line) => console.warn(line)): RecordingLimits {
+    const retentionDays = number(env, "PIKVM_RECORDINGS_RETENTION_DAYS", RECORDING_RETENTION_DAYS, (v) => v >= 0, log);
     return {
         maxRecordingBytes: number(env, "PIKVM_RECORDINGS_MAX_RECORDING_BYTES", MAX_RECORDING_BYTES, (v) => Number.isInteger(v) && v > 0, log),
         maxTotalBytes: number(env, "PIKVM_RECORDINGS_MAX_BYTES", RECORDINGS_MAX_TOTAL_BYTES, (v) => Number.isInteger(v) && v > 0, log),
-        retentionDays: number(env, "PIKVM_RECORDINGS_RETENTION_DAYS", RECORDING_RETENTION_DAYS, (v) => v >= 0, log),
+        retentionDays,
+        transcriptRetentionDays: number(env, "PIKVM_RECORDINGS_TRANSCRIPT_RETENTION_DAYS", 0, (v) => v >= 0, log),
         maxTranscribeSeconds: MAX_TRANSCRIBE_SECONDS,
     };
 }
