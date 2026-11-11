@@ -230,7 +230,9 @@ async function main(job: Job): Promise<void> {
             try {
                 const wav = join(job.workDir, "target.wav");
                 writePcm16Wav(wav, samples, SAMPLE_RATE);
-                return await diarizeWithNemotron(job.nemotronDir, wav, join(job.workDir, "speakers.json"), job.threads, track);
+                // Measured at about 0.7 times real time on bsociety's CPU; four times the audio (two minutes at least) leaves room for load.
+                const timeoutMs = Math.max(120_000, (samples.length / SAMPLE_RATE) * 4000);
+                return await diarizeWithNemotron(job.nemotronDir, wav, join(job.workDir, "speakers.json"), job.threads, timeoutMs, track);
             } catch (error) {
                 const reason = error instanceof Error ? error.message : String(error);
                 send({ type: "note", message: `Nemotron diarizer unavailable, using sherpa: ${reason}` });

@@ -9,7 +9,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { NEMOTRON_MODEL_FILE, nemotronProblem, parseDiarizer, parseNemotronSpans, writePcm16Wav } from "../src/server/recordings/nemotron-diarizer";
+import { diarizeWithNemotron, NEMOTRON_MODEL_FILE, nemotronProblem, parseDiarizer, parseNemotronSpans, writePcm16Wav } from "../src/server/recordings/nemotron-diarizer";
 
 test("PIKVM_ASR_DIARIZER: unset, empty or sherpa keeps sherpa; nemotron opts in; anything else is refused", () => {
     assert.equal(parseDiarizer(undefined), "sherpa");
@@ -104,3 +104,56 @@ test("anything that does not fit the span shape is an error, so the worker falls
         assert.throws(() => parseNemotronSpans(json), message, name);
     }
 });
+
+function fakeEngine(script: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "nemotron-engine-"));
+    writeFileSync(join(dir, NEMOTRON_MODEL_FILE), "gguf");
+    mkdirSync(join(dir, "bin"));
+    writeFileSync(join(dir, "bin", "nemo-speech"), `#!/bin/sh\n${script}\n`);
+    chmodSync(join(dir, "bin", "nemo-speech"), 0o755);
+    return dir;
+}
+
+test("a hung engine is killed at the timeout and the run rejects, so the worker can fall back", async () => {
+    const dir = fakeEngine("exec sleep 30");
+    try {
+        let child: { pid?: number; killed: boolean } | undefined;
+        const started = Date.now();
+        await assert.rejects(diarizeWithNemotron(dir, join(dir, "in.wav"), join(dir, "out.json"), 1, 300, (c) => (child = c)), /did not finish within 0 s and was stopped|did not finish within \d+ s/);
+        assert.ok(Date.now() - started < 5_000, "the timeout, not the engine, ended the run");
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        assert.ok(child?.pid !== undefined && !processAlive(child.pid), "the engine process is gone");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("an engine that exits non-zero rejects with its last stderr line (a CPU without AVX2 dies this way)", async () => {
+    const dir = fakeEngine("echo 'Illegal instruction' >&2\nexit 132");
+    try {
+        await assert.rejects(diarizeWithNemotron(dir, join(dir, "in.wav"), join(dir, "out.json"), 1, 10_000, () => undefined), /The Nemotron engine failed: Illegal instruction/);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("an engine that exits cleanly with output that does not parse rejects", async () => {
+    // The engine writes its output to the -o file; this fake leaves a file that is not JSON there and exits 0.
+    const dir = fakeEngine("exit 0");
+    try {
+        const out = join(dir, "out.json");
+        writeFileSync(out, "not json");
+        await assert.rejects(diarizeWithNemotron(dir, join(dir, "in.wav"), out, 1, 10_000, () => undefined), /JSON|json|segments/);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+function processAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}

@@ -111,7 +111,7 @@ export function parseNemotronSpans(json: string): SpeakerSpan[] {
  * Diarizes one WAV with the engine and resolves its spans. `track` receives the engine's child process so the caller can kill it with
  * the worker. Rejects with the engine's last stderr line when it fails, and when its output does not parse.
  */
-export function diarizeWithNemotron(dir: string, wavFile: string, outFile: string, threads: number, track: (child: ChildProcess) => void): Promise<SpeakerSpan[]> {
+export function diarizeWithNemotron(dir: string, wavFile: string, outFile: string, threads: number, timeoutMs: number, track: (child: ChildProcess) => void): Promise<SpeakerSpan[]> {
     const problem = nemotronProblem(dir);
     if (problem !== null) return Promise.reject(new Error(problem));
     const args = ["diarize", wavFile, "--model", join(dir, NEMOTRON_MODEL_FILE), "--device", "cpu", "--format", "json", "--quiet", "-o", outFile, "--force"];
@@ -120,8 +120,17 @@ export function diarizeWithNemotron(dir: string, wavFile: string, outFile: strin
     let stderr = "";
     child.stderr.on("data", (chunk: Buffer) => (stderr = (stderr + chunk.toString()).slice(-2000)));
     const { promise, resolve, reject } = Promise.withResolvers<SpeakerSpan[]>();
-    child.on("error", (error) => reject(new Error(`The Nemotron engine could not start: ${error.message}`)));
+    // A hung or starved engine must not hold the transcription: kill it and let the worker fall back to sherpa.
+    const timer = setTimeout(() => {
+        reject(new Error(`The Nemotron engine did not finish within ${Math.round(timeoutMs / 1000)} s and was stopped.`));
+        child.kill("SIGKILL");
+    }, timeoutMs);
+    child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(new Error(`The Nemotron engine could not start: ${error.message}`));
+    });
     child.on("close", (code) => {
+        clearTimeout(timer);
         if (code !== 0) {
             reject(new Error(`The Nemotron engine failed: ${stderr.trim().split("\n").pop() ?? `exit ${code}`}`));
             return;
