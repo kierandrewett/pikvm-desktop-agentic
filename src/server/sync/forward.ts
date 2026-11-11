@@ -75,6 +75,14 @@ const PASSED = new Set([
     "range",
     "last-event-id",
     "user-agent",
+    // The recordings routes refuse a write without it (a cross-site form cannot set it). Without it a page that
+    // uses a server could never start, stop or delete a recording.
+    "x-pikvm-recording",
+    // The MCP endpoint (/app/mcp) refuses a modern-protocol request whose Mcp-* headers are missing or disagree with its body
+    // (-32020 "Header mismatch"), so an MCP client that uses this app's address needs them to reach the server.
+    "mcp-protocol-version",
+    "mcp-method",
+    "mcp-name",
 ]);
 
 /** Chat's own request headers (its CSRF marker, its tab id, its draft owner) belong to the page, so they go too. */

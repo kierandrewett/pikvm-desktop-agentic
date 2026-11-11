@@ -427,7 +427,7 @@ test("forwarder: only the bearer token leaves; the page's cookie and own authori
     try {
         await connect(local, fake.origin, "fake-tok");
         const res = await fetch(`${local.origin}/app/api/v1/macros`, {
-            headers: { cookie: "__agent_session=abc", authorization: "Bearer page-credential", origin: "https://page.example", accept: "application/json" },
+            headers: { cookie: "__agent_session=abc", authorization: "Bearer page-credential", origin: "https://page.example", accept: "application/json", "x-pikvm-recording": "1" },
         });
         assert.equal(res.status, 200);
         assert.equal(res.headers.get("set-cookie"), null);
@@ -437,6 +437,7 @@ test("forwarder: only the bearer token leaves; the page's cookie and own authori
         assert.equal(headers["cookie"], undefined);
         assert.equal(headers["origin"], fake.origin);
         assert.equal(headers["accept"], "application/json");
+        assert.equal(headers["x-pikvm-recording"], "1");
     } finally {
         await fake.close();
         await close();
