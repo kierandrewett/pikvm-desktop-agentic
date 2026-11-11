@@ -245,6 +245,11 @@ export class RecordingStore {
         return this.entry(id).meta.source;
     }
 
+    /** When the recording ended (the host's clock), or null while it is being made. */
+    endedAtOf(id: string): number | null {
+        return this.entry(id).meta.endedAt;
+    }
+
     bytesOf(id: string): number {
         return this.entry(id).bytes;
     }

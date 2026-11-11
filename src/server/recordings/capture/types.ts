@@ -64,7 +64,6 @@ export type CaptureEvent =
     | { type: "connected"; session: number; udpReceiveBufferBytes: number | null }
     | { type: "reconnecting"; session: number; reason: string; retryInMs: number }
     | { type: "keyframe"; atMs: number; requested: boolean }
-    | { type: "started"; atWall: number }
     | { type: "bytes"; rawBytes: number; storedBytes: number; backlogBytes: number; elapsedMs: number }
     | { type: "stats"; keyframes: number; duplicatesDropped: number; keyframeRequests: number; unsolicitedKeyframes: number; lostPackets: number; damagedKeyframes: number; micFramesOut: number; micSilenceFrames: number; micDroppedLate: number; srDriftVideoMs: number; srDriftAudioMs: number; hostClockReports: boolean }
     | { type: "segment"; index: number; startMs: number; endMs: number; rawBytes: number }

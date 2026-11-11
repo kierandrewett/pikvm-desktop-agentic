@@ -14,6 +14,7 @@ import {
     Robot,
     Link,
     CircleHalf,
+    FilmStrip,
     SpeakerHigh,
     User,
 } from "@pikvm/icons";
@@ -26,6 +27,7 @@ import { DisplayPage } from "./pages/display";
 import { KeyboardPage } from "./pages/keyboard";
 import { NotificationsPage } from "./pages/notifications";
 import { MacrosPage } from "./pages/macros";
+import { YouTubePage } from "./pages/youtube";
 import { audioDevicesSupported } from "./pages/audio-devices";
 import { AgentPage, ModelsPage, ProvidersPage } from "./chat-pages";
 
@@ -40,6 +42,7 @@ export type PageId =
     | "mcp"
     | "display"
     | "audio"
+    | "youtube"
     | "account"
     | "about";
 
@@ -92,6 +95,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<SettingsGroupDef> = [
                 component: AudioPage,
                 available: audioDevicesSupported,
             },
+            { id: "youtube", title: "YouTube", icon: FilmStrip, component: YouTubePage },
             // The Account page is added by the list itself when the host signs users in; see SettingsList.
             { id: "about", title: "About", icon: Info, component: AboutPage },
         ],

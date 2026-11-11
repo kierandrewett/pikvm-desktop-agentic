@@ -23,6 +23,11 @@ export interface RecordControlState {
     readonly micNote: string | null;
     /** This page is sending its microphone to the host now. */
     readonly feeding: boolean;
+    /**
+     * This page's clock when a start was clicked, until the host's live state shows the recording (or the start fails or stops). The button
+     * counts from it at once, so the person sees the recording begin while the microphone and the host are still being asked.
+     */
+    readonly pendingSince: number | null;
 }
 
 export interface RecordControlOptions {
@@ -94,7 +99,7 @@ export function endNotice(view: RecordingView, quiet: boolean): { text: string; 
 }
 
 export function createRecordControl(options: RecordControlOptions): RecordControl {
-    const store = createStore<RecordControlState>({ phase: "idle", error: null, micNote: null, feeding: false });
+    const store = createStore<RecordControlState>({ phase: "idle", error: null, micNote: null, feeding: false, pendingSince: null });
     const patch = (next: Partial<RecordControlState>): void => store.setState({ ...store.getState(), ...next });
     const notify = (text: string, error = false): void => options.notify?.({ text, error });
 
@@ -209,6 +214,8 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         // No state at all (the stream is down) says nothing about the recording: it is not "ended".
         if (!live) return;
         const recording = live.recording;
+        // The host has it now: its own clock takes over from this page's.
+        if (recording && store.getState().pendingSince !== null) patch({ pendingSince: null });
         if (recording) {
             following = recording.id;
             if (live.mic === "waiting" && !mic && !micBusy && readMarker() === recording.id && !resumed.has(recording.id) && store.getState().phase === "idle") void resumeMic(recording.id);
@@ -221,14 +228,20 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         }
     };
 
+    /** How long a started recording may take to show in the host's live state before this page stops counting on its own. */
+    const PENDING_LIMIT_MS = 15_000;
+
     const start = async (): Promise<void> => {
         const { phase } = store.getState();
         const running = options.feed.store.getState().live?.recording ?? null;
         if (phase !== "idle" || running) return;
-        patch({ phase: "starting", error: null });
+        // The clock starts with the click, before any await: the microphone and the host are waited on under a clock
+        // already running.
+        const since = Date.now();
+        patch({ phase: "starting", error: null, pendingSince: since });
         const fail = (message: string, lost = false): void => {
             errorIsLoss = lost;
-            patch({ phase: "idle", error: message });
+            patch({ phase: "idle", error: message, pendingSince: null });
             notify(message, true);
         };
 
@@ -250,13 +263,13 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
 
         let view: RecordingView;
         try {
-            view = await startRecording({ mic: stream !== null });
+            view = await startRecording({ mic: stream !== null, clickedAgoMs: Math.max(0, Date.now() - since) });
         } catch (error) {
             for (const track of stream?.getTracks() ?? []) track.stop();
             void context?.close().catch(() => undefined);
             // Another client got there first: the live stream shows it, and this page does not make a second one.
             if (error instanceof RecordingsError && error.status === 409 && error.recording?.status === "recording") {
-                patch({ phase: "idle" });
+                patch({ phase: "idle", pendingSince: null });
                 notify("A recording is already in progress; this page now follows it.");
                 return;
             }
@@ -265,7 +278,11 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         following = view.id;
         // This page is feeding this recording itself: it has nothing to take up again.
         resumed.add(view.id);
+        // The host has not shown the recording yet: the clock goes on from the click until its live state arrives.
         patch({ phase: "idle" });
+        setTimeout(() => {
+            if (store.getState().pendingSince === since) patch({ pendingSince: null });
+        }, PENDING_LIMIT_MS);
         if (stream && context) {
             writeMarker(view.id);
             await feedMic(view.id, stream, context);
@@ -279,6 +296,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         stoppedHere.add(id);
         try {
             await stopRecording(id);
+            patch({ pendingSince: null });
             stopMic();
             writeMarker(null);
             notify("Recording stopped. The host is finishing the file; it appears in Recordings.");

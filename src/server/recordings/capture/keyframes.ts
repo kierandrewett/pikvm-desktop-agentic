@@ -77,8 +77,8 @@ export interface GateOptions {
     dupWindowMs: number;
     /** After a loss in P frames, ask for a keyframe no more often than this. */
     lossRetryMs?: number;
-    /** Send the PLI. Fire and forget. */
-    request: () => void;
+    /** Send the PLI. Returns false when it could not go out (no media from the Pi yet): the gate then asks again on its next tick. */
+    request: () => boolean;
 }
 
 export interface GateStats {
@@ -261,8 +261,7 @@ export class KeyframeGate<P extends GatePacket> {
         } else if (this.#mode === "live") {
             const sinceAsk = now - this.#lastRequestAt;
             if (this.#lossPending && sinceAsk >= (this.#options.lossRetryMs ?? 1000)) {
-                this.#lossPending = false;
-                this.#send(now);
+                if (this.#send(now)) this.#lossPending = false;
             } else if (this.#options.intervalMs > 0) {
                 // Another viewer's request that produced a keyframe restarts the interval: `#lastKeyAt` is the newest keyframe of any origin.
                 if (now - this.#lastKeyAt >= this.#options.intervalMs && sinceAsk >= Math.min(this.#options.intervalMs, 2000)) this.#send(now);
@@ -270,10 +269,11 @@ export class KeyframeGate<P extends GatePacket> {
         }
     }
 
-    #send(now: number): void {
+    #send(now: number): boolean {
+        if (!this.#options.request()) return false;
         this.#lastRequestAt = now;
         this.#requestedSinceKey = true;
         this.stats.requests += 1;
-        this.#options.request();
+        return true;
     }
 }

@@ -4,7 +4,7 @@
  * recording another client started.
  */
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createStore, type Notify } from "@pikvm/kvm-engine";
 import { MIC_DEVICE_KEY, readDeviceChoice } from "../../settings/local-prefs";
 import { useStore } from "../use-store";
@@ -12,7 +12,13 @@ import { liveFeed, type LiveFeedState } from "./live";
 import { createRecordControl, type RecordControl, type RecordControlState } from "./recorder";
 
 const RecorderContext = createContext<RecordControl | null>(null);
-const FALLBACK_CONTROL = createStore<RecordControlState>({ phase: "idle", error: null, micNote: null, feeding: false });
+const FALLBACK_CONTROL = createStore<RecordControlState>({
+    phase: "idle",
+    error: null,
+    micNote: null,
+    feeding: false,
+    pendingSince: null,
+});
 const FALLBACK_FEED = createStore<LiveFeedState>({ live: null, receivedAt: 0, stale: false });
 
 export const RecorderProvider = RecorderContext.Provider;
@@ -32,8 +38,8 @@ export function useKvmRecorder(notify: Notify | undefined): RecordControl {
 export interface RecordUiState {
     readonly control: RecordControlState;
     readonly feed: LiveFeedState;
-    /** This page's clock, which moves while a recording runs. */
-    readonly now: number;
+    /** The time the recording, or the start being waited on, has run as the screen shows it. Null when nothing is running. */
+    readonly elapsedMs: number | null;
 }
 
 /** The control's state, the host's live state, and a clock that ticks twice a second only while a recording runs. */
@@ -41,15 +47,22 @@ export function useRecordUi(control: RecordControl | null): RecordUiState {
     const own = useStore(control?.store ?? FALLBACK_CONTROL);
     const feed = useStore(control?.feed.store ?? FALLBACK_FEED);
     const [now, setNow] = useState(() => Date.now());
-    // A recording whose host cannot be heard has a frozen clock: nothing to tick for.
-    const running = feed.live?.recording != null && !feed.stale;
+    // A recording whose host cannot be heard has a frozen clock: nothing to tick for. A start this page is waiting on has a clock from its click.
+    const running = (feed.live?.recording != null && !feed.stale) || own.pendingSince !== null;
     useEffect(() => {
         if (!running) return;
         setNow(Date.now());
         const timer = setInterval(() => setNow(Date.now()), 500);
         return () => clearInterval(timer);
     }, [running]);
-    return { control: own, feed, now };
+    let timed: number | null = null;
+    if (feed.live?.recording != null && !feed.stale) timed = feed.live.elapsedMs + Math.max(0, now - feed.receivedAt);
+    else if (own.pendingSince !== null && own.phase !== "stopping") timed = now - own.pendingSince;
+    // The clock never steps back. The host counts from the click too, but hears of it a moment later, so its figure can trail the one
+    // this page showed: the largest figure shown is kept until nothing is running.
+    const shown = useRef(0);
+    shown.current = timed === null ? 0 : Math.max(timed, shown.current);
+    return { control: own, feed, elapsedMs: timed === null ? null : shown.current };
 }
 
 
@@ -79,7 +92,7 @@ export function formatClock(ms: number): string {
 }
 
 export function recordButtonView(ui: RecordUiState): RecordButtonView {
-    const { control, feed, now } = ui;
+    const { control, feed } = ui;
     const live = feed.live;
     const recording = live?.recording != null;
     const busy = control.phase !== "idle";
@@ -100,7 +113,7 @@ export function recordButtonView(ui: RecordUiState): RecordButtonView {
         };
     }
     if (live && live.recording) {
-        const clock = formatClock(live.elapsedMs + Math.max(0, now - feed.receivedAt));
+        const clock = formatClock(ui.elapsedMs ?? 0);
         const reconnecting = live.connection === "reconnecting";
         const notes = [
             reconnecting ? `The host lost the PiKVM's stream${live.connectionNote ? ` (${live.connectionNote})` : ""} and is reconnecting; the recording has a gap until it returns.` : "",
@@ -116,6 +129,23 @@ export function recordButtonView(ui: RecordUiState): RecordButtonView {
             clock,
             label: `Stop recording (${clock})`,
             title: `Stop recording. ${clock} so far, recorded on the host.${notes.length > 0 ? ` ${notes.join(" ")}` : ""}`,
+            pip: clock,
+        };
+    }
+    if (control.pendingSince !== null && control.phase !== "stopping") {
+        // A start this page asked for, which the host has not shown yet: the clock counts from the click, so the person sees it begin at once.
+        const clock = formatClock(ui.elapsedMs ?? 0);
+        const starting = control.phase === "starting";
+        const label = starting ? `Starting the recording (${clock})` : `Recording (${clock})`;
+        return {
+            disabled: starting,
+            recording: true,
+            busy: starting,
+            warn: false,
+            stale: false,
+            clock,
+            label,
+            title: `${label}. The host has not confirmed the recording yet.`,
             pip: clock,
         };
     }

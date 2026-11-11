@@ -178,8 +178,13 @@ class Capture implements CaptureHandle {
                 intervalMs: this.#keyframeMs,
                 retryMs: 500,
                 dupWindowMs: 150,
+                // False until the watcher has media: the gate then retries on its next tick, not after `retryMs`.
                 request: () => {
-                    void this.#watcher?.requestKeyframe().catch(() => undefined);
+                    const watcher = this.#watcher;
+                    // Nothing is asked for before ffmpeg listens: a keyframe that goes nowhere is lost and the gate waits a whole GOP.
+                    if (!watcher?.live || !this.#ffmpeg) return false;
+                    void watcher.requestKeyframe().catch(() => undefined);
+                    return true;
                 },
             },
             (packet, at) => this.#forwardVideo(packet, at),
@@ -246,8 +251,10 @@ class Capture implements CaptureHandle {
         try {
             await ensureDirs(this.#workDir);
             installUdpReceiveBuffer(this.#options.udpReceiveBufferBytes ?? DEFAULT_UDP_RECEIVE_BUFFER_BYTES);
-            await this.#startFfmpeg();
+            // The Janus handshake (about a second) runs while ffmpeg starts; packets and keyframe requests wait for ffmpeg (see onVideoRtp).
+            const ffmpegUp = this.#startFfmpeg();
             this.#startWatcher();
+            await ffmpegUp;
             this.#timers.push(setInterval(() => this.#gate.tick(Date.now()), GATE_TICK_MS));
             this.#timers.push(setInterval(() => void this.#checkLimits(), LIMIT_POLL_MS));
         } catch (error) {
@@ -442,7 +449,7 @@ class Capture implements CaptureHandle {
                     if (retryInMs !== null) this.#emit({ type: "reconnecting", session, reason, retryInMs });
                 },
                 onVideoRtp: (packet, at, session) => {
-                    if (session === this.#session) this.#gate.push(packet, at);
+                    if (session === this.#session && this.#ffmpeg) this.#gate.push(packet, at);
                 },
                 onAudioRtp: (packet, at, session) => {
                     if (!this.#videoLive || session !== this.#session || !this.#ffmpeg) return;
@@ -483,7 +490,6 @@ class Capture implements CaptureHandle {
         if (this.#startedWall === null) {
             this.#startedWall = at;
             this.#manifest.startedAtWall = at;
-            this.#emit({ type: "started", atWall: at });
             if (this.#mic) {
                 this.#mic.start(at);
                 this.#manifest.hasMicTrack = true;

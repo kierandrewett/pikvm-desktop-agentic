@@ -14,8 +14,10 @@ import {
     type RecordingSort,
     type RecordingStatus,
     type RecordingView,
+    type RecordingYouTube,
     type Transcript,
     type TranscriptionStatus,
+    type YouTubeSettings,
 } from "@pikvm/contracts/recordings";
 import { ASR_MODEL_NAMES, DEFAULT_CLUSTER_THRESHOLD } from "./asr-models";
 import type { JanusTarget } from "./capture";
@@ -25,6 +27,7 @@ import { probeMedia } from "./media";
 import { buildMatch, indexedSegments, RecordingIndex } from "./search-index";
 import { RecordingRefusal, RecordingStore } from "./store";
 import { createTranscriber, type TranscribeResult, type Transcriber } from "./transcriber";
+import { createYouTubeUploads, type YouTubeOptions } from "./youtube";
 
 /**
  * Session recordings: the store (store.ts), the host's recorder (host-recorder.ts) and the transcriber (transcriber.ts) behind one
@@ -45,6 +48,8 @@ export interface RecordingServiceOptions {
     threads?: number;
     /** The diarizer's clustering threshold. Default `PIKVM_ASR_SPEAKER_THRESHOLD`, else DEFAULT_CLUSTER_THRESHOLD. */
     clusterThreshold?: number;
+    /** YouTube's upload: the fetch and the clock, for tests. Default: the global fetch and Date.now. */
+    youtube?: Pick<YouTubeOptions, "fetch" | "now">;
     log?: (line: string) => void;
 }
 
@@ -77,6 +82,17 @@ export interface RecordingService {
     transcribe(id: string): Promise<RecordingView>;
     remove(id: string): Promise<void>;
     sweep(): Promise<void>;
+    /** The YouTube upload settings. The client secret and the refresh token are never returned: only whether they are set. */
+    youtubeSettings(): YouTubeSettings;
+    /** `body` is any of `{ autoUpload?, privacy?, clientId?, clientSecret? }`. */
+    updateYouTube(body: unknown): Promise<YouTubeSettings>;
+    /** Starts the device sign-in; the code to type at Google is in the reply. */
+    connectYouTube(): Promise<YouTubeSettings>;
+    disconnectYouTube(): Promise<YouTubeSettings>;
+    /** Queues a recording for YouTube now: a first upload or a retry. */
+    uploadYouTube(id: string): Promise<RecordingYouTube>;
+    /** Queues every finished host recording that was never uploaded, oldest first. Refused unless YouTube is connected. */
+    backfillYouTube(): Promise<YouTubeSettings>;
 }
 
 const STATUSES: readonly RecordingStatus[] = ["recording", "finishing", "ready", "transcribing", "done", "failed"];
@@ -109,6 +125,18 @@ export function createRecordingService(options: RecordingServiceOptions): Record
     const log = options.log ?? ((line: string) => console.log(line));
     const limits = options.limits ?? limitsFromEnv();
     const store = new RecordingStore({ dataDir: options.dataDir, limits, log });
+    const youtube = createYouTubeUploads({ dataDir: options.dataDir, store, log, ...options.youtube });
+
+    /** The recording with its YouTube upload state, and the warning the delete confirmation shows while it is not verified. */
+    function withYouTube(view: RecordingView): RecordingView {
+        const state = youtube.stateOf(view.id);
+        const warning = youtube.unverifiedWarning(view.id);
+        return {
+            ...view,
+            ...(state === null ? {} : { youtube: state }),
+            ...(warning === null ? {} : { youtubeWarning: warning }),
+        };
+    }
     // Opened at start, once the recordings directory exists. Until then (and for a host that cannot open one) it is unavailable.
     let index: RecordingIndex | null = null;
     let sweeper: NodeJS.Timeout | undefined;
@@ -222,6 +250,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
 
     /** A host recording's file exists: transcribe it when the start asked for that and this host can. */
     async function onReady(id: string): Promise<void> {
+        youtube.consider(id);
         if (!store.has(id) || !store.wantsTranscript(id) || store.bytesOf(id) === 0) return;
         if (!(await transcriber.status()).available) return;
         await store.update(id, { status: "transcribing" });
@@ -247,6 +276,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             if (!store.has(id)) continue;
             log(`[recordings] ${id} passed its retention and is deleted`);
             await transcriber.cancel(id);
+            youtube.cancel(id);
             await store.remove(id).catch((error: unknown) => logIgnoringGone(error, id));
             indexing(id, (db) => db.remove(id));
         }
@@ -262,6 +292,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             await closeUpload(id);
         }
         for (const view of store.views()) if (view.status !== "transcribing") await store.clearWork(view.id);
+        await youtube.start();
         // Host recordings the last run left unfinished are finished in the background, from what their capture directories hold.
         recorder.recover([...loaded.capturing, ...loaded.finishing]);
         const status = await transcriber.status();
@@ -295,6 +326,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         async stop() {
             stopping = true;
             clearInterval(sweeper);
+            await youtube.stop();
             // A recording in progress is closed cleanly first; its re-encode is finished at the next start.
             await recorder.shutdown();
             // Closed first and at once: a host that is stopping may exit before the transcriber has finished stopping, and an open
@@ -326,7 +358,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
                 };
                 recordings = [...recordings].sort(order[by]);
             }
-            return { recordings, transcription: await transcriber.status() };
+            return { recordings: recordings.map(withYouTube), transcription: await transcriber.status() };
         },
 
         search(params) {
@@ -343,7 +375,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             const speaker = (params.get("speaker") ?? "").trim();
             if (speaker.length > 100) throw new RecordingRefusal("speaker is at most 100 characters.", 400);
             const page = index.search({ match, limit, offset, speaker: speaker === "" ? null : speaker, fromMs: searchTime(params.get("from"), "from"), toMs: searchTime(params.get("to"), "to") });
-            const hits = page.hits.flatMap((hit) => (store.has(hit.id) ? [{ recording: store.view(hit.id), kind: hit.kind, startMs: hit.startMs, endMs: hit.endMs, speaker: hit.speaker, text: hit.text, ranges: hit.ranges, rank: hit.rank }] : []));
+            const hits = page.hits.flatMap((hit) => (store.has(hit.id) ? [{ recording: withYouTube(store.view(hit.id)), kind: hit.kind, startMs: hit.startMs, endMs: hit.endMs, speaker: hit.speaker, text: hit.text, ranges: hit.ranges, rank: hit.rank }] : []));
             return { query, hits, total: page.total, recordings: page.recordings, offset, limit };
         },
 
@@ -373,7 +405,7 @@ export function createRecordingService(options: RecordingServiceOptions): Record
 
         attachMic: (req, socket, head, id) => recorder.attachMic(req, socket, head, id),
 
-        view: (id) => store.view(id),
+        view: (id) => withYouTube(store.view(id)),
 
         async media(id) {
             const status = store.status(id);
@@ -411,10 +443,17 @@ export function createRecordingService(options: RecordingServiceOptions): Record
             // A capture in progress (or one being re-encoded) is stopped and lets go of its files first.
             await recorder.release(id);
             await transcriber.cancel(id);
+            youtube.cancel(id);
             await store.remove(id);
             indexing(id, (db) => db.remove(id));
         },
 
         sweep,
+        youtubeSettings: () => youtube.settings(),
+        updateYouTube: (body) => youtube.update(body),
+        connectYouTube: () => youtube.connect(),
+        disconnectYouTube: () => youtube.disconnect(),
+        uploadYouTube: (id) => youtube.upload(id),
+        backfillYouTube: () => youtube.backfill(),
     };
 }

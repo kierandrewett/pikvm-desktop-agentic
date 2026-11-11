@@ -64,7 +64,10 @@ export function useLibrary(active: boolean): Library {
         if (active) void reload();
     }, [active, reload]);
 
-    const busy = active && state.phase === "ready" && state.recordings.some((r) => r.status === "transcribing" || r.status === "recording" || r.status === "finishing");
+    // A recording being made, transcribed or sent to YouTube is one the list should keep re-reading until it settles.
+    const settling = (r: RecordingView): boolean =>
+        r.status === "transcribing" || r.status === "recording" || r.status === "finishing" || r.youtube?.state === "uploading" || r.youtube?.state === "verifying";
+    const busy = active && state.phase === "ready" && state.recordings.some(settling);
     useEffect(() => {
         if (!busy) return;
         const timer = setInterval(() => void reload(), POLL_MS);

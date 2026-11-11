@@ -424,6 +424,8 @@ transcribed here, with models that are files in the image, by a process that ope
    view and in the live state.
 5. If the host stops or is killed, the recording is finished at the next start (see "After a restart").
 
+The clock starts at the click: the page sends how long ago the click was and the host counts from that moment, so it never steps back when the host confirms. The picture waits for the PiKVM's WebRTC handshake (about a second), which runs alongside ffmpeg's start, and a keyframe is asked for only once ffmpeg listens (K86).
+
 One recording is made at a time (`409` for a second start).
 
 ### The file, and why it is small
@@ -431,18 +433,18 @@ One recording is made at a time (`409` for a second start).
 | | |
 | --- | --- |
 | Container | MP4 (`video/mp4`) |
-| Video | H.264 (x264 `slow`, CRF 31, capped by a 180 kbit/s VBV ceiling), **720p at 10 frames a second**, a keyframe every 10 s |
-| Audio | **two tracks, named by their handler name**: `target` (what the target played: **stereo** AAC, 32 kbit/s at 24 kHz, because the Pi's audio is true stereo) and `mic` (the person's microphone: mono AAC, 24 kbit/s). A recording with no microphone has only `target`. |
-| Size | **about 1 to 2 MB a minute all in** (at most about 1.85 MB a minute whatever is on the screen). Measured: a 40 s recording of the fake Pi's text-on-screen picture with speech and a microphone took **0.99 MB, 1.51 MB a minute**. |
+| Video | H.264 (x264 `slow`, CRF 31, capped by a 150 kbit/s VBV ceiling), **720p at 10 frames a second**, a keyframe every 10 s |
+| Audio | **three tracks, named by their handler name**, in this order: `mix` (the target and the microphone summed, mono AAC at 24 kbit/s; it is track 0 whenever there is a microphone, so a player plays both voices), `target` (what the target played: mono AAC at 40 kbit/s, 48 kHz, folded from the Pi's true stereo) and `mic` (the person's microphone: mono AAC at 32 kbit/s). A recording with no microphone has only `target`. |
+| Size | **about 1 to 2 MB a minute all in** (at most about 1.9 MB a minute whatever is on the screen: the 150 kbit/s video ceiling, 96 kbit/s of audio, and the container). Measured before the `mix` track and the lower ceiling (not re-measured): a 40 s recording of the fake Pi's text-on-screen picture with speech and a microphone took **0.99 MB, 1.51 MB a minute**. |
 | Name | `<PIKVM_DATA_DIR>/recordings/<id>/<id>.mp4`, with `meta.json`, and `transcript.json` and `transcript.txt` once transcribed |
 | While it is made | `<PIKVM_DATA_DIR>/recordings/<id>/capture/{raw,stored,manifest.json}`: the work directory, **on the data volume**, on the same filesystem as the file |
 
 The work directory must be on a disk, not in RAM: the image's `/tmp` is a tmpfs, and 10 MB a minute of raw video there would be
 memory. That is why it is under the recording's own directory in `/data`.
 
-**What the transcriber reads.** ffmpeg decodes the `target` track (the two channels folded to one, `pan=mono|c0=0.5*c0+0.5*c1`)
-and the `mic` track (`c0`) to 16 kHz mono float. The microphone's words are the speaker **You**; the target's are told apart into
-**Speaker 1, 2, ...** by diarization. A recording an older version took from a browser (WebM or MP4 with ONE stereo track, the
+**What the transcriber reads.** ffmpeg decodes the `target` track to 16 kHz mono float (a host recording's target is already mono, so
+it is taken as is; a stereo one is folded `pan=mono|c0=0.5*c0+0.5*c1`) and the `mic` track (`c0`) to the same. It never reads the `mix`
+track. The microphone's words are the speaker **You**; the target's are told apart into **Speaker 1, 2, ...** by diarization. A recording an older version took from a browser (WebM or MP4 with ONE stereo track, the
 target on the left and the person on the right) is read the old way (`c0` and `c1`): the layout is chosen from the track names, so a
 host recording that has no microphone is not mistaken for one.
 
@@ -588,13 +590,7 @@ inside the image (`--read-only --user 10001:10001 --cap-drop ALL --network none`
 against the script: 4.1 % on the target channel, 35.3 % on the microphone channel (see the next paragraph). Both target voices kept
 one label through all of their turns (100 % and 100 %).
 
-**Stored audio.** What the transcriber reads is the stored AAC, not the Pi's Opus: 32 kbit/s stereo at 24 kHz for the target and
-24 kbit/s mono for the microphone (`STORED_SETTINGS` in `src/server/recordings/capture/transcode.ts`, chosen so the whole file stays
-under 2 MB a minute). It costs some words on a hard voice. Measured with this worker on the same 34 s of espeak speech (two voices): read
-from lossless FLAC, "The deployment pipeline failed on the staging cluster" and "certificate expire on Friday morning"; from AAC at
-32 kbit/s, "Employment pipeline failed on the failing cluster" and "certificate at Pyramon Friday morning"; from AAC at 64 kbit/s,
-one word different. The microphone, which is the person's own clear voice, read well at its 24 kbit/s in the E2E. If target accuracy
-matters more than 0.24 MB a minute, raise `audioKbps.target` there.
+**Stored audio.** What the transcriber reads is the stored AAC, not the Pi's Opus: mono 40 kbit/s at 48 kHz for the target (the Pi's stereo folded to one channel in the encode) and mono 32 kbit/s for the microphone (`STORED_SETTINGS` in `src/server/recordings/capture/transcode.ts`, chosen so the whole file stays under 2 MB a minute: 150 kbit/s video ceiling plus 96 kbit/s audio). It costs some words on a hard voice. The accuracy figures in this paragraph were measured before this change, on 32 kbit/s stereo for the target and 24 kbit/s for the microphone, with this worker on the same 34 s of espeak speech (two voices): read from lossless FLAC, "The deployment pipeline failed on the staging cluster" and "certificate expire on Friday morning"; from AAC at 32 kbit/s, "Employment pipeline failed on the failing cluster" and "certificate at Pyramon Friday morning"; from AAC at 64 kbit/s, one word different. The new rates have not been re-measured against that speech. If target accuracy matters more than the 0.3 MB a minute the target now takes, raise `audioKbps.target` there.
 
 Diarization is a heuristic. Voices are joined when their embeddings are closer than a threshold (`PIKVM_ASR_SPEAKER_THRESHOLD`,
 default 0.85; larger joins more voices into one speaker). On the E2E recording the range 0.8 to 0.9 found exactly the two target
@@ -643,6 +639,33 @@ stream with a microphone: the host's node process used **9 % of one core and 162
 The capture's own ffmpeg only copies packets into a file. The re-encode is `nice -n 19`, one at a time, and held while a
 transcription runs. The 2 GiB raw-backlog limit is what keeps a host that is too busy to re-encode from filling its disk.
 
+### YouTube upload
+
+Optional, off until you connect it. A finished host recording can go to the host owner's YouTube channel (YouTube Data API v3).
+In the settings, paste a Google OAuth client ID and secret of type **TVs and Limited Input devices**, then connect: the page shows
+a code to type at `google.com/device`. The sign-in asks only for the `youtube.upload` scope. Turn auto-upload on once connected
+(it refuses before then). While the app is in testing, the owner's Google account must be a test user.
+
+How an upload goes: one recording at a time, in a resumable session sent in 8 MiB chunks. Its progress is kept in the recording's
+directory (`youtube.json`), so a restart carries on from YouTube's own offset; a session Google no longer honours starts again from
+zero. A recording counts as uploaded only once YouTube reports the video `uploaded` or `processed`. `rejected`, `failed` and
+`deleted` are final and the reason is shown. Other failures (network, HTTP 429 and 5xx, and a 403 whose reason is
+`rateLimitExceeded` or `userRateLimitExceeded`) retry with a
+back-off from one minute, doubling, capped at six hours, and give up after ten attempts. A 403 whose reason says the day's
+allowance is used up (`quotaExceeded`, `dailyLimitExceeded`, `uploadLimitExceeded`) is not the recording's fault: the whole queue
+pauses, the recording stays queued untouched, and the settings say "Paused: daily YouTube quota used, resumes at <time>". The
+queue resumes by itself at the next midnight in America/Los_Angeles, when Google's allowance resets. Any other HTTP error from
+Google (a 403 with any other reason, such as `forbidden`) is final at once: the recording shows Google's message and "Upload to
+YouTube" retries it by hand. Visibility is the setting's (`private` by default).
+
+The settings and the sign-in are in `youtube-upload.json` in the data directory (mode 0600). The client secret and the refresh
+token are never returned or logged. Disconnecting revokes the sign-in at Google and turns auto-upload off. Deleting a recording
+that has no verified YouTube upload asks for confirmation and says so.
+
+Existing recordings are not uploaded by turning auto-upload on, unless **Also upload existing recordings when auto-upload is turned on** is on (off by default, so enabling never spends quota by surprise). Under **Existing recordings** in the settings, **Upload existing recordings** queues every finished host recording that is not on YouTube yet, oldest first; the button shows how many are eligible. Recordings still being captured or re-encoded, those with a verified upload, and those that failed (a failed one needs its own "Upload to YouTube") are left out. Asking again queues only what is still missing, so repeating it is harmless. The progress line reads "n of m uploaded, k waiting for quota", and the batch survives a restart.
+
+The quota is the limit. Google's default for uploads is **100 a day**: `videos.insert` has its own quota bucket, one unit per call, separate from the 10,000 units a day shared by the other calls (see Google's quota calculator at `developers.google.com/youtube/data/determine_quota_cost`). A backlog of 300 recordings therefore takes about three days. The queue does not skip the pause: when the day's allowance is used up, the backlog waits and resumes at the next midnight in America/Los_Angeles, as above. The real limit for the project is on the Quotas page of the Google Cloud console; a higher one is a quota extension request to Google, not a setting here.
+
 ### Privacy
 
 Recordings can hold passwords typed on the target and private talk, so they are kept 30 days by default, never leave the host,
@@ -666,8 +689,8 @@ the host logs). It bundles the real host and starts it in front of the host-capt
 real speech as its sound) and `tools/fake-kvmd` for the page, and drives it with a real Chromium 154 whose microphone is a file of
 speech (real `getUserMedia`, AudioWorklet, WebCodecs Opus encoder and WebSocket). Last run: 70 of 70 checks passed (305 s). It covers: an old browser recording
 that still plays, transcribes (You on the right channel, Speaker on the left) and is found by search; a click on Record with MJPEG as
-the picture, the microphone reaching the host as Opus frames, a second client that shows the recording live and stops it, the
-re-encode with its progress in the library, the stored file (H.264 720p, two audio tracks named `target` and `mic`, MB a minute), the
+the picture, the microphone reaching the host as Opus frames, a second client that shows the recording live and stops it,
+the re-encode with its progress in the library, the stored file (H.264 720p, audio tracks named `mix`, `target` and `mic`, the `mix` only with a microphone, MB a minute), the
 transcript with You and Speaker labels, the search and the player; a recording started from the API with no tab open; a second start
 (`409`); the PiKVM dropping in the middle (reconnecting, the gap in the file and the library); deleting a recording in progress;
 SIGTERM and SIGKILL in the middle of a recording and the recovery at the next start; `507` at the quota; and closing at the

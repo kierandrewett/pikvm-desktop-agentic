@@ -15,7 +15,7 @@ export type AudioRole = "target" | "mic";
  * Size budget. The stored recording must come to 1 to 2 MB per minute ALL IN: video plus every audio track plus container overhead.
  * The default settings below are the measured choice (see STORED_SETTINGS and the measurement notes in the E2E report):
  * 720p at 10 fps, x264 slow with a capped CRF so an active screen cannot exceed the video ceiling, a keyframe every 10 s, and AAC
- * at 32 kbit/s for the target and 24 kbit/s for the microphone. A CRF alone cannot promise a ceiling; `-maxrate`/`-bufsize` does.
+ * at 40 kbit/s for the target, 32 for the microphone and 24 for the mix of the two. A CRF alone cannot promise a ceiling; `-maxrate`/`-bufsize` does.
  */
 
 export interface StoredSettings {
@@ -32,6 +32,8 @@ export interface StoredSettings {
     keyframeSeconds: number;
     /** AAC rate per audio role, kbit/s. */
     audioKbps: Record<AudioRole, number>;
+    /** AAC rate of the mix of target and microphone (track 0 when both exist), kbit/s. */
+    mixKbps: number;
     /** Channels per audio role. */
     audioChannels: Record<AudioRole, number>;
     /** 48 kHz: at 24 or 16 kHz AAC lost the band the recogniser needs for consonants (see STORED_SETTINGS). */
@@ -42,8 +44,8 @@ export interface StoredSettings {
 
 /**
  * The numbers the measurements chose (report: "Stored-file settings"). Budget, all in, per minute:
- *   video <= 170 kbit/s (the VBV ceiling; x264 overshoots it by about 3 %) + audio 40 + 32 kbit/s + about 3 % container = at most 1.92 MB/min,
- *   whatever is on screen. The ceiling was 180 before the audio got 16 kbit/s more (that left 1.99 MB/min on the worst material, too tight).
+ *   video <= 150 kbit/s (the VBV ceiling; x264 overshoots it by about 3 %) + audio 24 (mix) + 40 (target) + 32 (mic) kbit/s = 246 kbit/s,
+ *   + about 3 % container: at most about 1.94 MB/min, whatever is on screen. The ceiling was 170 before the mix track was added.
  *   typical screens land at 1.1 to 1.2 MB/min because the CRF, not the ceiling, decides there.
  * `tune: null` on purpose: x264's stillimage tune lost 10 to 15 points of OCR word recovery on dense text at the same bitrate.
  *
@@ -57,12 +59,13 @@ export const STORED_SETTINGS: StoredSettings = {
     height: 720,
     fps: 10,
     crf: 31,
-    maxrateKbps: 170,
-    bufsizeKbit: 340,
+    maxrateKbps: 150,
+    bufsizeKbit: 300,
     preset: "slow",
     tune: null,
     keyframeSeconds: 10,
     audioKbps: { target: 40, mic: 32 },
+    mixKbps: 24,
     audioChannels: { target: 1, mic: 1 },
     audioSampleRate: 48_000,
     scaleFlags: "lanczos",
@@ -153,11 +156,41 @@ function probe(ffprobe: string, file: string): Promise<{ durationMs: number; aud
     return promise;
 }
 
+/**
+ * The audio of one stored encode as one filter graph. When there is a target and a microphone, the first output is their mix; then
+ * each role's own track follows, in the order given. Input track `i` is `0:a:i` (the order the raw file was written in).
+ */
+function audioGraph(s: StoredSettings, roles: AudioRole[]): { graph: string[]; outputs: { label: string; name: string; kbps: number }[] } {
+    // Holes (a reconnect) leave a jump in the audio clock: fill it with silence so audio and video stay the same length.
+    // A one-channel role is folded exactly as the transcriber folds a stereo target (`0.5*L + 0.5*R`), so it hears the same mono.
+    const chain = (role: AudioRole, index: number): string => {
+        const fold = s.audioChannels[role] === 1 ? "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+0.5*c1," : "";
+        return `[0:a:${index}]${fold}aresample=async=1000:first_pts=0`;
+    };
+    const target = roles.indexOf("target");
+    const mic = roles.indexOf("mic");
+    const mixed = target >= 0 && mic >= 0;
+    const graph: string[] = [];
+    const outputs: { label: string; name: string; kbps: number }[] = [];
+    if (mixed) {
+        // One branch feeds the mix, the other the role's own track. Summed, not normalised: amix's default scales each input by 1/N,
+        // which would halve the target whenever the microphone (its silence included) is present. The limiter catches a rare sum over full scale.
+        graph.push(`${chain("target", target)},asplit=2[target_mix][target]`);
+        graph.push(`${chain("mic", mic)},asplit=2[mic_mix][mic]`);
+        graph.push("[target_mix][mic_mix]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.97[mix]");
+        outputs.push({ label: "[mix]", name: "mix", kbps: s.mixKbps });
+    }
+    roles.forEach((role, i) => {
+        if (!mixed) graph.push(`${chain(role, i)}[${role}]`);
+        outputs.push({ label: `[${role}]`, name: role, kbps: s.audioKbps[role] });
+    });
+    return { graph, outputs };
+}
+
 /** The ffmpeg arguments of one stored encode. Exported so the measurements and the job use the same command. */
 export function storedArgs(settings: StoredSettings, input: string, output: string, roles: AudioRole[], extraInput: string[] = []): string[] {
     const s = settings;
     const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-progress", "pipe:1", "-nostats", ...extraInput, "-i", input, "-map", "0:v:0"];
-    for (let i = 0; i < roles.length; i += 1) args.push("-map", `0:a:${i}`);
     args.push("-vf", `fps=${s.fps},scale=-2:${s.height}:flags=${s.scaleFlags},format=yuv420p`);
     args.push("-c:v", "libx264", "-preset", s.preset);
     if (s.tune) args.push("-tune", s.tune);
@@ -171,17 +204,16 @@ export function storedArgs(settings: StoredSettings, input: string, output: stri
         "-sc_threshold", "0",
         "-threads", String(s.threads),
     );
-    if (roles.length > 0) {
+    const audio = audioGraph(s, roles);
+    if (audio.outputs.length > 0) {
+        args.push("-filter_complex", audio.graph.join(";"));
+        for (const out of audio.outputs) args.push("-map", out.label);
         args.push("-c:a", "aac", "-ar", String(s.audioSampleRate));
-        for (let i = 0; i < roles.length; i += 1) {
-            const role = roles[i]!;
-            // Holes (a reconnect) leave a jump in the audio clock: fill it with silence so audio and video stay the same length.
-            // A one-channel role is folded exactly as the transcriber folds a stereo target (`0.5*L + 0.5*R`), so it hears the same mono.
-            const fold = s.audioChannels[role] === 1 ? "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+0.5*c1," : "";
-            args.push(`-filter:a:${i}`, `${fold}aresample=async=1000:first_pts=0`, `-b:a:${i}`, `${s.audioKbps[role]}k`);
-            // MP4 keeps a track's name as its handler name; the transcriber selects by position (`0:a:0` target, `0:a:1` mic).
-            args.push(`-metadata:s:a:${i}`, `title=${role}`, `-metadata:s:a:${i}`, `handler_name=${role}`);
-        }
+        audio.outputs.forEach((out, i) => {
+            args.push(`-b:a:${i}`, `${out.kbps}k`);
+            // MP4 keeps a track's name as its handler name; the transcriber and the probe select by name. Track 0 is the mix when present.
+            args.push(`-metadata:s:a:${i}`, `title=${out.name}`, `-metadata:s:a:${i}`, `handler_name=${out.name}`);
+        });
     }
     args.push("-movflags", "+faststart", "-f", "mp4", output);
     return args;

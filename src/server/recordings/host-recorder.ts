@@ -71,11 +71,16 @@ export interface HostRecorderOptions {
     log: (line: string) => void;
 }
 
+/** The longest a click is counted from: a microphone prompt can hold a start up for a while. */
+const MAX_CLICK_AGO_MS = 600_000;
+
 export interface StartInput {
     target: string | null;
     title: string | null;
     mic: boolean;
     transcribe: boolean;
+    /** How long before the request the person clicked Record, in ms: the count starts from the click, not the first picture. */
+    clickedAgoMs: number;
 }
 
 export interface HostRecorder {
@@ -264,9 +269,6 @@ export function createHostRecorder(options: HostRecorderOptions): HostRecorder {
                 cap.connection = "live";
                 cap.note = null;
                 break;
-            case "started":
-                cap.startedWall = event.atWall;
-                break;
             case "bytes":
                 cap.rawBacklog = event.backlogBytes;
                 store.setBytes(cap.id, event.rawBytes + event.storedBytes, event.elapsedMs);
@@ -392,8 +394,13 @@ export function createHostRecorder(options: HostRecorderOptions): HostRecorder {
         if (title.length > MAX_TITLE_CHARS) throw new RecordingRefusal(`A title is at most ${MAX_TITLE_CHARS} characters.`, 400);
         const transcribe = input["transcribe"];
         if (transcribe !== undefined && typeof transcribe !== "boolean") throw new RecordingRefusal("transcribe must be true or false.", 400);
+        const clicked = input["clickedAgoMs"];
+        if (clicked !== undefined && clicked !== null && (typeof clicked !== "number" || !Number.isFinite(clicked) || clicked < 0)) {
+            throw new RecordingRefusal("clickedAgoMs must be zero or more milliseconds.", 400);
+        }
+        const clickedAgoMs = Math.min(typeof clicked === "number" ? clicked : 0, MAX_CLICK_AGO_MS);
         const name = text(target).trim().slice(0, 200);
-        return { target: name === "" ? null : name, title: title === "" ? null : title, mic: input["mic"], transcribe: transcribe ?? true };
+        return { target: name === "" ? null : name, title: title === "" ? null : title, mic: input["mic"], transcribe: transcribe ?? true, clickedAgoMs };
     }
 
     async function start(input: StartInput): Promise<RecordingView> {
@@ -419,6 +426,8 @@ export function createHostRecorder(options: HostRecorderOptions): HostRecorder {
             });
             const id = view.id;
             const cap = newCap(id, null, input.mic);
+            // The count starts from the click: the page has shown it running since then, and the first picture comes later.
+            cap.startedWall = Date.now() - input.clickedAgoMs;
             try {
                 const handle = startCapture({
                     target: janus,
