@@ -84,7 +84,7 @@ podman builds OCI images by default, and OCI has no `HEALTHCHECK`; `make image` 
 | `PIKVM_WATCH_DAILY_CAP` | no | At most this many checks per watch in 24 hours (default `500`). |
 | `PIKVM_WATCH_READ_TIMEOUT_MS`, `PIKVM_WATCH_JUDGE_TIMEOUT_MS` | no | The hang guard of each of the chat model's two steps, in ms (default `120000` each): how long a model that has said nothing at all is waited for. A slow model is not cut off by it; only one that never answers. |
 | `PIKVM_OCR_MODELS`, `PIKVM_OCR_WORKER`, `PIKVM_OCR_THREADS` | no | The OCR that reads pop-ups: the models directory (image default `/opt/ocr/models`), its worker script (default `ocr-worker.js` beside the bundle) and onnxruntime's threads in it (default `2`). |
-| `PIKVM_RECORDINGS_RETENTION_DAYS`, `PIKVM_RECORDINGS_MAX_BYTES`, `PIKVM_RECORDINGS_MAX_RECORDING_BYTES`, `PIKVM_RECORDINGS_MAX_RAW_BACKLOG_BYTES`, `PIKVM_RECORDINGS_KEYFRAME_SECONDS`, `PIKVM_RECORDINGS_SEGMENT_SECONDS`, `PIKVM_RECORDINGS_UDP_RCVBUF_BYTES`, `PIKVM_ASR_MODELS`, `PIKVM_ASR_WORKER`, `PIKVM_ASR_THREADS`, `PIKVM_ASR_SPEAKER_THRESHOLD` | no | Session recordings, made by the host: how long they are kept (default 30 days, `0` keeps them), the disk limits (10 GiB in all, 2 GiB each, 2 GiB of raw video waiting to be re-encoded), how often the host asks the PiKVM for a keyframe (30 s) and how long the raw segments are (300 s), the UDP receive buffer for the Pi's media (4 MiB), and the transcriber's models directory (image default `/opt/asr/models`), worker script, threads (default `2`) and diarization threshold (default `0.85`). See "Session recordings". |
+| `PIKVM_RECORDINGS_RETENTION_DAYS`, `PIKVM_RECORDINGS_MAX_BYTES`, `PIKVM_RECORDINGS_MAX_RECORDING_BYTES`, `PIKVM_RECORDINGS_MAX_RAW_BACKLOG_BYTES`, `PIKVM_RECORDINGS_KEYFRAME_SECONDS`, `PIKVM_RECORDINGS_SEGMENT_SECONDS`, `PIKVM_RECORDINGS_UDP_RCVBUF_BYTES`, `PIKVM_ASR_MODELS`, `PIKVM_ASR_WORKER`, `PIKVM_ASR_THREADS`, `PIKVM_ASR_SPEAKER_THRESHOLD`, `PIKVM_ASR_DIARIZER`, `PIKVM_NEMOTRON_DIR` | no | Session recordings, made by the host: how long they are kept (default 30 days, `0` keeps them), the disk limits (10 GiB in all, 2 GiB each, 2 GiB of raw video waiting to be re-encoded), how often the host asks the PiKVM for a keyframe (30 s) and how long the raw segments are (300 s), the UDP receive buffer for the Pi's media (4 MiB), and the transcriber's models directory (image default `/opt/asr/models`), worker script, threads (default `2`), diarization threshold (default `0.85`), speaker diarizer (default `sherpa`, or `nemotron`) and the Nemotron engine's directory (default `/opt/nemotron`). See "Session recordings". |
 | `PIKVM_RECORDINGS_TRANSCRIPT_RETENTION_DAYS`, `PIKVM_RECORDINGS_ARCHIVE_DIR`, `PIKVM_RECORDINGS_ARCHIVE_BACKFILL` | no | Session recordings kept longer or copied out. A finished recording keeps its transcript after its file is deleted for this many days (default `0`: for ever). An absolute folder (typically a share on another machine) gets a checked copy of each file, and only then may the host delete its own; `1` copies the recordings the host already holds, not only those made while the folder is set. See "Disk, retention and the variables". |
 | `PIKVM_WATCH_LOG_TEXT` | no | `1` puts the OCR text of a pop-up in `checks.jsonl`, and the notification's title and body when they are the rules' own words. Never the chat model's words, with or without it. Off by default: the log then says what kind of pop-up it was and how long it was, not what it said. |
 | `PIKVM_PUSH_SUBJECT` | no | The VAPID contact (`mailto:` or `https:`) for a push whose device did not report the address it was opened at. Normally unset: each device reports it. |
@@ -577,6 +577,8 @@ queued again at the next start.
 | pyannote segmentation 3.0, int8 | 1.5 MB | MIT |
 | 3D-Speaker ERes2Net, English VoxCeleb | 26 MB | Apache-2.0 |
 | sherpa-onnx-node 2.0.1 (addon and onnxruntime, 32 MB for linux-x64) | | Apache-2.0 |
+| NVIDIA NeMo-Speech.cpp 0.3.0, CPU engine (`nemo-speech`, `libggml` and `libllama`), used by the Nemotron diarizer | 9.6 MB tarball, 25 MB extracted | Apache-2.0 (its licence files are copied into the image) |
+| NVIDIA Nemotron-3-Diarization, q8_0 GGUF (`PIKVM_ASR_DIARIZER=nemotron` only) | 107 MB | OpenMDW-1.1 (the licence text is copied into the image) |
 | ffmpeg (Debian's package, run as a separate process) | | LGPL and GPL parts, as Debian packages them |
 
 Every download is pinned by sha256 (models, `deploy/asr.lock`, fetched at image build time by `scripts/fetch-asr.mjs`) or by
@@ -598,6 +600,12 @@ Diarization is a heuristic. Voices are joined when their embeddings are closer t
 default 0.85; larger joins more voices into one speaker). On the E2E recording the range 0.8 to 0.9 found exactly the two target
 voices, and two real two-speaker recordings from sherpa-onnx's test set gave two speakers from 0.6 to 0.9. Voices that are very
 alike, or a speaker who is very quiet, can still be merged or split: do not read "Speaker 2" as an identity.
+
+The speaker diarizer is sherpa's by default. `PIKVM_ASR_DIARIZER=nemotron` (opt-in) uses [NVIDIA Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) instead: NeMo-Speech.cpp's CPU engine (`nemo-speech`, `diarize --format json`, run as a separate process, Apache-2.0) and its q8_0 GGUF model (107 MB, OpenMDW-1.1). Both are pinned by sha256 in `deploy/nemotron.lock`, fetched at image build time by `scripts/fetch-nemotron.mjs` into `/opt/nemotron` (`PIKVM_NEMOTRON_DIR` overrides it), and the image copies both licence texts. The pinned amd64 engine uses AVX2 and FMA only (checked by disassembly: no AVX-512 or VNNI), so it runs on the Xeon E5-2680 v4 on bsociety.
+
+Only the speaker turns change: the words, the timestamps and the two-voice split are sherpa's. If the engine is missing, not executable, or fails for a recording, the job notes `Nemotron diarizer unavailable, using sherpa` and runs sherpa's diarizer instead, so a transcription never fails for want of it. `PIKVM_ASR_SPEAKER_THRESHOLD` does not apply to Nemotron.
+
+Measured on the speaker-labelled LibriSpeech fixtures (180 s, target channel), DER with a 0.25 s collar: Nemotron 3.6 to 5.5 % for 2 to 4 speakers, sherpa 14.0 to 29.3 %, and Nemotron's speaker counts were exact. On synthetic TTS fixtures Nemotron was **worse**: it returned one speaker for most of them (DER 60 to 83 %, against sherpa's 44 to 70 %). So it is not the default; choose it for recordings like the LibriSpeech ones, and check the speaker labels by ear. Speed: about 122 s locally and 133 s on bsociety (56 cores, 237 MB RSS) for 180 s of audio, against 23 to 40 s for sherpa.
 
 ### After a restart
 
@@ -635,6 +643,8 @@ backlog passes its limit because the re-encoder cannot keep up (`"backlog_cap"`)
 | `PIKVM_ASR_WORKER` | `transcribe-worker.js` beside the bundle | The worker script. |
 | `PIKVM_ASR_THREADS` | `2` | onnxruntime's threads in the worker. |
 | `PIKVM_ASR_SPEAKER_THRESHOLD` | `0.85` | The diarizer's clustering threshold. |
+| `PIKVM_ASR_DIARIZER` | `sherpa` | The speaker diarizer: `sherpa` (pyannote and ERes2Net) or `nemotron` (opt-in, see above). Any other value stops the host at start. |
+| `PIKVM_NEMOTRON_DIR` | `/opt/nemotron` | Where the Nemotron engine (`bin/nemo-speech`) and its model are installed. Used only when `PIKVM_ASR_DIARIZER=nemotron`. |
 
 ### What it costs the host
 

@@ -2,8 +2,9 @@
  * The transcriber's own process (built to dist/transcribe-worker.js, started by transcriber.ts under `nice`, one per job). It
  * reads the recording's two voices with ffmpeg, then:
  *
- *   target   Silero VAD splits it into speech segments; Parakeet recognises each; pyannote segmentation with
- *            WeSpeaker embeddings tells who spoke when; each word takes the speaker it overlaps most.
+ *   target   Silero VAD splits it into speech segments; Parakeet recognises each; a diarizer tells who spoke
+ *            when (Nemotron when the job asks for it, else pyannote segmentation with WeSpeaker embeddings);
+ *            each word takes the speaker it overlaps most.
  *   mic      the same VAD and recogniser; one speaker, "You".
  *
  * Where the two voices are depends on who made the file (`layoutOf`): a recording the host captured has an audio stream named
@@ -13,11 +14,12 @@
  * All through sherpa-onnx-node (CPU, onnxruntime inside). It opens no socket and makes no request; the models are files.
  *
  * Messages (JSON over the IPC channel):
- *   parent -> worker  { file, workDir, modelsDir, threads, maxSeconds }
+ *   parent -> worker  { file, workDir, modelsDir, threads, clusterThreshold, maxSeconds, diarizer, nemotronDir }
  *   worker -> parent  { type: "progress", value }          0..1, only ever up
  *                     { type: "decoded", durationSeconds } once the audio is decoded: the parent sets its time limit from it
  *                     { type: "done", durationMs, segments, speakers, text, tookSeconds }
  *                     { type: "error", message }
+ *                     { type: "note", message }          a fallback the operator should know about
  * When the parent goes away the worker stops, and its ffmpeg with it.
  */
 import { spawn, type ChildProcess } from "node:child_process";
@@ -26,6 +28,7 @@ import { join } from "node:path";
 import type { TranscriptSegment } from "@pikvm/contracts/recordings";
 import { asrModelPaths, type AsrModelPaths } from "./asr-models";
 import { probeMedia, type MediaFacts } from "./media";
+import { diarizeWithNemotron, writePcm16Wav, type Diarizer } from "./nemotron-diarizer";
 import { segmentsOf, smoothSpeakers, speakersOfWords, transcriptText, wordsOf, type RawSegment, type SpeakerSpan, type Word } from "./transcript";
 
 const SAMPLE_RATE = 16_000;
@@ -58,6 +61,8 @@ interface Job {
     threads: number;
     clusterThreshold: number;
     maxSeconds: number;
+    diarizer: Diarizer;
+    nemotronDir: string;
 }
 
 const send = (message: object, then?: () => void): void => void process.send?.(message, undefined, undefined, then);
@@ -72,6 +77,11 @@ const yieldToLoop = (): Promise<void> => new Promise((resolve) => setImmediate(r
 const running = new Set<ChildProcess>();
 const stopAll = (): void => {
     for (const child of running) child.kill("SIGKILL");
+};
+/** Keeps a child process in `running`, so the worker's exit kills it, until it closes. */
+const track = (child: ChildProcess): void => {
+    running.add(child);
+    child.once("close", () => running.delete(child));
 };
 process.on("exit", stopAll);
 // The host went away (or killed this process's parent): nothing is waiting for the answer.
@@ -214,10 +224,18 @@ async function main(job: Job): Promise<void> {
         return out;
     }
 
-    // Diarize the target channel first: one blocking call, the one stretch with no progress to report.
-    let spans: SpeakerSpan[] = [];
-    let target: Float32Array | null = loadSamples(targetFile);
-    if (targetLength >= SAMPLE_RATE) {
+    /** The target's speakers: the Nemotron engine when the job asks for it, else sherpa's pyannote pipeline. A failed engine run is noted and falls back. */
+    async function diarizeTarget(samples: Float32Array): Promise<SpeakerSpan[]> {
+        if (job.diarizer === "nemotron") {
+            try {
+                const wav = join(job.workDir, "target.wav");
+                writePcm16Wav(wav, samples, SAMPLE_RATE);
+                return await diarizeWithNemotron(job.nemotronDir, wav, join(job.workDir, "speakers.json"), job.threads, track);
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                send({ type: "note", message: `Nemotron diarizer unavailable, using sherpa: ${reason}` });
+            }
+        }
         const diarizer = new sherpa.OfflineSpeakerDiarization({
             segmentation: { pyannote: { model: models.segmentation }, numThreads: job.threads, provider: "cpu", debug: 0 },
             embedding: { model: models.embedding, numThreads: job.threads, provider: "cpu", debug: 0 },
@@ -225,8 +243,13 @@ async function main(job: Job): Promise<void> {
             minDurationOn: 0.3,
             minDurationOff: 0.5,
         });
-        spans = diarizer.process(target);
+        return diarizer.process(samples);
     }
+
+    // Diarize the target channel first: one blocking call, the one stretch with no progress to report.
+    let spans: SpeakerSpan[] = [];
+    let target: Float32Array | null = loadSamples(targetFile);
+    if (targetLength >= SAMPLE_RATE) spans = await diarizeTarget(target);
     send({ type: "progress", value: 0.15 });
 
     const asrEnd = hasMic ? 0.6 : 0.97;

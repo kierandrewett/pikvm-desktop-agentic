@@ -26,6 +26,7 @@ import type { JanusTarget } from "./capture";
 import { createHostRecorder } from "./host-recorder";
 import { limitsFromEnv, type RecordingLimits } from "./limits";
 import { probeMedia } from "./media";
+import { parseDiarizer, type Diarizer } from "./nemotron-diarizer";
 import { buildMatch, indexedSegments, RecordingIndex } from "./search-index";
 import { RecordingRefusal, RecordingStore } from "./store";
 import { createTranscriber, type TranscribeResult, type Transcriber } from "./transcriber";
@@ -50,6 +51,10 @@ export interface RecordingServiceOptions {
     threads?: number;
     /** The diarizer's clustering threshold. Default `PIKVM_ASR_SPEAKER_THRESHOLD`, else DEFAULT_CLUSTER_THRESHOLD. */
     clusterThreshold?: number;
+    /** The speaker diarizer. Default `PIKVM_ASR_DIARIZER` ("sherpa" or "nemotron"), else sherpa. */
+    diarizer?: Diarizer;
+    /** Where the Nemotron engine and model are installed. Default `PIKVM_NEMOTRON_DIR`, else /opt/nemotron. */
+    nemotronDir?: string;
     /** YouTube's upload: the fetch and the clock, for tests. Default: the global fetch and Date.now. */
     youtube?: Pick<YouTubeOptions, "fetch" | "now">;
     /** Where the archive copies go and whether they cover the recordings the host already holds. Default: from the environment. */
@@ -224,6 +229,8 @@ export function createRecordingService(options: RecordingServiceOptions): Record
         workerPath: options.workerPath ?? process.env["PIKVM_ASR_WORKER"] ?? join(__dirname, "transcribe-worker.js"),
         threads: options.threads ?? (Number(process.env["PIKVM_ASR_THREADS"]) || 2),
         clusterThreshold: options.clusterThreshold ?? (Number(process.env["PIKVM_ASR_SPEAKER_THRESHOLD"]) || DEFAULT_CLUSTER_THRESHOLD),
+        diarizer: options.diarizer ?? parseDiarizer(process.env["PIKVM_ASR_DIARIZER"]),
+        nemotronDir: options.nemotronDir ?? process.env["PIKVM_NEMOTRON_DIR"] ?? "/opt/nemotron",
         maxSeconds: limits.maxTranscribeSeconds,
         log,
         onProgress: (id, value) => {

@@ -48,6 +48,27 @@ RUN node scripts/fetch-asr.mjs --out /out/models \
     && test -s /out/models/parakeet-tdt-110m/encoder.int8.onnx && test -s /out/models/silero_vad.onnx \
     && test -s /out/models/pyannote-segmentation-3.0.int8.onnx && test -s /out/models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx
 
+# ── 1d. the Nemotron diarizer ────────────────────────────────────────────────────────────────
+# The opt-in speaker diarizer (src/server/recordings/nemotron-diarizer.ts, PIKVM_ASR_DIARIZER=nemotron): NeMo-Speech.cpp's CPU engine and
+# its q8_0 GGUF model. Fetched here, never at runtime, and checked against deploy/nemotron.lock's sha256s. The engine is Apache-2.0 and
+# the model OpenMDW-1.1; both licences are copied into the layout (share/licenses).
+FROM node:22-bookworm-slim AS nemotronbin
+ARG TARGETARCH
+WORKDIR /src
+COPY deploy/nemotron.lock deploy/nemotron.lock
+COPY deploy/licenses/OpenMDW-1.1.txt deploy/licenses/OpenMDW-1.1.txt
+COPY scripts/fetch-nemotron.mjs scripts/fetch-nemotron.mjs
+RUN set -eu; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+        amd64) target=linux-x64 ;; \
+        arm64) target=linux-arm64 ;; \
+        *) echo "no Nemotron engine for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    node scripts/fetch-nemotron.mjs --target "$target" --out /out/nemotron; \
+    test -x /out/nemotron/bin/nemo-speech && test -s /out/nemotron/Nemotron-3-Diarization.q8_0.gguf \
+    && test -s /out/nemotron/share/licenses/Nemotron-3-Diarization/OpenMDW-1.1.txt \
+    && test -n "$(ls -A /out/nemotron/share/licenses/nemo-speech)"
+
 # ── 2. the build ─────────────────────────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS build
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 \
@@ -113,6 +134,7 @@ RUN set -eu; \
     rm -rf /tmp/ocr.lock /tmp/asr.lock /tmp/*.tgz package.json package-lock.json
 COPY --from=ocrmodels /out/models /opt/ocr/models
 COPY --from=asrmodels /out/models /opt/asr/models
+COPY --from=nemotronbin /out/nemotron /opt/nemotron
 COPY --from=ompbin /out/omp /opt/omp/omp
 # dist/ is the host bundle, the console views and assets, and the chat server's SQL migrations;
 # apps/web/dist is the web app, found beside dist/ (served at /app/).
@@ -126,6 +148,7 @@ ENV NODE_ENV=production \
     OMP_BIN=/opt/omp/omp \
     PIKVM_OCR_MODELS=/opt/ocr/models \
     PIKVM_ASR_MODELS=/opt/asr/models \
+    PIKVM_NEMOTRON_DIR=/opt/nemotron \
     ORT_DISABLE_TELEMETRY=1
 
 # One fixed unprivileged user that owns /data. Nothing but /data (and tmpfs /tmp) is ever written,

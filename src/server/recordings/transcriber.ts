@@ -4,6 +4,7 @@ import { delimiter, join } from "node:path";
 import type { TranscriptSegment, TranscriptionStatus } from "@pikvm/contracts/recordings";
 import { ASR_MODEL_NAMES, missingAsrModels } from "./asr-models";
 import { ffmpegProblem } from "./media";
+import { NEMOTRON_NAME, nemotronProblem, type Diarizer } from "./nemotron-diarizer";
 
 /**
  * Runs the transcription: one job at a time, each in a process of its own (transcribe-worker.ts) started under `nice -n 19`, so a
@@ -34,6 +35,10 @@ export interface TranscriberOptions {
     /** The diarizer's clustering threshold: larger joins more voices into one speaker. */
     clusterThreshold: number;
     maxSeconds: number;
+    /** The speaker diarizer (PIKVM_ASR_DIARIZER): "nemotron" runs the Nemotron engine when it is installed, else sherpa. */
+    diarizer: Diarizer;
+    /** Where the Nemotron engine and model are installed (PIKVM_NEMOTRON_DIR). */
+    nemotronDir: string;
     log: (line: string) => void;
     onProgress: (id: string, value: number) => void;
     onDone: (id: string, result: TranscribeResult) => void;
@@ -87,6 +92,10 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
     let stopped = false;
     const nice = onPath("nice");
     if (nice === null) log("[recordings] `nice` is not installed: transcription runs at the normal priority");
+    if (options.diarizer === "nemotron") {
+        const reason = nemotronProblem(options.nemotronDir);
+        if (reason !== null) log(`[recordings] PIKVM_ASR_DIARIZER=nemotron, but ${reason} The sherpa diarizer is used.`);
+    }
 
     function kill(run: Running): void {
         run.ended = true;
@@ -98,6 +107,11 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
         } catch {
             run.child.kill("SIGKILL");
         }
+    }
+
+    /** The diarizer a job uses: Nemotron when it is asked for and installed, else sherpa. */
+    function activeDiarizer(): Diarizer {
+        return options.diarizer === "nemotron" && nemotronProblem(options.nemotronDir) === null ? "nemotron" : "sherpa";
     }
 
     function limitMs(durationMs: number | null): number {
@@ -134,6 +148,7 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
             else if (message.type === "decoded" && typeof message.durationSeconds === "number") arm(run, message.durationSeconds * 1000);
             else if (message.type === "done") finish(() => options.onDone(job.id, message as TranscribeResult));
             else if (message.type === "error") finish(() => options.onFail(job.id, String(message.message ?? "The transcription failed.")));
+            else if (message.type === "note" && typeof message.message === "string") options.log(`[recordings] ${job.id}: ${message.message}`);
         });
         child.on("error", (error) => finish(() => options.onFail(job.id, `The transcriber could not start: ${error.message}`)));
         child.on("exit", (code, signal) => {
@@ -143,7 +158,16 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
             if (current === run) current = null;
             pump();
         });
-        child.send({ file: job.file, workDir: job.workDir, modelsDir: options.modelsDir, threads: options.threads, clusterThreshold: options.clusterThreshold, maxSeconds: options.maxSeconds });
+        child.send({
+            file: job.file,
+            workDir: job.workDir,
+            modelsDir: options.modelsDir,
+            threads: options.threads,
+            clusterThreshold: options.clusterThreshold,
+            maxSeconds: options.maxSeconds,
+            diarizer: activeDiarizer(),
+            nemotronDir: options.nemotronDir,
+        });
     }
 
     function spawnOptions(): SpawnOptions {
@@ -163,7 +187,7 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
     return {
         async status(): Promise<TranscriptionStatus> {
             const reason = await problem();
-            return reason === null ? { available: true, reason: null, models: { ...ASR_MODEL_NAMES } } : { available: false, reason, models: null };
+            return reason === null ? { available: true, reason: null, models: { ...ASR_MODEL_NAMES, diarizer: activeDiarizer() === "nemotron" ? NEMOTRON_NAME : ASR_MODEL_NAMES.diarizer } } : { available: false, reason, models: null };
         },
         busy: () => current !== null || queue.length > 0,
         enqueue(job) {

@@ -1,0 +1,28 @@
+{
+    "$comment": "The opt-in Nemotron-3-Diarization speaker diarizer (src/server/recordings/nemotron-diarizer.ts): NeMo-Speech.cpp's CPU engine and its q8_0 GGUF model, pinned. Fetched by scripts/fetch-nemotron.mjs at image build; never at runtime. The engine is Apache-2.0 (its licence files travel with it); the model is OpenMDW-1.1 (deploy/licenses/OpenMDW-1.1.txt).",
+    "engine": {
+        "repository": "NVIDIA/NeMo-Speech.cpp",
+        "version": "0.3.0",
+        "tag": "v0.3.0",
+        "targets": {
+            "linux-x64": {
+                "asset": "nemo-speech-0.3.0-linux-x86_64-cpu.tar.gz",
+                "sha256": "255f12b722ab15b2a38a51cf125d56e3fa97058b528f7e895b39d6a473deb06e",
+                "bytes": 9605101
+            },
+            "linux-arm64": {
+                "asset": "nemo-speech-0.3.0-linux-aarch64-cpu.tar.gz",
+                "sha256": "56858eaf50d19b05902c043f65d0057352bdc107ae380c41053bfbddfc204bf1",
+                "bytes": 9064856
+            }
+        }
+    },
+    "model": {
+        "repository": "nvidia/Nemotron-3-Diarization",
+        "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
+        "file": "Nemotron-3-Diarization.q8_0.gguf",
+        "url": "https://huggingface.co/nvidia/Nemotron-3-Diarization/resolve/f667ed73aee57d40cc39428eb768b4fd87a0a29e/Nemotron-3-Diarization.q8_0.gguf",
+        "sha256": "08456d9e22cd9a323c0364d98375f3746d6e68507ebb705cd46438c534c7a3a1",
+        "bytes": 107012128
+    }
+}
