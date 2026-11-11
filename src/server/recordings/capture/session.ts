@@ -339,7 +339,13 @@ class Capture implements CaptureHandle {
             const index = indexOfSegmentName(name);
             if (index === null || index < this.#runStart || known.has(index)) continue;
             const path = join(dir, name);
-            const size = (await stat(path)).size;
+            // A short segment that #addSegment dropped can disappear between the readdir and here.
+            let size: number;
+            try {
+                size = (await stat(path)).size;
+            } catch {
+                continue;
+            }
             if (size === 0) {
                 await rm(path, { force: true });
                 continue;

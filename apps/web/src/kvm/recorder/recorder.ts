@@ -63,6 +63,13 @@ function writeMarker(id: string | null): void {
 
 const errorText = (error: unknown, fallback: string): string => (error instanceof RecordingsError ? error.message : fallback);
 
+/** The host could not be reached at all (no answer, or the 502/503/504 of a forwarder or proxy with nothing behind it). */
+const unreachable = (error: unknown): boolean =>
+    error instanceof RecordingsError && (error.status === null || error.status === 502 || error.status === 503 || error.status === 504);
+
+const LOST_CONTACT = "Lost contact with the host. The recording may still be running there; it will be shown again when the connection is back.";
+const CANNOT_STOP = "Cannot reach the host, so the recording could not be stopped. It may still be running there. Try again when the connection is back.";
+
 /** What to tell the person about a recording the host ended, or null when there is nothing to say. `quiet` is a stop this page asked for. */
 export function endNotice(view: RecordingView, quiet: boolean): { text: string; error: boolean } | null {
     const kept = "What was captured is kept.";
@@ -103,6 +110,10 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
     /** Recordings this page asked to stop: the end is announced by the stop itself, not again when the live state says so. */
     const stoppedHere = new Set<string>();
     let detached = true;
+    /** The loss of the host was announced and not yet answered by its return: said once, not on every state. */
+    let lossAnnounced = false;
+    /** The button's warning is about the host being out of reach: it ends when the host is heard again. */
+    let errorIsLoss = false;
     /** What micSupport said, once it has: the click that starts a recording must not wait for it. */
     let supportReason: string | null | undefined;
 
@@ -177,6 +188,24 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
 
     const onLive = (state: LiveFeedState): void => {
         const live = state.live;
+        // The host cannot be heard: what was last heard stays on the button (marked), and this says so once. A recording nobody knew of is nothing to announce.
+        if (state.stale) {
+            if (live?.recording && !lossAnnounced) {
+                lossAnnounced = true;
+                notify(LOST_CONTACT, true);
+            }
+            return;
+        }
+        // "Could not reach the host" says nothing once the host has been heard.
+        if (errorIsLoss && live) {
+            errorIsLoss = false;
+            patch({ error: null });
+        }
+        if (lossAnnounced && live) {
+            lossAnnounced = false;
+            // An end is told by explainEnd below, from the recording's own reason.
+            if (live.recording) notify("Back in contact with the host. The recording is still running.");
+        }
         // No state at all (the stream is down) says nothing about the recording: it is not "ended".
         if (!live) return;
         const recording = live.recording;
@@ -197,7 +226,8 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         const running = options.feed.store.getState().live?.recording ?? null;
         if (phase !== "idle" || running) return;
         patch({ phase: "starting", error: null });
-        const fail = (message: string): void => {
+        const fail = (message: string, lost = false): void => {
+            errorIsLoss = lost;
             patch({ phase: "idle", error: message });
             notify(message, true);
         };
@@ -230,7 +260,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
                 notify("A recording is already in progress; this page now follows it.");
                 return;
             }
-            return fail(errorText(error, "The recording could not be started."));
+            return fail(errorText(error, "The recording could not be started."), unreachable(error));
         }
         following = view.id;
         // This page is feeding this recording itself: it has nothing to take up again.
@@ -247,16 +277,25 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
         if (store.getState().phase !== "idle" || id === null) return;
         patch({ phase: "stopping", error: null });
         stoppedHere.add(id);
-        stopMic();
-        writeMarker(null);
         try {
             await stopRecording(id);
+            stopMic();
+            writeMarker(null);
             notify("Recording stopped. The host is finishing the file; it appears in Recordings.");
         } catch (error) {
             // Already stopped by someone else is what was wanted.
-            if (!(error instanceof RecordingsError && error.status === 409)) {
-                patch({ error: errorText(error, "The recording could not be stopped.") });
-                notify(errorText(error, "The recording could not be stopped."), true);
+            if (error instanceof RecordingsError && error.status === 409) {
+                stopMic();
+                writeMarker(null);
+            } else {
+                // The recording goes on: its microphone, and the marker that takes it up after a reload, stay.
+                stoppedHere.delete(id);
+                const text = unreachable(error) ? CANNOT_STOP : errorText(error, "The recording could not be stopped.");
+                errorIsLoss = unreachable(error);
+                patch({ error: text });
+                notify(text, true);
+                // Whatever the live stream could not say, ask it again now rather than after its next pause.
+                options.feed.refresh();
             }
         }
         patch({ phase: "idle" });
@@ -278,6 +317,7 @@ export function createRecordControl(options: RecordControlOptions): RecordContro
             onLive(options.feed.store.getState());
             return () => {
                 detached = true;
+                lossAnnounced = false;
                 off();
                 release();
                 stopMic();

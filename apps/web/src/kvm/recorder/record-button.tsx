@@ -28,9 +28,10 @@ export function RecordButton({ variant }: { readonly variant: RecordButtonVarian
     return (
         <button
             type="button"
-            className={`${base} kvm-rec${view.recording ? " is-recording" : ""}${view.warn ? " warn" : ""}`}
+            className={`${base} kvm-rec${view.recording ? " is-recording" : ""}${view.warn ? " warn" : ""}${view.stale ? " is-stale" : ""}`}
             data-tb="record"
             data-recording={view.recording || undefined}
+            data-stale={view.stale || undefined}
             aria-pressed={view.recording}
             aria-label={view.label}
             title={view.title}
@@ -49,15 +50,16 @@ export function RecordSheetItem() {
     return (
         <button
             type="button"
-            className={`kvm-item toggle kvm-rec-item${view.recording ? " on is-recording" : ""}${view.warn ? " warn" : ""}`}
+            className={`kvm-item toggle kvm-rec-item${view.recording ? " on is-recording" : ""}${view.warn ? " warn" : ""}${view.stale ? " is-stale" : ""}`}
             data-setting="record"
+            data-stale={view.stale || undefined}
             aria-pressed={view.recording}
             title={view.title}
             disabled={view.disabled}
             onClick={toggle}
         >
             <span>Record session</span>
-            <span className="kvm-pip">{view.recording ? view.clock : view.busy ? "..." : "Off"}</span>
+            <span className="kvm-pip">{view.pip}</span>
         </button>
     );
 }

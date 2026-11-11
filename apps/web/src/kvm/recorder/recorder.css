@@ -21,6 +21,13 @@
 .kvm-rec.is-recording.warn svg {
     color: var(--warn);
 }
+/* Lost contact: the recording was running and the host cannot be heard. Amber, not pulsing (nothing is known to be live), the time unknown. */
+.kvm-rec.is-stale {
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+.kvm-rec.is-stale svg {
+    animation: none;
+}
 .kvm-rec-clock {
     font-size: var(--type-nav);
     font-weight: 650;
@@ -35,6 +42,11 @@
     border-color: var(--danger);
     color: #fff;
     font-variant-numeric: tabular-nums;
+}
+.kvm-rec-item.is-stale .kvm-pip {
+    background: var(--warn);
+    border-color: var(--warn);
+    color: var(--background);
 }
 @keyframes kvm-rec-pulse {
     50% {

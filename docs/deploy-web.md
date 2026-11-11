@@ -470,7 +470,13 @@ as `exact` (a gone headset is named, never replaced), with echo cancellation and
 
 The record button (toolbar, phone dock, and the sheet's Record row) switches the **host's** recording and shows the host's state
 (a server-sent stream, `GET /live`): the elapsed time, "reconnecting" while the PiKVM is away, and a recording another client or a
-meeting detector started, with the same clock. It works with the MJPEG picture too. The **Recordings** tab (`/app/recordings`) is
+meeting detector started, with the same clock. It works with the MJPEG picture too. When the page loses the host (the desktop app's
+server is away, the network drops, the stream goes silent) while it knows of a recording, the button says so: amber, the time
+shown as unknown ("--:--"; "Lost contact" in the sheet's row), the title "Cannot reach the host. The recording may still be running
+there; it will be shown again when the connection is back.", and one notice. The capture is on the host, so it goes on there whether
+or not the page can hear it. The page opens the stream again with growing pauses (1 s up to 15 s) and, when it is back, shows the
+recording still running or the way it ended (a limit, a restart). A click then means Stop: it tries the host and, if it cannot reach
+it, says the recording could not be stopped and may still be running. With no recording known, the button stays idle (the screen's own status line already says the host is away). The **Recordings** tab (`/app/recordings`) is
 the library for all of this: a table (cards on a phone) with filters, a sort, rename in place, a menu on each row and bulk delete;
 each row says who made the file (the host, or a browser for the older ones), how far the shrinking of a finished recording has got
 (`Finishing 42%`), any gap in the picture and, if it ended at a limit, why; a search box over every transcript and title; and one
