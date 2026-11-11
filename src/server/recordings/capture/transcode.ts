@@ -34,6 +34,7 @@ export interface StoredSettings {
     audioKbps: Record<AudioRole, number>;
     /** Channels per audio role. */
     audioChannels: Record<AudioRole, number>;
+    /** 48 kHz: at 24 or 16 kHz AAC lost the band the recogniser needs for consonants (see STORED_SETTINGS). */
     audioSampleRate: number;
     scaleFlags: string;
     threads: number;
@@ -41,22 +42,29 @@ export interface StoredSettings {
 
 /**
  * The numbers the measurements chose (report: "Stored-file settings"). Budget, all in, per minute:
- *   video <= 180 kbit/s (the VBV ceiling) + audio 32 + 24 kbit/s + about 2 to 3 % container = at most 1.85 MB/min, whatever is on screen;
- *   typical screens land at 1.0 to 1.1 MB/min because the CRF, not the ceiling, decides there.
+ *   video <= 170 kbit/s (the VBV ceiling; x264 overshoots it by about 3 %) + audio 40 + 32 kbit/s + about 3 % container = at most 1.92 MB/min,
+ *   whatever is on screen. The ceiling was 180 before the audio got 16 kbit/s more (that left 1.99 MB/min on the worst material, too tight).
+ *   typical screens land at 1.1 to 1.2 MB/min because the CRF, not the ceiling, decides there.
  * `tune: null` on purpose: x264's stillimage tune lost 10 to 15 points of OCR word recovery on dense text at the same bitrate.
+ *
+ * Audio is what the transcript search reads (the transcriber folds the target to mono and resamples to 16 kHz), so it is measured with the
+ * real transcription worker (asr/wer.mjs, three neural-voice test files, 18 settings): the old 32 kbit/s stereo AAC at 24 kHz scored 26.8 %
+ * WER against 24.8 % for lossless and turned "deployment pipeline ... staging cluster" into "employment ... failing cluster". The 24 kHz
+ * sample rate was the damage, not the bitrate: AAC at 48 kHz, folded to mono, 40 kbit/s scores 24.5 % and reads that sentence correctly.
+ * AAC in MP4 stays (plays in Safari); Opus in MP4 scored the same but its Safari support is unproven here.
  */
 export const STORED_SETTINGS: StoredSettings = {
     height: 720,
     fps: 10,
     crf: 31,
-    maxrateKbps: 180,
-    bufsizeKbit: 360,
+    maxrateKbps: 170,
+    bufsizeKbit: 340,
     preset: "slow",
     tune: null,
     keyframeSeconds: 10,
-    audioKbps: { target: 32, mic: 24 },
-    audioChannels: { target: 2, mic: 1 },
-    audioSampleRate: 24_000,
+    audioKbps: { target: 40, mic: 32 },
+    audioChannels: { target: 1, mic: 1 },
+    audioSampleRate: 48_000,
     scaleFlags: "lanczos",
     threads: 2,
 };
@@ -164,11 +172,13 @@ export function storedArgs(settings: StoredSettings, input: string, output: stri
         "-threads", String(s.threads),
     );
     if (roles.length > 0) {
-        // Holes (a reconnect) leave a jump in the audio clock: fill it with silence so audio and video stay the same length.
-        args.push("-af", "aresample=async=1000:first_pts=0", "-c:a", "aac", "-ar", String(s.audioSampleRate));
+        args.push("-c:a", "aac", "-ar", String(s.audioSampleRate));
         for (let i = 0; i < roles.length; i += 1) {
             const role = roles[i]!;
-            args.push(`-b:a:${i}`, `${s.audioKbps[role]}k`, `-ac:a:${i}`, String(s.audioChannels[role]));
+            // Holes (a reconnect) leave a jump in the audio clock: fill it with silence so audio and video stay the same length.
+            // A one-channel role is folded exactly as the transcriber folds a stereo target (`0.5*L + 0.5*R`), so it hears the same mono.
+            const fold = s.audioChannels[role] === 1 ? "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+0.5*c1," : "";
+            args.push(`-filter:a:${i}`, `${fold}aresample=async=1000:first_pts=0`, `-b:a:${i}`, `${s.audioKbps[role]}k`);
             // MP4 keeps a track's name as its handler name; the transcriber selects by position (`0:a:0` target, `0:a:1` mic).
             args.push(`-metadata:s:a:${i}`, `title=${role}`, `-metadata:s:a:${i}`, `handler_name=${role}`);
         }
