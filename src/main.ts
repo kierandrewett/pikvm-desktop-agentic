@@ -9,6 +9,7 @@ import { startControlServer, type ControlServer } from "./server";
 import { SettingsStore } from "./settings";
 import { TargetStore } from "./target-store";
 import { createAppWindow, focusAppWindow } from "./desktop/window";
+import { createQuitCoordinator } from "./desktop/quit";
 import { startUpdateChecks } from "./desktop/updates";
 
 const appIconPath = resolve(__dirname, "assets/icon.png");
@@ -459,17 +460,21 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
     app.quit();
 } else {
-    app.on("second-instance", focusAppWindow);
-
-    // The agent programs are children of this process: stop them before it goes, not after.
-    let stopping = false;
+    // The agent programs are children of this process: stop them before it goes, not after. A launch that arrives while the
+    // process is stopping is kept and the app starts again once it has gone (see desktop/quit.ts).
+    const quit = createQuitCoordinator({
+        shutdown: () => (localServer ? localServer.shutdown() : Promise.resolve()),
+        relaunch: () => app.relaunch(),
+        exit: () => app.exit(0),
+        setTimer: (callback, ms) => setTimeout(callback, ms).unref(),
+    });
+    app.on("second-instance", () => {
+        if (!quit.secondLaunch()) focusAppWindow();
+    });
     app.on("will-quit", (event) => {
-        if (!localServer || stopping) return;
-        stopping = true;
+        if (!localServer || quit.stopping) return;
         event.preventDefault();
-        const done = () => app.exit(0);
-        void localServer.shutdown().then(done, done);
-        setTimeout(done, 4000).unref();
+        quit.begin();
     });
 
     app.whenReady().then(() => {

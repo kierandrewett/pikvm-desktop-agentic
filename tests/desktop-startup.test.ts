@@ -15,7 +15,7 @@ test("a second launch focuses the first instead of crashing on the port", () => 
     // The lock, and a real handler for the launch it turns away.
     assert.match(main, /const gotSingleInstanceLock = app\.requestSingleInstanceLock\(\);/);
     assert.match(main, /if \(!gotSingleInstanceLock\) \{\s*\n\s*app\.quit\(\);/);
-    assert.match(main, /app\.on\("second-instance", focusAppWindow\);/);
+    assert.match(main, /app\.on\("second-instance", \(\) => \{\s*\n\s*if \(!quit\.secondLaunch\(\)\) focusAppWindow\(\);/);
     const window = readFileSync(resolve(root, "src/desktop/window.ts"), "utf8");
     assert.match(window, /if \(win\.isMinimized\(\)\) win\.restore\(\);[\s\S]*?win\.focus\(\);/);
     // Everything that used to run unconditionally now hangs off holding it.
@@ -119,5 +119,6 @@ test("the control server starts whatever else is installed: nothing of the old a
 });
 
 test("quitting stops the chat server and its agent processes before the process goes", () => {
-    assert.match(main, /app\.on\("will-quit", \(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?localServer\.shutdown\(\)/);
+    assert.match(main, /app\.on\("will-quit", \(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?quit\.begin\(\)/);
+    assert.match(main, /shutdown: \(\) => \(localServer \? localServer\.shutdown\(\) : Promise\.resolve\(\)\)/);
 });
