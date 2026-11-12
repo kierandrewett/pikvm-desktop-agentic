@@ -1015,7 +1015,7 @@ buffer it (the response sends `x-accel-buffering: no`).
 The page watches its own connection and says so in a slim banner at the top, over every tab. It reports only failures it saw, one
 channel at a time. The host probe is `GET /app/api/v1/session` every 5 s (every 15 s while the tab is hidden), with a 4 s time-out.
 The host never needs to do more than answer it. The page sends it with high priority, because over HTTP/1.1 a browser keeps six
-connections to a host and the page already holds several streams open. Two probes in a row that fail say "No answer from the host"; two in a row that take
+connections to a host and the page already holds several streams open. While a probe waits, the page also pings the event socket, which is not in the browser's connection queue. A quick pong means the host is alive and the probe was held up in the browser (over HTTP/1.1 a second tab can use up all six connections), so that probe counts as neither a failure nor a slow answer. A slow pong makes it a slow answer, and no pong leaves the probe's own result. Two probes in a row that fail say "No answer from the host"; two in a row that take
 over 1.5 s say "The host is slow to answer". One failed probe that is followed by a good one shows nothing. The picture, the chat
 socket and the target link are read from where the page already tracks them, so the banner and the status chip agree. "The host
 cannot reach the PiKVM" comes only from the target link closing while the host still answers the probe promptly. The browser's offline event

@@ -100,6 +100,12 @@ export interface TargetLink {
      */
     kick(): void;
     isOpen(): boolean;
+    /**
+     * Send a heartbeat now, outside its schedule, and say how long kvmd took to answer it (ms on the engine clock), or null when it
+     * did not within `timeoutMs` or the socket is not open. Lets the page tell a host that is alive from one that is not without a
+     * request of its own: a WebSocket answers even while the browser's HTTP connections are all busy.
+     */
+    ping(timeoutMs: number): Promise<number | null>;
     send(command: HidCommand): void;
     key(code: string, down: boolean): void;
     move(x: number, y: number): void;
@@ -189,6 +195,12 @@ export function createTargetLink(options: TargetLinkOptions): TargetLink {
     const wake = new Wake();
 
     let current: Attempt | null = null;
+    /**
+     * Pings sent on the open socket that have not been answered yet (the heartbeat's too), and the callers of `ping` waiting for the
+     * pong of their own. kvmd's pong carries no id, but the socket is ordered, so the nth pong from now answers the nth ping.
+     */
+    let pingsInFlight = 0;
+    const pongWaiters = new Set<{ remaining: number; done: () => void }>();
     let fiber: Fiber.RuntimeFiber<void> | null = null;
     let stopped = false;
 
@@ -222,6 +234,7 @@ export function createTargetLink(options: TargetLinkOptions): TargetLink {
 
     const openSocket = (attempt: Attempt): void => {
         const live = (): boolean => current === attempt;
+        pingsInFlight = 0;
         try {
             attempt.socket = options.socket(resolveUrl(), {
                 open() {
@@ -240,6 +253,16 @@ export function createTargetLink(options: TargetLinkOptions): TargetLink {
                         frame = JSON.parse(data);
                     } catch {
                         return;
+                    }
+                    if (typeof frame === "object" && frame !== null && "event_type" in frame && frame.event_type === "pong") {
+                        pingsInFlight = Math.max(0, pingsInFlight - 1);
+                        for (const waiter of [...pongWaiters]) {
+                            waiter.remaining -= 1;
+                            if (waiter.remaining <= 0) {
+                                pongWaiters.delete(waiter);
+                                waiter.done();
+                            }
+                        }
                     }
                     patchDevice((d) => applyFrame(d, frame, clock.now()));
                 },
@@ -278,6 +301,7 @@ export function createTargetLink(options: TargetLinkOptions): TargetLink {
                     Deferred.unsafeDone(attempt.ended, Effect.succeed("dead"));
                     return;
                 }
+                pingsInFlight += 1;
                 raw(attempt, PING);
             }
         });
@@ -385,6 +409,27 @@ export function createTargetLink(options: TargetLinkOptions): TargetLink {
             else wake.post("kick");
         },
         isOpen: () => link().open,
+        ping(timeoutMs) {
+            const attempt = current;
+            if (!link().open || !attempt?.socket?.isOpen()) return Promise.resolve(null);
+            return new Promise((resolve) => {
+                const sentAt = clock.now();
+                pingsInFlight += 1;
+                const waiter = {
+                    remaining: pingsInFlight,
+                    done: () => {
+                        cancel();
+                        resolve(clock.now() - sentAt);
+                    },
+                };
+                const cancel = clock.setTimeout(() => {
+                    pongWaiters.delete(waiter);
+                    resolve(null);
+                }, timeoutMs);
+                pongWaiters.add(waiter);
+                raw(attempt, PING);
+            });
+        },
         send,
         key: (code, down) => send({ event_type: "key", event: { key: code, state: !!down } }),
         move: (x, y) => send({ event_type: "mouse_move", event: { to: { x, y } } }),

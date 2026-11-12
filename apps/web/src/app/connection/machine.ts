@@ -93,6 +93,12 @@ export interface ConnectionMachine {
     probeAbandoned(): void;
     probeSucceeded(roundTripMs: number): void;
     probeFailed(elapsedMs: number): void;
+    /**
+     * The probe has no verdict: another channel to the host showed it alive, quickly, while the probe waited. A probe that never left
+     * the browser's queue (six connections per host over HTTP/1.1, shared by every stream the page holds open) is this, not a failure,
+     * so it counts as neither a failure nor a slow answer, and the host counts as alive.
+     */
+    probeUnknown(): void;
     /** The browser's `offline` and `online` events. */
     deviceOffline(): void;
     deviceOnline(): void;
@@ -172,12 +178,13 @@ export function createConnectionMachine(options: MachineOptions): ConnectionMach
             return { cause: hostLost ? "host" : "device", since };
         }
         const grace = (since: number | null): since is number => since !== null && at - since >= CHANNEL_GRACE_MS;
+        // A host that answers slowly explains a picture or a chat socket that struggles over the same path: it is the cause, so it is said first.
+        if (bad >= 2) return { cause: "slow", since: badSince };
         // The host answers, and promptly (a slow or failing probe has its own words, and a link that cannot reopen over a slow
         // path says nothing about the PiKVM): a closed link is the host's link to the PiKVM.
         if (answered && bad === 0 && grace(linkDownSince)) return { cause: "pikvm", since: linkDownSince };
         if (grace(pictureDownSince)) return { cause: "picture", since: pictureDownSince };
         if (grace(chatDownSince)) return { cause: "chat", since: chatDownSince };
-        if (bad >= 2) return { cause: "slow", since: badSince };
         return null;
     };
 
@@ -297,6 +304,21 @@ export function createConnectionMachine(options: MachineOptions): ConnectionMach
         probeAbandoned() {
             inFlight = false;
             probeNow = true;
+        },
+        probeUnknown() {
+            inFlight = false;
+            const wasFailing = fails > 0;
+            fails = 0;
+            bad = 0;
+            deviceOfflineSince = null;
+            if (wasFailing) {
+                chatDownSince = null;
+                pictureDownSince = null;
+                linkDownSince = null;
+            }
+            if (!current) longestInRun = 0;
+            refreshChannels();
+            evaluate();
         },
         probeSucceeded(ms) {
             settle(ms, true);

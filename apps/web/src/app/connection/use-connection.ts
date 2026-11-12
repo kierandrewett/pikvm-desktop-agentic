@@ -23,6 +23,9 @@ export function useConnectionMonitor(session: KvmSession): void {
         pushLink();
         const offLink = session.link.store.subscribe(pushLink);
 
+        // The event socket is not in the browser's connection queue, so a quick answer on it shows the host alive when a probe is starved.
+        const offLiveness = monitor.setLiveness({ ping: (timeoutMs) => session.link.ping(timeoutMs) });
+
         // The chat socket opens only when chat is used; the machine ignores it until it has been open once.
         machine.setChat(chatSocket.status);
         const offChat = chatSocket.onStatus((status) => machine.setChat(status));
@@ -40,6 +43,7 @@ export function useConnectionMonitor(session: KvmSession): void {
 
         return () => {
             offRecovered();
+            offLiveness();
             offChat();
             offLink();
             machine.setLink(null);
