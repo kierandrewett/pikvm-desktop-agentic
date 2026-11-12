@@ -31,7 +31,18 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function launch({ backForwardCache = true } = {}) {
     const args = ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"];
     if (!backForwardCache) args.push("--disable-features=BackForwardCache");
-    return puppeteer.launch({ executablePath: chrome, headless: true, args });
+    const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args });
+    // The image signs users in itself. With E2E_TOKEN set (up-inspectable.sh prints it) the browser signs in once, on the host's own
+    // form, so every page it opens afterwards carries the session cookie. Unset (a host the suite starts, no sign-in): nothing happens.
+    const token = process.env.E2E_TOKEN;
+    if (token) {
+        const page = await browser.newPage();
+        await page.goto(`${WEB}/app/kvm`, { waitUntil: "load" });
+        await page.type('input[name="token"]', token);
+        await Promise.all([page.waitForNavigation({ waitUntil: "load" }), page.keyboard.press("Enter")]);
+        await page.close();
+    }
+    return browser;
 }
 
 /* ---- the fake kvmd ---- */

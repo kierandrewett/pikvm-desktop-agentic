@@ -16,6 +16,9 @@ import { WebSocket } from "ws";
 const host = process.env.HOST_URL ?? "http://127.0.0.1:18080";
 const kvmd = process.env.KVMD_URL ?? "http://127.0.0.1:14510";
 const providerUrl = process.env.PROVIDER_URL ?? "http://fake-model:9000/v1";
+// The host signs users in itself: the e2e compose sets this access token (E2E_TOKEN overrides it), sent as a bearer.
+const token = process.env.E2E_TOKEN ?? "e2e-access-token-0123456789abcdef";
+const bearer = { authorization: `Bearer ${token}` };
 const api = `${host}/app/chat/api`;
 
 const log = (line) => console.log(line);
@@ -24,7 +27,7 @@ const hid = async () => (await (await fetch(`${kvmd}/__fake/hid`)).json()).event
 {
     const put = await fetch(`${api}/settings/agent.providers`, {
         method: "PUT",
-        headers: { "content-type": "application/json", "x-chat-request": "1" },
+        headers: { ...bearer, "content-type": "application/json", "x-chat-request": "1" },
         body: JSON.stringify({
             value: { fake: { enabled: true, baseUrl: providerUrl, api: "openai-completions", apiKey: "sk-e2e", models: [{ id: "fake-1" }] } },
         }),
@@ -35,7 +38,7 @@ const hid = async () => (await (await fetch(`${kvmd}/__fake/hid`)).json()).event
 
 function connect() {
     return new Promise((resolve, reject) => {
-        const ws = new WebSocket(`${host.replace("http", "ws")}/app/chat/ws`, { headers: { origin: host } });
+        const ws = new WebSocket(`${host.replace("http", "ws")}/app/chat/ws`, { headers: { ...bearer, origin: host } });
         const events = [];
         const waiters = [];
         ws.on("message", (data) => {
@@ -68,7 +71,7 @@ const text = (events) => events.filter((e) => e.type === "response.output_text.d
 // 1. A foreign Origin is refused.
 {
     const outcome = await new Promise((resolve) => {
-        const ws = new WebSocket(`${host.replace("http", "ws")}/app/chat/ws`, { headers: { origin: "https://evil.example" } });
+        const ws = new WebSocket(`${host.replace("http", "ws")}/app/chat/ws`, { headers: { ...bearer, origin: "https://evil.example" } });
         ws.once("open", () => (ws.close(), resolve("open")));
         ws.once("error", () => resolve("refused"));
         ws.once("unexpected-response", () => resolve("refused"));
