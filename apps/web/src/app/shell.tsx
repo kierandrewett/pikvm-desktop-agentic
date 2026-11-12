@@ -26,6 +26,7 @@ import { useAppBadge } from "../notify/use-app-badge";
 import { usePresence } from "../notify/use-presence";
 import { currentTheme, subscribeTheme } from "../theme";
 import { ChatPane } from "./chat-pane";
+import { ConnectionBanner } from "./connection/connection-banner";
 import { RecordingsPane } from "./recordings-pane";
 import { activeTab, NavTabs, type TabId } from "./nav";
 import { Pane } from "./panes";
@@ -94,6 +95,7 @@ export function Shell() {
             >
                 {compact ? null : <NavTabs active={active} orientation="vertical" settingsPage={settingsPage} />}
                 <div className="app-main">
+                    <ConnectionBanner />
                     {titlebar ? <div className="window-titlebar">PiKVM Desktop</div> : null}
                     <main className="app-panel">
                         <Pane id="kvm" active={active === "kvm"}>

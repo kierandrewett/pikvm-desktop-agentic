@@ -25,6 +25,7 @@ import { Dock } from "./dock";
 import { FirstRunProvider, useFirstRun } from "./first-run";
 import { createFieldFocus } from "./field-focus";
 import { KeyStrip } from "./key-rows";
+import { reportPictureSignal } from "../app/connection/picture-feed";
 import { KeyboardInput } from "./keyboard-input";
 import { OcrPickerProvider } from "./ocr-picker";
 import { FullUiFrame, Toast } from "./overlays";
@@ -57,6 +58,11 @@ export function KvmScreen() {
     const [keysOpen, setKeysOpen] = useState(false);
     const { open } = useStore(session.dialogs.store);
     const picture = usePictureState(controller);
+    // The banner words the picture by the same signal as the status chip and the overlay.
+    useEffect(() => {
+        reportPictureSignal(picture.signal);
+    }, [picture.signal]);
+    useEffect(() => () => reportPictureSignal(null), []);
     const firstRun = useFirstRun();
     // No PiKVM yet: the stage is the welcome, and there is no target for the keyboard or the picture to belong to.
     const welcome = firstRun.phase === "needed";

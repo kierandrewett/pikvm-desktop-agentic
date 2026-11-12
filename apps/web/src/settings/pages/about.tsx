@@ -1,6 +1,7 @@
 import type { DesktopUpdate } from "@pikvm/contracts/desktop";
 import { Button, SettingRow, SettingsCard, SettingsPage, SettingsSection } from "@pikvm/chat-web/settings";
 import { useAppState } from "../../api/queries";
+import { DropsList } from "../../app/connection/drops-list";
 import { desktopBridge, useDesktopUpdate } from "../../host/desktop";
 import { DisplayReport } from "./display-report";
 import { StatusDot, Value } from "./value";
@@ -58,6 +59,7 @@ export function AboutPage() {
                     />
                 </SettingsCard>
             </SettingsSection>
+            <DropsList />
             <DisplayReport />
         </SettingsPage>
     );

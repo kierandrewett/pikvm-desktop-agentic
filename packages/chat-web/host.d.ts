@@ -30,3 +30,10 @@ export interface RunFinished {
 }
 /** Hear every response this page watches end, from now on. Returns what stops listening. */
 export function onRunFinished(listener: (event: RunFinished) => void): () => void;
+
+export type ChatSocketStatus = "connecting" | "open" | "closed";
+/** The chat server's socket, read only: the app's connection monitor follows its state. */
+export const chatSocket: {
+    readonly status: ChatSocketStatus;
+    onStatus(listener: (status: ChatSocketStatus) => void): () => void;
+};

@@ -1010,6 +1010,20 @@ unknown until the first absolute move or agent move, and the pointer's own accel
 absolute move); a resolution change keeps an absolute position and keeps the pixel of a relative one. A proxy in front must not
 buffer it (the response sends `x-accel-buffering: no`).
 
+## The connection banner
+
+The page watches its own connection and says so in a slim banner at the top, over every tab. It reports only failures it saw, one
+channel at a time. The host probe is `GET /app/api/v1/session` every 5 s (every 15 s while the tab is hidden), with a 4 s time-out.
+The host never needs to do more than answer it. The page sends it with high priority, because over HTTP/1.1 a browser keeps six
+connections to a host and the page already holds several streams open. Two probes in a row that fail say "No answer from the host"; two in a row that take
+over 1.5 s say "The host is slow to answer". One failed probe that is followed by a good one shows nothing. The picture, the chat
+socket and the target link are read from where the page already tracks them, so the banner and the status chip agree. "The host
+cannot reach the PiKVM" comes only from the target link closing while the host still answers the probe promptly. The browser's offline event
+is shown as "This device reports no network" and ends at the first answer from the host. The banner never says anything about
+Wi-Fi or the internet. When it ends, a toast says how long it lasted. Settings, About, "Recent drops" lists the last 10 (time, length,
+cause). They are kept in this tab's sessionStorage only. A proxy in front of the host should answer a dead host with 502, 503 or
+504: the probe counts those as "no answer", and any other answer as the host being there.
+
 ## Known limits
 
 - Sizes: see the e2e record. omp's binary is about 277 MB of the image.

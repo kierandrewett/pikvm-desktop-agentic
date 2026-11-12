@@ -38,5 +38,7 @@ vi.mock("@pikvm/chat-web", async () => {
         AgentPage: page("agent"),
         // The run-end signal the app listens to (the icon badge): a stub that never fires.
         onRunFinished: () => () => {},
+        // The chat socket the connection monitor reads: never opened here.
+        chatSocket: { status: "closed", onStatus: () => () => {} },
     };
 });
