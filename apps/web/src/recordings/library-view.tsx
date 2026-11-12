@@ -7,9 +7,8 @@
  * applied here, on the list the host sent, so they answer at once and their counts are always true.
  */
 
-import type { RecordingSort, RecordingView, TranscriptionStatus, YouTubeSettings } from "@pikvm/contracts/recordings";
+import type { RecordingSort, RecordingView, TranscriptionStatus } from "@pikvm/contracts/recordings";
 import { ArrowClockwise, ArrowsDownUp, Copy, DotsThreeVertical, DownloadSimple, FilmStrip, PencilSimple, Trash, VideoCamera, X } from "@pikvm/icons";
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { mediaUrl } from "../kvm/recorder/api";
@@ -19,7 +18,6 @@ import { MenuButton, type MenuItem } from "./menu";
 import { Expiry, Poster, Provenance, StatusPill } from "./parts";
 import { copyTranscript } from "./transcript-actions";
 import { errorText, type Library } from "./use-library";
-import { readYouTubeSettings, uploadRecordingToYouTube, youtubeKey } from "./youtube-api";
 
 interface LibraryViewProps {
     readonly library: Library;
@@ -128,21 +126,17 @@ export function RenameField({ initial, placeholder, onDone, onSave, className = 
     );
 }
 
-function RowMenu({ recording, transcription, youtubeConnected, onRename, onDelete, onTranscribe, onYouTube, onNotice }: {
+function RowMenu({ recording, transcription, onRename, onDelete, onTranscribe, onNotice }: {
     readonly recording: RecordingView;
     readonly transcription: TranscriptionStatus;
     readonly onRename: () => void;
     readonly onDelete: () => void;
     readonly onTranscribe: () => void;
-    readonly youtubeConnected: boolean;
-    readonly onYouTube: () => void;
     readonly onNotice: LibraryViewProps["onNotice"];
 }) {
     const name = displayTitle(recording);
     const hasMedia = recording.status !== "recording" && recording.status !== "finishing" && recording.bytes > 0;
     const canTranscribe = transcription.available && (recording.status === "ready" || recording.status === "failed");
-    const youtubeState = recording.youtube?.state;
-    const canYouTube = youtubeConnected && (recording.status === "ready" || recording.status === "done") && youtubeState !== "uploaded" && youtubeState !== "uploading" && youtubeState !== "verifying";
     const items: MenuItem[] = [
         { id: "open", label: "Open", icon: <VideoCamera aria-hidden="true" />, run: () => document.getElementById(`rl-open-${recording.id}`)?.click() },
         { id: "rename", label: "Rename", icon: <PencilSimple aria-hidden="true" />, run: onRename },
@@ -155,7 +149,6 @@ function RowMenu({ recording, transcription, youtubeConnected, onRename, onDelet
             run: () => void copyTranscript(recording.id).then((ok) => onNotice(ok ? { tone: "ok", text: "Transcript copied." } : { tone: "bad", text: "The transcript could not be copied." })),
         },
         ...(canTranscribe ? [{ id: "transcribe", label: recording.status === "failed" ? "Try transcribing again" : "Transcribe", icon: <ArrowClockwise aria-hidden="true" />, run: onTranscribe }] : []),
-        ...(canYouTube ? [{ id: "youtube", label: youtubeState === "failed" ? "Try YouTube upload again" : "Upload to YouTube", icon: <FilmStrip aria-hidden="true" />, run: onYouTube }] : []),
         {
             id: "download",
             label: "Download",
@@ -181,8 +174,6 @@ function RowMenu({ recording, transcription, youtubeConnected, onRename, onDelet
 
 export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice, onOpenKvm }: LibraryViewProps) {
     const confirm = useConfirm();
-    const youtube = useQuery<YouTubeSettings, Error>({ queryKey: youtubeKey, queryFn: readYouTubeSettings, staleTime: 30_000 });
-    const youtubeConnected = youtube.data?.connected === true;
     const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
     const [editing, setEditing] = useState<string | null>(null);
     const anchor = useRef<string | null>(null);
@@ -229,13 +220,12 @@ export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice,
 
     const deleteMany = async (ids: ReadonlyArray<string>): Promise<void> => {
         const first = recordings.find((r) => r.id === ids[0]);
-        const warning = ids.map((id) => recordings.find((r) => r.id === id)?.youtubeWarning).find((w) => w !== undefined);
         const sure = await confirm.ask({
             title: ids.length === 1 ? "Delete this recording?" : `Delete ${ids.length} recordings?`,
             body:
-                (ids.length === 1 && first
+                ids.length === 1 && first
                     ? `${first.status === "recording" ? "The recording in progress is stopped first. " : ""}"${displayTitle(first)}", its sound and its transcript are removed from the host. This cannot be undone.`
-                    : "The videos, their sound and their transcripts are removed from the host. This cannot be undone.") + (warning ? ` ${warning}` : ""),
+                    : "The videos, their sound and their transcripts are removed from the host. This cannot be undone.",
             confirm: ids.length === 1 ? "Delete" : `Delete ${ids.length}`,
             danger: true,
         });
@@ -243,16 +233,6 @@ export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice,
         const refused = await library.remove(ids);
         if (refused.length === 0) onNotice({ tone: "ok", text: ids.length === 1 ? "Recording deleted." : `${ids.length} recordings deleted.` });
         else onNotice({ tone: "bad", text: `${refused.length} of ${ids.length} could not be deleted: ${refused[0]?.message ?? ""}` });
-    };
-
-    const uploadToYouTube = async (recording: RecordingView): Promise<void> => {
-        try {
-            await uploadRecordingToYouTube(recording.id);
-            onNotice({ tone: "ok", text: "Queued for YouTube. It appears here when the upload is done." });
-            void library.reload();
-        } catch (error) {
-            onNotice({ tone: "bad", text: `Could not upload to YouTube: ${error instanceof Error ? error.message : "Something went wrong."}` });
-        }
     };
 
     const save = (id: string) => async (title: string | null): Promise<void> => {
@@ -442,8 +422,6 @@ export function LibraryView({ library, filter, sort, onFilter, onSort, onNotice,
                                     <RowMenu
                                         recording={r}
                                         transcription={state.transcription}
-                                        youtubeConnected={youtubeConnected}
-                                        onYouTube={() => void uploadToYouTube(r)}
                                         onRename={() => setEditing(r.id)}
                                         onDelete={() => void deleteMany([r.id])}
                                         onTranscribe={() =>

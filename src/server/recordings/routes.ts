@@ -22,12 +22,6 @@ import { isRecordingId, RecordingRefusal } from "./store";
  *   GET    /:id/media           the file, with Range
  *   GET    /:id/transcript      the transcript JSON (404 until done)
  *   POST   /:id/transcribe      start or restart the transcription
- *   GET    /youtube             the YouTube upload settings; the client secret and the refresh token are never returned
- *   PATCH  /youtube             { autoUpload?, privacy?, clientId?, clientSecret? }: change them (null or "" clears an id or secret)
- *   POST   /youtube/connect     start the YouTube sign-in: the code to type at Google is in the reply
- *   POST   /youtube/disconnect  revoke the sign-in here and at Google, and turn auto-upload off
- *   POST   /youtube/backfill    queue the existing finished recordings that were never uploaded, oldest first
- *   POST   /:id/youtube         queue the recording for YouTube now (a first upload or a retry)
  *
  * The route table (routes.ts) has judged the sign-in and required the `x-pikvm-recording: 1` header on every write. Here: a JSON
  * body on every write. The microphone socket cannot carry that header; the router checks the sign-in and that the page is of this
@@ -183,33 +177,6 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
             return json(res, 200, service.search(query));
         }
 
-        if (rest === "/youtube") {
-            if (method === "GET") return json(res, 200, service.youtubeSettings());
-            if (method === "PATCH") {
-                requireJson(req);
-                return json(res, 200, await service.updateYouTube(await readJson(req)));
-            }
-            return methodNot(res, "GET", "PATCH");
-        }
-
-        if (rest === "/youtube/backfill") {
-            if (method !== "POST") return methodNot(res, "POST");
-            requireJson(req);
-            return json(res, 200, await service.backfillYouTube());
-        }
-
-        if (rest === "/youtube/connect") {
-            if (method !== "POST") return methodNot(res, "POST");
-            requireJson(req);
-            return json(res, 200, await service.connectYouTube());
-        }
-
-        if (rest === "/youtube/disconnect") {
-            if (method !== "POST") return methodNot(res, "POST");
-            requireJson(req);
-            return json(res, 200, await service.disconnectYouTube());
-        }
-
         const parts = rest.slice(1).split("/");
         let id: string;
         try {
@@ -256,11 +223,6 @@ export function createRecordingRoutes(service: RecordingService): RecordingRoute
             if (method !== "POST") return methodNot(res, "POST");
             requireJson(req);
             return json(res, 200, await service.transcribe(id));
-        }
-        if (what === "youtube") {
-            if (method !== "POST") return methodNot(res, "POST");
-            requireJson(req);
-            return json(res, 200, await service.uploadYouTube(id));
         }
         return json(res, 404, { error: "Not found" });
     }

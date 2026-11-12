@@ -209,59 +209,6 @@ export interface RecordingView {
     holes: RecordingHole[];
     /** Whether the file has a second audio track (the microphone). Always false for a browser recording, which has the microphone as the right channel of its one track. */
     hasMic: boolean;
-    /** The YouTube upload of this recording, when auto-upload or a manual upload ever started for it. Absent otherwise. */
-    youtube?: RecordingYouTube;
-    /** Set when auto-upload covers this recording and YouTube has not verified it: the text the delete confirmation shows. */
-    youtubeWarning?: string;
-}
-
-/** Where a recording's YouTube upload stands. "uploaded" means YouTube itself reports the video as uploaded or processed. */
-export type RecordingYouTubeState = "pending" | "uploading" | "verifying" | "uploaded" | "failed";
-
-export interface RecordingYouTube {
-    state: RecordingYouTubeState;
-    /** The video's id on YouTube, once the upload returned one. */
-    videoId: string | null;
-    /** Why it failed or is being retried, in a sentence; null otherwise. */
-    error: string | null;
-    /** ISO time YouTube confirmed the video. */
-    uploadedAt: string | null;
-}
-
-/** The privacy YouTube gives an upload. */
-export const YOUTUBE_PRIVACY = ["private", "unlisted", "public"] as const;
-export type YouTubePrivacy = (typeof YOUTUBE_PRIVACY)[number];
-
-/** The host's YouTube upload settings. The client secret and the refresh token are never sent: only whether they are set. */
-export interface YouTubeSettings {
-    autoUpload: boolean;
-    privacy: YouTubePrivacy;
-    clientId: string | null;
-    clientSecretSet: boolean;
-    /** Whether a YouTube account is signed in on the host. */
-    connected: boolean;
-    /** ISO time auto-upload was turned on: earlier recordings are not uploaded automatically. Null when it is off. */
-    autoUploadSince: string | null;
-    /** ISO time Google's daily YouTube allowance resets and the queue resumes, while uploads are paused for quota. Null otherwise. */
-    quotaResumeAt: string | null;
-    /** A sign-in in progress: the code to type at Google's device page. Null when none is. */
-    pending: { userCode: string; verificationUrl: string; expiresAt: string } | null;
-    /** Why the last sign-in or upload setting failed, in a sentence; null when there is no such failure. */
-    lastError: string | null;
-    /** Turning auto-upload on also queues the existing recordings that were never uploaded. Off by default. */
-    backfillOnEnable: boolean;
-    /** The batch of existing recordings being uploaded, oldest first. */
-    backfill: YouTubeBackfill;
-}
-
-/** Progress of the existing recordings queued for YouTube. `eligible` is how many could be queued now. */
-export interface YouTubeBackfill {
-    eligible: number;
-    total: number;
-    uploaded: number;
-    failed: number;
-    /** Recordings still to go while Google's daily allowance is used up; 0 when uploads are not paused for quota. */
-    waitingForQuota: number;
 }
 
 export type RecordingConnection = "connecting" | "live" | "reconnecting";

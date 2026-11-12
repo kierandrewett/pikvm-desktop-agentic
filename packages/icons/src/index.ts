@@ -1685,5 +1685,4 @@ export { XLogo, XLogo as XLogoIcon } from "./generated/XLogo";
 export { XSquare, XSquare as XSquareIcon } from "./generated/XSquare";
 export { Yarn, Yarn as YarnIcon } from "./generated/Yarn";
 export { YinYang, YinYang as YinYangIcon } from "./generated/YinYang";
-export { YoutubeLogo, YoutubeLogo as YoutubeLogoIcon } from "./generated/YoutubeLogo";
 export { ChatCompose, ChatCompose as ChatComposeIcon } from "./generated/ChatCompose";

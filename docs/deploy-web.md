@@ -654,33 +654,6 @@ stream with a microphone: the host's node process used **9 % of one core and 162
 The capture's own ffmpeg only copies packets into a file. The re-encode is `nice -n 19`, one at a time, and held while a
 transcription runs. The 2 GiB raw-backlog limit is what keeps a host that is too busy to re-encode from filling its disk.
 
-### YouTube upload
-
-Optional, off until you connect it. A finished host recording can go to the host owner's YouTube channel (YouTube Data API v3).
-In the settings, paste a Google OAuth client ID and secret of type **TVs and Limited Input devices**, then connect: the page shows
-a code to type at `google.com/device`. The sign-in asks only for the `youtube.upload` scope. Turn auto-upload on once connected
-(it refuses before then). While the app is in testing, the owner's Google account must be a test user.
-
-How an upload goes: one recording at a time, in a resumable session sent in 8 MiB chunks. Its progress is kept in the recording's
-directory (`youtube.json`), so a restart carries on from YouTube's own offset; a session Google no longer honours starts again from
-zero. A recording counts as uploaded only once YouTube reports the video `uploaded` or `processed`. `rejected`, `failed` and
-`deleted` are final and the reason is shown. Other failures (network, HTTP 429 and 5xx, and a 403 whose reason is
-`rateLimitExceeded` or `userRateLimitExceeded`) retry with a
-back-off from one minute, doubling, capped at six hours, and give up after ten attempts. A 403 whose reason says the day's
-allowance is used up (`quotaExceeded`, `dailyLimitExceeded`, `uploadLimitExceeded`) is not the recording's fault: the whole queue
-pauses, the recording stays queued untouched, and the settings say "Paused: daily YouTube quota used, resumes at <time>". The
-queue resumes by itself at the next midnight in America/Los_Angeles, when Google's allowance resets. Any other HTTP error from
-Google (a 403 with any other reason, such as `forbidden`) is final at once: the recording shows Google's message and "Upload to
-YouTube" retries it by hand. Visibility is the setting's (`private` by default).
-
-The settings and the sign-in are in `youtube-upload.json` in the data directory (mode 0600). The client secret and the refresh
-token are never returned or logged. Disconnecting revokes the sign-in at Google and turns auto-upload off. Deleting a recording
-that has no verified YouTube upload asks for confirmation and says so.
-
-Existing recordings are not uploaded by turning auto-upload on, unless **Also upload existing recordings when auto-upload is turned on** is on (off by default, so enabling never spends quota by surprise). Under **Existing recordings** in the settings, **Upload existing recordings** queues every finished host recording that is not on YouTube yet, oldest first; the button shows how many are eligible. Recordings still being captured or re-encoded, those with a verified upload, and those that failed (a failed one needs its own "Upload to YouTube") are left out. Asking again queues only what is still missing, so repeating it is harmless. The progress line reads "n of m uploaded, k waiting for quota", and the batch survives a restart.
-
-The quota is the limit. Google's default for uploads is **100 a day**: `videos.insert` has its own quota bucket, one unit per call, separate from the 10,000 units a day shared by the other calls (see Google's quota calculator at `developers.google.com/youtube/data/determine_quota_cost`). A backlog of 300 recordings therefore takes about three days. The queue does not skip the pause: when the day's allowance is used up, the backlog waits and resumes at the next midnight in America/Los_Angeles, as above. The real limit for the project is on the Quotas page of the Google Cloud console; a higher one is a quota extension request to Google, not a setting here.
-
 ### Privacy
 
 Recordings can hold passwords typed on the target and private talk, so they are kept 30 days by default, never leave the host,

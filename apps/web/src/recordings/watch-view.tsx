@@ -293,7 +293,7 @@ export function WatchView({ id, library, q, t, active, onQuery, onLeave, onNotic
         if (!recording) return;
         const sure = await confirm.ask({
             title: "Delete this recording?",
-            body: `${recording.status === "recording" ? "The recording in progress is stopped first. " : ""}"${name}", its sound and its transcript are removed from the host. This cannot be undone.${recording.youtubeWarning ? ` ${recording.youtubeWarning}` : ""}`,
+            body: `${recording.status === "recording" ? "The recording in progress is stopped first. " : ""}"${name}", its sound and its transcript are removed from the host. This cannot be undone.`,
             confirm: "Delete",
             danger: true,
         });

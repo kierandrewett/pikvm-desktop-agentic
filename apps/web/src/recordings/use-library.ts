@@ -71,9 +71,8 @@ export function useLibrary(active: boolean): Library {
         if (active) void reload();
     }, [active, reload]);
 
-    // A recording being made, transcribed or sent to YouTube is one the list should keep re-reading until it settles.
-    const settling = (r: RecordingView): boolean =>
-        r.status === "transcribing" || r.status === "recording" || r.status === "finishing" || r.youtube?.state === "uploading" || r.youtube?.state === "verifying";
+    // A recording being made or transcribed is one the list should keep re-reading until it settles.
+    const settling = (r: RecordingView): boolean => r.status === "transcribing" || r.status === "recording" || r.status === "finishing";
     const busy = active && state.phase === "ready" && state.recordings.some(settling);
     useEffect(() => {
         if (!busy) return;
