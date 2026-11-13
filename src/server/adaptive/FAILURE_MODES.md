@@ -54,6 +54,46 @@ profile, named by a random key the page keeps; its rung outlives a connection.
 - P9. A client that arrives in the few milliseconds between the Pi's stream closing and the host noticing is handed the last
   frame (tens of milliseconds old). That is right, not a stale picture; the host drops the frame as soon as it notices.
 
+## Audio
+
+The degraded path carries the Pi's audio too, because WebRTC carries the only audio and dies with WebRTC. The host
+decodes the Pi's Opus once and re-encodes it per client at a lower rate, sent over a WebSocket. It has its own rungs and
+its own controller, and never shares a rung with the picture.
+
+- U1. Audio is never queued behind a slow client. Each client holds at most 10 packets (200 ms); when that is full the
+  OLDEST packet is dropped. A packet is never delayed to wait for a link.
+- U2. A packet is written only when the socket can take it: `bufferedAmount` plus the kernel's `tx_queue` is within
+  max(4 KiB, 200 ms of the rung's bitrate). Otherwise it stays in the bounded queue and is superseded.
+- U3. Backlog (a packet dropped, or the socket over its limit at a tick) moves the client DOWN one rung, at most one step
+  per 1.5 s. Six clean seconds move it UP one rung. The hold-off and doubling rules of A3 and A4 apply unchanged.
+- U4. The rungs are 0 stereo 64 kbps, 1 stereo 32 kbps, 2 mono 24 kbps, 3 mono 12 kbps. Each packet's header says whether
+  it is stereo. A change of rung also sends a text `{rung, bitrate, channels}` before the first packet at the new layout.
+- U5. Each client has its own Opus encoder (VBR, in-band FEC on, expected loss 10%). A rung change reconfigures it; it is
+  not restarted. Sequence numbers continue across a change, so a client sees loss as a gap and never as a reset.
+- U6. ONE Janus audio-only session (no video transceiver) serves every audio client. It opens with the first client and
+  closes with the last (no linger). The Pi's audio ending, stalling or the session ending is reconnected with the
+  backoff of the janus client (1 s to 15 s). Clients stay connected and get `{state: "waiting"}`; on resume they get
+  `{state: "live"}`. Audio from the gap is never replayed.
+- U7. Waiting for more than 30 s closes the client's socket (code 4503), as P3 closes a picture that lost its source. The
+  client reconnects. A socket with nothing sent for 30 s while packets are queued is dead and is terminated (A5).
+- U8. The text header `{codec: "opus", rate: 48000, channels, frameMs: 20, version: 1}` is the first message on every
+  connection, before any packet, including while waiting. A client configures its decoder from it.
+- U9. An Opus packet from the Pi that does not decode is skipped and counted (`decodeErrors`). An encoder error ends that
+  one client (code 1011); the others are unaffected. Neither is fatal to the process.
+- U10. Audio has its own connection cap (6, like the picture's I4), so audio cannot be starved by pictures or the reverse.
+  A device has one audio connection at a time (I3). The device record, its rung memory, idle forgetting and the 64
+  device limit (I4) are shared with the picture; the audio rung is a separate field of that record.
+- U11. Identity is as for the picture: the key (I1), the signed-in subject (I2), the `profile` parameter (I5), GET only
+  (I6). The upgrade is refused with HTTP 400 for a bad key, 403 for a cross-site page (the chat socket's rule) and 404
+  for a path not served. The socket accepts no client messages beyond close; a message over 4 KiB closes it.
+- U12. Teardown: a client's close or error releases its queue, encoder, timers and link meter. The last client closes the
+  Janus session. Service dispose closes every audio socket (1001) and the Janus session. The kernel-queue tick runs only
+  while a client exists and is `unref`ed (T5).
+- U13. Status adds an `audio` object only: clients, per-device rung and bitrate, bytes and packets sent and dropped,
+  `decodeErrors`, Janus state, and the worst queued age in ms. No existing status field changes shape.
+- U14. Audio never changes the Pi: no kvmd parameter is read or written (I7), and the Janus session is a watch, the same
+  as the normal audio path. One extra Janus session is still one extra viewer on the Pi.
+
 ## Identity and limits
 
 - I1. The device key comes from the page (a random id it stores) and is `[A-Za-z0-9_-]{8,64}`; anything else is 400.
