@@ -23,6 +23,9 @@ try {
         bundle: true,
         sourcemap: "inline",
         logLevel: "silent",
+        // sharp is a native addon the web image installs beside dist/ (scripts/build.mjs leaves it out too). A checkout
+        // without it must still bundle the tests: src/server/adaptive/encoder.ts loads it when first used, and no test needs it.
+        external: ["sharp"],
     });
     const files = readdirSync(output)
         .filter((name) => name.endsWith(".test.js"))

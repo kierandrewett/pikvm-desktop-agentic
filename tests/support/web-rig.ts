@@ -66,6 +66,13 @@ export function stubTargets(webAuth?: WebAuth): RouteTargets {
                 res.end(`recordings ${req.method} ${path}`);
             },
         },
+        adaptive: {
+            handles: (path: string) => path.startsWith("/app/api/v1/adaptive/"),
+            handle(req: IncomingMessage, res: ServerResponse, path: string): void {
+                res.writeHead(200, { "content-type": "text/plain", "x-target": "adaptive" });
+                res.end(`adaptive ${req.method} ${path}`);
+            },
+        },
         cursor: {
             handles: (path: string) => path === "/app/api/v1/cursor",
             // A server-sent-events stream: one event, then the stream ends so a test can read it whole.
