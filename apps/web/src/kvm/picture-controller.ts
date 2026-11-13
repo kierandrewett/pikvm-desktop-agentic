@@ -548,7 +548,10 @@ export function createPictureController(options: PictureOptions): PictureControl
                 patch({ webrtc: false });
                 remeasure();
                 // A session that had played was lost, and not by a hold: a drop for the governor (K120).
-                if (event.wasActive && !driver.state.webrtcHeld && quality === "auto") applyVerdict(governor.drop(clock.now()));
+                // Only a session that had PLAYED: one that got a track and never played is a failed start, not a drop.
+                const hadPlayed = sessionPlayed;
+                sessionPlayed = false;
+                if (hadPlayed && !driver.state.webrtcHeld && quality === "auto") applyVerdict(governor.drop(clock.now()));
             }
         },
         // The link's own lifecycle binding (session.ts) already kicks the socket after a long
@@ -571,10 +574,13 @@ export function createPictureController(options: PictureOptions): PictureControl
 
     const quality = desktop ? "full" : readPictureQuality();
     const governor = createGovernor();
+    /** The session now running has played (its <video> was swapped in), so losing it is a drop for the governor (K120). */
+    let sessionPlayed = false;
     if (quality === "full") driver.send({ type: "source", pref: "direct" });
     else if (quality === "reduced") driver.send({ type: "holdWebrtc", ms: Number.POSITIVE_INFINITY }); // no expiry: only a change of the choice ends it (W23)
-    const applyVerdict = (verdict: { holdMs: number } | null): void => {
+    const applyVerdict = (verdict: { holdMs: number; reason: string } | null): void => {
         if (!verdict) return;
+        console.info(`[governor] hold ${Math.round(verdict.holdMs / 1000)} s: ${verdict.reason}`);
         governor.held(clock.now());
         driver.send({ type: "holdWebrtc", ms: verdict.holdMs });
         const minutes = Math.max(1, Math.round(verdict.holdMs / 60_000));
@@ -584,7 +590,10 @@ export function createPictureController(options: PictureOptions): PictureControl
         quality === "auto"
             ? rtcStats.subscribe(() => {
                   const stats = rtcStats.getState();
-                  if (stats) applyVerdict(governor.sample(stats, clock.now()));
+                  if (!stats) return;
+                  // A session has played once it has decoded frames: the <video> can report 'playing' with no media behind it.
+                  if (stats.fps > 0) sessionPlayed = true;
+                  applyVerdict(governor.sample(stats, clock.now()));
               })
             : () => {};
 

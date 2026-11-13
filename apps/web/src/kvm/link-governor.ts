@@ -11,6 +11,9 @@ import type { RtcStats } from "./rtc-health";
 
 /** One sample is bad at this share of lost video packets or more. */
 export const BAD_LOSS = 0.05;
+/** Loss counts only with fewer decoded frames than this a second, unless it is at least SEVERE_LOSS. */
+export const BAD_FPS = 15;
+export const SEVERE_LOSS = 0.2;
 /** One sample is bad at this round trip or more, ms. */
 export const BAD_RTT_MS = 800;
 /** One sample is bad at this jitter or more, ms. */
@@ -21,9 +24,6 @@ export const BAD_NEEDED = 4;
 /** Two drops of a session that had played within this long make the link flapping, whatever the samples say. */
 export const DROPS_WINDOW_MS = 120_000;
 export const DROPS_NEEDED = 2;
-/** One drop is enough when this many of the last few samples before it were bad. */
-export const RECENT_BEFORE_DROP = 3;
-export const BAD_BEFORE_DROP = 2;
 export const HOLD_FIRST_MS = 60_000;
 export const HOLD_MAX_MS = 10 * 60_000;
 /** A session that is bad again this soon after a hold ended doubles the next hold. */
@@ -40,7 +40,10 @@ export interface Verdict {
 
 /** True for one sample of a playing session. A quiet screen sends few frames, so frames and bitrate are not judged. */
 export function isBadSample(stats: RtcStats): boolean {
-    return stats.lossFraction >= BAD_LOSS || (stats.rttMs ?? 0) >= BAD_RTT_MS || stats.jitterMs >= BAD_JITTER_MS;
+    // Loss counts when the picture is suffering for it (few frames decoded) or when it is severe: retransmission hides moderate
+    // loss completely, and a healthy path shows a few percent now and then.
+    const lossHurts = stats.lossFraction >= BAD_LOSS && (stats.fps < BAD_FPS || stats.lossFraction >= SEVERE_LOSS);
+    return lossHurts || (stats.rttMs ?? 0) >= BAD_RTT_MS || stats.jitterMs >= BAD_JITTER_MS;
 }
 
 export interface Governor {
@@ -87,10 +90,8 @@ export function createGovernor(): Governor {
             drops = drops.filter((at) => now - at < DROPS_WINDOW_MS);
             drops.push(now);
             goodSince = null;
-            // A drop straight after bad samples is the collapse those samples were showing: stall detection (W11) often ends the
-            // session before the samples alone could make a verdict, and a retry that never plays again is not a second drop.
-            const collapsing = recent.slice(-RECENT_BEFORE_DROP).filter(Boolean).length >= BAD_BEFORE_DROP;
-            if (collapsing || drops.length >= DROPS_NEEDED) return verdict("drops", now);
+            recent = []; // the next session is judged on its own samples, not on the dying one's
+            if (drops.length >= DROPS_NEEDED) return verdict("drops", now);
             return null;
         },
         held() {
