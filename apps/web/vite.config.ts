@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { scopeChatTheme } from "./scope-chat-theme";
+import { shellWorkerPlugin } from "./shell-worker";
 import { startupImagesPlugin } from "./startup-images";
 
 // The release version is the repository root's (the workspace's own package.json says 0.0.0).
@@ -14,7 +15,8 @@ const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.ur
  * .git; otherwise git; otherwise "dev") and the minute-and-second the build ran, so two builds never share
  * an id. It is compiled into the app (__BUILD_ID__, shown in Settings > About) and written to
  * /app/version.json, which an installed app that was put away and brought back compares with its own to
- * learn that a newer build is deployed (src/host/update.ts).
+ * learn that a newer build is deployed (src/host/update.ts). The service worker gets it too, with the build's
+ * file list (shell-worker.ts), so each build has its own worker and its own cache.
  */
 function buildId(): string {
     let commit = process.env.PIKVM_BUILD_ID?.trim();
@@ -45,6 +47,7 @@ export default defineConfig({
         tailwindcss(),
         scopeChatTheme(),
         startupImagesPlugin(),
+        shellWorkerPlugin({ buildId: BUILD_ID }),
         {
             name: "build-id-file",
             generateBundle() {

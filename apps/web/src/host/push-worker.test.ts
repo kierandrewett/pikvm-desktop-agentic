@@ -5,7 +5,7 @@
  *  W1. A push whose body cannot be read shows nothing (iOS and Chrome then revoke the subscription).
  *  W2. The payload's text is not what the notification shows, or its tag does not replace the last one.
  *  W3. A tap opens a new window every time instead of the app that is already open, or opens a page outside /app/.
- *  W4. The worker's existing behaviour (offline page, caching) is disturbed by the handlers.
+ *  W4. The worker's other handlers (install, activate, fetch, messages from the pages) are lost or disturbed by these.
  *  W5. A push that carries a badge does not put it on the app icon (so it is missing when the app is closed), counts
  *      only the first of several, tells no open page, or an API that fails or is missing stops the notification.
  */
@@ -126,9 +126,9 @@ describe("notificationclick", () => {
 });
 
 describe("the worker's other jobs", () => {
-    it("W4: still has its install, activate and fetch handlers", () => {
+    it("W4: still has its install, activate, fetch and message handlers beside the push ones", () => {
         const { listeners } = boot();
-        expect(Object.keys(listeners).sort()).toEqual(["activate", "fetch", "install", "notificationclick", "push"]);
+        expect(Object.keys(listeners).sort()).toEqual(["activate", "fetch", "install", "message", "notificationclick", "push"]);
     });
 });
 
@@ -193,14 +193,17 @@ describe("the icon badge", () => {
         const self = {
             location: { origin: ORIGIN },
             addEventListener: (type: string, listener: (event: unknown) => void) => (listeners[type] = listener),
-            skipWaiting: vi.fn(),
-            clients: { claim: vi.fn() },
+            clients: { matchAll: async () => [] },
+            registration: { waiting: null, installing: null },
         };
-        const storage = { keys: async () => ["pikvm-app-v1", "pikvm-badge-v1", "pikvm-console-v2"], delete: async (name: string) => void deleted.push(name) };
+        const storage = {
+            keys: async () => ["pikvm-app-v1", "pikvm-badge-v1", "pikvm-console-v2", "pikvm-signin-v1"],
+            delete: async (name: string) => void deleted.push(name),
+        };
         new Function("self", "caches", "fetch", "Response", "URL", source)(self, storage, vi.fn(), Response, URL);
         const activate = { waitUntil: vi.fn() };
         listeners["activate"]?.(activate);
         await activate.waitUntil.mock.calls[0]?.[0];
-        expect(deleted).toEqual(["pikvm-console-v2"]);
+        expect(deleted.sort()).toEqual(["pikvm-app-v1", "pikvm-console-v2"]);
     });
 });

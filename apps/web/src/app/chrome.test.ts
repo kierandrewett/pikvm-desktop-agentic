@@ -52,6 +52,37 @@ const read = (path: string) => readFileSync(resolve(import.meta.dirname, "../.."
 const html = read("index.html");
 const css = read("src/styles.css");
 const worker = read("public/sw.js");
+
+/**
+ * The page the worker shows when the host cannot be reached. Runs the worker's own fetch handler with the network down
+ * and no caches, the way a phone with no signal does, and reads the page it answers with.
+ */
+async function offlinePageDocument(): Promise<Document> {
+    type FetchEvent = { request: unknown; respondWith: (p: Promise<Response>) => void; waitUntil: (p: Promise<unknown>) => void };
+    let onFetch: ((e: FetchEvent) => void) | undefined;
+    const offline = () => Promise.reject(new TypeError("offline"));
+    const scope = {
+        location: { origin: "https://pikvm.test" },
+        registration: {},
+        addEventListener: (type: string, fn: (e: FetchEvent) => void) => {
+            if (type === "fetch") onFetch = fn;
+        },
+    };
+    const noCaches = { match: async () => undefined, has: async () => false, open: offline };
+    new Function("self", "caches", "fetch", "Response", "URL", "Headers", worker)(scope, noCaches, offline, Response, URL, Headers);
+    let answer: Promise<Response> | undefined;
+    onFetch?.({
+        request: { method: "GET", mode: "navigate", url: "https://pikvm.test/app/login", headers: new Headers() },
+        respondWith: (p) => {
+            answer = p;
+        },
+        waitUntil: () => undefined,
+    });
+    const res = await answer;
+    if (!res) throw new Error("the worker did not answer the navigation");
+    return new DOMParser().parseFromString(await res.text(), "text/html");
+}
+
 const manifest = JSON.parse(read("public/manifest.webmanifest")) as Record<string, string>;
 
 /** The declarations of the first rule whose selector is exactly `selector`. */
@@ -78,10 +109,11 @@ afterEach(() => {
 });
 
 describe("status bar", () => {
-    it("starts black in the manifest, the meta tag and the offline page (the shell then paints it per tab)", () => {
+    it("starts black in the manifest, the meta tag and the offline page (the shell then paints it per tab)", async () => {
         expect(meta("theme-color")).toBe("#000000");
         expect(manifest.theme_color).toBe("#000000");
-        expect(worker).toMatch(/<meta name="theme-color" content="#000000">/);
+        const offline = await offlinePageDocument();
+        expect(offline.querySelector('meta[name="theme-color"]')?.getAttribute("content")).toBe("#000000");
     });
 
     it("is not re-tinted by theme.ts itself: the shell paints it, from the tab and the theme (status-colour.ts)", () => {
@@ -126,8 +158,11 @@ describe("status bar", () => {
         expect(rule(kvmCss, ".kvm-res-toast,\n.kvm-toast")).not.toMatch(/backdrop-filter/);
     });
 
-    it("is also black on the offline page", () => {
-        expect(worker).toMatch(/html::before\s*\{[^}]*env\(safe-area-inset-top[^}]*background:\s*#000/);
+    it("is also black on the offline page, under the status bar's inset", async () => {
+        const offline = await offlinePageDocument();
+        const strip = rule(offline.querySelector("style")?.textContent ?? "", "html::before");
+        expect(strip).toMatch(/env\(safe-area-inset-top/);
+        expect(strip).toMatch(/background:\s*#000/);
     });
 });
 

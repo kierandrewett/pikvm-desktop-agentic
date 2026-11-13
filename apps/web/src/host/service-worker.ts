@@ -1,6 +1,7 @@
 /**
- * The installed app's service worker (public/sw.js): an offline page for the moment the KVM
- * cannot be reached, and nothing else. See the worker for why it never serves a cached page.
+ * The installed app's service worker (public/sw.js): it keeps the app shell of each build, so the UI opens at once and
+ * with no connection, and it shows an offline page for a navigation it has no cache for. A new build's worker waits
+ * for the page to take it over (update.ts), so a page and its worker are always one build.
  */
 
 import { isDesktopApp } from "./desktop";
@@ -29,11 +30,17 @@ export async function registerServiceWorker(host: WorkerHost): Promise<boolean> 
     }
 }
 
+/** The worker fills a cache of every file of the build when it installs: that waits until the page has loaded what it needs. */
+const AFTER_LOAD_MS = 1_000;
+
 export function registerServiceWorkerForPage(): void {
-    void registerServiceWorker({
-        ...(typeof navigator !== "undefined" && "serviceWorker" in navigator ? { serviceWorker: navigator.serviceWorker } : {}),
-        secure: typeof window !== "undefined" && window.isSecureContext,
-        desktop: isDesktopApp(),
-        production: import.meta.env.PROD,
-    });
+    const register = () =>
+        void registerServiceWorker({
+            ...(typeof navigator !== "undefined" && "serviceWorker" in navigator ? { serviceWorker: navigator.serviceWorker } : {}),
+            secure: typeof window !== "undefined" && window.isSecureContext,
+            desktop: isDesktopApp(),
+            production: import.meta.env.PROD,
+        });
+    if (document.readyState === "complete") window.setTimeout(register, AFTER_LOAD_MS);
+    else window.addEventListener("load", () => window.setTimeout(register, AFTER_LOAD_MS), { once: true });
 }
