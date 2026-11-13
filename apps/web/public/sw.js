@@ -282,8 +282,8 @@ async function navigation(e, url) {
         return fetch(e.request).catch(offlinePage);
     }
     if (await isSignedOut()) {
-        // Whoever is signed out must not be shown the app while the host can say so: ask it first, and use the cached
-        // shell only when it cannot be reached.
+        // Whoever is signed out must not be shown the app: ask the host first. When it cannot be reached the retry page
+        // is shown, not the cached shell, so a known sign-out is never hidden behind the cached app.
         const wait = new Promise((resolve) => setTimeout(() => resolve(null), SIGNED_OUT_WAIT_MS));
         try {
             const res = await Promise.race([fetch(e.request), wait]);
@@ -292,9 +292,9 @@ async function navigation(e, url) {
                 return res;
             }
         } catch (_) {
-            // Unreachable: the shell below.
+            // Unreachable: the retry page below.
         }
-        return (await cachedShell()) || offlinePage();
+        return offlinePage();
     }
     const shell = await cachedShell();
     if (shell) {

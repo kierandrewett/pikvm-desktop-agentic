@@ -1032,7 +1032,7 @@ The installed app opens from the service worker's cache, so a phone with a bad l
 - **Never cached.** `/app/api`, chat API and socket, terminal, legacy frame, `version.json`, sign-in and sign-out pages, recording media, event streams, any non-GET. Offline these fail; they are never stale.
 - **Installing.** The worker never calls `skipWaiting` on its own and never claims pages. It waits and takes over when no page is left or a page asks. A refused file (sign-in redirect, 401, 404) ends the install at once and is not retried.
 - **Applying.** A ready update is applied by the page only at a quiet moment (just started, or back from being put away, with nothing typed and not recording). Otherwise a toast offers Reload. A page reloads at most once per build per tab session.
-- **Signed out.** The worker remembers a signed-out person and asks the network first for the next navigation, so the cached shell is not drawn over the sign-in page.
+- **Signed out.** The worker remembers a signed-out person and asks the network first for the next navigation, so the cached shell is not drawn over the sign-in page. When the host cannot be reached, a known signed-out person sees the retry page, not the cached shell.
 
 Failure modes: `apps/web/src/kvm/FAILURE_MODES.md` (K93 to K108, K114, K115). Proof, in real Chrome against the built app with a fake host that can be stopped and a TCP proxy that delays and drops: `~/.cache/pikvm-e2e/shell-cache/` (`REPORT.md`, `run.mjs`, the logs and screenshots). Not proved there: a real iPhone or Safari standalone app, a real cellular link (the proxy only approximates one), and Cache Storage eviction after a week of disuse.
 
