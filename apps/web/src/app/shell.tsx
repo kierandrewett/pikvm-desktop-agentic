@@ -22,6 +22,7 @@ import { useAppState } from "../api/queries";
 import { KvmPane } from "../kvm/kvm-screen";
 import { SettingsPane, settingsPageOf } from "../settings/settings-layout";
 import { desktopBridge } from "../host/desktop";
+import { UpdatePrompt } from "../host/update-prompt";
 import { useAppBadge } from "../notify/use-app-badge";
 import { usePresence } from "../notify/use-presence";
 import { currentTheme, subscribeTheme } from "../theme";
@@ -96,6 +97,7 @@ export function Shell() {
                 {compact ? null : <NavTabs active={active} orientation="vertical" settingsPage={settingsPage} />}
                 <div className="app-main">
                     <ConnectionBanner />
+                    <UpdatePrompt />
                     {titlebar ? <div className="window-titlebar">PiKVM Desktop</div> : null}
                     <main className="app-panel">
                         <Pane id="kvm" active={active === "kvm"}>

@@ -9,24 +9,35 @@
  *     (visibilitychange, pageshow, online) make three requests and three reloads.
  *  5. Settings > About does not say which build runs, so nobody can tell whether the phone updated.
  *  6. The service worker caches /app/version.json as a fallback: offline, an app that updated since then reads the
- *     old copy as "a newer build" and reloads itself into the offline page.
+ *     old copy as "a newer build" and reloads itself into the offline page. (Proved in a real browser: the worker
+ *     answers nothing but what its build lists, and e2e shell-cache shows version.json failing offline.)
+ *
+ * What a worker does with a waiting build (take over, reload, offer a notice) is proved in a real browser, not here
+ * (apps/web/src/kvm/FAILURE_MODES.md K98 to K105). This file covers the page's rules for hosts with no worker.
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkForUpdate, MIN_GAP_MS, type UpdateHost, watchForUpdates } from "./update";
+import { createUpdateWatcher, MIN_GAP_MS, type Deployed, type UpdateHost, watchForUpdates } from "./update";
 
+const build = (id: string | undefined): Deployed => (id === undefined ? { kind: "unknown" } : { kind: "build", build: id });
+
+/** A page with no worker (the desktop app, plain http): the deployed build alone decides. */
 function host(running: string, answers: (string | undefined)[]): UpdateHost & { reloads: number; marked: string | null } {
     const state = { reloads: 0, marked: null as string | null };
     let call = 0;
     return {
         running,
-        deployed: async () => answers[Math.min(call++, answers.length - 1)],
+        deployed: async () => build(answers[Math.min(call++, answers.length - 1)]),
+        refreshWorker: () => undefined,
+        worker: async () => ({ kind: "none" }),
+        takeOver: async () => true,
+        onWorkerChange: () => () => undefined,
         reload: () => void (state.reloads += 1),
+        signIn: () => undefined,
         reloadedFor: () => state.marked,
-        markReloadedFor: (build) => void (state.marked = build),
+        markReloadedFor: (id) => void (state.marked = id),
+        quiet: () => true,
+        offer: () => undefined,
         get reloads() {
             return state.reloads;
         },
@@ -36,40 +47,54 @@ function host(running: string, answers: (string | undefined)[]): UpdateHost & { 
     };
 }
 
-describe("checkForUpdate", () => {
+describe("the update check with no worker", () => {
     it("reloads when a different build is deployed", async () => {
         const h = host("old", ["new"]);
-        expect(await checkForUpdate(h)).toBe("reloading");
+        expect(await createUpdateWatcher(h).check("return")).toBe("ready");
+        await Promise.resolve();
         expect(h.reloads).toBe(1);
         expect(h.marked).toBe("new");
     });
 
     it("does nothing when the deployed build is the one running", async () => {
         const h = host("same", ["same"]);
-        expect(await checkForUpdate(h)).toBe("current");
+        expect(await createUpdateWatcher(h).check("return")).toBe("current");
         expect(h.reloads).toBe(0);
     });
 
     it("does nothing when the deployed build cannot be learned", async () => {
         const h = host("old", [undefined]);
-        expect(await checkForUpdate(h)).toBe("unknown");
+        expect(await createUpdateWatcher(h).check("return")).toBe("unknown");
         expect(h.reloads).toBe(0);
     });
 
     it("reloads once per deployed build, so a server that keeps serving the old page cannot loop it", async () => {
         const h = host("old", ["new", "new", "new"]);
-        await checkForUpdate(h);
-        expect(await checkForUpdate(h)).toBe("unknown");
-        expect(await checkForUpdate(h)).toBe("unknown");
+        const watcher = createUpdateWatcher(h);
+        await watcher.check("return");
+        await watcher.check("return");
+        await watcher.check("return");
+        await Promise.resolve();
         expect(h.reloads).toBe(1);
     });
 
     it("reloads again for a build that came after that one", async () => {
         const h = host("old", ["new", "newer"]);
-        await checkForUpdate(h);
-        await checkForUpdate(h);
+        await createUpdateWatcher(h).check("return");
+        await Promise.resolve();
+        await createUpdateWatcher(h).check("return");
+        await Promise.resolve();
         expect(h.reloads).toBe(2);
         expect(h.marked).toBe("newer");
+    });
+
+    it("a session that has ended goes to the sign-in page and reloads nothing", async () => {
+        const h = host("old", ["new"]);
+        const signIn = vi.spyOn(h, "signIn");
+        h.deployed = async () => ({ kind: "signed-out" });
+        expect(await createUpdateWatcher(h).check("return")).toBe("signed-out");
+        expect(signIn).toHaveBeenCalledTimes(1);
+        expect(h.reloads).toBe(0);
     });
 });
 
@@ -88,10 +113,18 @@ describe("watchForUpdates", () => {
     const settle = async () => {
         for (let i = 0; i < 10; i++) await Promise.resolve();
     };
+    // The page checks once as it starts; these tests are about the checks that follow.
+    const watch = (h: UpdateHost, now: () => number) => {
+        const watching = watchForUpdates(h, now);
+        stop = watching.stop;
+    };
 
     it("checks when the page becomes visible, not when it is hidden", async () => {
-        const h = host("old", ["new"]);
-        stop = watchForUpdates(h, () => 0);
+        const h = host("old", ["old", "new"]);
+        let clock = 0;
+        watch(h, () => clock);
+        await settle();
+        clock += MIN_GAP_MS + 1;
         visibility("hidden");
         await settle();
         expect(h.reloads).toBe(0);
@@ -103,7 +136,7 @@ describe("watchForUpdates", () => {
     it("treats the events of one return as one check", async () => {
         const h = host("old", ["old", "old", "old"]);
         const spy = vi.spyOn(h, "deployed");
-        stop = watchForUpdates(h, () => 1_000);
+        watch(h, () => 1_000);
         visibility("visible");
         window.dispatchEvent(new Event("online"));
         const show = new Event("pageshow") as PageTransitionEvent;
@@ -114,11 +147,10 @@ describe("watchForUpdates", () => {
     });
 
     it("checks again once the gap has passed, and a page restored from memory counts as a return", async () => {
-        const h = host("old", ["old", "old"]);
+        const h = host("old", ["old", "old", "old"]);
         const spy = vi.spyOn(h, "deployed");
         let clock = 0;
-        stop = watchForUpdates(h, () => clock);
-        visibility("visible");
+        watch(h, () => clock);
         clock += MIN_GAP_MS + 1;
         const show = new Event("pageshow") as PageTransitionEvent;
         Object.defineProperty(show, "persisted", { value: true });
@@ -128,21 +160,14 @@ describe("watchForUpdates", () => {
     });
 
     it("stops listening when told to", async () => {
-        const h = host("old", ["new"]);
-        watchForUpdates(h, () => 0)();
+        const h = host("old", ["old", "new"]);
+        let clock = 0;
+        const watching = watchForUpdates(h, () => clock);
+        await settle();
+        watching.stop();
+        clock += MIN_GAP_MS + 1;
         visibility("visible");
         await settle();
         expect(h.reloads).toBe(0);
-    });
-});
-
-describe("the service worker", () => {
-    it("never touches /app/version.json, not even as an offline fallback", () => {
-        const worker = readFileSync(resolve(import.meta.dirname, "../../public/sw.js"), "utf8");
-        const live = /const LIVE = (\/.*\/);/.exec(worker)?.[1];
-        expect(live).toBeDefined();
-        const pattern = new RegExp(live?.slice(1, -1) ?? "");
-        expect(pattern.test("/app/version.json")).toBe(true);
-        expect(pattern.test("/app/assets/index-abc.js")).toBe(false);
     });
 });
