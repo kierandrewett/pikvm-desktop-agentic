@@ -28,7 +28,13 @@ export interface VideoDomOptions {
     /** The screen mode was decided (titles, which controls apply). */
     readonly onScreenMode?: (mode: "native" | "snapshot") => void;
     /** WebRTC became the picture (reveal audio toggles, start meters, resolution toast). */
-    readonly onWebrtc?: (event: { type: "activated" } | { type: "swapped"; first: boolean } | { type: "fallback"; wasActive: boolean }) => void;
+    readonly onWebrtc?: (
+        event:
+            | { type: "activated" }
+            | { type: "swapped"; first: boolean }
+            | { type: "fallback"; wasActive: boolean }
+            | { type: "retrying"; retrying: boolean },
+    ) => void;
     /** The machine wants the input socket replaced (`kick`) or ensured (`connect`). */
     readonly onHid?: (action: "kick" | "connect") => void;
     /** Each luminance grid read back for blank detection, for the screen-change alert to reuse. */
@@ -59,17 +65,33 @@ export function createVideoDom(opts: VideoDomOptions): VideoDom {
         return { signal: ctrl.signal, done: () => clearTimeout(timer) };
     };
 
+    // The frame is copied out of the <video> here, while the stream still holds it. A canvas that only queued
+    // drawImage(video) can paint from that texture after the element has emptied (the stop that follows a drop), and the
+    // held frame showed black for a frame. getImageData forces the copy to happen now.
+    const copyVideoFrame = (src: HTMLVideoElement, w: number, h: number): ImageData | null => {
+        const scratch = document.createElement("canvas");
+        scratch.width = w;
+        scratch.height = h;
+        const ctx = scratch.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return null;
+        ctx.drawImage(src, 0, 0, w, h);
+        return ctx.getImageData(0, 0, w, h);
+    };
+
     const freezeFrame = (): void => {
         if (!freezeCanvas || !pane.classList.contains("has-frame")) return;
         const useVideo = !video.classList.contains("hidden") && video.videoWidth > 0;
-        const src = useVideo ? video : img;
         const w = useVideo ? video.videoWidth : img.naturalWidth;
         const h = useVideo ? video.videoHeight : img.naturalHeight;
         if (!w || !h) return;
         try {
+            const pixels = useVideo ? copyVideoFrame(video, w, h) : null;
+            if (useVideo && !pixels) return;
             freezeCanvas.width = w;
             freezeCanvas.height = h;
-            freezeCanvas.getContext("2d")?.drawImage(src, 0, 0, w, h);
+            const out = freezeCanvas.getContext("2d");
+            if (pixels) out?.putImageData(pixels, 0, 0);
+            else out?.drawImage(img, 0, 0, w, h);
             pane.classList.add("frozen");
         } catch {
             // A source that cannot be drawn yet is not worth losing the reconnect over.
@@ -238,6 +260,9 @@ export function createVideoDom(opts: VideoDomOptions): VideoDom {
                     img.removeAttribute("src"); // release the Pi's MJPEG connection only now
                 }
                 opts.onWebrtc?.({ type: "swapped", first: effect.first });
+                return;
+            case "webrtcRetry":
+                opts.onWebrtc?.({ type: "retrying", retrying: effect.retrying });
                 return;
             case "webrtcFallback":
                 video.classList.add("hidden");

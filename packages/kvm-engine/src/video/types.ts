@@ -28,12 +28,27 @@ export const SNAPSHOT_BACKOFF_BASE_MS = 400;
 export const SNAPSHOT_BACKOFF_FACTOR = 1.8;
 export const SNAPSHOT_BACKOFF_MAX_MS = 5000;
 export const SNAPSHOT_DISCONNECTED_AFTER = 3;
-/** WebRTC: <video> must be playing this soon after the track arrives, or fall back to MJPEG. */
+/** WebRTC: <video> must be playing this soon after the track arrives, or the session has failed and is retried. */
 export const PLAY_WATCHDOG_MS = 6000;
-/** WebRTC: no video at all within this of starting the Janus session = fall back (harmless; MJPEG already runs). */
-export const START_GUARD_MS = 8000;
+/** WebRTC: no video track within this of starting the session = it failed and is retried. A Janus handshake is about ten round trips plus the first picture. */
+export const START_GUARD_MS = 12000;
 /** Back from the background for longer than this: the WebRTC session is restarted instead of trusted (the stream and the socket go past `RESUME_STALE_MS`). */
 export const AWAY_RECONNECT_MS = 3000;
+/** WebRTC retry: 500 ms, doubling, capped at 15 s, each delay spread by +-20 %; no attempt limit (W7). */
+export const WEBRTC_RETRY_INITIAL_MS = 500;
+export const WEBRTC_RETRY_FACTOR = 2;
+export const WEBRTC_RETRY_MAX_MS = 15000;
+export const WEBRTC_RETRY_JITTER = 0.2;
+/** A session that has played this long has earned a fast first retry again (W8). */
+export const WEBRTC_STABLE_MS = 10000;
+/** A hidden page that nobody watches retries this slowly (W15). */
+export const WEBRTC_HIDDEN_RETRY_MS = 30000;
+/** One burst of "the network is back" signals is one new session: a session this young with no video yet is not restarted again (W15). */
+export const WEBRTC_DUPLICATE_MS = 500;
+/** ICE or the connection disconnected for this long is a drop (W10). */
+export const WEBRTC_DISCONNECTED_MS = 3000;
+/** Nothing at all (media, transport heartbeat) for this long is a silent drop (W11). */
+export const WEBRTC_STALL_MS = 4000;
 /** Blank-frame sampling cadence, grid size and rule (see blank.ts). */
 export const BLANK_SAMPLE_MS = 1500;
 
@@ -99,9 +114,34 @@ export interface JanusStartResultEvent extends Stamped {
     readonly type: "janusStartResult";
     readonly ok: boolean;
 }
-export interface JanusStatusEvent extends Stamped {
-    readonly type: "janusStatus";
-    readonly status: "connecting" | "live" | "error";
+/** Why a Janus session ended by itself. The wrapper reports it once and then has nothing more to say (W6, W9). */
+export type JanusFailure =
+    /** The Janus library could not be loaded. */
+    | "load"
+    /** The signalling socket could not be opened or was lost. */
+    | "signalling"
+    /** The Pi's plugin or the handle refused, or the Pi stopped the stream. */
+    | "plugin"
+    /** The answer to the Pi's offer could not be made (a camera or microphone that cannot be opened). */
+    | "answer"
+    /** The Pi hung up the peer connection or detached the handle. */
+    | "hangup"
+    /** ICE failed, or the connection failed. */
+    | "ice-failed"
+    /** ICE or the connection stayed disconnected past `WEBRTC_DISCONNECTED_MS`. */
+    | "ice-disconnected"
+    /** The connection closed under the session. */
+    | "closed"
+    /** Nothing arrived, not even the transport's own heartbeat, for `WEBRTC_STALL_MS`. */
+    | "stalled";
+
+/** `JanusFailure`, or one only the machine can see: its own time-outs. */
+export type WebrtcFailure = JanusFailure | "no-video" | "not-playing";
+
+/** The session ended by itself (it is stopped; the machine decides what comes next). */
+export interface JanusFailedEvent extends Stamped {
+    readonly type: "janusFailed";
+    readonly reason: JanusFailure;
 }
 export interface JanusActiveEvent extends Stamped {
     readonly type: "janusActive";
@@ -173,7 +213,7 @@ export type VideoEvent =
     | SnapshotDecodedEvent
     | SnapshotFailedEvent
     | JanusStartResultEvent
-    | JanusStatusEvent
+    | JanusFailedEvent
     | JanusActiveEvent
     | VideoPlayingEvent
     | BlankSampleEvent
@@ -198,6 +238,8 @@ export interface StartTimerEffect {
     readonly ms: number;
     /** Fire every `ms` until cancelled (the health poll and the blank sampler). */
     readonly repeat?: boolean;
+    /** Spread the delay by up to +-this fraction (0.2 = +-20 %), so retries from many clients do not land together. The driver fulfils it. */
+    readonly jitter?: number;
 }
 export interface CancelTimerEffect {
     readonly type: "cancelTimer";
@@ -240,6 +282,8 @@ export type VideoRenderEffect =
     | { readonly type: "videoSwapped"; readonly first: boolean }
     /** WebRTC is gone: show the <img>, hide the <video>, stop its tracks, hide audio toggles. */
     | { readonly type: "webrtcFallback"; readonly wasActive: boolean }
+    /** A WebRTC session that had played is being brought back (`retrying`), or is back or no longer wanted: the chip says "reconnecting video" meanwhile. */
+    | { readonly type: "webrtcRetry"; readonly retrying: boolean }
     /** Sample the picture for blankness: from the <video> when WebRTC is showing, else the <img>. */
     | { readonly type: "sampleBlank"; readonly source: "video" | "image" }
     /** The input socket should be replaced (`kick`: it may be dead) or ensured (`connect`). */
@@ -265,6 +309,14 @@ export const STATUS: Readonly<Record<SignalState, { readonly tone: StatusTone; r
  * offline" used to live only in a tooltip, so a console whose HID socket had dropped
  * showed a plain "Live" and every keystroke went nowhere.
  */
-export function statusLabel(state: SignalState, inputOpen: boolean): string {
-    return STATUS[state].label + (inputOpen ? "" : " · input offline");
+export function statusLabel(state: SignalState, inputOpen: boolean, videoRetrying = false): string {
+    return STATUS[state].label + (videoRetrying && state === "live" ? " · reconnecting video" : "") + (inputOpen ? "" : " · input offline");
+}
+
+/**
+ * The chip's colour. A picture that is live over MJPEG while WebRTC is being brought back is amber: nothing is lost
+ * but the sharper picture and the sound, and a green chip would say nothing is wrong.
+ */
+export function statusTone(state: SignalState, videoRetrying = false): StatusTone {
+    return videoRetrying && state === "live" ? "warn" : STATUS[state].tone;
 }

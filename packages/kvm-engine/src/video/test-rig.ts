@@ -14,7 +14,8 @@ export interface VideoRig {
     readonly driver: VideoDriver;
     /** Render effects since the last `clear`. */
     readonly fx: VideoRenderEffect[];
-    readonly janus: { handlers: JanusHandlers | null; hasVideo: boolean; started: number; stopped: number };
+    /** `stoppedAt`: how many render effects had been produced when each session was stopped (what came before it came before the stop). */
+    readonly janus: { handlers: JanusHandlers | null; hasVideo: boolean; started: number; stopped: number; stoppedAt: number[] };
     send(event: VideoEventInit): void;
     advance(ms: number): void;
     clear(): void;
@@ -35,7 +36,7 @@ export interface VideoRig {
 export function createVideoRig(init: { janus?: JanusBehaviour; documentHidden?: boolean } = {}): VideoRig {
     const clock = createManualClock(1000);
     const fx: VideoRenderEffect[] = [];
-    const janus: VideoRig["janus"] = { handlers: null, hasVideo: false, started: 0, stopped: 0 };
+    const janus: VideoRig["janus"] = { handlers: null, hasVideo: false, started: 0, stopped: 0, stoppedAt: [] };
     const behaviour = init.janus ?? "unavailable";
     const port: JanusPort = {
         available: () => behaviour !== "unavailable",
@@ -49,6 +50,7 @@ export function createVideoRig(init: { janus?: JanusBehaviour; documentHidden?: 
                 hasVideo: () => janus.hasVideo,
                 stop: () => {
                     janus.stopped++;
+                    janus.stoppedAt.push(fx.length);
                 },
             };
         },
@@ -58,6 +60,8 @@ export function createVideoRig(init: { janus?: JanusBehaviour; documentHidden?: 
         render: (e) => fx.push(e),
         janus: port,
         streamKey: "k",
+        // The middle of the jitter range: exact delays on the manual clock.
+        random: () => 0.5,
         ...(init.documentHidden !== undefined ? { documentHidden: init.documentHidden } : {}),
     });
     const rig: VideoRig = {

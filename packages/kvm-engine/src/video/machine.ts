@@ -32,8 +32,15 @@ import {
     SNAPSHOT_INTERVAL_MS,
     START_GUARD_MS,
     STREAM_WATCHDOG_MS,
+    WEBRTC_DUPLICATE_MS,
+    WEBRTC_HIDDEN_RETRY_MS,
+    WEBRTC_RETRY_FACTOR,
+    WEBRTC_RETRY_INITIAL_MS,
+    WEBRTC_RETRY_JITTER,
+    WEBRTC_RETRY_MAX_MS,
+    WEBRTC_STABLE_MS,
 } from "./types";
-import type { ScreenMode, SignalState, VideoEffect, VideoEvent } from "./types";
+import type { ScreenMode, SignalState, VideoEffect, VideoEvent, WebrtcFailure } from "./types";
 
 /** A stream load that began this recently and has not yet shown a frame is still on its way: a second one would only be a duplicate. */
 const LOAD_UNDER_WAY_MS = 1500;
@@ -65,6 +72,20 @@ export interface VideoState {
     readonly webrtcActive: boolean;
     /** The <video> is really playing and the MJPEG <img> has been retired. */
     readonly webrtcSwapped: boolean;
+    /** A session has played in this page: only then is a lost one worth saying (W17). */
+    readonly webrtcWasUp: boolean;
+    /** Sessions that failed since one last played for `WEBRTC_STABLE_MS`: the next retry's delay grows with it (W7, W8). */
+    readonly webrtcAttempt: number;
+    /** A retry is waiting for its timer. */
+    readonly webrtcRetryPending: boolean;
+    /** That timer was armed for a page nobody can see (the slow pace, W15). */
+    readonly webrtcRetrySlow: boolean;
+    /** The chip says "reconnecting video": a session that had played was lost and is being brought back (W17). */
+    readonly webrtcRetrying: boolean;
+    /** When the running session was started; null with none. */
+    readonly webrtcStartedAt: number | null;
+    /** Why the last session ended, for a log or a support question; null until one has. */
+    readonly webrtcFailure: WebrtcFailure | null;
     readonly blank: BlankTracker;
     readonly fullUiOn: boolean;
     readonly collapsed: boolean;
@@ -98,6 +119,13 @@ export function createVideoState(): VideoState {
         sawVideo: false,
         webrtcActive: false,
         webrtcSwapped: false,
+        webrtcWasUp: false,
+        webrtcAttempt: 0,
+        webrtcRetryPending: false,
+        webrtcRetrySlow: false,
+        webrtcRetrying: false,
+        webrtcStartedAt: null,
+        webrtcFailure: null,
         blank: INITIAL_BLANK,
         fullUiOn: false,
         collapsed: false,
@@ -125,6 +153,8 @@ export const TIMER = {
     snapshot: "snapshot",
     playWatchdog: "playWatchdog",
     startGuard: "startGuard",
+    webrtcRetry: "webrtcRetry",
+    webrtcStable: "webrtcStable",
 } as const;
 
 /** Whether a blank sample is worth taking now (the readback is expensive). */
@@ -260,10 +290,8 @@ class Mutator {
                 // audio toggles stay hidden.
                 this.start(TIMER.startGuard, START_GUARD_MS);
                 return;
-            case "janusStatus":
-                // Once live the wrapper retries by itself and the <video> stays up. Before any
-                // video was ever seen, an error means drop to MJPEG.
-                if (ev.status === "error" && !s.sawVideo) this.fallbackToMjpeg();
+            case "janusFailed":
+                this.webrtcFailed(ev.reason);
                 return;
             case "janusActive":
                 if (ev.active && s.janusStarted && ev.hasVideo) {
@@ -271,8 +299,12 @@ class Mutator {
                     this.cancel(TIMER.startGuard);
                     this.activateWebrtc();
                 } else if (!ev.active && s.webrtcActive) {
-                    // The session stopped while live: go back to MJPEG so the user is not left on a frozen frame.
+                    // The session is bringing itself up again (the speaker, microphone or camera changed): back to MJPEG so the
+                    // user is not left on a frozen frame, and a handshake that hangs is timed like any other (W5).
+                    s.sawVideo = false;
+                    this.cancel(TIMER.webrtcStable);
                     this.fallbackToMjpeg();
+                    this.start(TIMER.startGuard, START_GUARD_MS);
                 }
                 return;
             case "videoPlaying":
@@ -296,7 +328,7 @@ class Mutator {
                 if (s.mode === "snapshot") this.scheduleSnapshot(0);
                 else {
                     // The peer connection rode it too.
-                    if (s.mode === "native" && s.janusStarted && !s.documentHidden) this.restartWebrtc();
+                    if (!s.documentHidden) this.restartWebrtc();
                     this.reloadStream();
                 }
                 return;
@@ -337,10 +369,16 @@ class Mutator {
                 this.loadSnapshotFrame();
                 return;
             case TIMER.playWatchdog:
-                if (s.webrtcActive && !s.webrtcSwapped) this.fallbackToMjpeg();
+                if (s.webrtcActive && !s.webrtcSwapped) this.webrtcFailed("not-playing"); // the track never played (W2)
                 return;
             case TIMER.startGuard:
-                if (!s.sawVideo) this.fallbackToMjpeg(); // harmless: MJPEG is already live
+                if (!s.sawVideo) this.webrtcFailed("no-video"); // no video track at all (W5)
+                return;
+            case TIMER.webrtcRetry:
+                this.onWebrtcRetry();
+                return;
+            case TIMER.webrtcStable:
+                s.webrtcAttempt = 0;
                 return;
         }
     }
@@ -520,7 +558,10 @@ class Mutator {
         }
         if (s.mode !== "native") return;
         if (stale || s.signal !== "live") this.emit({ type: "pollHealth", timeoutMs: HEALTH_ABORT_MS }); // a focus change that was no absence needs no probe
-        if (stale && s.janusStarted && away > AWAY_RECONNECT_MS) this.restartWebrtc();
+        if (s.janusAvailable) {
+            if (s.webrtcRetryPending) this.restartWebrtc(); // waiting for its timer: the page is here now (W15)
+            else if (stale && s.janusStarted && away > AWAY_RECONNECT_MS) this.restartWebrtc();
+        }
         if (!s.mjpegPaused && (stale || !s.streamUp)) this.reloadStream(!stale);
     }
 
@@ -538,16 +579,22 @@ class Mutator {
     }
 
     /**
-     * Bring the WebRTC session down and up again. The old one is dead or soon will be (iOS
-     * suspends the peer connection in the background and Safari pauses the <video>), and the MJPEG
-     * that was suspended under it takes over meanwhile, so the picture is never blank.
+     * Bring the WebRTC session down and up again, now: the network came back, or the page did. The old one is dead or
+     * soon will be (iOS suspends the peer connection in the background and Safari pauses the <video>), and the MJPEG
+     * that was suspended under it takes over meanwhile, so the picture is never blank. A retry that was waiting for its
+     * timer is brought forward instead of a session being stopped, and the backoff starts again: the network is new.
      */
     private restartWebrtc(): void {
         const s = this.s;
-        this.cancel(TIMER.startGuard);
-        this.emit({ type: "janusStop" });
-        s.janusStarted = false;
-        this.fallbackToMjpeg();
+        if (s.mode !== "native" || !s.janusAvailable) return;
+        // One burst of signals (visible, focus, online...) is one new session (W15).
+        if (s.janusStarted && !s.sawVideo && s.webrtcStartedAt !== null && this.t - s.webrtcStartedAt < WEBRTC_DUPLICATE_MS) return;
+        s.webrtcAttempt = 0;
+        if (s.webrtcRetryPending) {
+            s.webrtcRetryPending = false;
+            this.cancel(TIMER.webrtcRetry);
+        }
+        if (s.janusStarted) this.endSession();
         this.startNativeWebrtc();
     }
 
@@ -599,9 +646,78 @@ class Mutator {
     private startNativeWebrtc(): void {
         const s = this.s;
         if (s.mode !== "native" || s.janusStarted || !s.janusAvailable) return;
+        if (s.webrtcRetryPending) {
+            s.webrtcRetryPending = false;
+            this.cancel(TIMER.webrtcRetry);
+        }
         s.janusStarted = true;
         s.sawVideo = false;
+        s.webrtcStartedAt = this.t;
         this.emit({ type: "janusStart" });
+    }
+
+    /**
+     * The session ended by itself, or a time-out of ours ended it (W9). It is dropped for good (the picture is held and
+     * MJPEG takes over, then the session is stopped) and a retry is armed: there is no attempt limit (W7).
+     */
+    private webrtcFailed(reason: WebrtcFailure): void {
+        const s = this.s;
+        if (!s.janusStarted) return; // a session already stopped has nothing more to say (W16)
+        s.webrtcFailure = reason;
+        this.endSession();
+        this.scheduleWebrtcRetry();
+    }
+
+    /**
+     * Take the running session out of the picture. The order is the point (W13): leaving live holds the frame, the
+     * fallback shows the <img> and stops the tracks, and only then is the session stopped. Stopping it first empties the
+     * <video> (its size reads 0) and the frame to hold is gone.
+     */
+    private endSession(): void {
+        const s = this.s;
+        this.cancel(TIMER.startGuard);
+        this.cancel(TIMER.playWatchdog);
+        this.cancel(TIMER.webrtcStable);
+        this.fallbackToMjpeg();
+        this.emit({ type: "janusStop" });
+        s.janusStarted = false;
+        s.webrtcStartedAt = null;
+    }
+
+    /** Arm the next attempt: capped exponential backoff with jitter, slow while nobody can see the page (W7, W15). */
+    private scheduleWebrtcRetry(): void {
+        const s = this.s;
+        if (s.mode !== "native" || !s.janusAvailable || s.janusStarted || s.webrtcRetryPending) return;
+        const grown = WEBRTC_RETRY_INITIAL_MS * Math.pow(WEBRTC_RETRY_FACTOR, Math.min(s.webrtcAttempt, 16));
+        s.webrtcAttempt += 1;
+        this.armWebrtcRetry(Math.min(grown, WEBRTC_RETRY_MAX_MS));
+        if (s.webrtcWasUp) this.setRetrying(true);
+    }
+
+    private armWebrtcRetry(ms: number): void {
+        const s = this.s;
+        s.webrtcRetrySlow = s.documentHidden && !s.watching;
+        s.webrtcRetryPending = true;
+        this.emit({ type: "startTimer", id: TIMER.webrtcRetry, ms: s.webrtcRetrySlow ? Math.max(ms, WEBRTC_HIDDEN_RETRY_MS) : ms, jitter: WEBRTC_RETRY_JITTER });
+    }
+
+    /** The retry timer fired. A timer armed while the page was visible that fires after it was hidden waits again at the slow pace. */
+    private onWebrtcRetry(): void {
+        const s = this.s;
+        s.webrtcRetryPending = false;
+        if (s.janusStarted || s.mode !== "native" || !s.janusAvailable) return;
+        if (s.documentHidden && !s.watching && !s.webrtcRetrySlow) {
+            this.armWebrtcRetry(WEBRTC_HIDDEN_RETRY_MS);
+            return;
+        }
+        this.startNativeWebrtc();
+    }
+
+    private setRetrying(on: boolean): void {
+        const s = this.s;
+        if (s.webrtcRetrying === on) return;
+        s.webrtcRetrying = on;
+        this.emit({ type: "webrtcRetry", retrying: on });
     }
 
     /**
@@ -638,6 +754,10 @@ class Mutator {
                 s.reconnectPending = false;
                 this.cancel(TIMER.reconnect);
             }
+            s.webrtcWasUp = true;
+            this.setRetrying(false);
+            // Only a session that STAYS earns a fast first retry again (W8).
+            this.start(TIMER.webrtcStable, WEBRTC_STABLE_MS);
             this.emit({ type: "videoSwapped", first: true });
             this.setSignal("live");
             return;

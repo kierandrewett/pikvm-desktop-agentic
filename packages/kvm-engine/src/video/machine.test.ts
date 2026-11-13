@@ -1,4 +1,4 @@
-// Failure modes V1-V10, S1-S4, W1-W5, L1-L3, U1: see FAILURE_MODES.md.
+// Failure modes V1-V11, S1-S4, W1-W19, L1-L3, U1: see FAILURE_MODES.md.
 //
 // Everything runs through the driver on a manual clock, so an outage of minutes
 // takes microseconds and every timeout is exact.
@@ -383,7 +383,7 @@ describe("WebRTC", () => {
         expect(r.fx).toEqual([]);
     });
 
-    it("W2: a track that never plays falls back to MJPEG after 6 s", () => {
+    it("W2: a track that never plays after 6 s is a failed session: frame held, MJPEG back, session stopped, retry armed", () => {
         const r = liveNative({ janus: "ok" });
         r.janus.hasVideo = true;
         r.janus.handlers?.onActive(true);
@@ -398,17 +398,25 @@ describe("WebRTC", () => {
         const kinds = r.fx.map((e) => e.type);
         expect(kinds.indexOf("freeze")).toBeGreaterThanOrEqual(0);
         expect(kinds.indexOf("freeze")).toBeLessThan(kinds.indexOf("webrtcFallback"));
+        expect(r.janus.stopped).toBe(1);
+        // and a new session is tried after the first backoff step, not left half open
+        r.advance(499);
+        expect(r.janus.started).toBe(1);
+        r.advance(1);
+        expect(r.janus.started).toBe(2);
     });
 
-    it("W3: fallback with nothing to fall back from does not reload a good MJPEG stream", () => {
+    it("W3: a session that fails with nothing to fall back from is retried and never reloads a good MJPEG stream", () => {
         const r = liveNative({ janus: "ok" });
         for (let i = 0; i < 5; i++) {
-            r.advance(5000);
-            r.janus.handlers?.onStatus("error");
+            r.janus.handlers?.onFailed("signalling");
+            r.advance(20_000);
         }
+        expect(r.janus.started).toBeGreaterThan(5); // never gives up (W7)
         expect(r.count("loadMjpeg")).toBe(0);
         expect(r.count("freeze")).toBe(0);
         expect(r.count("webrtcFallback")).toBe(0);
+        expect(r.count("webrtcRetry")).toBe(0); // WebRTC never played: nothing for the chip to say (W17)
         expect(r.signals()).toEqual([]);
     });
 
@@ -418,33 +426,47 @@ describe("WebRTC", () => {
         r.driver.send({ type: "need", collapsed: false, watching: false });
         // WebRTC took over the pipeline without ever activating (a quirk of ordering): simulate suspension
         const suspended = { ...r.driver.state, mjpegPaused: true };
-        const step = reduceVideo(suspended, { type: "janusStatus", t: 0, status: "error" });
+        const step = reduceVideo(suspended, { type: "janusFailed", t: 0, reason: "signalling" });
         expect(step.effects.map((e) => e.type)).toContain("webrtcFallback");
         expect(step.state.mjpegPaused).toBe(false);
     });
 
-    it("W4: an error after video was seen keeps the video; the session stopping falls back", () => {
+    it("W4: a failure after video was seen falls back with the frame held, then retries, and says so in the chip", () => {
         const r = liveNative({ janus: "ok" });
         r.webrtcUp();
         r.clear();
-        r.janus.handlers?.onStatus("error");
-        expect(r.fx).toEqual([]);
-        r.janus.handlers?.onActive(false);
+        r.janus.handlers?.onFailed("ice-failed");
         expect(r.signals()).toEqual(["offline"]);
         expect(r.count("webrtcFallback")).toBe(1);
         const kinds = r.fx.map((e) => e.type);
         expect(kinds.indexOf("freeze")).toBeGreaterThanOrEqual(0); // held while the <img> reloads...
         expect(kinds.indexOf("freeze")).toBeLessThan(kinds.indexOf("webrtcFallback")); // ...before the <video> goes
+        // W13: ...and before the session is stopped, which empties the <video>
+        expect(r.janus.stoppedAt).toHaveLength(1);
+        expect(kinds.indexOf("freeze")).toBeLessThan(r.janus.stoppedAt[0]!);
         expect(r.count("loadMjpeg")).toBe(1);
         expect(r.driver.state.mjpegPaused).toBe(false);
         expect(r.driver.state.webrtcActive).toBe(false);
+        expect(r.of("webrtcRetry")).toEqual([{ type: "webrtcRetry", retrying: true }]);
+        r.advance(500);
+        expect(r.janus.started).toBe(2);
+        // the next session plays: the swap is the ordinary one and the chip is plain again
+        r.clear();
+        r.webrtcUp();
+        expect(r.of("videoSwapped")).toEqual([{ type: "videoSwapped", first: true }]);
+        expect(r.of("webrtcRetry")).toEqual([{ type: "webrtcRetry", retrying: false }]);
     });
 
-    it("W5: the 8 s start guard with no video is a harmless fallback", () => {
+    it("W5: a session with no video track after 12 s is a failed session and is retried; the MJPEG it never replaced is left alone", () => {
         const r = liveNative({ janus: "ok" });
-        r.advance(8000);
+        r.advance(11_999);
+        expect(r.janus.stopped).toBe(0);
+        r.advance(1);
+        expect(r.janus.stopped).toBe(1);
         expect(r.count("loadMjpeg")).toBe(0);
         expect(r.count("webrtcFallback")).toBe(0);
+        r.advance(500);
+        expect(r.janus.started).toBe(2);
     });
 });
 
@@ -830,7 +852,7 @@ describe("coming back from the background", () => {
         expect(r.driver.state.webrtcSwapped).toBe(true);
         r.clear();
         old.onActive(false);
-        old.onStatus("error");
+        old.onFailed("stalled"); // W16
         expect(r.driver.state.webrtcActive).toBe(true);
         expect(r.count("webrtcFallback")).toBe(0);
     });

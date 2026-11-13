@@ -11,7 +11,7 @@
 import type { CancelTimer, Clock } from "../clock";
 import { createVideoState, reduceVideo } from "./machine";
 import type { VideoState } from "./machine";
-import type { VideoEffect, VideoEvent, VideoEventInit, VideoRenderEffect } from "./types";
+import type { JanusFailure, VideoEffect, VideoEvent, VideoEventInit, VideoRenderEffect } from "./types";
 
 /** What the machine needs from a running Janus session. */
 export interface JanusSession {
@@ -23,8 +23,8 @@ export interface JanusSession {
 }
 
 export interface JanusHandlers {
-    /** "connecting" / "live" / "error": only the error matters before any video was seen. */
-    onStatus(status: "connecting" | "live" | "error"): void;
+    /** The session ended by itself and has nothing more to say: the machine owns what comes next. Called once. */
+    onFailed(reason: JanusFailure): void;
     /** The session started or stopped delivering. */
     onActive(active: boolean): void;
 }
@@ -44,6 +44,8 @@ export interface VideoDriverOptions {
     /** Seed for MJPEG stream keys (random per page load). */
     readonly streamKey: string;
     readonly documentHidden?: boolean;
+    /** 0 to 1, for timer jitter. Defaults to `Math.random`; a test passes `() => 0.5` for exact delays. */
+    readonly random?: () => number;
 }
 
 export interface VideoDriver {
@@ -58,6 +60,7 @@ export interface VideoDriver {
 
 export function createVideoDriver(opts: VideoDriverOptions): VideoDriver {
     const { clock } = opts;
+    const random = opts.random ?? Math.random;
     let state = createVideoState();
     let session: JanusSession | null = null;
     let disposed = false;
@@ -70,22 +73,24 @@ export function createVideoDriver(opts: VideoDriverOptions): VideoDriver {
         c();
     };
 
-    const arm = (id: string, ms: number, repeat: boolean): void => {
+    const arm = (id: string, ms: number, repeat: boolean, jitter: number): void => {
         cancel(id);
+        // Spread by up to +-jitter of the delay (a repeating timer keeps its own steady period).
+        const delay = jitter > 0 && !repeat ? Math.max(0, Math.round(ms * (1 + jitter * (2 * random() - 1)))) : ms;
         timers.set(
             id,
             clock.setTimeout(() => {
                 timers.delete(id);
-                if (repeat) arm(id, ms, true); // re-arm first so a handler that cancels wins
+                if (repeat) arm(id, ms, true, 0); // re-arm first so a handler that cancels wins
                 send({ type: "timer", id });
-            }, ms),
+            }, delay),
         );
     };
 
     const run = (effect: VideoEffect): void => {
         switch (effect.type) {
             case "startTimer":
-                arm(effect.id, effect.ms, effect.repeat === true);
+                arm(effect.id, effect.ms, effect.repeat === true, effect.jitter ?? 0);
                 return;
             case "cancelTimer":
                 cancel(effect.id);
@@ -108,8 +113,8 @@ export function createVideoDriver(opts: VideoDriverOptions): VideoDriver {
                 }
                 // A session that was stopped (a restart after the page came back) may still say its last words: not to the machine.
                 const created: JanusSession = janus.create({
-                    onStatus: (status) => {
-                        if (session === created) send({ type: "janusStatus", status });
+                    onFailed: (reason) => {
+                        if (session === created) send({ type: "janusFailed", reason });
                     },
                     onActive: (active) => {
                         if (session === created) send({ type: "janusActive", active, hasVideo: created.hasVideo() });
