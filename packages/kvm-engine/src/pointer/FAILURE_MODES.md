@@ -59,7 +59,7 @@ as observable commands (never source text). IDs are referenced from test names.
 - M7. Click modifiers go down before the button and up after it; a stale set from a lost release is released first.
 - M8. While the target shows no live picture a clamped (+/-30) relative nudge accompanies each move so a sleeping target wakes; with a live picture never (the cursor would double). Never from a background window.
 - M9. A background desktop window sends no moves.
-- M10. Wheel: one step per notch in the notch's direction; Ctrl/Cmd+wheel zooms the local view on the web, and on the desktop wraps the modifier around the wheel for the target.
+- M10. Wheel: one step per notch in the notch's direction, on both axes (a tilt wheel or sideways swipe scrolls the target left and right; an axis with no travel sends nothing); Ctrl/Cmd+wheel zooms the local view on the web, and on the desktop wraps the modifier around the wheel for the target.
 - M11. A dialog owns the pointer: presses and moves are ignored, and its swallowed release still lets go of whatever the target holds.
 - M12. A mouse entering the picture asks the Pi for absolute; the output requests follow the input in use.
 - M13. A pane resize while zoomed re-clamps the view.

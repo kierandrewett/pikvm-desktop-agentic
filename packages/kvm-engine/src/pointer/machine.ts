@@ -969,13 +969,19 @@ export class PointerMachine {
 
     private onWheel(i: PointerWheelInput): boolean {
         if (this.env.modalOpen) return false;
-        const dy = i.deltaY < 0 ? 1 : -1;
+        // Browser wheel: negative deltaY is up, positive deltaX is right. kvmd's wheel is positive up and
+        // positive right, so only y flips. A zero axis sends nothing: a tilt-wheel click has deltaY 0 and
+        // must not scroll down.
+        const dx = Math.sign(i.deltaX ?? 0);
+        const dy = -Math.sign(i.deltaY);
+        if (dx === 0 && dy === 0) return true;
         // Ctrl+wheel zooms the LOCAL view on the web, where there is no other way to get a
         // closer look. On the desktop it belongs to the target (zooming an editor or a
         // document over there), so the modifier is wrapped around the wheel explicitly:
         // bare modifiers are never forwarded, so the target would otherwise get a plain scroll.
         if (i.modifier !== "none") {
             if (!this.env.desktop) {
+                if (dy === 0) return true;
                 this.setView(
                     zoomAround(
                         this.view,
@@ -988,10 +994,10 @@ export class PointerMachine {
                 );
                 return true;
             }
-            this.emit({ type: "wheel", dx: 0, dy, withMod: i.modifier === "meta" ? "MetaLeft" : "ControlLeft" });
+            this.emit({ type: "wheel", dx, dy, withMod: i.modifier === "meta" ? "MetaLeft" : "ControlLeft" });
             return true;
         }
-        this.emit({ type: "wheel", dx: 0, dy });
+        this.emit({ type: "wheel", dx, dy });
         return true;
     }
 }

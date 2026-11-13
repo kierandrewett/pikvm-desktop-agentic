@@ -162,6 +162,8 @@ export interface PointerWheelInput extends Stamped {
     readonly type: "wheel";
     readonly x: number;
     readonly y: number;
+    /** Horizontal wheel or tilt-wheel travel; positive is right. Absent counts as 0. */
+    readonly deltaX?: number;
     readonly deltaY: number;
     /** Which of Ctrl/Cmd is down (Cmd wins when both are), or none. */
     readonly modifier: "none" | "control" | "meta";

@@ -107,6 +107,7 @@ export function attachPointerInput(opts: PointerDomOptions): () => void {
                 type: "wheel",
                 x: e.clientX,
                 y: e.clientY,
+                deltaX: e.deltaX,
                 deltaY: e.deltaY,
                 modifier: e.metaKey ? "meta" : e.ctrlKey ? "control" : "none",
             });
