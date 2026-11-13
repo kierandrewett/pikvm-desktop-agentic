@@ -1024,6 +1024,18 @@ Wi-Fi or the internet. When it ends, a toast says how long it lasted. Settings, 
 cause). They are kept in this tab's sessionStorage only. A proxy in front of the host should answer a dead host with 502, 503 or
 504: the probe counts those as "no answer", and any other answer as the host being there.
 
+## Cached app shell and updates
+
+The installed app opens from the service worker's cache, so a phone with a bad link gets the app at once, and still learns about a new deploy. The worker (`apps/web/public/sw.js`, with `shell-worker.ts` for the build-time list) is the only place that caches; the page and the worker are always one build.
+
+- **Cached.** The build's own files (listed at build time, so the list cannot drift from the output) in `pikvm-shell-<build>`, and the hashed files under `/app/assets/`. Filled in the background, a few files at a time, one retry each. The grammars, maths renderer and second and third font formats are not in the precache.
+- **Never cached.** `/app/api`, chat API and socket, terminal, legacy frame, `version.json`, sign-in and sign-out pages, recording media, event streams, any non-GET. Offline these fail; they are never stale.
+- **Installing.** The worker never calls `skipWaiting` on its own and never claims pages. It waits and takes over when no page is left or a page asks. A refused file (sign-in redirect, 401, 404) ends the install at once and is not retried.
+- **Applying.** A ready update is applied by the page only at a quiet moment (just started, or back from being put away, with nothing typed and not recording). Otherwise a toast offers Reload. A page reloads at most once per build per tab session.
+- **Signed out.** The worker remembers a signed-out person and asks the network first for the next navigation, so the cached shell is not drawn over the sign-in page.
+
+Failure modes: `apps/web/src/kvm/FAILURE_MODES.md` (K93 to K108, K114, K115). Proof, in real Chrome against the built app with a fake host that can be stopped and a TCP proxy that delays and drops: `~/.cache/pikvm-e2e/shell-cache/` (`REPORT.md`, `run.mjs`, the logs and screenshots). Not proved there: a real iPhone or Safari standalone app, a real cellular link (the proxy only approximates one), and Cache Storage eviction after a week of disuse.
+
 ## Known limits
 
 - Sizes: see the e2e record. omp's binary is about 277 MB of the image.
