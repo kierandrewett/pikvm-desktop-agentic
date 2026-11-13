@@ -13,6 +13,15 @@ export const OUT_DEVICE_KEY = "pikvm-console-speaker-device";
 export const CAM_DEVICE_KEY = "pikvm-console-camera-device";
 /** What was chosen for each camera: its quality preset and whether its preview is mirrored. One JSON map, keyed by device id. */
 export const CAM_PREFS_KEY = "pikvm-console-camera-prefs";
+/** What the picture does on a weak connection (K123): "auto" lets the governor decide, "reduced" always uses the reduced picture, "full" never does. */
+export const PICTURE_QUALITY_KEY = "pikvm-picture-quality";
+
+export type PictureQuality = "auto" | "reduced" | "full";
+
+export const readPictureQuality = (): PictureQuality => {
+    const value = readString(PICTURE_QUALITY_KEY);
+    return value === "reduced" || value === "full" ? value : "auto";
+};
 
 export type TouchMode = "trackpad" | "direct";
 export type TouchHid = "abs" | "rel";

@@ -33,6 +33,7 @@ import {
     type ViewTransform,
 } from "@pikvm/kvm-engine";
 import { createRungPoll, deviceKey } from "./adaptive-feed";
+import { createGovernor } from "./link-governor";
 import { attentionSink } from "./attention";
 import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
@@ -43,7 +44,7 @@ import type { RtcStats } from "./rtc-health";
 import { createScreenAlerts } from "./screen-alerts";
 import { createPointerExecutor } from "./pointer-executor";
 import type { KvmSession } from "./session";
-import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice } from "../settings/local-prefs";
+import { CAM_DEVICE_KEY, MIC_DEVICE_KEY, OUT_DEVICE_KEY, readDeviceChoice, readPictureQuality } from "../settings/local-prefs";
 import { collectDevices } from "../settings/pages/audio-devices";
 import {
     CAMERA_LABELS,
@@ -546,6 +547,8 @@ export function createPictureController(options: PictureOptions): PictureControl
                 patchAudio({ available: false });
                 patch({ webrtc: false });
                 remeasure();
+                // A session that had played was lost, and not by a hold: a drop for the governor (K120).
+                if (event.wasActive && !driver.state.webrtcHeld && quality === "auto") applyVerdict(governor.drop(clock.now()));
             }
         },
         // The link's own lifecycle binding (session.ts) already kicks the socket after a long
@@ -563,6 +566,27 @@ export function createPictureController(options: PictureOptions): PictureControl
     const detachVideo = dom.attach(driver);
     // The desktop app talks to its own host over loopback: the reduced picture is for a weak link, which that is not.
     if (desktop) driver.send({ type: "source", pref: "direct" });
+
+    /* ---- the link governor (K119-K124) ---- */
+
+    const quality = desktop ? "full" : readPictureQuality();
+    const governor = createGovernor();
+    if (quality === "full") driver.send({ type: "source", pref: "direct" });
+    else if (quality === "reduced") driver.send({ type: "holdWebrtc", ms: Number.POSITIVE_INFINITY }); // no expiry: only a change of the choice ends it (W23)
+    const applyVerdict = (verdict: { holdMs: number } | null): void => {
+        if (!verdict) return;
+        governor.held(clock.now());
+        driver.send({ type: "holdWebrtc", ms: verdict.holdMs });
+        const minutes = Math.max(1, Math.round(verdict.holdMs / 60_000));
+        session.notices.notify({ text: `Weak connection: showing a reduced picture. Full quality is tried again in ${minutes} minute${minutes === 1 ? "" : "s"}.` });
+    };
+    const offGovernor =
+        quality === "auto"
+            ? rtcStats.subscribe(() => {
+                  const stats = rtcStats.getState();
+                  if (stats) applyVerdict(governor.sample(stats, clock.now()));
+              })
+            : () => {};
 
     const onFrameSize = (): void => {
         patch({ hasFrame: pane.classList.contains("has-frame") });
@@ -891,6 +915,7 @@ export function createPictureController(options: PictureOptions): PictureControl
             mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
             permissionWatch?.removeEventListener("change", onDeviceChange);
             rungPoll.stop();
+            offGovernor();
             detachVideo();
             detachPointer();
             pane.removeEventListener("pointerdown", refreshAtDown, { capture: true });
