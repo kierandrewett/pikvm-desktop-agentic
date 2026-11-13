@@ -1038,6 +1038,17 @@ Failure modes: `packages/kvm-engine/src/video/FAILURE_MODES.md` (W6 to W19, V11)
 
 Known open: one black compositor frame can show at the instant a drop is handled (see W13 in `packages/kvm-engine/src/video/FAILURE_MODES.md`). It was measured only in headless Chrome. Abandoned attempts are destroyed once their socket opens late, so a long outage does not leave sessions on the Pi (checked on a Pi stand-in that reaps at 64 s, not on a real PiKVM).
 
+### Reduced picture on a weak link
+
+While the link is taken to be weak, the MJPEG picture comes from the host's per-device stream, `/app/api/v1/adaptive/stream`, not from the Pi's own stream. The host re-encodes it smaller and slower for that device and steps it up again by itself (see `src/server/adaptive/FAILURE_MODES.md`). The chip says `Live · reduced`, and its title names the rung once the status poll has answered (`/app/api/v1/adaptive/status`, every 5 s while the reduced picture is on a visible page).
+
+- **When it is used.** After a WebRTC session that had played is lost, after two sessions in a row fail, or while WebRTC is held (`holdWebrtc`, `PictureController`). The first MJPEG load of a page is the Pi's own stream. The link stops being weak when a session has played for 10 s. The desktop app never uses it (loopback).
+- **Device key.** A random 16-character key in `localStorage` (`pikvm-device-key`) tells the host which device it is serving, so the rung survives a reload. With storage blocked the key lasts as long as the page.
+- **A host without the routes.** Three adaptive loads in a row that show no frame make the next load the Pi's own stream, as a trial. If that shows a frame the routes are taken to be missing or refused (404, or 503 from the limits) and are not asked for again for 10 minutes. If the trial fails too, the network is down and adaptive stays on.
+- **Audio.** MJPEG has no sound. While the reduced picture is on screen there is no audio until WebRTC returns; the adaptive audio relay is a separate step.
+- **Not proved.** Only Chrome against a Pi stand-in was run (`~/.cache/pikvm-e2e/adaptive-engine/REPORT.md`). Nothing decides yet, from the link's measured quality, to move a good WebRTC session to the reduced picture: that is the governor, a later step.
+
+
 ## Cached app shell and updates
 
 The installed app opens from the service worker's cache, so a phone with a bad link gets the app at once, and still learns about a new deploy. The worker (`apps/web/public/sw.js`, with `shell-worker.ts` for the build-time list) is the only place that caches; the page and the worker are always one build.

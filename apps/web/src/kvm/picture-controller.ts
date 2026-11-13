@@ -29,8 +29,10 @@ import {
     type TouchHid,
     type TouchMode,
     type VideoDriver,
+    type SourcePref,
     type ViewTransform,
 } from "@pikvm/kvm-engine";
+import { createRungPoll, deviceKey } from "./adaptive-feed";
 import { attentionSink } from "./attention";
 import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
@@ -105,6 +107,10 @@ export interface PictureState {
     readonly fullUi: boolean;
     /** A WebRTC session that had played was lost and is being brought back: the chip says so while MJPEG carries the picture (K113). */
     readonly videoRetrying: boolean;
+    /** The picture on screen is the per-device reduced MJPEG, not WebRTC or the Pi's own stream (K116). */
+    readonly reduced: boolean;
+    /** The rung the server has this device on while `reduced`, from its status; empty until it has said (K117). */
+    readonly reducedRung: string;
     readonly hasFrame: boolean;
     /** Natural size of the picture, 0 before the first frame. */
     readonly width: number;
@@ -148,6 +154,11 @@ export interface PictureController {
     bindMeter(kind: "audio" | "mic", el: HTMLElement | null): () => void;
     /** The pane's current size and the source's natural size, measured again. */
     remeasure(): void;
+    /** Keep WebRTC off for `ms` and show the reduced picture meanwhile (W20); ends by itself, or at `releaseWebrtc`. */
+    holdWebrtc(ms: number): void;
+    releaseWebrtc(): void;
+    /** Pin the MJPEG source ("auto" follows the link, V12). */
+    setSource(pref: SourcePref): void;
     dispose(): void;
 }
 
@@ -206,6 +217,8 @@ export function createPictureController(options: PictureOptions): PictureControl
         res: { text: "", av: "", show: false },
         fullUi: false,
         videoRetrying: false,
+        reduced: false,
+        reducedRung: "",
         hasFrame: false,
         width: 0,
         height: 0,
@@ -482,7 +495,18 @@ export function createPictureController(options: PictureOptions): PictureControl
     /* ---- video ---- */
 
     const alerts = createScreenAlerts({ clock, attention: attentionSink(), watching: () => prefs.watching });
+    const rungPoll = createRungPoll(
+        (rung) => patch({ reducedRung: rung?.name ?? "" }),
+        () => deviceKey(),
+    );
     const dom = createVideoDom({
+        adaptiveKey: () => (desktop ? null : deviceKey()),
+        onSource: (source) => {
+            const reduced = source === "adaptive";
+            patch({ reduced });
+            if (reduced) rungPoll.start();
+            else rungPoll.stop();
+        },
         onLuma: (lum) => alerts.sample(lum),
         elements: { pane, img, video, freezeCanvas: freeze },
         onSignal: (signal) => {
@@ -537,6 +561,8 @@ export function createPictureController(options: PictureOptions): PictureControl
         documentHidden: document.hidden,
     });
     const detachVideo = dom.attach(driver);
+    // The desktop app talks to its own host over loopback: the reduced picture is for a weak link, which that is not.
+    if (desktop) driver.send({ type: "source", pref: "direct" });
 
     const onFrameSize = (): void => {
         patch({ hasFrame: pane.classList.contains("has-frame") });
@@ -858,9 +884,13 @@ export function createPictureController(options: PictureOptions): PictureControl
             };
         },
         remeasure,
+        holdWebrtc: (ms) => driver.send({ type: "holdWebrtc", ms }),
+        releaseWebrtc: () => driver.send({ type: "releaseWebrtc" }),
+        setSource: (pref) => driver.send({ type: "source", pref }),
         dispose() {
             mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
             permissionWatch?.removeEventListener("change", onDeviceChange);
+            rungPoll.stop();
             detachVideo();
             detachPointer();
             pane.removeEventListener("pointerdown", refreshAtDown, { capture: true });

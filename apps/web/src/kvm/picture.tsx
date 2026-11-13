@@ -30,6 +30,8 @@ const BLANK: PictureState = {
     res: { text: "", av: "", show: false },
     fullUi: false,
     videoRetrying: false,
+    reduced: false,
+    reducedRung: "",
     hasFrame: false,
     width: 0,
     height: 0,

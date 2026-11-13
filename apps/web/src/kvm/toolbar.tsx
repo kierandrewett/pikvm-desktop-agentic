@@ -101,7 +101,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
         };
     }, [controller, audio.available]);
 
-    const { tone, label } = useStatusChip(picture.signal, inputOpen, picture.videoRetrying);
+    const { tone, label } = useStatusChip(picture.signal, inputOpen, picture.videoRetrying, picture.reduced);
 
     const sendKeys: MenuEntry[] = [
         { id: "keys", label: "Show on-screen keys", checked: keysOpen, run: () => onKeys(!keysOpen) },
@@ -146,7 +146,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
     return (
         <div className="kvm-toolbar" data-desktop-app={isDesktopApp()}>
             <div className="kvm-tb-left">
-                <span className={`kvm-dot ${tone}`} title={label} role="img" aria-label={label} />
+                <span className={`kvm-dot ${tone}`} title={picture.reduced && picture.reducedRung ? `${label} (${picture.reducedRung})` : label} role="img" aria-label={label} />
                 <span className="kvm-status">{label}</span>
             </div>
             <div className="kvm-tb-right">

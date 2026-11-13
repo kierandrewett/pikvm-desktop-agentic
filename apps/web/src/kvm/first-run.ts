@@ -54,8 +54,9 @@ export function useStatusChip(
     signal: SignalState,
     inputOpen: boolean,
     videoRetrying = false,
+    reduced = false,
 ): { readonly tone: StatusTone; readonly label: string } {
     const firstRun = useContext(FirstRunContext);
     if (firstRun) return NO_PIKVM;
-    return { tone: statusTone(signal, videoRetrying), label: statusLabel(signal, inputOpen, videoRetrying) };
+    return { tone: statusTone(signal, videoRetrying, reduced), label: statusLabel(signal, inputOpen, videoRetrying, reduced) };
 }

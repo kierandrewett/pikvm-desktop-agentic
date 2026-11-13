@@ -105,7 +105,7 @@ export function Dock(props: DockProps) {
         };
     }, [controller, picture.audio.available]);
 
-    const { tone, label } = useStatusChip(picture.signal, inputOpen, picture.videoRetrying);
+    const { tone, label } = useStatusChip(picture.signal, inputOpen, picture.videoRetrying, picture.reduced);
     const { audio } = picture;
 
     return (
@@ -139,7 +139,7 @@ export function Dock(props: DockProps) {
             ) : null}
 
             <div className="kvm-bar-main" inert={agentHolds || undefined}>
-                <span className={`kvm-dot ${tone}`} title={label} role="img" aria-label={label} />
+                <span className={`kvm-dot ${tone}`} title={picture.reduced && picture.reducedRung ? `${label} (${picture.reducedRung})` : label} role="img" aria-label={label} />
                 <span className="kvm-status">{label}</span>
                 <span className="kvm-spacer" />
                 <HealthButton className="kvm-ibtn" openDialog={props.openDialog} />

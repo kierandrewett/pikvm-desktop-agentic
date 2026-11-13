@@ -18,7 +18,7 @@ const idle: PictureState = {
     audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" },
     res: { text: "", av: "", show: false },
     fullUi: false,
-    videoRetrying: false,
+    videoRetrying: false, reduced: false, reducedRung: "",
     hasFrame: true,
     width: 1920,
     height: 1080,
