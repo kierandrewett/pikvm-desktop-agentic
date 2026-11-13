@@ -115,6 +115,9 @@ export interface VideoState {
     readonly adaptiveBlockedUntil: number | null;
     /** WebRTC is held off (W20). */
     readonly webrtcHeld: boolean;
+    /** Which MJPEG load is current, and the last one whose failure was counted: a load fails once, whatever says so (V15). */
+    readonly loadSeq: number;
+    readonly countedSeq: number;
 }
 
 export function createVideoState(): VideoState {
@@ -160,6 +163,8 @@ export function createVideoState(): VideoState {
         adaptiveTrial: false,
         adaptiveBlockedUntil: null,
         webrtcHeld: false,
+        loadSeq: 0,
+        countedSeq: 0,
     };
 }
 
@@ -180,6 +185,7 @@ export const TIMER = {
     webrtcRetry: "webrtcRetry",
     webrtcStable: "webrtcStable",
     webrtcHold: "webrtcHold",
+    adaptiveRetry: "adaptiveRetry",
 } as const;
 
 /** Whether a blank sample is worth taking now (the readback is expensive). */
@@ -285,7 +291,10 @@ class Mutator {
                 return;
             case "adaptiveProbe":
                 // 404: the host does not have the routes at all. Anything else answering is a refusal that passes.
-                if (ev.missing && s.adaptiveBlockedUntil !== null) s.adaptiveBlockedUntil = this.t + ADAPTIVE_BLOCK_MS;
+                if (ev.missing && s.adaptiveBlockedUntil !== null) {
+                    s.adaptiveBlockedUntil = this.t + ADAPTIVE_BLOCK_MS;
+                    this.start(TIMER.adaptiveRetry, ADAPTIVE_BLOCK_MS);
+                }
                 return;
             case "mjpegLoaded":
                 if (s.mode !== "native" || s.mjpegPaused) return;
@@ -424,6 +433,11 @@ class Mutator {
             case TIMER.webrtcHold:
                 this.releaseWebrtc();
                 return;
+            case TIMER.adaptiveRetry:
+                // The wait is over: if the reduced picture is wanted and the direct one is on screen, change over (V14). A page nobody
+                // can see loads nothing (loadStream's own guards) and does it on return.
+                this.syncSource();
+                return;
         }
     }
 
@@ -483,6 +497,7 @@ class Mutator {
         s.lastLoadAt = this.t;
         const source = this.wantedSource();
         s.mjpegSource = source;
+        s.loadSeq += 1;
         this.emit({ type: "loadMjpeg", key: s.streamKey, source });
         this.emit({ type: "source", source, adaptiveBlocked: this.adaptiveBlocked() });
         this.start(TIMER.streamWatchdog, STREAM_WATCHDOG_MS);
@@ -530,7 +545,8 @@ class Mutator {
     /** A load failed (no frame, or an error): count it against the adaptive source, not while the server is known down (V14). */
     private noteLoadFailed(): void {
         const s = this.s;
-        if (s.serverDown) return;
+        if (s.serverDown || s.countedSeq === s.loadSeq) return;
+        s.countedSeq = s.loadSeq;
         if (s.mjpegSource === "direct") {
             // The direct stream failed in the trial too: the network is down, not the routes. Back to the adaptive one.
             if (s.adaptiveTrial) {
@@ -559,6 +575,7 @@ class Mutator {
             // or a refusal that will pass (503: the client limit, the Pi down). Short at first; the probe makes it long if the
             // route is missing (V14).
             s.adaptiveBlockedUntil = this.t + ADAPTIVE_RETRY_MS;
+            this.start(TIMER.adaptiveRetry, ADAPTIVE_RETRY_MS);
             this.emit({ type: "source", source: "direct", adaptiveBlocked: true });
             this.emit({ type: "probeAdaptive" });
         }
