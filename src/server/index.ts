@@ -44,6 +44,8 @@ import { createWatchService } from "./watch/service";
 import { createRecordingRoutes } from "./recordings/routes";
 import { createRecordingService } from "./recordings/service";
 import { createPiKvmProxy } from "./proxy/kvmd";
+import { createAdaptive } from "./adaptive/service";
+import { limitsFromEnv as adaptiveLimitsFromEnv } from "./adaptive/limits";
 import { createCursorHub } from "./cursor/hub";
 import { createCursorRoutes } from "./cursor/routes";
 import { appAssets, webAssets } from "./static";
@@ -218,6 +220,10 @@ export function startControlServer(
     const recordingRoutes = createRecordingRoutes(recordings);
     void recordings.start().catch((error: unknown) => console.error("[recordings] could not start:", error));
 
+    // The picture for a poor link: one shared read of the Pi's MJPEG, re-encoded per device (src/server/adaptive). It reads the Pi like any
+    // viewer and sets none of kvmd's streamer parameters.
+    const adaptive = createAdaptive({ target: () => control.proxyTarget(), limits: adaptiveLimitsFromEnv() });
+
     const api = createApi({
         control,
         settings,
@@ -240,6 +246,7 @@ export function startControlServer(
         live,
         watch: watchRoutes,
         recordings: recordingRoutes,
+        adaptive,
         ...(deps.webAuth ? { webAuth: deps.webAuth } : {}),
         api,
         ...(serverSync ? { forward: serverSync.forwarder } : {}),
@@ -251,6 +258,7 @@ export function startControlServer(
     server.on("upgrade", (req, socket, head) => router.onUpgrade(req, socket, head));
     server.on("close", () => {
         watch.stop();
+        adaptive.dispose();
         void recordings.stop();
         jiggler.stop();
         cursor.dispose();
@@ -265,6 +273,7 @@ export function startControlServer(
     return Object.assign(server, {
         async shutdown() {
             watch.stop();
+            adaptive.dispose();
             await recordings.stop();
             jiggler.stop();
             cursor.dispose();

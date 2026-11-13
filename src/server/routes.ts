@@ -19,6 +19,7 @@
  *   /app/api/v1/recordings*    session recordings: the writes carry `x-pikvm-recording: 1` and a JSON body; `/live` is also a stream of events
  *   /app/api/v1/recordings/<id>/mic (upgrade)   the microphone socket of a recording in progress: the gate, then a same-origin check
  *   /app/api/v1/cursor         where the target's pointer is, for every client (SSE)
+ *   /app/api/v1/adaptive/*     the per-device picture for a poor link: re-encoded MJPEG that is never queued, and its status (GET only)
  *   /app/api/v1/*              our HttpApi
  *   /app/, /app/kvm, /chat, /recordings/*, /settings/*   the web app's index.html (the console at
  *                              /app/ until the app is built); /app/legacy/ the console
@@ -87,6 +88,11 @@ export interface RouteTargets {
         /** The microphone socket of a recording in progress. */
         handlesUpgrade(path: string): boolean;
         handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer, path: string): void;
+    };
+    /** The picture for a poor link (src/server/adaptive): a stream and a status, per device key, per signed-in subject. */
+    adaptive: {
+        handles(path: string): boolean;
+        handle(req: IncomingMessage, res: ServerResponse, path: string, signedIn?: SignedIn): void;
     };
     /** The web host's own sign-in (src/server/web-auth): its three methods, its session cookie, its sign-in routes.
      *  Absent on the desktop, which has the single token gate in auth.ts. When present it judges every request and
@@ -331,6 +337,15 @@ export function createRoutes(t: RouteTargets): Route[] {
             run: ({ req, res }) => {
                 t.live.track(res);
                 t.cursor.handle(req, res);
+            },
+        },
+        {
+            // GET only (the handler says 405 otherwise). The stream is a long response, ended when the server in use changes.
+            name: "adaptive picture",
+            match: ({ path }) => t.adaptive.handles(path),
+            run: ({ req, res, path, signedIn }) => {
+                t.live.track(res);
+                t.adaptive.handle(req, res, path, signedIn);
             },
         },
         {
