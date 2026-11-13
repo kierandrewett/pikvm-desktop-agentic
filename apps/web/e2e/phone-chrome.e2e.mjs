@@ -577,17 +577,19 @@ async function staticContract() {
         /<meta name="theme-color" content="#000000">/.test(worker) && /html::before[^}]*env\(safe-area-inset-top/.test(worker),
         "theme-color #000000 and the inset strip are in /app/sw.js",
     ]);
-    // The update path: nothing the installed app starts from may come out of a cache. The page, the worker and the
-    // build id are revalidated on every load, the worker never serves a page itself, and only hashed assets are immutable.
-    await check(profile, "the page, sw.js and version.json are revalidated, hashed assets are immutable, the worker never caches a page", async () => {
+    // The update path: the page, the worker and the build id are revalidated on every load, only hashed assets are immutable,
+    // and the worker is the one of the build the host serves (its id is written into it, and it changes with every build).
+    await check(profile, "the page, sw.js and version.json are revalidated, hashed assets are immutable, the worker carries the served build", async () => {
         const heads = {};
         for (const path of ["/app/", "/app/sw.js", "/app/version.json", "/app/manifest.webmanifest"]) heads[path] = (await fetch(`${WEB}${path}`)).headers.get("cache-control");
         const asset = /src="(\/app\/assets\/[^"]+\.js)"/.exec(html)?.[1] ?? "";
         const assetHead = (await fetch(`${WEB}${asset}`)).headers.get("cache-control");
-        const navigationsAreNetwork = /req\.mode === "navigate"[\s\S]{0,200}fetch\(req\)\.catch\(offlinePage\)/.test(worker) && /self\.skipWaiting\(\)/.test(worker) && /self\.clients\.claim\(\)/.test(worker);
+        const served = await (await fetch(`${WEB}/app/version.json`)).json();
+        const baked = /^const SHELL = (.*); \/\/ @shell$/m.exec(worker)?.[1];
+        const shell = baked ? JSON.parse(baked) : { build: undefined, files: [] };
         return [
-            Object.values(heads).every((v) => v === "no-cache") && /immutable/.test(assetHead ?? "") && navigationsAreNetwork,
-            `${JSON.stringify(heads)}; ${asset} ${assetHead}; worker navigations go to the network, skipWaiting and clients.claim present: ${navigationsAreNetwork}`,
+            Object.values(heads).every((v) => v === "no-cache") && /immutable/.test(assetHead ?? "") && shell.build === served.build && shell.files.includes(asset),
+            `${JSON.stringify(heads)}; ${asset} ${assetHead}; worker build ${shell.build}, version.json ${served.build}, ${shell.files.length} files, entry script listed: ${shell.files.includes(asset)}`,
         ];
     });
 }
@@ -619,8 +621,12 @@ async function buildIdAndUpdate(browser) {
             return [alive === 1, `page kept its state: ${alive === 1}`];
         });
 
-        await check(profile, "coming back after a deploy reloads once, and never twice for the same build", async () => {
-            // The worker answers /app/ requests itself, and puppeteer only sees the page's: bypass it so the host's answer can be replaced.
+        await check(profile, "with no worker, coming back after a deploy reloads once, and never twice for the same build", async () => {
+            // A page with no worker (the desktop app, plain http, a browser that refuses one) decides from version.json alone. With a
+            // worker, the build comes from the worker (e2e shell-cache); here the worker goes, and the host's answer can be replaced.
+            await page.evaluate(async () => {
+                for (const registration of await navigator.serviceWorker.getRegistrations()) await registration.unregister();
+            });
             await page.setBypassServiceWorker(true);
             // Returns closer together than 5 s are one check (src/host/update.ts); the previous case just made one.
             await sleep(5300);

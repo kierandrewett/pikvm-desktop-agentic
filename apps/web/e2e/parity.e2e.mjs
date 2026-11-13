@@ -1,8 +1,8 @@
 // Platform parity, end to end: the pieces that used to exist on one platform only. iPhone 13 and a
 // 1400x900 window against a real web host in front of tools/fake-kvmd.
 //
-//   - the app is installable (manifest, service worker) and opens on a retrying page when the KVM
-//     cannot be reached;
+//   - the app is installable (manifest, service worker) and opens from the worker's cache, saying so, when the
+//     host cannot be reached;
 //   - the health indicator is on the phone dock as it is on the desktop toolbar;
 //   - Task Manager and the Windows key can be sent from a phone;
 //   - the screen-change alert works in a browser (title marker, notification, badge) and is
@@ -53,8 +53,7 @@ async function newPage(browser, tag, init) {
     });
     page.on("pageerror", (e) => logs.push(`pageerror: ${e.message}`));
     page.on("response", (r) => {
-        // The worker's own "can't reach the KVM" page is a 503 by design.
-        if (r.status() >= 400 && !(r.status() === 503 && r.fromServiceWorker())) logs.push(`error: ${r.status()} ${r.url()}`);
+        if (r.status() >= 400) logs.push(`error: ${r.status()} ${r.url()}`);
     });
     if (tag === "phone") await page.emulate(puppeteer.KnownDevices["iPhone 13"]);
     else await page.setViewport({ width: 1400, height: 900 });
@@ -118,7 +117,7 @@ async function run(browser, profile, tag) {
         return [pass, `manifest ${manifest.name}, ${manifest.display}, scope ${manifest.scope}; worker scope ${scope}; controlling this page ${controlled}; installability errors: ${errors.join(", ") || "none"}`];
     });
 
-    await check(profile, "the KVM unreachable: the app opens on the retrying page, and recovers on its own", async () => {
+    await check(profile, "the host unreachable: the app opens from the worker's cache and says the host does not answer, and recovers on its own", async () => {
         // DevTools' offline switch is per target, and the worker fetches for navigations: cut both.
         const target = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().endsWith("/app/sw.js"), { timeout: 5000 });
         const worker = await target.createCDPSession();
@@ -127,15 +126,15 @@ async function run(browser, profile, tag) {
         await cut(true);
         await page.setOfflineMode(true);
         await page.goto(`${WEB}/app/kvm`, { waitUntil: "load" }).catch(() => {});
-        const heading = await page.$eval("h1", (h) => h.textContent).catch(() => "(none)");
-        const retry = (await page.$("#retry")) !== null;
+        await page.waitForSelector(".kvm-screen", { timeout: 15000 });
+        const banner = await page.waitForFunction(() => document.querySelector('[data-testid="connection-slot"]')?.textContent?.trim() || false, { timeout: 30000 }).then((h) => h.jsonValue());
+        const apology = await page.$("#retry");
         await shot(page, `${tag}-offline`);
         await cut(false);
         await page.setOfflineMode(false);
-        // The page reloads itself on the browser's online event, or by its five-second poll.
-        await page.waitForSelector(".kvm-screen", { timeout: 15000 });
-        await live(page);
-        return [heading === "Cannot reach the app server" && retry, `page said ${JSON.stringify(heading)}, retry button ${retry}; back on the KVM screen afterwards`];
+        await page.waitForFunction(() => document.querySelector('[data-testid="connection-slot"]')?.textContent?.trim() === "" || /back/.test(document.querySelector('[data-testid="connection-slot"]')?.textContent ?? ""), { timeout: 40000 });
+        await live(page, 40000);
+        return [apology === null && /no network|No answer/.test(banner), `the KVM screen rendered offline, banner ${JSON.stringify(banner)}, no browser or worker error page; live again afterwards`];
     });
 
     await check(profile, "health indicator: appears when the target loses signal, goes when it returns", async () => {
