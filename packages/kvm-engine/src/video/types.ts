@@ -47,7 +47,9 @@ export const WEBRTC_HIDDEN_RETRY_MS = 30000;
 export const WEBRTC_DUPLICATE_MS = 500;
 /** Three adaptive loads in a row that fail make the next load the direct stream, to tell missing routes from a dead network (V14). */
 export const ADAPTIVE_FAILURES_BEFORE_TRIAL = 3;
-/** After the direct stream worked where the adaptive one failed three times, the adaptive one is left alone this long (V14). */
+/** After the direct stream worked where the adaptive one failed three times, the adaptive one is left alone this long while the cause is unknown (a refusal that will pass: the client limit, the Pi down) (V14). */
+export const ADAPTIVE_RETRY_MS = 60 * 1000;
+/** The same, once the host has answered 404 to the adaptive status address: the routes are not there (V14). */
 export const ADAPTIVE_BLOCK_MS = 10 * 60 * 1000;
 /** ICE or the connection disconnected for this long is a drop (W10). */
 export const WEBRTC_DISCONNECTED_MS = 3000;
@@ -220,11 +222,17 @@ export interface HoldWebrtcEvent extends Stamped {
 export interface ReleaseWebrtcEvent extends Stamped {
     readonly type: "releaseWebrtc";
 }
+/** The host's answer to `probeAdaptive`: `missing` when it said 404 (V14). */
+export interface AdaptiveProbeEvent extends Stamped {
+    readonly type: "adaptiveProbe";
+    readonly missing: boolean;
+}
 
 export type VideoEvent =
     | SourceEvent
     | HoldWebrtcEvent
     | ReleaseWebrtcEvent
+    | AdaptiveProbeEvent
     | StartEvent
     | InfoResultEvent
     | InfoFailedEvent
@@ -290,6 +298,8 @@ export type VideoRenderEffect =
     | { readonly type: "loadMjpeg"; readonly key: string; readonly source: "direct" | "adaptive" }
     /** What is on screen: the Pi's own MJPEG, the reduced per-device MJPEG, or WebRTC; and whether the reduced one is turned off for now (V14). */
     | { readonly type: "source"; readonly source: "direct" | "adaptive" | "webrtc"; readonly adaptiveBlocked: boolean }
+    /** Ask the host whether it has the adaptive routes at all (a 404 on the status address says it has not); the answer comes back as `adaptiveProbe` (V14). */
+    | { readonly type: "probeAdaptive" }
     /** Remove the <img> src so the Pi's MJPEG connection is released. */
     | { readonly type: "dropMjpeg" }
     | { readonly type: "fetchInfo"; readonly timeoutMs: number }

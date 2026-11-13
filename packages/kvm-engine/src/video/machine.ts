@@ -15,6 +15,7 @@ import { INITIAL_BLANK, stepBlank } from "./blank";
 import type { BlankTracker } from "./blank";
 import {
     ADAPTIVE_BLOCK_MS,
+    ADAPTIVE_RETRY_MS,
     ADAPTIVE_FAILURES_BEFORE_TRIAL,
     AWAY_RECONNECT_MS,
     BLANK_SAMPLE_MS,
@@ -281,6 +282,10 @@ class Mutator {
                 return;
             case "releaseWebrtc":
                 this.releaseWebrtc();
+                return;
+            case "adaptiveProbe":
+                // 404: the host does not have the routes at all. Anything else answering is a refusal that passes.
+                if (ev.missing && s.adaptiveBlockedUntil !== null) s.adaptiveBlockedUntil = this.t + ADAPTIVE_BLOCK_MS;
                 return;
             case "mjpegLoaded":
                 if (s.mode !== "native" || s.mjpegPaused) return;
@@ -550,8 +555,12 @@ class Mutator {
         }
         if (s.adaptiveTrial) {
             s.adaptiveTrial = false;
-            s.adaptiveBlockedUntil = this.t + ADAPTIVE_BLOCK_MS;
+            // The direct stream worked where the adaptive one failed three times, but the cause is not known: a missing route
+            // or a refusal that will pass (503: the client limit, the Pi down). Short at first; the probe makes it long if the
+            // route is missing (V14).
+            s.adaptiveBlockedUntil = this.t + ADAPTIVE_RETRY_MS;
             this.emit({ type: "source", source: "direct", adaptiveBlocked: true });
+            this.emit({ type: "probeAdaptive" });
         }
     }
 
@@ -569,7 +578,9 @@ class Mutator {
         this.setRetrying(false); // a hold is chosen: the chip says "reduced", not "reconnecting video"
         if (s.janusStarted) this.endSession();
         this.syncSource();
-        this.start(TIMER.webrtcHold, Math.max(ms, 1000));
+        this.cancel(TIMER.webrtcHold);
+        // A finite hold ends by its timer; `Infinity` is a person's "always reduced" and only a release ends it (W23).
+        if (Number.isFinite(ms)) this.start(TIMER.webrtcHold, Math.max(ms, 1000));
     }
 
     /** The hold ends: WebRTC starts again as a normal attempt, once (W21). */

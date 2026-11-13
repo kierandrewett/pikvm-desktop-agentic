@@ -220,6 +220,14 @@ export function createVideoDom(opts: VideoDomOptions): VideoDom {
             case "source":
                 opts.onSource?.(effect.source, effect.adaptiveBlocked);
                 return;
+            case "probeAdaptive": {
+                const key = opts.adaptiveKey?.();
+                if (!key) return;
+                doFetch(`/app/api/v1/adaptive/status?key=${encodeURIComponent(key)}`, { cache: "no-store" })
+                    .then((r) => driver?.send({ type: "adaptiveProbe", missing: r.status === 404 }))
+                    .catch(() => {}); // no answer says nothing: the short block stands
+                return;
+            }
             case "dropMjpeg":
                 img.removeAttribute("src");
                 return;
