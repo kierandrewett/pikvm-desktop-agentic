@@ -39,6 +39,10 @@ export interface VideoDomOptions {
     readonly onHid?: (action: "kick" | "connect") => void;
     /** Each luminance grid read back for blank detection, for the screen-change alert to reuse. */
     readonly onLuma?: (lum: Float32Array) => void;
+    /** The device key the per-device reduced stream is asked for with (V12); absent means that stream cannot be used and the direct one is loaded. */
+    readonly adaptiveKey?: () => string | null;
+    /** What is on screen now: the Pi's MJPEG, the reduced MJPEG or WebRTC, and whether the reduced one is off for now (V14). */
+    readonly onSource?: (source: "direct" | "adaptive" | "webrtc", adaptiveBlocked: boolean) => void;
 }
 
 export interface VideoDom {
@@ -204,9 +208,17 @@ export function createVideoDom(opts: VideoDomOptions): VideoDom {
             case "thaw":
                 if (freezeCanvas) pane.classList.remove("frozen");
                 return;
-            case "loadMjpeg":
+            case "loadMjpeg": {
                 // Marked before the src changes: assigning it is what blanks the <img>.
-                img.src = `${streamPath(effect.key, opts.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : ""))}&t=${Date.now()}`;
+                const key = opts.adaptiveKey?.();
+                img.src =
+                    effect.source === "adaptive" && key
+                        ? `/app/api/v1/adaptive/stream?key=${encodeURIComponent(key)}&profile=auto&t=${Date.now()}`
+                        : `${streamPath(effect.key, opts.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : ""))}&t=${Date.now()}`;
+                return;
+            }
+            case "source":
+                opts.onSource?.(effect.source, effect.adaptiveBlocked);
                 return;
             case "dropMjpeg":
                 img.removeAttribute("src");

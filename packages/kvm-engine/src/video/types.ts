@@ -45,6 +45,10 @@ export const WEBRTC_STABLE_MS = 10000;
 export const WEBRTC_HIDDEN_RETRY_MS = 30000;
 /** One burst of "the network is back" signals is one new session: a session this young with no video yet is not restarted again (W15). */
 export const WEBRTC_DUPLICATE_MS = 500;
+/** Three adaptive loads in a row that fail make the next load the direct stream, to tell missing routes from a dead network (V14). */
+export const ADAPTIVE_FAILURES_BEFORE_TRIAL = 3;
+/** After the direct stream worked where the adaptive one failed three times, the adaptive one is left alone this long (V14). */
+export const ADAPTIVE_BLOCK_MS = 10 * 60 * 1000;
 /** ICE or the connection disconnected for this long is a drop (W10). */
 export const WEBRTC_DISCONNECTED_MS = 3000;
 /** Nothing at all (media, transport heartbeat) for this long is a silent drop (W11). */
@@ -201,7 +205,26 @@ export interface NeedEvent extends Stamped {
     readonly watching: boolean;
 }
 
+/** Which MJPEG source the page asks for: "auto" follows the link (V12); the others are a person's or the governor's choice. */
+export type SourcePref = "auto" | "adaptive" | "direct";
+export interface SourceEvent extends Stamped {
+    readonly type: "source";
+    readonly pref: SourcePref;
+}
+/** Keep WebRTC off for `ms` (the link is too weak for it): the picture is the reduced MJPEG meanwhile (W20). */
+export interface HoldWebrtcEvent extends Stamped {
+    readonly type: "holdWebrtc";
+    readonly ms: number;
+}
+/** End a hold now: WebRTC starts again as a normal attempt (W21). */
+export interface ReleaseWebrtcEvent extends Stamped {
+    readonly type: "releaseWebrtc";
+}
+
 export type VideoEvent =
+    | SourceEvent
+    | HoldWebrtcEvent
+    | ReleaseWebrtcEvent
     | StartEvent
     | InfoResultEvent
     | InfoFailedEvent
@@ -263,8 +286,10 @@ export type VideoRenderEffect =
     /** Hold the last good frame on the freeze canvas (only requested when a frame exists). */
     | { readonly type: "freeze" }
     | { readonly type: "thaw" }
-    /** Point the <img> at the MJPEG stream for `key` (the adapter adds the per-browser quirk and a cache-buster). */
-    | { readonly type: "loadMjpeg"; readonly key: string }
+    /** Point the <img> at the MJPEG stream for `key` (the adapter adds the per-browser quirk and a cache-buster). `source` "adaptive" is the per-device reduced stream (V12). */
+    | { readonly type: "loadMjpeg"; readonly key: string; readonly source: "direct" | "adaptive" }
+    /** What is on screen: the Pi's own MJPEG, the reduced per-device MJPEG, or WebRTC; and whether the reduced one is turned off for now (V14). */
+    | { readonly type: "source"; readonly source: "direct" | "adaptive" | "webrtc"; readonly adaptiveBlocked: boolean }
     /** Remove the <img> src so the Pi's MJPEG connection is released. */
     | { readonly type: "dropMjpeg" }
     | { readonly type: "fetchInfo"; readonly timeoutMs: number }
@@ -309,14 +334,15 @@ export const STATUS: Readonly<Record<SignalState, { readonly tone: StatusTone; r
  * offline" used to live only in a tooltip, so a console whose HID socket had dropped
  * showed a plain "Live" and every keystroke went nowhere.
  */
-export function statusLabel(state: SignalState, inputOpen: boolean, videoRetrying = false): string {
-    return STATUS[state].label + (videoRetrying && state === "live" ? " · reconnecting video" : "") + (inputOpen ? "" : " · input offline");
+export function statusLabel(state: SignalState, inputOpen: boolean, videoRetrying = false, reduced = false): string {
+    const live = state === "live";
+    return STATUS[state].label + (videoRetrying && live ? " · reconnecting video" : "") + (reduced && live ? " · reduced" : "") + (inputOpen ? "" : " · input offline");
 }
 
 /**
- * The chip's colour. A picture that is live over MJPEG while WebRTC is being brought back is amber: nothing is lost
- * but the sharper picture and the sound, and a green chip would say nothing is wrong.
+ * The chip's colour. A picture that is live over MJPEG while WebRTC is being brought back, or that is the reduced one, is
+ * amber: nothing is lost but the sharper picture and the sound, and a green chip would say nothing is wrong.
  */
-export function statusTone(state: SignalState, videoRetrying = false): StatusTone {
-    return videoRetrying && state === "live" ? "warn" : STATUS[state].tone;
+export function statusTone(state: SignalState, videoRetrying = false, reduced = false): StatusTone {
+    return (videoRetrying || reduced) && state === "live" ? "warn" : STATUS[state].tone;
 }

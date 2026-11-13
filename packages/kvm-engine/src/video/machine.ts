@@ -14,6 +14,8 @@ import { awayMs, RESUME_STALE_MS, SUSPEND_GAP_MS } from "../resume";
 import { INITIAL_BLANK, stepBlank } from "./blank";
 import type { BlankTracker } from "./blank";
 import {
+    ADAPTIVE_BLOCK_MS,
+    ADAPTIVE_FAILURES_BEFORE_TRIAL,
     AWAY_RECONNECT_MS,
     BLANK_SAMPLE_MS,
     HEALTH_ABORT_MS,
@@ -40,7 +42,7 @@ import {
     WEBRTC_RETRY_MAX_MS,
     WEBRTC_STABLE_MS,
 } from "./types";
-import type { ScreenMode, SignalState, VideoEffect, VideoEvent, WebrtcFailure } from "./types";
+import type { ScreenMode, SignalState, SourcePref, VideoEffect, VideoEvent, WebrtcFailure } from "./types";
 
 /** A stream load that began this recently and has not yet shown a frame is still on its way: a second one would only be a duplicate. */
 const LOAD_UNDER_WAY_MS = 1500;
@@ -98,6 +100,20 @@ export interface VideoState {
     readonly lastLoadAt: number | null;
     readonly snapshotInFlight: boolean;
     readonly snapshotFailures: number;
+    /** The MJPEG source asked for: "auto" follows the link, so trouble with WebRTC means the reduced picture (V12). */
+    readonly sourcePref: SourcePref;
+    /** The source the <img> was last pointed at. */
+    readonly mjpegSource: "direct" | "adaptive";
+    /** WebRTC failed or is held and has not played for WEBRTC_STABLE_MS since: the link is taken to be weak (V12). */
+    readonly weakLink: boolean;
+    /** Adaptive loads that failed in a row (V14). */
+    readonly adaptiveFailures: number;
+    /** Those failures made the next load the direct stream, to tell missing routes from a dead network (V14). */
+    readonly adaptiveTrial: boolean;
+    /** The adaptive stream is not used before this time (its routes are missing or refused); null when it may be (V14). */
+    readonly adaptiveBlockedUntil: number | null;
+    /** WebRTC is held off (W20). */
+    readonly webrtcHeld: boolean;
 }
 
 export function createVideoState(): VideoState {
@@ -136,6 +152,13 @@ export function createVideoState(): VideoState {
         lastLoadAt: null,
         snapshotInFlight: false,
         snapshotFailures: 0,
+        sourcePref: "auto",
+        mjpegSource: "direct",
+        weakLink: false,
+        adaptiveFailures: 0,
+        adaptiveTrial: false,
+        adaptiveBlockedUntil: null,
+        webrtcHeld: false,
     };
 }
 
@@ -155,6 +178,7 @@ export const TIMER = {
     startGuard: "startGuard",
     webrtcRetry: "webrtcRetry",
     webrtcStable: "webrtcStable",
+    webrtcHold: "webrtcHold",
 } as const;
 
 /** Whether a blank sample is worth taking now (the readback is expensive). */
@@ -248,6 +272,16 @@ class Mutator {
                 if (ev.id === TIMER.health || ev.id === TIMER.blank) this.onBeat(ev.t);
                 this.onTimer(ev.id);
                 return;
+            case "source":
+                s.sourcePref = ev.pref;
+                this.syncSource();
+                return;
+            case "holdWebrtc":
+                this.holdWebrtc(ev.ms);
+                return;
+            case "releaseWebrtc":
+                this.releaseWebrtc();
+                return;
             case "mjpegLoaded":
                 if (s.mode !== "native" || s.mjpegPaused) return;
                 s.streamUp = true;
@@ -256,6 +290,7 @@ class Mutator {
                 this.emit({ type: "thaw" }); // a real frame is on screen again
                 s.retryMs = RECONNECT_INITIAL_MS;
                 this.cancel(TIMER.streamWatchdog);
+                this.noteLoadWorked();
                 if (!s.serverDown && !s.blank.blank) this.setSignal("live");
                 return;
             case "mjpegError":
@@ -379,6 +414,10 @@ class Mutator {
                 return;
             case TIMER.webrtcStable:
                 s.webrtcAttempt = 0;
+                s.weakLink = false; // it stayed up: the link is good enough for it again (V12)
+                return;
+            case TIMER.webrtcHold:
+                this.releaseWebrtc();
                 return;
         }
     }
@@ -437,7 +476,10 @@ class Mutator {
         }
         s.mjpegOpen = true;
         s.lastLoadAt = this.t;
-        this.emit({ type: "loadMjpeg", key: s.streamKey });
+        const source = this.wantedSource();
+        s.mjpegSource = source;
+        this.emit({ type: "loadMjpeg", key: s.streamKey, source });
+        this.emit({ type: "source", source, adaptiveBlocked: this.adaptiveBlocked() });
         this.start(TIMER.streamWatchdog, STREAM_WATCHDOG_MS);
     }
 
@@ -446,11 +488,97 @@ class Mutator {
         if (s.mode !== "native" || s.mjpegPaused || s.reconnectPending) return;
         // A page nobody can see reconnects nothing: the stream is reloaded the moment it is shown again.
         if (s.documentHidden && !s.watching) return;
+        this.noteLoadFailed();
         // Same reason as loadStream: do not talk over the health poll.
         if (s.signal !== "disconnected" && !s.serverDown) this.setSignal("offline");
         s.reconnectPending = true;
         this.start(TIMER.reconnect, s.retryMs);
         s.retryMs = Math.min(Math.round(s.retryMs * RECONNECT_FACTOR), RECONNECT_MAX_MS);
+    }
+
+    /* ---- which MJPEG ---- */
+
+    private adaptiveBlocked(): boolean {
+        const s = this.s;
+        return s.adaptiveBlockedUntil !== null && this.t < s.adaptiveBlockedUntil;
+    }
+
+    /** The source the next load uses (V12, V14): the reduced one when the link is weak, unless it is off or being tried against the direct one. */
+    private wantedSource(): "direct" | "adaptive" {
+        const s = this.s;
+        if (s.sourcePref === "direct" || s.adaptiveTrial) return "direct";
+        if (s.adaptiveBlockedUntil !== null) {
+            if (this.t < s.adaptiveBlockedUntil) return "direct";
+            s.adaptiveBlockedUntil = null; // the wait is over: it gets another go
+        }
+        if (s.sourcePref === "adaptive") return "adaptive";
+        return s.weakLink ? "adaptive" : "direct";
+    }
+
+    /** The wanted source changed while an MJPEG connection is open: load again from the right one (the held frame stays up meanwhile). */
+    private syncSource(): void {
+        const s = this.s;
+        if (s.mode !== "native" || s.mjpegPaused || !s.mjpegOpen) return;
+        if (this.wantedSource() !== s.mjpegSource) this.loadStream();
+    }
+
+    /** A load failed (no frame, or an error): count it against the adaptive source, not while the server is known down (V14). */
+    private noteLoadFailed(): void {
+        const s = this.s;
+        if (s.serverDown) return;
+        if (s.mjpegSource === "direct") {
+            // The direct stream failed in the trial too: the network is down, not the routes. Back to the adaptive one.
+            if (s.adaptiveTrial) {
+                s.adaptiveTrial = false;
+                s.adaptiveFailures = 0;
+            }
+            return;
+        }
+        s.adaptiveFailures += 1;
+        if (s.adaptiveFailures >= ADAPTIVE_FAILURES_BEFORE_TRIAL) {
+            s.adaptiveFailures = 0;
+            s.adaptiveTrial = true;
+        }
+    }
+
+    /** A frame arrived. The adaptive source worked, or the direct one worked where adaptive failed three times: its routes are not there (V14). */
+    private noteLoadWorked(): void {
+        const s = this.s;
+        if (s.mjpegSource === "adaptive") {
+            s.adaptiveFailures = 0;
+            return;
+        }
+        if (s.adaptiveTrial) {
+            s.adaptiveTrial = false;
+            s.adaptiveBlockedUntil = this.t + ADAPTIVE_BLOCK_MS;
+            this.emit({ type: "source", source: "direct", adaptiveBlocked: true });
+        }
+    }
+
+    /* ---- hold ---- */
+
+    /** Keep WebRTC off for `ms`: the session is taken out (the frame is held, the reduced MJPEG takes over), and no retry runs meanwhile (W20). */
+    private holdWebrtc(ms: number): void {
+        const s = this.s;
+        s.webrtcHeld = true;
+        s.weakLink = true;
+        if (s.webrtcRetryPending) {
+            s.webrtcRetryPending = false;
+            this.cancel(TIMER.webrtcRetry);
+        }
+        this.setRetrying(false); // a hold is chosen: the chip says "reduced", not "reconnecting video"
+        if (s.janusStarted) this.endSession();
+        this.syncSource();
+        this.start(TIMER.webrtcHold, Math.max(ms, 1000));
+    }
+
+    /** The hold ends: WebRTC starts again as a normal attempt, once (W21). */
+    private releaseWebrtc(): void {
+        const s = this.s;
+        if (!s.webrtcHeld) return;
+        s.webrtcHeld = false;
+        this.cancel(TIMER.webrtcHold);
+        this.startNativeWebrtc();
     }
 
     private onHealth(online: boolean): void {
@@ -645,7 +773,7 @@ class Mutator {
 
     private startNativeWebrtc(): void {
         const s = this.s;
-        if (s.mode !== "native" || s.janusStarted || !s.janusAvailable) return;
+        if (s.mode !== "native" || s.janusStarted || !s.janusAvailable || s.webrtcHeld) return;
         if (s.webrtcRetryPending) {
             s.webrtcRetryPending = false;
             this.cancel(TIMER.webrtcRetry);
@@ -664,8 +792,12 @@ class Mutator {
         const s = this.s;
         if (!s.janusStarted) return; // a session already stopped has nothing more to say (W16)
         s.webrtcFailure = reason;
+        // A session that had played and was lost, or a second one that failed, is a weak link; a first failure of a Pi that never
+        // had WebRTC is not (W3, W5). Set before the session is taken out: the MJPEG that takes over is then the reduced one (V12).
+        if (s.webrtcWasUp || s.webrtcAttempt >= 1) s.weakLink = true;
         this.endSession();
         this.scheduleWebrtcRetry();
+        this.syncSource();
     }
 
     /**
@@ -687,7 +819,7 @@ class Mutator {
     /** Arm the next attempt: capped exponential backoff with jitter, slow while nobody can see the page (W7, W15). */
     private scheduleWebrtcRetry(): void {
         const s = this.s;
-        if (s.mode !== "native" || !s.janusAvailable || s.janusStarted || s.webrtcRetryPending) return;
+        if (s.mode !== "native" || !s.janusAvailable || s.janusStarted || s.webrtcRetryPending || s.webrtcHeld) return;
         const grown = WEBRTC_RETRY_INITIAL_MS * Math.pow(WEBRTC_RETRY_FACTOR, Math.min(s.webrtcAttempt, 16));
         s.webrtcAttempt += 1;
         this.armWebrtcRetry(Math.min(grown, WEBRTC_RETRY_MAX_MS));
@@ -759,6 +891,7 @@ class Mutator {
             // Only a session that STAYS earns a fast first retry again (W8).
             this.start(TIMER.webrtcStable, WEBRTC_STABLE_MS);
             this.emit({ type: "videoSwapped", first: true });
+            this.emit({ type: "source", source: "webrtc", adaptiveBlocked: this.adaptiveBlocked() });
             this.setSignal("live");
             return;
         }

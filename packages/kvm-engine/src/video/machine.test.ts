@@ -151,7 +151,7 @@ describe("MJPEG resilience", () => {
         expect(r.signals()).toEqual(["disconnected"]);
         r.clear();
         r.send({ type: "healthResult", online: true });
-        expect(r.of("loadMjpeg")).toEqual([{ type: "loadMjpeg", key: "k-1" }]);
+        expect(r.of("loadMjpeg")).toEqual([{ type: "loadMjpeg", key: "k-1", source: "direct" }]);
         expect(r.signals()).toEqual(["reconnecting"]);
         r.clear();
         r.send({ type: "mjpegLoaded" });
@@ -160,7 +160,7 @@ describe("MJPEG resilience", () => {
         r.send({ type: "healthFailed" });
         r.clear();
         r.send({ type: "healthResult", online: true });
-        expect(r.of("loadMjpeg")).toEqual([{ type: "loadMjpeg", key: "k-2" }]);
+        expect(r.of("loadMjpeg")).toEqual([{ type: "loadMjpeg", key: "k-2", source: "direct" }]);
     });
 
     it("V7: the last good frame is held across restarts, never before one exists", () => {
@@ -406,15 +406,15 @@ describe("WebRTC", () => {
         expect(r.janus.started).toBe(2);
     });
 
-    it("W3: a session that fails with nothing to fall back from is retried and never reloads a good MJPEG stream", () => {
+    it("W3: a session that fails with nothing to fall back from is retried and reloads a good MJPEG stream once at most, to the reduced one after the second failure (V12)", () => {
         const r = liveNative({ janus: "ok" });
         for (let i = 0; i < 5; i++) {
             r.janus.handlers?.onFailed("signalling");
             r.advance(20_000);
         }
         expect(r.janus.started).toBeGreaterThan(5); // never gives up (W7)
-        expect(r.count("loadMjpeg")).toBe(0);
-        expect(r.count("freeze")).toBe(0);
+        expect(r.of("loadMjpeg").map((e) => (e as { source: string }).source)).toEqual(["adaptive"]); // one reload, not one per failure
+        expect(r.count("freeze")).toBe(1); // the held frame covers it
         expect(r.count("webrtcFallback")).toBe(0);
         expect(r.count("webrtcRetry")).toBe(0); // WebRTC never played: nothing for the chip to say (W17)
         expect(r.signals()).toEqual([]);
@@ -790,7 +790,7 @@ describe("coming back from the background", () => {
         m.send({ type: "healthResult", t: 7100, online: true });
         const fx = m.send({ type: "visibility", t: 30_000, hidden: false });
         expect(loads(fx)).toBe(1);
-        expect(fx.find((e) => e.type === "loadMjpeg")).toEqual({ type: "loadMjpeg", key: "k-1" });
+        expect(fx.find((e) => e.type === "loadMjpeg")).toEqual({ type: "loadMjpeg", key: "k-1", source: "direct" });
     });
 
     it("R5: background screen alerts are watching, so a hidden page keeps its stream", () => {
