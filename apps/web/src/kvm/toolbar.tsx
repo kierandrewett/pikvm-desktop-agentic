@@ -101,7 +101,7 @@ export function Toolbar({ controller, actions, openDialog, keysOpen, onKeys, onF
         };
     }, [controller, audio.available]);
 
-    const { tone, label } = useStatusChip(picture.signal, inputOpen);
+    const { tone, label } = useStatusChip(picture.signal, inputOpen, picture.videoRetrying);
 
     const sendKeys: MenuEntry[] = [
         { id: "keys", label: "Show on-screen keys", checked: keysOpen, run: () => onKeys(!keysOpen) },

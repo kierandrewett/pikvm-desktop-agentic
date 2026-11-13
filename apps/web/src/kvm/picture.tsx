@@ -29,6 +29,7 @@ const BLANK: PictureState = {
     audio: { available: false, audioOn: true, blocked: false, micOn: false, micLabel: "Off", micWarn: false, camSupport: "unknown", camOn: false, camLabel: "Off", camWarn: false, camSent: null, camDevices: "unknown" },
     res: { text: "", av: "", show: false },
     fullUi: false,
+    videoRetrying: false,
     hasFrame: false,
     width: 0,
     height: 0,

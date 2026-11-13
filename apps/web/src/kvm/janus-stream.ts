@@ -12,8 +12,10 @@
  * engine's JanusPort, and the controller reaches the audio controls through `JanusStream`.
  */
 
-import type { JanusHandlers, JanusPort, JanusSession } from "@pikvm/kvm-engine";
+import { WEBRTC_DISCONNECTED_MS } from "@pikvm/kvm-engine";
+import type { JanusFailure, JanusHandlers, JanusPort, JanusSession } from "@pikvm/kvm-engine";
 import { cameraConstraints, cameraKey, sentFrom, type CameraChoice, type CameraSent } from "./camera";
+import { createRtcMonitor, type RtcMonitor, type RtcStats } from "./rtc-health";
 
 /** The slice of janus.js this file touches. Its own typings do not exist. */
 interface JanusPluginHandle {
@@ -42,10 +44,12 @@ interface JanusStatic {
 }
 
 let loaded: JanusStatic | null = null;
+/** How many times loading janus.js failed: a browser remembers a failed dynamic import of the same address, so each retry asks under a new query string (W19). */
+let loadFailures = 0;
 
 function ensureJanus(): Promise<JanusStatic | null> {
     if (loaded) return Promise.resolve(loaded);
-    const url = `${import.meta.env.BASE_URL}janus/janus.js`;
+    const url = `${import.meta.env.BASE_URL}janus/janus.js${loadFailures > 0 ? `?retry=${loadFailures}` : ""}`;
     return import(/* @vite-ignore */ url)
         .then(
             (module: { Janus: JanusStatic }) =>
@@ -60,6 +64,7 @@ function ensureJanus(): Promise<JanusStatic | null> {
                 }),
         )
         .catch((error: unknown) => {
+            loadFailures += 1;
             console.error("Janus import failed", error);
             return null;
         });
@@ -74,8 +79,6 @@ function ensureJanus(): Promise<JanusStatic | null> {
 export function videoTrackFor(allowCam: boolean, choice: CameraChoice): Record<string, unknown> {
     return { type: "video", capture: allowCam ? cameraConstraints(choice) : false, recv: true, add: true };
 }
-
-export type JanusStatus = "connecting" | "live" | "error";
 
 export interface JanusStreamOptions {
     readonly wsUrl: string;
@@ -94,8 +97,11 @@ export interface JanusStreamOptions {
     readonly onCameraSent?: (sent: CameraSent | null) => void;
     /** The camera track ended by itself: unplugged, or its permission was withdrawn. */
     readonly onCameraEnded?: () => void;
-    readonly onStatus: (status: JanusStatus) => void;
+    /** The session ended by itself, once (K109). The video machine owns the retry; this wrapper has none. */
+    readonly onFailed: (reason: JanusFailure) => void;
     readonly onActive: (active: boolean) => void;
+    /** A sample of the received stream every 2 s while the session plays, and null when it stops (K112). */
+    readonly onStats?: (stats: RtcStats | null) => void;
 }
 
 export interface AudioLevels {
@@ -118,9 +124,7 @@ export interface JanusStream {
     getAudioLevels(): Promise<AudioLevels>;
 }
 
-const RETRY_MS = 5000;
 const RESTART_MS = 200;
-const ERROR_RETRY_MS = 2000;
 
 export function createJanusStream(opts: JanusStreamOptions): JanusStream {
     const { video } = opts;
@@ -128,14 +132,20 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
     let janus: JanusInstance | null = null;
     let handle: JanusPluginHandle | null = null;
     let iceUrl: string | null = null;
+    /** `stop()` was called: the machine is done with this session. */
     let stopped = false;
+    /** The session reported its failure; it has nothing more to say (K109). */
+    let failed = false;
+    /** Bumped whenever the session is closed, so a callback from an earlier one is deaf. */
+    let generation = 0;
     let allowAudio = opts.wantAudio;
     let allowMic = opts.wantMic;
     let allowCam = opts.wantCam;
     let usedMicId = opts.micDeviceId();
     let usedCam = cameraKey(opts.cam());
-    let retry: ReturnType<typeof setTimeout> | null = null;
     let restartTimer: ReturnType<typeof setTimeout> | null = null;
+    let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let monitor: RtcMonitor | null = null;
 
     const stream = (): MediaStream | null => (video.srcObject instanceof MediaStream ? video.srcObject : null);
 
@@ -211,7 +221,25 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
         );
     };
 
-    const finish = (): void => {
+    /**
+     * Everything this session holds, let go: the monitor, the timers, the Janus session and its handle, the tracks. Safe to
+     * call again. It is the only teardown, for a failure, for `stop()` and for a restart.
+     */
+    const closeSession = (): void => {
+        generation += 1;
+        monitor?.stop();
+        monitor = null;
+        clearTimeout(disconnectTimer ?? undefined);
+        disconnectTimer = null;
+        const closing = janus;
+        janus = null;
+        if (closing) {
+            try {
+                closing.destroy();
+            } catch {
+                // already gone
+            }
+        }
         if (handle) {
             try {
                 handle.detach();
@@ -220,60 +248,90 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
             }
             handle = null;
         }
-        janus = null;
-        if (!stopped && !retry) {
-            retry = setTimeout(() => {
-                retry = null;
-                // A page nobody can see reconnects nothing; `onVisible` picks the session back up when it is shown.
-                if (!document.hidden) ensure();
-            }, RETRY_MS);
-        }
-    };
-
-    const onVisible = (): void => {
-        if (document.hidden || stopped || janus || retry || !Janus) return;
-        ensure();
-    };
-
-    const destroy = (): void => {
-        if (janus) {
-            try {
-                janus.destroy();
-            } catch {
-                // already gone
-            }
-        }
-        finish();
         stopTracks();
         opts.onCameraSent?.(null);
     };
 
-    const attach = (): void => {
-        if (!janus || !Janus) return;
+    /**
+     * The session cannot go on. The machine hears first, while the <video> still has a picture to hold (W13), and owns
+     * what comes next: this wrapper never retries (K109). Once only.
+     */
+    const fail = (reason: JanusFailure): void => {
+        if (failed || stopped) return;
+        failed = true;
+        try {
+            opts.onFailed(reason);
+        } finally {
+            closeSession();
+        }
+    };
+
+    /**
+     * ICE and the connection both say "disconnected" when the browser has heard nothing from the peer. A hiccup clears
+     * itself inside 3 s; one that lasts is a drop (W10). `failed` and `closed` are drops at once.
+     */
+    const peerState = (live: () => boolean, state: string): void => {
+        if (!live()) return;
+        if (state === "failed") fail("ice-failed");
+        else if (state === "closed") fail("closed");
+        else if (state === "disconnected") {
+            disconnectTimer ??= setTimeout(() => {
+                disconnectTimer = null;
+                if (live()) fail("ice-disconnected");
+            }, WEBRTC_DISCONNECTED_MS);
+        } else {
+            clearTimeout(disconnectTimer ?? undefined);
+            disconnectTimer = null;
+        }
+    };
+
+    /** The silent-drop check and the stats sampler, once the Pi says the stream started (K110, K112). */
+    const startMonitor = (live: () => boolean): void => {
+        monitor?.stop();
+        monitor = createRtcMonitor({
+            peer: () => handle?.webrtcStuff?.pc ?? null,
+            visible: () => !document.hidden,
+            onDead: () => {
+                if (live()) fail("stalled");
+            },
+            onStats: (stats) => opts.onStats?.(stats),
+        });
+        monitor.start();
+    };
+
+    const attach = (live: () => boolean): void => {
+        if (!janus || !Janus || !live()) return;
         const J = Janus;
         janus.attach({
             plugin: "janus.plugin.ustreamer",
             opaqueId: `oid-${J.randomString(12)}`,
             success: (h: JanusPluginHandle) => {
+                if (!live()) return;
                 handle = h;
                 h.send({ message: { request: "features" } });
             },
             error: () => {
-                opts.onStatus("error");
-                destroy();
+                if (live()) fail("plugin");
             },
-            connectionState: (state: string) => {
-                if (state === "failed") destroy();
+            connectionState: (state: string) => peerState(live, state),
+            iceState: (state: string) => peerState(live, state),
+            // The Pi hung up the peer connection, or detached the handle: nothing is coming.
+            webrtcState: (up: boolean) => {
+                if (!up && live()) fail("hangup");
             },
-            webrtcState: () => {},
+            ondetached: () => {
+                if (live()) fail("hangup");
+            },
             onmessage: (msg: Record<string, unknown>, jsep: unknown) => {
+                if (!live()) return;
                 const result = msg["result"] as Record<string, unknown> | undefined;
                 if (result) {
                     if (result["status"] === "started") {
                         opts.onActive(true);
-                        opts.onStatus("live");
+                        startMonitor(live);
                     } else if (result["status"] === "stopped") {
-                        opts.onActive(false);
+                        fail("hangup");
+                        return;
                     } else if (result["status"] === "features") {
                         const features = result["features"] as { ice?: { url?: string }; audio?: boolean; mic?: boolean; cam?: boolean };
                         iceUrl = features.ice?.url ?? null;
@@ -285,13 +343,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
                         sendWatch();
                     }
                 } else if (msg["error_code"] || msg["error"]) {
-                    opts.onStatus("error");
-                    setTimeout(() => {
-                        if (!stopped) {
-                            sendStop();
-                            sendWatch();
-                        }
-                    }, ERROR_RETRY_MS);
+                    fail("plugin");
                     return;
                 }
                 if (jsep && handle) {
@@ -321,63 +373,79 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
                             j.sdp = j.sdp.replace("useinbandfec=1", "useinbandfec=1;stereo=1");
                         },
                         success: (answer) => {
+                            if (!live()) return;
                             handle?.send({ message: { request: "start" }, jsep: answer });
                             watchCamera();
                         },
-                        error: () => opts.onStatus("error"),
+                        error: () => {
+                            if (live()) fail("answer");
+                        },
                     });
                 }
             },
             onremotetrack: (track: MediaStreamTrack, _id: string, added: boolean, meta?: { reason?: string }) => {
+                if (!live()) return;
                 const reason = meta?.reason;
                 if (added && reason === "created") addTrack(track);
                 else if (!added && reason === "ended") removeTrack(track);
             },
-            oncleanup: () => {},
         });
     };
 
     function ensure(): void {
-        if (janus || stopped || !Janus) return;
-        opts.onStatus("connecting");
+        if (janus || stopped || failed || !Janus) return;
+        generation += 1;
+        const mine = generation;
+        const live = (): boolean => mine === generation && !stopped && !failed;
         const J = Janus;
-        janus = new J({
+        const created = new J({
             server: opts.wsUrl,
             ipv6: true,
             destroyOnUnload: false,
             iceServers: () => (iceUrl ? [{ urls: iceUrl }] : []),
-            success: attach,
+            // Closed while the session was still being created: janus.js ignores a destroy until it has an id, so it is
+            // destroyed here, once it has one (K111). Its socket stays open otherwise and keeps the session alive.
+            success: () => {
+                if (!live()) {
+                    created.destroy();
+                    return;
+                }
+                attach(live);
+            },
+            // Refused, unreachable, or lost after it was up: one failure, the machine's to retry (K109).
             error: () => {
-                opts.onStatus("error");
-                finish();
+                if (live()) fail("signalling");
             },
         });
+        // An error raised inside the constructor has already failed and closed this session.
+        if (live()) janus = created;
     }
 
     /**
      * PiKVM's fix for flaky audio and mic toggles: do not re-watch in-session (that races the
      * PeerConnection teardown against the new offer, the hit-or-miss where a second toggle was
      * needed). Bring the whole session down and up again with the new flags. Rapid toggles
-     * coalesce so only the final state is brought up.
+     * coalesce so only the final state is brought up. This is a deliberate restart, not a retry:
+     * if the new one fails it is reported like any other failure.
      */
     const restart = (): void => {
         opts.onActive(false); // the picture falls back to MJPEG for the reconnect: no black frame
-        destroy();
+        closeSession();
         clearTimeout(restartTimer ?? undefined);
         restartTimer = setTimeout(() => {
             restartTimer = null;
-            if (!stopped) ensure();
+            ensure();
         }, RESTART_MS);
     };
 
     return {
         start() {
             stopped = false;
-            document.addEventListener("visibilitychange", onVisible);
+            failed = false;
             void ensureJanus().then((J) => {
-                if (stopped) return;
+                if (stopped || failed) return;
                 if (!J) {
-                    opts.onStatus("error");
+                    fail("load");
                     return;
                 }
                 Janus = J;
@@ -386,17 +454,10 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
         },
         stop() {
             stopped = true;
-            document.removeEventListener("visibilitychange", onVisible);
-            if (restartTimer) {
-                clearTimeout(restartTimer);
-                restartTimer = null;
-            }
-            if (retry) {
-                clearTimeout(retry);
-                retry = null;
-            }
+            clearTimeout(restartTimer ?? undefined);
+            restartTimer = null;
             sendStop();
-            destroy();
+            closeSession();
         },
         setAudio(on) {
             allowAudio = on;
@@ -460,11 +521,13 @@ export interface JanusBridgeOptions {
     readonly onCameraSupport?: (supported: boolean) => void;
     readonly onCameraSent?: (sent: CameraSent | null) => void;
     readonly onCameraEnded?: () => void;
+    /** A sample of the received stream every 2 s while a session plays, and null when there is none (K112). */
+    readonly onStats?: (stats: RtcStats | null) => void;
 }
 
 /** The engine's JanusPort over this client, remembering the running stream for the audio controls. */
 export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOptions): JanusBridge {
-    const { micDeviceId, cam, wantAudio, wantCam, onCameraSupport, onCameraSent, onCameraEnded } = bridge;
+    const { micDeviceId, cam, wantAudio, wantCam, onCameraSupport, onCameraSent, onCameraEnded, onStats } = bridge;
     let running: JanusStream | null = null;
     const port: JanusPort = {
         available: () => typeof RTCPeerConnection !== "undefined",
@@ -481,7 +544,8 @@ export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOp
                 ...(onCameraSupport ? { onCameraSupport } : {}),
                 ...(onCameraSent ? { onCameraSent } : {}),
                 ...(onCameraEnded ? { onCameraEnded } : {}),
-                onStatus: handlers.onStatus,
+                ...(onStats ? { onStats } : {}),
+                onFailed: handlers.onFailed,
                 onActive: handlers.onActive,
             });
             running = stream;

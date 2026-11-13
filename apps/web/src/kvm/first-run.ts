@@ -7,7 +7,7 @@
  */
 
 import type { ServerEntry } from "@pikvm/contracts/api";
-import { type SignalState, STATUS, type StatusTone, statusLabel } from "@pikvm/kvm-engine";
+import { type SignalState, type StatusTone, statusLabel, statusTone } from "@pikvm/kvm-engine";
 import { createContext, useContext } from "react";
 import { usePikvms, useServers } from "../api/queries";
 
@@ -50,8 +50,12 @@ export const FirstRunProvider = FirstRunContext.Provider;
 const NO_PIKVM: { readonly tone: StatusTone; readonly label: string } = { tone: "", label: "No PiKVM yet" };
 
 /** The status chip in the toolbar and the dock. With no PiKVM there is no stream, so it says that and nothing red. */
-export function useStatusChip(signal: SignalState, inputOpen: boolean): { readonly tone: StatusTone; readonly label: string } {
+export function useStatusChip(
+    signal: SignalState,
+    inputOpen: boolean,
+    videoRetrying = false,
+): { readonly tone: StatusTone; readonly label: string } {
     const firstRun = useContext(FirstRunContext);
     if (firstRun) return NO_PIKVM;
-    return { tone: STATUS[signal].tone, label: statusLabel(signal, inputOpen) };
+    return { tone: statusTone(signal, videoRetrying), label: statusLabel(signal, inputOpen, videoRetrying) };
 }

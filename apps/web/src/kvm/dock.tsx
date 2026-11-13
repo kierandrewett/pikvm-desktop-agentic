@@ -105,7 +105,7 @@ export function Dock(props: DockProps) {
         };
     }, [controller, picture.audio.available]);
 
-    const { tone, label } = useStatusChip(picture.signal, inputOpen);
+    const { tone, label } = useStatusChip(picture.signal, inputOpen, picture.videoRetrying);
     const { audio } = picture;
 
     return (

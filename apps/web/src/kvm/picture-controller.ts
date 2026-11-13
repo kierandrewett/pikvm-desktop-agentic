@@ -36,7 +36,8 @@ import { createPainter, type Painter } from "./cursor-lens";
 import type { FieldFocus } from "./field-focus";
 import { onNextActivation } from "./gesture-unmute";
 import { buzz } from "./haptics";
-import { createJanusBridge } from "./janus-stream";
+import { createJanusBridge, type JanusStream } from "./janus-stream";
+import type { RtcStats } from "./rtc-health";
 import { createScreenAlerts } from "./screen-alerts";
 import { createPointerExecutor } from "./pointer-executor";
 import type { KvmSession } from "./session";
@@ -102,6 +103,8 @@ export interface PictureState {
     readonly audio: AudioState;
     readonly res: ResolutionToast;
     readonly fullUi: boolean;
+    /** A WebRTC session that had played was lost and is being brought back: the chip says so while MJPEG carries the picture (K113). */
+    readonly videoRetrying: boolean;
     readonly hasFrame: boolean;
     /** Natural size of the picture, 0 before the first frame. */
     readonly width: number;
@@ -127,6 +130,8 @@ export interface PicturePrefs {
 
 export interface PictureController {
     readonly store: ReadableStore<PictureState>;
+    /** The received stream's numbers, every 2 s while WebRTC plays, and null otherwise. For the adaptive phase; nothing sends it anywhere (K112). */
+    readonly rtcStats: ReadableStore<RtcStats | null>;
     readonly pointer: PointerDriver;
     readonly video: VideoDriver;
     /** Preferences that live outside the machines: the touch choices, drag-lock, dialogs, window focus. */
@@ -190,6 +195,8 @@ export function createPictureController(options: PictureOptions): PictureControl
     const { pane, img, video, freeze, cursor, remote, lens } = elements;
     const { link, clock, keyboard } = session;
 
+    // Kept apart from the picture store: every component that reads that one would repaint every 2 s for numbers nobody shows (K112).
+    const rtcStats = createStore<RtcStats | null>(null);
     const store = createStore<PictureState>({
         signal: "connecting",
         mode: "detecting",
@@ -198,6 +205,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         audio: initialAudio,
         res: { text: "", av: "", show: false },
         fullUi: false,
+        videoRetrying: false,
         hasFrame: false,
         width: 0,
         height: 0,
@@ -386,6 +394,9 @@ export function createPictureController(options: PictureOptions): PictureControl
     let cancelReenable: (() => void) | null = null;
     const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome|CriOS|Chromium|Android/.test(navigator.userAgent);
 
+    // The microphone is carried by the session it was turned on in (see `onWebrtc`).
+    let micStream: JanusStream | null = null;
+
     const janus = createJanusBridge(video, {
         micDeviceId: () => readDeviceChoice(MIC_DEVICE_KEY).id,
         cam: readCameraChoice,
@@ -401,6 +412,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         },
         onCameraSent: (sent) => patchAudio({ camSent: sent }),
         onCameraEnded: () => void cameraEnded(),
+        onStats: (stats) => rtcStats.setState(stats),
     });
 
     // Unmute without losing the picture: if the browser blocks it (no gesture), keep the muted
@@ -480,6 +492,15 @@ export function createPictureController(options: PictureOptions): PictureControl
         onScreenMode: (mode) => patch({ mode }),
         onWebrtc: (event) => {
             if (event.type === "activated") {
+                // The microphone belongs to the session it was turned on in. A session that replaced it (after a drop, a
+                // return, the network coming back) starts without one, as a fresh page does, so the button goes back to Off
+                // rather than showing On over a session that sends nothing (K111).
+                if (micOn && janus.current() !== micStream) {
+                    micOn = false;
+                    micStream = null;
+                    patchAudio({ micOn: false, micLabel: "Off", micWarn: false });
+                    session.notices.notify({ text: "Microphone turned off: the video session was replaced. Turn it on again to talk." });
+                }
                 applySink();
                 patchAudio({ available: true });
                 patch({ webrtc: true });
@@ -495,6 +516,8 @@ export function createPictureController(options: PictureOptions): PictureControl
                     }
                     showResolution(true);
                 }
+            } else if (event.type === "retrying") {
+                patch({ videoRetrying: event.retrying });
             } else {
                 patchAudio({ available: false });
                 patch({ webrtc: false });
@@ -697,6 +720,7 @@ export function createPictureController(options: PictureOptions): PictureControl
 
     const controller: PictureController = {
         store,
+        rtcStats,
         pointer,
         video: driver,
         setPrefs(next) {
@@ -772,6 +796,7 @@ export function createPictureController(options: PictureOptions): PictureControl
                 .then((granted) => {
                     for (const track of granted.getTracks()) track.stop();
                     micOn = true;
+                    micStream = stream;
                     stream.setMic(true);
                     patchAudio({ micOn: true, micLabel: "On", micWarn: false });
                     showResolution(true);

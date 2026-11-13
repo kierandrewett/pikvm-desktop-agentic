@@ -171,6 +171,12 @@ html:has(.app-shell[data-tab="kvm"] .kvm-screen[data-layout="dock"]) body {
 .kvm-pane.frozen .kvm-video {
     visibility: hidden;
 }
+/* A new WebRTC session's <video> comes up while the held frame still covers the picture (the stream that was cut has not
+   come back). It stays rendered, though transparent, so a browser that only decodes what it renders (Safari) still fires
+   "playing" and the swap back can happen; it never shows until it has (opacity, the warming rule above). */
+.kvm-pane.frozen .kvm-video.warming {
+    visibility: visible;
+}
 
 .kvm-overlay {
     position: absolute;
