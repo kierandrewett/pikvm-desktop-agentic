@@ -61,10 +61,21 @@ A phone on a bad connection loses WebRTC far more often than it loses MJPEG, and
 - W17. The chip says "reconnecting video" only to someone who had WebRTC: from the failure of a session that had played in this page, until the next swap. A Pi that never had WebRTC (no Janus, blocked) is retried quietly and the chip stays plain.
 - W18. The client keeps the numbers a later adaptive phase needs: every 2 s while a session plays, the received video bitrate, the fraction of packets lost, the jitter, the round trip, the frames per second and the decoded size, with the time. A counter that goes backwards (a new session, a reset) gives no sample for that interval rather than a negative one; no session means no sample; nothing is sent anywhere.
 - W19. The vendored `janus.js` is loaded on demand. A browser remembers a failed dynamic import of the same address for the life of the page, so a load that failed while the network was down would have meant no WebRTC until a reload; the next attempt loads it under a fresh query string.
+- W20. `holdWebrtc(ms)` stops WebRTC now through the fallback path (W9, the last frame held by W13), and no session is started or retried until the hold ends. A pending W7 retry is cancelled. A hold does not change the backoff (W8) and does not show the "reconnecting video" suffix (W17): it is asked for, not a failure.
+- W21. `releaseWebrtc` ends the hold early; the hold's own timer ends it at the same point. It starts ONE normal attempt at once, on the same terms as a retry (W15 for a hidden page, nothing outside native mode). A release without a hold does nothing.
+- W22. While held, MJPEG shows the picture (V12 default) and is never left suspended. A hold on a page that never had WebRTC starts nothing and changes nothing else.
 
 ### MJPEG never gives up either
 
 - V11. Every path out of a failed MJPEG load ends in one pending reconnect (800 ms x1.7 to 8 s, V4) or in the health poll that reloads it (V6); there is no attempt limit and no state in which neither is armed while the picture is wanted. The only deliberate silence is a stream nobody can see (V10, R5), which is reloaded the moment it is wanted again. Proof: the connection cut for 5, 20 and 90 s with a count of the stream requests the Pi's side saw.
+
+### Reduced picture on a weak link
+
+- V12. The MJPEG source is `adaptive` (the server's per-device re-encode, `/app/api/v1/adaptive/stream`) or `direct` (the Pi's own streamer). It is `adaptive` by default whenever WebRTC is not playing, because a weak link is the case it helps. It is `direct` only while V14 has marked adaptive unavailable. While WebRTC plays, MJPEG is paused as before (W1) and the source waits.
+- V13. Changing the source reloads the `<img>` under the held frame: the freeze comes before the new src (V7) and the picture thaws only on a real frame. A source change never shows a black frame in between.
+- V14. Adaptive is marked unavailable after three adaptive loads in a row produce no frame: an error, or no first frame within 7 s (V4). A host without the routes (404), or one refusing (503: limits, Pi down), reaches `direct` in three loads and then makes no further adaptive request for 10 minutes (TIMER.adaptiveRetry). The first load after those 10 minutes tries adaptive again.
+- V15. A frame from an adaptive load resets the count. A failed direct load never counts against adaptive.
+- V16. A host without the routes behaves as before the feature, apart from the three extra probes: the direct URL, cadence and reconnect rules are unchanged.
 
 ## Lifecycle
 
