@@ -578,8 +578,19 @@ export function createPictureController(options: PictureOptions): PictureControl
     let sessionPlayed = false;
     if (quality === "full") driver.send({ type: "source", pref: "direct" });
     else if (quality === "reduced") driver.send({ type: "holdWebrtc", ms: Number.POSITIVE_INFINITY }); // no expiry: only a change of the choice ends it (W23)
+    let callNoticeShown = false;
     const applyVerdict = (verdict: { holdMs: number; reason: string } | null): void => {
         if (!verdict) return;
+        // A call is on: the mic and camera travel only on WebRTC, so a hold would cut the person off from the meeting
+        // for the length of the hold. Say so once instead, and let the person decide.
+        if (micOn || camOn) {
+            console.info(`[governor] verdict (${verdict.reason}) ignored: microphone or camera is on`);
+            if (!callNoticeShown) {
+                callNoticeShown = true;
+                session.notices.notify({ text: "Weak connection. Staying on the live picture because the microphone or camera is on." });
+            }
+            return;
+        }
         console.info(`[governor] hold ${Math.round(verdict.holdMs / 1000)} s: ${verdict.reason}`);
         governor.held(clock.now());
         driver.send({ type: "holdWebrtc", ms: verdict.holdMs });
