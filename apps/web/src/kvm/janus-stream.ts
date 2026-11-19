@@ -102,6 +102,8 @@ export interface JanusStreamOptions {
     readonly onActive: (active: boolean) => void;
     /** A sample of the received stream every 2 s while the session plays, and null when it stops (K112). */
     readonly onStats?: (stats: RtcStats | null) => void;
+    /** The session restarts on purpose; called just before `onActive(false)` (K127). */
+    readonly onRestart?: () => void;
 }
 
 export interface AudioLevels {
@@ -429,6 +431,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
      * if the new one fails it is reported like any other failure.
      */
     const restart = (): void => {
+        opts.onRestart?.(); // before the loss is reported, so the controller can tell this restart from a dropped link (K127)
         opts.onActive(false); // the picture falls back to MJPEG for the reconnect: no black frame
         closeSession();
         clearTimeout(restartTimer ?? undefined);
@@ -523,11 +526,13 @@ export interface JanusBridgeOptions {
     readonly onCameraEnded?: () => void;
     /** A sample of the received stream every 2 s while a session plays, and null when there is none (K112). */
     readonly onStats?: (stats: RtcStats | null) => void;
+    /** The session is about to restart on purpose (speaker, microphone, camera or device changed): its loss is not a dropped link (K127). */
+    readonly onRestart?: () => void;
 }
 
 /** The engine's JanusPort over this client, remembering the running stream for the audio controls. */
 export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOptions): JanusBridge {
-    const { micDeviceId, cam, wantAudio, wantCam, onCameraSupport, onCameraSent, onCameraEnded, onStats } = bridge;
+    const { micDeviceId, cam, wantAudio, wantCam, onCameraSupport, onCameraSent, onCameraEnded, onStats, onRestart } = bridge;
     let running: JanusStream | null = null;
     const port: JanusPort = {
         available: () => typeof RTCPeerConnection !== "undefined",
@@ -547,6 +552,7 @@ export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOp
                 ...(onStats ? { onStats } : {}),
                 onFailed: handlers.onFailed,
                 onActive: handlers.onActive,
+                ...(onRestart ? { onRestart } : {}),
             });
             running = stream;
             return {

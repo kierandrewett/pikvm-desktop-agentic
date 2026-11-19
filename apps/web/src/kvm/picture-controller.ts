@@ -427,6 +427,10 @@ export function createPictureController(options: PictureOptions): PictureControl
         onCameraSent: (sent) => patchAudio({ camSent: sent }),
         onCameraEnded: () => void cameraEnded(),
         onStats: (stats) => rtcStats.setState(stats),
+        onRestart: () => {
+            sessionPlayed = false;
+            governor.held(clock.now()); // empties the sample window only
+        },
     });
 
     // Unmute without losing the picture: if the browser blocks it (no gesture), keep the muted
@@ -576,8 +580,9 @@ export function createPictureController(options: PictureOptions): PictureControl
     const governor = createGovernor();
     /**
      * The session now running has played (its <video> was swapped in), so losing it is a drop for the governor (K120).
-     * Speaker, mic and camera changes restart the session on purpose (janus-stream `restart`), so each clears this just
-     * before the restart: that loss is the person's choice, not a weak link (K127).
+     * A restart on purpose (speaker, mic, camera or device change) is not a drop: `onRestart` clears this and the
+     * governor's sample window before the loss is reported, so neither the drop count nor the samples of the old session
+     * carry into the new one (K125, K127).
      */
     let sessionPlayed = false;
     if (quality === "full") driver.send({ type: "source", pref: "direct" });
@@ -734,7 +739,6 @@ export function createPictureController(options: PictureOptions): PictureControl
     const stopCamera = (label: string): void => {
         if (!camOn) return;
         camOn = false;
-        sessionPlayed = false;
         janus.current()?.setCam(false);
         patchAudio({ camOn: false, camLabel: label, camWarn: true, camSent: null });
         const sentence = CAMERA_WARNINGS[label];
@@ -826,7 +830,6 @@ export function createPictureController(options: PictureOptions): PictureControl
             audioOn = !audioOn;
             video.muted = !audioOn;
             if (audioOn) void video.play().catch(() => {});
-            sessionPlayed = false;
             janus.current()?.setAudio(audioOn);
             patchAudio({ audioOn, blocked: false });
             showResolution(true);
@@ -842,7 +845,6 @@ export function createPictureController(options: PictureOptions): PictureControl
             if (!stream) return;
             if (micOn) {
                 micOn = false;
-                sessionPlayed = false;
                 stream.setMic(false);
                 patchAudio({ micOn: false, micLabel: "Off", micWarn: false });
                 showResolution(true);
@@ -863,7 +865,6 @@ export function createPictureController(options: PictureOptions): PictureControl
                     for (const track of granted.getTracks()) track.stop();
                     micOn = true;
                     micStream = stream;
-                    sessionPlayed = false;
                     stream.setMic(true);
                     patchAudio({ micOn: true, micLabel: "On", micWarn: false });
                     showResolution(true);
@@ -874,7 +875,6 @@ export function createPictureController(options: PictureOptions): PictureControl
         toggleCam() {
             if (camOn) {
                 camOn = false;
-                sessionPlayed = false;
                 janus.current()?.setCam(false);
                 patchAudio({ camOn: false, camLabel: CAMERA_LABELS.off, camWarn: false, camSent: null });
                 showResolution(true);
@@ -899,7 +899,6 @@ export function createPictureController(options: PictureOptions): PictureControl
                 .then((granted) => {
                     for (const track of granted.getTracks()) track.stop();
                     camOn = true;
-                    sessionPlayed = false;
                     stream.setCam(true);
                     patchAudio({ camOn: true, camLabel: CAMERA_LABELS.on, camWarn: false });
                     // A permission that was blocked and has been allowed: the list has its cameras back.
@@ -909,7 +908,6 @@ export function createPictureController(options: PictureOptions): PictureControl
                 .catch(camFailure);
         },
         devicesChanged() {
-            sessionPlayed = false; // a device change restarts the session on purpose: not a drop (K127)
             janus.current()?.micDeviceChanged();
             janus.current()?.camChanged();
             void reconcileCamera();
