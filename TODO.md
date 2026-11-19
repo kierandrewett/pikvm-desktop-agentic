@@ -48,13 +48,12 @@ is in git history (`docs/web-client-migration.md`, removed with the /app cutover
       frame, ours was `closed`, the Pi UI's own peer was `connected`, and ours came back on
       leaving. The browser check ran under a guard that dropped every `/api/ws` frame except
       ping, so no input reached the Pi.
-- [ ] **Full PiKVM UI: two things not yet seen.** (1) Real playback in the framed Pi UI. Frames
-      reach it (decoded count rose to 440 on a 1920 px stream) but the test tab was hidden, so
-      nearly all were dropped and the video read `paused: true`; repeat in a visible tab and
-      check a presented-frame or playback-time counter advances (run record:
+- [x] **Playback in the framed Pi UI.** Seen in a visible tab on kvm.drewett.dev (2026-11-19):
+      playback time and decoded frames advance, one frame dropped, our peer closed, the Pi UI's
+      connected (run record:
       `~/.cache/pikvm-e2e/rtc-resilience/RUN-2026-11-19-full-ui-webrtc.md`).
-      (2) With the microphone or camera on, the session is kept on purpose (`keepSession`,
-      V10), so the duplicate stream stays then; not exercised against a real Pi.
+- [ ] **Full PiKVM UI with the microphone or camera on.** The session is kept on purpose
+      (`keepSession`, V10), so the duplicate stream stays then; not exercised against a real Pi.
 - [ ] **The mass-storage status line during an upload** still reads "Ready to
       mount …" rather than describing the upload. That text is driven by `msd`
       events from the Pi, and the fake kvmd sends none while it holds the request
