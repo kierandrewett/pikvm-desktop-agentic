@@ -646,14 +646,21 @@ class Mutator {
         if (s.mode === "snapshot") return;
         s.fullUiOn = on;
         if (on) {
-            // Stop our own picture before the Pi's starts. fullUiOn is already true, so
-            // loadStream is closed for business and nothing reopens what this drops.
+            // Stop our own pictures before the Pi's starts. fullUiOn is already true, so loadStream and
+            // startNativeWebrtc are closed for business and nothing reopens what this drops.
             s.mjpegOpen = false;
             this.emit({ type: "dropMjpeg" });
+            if (s.webrtcRetryPending) {
+                s.webrtcRetryPending = false;
+                this.cancel(TIMER.webrtcRetry);
+            }
+            if (s.janusStarted) this.endSession();
         } else {
             // loadStream guards itself on mode and mjpegPaused, so this resumes MJPEG only
-            // if MJPEG is what was showing before.
+            // if MJPEG is what was showing before. WebRTC starts again as a new attempt, unless a hold is on.
+            s.webrtcAttempt = 0;
             this.loadStream();
+            this.startNativeWebrtc();
         }
     }
 
@@ -801,7 +808,8 @@ class Mutator {
 
     private startNativeWebrtc(): void {
         const s = this.s;
-        if (s.mode !== "native" || s.janusStarted || !s.janusAvailable || s.webrtcHeld) return;
+        // The framed Pi UI streams the same camera itself: a session of ours behind it pays for the picture twice (V10).
+        if (s.mode !== "native" || s.janusStarted || !s.janusAvailable || s.webrtcHeld || s.fullUiOn) return;
         if (s.webrtcRetryPending) {
             s.webrtcRetryPending = false;
             this.cancel(TIMER.webrtcRetry);

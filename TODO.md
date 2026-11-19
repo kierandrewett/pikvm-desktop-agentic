@@ -42,12 +42,12 @@ is in git history (`docs/web-client-migration.md`, removed with the /app cutover
 
 ## Known and deliberately not done
 
-- [ ] **WebRTC keeps streaming behind the full PiKVM UI.** The MJPEG path is
-      released when the picture is not on screen; an active Janus session is
-      not. Tearing one down and re-establishing it is materially more delicate
-      than dropping an `<img>` src, and the reconnect logic around it is
-      hard-won. Wants to be its own piece of work rather than folded into a
-      sweep.
+- [ ] **WebRTC behind the full PiKVM UI: prove it on a real Pi.** The video machine now ends
+      our Janus session when the Pi's UI is framed and starts one new attempt when it is
+      left (V10; `machine.test.ts`). Not yet seen in a browser against a real Janus:
+      open Full PiKVM UI with the picture on WebRTC, check in `chrome://webrtc-internals`
+      that only the framed UI's peer connection is open, then go back to the console and
+      check ours returns.
 - [ ] **The mass-storage status line during an upload** still reads "Ready to
       mount …" rather than describing the upload. That text is driven by `msd`
       events from the Pi, and the fake kvmd sends none while it holds the request
