@@ -555,7 +555,11 @@ export function createPictureController(options: PictureOptions): PictureControl
                 // Only a session that had PLAYED: one that got a track and never played is a failed start, not a drop.
                 const hadPlayed = sessionPlayed;
                 sessionPlayed = false;
-                if (hadPlayed && !driver.state.webrtcHeld && quality === "auto") applyVerdict(governor.drop(clock.now()));
+                if (event.deliberate) {
+                    // The page came back or the network did, and the machine replaced the session itself (R6): the
+                    // replacement's own samples and start say whether the link is weak, not this restart (K127).
+                    governor.held(clock.now());
+                } else if (hadPlayed && !driver.state.webrtcHeld && quality === "auto") applyVerdict(governor.drop(clock.now()));
             }
         },
         // The link's own lifecycle binding (session.ts) already kicks the socket after a long

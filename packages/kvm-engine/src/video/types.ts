@@ -318,7 +318,7 @@ export type VideoRenderEffect =
     /** The <video> is really playing: reveal it, hide and release the <img>. `first` is true only for the swap itself. */
     | { readonly type: "videoSwapped"; readonly first: boolean }
     /** WebRTC is gone: show the <img>, hide the <video>, stop its tracks, hide audio toggles. */
-    | { readonly type: "webrtcFallback"; readonly wasActive: boolean }
+    | { readonly type: "webrtcFallback"; readonly wasActive: boolean; readonly deliberate?: true }
     /** A WebRTC session that had played is being brought back (`retrying`), or is back or no longer wanted: the chip says "reconnecting video" meanwhile. */
     | { readonly type: "webrtcRetry"; readonly retrying: boolean }
     /** Sample the picture for blankness: from the <video> when WebRTC is showing, else the <img>. */

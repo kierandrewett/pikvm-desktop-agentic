@@ -32,7 +32,7 @@ export interface VideoDomOptions {
         event:
             | { type: "activated" }
             | { type: "swapped"; first: boolean }
-            | { type: "fallback"; wasActive: boolean }
+            | { type: "fallback"; wasActive: boolean; deliberate?: true }
             | { type: "retrying"; retrying: boolean },
     ) => void;
     /** The machine wants the input socket replaced (`kick`) or ensured (`connect`). */
@@ -301,7 +301,7 @@ export function createVideoDom(opts: VideoDomOptions): VideoDom {
                     // no stream to stop
                 }
                 video.srcObject = null;
-                opts.onWebrtc?.({ type: "fallback", wasActive: effect.wasActive });
+                opts.onWebrtc?.({ type: "fallback", wasActive: effect.wasActive, ...(effect.deliberate ? { deliberate: true as const } : {}) });
                 return;
             case "sampleBlank":
                 sampleBlank(effect.source);

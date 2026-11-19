@@ -766,7 +766,7 @@ class Mutator {
             s.webrtcRetryPending = false;
             this.cancel(TIMER.webrtcRetry);
         }
-        if (s.janusStarted) this.endSession();
+        if (s.janusStarted) this.endSession(true); // the page came back or the network did: our choice, not a lost session (K127)
         this.startNativeWebrtc();
     }
 
@@ -850,12 +850,12 @@ class Mutator {
      * fallback shows the <img> and stops the tracks, and only then is the session stopped. Stopping it first empties the
      * <video> (its size reads 0) and the frame to hold is gone.
      */
-    private endSession(): void {
+    private endSession(deliberate = false): void {
         const s = this.s;
         this.cancel(TIMER.startGuard);
         this.cancel(TIMER.playWatchdog);
         this.cancel(TIMER.webrtcStable);
-        this.fallbackToMjpeg();
+        this.fallbackToMjpeg(deliberate);
         this.emit({ type: "janusStop" });
         s.janusStarted = false;
         s.webrtcStartedAt = null;
@@ -956,7 +956,7 @@ class Mutator {
      * fallback that has to resume it still has work even though webrtcActive never
      * became true.
      */
-    private fallbackToMjpeg(): void {
+    private fallbackToMjpeg(deliberate = false): void {
         const s = this.s;
         const was = s.webrtcActive;
         if (!was && !s.mjpegPaused) return;
@@ -967,7 +967,7 @@ class Mutator {
         // Signal first: leaving "live" freezes the frame, and the <video> must still be showing
         // for there to be one to hold. (Hiding it first lost the last frame of every WebRTC drop.)
         if (was) this.setSignal("offline"); // brief "reconnecting" while the <img> reloads
-        this.emit({ type: "webrtcFallback", wasActive: was });
+        this.emit({ type: "webrtcFallback", wasActive: was, ...(deliberate ? { deliberate: true as const } : {}) });
         s.streamUp = false;
         this.loadStream();
     }
