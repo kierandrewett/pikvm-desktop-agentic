@@ -29,9 +29,10 @@ if [ "${#files[@]}" -eq 0 ]; then
     exit 1
 fi
 
-# `gh release list` shows every release; the tag is what names it.
+# Looked up by tag, not scraped from `gh release list`: the list is capped and its answer can lag or flip right after a
+# release is created.
 exists() {
-    gh release list --repo "$repo" --limit 100 --json tagName -q '.[].tagName' | grep -qxF "$tag"
+    gh release view "$tag" --repo "$repo" >/dev/null 2>&1
 }
 
 if ! exists; then
@@ -45,11 +46,17 @@ if ! exists; then
     # Another build may create it in the same second; the loser's error is fine, the check below decides.
     echo "[publish] creating release $tag"
     gh release create "$tag" "${create[@]}" || echo "[publish] create failed or lost the race; checking"
+    # One positive answer is enough: a second look at the release listing can disagree with the first, which failed
+    # v1.15.27 and v1.15.28 (the macOS arm64 build created the release and then read it as missing a second later).
+    found=false
     for _ in $(seq 10); do
-        exists && break
+        if exists; then
+            found=true
+            break
+        fi
         sleep 3
     done
-    exists || { echo "[publish] release $tag does not exist and could not be created" >&2; exit 1; }
+    $found || { echo "[publish] release $tag does not exist and could not be created" >&2; exit 1; }
 fi
 
 for attempt in 1 2 3; do
