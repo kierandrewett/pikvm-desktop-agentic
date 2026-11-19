@@ -42,12 +42,16 @@ is in git history (`docs/web-client-migration.md`, removed with the /app cutover
 
 ## Known and deliberately not done
 
-- [ ] **WebRTC behind the full PiKVM UI: prove it on a real Pi.** The video machine now ends
-      our Janus session when the Pi's UI is framed and starts one new attempt when it is
-      left (V10; `machine.test.ts`). Not yet seen in a browser against a real Janus:
-      open Full PiKVM UI with the picture on WebRTC, check in `chrome://webrtc-internals`
-      that only the framed UI's peer connection is open, then go back to the console and
-      check ours returns.
+- [x] **WebRTC behind the full PiKVM UI.** Done and seen on kvm.drewett.dev (2026-11-19, build
+      9a06ac12): the video machine ends our Janus session when the Pi's UI is framed and
+      starts one new attempt when it is left (V10). With the Pi's KVM page open in the
+      frame, ours was `closed`, the Pi UI's own peer was `connected`, and ours came back on
+      leaving. The browser check ran under a guard that dropped every `/api/ws` frame except
+      ping, so no input reached the Pi.
+- [ ] **Full PiKVM UI: two things not yet seen.** (1) The framed Pi UI's `<video>` had a
+      stream attached but read `paused: true`: confirm frames are actually playing.
+      (2) With the microphone or camera on, the session is kept on purpose (`keepSession`,
+      V10), so the duplicate stream stays then; not exercised against a real Pi.
 - [ ] **The mass-storage status line during an upload** still reads "Ready to
       mount …" rather than describing the upload. That text is driven by `msd`
       events from the Pi, and the fake kvmd sends none while it holds the request
