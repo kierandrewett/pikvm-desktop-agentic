@@ -906,7 +906,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         },
         setFullUi(on) {
             patch({ fullUi: on });
-            driver.send({ type: "fullUi", on });
+            driver.send({ type: "fullUi", on, keepSession: micOn || camOn });
         },
         bindMeter(kind, el) {
             if (!el) return () => {};

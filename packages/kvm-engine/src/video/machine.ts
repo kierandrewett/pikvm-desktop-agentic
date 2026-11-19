@@ -91,6 +91,8 @@ export interface VideoState {
     readonly webrtcFailure: WebrtcFailure | null;
     readonly blank: BlankTracker;
     readonly fullUiOn: boolean;
+    /** The microphone or camera rides our session, so the framed Pi UI does not end it. */
+    readonly fullUiKeepsSession: boolean;
     readonly collapsed: boolean;
     readonly watching: boolean;
     readonly documentHidden: boolean;
@@ -148,6 +150,7 @@ export function createVideoState(): VideoState {
         webrtcFailure: null,
         blank: INITIAL_BLANK,
         fullUiOn: false,
+        fullUiKeepsSession: false,
         collapsed: false,
         watching: false,
         documentHidden: false,
@@ -386,7 +389,7 @@ class Mutator {
                 this.setSignal("disconnected");
                 return;
             case "fullUi":
-                this.onFullUi(ev.on);
+                this.onFullUi(ev.on, ev.keepSession === true);
                 return;
             case "need":
                 s.collapsed = ev.collapsed;
@@ -640,16 +643,19 @@ class Mutator {
         if (!s.mjpegOpen) this.loadStream();
     }
 
-    private onFullUi(on: boolean): void {
+    private onFullUi(on: boolean, keepSession: boolean): void {
         const s = this.s;
         // The Pi's UI cannot be framed over a snapshot screen: the mode forces it off.
         if (s.mode === "snapshot") return;
         s.fullUiOn = on;
+        s.fullUiKeepsSession = on && keepSession;
         if (on) {
             // Stop our own pictures before the Pi's starts. fullUiOn is already true, so loadStream and
             // startNativeWebrtc are closed for business and nothing reopens what this drops.
             s.mjpegOpen = false;
             this.emit({ type: "dropMjpeg" });
+            // The session stays when the microphone or camera rides it: ending it would cut them (V10).
+            if (s.fullUiKeepsSession) return;
             if (s.webrtcRetryPending) {
                 s.webrtcRetryPending = false;
                 this.cancel(TIMER.webrtcRetry);
@@ -657,10 +663,13 @@ class Mutator {
             if (s.janusStarted) this.endSession();
         } else {
             // loadStream guards itself on mode and mjpegPaused, so this resumes MJPEG only
-            // if MJPEG is what was showing before. WebRTC starts again as a new attempt, unless a hold is on.
-            s.webrtcAttempt = 0;
+            // if MJPEG is what was showing before. WebRTC starts again as a new attempt, unless a hold is on
+            // or the session never went away.
             this.loadStream();
-            this.startNativeWebrtc();
+            if (!s.janusStarted) {
+                s.webrtcAttempt = 0;
+                this.startNativeWebrtc();
+            }
         }
     }
 
@@ -809,7 +818,7 @@ class Mutator {
     private startNativeWebrtc(): void {
         const s = this.s;
         // The framed Pi UI streams the same camera itself: a session of ours behind it pays for the picture twice (V10).
-        if (s.mode !== "native" || s.janusStarted || !s.janusAvailable || s.webrtcHeld || s.fullUiOn) return;
+        if (s.mode !== "native" || s.janusStarted || !s.janusAvailable || s.webrtcHeld || (s.fullUiOn && !s.fullUiKeepsSession)) return;
         if (s.webrtcRetryPending) {
             s.webrtcRetryPending = false;
             this.cancel(TIMER.webrtcRetry);

@@ -198,6 +198,8 @@ export interface OfflineEvent extends Stamped {
 export interface FullUiEvent extends Stamped {
     readonly type: "fullUi";
     readonly on: boolean;
+    /** The page sends its microphone or camera over the WebRTC session: it must outlive the framed UI. */
+    readonly keepSession?: boolean;
 }
 
 /** Whether anyone needs the MJPEG stream: preview collapsed, and whether background screen alerts watch it. */
