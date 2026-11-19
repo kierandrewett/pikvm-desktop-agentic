@@ -915,6 +915,12 @@ export function createPictureController(options: PictureOptions): PictureControl
         },
         setFullUi(on) {
             patch({ fullUi: on });
+            // Opening the Pi's UI ends our session on purpose unless the mic or camera rides it (V10): that loss is the
+            // person's choice, not a weak link, so it is not a drop and the old session's samples are forgotten (K127).
+            if (on && !(micOn || camOn)) {
+                sessionPlayed = false;
+                governor.held(clock.now());
+            }
             driver.send({ type: "fullUi", on, keepSession: micOn || camOn });
         },
         bindMeter(kind, el) {
