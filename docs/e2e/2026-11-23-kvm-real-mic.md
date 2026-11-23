@@ -52,3 +52,18 @@ Timelines (one sample a second, V = video playing, M/m = mic on/off, x = no mic 
   playback: Input/output error` one second later, as it did at 10:59, 11:01 and 11:28 today. The Pi keeps retrying and
   logs `Playing resumed` once the target reads from the PiKVM USB microphone. The error usually means the target is not
   recording from that device (the meeting app or the Windows default input is another microphone).
+
+## The mic across a reconnect (K111), 14:57 to 14:58
+
+Failure modes: 7. A session that replaces a dropped one comes back with the mic off while the button says On, or says
+Off and the person does not notice (seen on the phone after the 14:07 deploy). 8. The replacement sends no mic audio.
+
+| Case | Command | Observed | Result |
+| --- | --- | --- | --- |
+| 7, 8 Chrome | `BROWSER=chrome node apps/web/e2e/kvm-real-mic-reconnect.mjs` | mic on, 27 packets sent; Janus socket closed by the page at 14:57:59; a new peer connection (3rd) played by 14:58:08 with the mic button still On and outbound audio packets 156 then 307 three seconds later; no mic notice | pass |
+| 7, 8 Firefox | `BROWSER=firefox node apps/web/e2e/kvm-real-mic-reconnect.mjs` | the same: socket closed 14:58:20, 3rd peer connection sending, packets 162 then 312, button On | pass |
+
+The Pi log shows the sessions being replaced (14:57:59 destroyed, 14:58:00 created; 14:58:20 destroyed, 14:58:21
+created) but no new `Playback opened`, because the phone's mic had held the Pi's playback device open since 14:21:22;
+the Pi logs that line only when it opens the device. Not shown: the capture-error path (`onMicFailed`), which needs the
+device to vanish between the click and the reconnect.
