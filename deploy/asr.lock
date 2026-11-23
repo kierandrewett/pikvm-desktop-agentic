@@ -1,5 +1,5 @@
 {
-    "$comment": "The speech models and engine the session recordings are transcribed with (src/server/recordings/transcribe-worker.ts). Models are fetched at image build time by scripts/fetch-asr.mjs and checked against these hashes; the running image never fetches anything, and the transcriber opens no network connection. Every URL is a k2-fsa/sherpa-onnx release asset (an ONNX export of the original model). sherpa-onnx-node (Apache-2.0, onnxruntime inside) is the engine; the image installs exactly this version, and the platform package for its architecture, each checked by integrity.",
+    "$comment": "The speech models and engine the session recordings are transcribed with (src/server/recordings/transcribe-worker.ts). Models are fetched at image build time by scripts/fetch-asr.mjs and checked against these hashes; the running image never fetches anything, and the transcriber opens no network connection. Every URL is a k2-fsa/sherpa-onnx release asset (an ONNX export of the original model), except the 3D-Speaker model: upstream replaced that asset on 2026-11-19 with different bytes, so it is fetched from this project's own `asr-models-1` prerelease, a byte-exact copy of the file first fetched from upstream (same sha256 as before). sherpa-onnx-node (Apache-2.0, onnxruntime inside) is the engine; the image installs exactly this version, and the platform package for its architecture, each checked by integrity.",
     "sherpa": {
         "package": "sherpa-onnx-node",
         "version": "2.0.1",
@@ -70,7 +70,7 @@
         {
             "name": "3D-Speaker ERes2Net, English VoxCeleb (speaker embeddings)",
             "licence": "Apache-2.0",
-            "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
+            "url": "https://github.com/kierandrewett/pikvm-desktop-agentic/releases/download/asr-models-1/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
             "sha256": "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5",
             "archive": null,
             "files": [{ "to": "3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx", "sha256": "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5" }]
