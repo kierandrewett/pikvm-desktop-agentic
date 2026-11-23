@@ -80,3 +80,17 @@ no picture and no sound back.
 
 Not shown: the mic and camera on together with one of them gone (the Pi's camera support was not used in these runs).
 The code turns the mic off first and the camera on the next failure, since the error does not say which device failed.
+
+## On Kieran's phone (Firefox for Android, live site 467e0250), 15:09 to 15:10
+
+Driven over adb with his go-ahead: a fresh tab on kvm.drewett.dev/app/kvm, taps on the page's own mic button, Home and
+back. No key or tap reached the work PC. His voice was sent while the mic was on.
+
+| Case | Observed | Result |
+| --- | --- | --- |
+| Mic on (tap 15:09:43) | Pi: session replaced 15:09:43, `Playback opened` 15:09:45, then the usual PCM I/O error 15:09:48 | mic reaches the Pi |
+| Firefox meter (3) | screenshot 6 s after the tap: green level at the bottom of the mic button | pass on the phone |
+| Away 7 s (Home 15:10:04, back 15:10:11) | Pi: session destroyed and a new one created at 15:10:11; the mic button still On and the green level moving after the return | pass (K111 carry) |
+| Mic off (tap 15:10:38) | button grey | done |
+
+Still open: the Pi cannot write the mic to the target's USB microphone (`Can't play to PCM playback: Input/output error`).
