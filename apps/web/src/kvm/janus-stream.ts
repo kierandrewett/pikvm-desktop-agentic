@@ -128,6 +128,52 @@ export interface JanusStream {
 
 const RESTART_MS = 200;
 
+interface TrackMeter {
+    /** The peak of the track's last 1024 samples (0..1), or null when it cannot be read. */
+    level(track: MediaStreamTrack | null | undefined): number | null;
+    close(): void;
+}
+
+/**
+ * Audio levels read from the tracks themselves, for a browser whose WebRTC stats carry no `audioLevel` (Firefox). One
+ * AnalyserNode per track, made on first use. Nothing is connected to the output, so nothing is played. The context is
+ * made only when a level is asked for and the stats had none, so Chromium and Safari never make one.
+ */
+function createTrackMeter(): TrackMeter {
+    let context: AudioContext | null = null;
+    const taps = new Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode; samples: Float32Array<ArrayBuffer> }>();
+    return {
+        level(track) {
+            if (!track || track.readyState !== "live" || typeof AudioContext === "undefined") return null;
+            let tap = taps.get(track.id);
+            try {
+                context ??= new AudioContext();
+                if (!tap) {
+                    const source = context.createMediaStreamSource(new MediaStream([track]));
+                    const analyser = context.createAnalyser();
+                    analyser.fftSize = 1024;
+                    source.connect(analyser);
+                    tap = { source, analyser, samples: new Float32Array(analyser.fftSize) };
+                    taps.set(track.id, tap);
+                }
+                if (context.state === "suspended") void context.resume().catch(() => {});
+            } catch {
+                return null;
+            }
+            tap.analyser.getFloatTimeDomainData(tap.samples);
+            let peak = 0;
+            for (const sample of tap.samples) peak = Math.max(peak, Math.abs(sample));
+            return Math.min(1, peak);
+        },
+        close() {
+            for (const tap of taps.values()) tap.source.disconnect();
+            taps.clear();
+            void context?.close().catch(() => {});
+            context = null;
+        },
+    };
+}
+
 export function createJanusStream(opts: JanusStreamOptions): JanusStream {
     const { video } = opts;
     let Janus: JanusStatic | null = null;
@@ -148,6 +194,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
     let restartTimer: ReturnType<typeof setTimeout> | null = null;
     let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let monitor: RtcMonitor | null = null;
+    const meter = createTrackMeter();
 
     const stream = (): MediaStream | null => (video.srcObject instanceof MediaStream ? video.srcObject : null);
 
@@ -251,6 +298,7 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
             handle = null;
         }
         stopTracks();
+        meter.close();
         opts.onCameraSent?.(null);
     };
 
@@ -481,27 +529,38 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
             if (allowCam && (janus || handle) && cameraKey(opts.cam()) !== usedCam) restart();
         },
         hasVideo: () => !!stream()?.getVideoTracks().length,
-        // The live audio energy (0..1) for the received and sent tracks, straight from WebRTC
-        // stats: no AudioContext and no output device, so it needs no gesture and cannot touch
-        // the OS default device.
+        // The live audio energy (0..1) for the received and sent tracks, straight from WebRTC stats where the browser
+        // gives it (Chromium, Safari): no AudioContext and no output device, so it needs no gesture and cannot touch the
+        // OS default device. Firefox has the audio RTP entries but no `audioLevel` in them, so its meters stood at 0
+        // while sound flowed; only then is the level read from the track itself (`createTrackMeter`). An entry that is
+        // missing (no audio has arrived yet) is not that case: it stays null and makes no AudioContext.
         async getAudioLevels() {
             const pc = handle?.webrtcStuff?.pc;
             if (!pc?.getStats) return { speaker: null, mic: null };
+            const levels: { speaker: number | null; mic: number | null } = { speaker: null, mic: null };
+            let inboundSeen = false;
+            let outboundSeen = false;
             try {
                 const report = await pc.getStats();
-                let speaker: number | null = null;
-                let mic: number | null = null;
                 report.forEach((s: Record<string, unknown>) => {
                     if (s["kind"] !== "audio" && s["mediaType"] !== "audio") return;
-                    if (s["type"] === "inbound-rtp" && typeof s["audioLevel"] === "number") speaker = s["audioLevel"];
-                    else if ((s["type"] === "media-source" || s["type"] === "outbound-rtp") && typeof s["audioLevel"] === "number") {
-                        mic = s["audioLevel"];
+                    const level = typeof s["audioLevel"] === "number" ? s["audioLevel"] : null;
+                    if (s["type"] === "inbound-rtp") {
+                        inboundSeen = true;
+                        if (level !== null) levels.speaker = level;
+                    } else if (s["type"] === "media-source" || s["type"] === "outbound-rtp") {
+                        if (s["type"] === "outbound-rtp") outboundSeen = true;
+                        if (level !== null) levels.mic = level;
                     }
                 });
-                return { speaker, mic };
             } catch {
                 return { speaker: null, mic: null };
             }
+            if (levels.speaker === null && inboundSeen && allowAudio) levels.speaker = meter.level(stream()?.getAudioTracks()[0]);
+            if (levels.mic === null && outboundSeen && allowMic) {
+                levels.mic = meter.level(pc.getSenders().find((sender) => sender.track?.kind === "audio")?.track);
+            }
+            return levels;
         },
     };
 }
