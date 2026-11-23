@@ -414,13 +414,20 @@ export function createPictureController(options: PictureOptions): PictureControl
         wantCam: () => camOn,
         wantMic: () => micOn,
         onMicFailed: (error) => {
-            // A session made after a drop could not open the microphone again: it is off now, so the retry brings the
-            // picture and sound back without it, and the person is told why (K111).
+            // A session (one made after a drop, or the restart that turned it on) could not open the microphone: it is off
+            // now, so the retry brings the picture and sound back without it, and the person is told why (K111).
             if (!micOn) return;
             micOn = false;
             patchAudio({ micOn: false, micLabel: "Off", micWarn: false });
             micFailure(error);
-            session.notices.notify({ text: "Microphone turned off: it could not be opened again after the video reconnected.", error: true });
+            session.notices.notify({ text: "Microphone turned off: the browser could not open it for the video session.", error: true });
+        },
+        onCameraFailed: (error) => {
+            // The same for the camera: a session that could not open it again turns it off with the reason (K56, K111).
+            if (!camOn) return;
+            camOn = false;
+            patchAudio({ camOn: false, camSent: null });
+            camFailure(error);
         },
         onCameraSupport: (supported) => {
             // A Pi that cannot take a camera cannot be sent one: a camera left on from an earlier session is off now.

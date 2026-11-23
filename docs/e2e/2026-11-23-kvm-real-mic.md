@@ -67,3 +67,16 @@ The Pi log shows the sessions being replaced (14:57:59 destroyed, 14:58:00 creat
 created) but no new `Playback opened`, because the phone's mic had held the Pi's playback device open since 14:21:22;
 the Pi logs that line only when it opens the device. Not shown: the capture-error path (`onMicFailed`), which needs the
 device to vanish between the click and the reconnect.
+
+## A mic that cannot be opened again after the drop (onMicFailed), 15:02
+
+Failure mode: 9. The replacement asks for a mic that is gone, the answer fails, and the retry asks for it again for ever:
+no picture and no sound back.
+
+| Case | Command | Observed | Result |
+| --- | --- | --- | --- |
+| 9 | `GONE=1 BROWSER=chrome node apps/web/e2e/kvm-real-mic-reconnect.mjs` | mic pinned to a device id that does not exist, then the Janus socket closed at 15:02:41; one failed attempt (peer connection 3), then peer connection 4 played without the mic by 15:02:53; button Off with "Mic gone" | pass |
+| 7, 8 again | `GONE=0 BROWSER=chrome node apps/web/e2e/kvm-real-mic-reconnect.mjs` | 3rd peer connection sending, packets 160 then 310, button On | pass |
+
+Not shown: the mic and camera on together with one of them gone (the Pi's camera support was not used in these runs).
+The code turns the mic off first and the camera on the next failure, since the error does not say which device failed.

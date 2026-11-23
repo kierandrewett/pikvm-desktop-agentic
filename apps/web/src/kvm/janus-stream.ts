@@ -100,9 +100,11 @@ export interface JanusStreamOptions {
     /**
      * The answer failed because the microphone could not be opened (a pinned device unplugged, the permission withdrawn,
      * the device held elsewhere). Told before the failure, so the controller turns the mic off and the retry asks for
-     * picture and sound only instead of failing the same way for ever (K111).
+     * less instead of failing the same way for ever (K111).
      */
     readonly onMicFailed?: (error: unknown) => void;
+    /** The same for the camera, when it was the only device captured (K56 cannot see a track that was never opened). */
+    readonly onCameraFailed?: (error: unknown) => void;
     /** The session ended by itself, once (K109). The video machine owns the retry; this wrapper has none. */
     readonly onFailed: (reason: JanusFailure) => void;
     readonly onActive: (active: boolean) => void;
@@ -443,9 +445,13 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
                         },
                         error: (error: unknown) => {
                             if (!live()) return;
-                            // Only a capture error is the microphone's; an SDP or codec failure is the session's, and the
-                            // mic stays as it is. With the camera on as well, the error may be the camera's (K56 has it).
-                            if (allowMic && !allowCam && isCaptureError(error)) opts.onMicFailed?.(error);
+                            // Only a capture error is a device's; an SDP or codec failure is the session's, and the devices
+                            // stay as they are. The error does not say which device failed, so with both on the mic goes
+                            // first: the retry then captures the camera alone and names it if it was the camera.
+                            if (isCaptureError(error)) {
+                                if (allowMic) opts.onMicFailed?.(error);
+                                else if (allowCam) opts.onCameraFailed?.(error);
+                            }
                             fail("answer");
                         },
                     });
@@ -601,6 +607,7 @@ export interface JanusBridgeOptions {
     /** The microphone is on: a session made after a drop carries it again, as the camera is carried (K111, K57). */
     readonly wantMic: () => boolean;
     readonly onMicFailed?: (error: unknown) => void;
+    readonly onCameraFailed?: (error: unknown) => void;
     readonly onCameraSupport?: (supported: boolean) => void;
     readonly onCameraSent?: (sent: CameraSent | null) => void;
     readonly onCameraEnded?: () => void;
@@ -612,7 +619,7 @@ export interface JanusBridgeOptions {
 
 /** The engine's JanusPort over this client, remembering the running stream for the audio controls. */
 export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOptions): JanusBridge {
-    const { micDeviceId, cam, wantAudio, wantCam, wantMic, onMicFailed, onCameraSupport, onCameraSent, onCameraEnded, onStats, onRestart } = bridge;
+    const { micDeviceId, cam, wantAudio, wantCam, wantMic, onMicFailed, onCameraFailed, onCameraSupport, onCameraSent, onCameraEnded, onStats, onRestart } = bridge;
     let running: JanusStream | null = null;
     const port: JanusPort = {
         available: () => typeof RTCPeerConnection !== "undefined",
@@ -625,6 +632,7 @@ export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOp
                 wantAudio: wantAudio(),
                 wantMic: wantMic(),
                 ...(onMicFailed ? { onMicFailed } : {}),
+                ...(onCameraFailed ? { onCameraFailed } : {}),
                 micDeviceId,
                 cam,
                 wantCam: wantCam(),

@@ -3,6 +3,8 @@
 // real. No HID input can leave the page (guard). The mic source must be silent (Chrome: a silent fake file, Firefox: the
 // `pikvm_silence` null sink monitor); the run refuses before turning it on otherwise. Results: docs/e2e/2026-11-23-kvm-real-mic.md.
 //   BROWSER=chrome|firefox node apps/web/e2e/kvm-real-mic-reconnect.mjs
+//   GONE=1: before the drop the mic is pinned to a device that does not exist, as if it was unplugged; the replacement
+//   must turn the mic off with the reason and bring the picture back without it (onMicFailed).
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const puppeteer = require(`${process.env.PUPPETEER_CORE ?? `${process.env.HOME}/dev/sidekick/node_modules`}/puppeteer-core`);
@@ -95,6 +97,9 @@ try {
     const before = await sent();
     log("mic on", JSON.stringify(before));
     result.dropAt = new Date().toISOString();
+    const gone = process.env.GONE === "1";
+    result.gone = gone;
+    if (gone) await page.evaluate(() => localStorage.setItem("pikvm-console-mic-device", JSON.stringify({ id: "unplugged-e2e-device", label: "Unplugged" })));
     await page.evaluate(() => { for (const ws of window.__janus) ws.close(); });
     log("janus socket closed");
     await sleep(2000);
@@ -107,7 +112,11 @@ try {
     result.after = [a, b];
     result.notices = await page.evaluate(() => document.body.innerText.match(/Microphone[^\n]*/g) ?? []);
     log("after reconnect", JSON.stringify(a), JSON.stringify(b));
-    result.pass = before.mic === "true" && b.mic === "true" && b.pcs > before.pcs && b.packets > a.packets;
+    result.micTitle = await page.evaluate(() => document.querySelector('[data-tb="mic"]')?.getAttribute("title"));
+    result.pass = gone
+        ? before.mic === "true" && b.mic === "false" && b.pcs > before.pcs && (result.notices.some((n) => /could not open/.test(n)) || /gone|No mic|Denied/i.test(result.micTitle ?? ""))
+        : before.mic === "true" && b.mic === "true" && b.pcs > before.pcs && b.packets > a.packets;
+    if (gone) await page.evaluate(() => localStorage.removeItem("pikvm-console-mic-device"));
     if (b.mic === "true") await page.click('[data-tb="mic"]');
     await sleep(1500);
     result.guard = await page.evaluate(() => window.__guard);
