@@ -153,7 +153,7 @@ describe("the session", () => {
 describe("WebRTC", () => {
     it("is offered only where the browser can do it, so a phone without it stays on MJPEG", () => {
         const video = document.createElement("video");
-        const bridge = createJanusBridge(video, { micDeviceId: () => "", cam: () => ({ deviceId: "", preset: resolvePreset("") }), wantAudio: () => true, wantCam: () => false });
+        const bridge = createJanusBridge(video, { micDeviceId: () => "", cam: () => ({ deviceId: "", preset: resolvePreset("") }), wantAudio: () => true, wantCam: () => false, wantMic: () => false });
         vi.stubGlobal("RTCPeerConnection", undefined);
         expect(bridge.port.available()).toBe(false);
         vi.stubGlobal("RTCPeerConnection", class {});

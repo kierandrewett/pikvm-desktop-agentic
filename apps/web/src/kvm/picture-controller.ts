@@ -407,15 +407,21 @@ export function createPictureController(options: PictureOptions): PictureControl
     let cancelGestureUnmute: (() => void) | null = null;
     let cancelReenable: (() => void) | null = null;
     const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome|CriOS|Chromium|Android/.test(navigator.userAgent);
-
-    // The microphone is carried by the session it was turned on in (see `onWebrtc`).
-    let micStream: JanusStream | null = null;
-
     const janus = createJanusBridge(video, {
         micDeviceId: () => readDeviceChoice(MIC_DEVICE_KEY).id,
         cam: readCameraChoice,
         wantAudio: () => audioOn,
         wantCam: () => camOn,
+        wantMic: () => micOn,
+        onMicFailed: (error) => {
+            // A session made after a drop could not open the microphone again: it is off now, so the retry brings the
+            // picture and sound back without it, and the person is told why (K111).
+            if (!micOn) return;
+            micOn = false;
+            patchAudio({ micOn: false, micLabel: "Off", micWarn: false });
+            micFailure(error);
+            session.notices.notify({ text: "Microphone turned off: it could not be opened again after the video reconnected.", error: true });
+        },
         onCameraSupport: (supported) => {
             // A Pi that cannot take a camera cannot be sent one: a camera left on from an earlier session is off now.
             if (!supported && camOn) {
@@ -521,15 +527,7 @@ export function createPictureController(options: PictureOptions): PictureControl
         onScreenMode: (mode) => patch({ mode }),
         onWebrtc: (event) => {
             if (event.type === "activated") {
-                // The microphone belongs to the session it was turned on in. A session that replaced it (after a drop, a
-                // return, the network coming back) starts without one, as a fresh page does, so the button goes back to Off
-                // rather than showing On over a session that sends nothing (K111).
-                if (micOn && janus.current() !== micStream) {
-                    micOn = false;
-                    micStream = null;
-                    patchAudio({ micOn: false, micLabel: "Off", micWarn: false });
-                    session.notices.notify({ text: "Microphone turned off: the video session was replaced. Turn it on again to talk." });
-                }
+                // The microphone is carried: a session that replaced a dropped one was made wanting it (K111).
                 applySink();
                 patchAudio({ available: true });
                 patch({ webrtc: true });
@@ -880,7 +878,6 @@ export function createPictureController(options: PictureOptions): PictureControl
                 .then((granted) => {
                     for (const track of granted.getTracks()) track.stop();
                     micOn = true;
-                    micStream = stream;
                     stream.setMic(true);
                     patchAudio({ micOn: true, micLabel: "On", micWarn: false });
                     showResolution(true);

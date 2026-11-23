@@ -97,6 +97,12 @@ export interface JanusStreamOptions {
     readonly onCameraSent?: (sent: CameraSent | null) => void;
     /** The camera track ended by itself: unplugged, or its permission was withdrawn. */
     readonly onCameraEnded?: () => void;
+    /**
+     * The answer failed because the microphone could not be opened (a pinned device unplugged, the permission withdrawn,
+     * the device held elsewhere). Told before the failure, so the controller turns the mic off and the retry asks for
+     * picture and sound only instead of failing the same way for ever (K111).
+     */
+    readonly onMicFailed?: (error: unknown) => void;
     /** The session ended by itself, once (K109). The video machine owns the retry; this wrapper has none. */
     readonly onFailed: (reason: JanusFailure) => void;
     readonly onActive: (active: boolean) => void;
@@ -127,6 +133,14 @@ export interface JanusStream {
 }
 
 const RESTART_MS = 200;
+
+/** getUserMedia's own failures: the device could not be opened, as opposed to SDP or codec trouble in the answer. */
+const CAPTURE_ERRORS = new Set(["NotAllowedError", "NotFoundError", "OverconstrainedError", "NotReadableError", "AbortError", "SecurityError", "DevicesNotFoundError"]);
+
+function isCaptureError(error: unknown): boolean {
+    const name = error && typeof error === "object" && "name" in error ? String((error as { name: unknown }).name) : "";
+    return CAPTURE_ERRORS.has(name);
+}
 
 interface TrackMeter {
     /** The peak of the track's last 1024 samples (0..1), or null when it cannot be read. */
@@ -427,8 +441,12 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
                             handle?.send({ message: { request: "start" }, jsep: answer });
                             watchCamera();
                         },
-                        error: () => {
-                            if (live()) fail("answer");
+                        error: (error: unknown) => {
+                            if (!live()) return;
+                            // Only a capture error is the microphone's; an SDP or codec failure is the session's, and the
+                            // mic stays as it is. With the camera on as well, the error may be the camera's (K56 has it).
+                            if (allowMic && !allowCam && isCaptureError(error)) opts.onMicFailed?.(error);
+                            fail("answer");
                         },
                     });
                 }
@@ -580,6 +598,9 @@ export interface JanusBridgeOptions {
     readonly cam: () => CameraChoice;
     readonly wantAudio: () => boolean;
     readonly wantCam: () => boolean;
+    /** The microphone is on: a session made after a drop carries it again, as the camera is carried (K111, K57). */
+    readonly wantMic: () => boolean;
+    readonly onMicFailed?: (error: unknown) => void;
     readonly onCameraSupport?: (supported: boolean) => void;
     readonly onCameraSent?: (sent: CameraSent | null) => void;
     readonly onCameraEnded?: () => void;
@@ -591,7 +612,7 @@ export interface JanusBridgeOptions {
 
 /** The engine's JanusPort over this client, remembering the running stream for the audio controls. */
 export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOptions): JanusBridge {
-    const { micDeviceId, cam, wantAudio, wantCam, onCameraSupport, onCameraSent, onCameraEnded, onStats, onRestart } = bridge;
+    const { micDeviceId, cam, wantAudio, wantCam, wantMic, onMicFailed, onCameraSupport, onCameraSent, onCameraEnded, onStats, onRestart } = bridge;
     let running: JanusStream | null = null;
     const port: JanusPort = {
         available: () => typeof RTCPeerConnection !== "undefined",
@@ -599,9 +620,11 @@ export function createJanusBridge(video: HTMLVideoElement, bridge: JanusBridgeOp
             const stream = createJanusStream({
                 wsUrl: janusWsUrl(),
                 video,
-                // Audio output is on by default; the microphone stays off for privacy.
+                // Each session is made wanting what the speaker, mic and camera buttons say, so a session that replaced a
+                // dropped one (the page came back, the network or the host returned) carries a mic that was on (K111).
                 wantAudio: wantAudio(),
-                wantMic: false,
+                wantMic: wantMic(),
+                ...(onMicFailed ? { onMicFailed } : {}),
                 micDeviceId,
                 cam,
                 wantCam: wantCam(),
