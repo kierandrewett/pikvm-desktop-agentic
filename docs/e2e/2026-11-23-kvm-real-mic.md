@@ -33,7 +33,7 @@ Chrome and Firefox 155 through puppeteer-core 24.35.
 | 3 | both, stats dump | Firefox: `media-source` and `outbound-rtp` audio entries exist with `audioLevel` null; Chrome: `media-source` `audioLevel` 0. Before `73f08969` the Firefox meter could only show 0 | cause confirmed |
 | 6 | both, AudioContext counter | Chrome 0, Firefox 1 (the mic fallback) | pass |
 | 5 | `BROWSER=chrome MIC=off node apps/web/e2e/kvm-real-mic-governor.mjs` | `[governor] hold 60 s: samples` 10 s after the bad RTT; video gone and mic button gone from then on | pass (the governor still works) |
-| 4 | `BROWSER=chrome MIC=on node apps/web/e2e/kvm-real-mic-governor.mjs` | `[governor] verdict (samples) ignored: microphone or camera is on`; video and mic on for all 20 s | pass |
+| 4 | `BROWSER=chrome MIC=on node apps/web/e2e/kvm-real-mic-governor.mjs` | `[governor] verdict (samples) ignored: microphone or camera is on`; the video played and the mic button stayed On for all 20 s | pass |
 
 Timelines (one sample a second, V = video playing, M/m = mic on/off, x = no mic button):
 
@@ -44,7 +44,10 @@ Timelines (one sample a second, V = video playing, M/m = mic on/off, x = no mic 
 
 - The meter moving with real sound: the runs only ever sent silence, so both meters read 0. The fallback was not seen
   above 0.
-- Firefox for Android itself: the runs used desktop Firefox.
+- Firefox for Android itself: the runs used desktop Firefox. The phone's Firefox had no debugger socket open
+  (`/proc/net/unix` listed none), so its track and RTP counters were not read.
+- That mic RTP kept flowing through the K126 window: the governor run read the button and the video, not the
+  `outbound-rtp` counters.
 - Sound reaching the target. In the Firefox run, the Pi received the mic audio and then logged `Can't play to PCM
   playback: Input/output error` one second later, as it did at 10:59, 11:01 and 11:28 today. The Pi keeps retrying and
   logs `Playing resumed` once the target reads from the PiKVM USB microphone. The error usually means the target is not

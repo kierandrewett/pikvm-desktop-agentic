@@ -531,8 +531,8 @@ export function createJanusStream(opts: JanusStreamOptions): JanusStream {
         hasVideo: () => !!stream()?.getVideoTracks().length,
         // The live audio energy (0..1) for the received and sent tracks, straight from WebRTC stats where the browser
         // gives it (Chromium, Safari): no AudioContext and no output device, so it needs no gesture and cannot touch the
-        // OS default device. Firefox has the audio RTP entries but no `audioLevel` in them, so its meters stood at 0
-        // while sound flowed; only then is the level read from the track itself (`createTrackMeter`). An entry that is
+        // OS default device. Firefox has the audio RTP entries but no `audioLevel` in them, so its meters could only
+        // show 0 whatever was sent; only then is the level read from the track itself (`createTrackMeter`). An entry that is
         // missing (no audio has arrived yet) is not that case: it stays null and makes no AudioContext.
         async getAudioLevels() {
             const pc = handle?.webrtcStuff?.pc;
